@@ -11,6 +11,7 @@ import {
 } from '@workspace/api-client-react';
 import type { OperationEvidenceProjection } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import { executionChatHref } from '@/lib/execution-chat-link';
 
 type FlightNode = {
   id: string;
@@ -300,6 +301,7 @@ export default function FlightDeck() {
   });
   const projectId = execution?.projectId ?? requestedProjectId;
   const operationId = execution?.operationId ?? requestedOperationId;
+  const conversationHref = executionChatHref(execution, executionId, requestedProjectId);
   const gitStatus = useGetGitStatus(projectId, {
     query: {
       enabled: Boolean(projectId),
@@ -409,8 +411,12 @@ export default function FlightDeck() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/ai" className="rounded p-1 hover:bg-secondary hover:text-foreground"><ArrowLeft className="h-4 w-4" /></Link>
-        <span>AI Assistant</span><span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">Mission Control</Link><span>/</span><span className="text-foreground">Flight Deck</span>
+        <Link href={conversationHref ?? '/ai'} data-testid="link-flight-deck-ai"
+          className="inline-flex items-center gap-1 rounded p-1 hover:bg-secondary hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          {conversationHref ? 'Back to AI conversation' : 'AI Assistant'}
+        </Link>
+        <span>/</span><Link href="/mission-control" className="hover:text-foreground hover:underline">Mission Control</Link><span>/</span><span className="text-foreground">Flight Deck</span>
       </div>
 
       <section className="rounded-xl border border-border bg-card p-5">

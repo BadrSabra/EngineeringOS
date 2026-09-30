@@ -104,6 +104,8 @@ const mocks = vi.hoisted(() => {
     sessions: [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }],
     sessionsFetched: true,
     sessionsError: false,
+    messagesFetched: true,
+    messagesError: false,
     historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
@@ -284,8 +286,8 @@ vi.mock('@workspace/api-client-react', () => {
     })),
     useListAiChatMessages: vi.fn((sessionId: string) => ({
       data: sessionId && mocks.serverProposal ? mocks.proposalMessages : mocks.emptyMessages,
-      isFetched: true,
-      isError: false,
+      isFetched: mocks.messagesFetched,
+      isError: mocks.messagesError,
       error: null,
     })),
     useListBrowserValidationProfiles: vi.fn(() => ({
@@ -427,6 +429,8 @@ beforeEach(() => {
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
   mocks.sessionsError = false;
+  mocks.messagesFetched = true;
+  mocks.messagesError = false;
   mocks.historicalAudits = [];
   mocks.fileContent = {
     available: true,
@@ -508,6 +512,59 @@ describe('AiChat route target parsing', () => {
       messageId: 'assistant-message-1',
     });
     expect(parseAiChatRouteTarget('?sessionId=session-1&messageId=assistant-message-1')).toBeNull();
+  });
+});
+
+describe('AI conversation return links', () => {
+  it('opens the explicit project session after reload without showing a different saved execution', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    try {
+      window.history.pushState({}, '', '/ai?projectId=project-1&sessionId=session-2');
+      mocks.sessions = [
+        ...mocks.sessions,
+        { id: 'session-2', title: 'Other session', updatedAt: '2026-09-30T00:00:00.000Z' },
+      ];
+      localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+      localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+        id: 'execution-from-session-1',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        proofRequired: true,
+        message: 'Earlier execution',
+      }));
+
+      const first = renderAiChat();
+      expect(await screen.findByTestId('text-chat-current-session')).toHaveTextContent('Other session');
+      expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+      first.unmount();
+
+      renderAiChat();
+      expect(await screen.findByTestId('text-chat-current-session')).toHaveTextContent('Other session');
+      expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
+  });
+
+  it('shows an unavailable notice rather than another saved session for a missing target', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    try {
+      window.history.pushState({}, '', '/ai?projectId=project-1&sessionId=missing-session');
+      localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+      localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+        id: 'execution-from-session-1',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        proofRequired: true,
+        message: 'Earlier execution',
+      }));
+      renderAiChat();
+      expect(await screen.findByTestId('notice-chat-route-unavailable')).toHaveTextContent('unavailable in this project');
+      expect(screen.getByTestId('text-chat-current-session')).toHaveTextContent('New session');
+      expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
   });
 });
 
@@ -970,7 +1027,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByText('Saved execution paused — resume available')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('current-work-summary'))
+      .getByText('Saved execution paused — resume available')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
@@ -1328,7 +1386,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByText('Execution ended — start a new run')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('current-work-summary'))
+      .getByText('Execution ended — start a new run')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Recovering…' })).not.toBeInTheDocument();
   });
@@ -1366,7 +1425,8 @@ describe('AiChat authenticated generated mutations', () => {
     }));
 
     const { invalidateQueries } = renderAiChat();
-    expect(await screen.findByText('Execution failed — resume available')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('current-work-summary'))
+      .getByText('Execution failed — resume available')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
@@ -1512,6 +1572,245 @@ describe('AiChat authenticated generated mutations', () => {
       operationMode: 'FORENSIC_AUDIT',
     }));
     expect(screen.queryByText('Late stale response')).not.toBeInTheDocument();
+  });
+
+  it('shows the current project and session across selection, a new session, and a project switch', async () => {
+    mocks.projects = [
+      { id: 'project-1', name: 'demo-service', language: 'TypeScript' },
+      { id: 'project-2', name: 'other-service', language: 'TypeScript' },
+    ];
+    mocks.serverProposal = { changes: [] };
+    renderAiChat();
+    expect(await screen.findByTestId('text-chat-current-context')).toHaveTextContent('demo-service · New session');
+    fireEvent.click(screen.getByRole('button', { name: 'Existing session' }));
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · Existing session');
+    expect(screen.getByRole('button', { name: 'Existing session' })).toHaveAttribute('aria-current', 'true');
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · New session');
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Existing session' })).not.toHaveAttribute('aria-current');
+
+    mocks.sessions = [];
+    fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-2' } });
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('other-service · New session');
+    expect(screen.getByTestId('text-no-sessions')).toBeInTheDocument();
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+  });
+
+  it('distinguishes session loading, empty history, and a failed history request', async () => {
+    mocks.sessions = [];
+    mocks.sessionsFetched = false;
+    const first = renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Loading conversation');
+    expect(screen.getByTestId('status-sessions-loading')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    first.unmount();
+
+    mocks.sessionsFetched = true;
+    const second = renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
+    expect(screen.getByTestId('text-no-sessions')).toBeInTheDocument();
+    second.unmount();
+
+    mocks.sessionsError = true;
+    const { invalidateQueries } = renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Session history unavailable');
+    fireEvent.click(screen.getByTestId('button-retry-sessions'));
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
+  });
+
+  it('waits for saved messages and does not describe a restored empty session as new', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.messagesFetched = false;
+    const first = renderAiChat();
+    expect(await screen.findByTestId('text-chat-current-context'))
+      .toHaveTextContent('demo-service · Existing session');
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Loading conversation');
+    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    first.unmount();
+
+    mocks.messagesFetched = true;
+    renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('No messages in this session');
+  });
+
+  it('guides a user with no project to the project list instead of showing disabled starting points', async () => {
+    mocks.projects = [];
+    mocks.sessions = [];
+    renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Choose a project to begin');
+    expect(screen.getByTestId('link-chat-projects')).toHaveAttribute('href', '/projects');
+    expect(screen.getByTestId('text-sessions-select-project')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+  });
+
+  it('keeps restored execution proof visible without claiming absent messages are loading', async () => {
+    mocks.activeExecutionStatus = { status: 'completed', proofRequired: true } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-without-messages',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: 'Inspect project',
+      proofRequired: true,
+    }));
+    renderAiChat();
+    expect(await screen.findByRole('generic', { name: 'Agent execution proof' })).toBeInTheDocument();
+    expect(screen.getByText(
+      'The saved execution has retained proof, but no conversation messages were recorded for this session.',
+    )).toBeInTheDocument();
+    expect(screen.queryByText(/conversation messages are still loading/i)).not.toBeInTheDocument();
+  });
+
+  it('leads with the server proof outcome while keeping technical details closed across reloads', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'BLOCKED',
+      evidenceReason: 'Required source evidence is missing.',
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-blocked-proof',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      message: 'Inspect required source evidence',
+    }));
+    const first = renderAiChat();
+    const summary = await screen.findByTestId('current-work-summary');
+    expect(summary).toHaveTextContent('Execution ended — proof not accepted');
+    expect(summary).toHaveTextContent('Next step: Review the recorded proof');
+    const proofPanel = screen.getByLabelText('Agent execution proof');
+    expect(summary.compareDocumentPosition(proofPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(proofPanel).getByText('Required source evidence is missing.').closest('details')).toBeNull();
+    const details = within(proofPanel).getByTestId('details-execution-proof-technical');
+    expect(details).not.toHaveAttribute('open');
+    fireEvent.click(within(details).getByText('Execution and proof details'));
+    expect(details).toHaveAttribute('open');
+    first.unmount();
+
+    renderAiChat();
+    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('Execution ended — proof not accepted');
+    expect(screen.getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
+  });
+
+  it('puts candidate review and its approval gate before the detailed change card', async () => {
+    mocks.serverProposal = {
+      proposalId: 'proposal-review-summary',
+      changes: [{
+        path: 'src/app.ts',
+        absolutePath: '/project/src/app.ts',
+        newContent: 'export const ready = true;',
+        originalContent: 'export const ready = false;',
+        reason: 'Enable the reviewed behavior.',
+        validationProfile: 'api-ai-tests',
+      }],
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const summary = await screen.findByTestId('current-work-summary');
+    expect(summary).toHaveTextContent('Candidate changes need review');
+    expect(summary).toHaveTextContent('Next step: Review validation and the change proposal below');
+    expect(screen.getByTestId('status-current-work-approval')).toHaveTextContent('require validation and any applicable approval');
+    expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByTestId('link-current-work-mission-control')).toHaveAttribute('href', '/mission-control?projectId=project-1');
+    expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+    expect(screen.getByTestId('nav-current-work-destinations')).toHaveTextContent('opening it does not create a Mission');
+  });
+
+  it('links only a server-confirmed current execution to both proof destinations', async () => {
+    mocks.projects = [
+      { id: 'project-1', name: 'demo-service', language: 'TypeScript' },
+      { id: 'project-2', name: 'other-service', language: 'TypeScript' },
+    ];
+    mocks.sessions = [
+      ...mocks.sessions,
+      { id: 'session-2', title: 'Other session', updatedAt: '2026-09-30T00:00:00.000Z' },
+    ];
+    mocks.activeExecutionStatus = {
+      id: 'execution-bound-project-1',
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-bound-project-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      message: 'Review this execution',
+    }));
+
+    const first = renderAiChat();
+    expect(await screen.findByTestId('link-current-work-flight-deck'))
+      .toHaveAttribute('href', '/flight-deck?executionId=execution-bound-project-1');
+    expect(screen.getByTestId('link-current-work-mission-control'))
+      .toHaveAttribute('href', '/mission-control?projectId=project-1&executionId=execution-bound-project-1');
+    first.unmount();
+
+    renderAiChat();
+    expect(await screen.findByTestId('link-current-work-flight-deck'))
+      .toHaveAttribute('href', '/flight-deck?executionId=execution-bound-project-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Other session' }));
+    expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-2' } });
+    expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('link-current-work-mission-control')).not.toBeInTheDocument();
+  });
+
+  it('never deep-links to a mismatched execution while the current server status is checked', async () => {
+    mocks.activeExecutionStatus = {
+      id: 'execution-other-session',
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-current-session',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      message: 'Review the current execution',
+    }));
+    renderAiChat();
+    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('Checking saved execution status');
+    expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-current-work-mission-control'))
+      .toHaveAttribute('href', '/mission-control?projectId=project-1');
+  });
+
+  it('shows a retry instead of treating a failed message load as an empty session', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.messagesFetched = false;
+    mocks.messagesError = true;
+    const { invalidateQueries } = renderAiChat();
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Conversation unavailable');
+    expect(screen.getByTestId('alert-chat-messages-unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-retry-chat-messages'));
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
+    expect(screen.queryByText('No messages in this session')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Retry loading conversation messages before continuing…')).toBeDisabled();
+  });
+
+  it('closes the mobile drawer after starting a new session', async () => {
+    renderAiChat(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    expect(screen.getByTestId('sessions-drawer')).toHaveClass('flex');
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    expect(screen.getByTestId('sessions-drawer')).toHaveClass('hidden');
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
   });
 
   it('keeps the live user turn visible while a new session is created', async () => {
@@ -1679,7 +1978,9 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByText(/saved execution proof is restored from the server-owned audit record/)).toBeInTheDocument();
+    expect(await screen.findByText(
+      /historical audit has retained proof, but no conversation messages were recorded/i,
+    )).toBeInTheDocument();
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
@@ -1741,8 +2042,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByRole('button', { name: 'Existing session' }))
-      .not.toHaveClass('bg-primary/10');
+    expect(await screen.findByTestId('alert-sessions-unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Existing session' })).not.toBeInTheDocument();
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).not.toBeNull();
   });
@@ -4011,6 +4312,39 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(objectiveProof).toHaveTextContent('PRODUCTION REACHABILITY');
     expect(objectiveProof).toHaveTextContent('PRODUCTION_REACHABILITY');
     expect(objectiveProof).toHaveTextContent('client->server');
+  });
+
+  it('keeps evidence integrity failure visible when proof metrics are collapsed', async () => {
+    renderAiChat();
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Inspect proof integrity' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onExecutionStarted?: (event: Record<string, unknown>) => void;
+        onEvidenceIntegrity?: (event: Record<string, unknown>) => void;
+      }).onExecutionStarted?.({
+        type: 'execution_started',
+        executionId: 'execution-integrity-blocked',
+        status: 'running',
+        proofRequired: true,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onEvidenceIntegrity?: (event: Record<string, unknown>) => void;
+      }).onEvidenceIntegrity?.({
+        type: 'evidence_integrity',
+        consistent: false,
+        violations: ['No accepted source read'],
+        completionGateResult: 'PARTIALLY_PROVEN',
+      });
+    });
+
+    const panel = await screen.findByLabelText('Agent execution proof');
+    expect(within(panel).getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
+    expect(within(panel).getByTestId('alert-execution-evidence-integrity')).toHaveTextContent('1 violation');
+    expect(within(panel).getByTestId('alert-execution-evidence-integrity').closest('details')).toBeNull();
+    expect(within(panel).getByTestId('status-objective-completion')).toHaveTextContent('PARTIALLY PROVEN');
   });
 
   it('reconstructs the activity timeline from persisted toolTrace history', async () => {

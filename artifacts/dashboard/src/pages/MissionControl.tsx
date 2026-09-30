@@ -30,6 +30,7 @@ import {
 } from '@workspace/api-client-react';
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import { executionChatHref } from '@/lib/execution-chat-link';
 import WorldTransitionTimeline from '@/components/WorldTransitionTimeline';
 
 type JsonRecord = Record<string, unknown>;
@@ -1231,6 +1232,7 @@ export default function MissionControl() {
       },
     },
   });
+  const conversationHref = executionChatHref(selectedExecutionDetail, selectedExecution?.id, projectId);
   const comparisonLiveExecution = executions.find((execution) => execution.id === comparisonLiveId) ?? executions[0];
   const historyStates = useMemo(
     () => Array.from(new Set(executions.map((execution) => textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN'))),
@@ -1413,6 +1415,12 @@ export default function MissionControl() {
               <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
                 A readable ledger for AI delivery runs — state, repair, validation, and recorder proof in one calm view.
               </p>
+              {conversationHref && (
+                <Link href={conversationHref} data-testid="link-mission-control-ai"
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                  Back to AI conversation <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                </Link>
+              )}
             </div>
           </div>
         </div>

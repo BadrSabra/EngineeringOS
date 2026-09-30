@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MissionControl from './MissionControl';
 
 vi.mock('wouter', () => ({
-  Link: ({ href, children, onClick }: { href: string; children: React.ReactNode; onClick?: React.MouseEventHandler<HTMLAnchorElement> }) => (
-    <a href={href} onClick={onClick}>{children}</a>
+  Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} {...props}>{children}</a>
   ),
 }));
 
@@ -264,6 +264,37 @@ describe('Mission Control', () => {
     currentExecutionDetail = undefined;
     refetchMissionControl.mockReset();
     refetchExecutionDetail.mockReset();
+  });
+
+  it('shows a return link only for the selected server-bound execution and current project', () => {
+    const originalPath = window.location.pathname + window.location.search;
+    try {
+      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
+      currentExecutionDetail = { id: 'execution-1', projectId: 'project-1', sessionId: 'session-1' };
+      const page = renderPage();
+      expect(screen.getByTestId('link-mission-control-ai'))
+        .toHaveAttribute('href', '/ai?projectId=project-1&sessionId=session-1');
+      page.unmount();
+
+      // A stale detail response must not link to an unrelated selected run.
+      currentExecutionDetail = { id: 'execution-2', projectId: 'project-1', sessionId: 'session-2' };
+      const stalePage = renderPage();
+      expect(screen.queryByTestId('link-mission-control-ai')).not.toBeInTheDocument();
+      stalePage.unmount();
+
+      window.history.pushState({}, '', '/mission-control?projectId=project-2&executionId=execution-1');
+      currentExecutionDetail = { id: 'execution-1', projectId: 'project-1', sessionId: 'session-1' };
+      renderPage();
+      expect(screen.queryByTestId('link-mission-control-ai')).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
+  });
+
+  it('does not infer a chat session from an execution without a server session ID', () => {
+    currentExecutionDetail = { id: 'execution-1', projectId: 'project-1' };
+    renderPage();
+    expect(screen.queryByTestId('link-mission-control-ai')).not.toBeInTheDocument();
   });
 
   it('shows execution state, operational metrics, evidence, and Flight Deck link', async () => {

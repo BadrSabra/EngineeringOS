@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('wouter', () => ({
-  Link: ({ href, children }: { href: string; children: unknown }) => <a href={href}>{children}</a>,
+  Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a href={href} {...props}>{children}</a>,
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -82,6 +82,31 @@ beforeEach(() => {
 });
 
 describe('Flight Deck mission control', () => {
+  it('returns to the server-bound AI session, including on a fresh page load', () => {
+    renderDeck();
+    expect(screen.getByTestId('link-flight-deck-ai'))
+      .toHaveAttribute('href', '/ai?projectId=project-1&sessionId=session-1');
+    expect(screen.getByText('Back to AI conversation')).toBeInTheDocument();
+  });
+
+  it('does not claim a conversation when the server session is absent or the requested project differs', () => {
+    mocks.execution = { ...baseExecution('REPAIRING'), sessionId: undefined };
+    const first = renderDeck();
+    expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
+    first.unmount();
+
+    mocks.execution = baseExecution('REPAIRING');
+    window.history.pushState({}, '', '/flight-deck?executionId=execution-1&projectId=other-project');
+    const second = renderDeck();
+    expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
+    expect(screen.queryByText('Back to AI conversation')).not.toBeInTheDocument();
+    second.unmount();
+
+    window.history.pushState({}, '', '/flight-deck?executionId=another-execution');
+    renderDeck();
+    expect(screen.getByTestId('link-flight-deck-ai')).toHaveAttribute('href', '/ai');
+  });
+
   it.each([
     ['BLOCKED', 'blocked'],
     ['REPAIRING', 'running'],

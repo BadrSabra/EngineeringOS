@@ -9095,6 +9095,27 @@ function AgentExecutionProofPanel({
           </div>
         </div>
       )}
+      {evidenceIntegrity?.consistent === false && (
+        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200"
+          role="alert" data-testid="alert-execution-evidence-integrity">
+          Evidence integrity needs attention: {evidenceIntegrity.violations.length || 1} violation
+          {evidenceIntegrity.violations.length === 1 ? '' : 's'} recorded. Review the proof before relying on this result.
+        </div>
+      )}
+      {evidenceIntegrity?.completionGateResult && (
+        <div className="border-b border-border/40 px-3 py-2 text-[11px] text-foreground"
+          data-testid="status-objective-completion">
+          Objective completion: <strong>{evidenceIntegrity.completionGateResult.replace(/_/g, ' ')}</strong>
+        </div>
+      )}
+      <details className="border-t border-border/40" data-testid="details-execution-proof-technical">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2.5 text-xs font-medium text-foreground hover:bg-background/30">
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          Execution and proof details
+          <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+            {readSources} source {readSources === 1 ? 'file' : 'files'} · {missionNodes.length} nodes
+          </span>
+        </summary>
       <div className="grid grid-cols-2 gap-px bg-border/30 sm:grid-cols-4">
         <div className="bg-background/20 px-3 py-2">
           <div className="text-[10px] text-muted-foreground">Evidence</div>
@@ -9215,6 +9236,7 @@ function AgentExecutionProofPanel({
           )}
         </div>
       )}
+      </details>
       <ExecutionMissionControl nodes={missionNodes} />
       <BenchmarkMissionControl />
     </div>
@@ -9429,7 +9451,11 @@ export default function AiChat() {
     ? `eos_ai_execution_current_${selectedProjectId}`
     : undefined;
   const pointedExecutionSessionId = (() => {
-    if (!executionPointerKey || sessionId) return undefined;
+    if (
+      !executionPointerKey
+      || sessionId
+      || (chatRouteTarget?.projectId === selectedProjectId && chatRouteTarget.sessionId)
+    ) return undefined;
     const value = localStorage.getItem(executionPointerKey);
     return value && value.trim() ? value : undefined;
   })();
@@ -10392,6 +10418,13 @@ export default function AiChat() {
     if (!selection) {
       hydratedSelectionProjectRef.current = selectedProjectId;
       if (rawSelection !== null) clearAiChatSelection(selectedProjectId);
+      if (routeSessionId) {
+        // A stale deep link must not silently fall back to a saved execution
+        // from another conversation.
+        setLocalMessages([]);
+        clearExecutionScopedState();
+        setSessionId(undefined);
+      }
       return;
     }
     if (selection.kind === 'historical-audit' && historicalAuditsLoading) return;
@@ -10421,7 +10454,7 @@ export default function AiChat() {
     };
 
     if (selection.kind === 'session') {
-      if (recoveredExecution && storedExecution?.sessionId !== selection.sessionId) {
+      if (recoveredExecution && storedExecution?.sessionId !== selection.sessionId && !routeSelection) {
         return;
       }
       if (!sessions.some((session) => session.id === selection.sessionId)) {
@@ -10429,7 +10462,7 @@ export default function AiChat() {
         resetVisibleSelection(recoveredExecution);
         return;
       }
-      resetVisibleSelection(recoveredExecution);
+      resetVisibleSelection(recoveredExecution && storedExecution?.sessionId === selection.sessionId);
       if (routeSelection) persistAiChatSelection(routeSelection);
       setSessionId(selection.sessionId);
       return;
@@ -10486,7 +10519,7 @@ export default function AiChat() {
     chatRouteTarget,
   ]);
 
-  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+  const { data: serverMessages = [], isFetched: messagesFetched, isError: messagesError } = useListAiChatMessages<ChatMessage[]>(
     sessionId ?? '',
     {
       query: {
@@ -12079,6 +12112,7 @@ export default function AiChat() {
   }
 
   function handleSend() {
+    if (sessionId && messagesError) return;
     sendMessage(input.trim());
   }
 
@@ -12181,7 +12215,7 @@ export default function AiChat() {
    *  - others    → send the prompt directly through the chat agent
    */
   function handleQuickAction(action: typeof AI_ACTIONS[number]) {
-    if (projectsLoading || !selectedProjectId) return;
+    if (projectsLoading || !selectedProjectId || (sessionId && messagesError)) return;
 
     if (action.id === 'analyze') {
       startStructuredTask('analyze', action.prompt);
@@ -12207,6 +12241,7 @@ export default function AiChat() {
   function resetConversationView(options: { forgetCurrentExecution: boolean }) {
     streamGenerationRef.current += 1;
     cancelStream();
+    setDeliveryToDiscard(null);
     if (options.forgetCurrentExecution) {
       if (executionPointerKey) localStorage.removeItem(executionPointerKey);
       clearAiChatSelection(selectedProjectId);
@@ -12239,15 +12274,7 @@ export default function AiChat() {
 
   function newSession() {
     resetConversationView({ forgetCurrentExecution: true });
-  }
-
-  // Derive the subtitle shown in the empty-chat state. Each case maps to a
-  // specific root cause — no more "session may have expired" for 500 errors.
-  function getStatusSubtitle(): string {
-    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
-    if (projectLoadFailure) return projectLoadFailure.message;
-    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
-    return 'Ask a question about this project, or choose a starting point below.';
+    if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
   }
 
   // Textarea placeholder follows the same classification.
@@ -12255,6 +12282,7 @@ export default function AiChat() {
     if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
     if (projectLoadFailure) return `${projectLoadFailure.message} Try refreshing\u2026`;
     if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
+    if (sessionId && messagesError) return 'Retry loading conversation messages before continuing\u2026';
     return 'Ask about your codebase, tasks, or metrics\u2026 (Enter to send)';
   }
 
@@ -12263,12 +12291,48 @@ export default function AiChat() {
     if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
     if (projectLoadFailure) return projectLoadFailure.message;
     if (!selectedProjectId) return 'Select a project first';
+    if (sessionId && messagesError) return 'Retry loading conversation messages before continuing';
     return undefined;
   }
 
   const messages = localMessages;
   const isEmpty = messages.length === 0;
   const isAgentBusy = isSending || isTaskSending;
+  const sessionHistoryLoading = Boolean(selectedProjectId && !sessionsFetched && !sessionsError);
+  const conversationLoading = Boolean(
+    sessionHistoryLoading && !sessionId
+    || sessionId && !messagesError && (!messagesFetched || (isEmpty && serverMessages.length > 0)),
+  );
+  const projectName = projects.find((project) => project.id === selectedProjectId)?.name;
+  const sessionName = historicalExecutionId
+    ? 'Past audit'
+    : sessionId
+      ? sessions.find((session) => session.id === sessionId)?.title ?? 'Conversation'
+      : sessionHistoryLoading ? 'Loading sessions' : 'New session';
+  const routeSessionUnavailable = Boolean(
+    !sessionId
+    && chatRouteTarget?.projectId === selectedProjectId
+    && chatRouteTarget.sessionId
+    && sessionsFetched
+    && !sessionsError
+    && !sessions.some((session) => session.id === chatRouteTarget.sessionId),
+  );
+  const emptyContext = !isLoaded || projectsLoading
+    ? { title: 'Loading your projects', subtitle: 'Your project list is loading.' }
+    : projectLoadFailure
+      ? { title: 'Projects unavailable', subtitle: projectLoadFailure.message }
+      : !selectedProjectId
+        ? { title: 'Choose a project to begin', subtitle: 'Select an existing project or create one before starting a conversation.' }
+        : conversationLoading
+          ? { title: 'Loading conversation', subtitle: 'Waiting for the saved session and its messages. No new session has been started.' }
+          : sessionId && messagesError
+            ? { title: 'Conversation unavailable', subtitle: 'Messages could not be loaded. Retry them or choose another session; the server record has not been deleted.' }
+          : sessionsError
+            ? { title: 'Session history unavailable', subtitle: 'Your session list could not load. You can retry it or start a new conversation.' }
+            : sessionId
+              ? { title: 'No messages in this session', subtitle: 'This session is empty. Ask a question to continue in this project.' }
+              : { title: 'Start a new session', subtitle: 'Ask a question about this project, or choose a starting point below.' };
+  const showStartingPoints = Boolean(selectedProjectId && !projectLoadFailure && !conversationLoading && !messagesError);
   const latestForensicMessage = [...messages]
     .reverse()
     .find((message) => message.role === 'assistant'
@@ -12319,6 +12383,43 @@ export default function AiChat() {
       || scopedExecutionStatus?.proofRequired === true
     ),
   );
+  const workSummary = activeExecutionIsProofBearing && recoveryView
+    ? {
+        title: recoveryView.title,
+        reason: recoveryView.detail,
+        nextStep: recoveryView.nextStep,
+      }
+    : proposalUnavailable
+      ? {
+          title: 'Changes need more verification',
+          reason: proposalUnavailable,
+          nextStep: 'Review the blocked proposal below',
+        }
+      : pendingChanges.length > 0
+        ? {
+            title: 'Candidate changes need review',
+            reason: 'Validation and approval requirements remain in effect. No change is approved by this summary.',
+            nextStep: 'Review validation and the change proposal below',
+          }
+        : isAgentBusy
+          ? {
+              title: 'Assistant response in progress',
+              reason: 'The server-owned execution and its proof will determine the outcome.',
+              nextStep: 'Watch the current activity below',
+            }
+          : (recoverableDeliveries?.operations?.length ?? 0) > 0
+            ? {
+                title: 'Retained delivery work needs attention',
+                reason: 'Delivery recovery is separate from resuming the AI execution. The owner policy and server gates still apply.',
+                nextStep: 'Review the recoverable delivery operation below',
+              }
+            : null;
+  const confirmedExecutionDestinationId = activeExecutionIsProofBearing
+    && selectedProjectId
+    && activeExecution?.projectId === selectedProjectId
+    && scopedExecutionStatus?.id === activeExecution.id
+      ? activeExecution.id
+      : null;
 
   useEffect(() => {
     if (!isAgentBusy || agentStartedAt === null) return;
@@ -12429,6 +12530,7 @@ export default function AiChat() {
           <div className="relative">
             <select
               aria-label="Project for chat and model quality"
+              data-testid="select-chat-project"
               value={selectedProjectId}
               onChange={(e) => {
                 resetConversationView({ forgetCurrentExecution: false });
@@ -12437,6 +12539,7 @@ export default function AiChat() {
               }}
               className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
             >
+              {projects.length === 0 && <option value="">No projects available</option>}
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -12448,10 +12551,36 @@ export default function AiChat() {
         <div className="drawer-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain md:flex md:flex-col md:overflow-hidden">
           <div className="sessions-history relative z-10 shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
             <div className="p-2 flex flex-col gap-1">
-            {sessions.map((s) => (
+            {!selectedProjectId ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground" data-testid="text-sessions-select-project">
+                Select a project to see its sessions.
+              </p>
+            ) : sessionHistoryLoading ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground" role="status" data-testid="status-sessions-loading">
+                Loading sessions…
+              </p>
+            ) : sessionsError ? (
+              <div className="px-2 py-2 text-xs text-muted-foreground" role="alert" data-testid="alert-sessions-unavailable">
+                <p>Session history could not load. Existing conversations have not been removed.</p>
+                <Button type="button" size="sm" variant="outline" className="mt-2 h-7 text-xs"
+                  data-testid="button-retry-sessions"
+                  onClick={() => void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] })}>
+                  Retry sessions
+                </Button>
+              </div>
+            ) : sessions.length === 0 ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground" data-testid="text-no-sessions">
+                {sessionId
+                  ? 'No sessions are listed yet. A retained execution may still be available in this conversation.'
+                  : 'No sessions yet. Start one with the button above or ask a question.'}
+              </p>
+            ) : (
+            sessions.map((s) => (
               <button
                 key={s.id}
                 aria-label={s.title}
+                aria-current={s.id === sessionId && !historicalExecutionId ? 'true' : undefined}
+                data-testid={`button-chat-session-${s.id}`}
                 onClick={() => {
                   if (s.id === sessionId && !historicalExecutionId) {
                     persistAiChatSelection({
@@ -12485,7 +12614,7 @@ export default function AiChat() {
                   if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
                 }}
                 className={`text-left px-2 py-1.5 rounded text-xs truncate transition-colors ${
-                  s.id === sessionId
+                  s.id === sessionId && !historicalExecutionId
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                 }`}
@@ -12508,7 +12637,8 @@ export default function AiChat() {
                   )}
                 </span>
               </button>
-            ))}
+            ))
+            )}
             {(selectedProjectId || historicalAudits.length > 0 || historicalAuditsLoading || historicalAuditsError) && (
               <div className="mt-3 border-t border-border pt-3">
                 <button
@@ -12549,6 +12679,7 @@ export default function AiChat() {
                         key={audit.id}
                         type="button"
                         data-audit-id={audit.id}
+                        aria-current={selected ? 'true' : undefined}
                         onClick={() => {
                           streamGenerationRef.current += 1;
                           cancelStream();
@@ -12705,9 +12836,17 @@ export default function AiChat() {
           >
             {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
-          <Bot className="w-4 h-4 text-primary" />
-          <span className="min-w-0 truncate text-sm font-medium">EngineeringOS AI</span>
-          <Badge variant="outline" className="ml-auto max-w-[48%] truncate text-[10px] font-mono sm:text-xs">
+          <Bot className="h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium sm:text-sm">EngineeringOS AI</div>
+            <div className="truncate text-[10px] text-muted-foreground sm:text-xs" aria-live="polite"
+              data-testid="text-chat-current-context">
+              <span data-testid="text-chat-current-project">{projectName ?? 'No project selected'}</span>
+              <span aria-hidden="true"> · </span>
+              <span data-testid="text-chat-current-session">{sessionName}</span>
+            </div>
+          </div>
+          <Badge variant="outline" className="hidden max-w-[35%] truncate text-[10px] font-mono sm:inline-flex">
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
               : activeProvider?.provider === 'openrouter'
@@ -12720,6 +12859,12 @@ export default function AiChat() {
 
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+          {routeSessionUnavailable && (
+            <div role="status" data-testid="notice-chat-route-unavailable"
+              className="mx-auto mb-4 max-w-3xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              The linked AI conversation is unavailable in this project. Choose another session to continue.
+            </div>
+          )}
           {historicalReportError && (
             <div role="alert" className="mb-4 flex min-w-0 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               <span className="min-w-0 flex-1">{historicalReportError}</span>
@@ -12737,6 +12882,58 @@ export default function AiChat() {
                 Retry
               </Button>
             </div>
+          )}
+          {messagesError && sessionId && (
+            <div role="alert" data-testid="alert-chat-messages-unavailable"
+              className="mb-4 flex min-w-0 items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              <span>Conversation messages could not be loaded. Retained execution proof, if any, remains available.</span>
+              <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-[11px]"
+                data-testid="button-retry-chat-messages"
+                onClick={() => void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] })}>
+                Retry messages
+              </Button>
+            </div>
+          )}
+          {workSummary && (
+            <section className="mx-auto mb-3 w-full max-w-3xl rounded-xl border border-primary/30 bg-primary/5 px-3 py-3"
+              aria-label="Current work and next step" data-testid="current-work-summary">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Current work</div>
+              <h2 className="mt-1 text-sm font-semibold text-foreground" data-testid="text-current-work-state">
+                {workSummary.title}
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{workSummary.reason}</p>
+              <div className="mt-2 border-t border-border/50 pt-2 text-xs text-foreground" data-testid="text-current-work-next-step">
+                <span className="font-semibold">Next step:</span> {workSummary.nextStep}
+              </div>
+              {selectedProjectId && (
+                <nav className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2"
+                  aria-label="Follow-up destinations" data-testid="nav-current-work-destinations">
+                  {confirmedExecutionDestinationId && (
+                    <Link href={`/flight-deck?executionId=${encodeURIComponent(confirmedExecutionDestinationId)}`}
+                      data-testid="link-current-work-flight-deck"
+                      className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-2 py-1 text-xs text-primary hover:bg-primary/10">
+                      Flight Deck · execution proof <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                    </Link>
+                  )}
+                  <Link
+                    href={`/mission-control?projectId=${encodeURIComponent(selectedProjectId)}${confirmedExecutionDestinationId
+                      ? `&executionId=${encodeURIComponent(confirmedExecutionDestinationId)}`
+                      : ''}`}
+                    data-testid="link-current-work-mission-control"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-secondary">
+                    Mission Control · project operations <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
+                  </Link>
+                  <p className="basis-full text-[11px] leading-4 text-muted-foreground">
+                    Flight Deck shows this execution's proof when confirmed. Mission Control shows project operations; opening it does not create a Mission.
+                  </p>
+                </nav>
+              )}
+              {pendingChanges.length > 0 && (
+                <p className="mt-2 text-xs font-medium text-amber-200" data-testid="status-current-work-approval">
+                  Candidate changes still require validation and any applicable approval before they can be applied.
+                </p>
+              )}
+            </section>
           )}
           {selectedProjectId && (
             <div
@@ -12905,17 +13102,37 @@ export default function AiChat() {
                   </div>
                   <div className="min-w-0 pt-0.5">
                     <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-primary">
-                      EngineeringOS · {projects.find((project) => project.id === selectedProjectId)?.name ?? 'Project assistant'}
+                      EngineeringOS · {projectName ?? 'Project assistant'}
                     </p>
-                    <h2 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
-                      What should we work on?
+                    <h2 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl" data-testid="text-chat-empty-title">
+                      {emptyContext.title}
                     </h2>
                     <p className={`mt-1.5 max-w-lg text-sm leading-6 ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
-                      {getStatusSubtitle()}
+                      {emptyContext.subtitle}
                     </p>
                   </div>
                 </div>
 
+                {projectLoadFailure && (
+                  <Button type="button" variant="outline" size="sm" data-testid="button-retry-projects"
+                    onClick={() => void qc.invalidateQueries({ queryKey: getListProjectsQueryKey() })}>
+                    Retry loading projects
+                  </Button>
+                )}
+                {!projectLoadFailure && !selectedProjectId && !projectsLoading && isLoaded && (
+                  <Link href="/projects" data-testid="link-chat-projects"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+                    Browse projects <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                )}
+                {selectedProjectId && sessionsError && (
+                  <Button type="button" variant="outline" size="sm" data-testid="button-retry-session-list"
+                    onClick={() => void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] })}>
+                    Retry session list
+                  </Button>
+                )}
+                {showStartingPoints && (
+                  <>
                 <div aria-label="Common starting points" className="grid gap-3 sm:grid-cols-2">
                   {COMMON_AI_ACTIONS.map((action) => (
                     <button
@@ -12980,6 +13197,8 @@ export default function AiChat() {
                     </div>
                   </div>
                 )}
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -13025,7 +13244,13 @@ export default function AiChat() {
                     className="mx-auto mb-4 w-full max-w-3xl rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground"
                     role="status"
                   >
-                    The saved execution proof is restored from the server-owned audit record. Conversation messages are still loading.
+                    {messagesError
+                      ? 'Conversation messages could not be loaded. The saved execution proof remains available.'
+                      : conversationLoading
+                      ? 'The saved execution proof is available while conversation messages load.'
+                      : historicalExecutionId
+                        ? 'The historical audit has retained proof, but no conversation messages were recorded for its linked session.'
+                        : 'The saved execution has retained proof, but no conversation messages were recorded for this session.'}
                   </div>
                 )}
                {operationMode === 'DELIVERY' && operationId && (
@@ -13293,12 +13518,12 @@ export default function AiChat() {
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
             />
             <Button
               size="icon"
               onClick={handleSend}
-               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
                className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
               aria-label={applyMutation.isPending ? 'Applying changes' : isAgentBusy ? 'AI is working' : getSendTitle()}
