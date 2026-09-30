@@ -26,7 +26,10 @@ import {
 import { GroqClientError } from "../errors.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
-import { _resetCircuitsForTest } from "../openrouter/circuit-breaker.js";
+import {
+  _resetCircuitsForTest,
+  isModelCoolingDown,
+} from "../openrouter/circuit-breaker.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
@@ -709,6 +712,93 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.rateLimitScope === "upstream_shared_pool" &&
         err.upstreamProvider === "Poolside",
     );
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
+  });
+
+  it("cools only the failed model after a shared-pool limit across later requests", async () => {
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const model = String(
+        (JSON.parse(String(init?.body ?? "{}")) as { model?: string }).model,
+      );
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return {
+          ok: false,
+          status: 429,
+          json: async () => ({}),
+          text: async () => JSON.stringify({
+            error: {
+              message: "Provider returned error",
+              metadata: {
+                limit_source: "upstream_provider_shared_pool",
+                provider_name: "Poolside",
+              },
+            },
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "recovered" } }],
+          model,
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const options = {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 1,
+      retryTransient: false,
+    };
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, options),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    });
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, options);
+    expect(result.content).toBe("recovered");
+    expect(attemptedModels).toHaveLength(2);
+    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cool an individual model for a provider-credential limit", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+      text: async () => JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: { limit_source: "provider_rate_limit" },
+        },
+      }),
+    } as Response)));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: false,
+      }),
+    ).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "provider_credential",
+    });
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
   });
 
   it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {

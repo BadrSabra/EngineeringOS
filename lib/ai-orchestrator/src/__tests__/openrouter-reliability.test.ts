@@ -160,6 +160,21 @@ describe("circuit-breaker", () => {
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(false);
   });
 
+  it("holds a model cooldown for 90 seconds", () => {
+    vi.useFakeTimers({ now: 0 });
+    try {
+      recordModelFailure("openrouter", "fixture/shared-pool-model");
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBe(90_000);
+
+      vi.advanceTimersByTime(89_999);
+      expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows only one probe after cooldown and blocks concurrent callers", () => {
     vi.useFakeTimers({ now: 0 });
     try {
@@ -924,15 +939,21 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
   ] as const)(
     "does not retry or advance the stream for $scope limits",
     async ({ scope, limitSource, retryTransient }) => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response(
-        JSON.stringify({
-          error: {
-            message: "Provider returned error",
-            metadata: { limit_source: limitSource },
-          },
-        }),
-        { status: 429, headers: { "content-type": "application/json" } },
-      ));
+      const attemptedModels: string[] = [];
+      const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        attemptedModels.push(String(
+          (JSON.parse(String(init?.body ?? "{}")) as { model?: string }).model,
+        ));
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Provider returned error",
+              metadata: { limit_source: limitSource },
+            },
+          }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        );
+      });
       global.fetch = fetchMock as typeof fetch;
 
       const run = async () => {
@@ -955,8 +976,69 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
         rateLimitScope: scope,
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(
+        scope === "upstream_shared_pool",
+      );
     },
   );
+
+  it("skips the model from a previous shared-pool failure on a later stream request", async () => {
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const model = String(
+        (JSON.parse(String(init?.body ?? "{}")) as { model?: string }).model,
+      );
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Provider returned error",
+              metadata: {
+                limit_source: "upstream_provider_shared_pool",
+                provider_name: "Poolside",
+              },
+            },
+          }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        );
+      }
+      return streamResponse([sseDelta("recovered"), "data: [DONE]\n\n"]);
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const options = {
+      apiKey: "fixture-key",
+      quality: "fast" as const,
+      capability: "chat" as const,
+      maxFallbackModels: 1,
+    };
+
+    const firstRequest = async () => {
+      for await (const _chunk of openrouterCompleteStream(
+        [{ role: "user", content: "hi" }],
+        options,
+      )) {
+        // The shared-pool response is expected before the stream emits data.
+      }
+    };
+    await expect(firstRequest()).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    });
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
+
+    const chunks: string[] = [];
+    for await (const chunk of openrouterCompleteStream(
+      [{ role: "user", content: "hi" }],
+      options,
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("recovered");
+    expect(attemptedModels).toHaveLength(2);
+    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
+  });
 
   it("retries a transient failure before the first chunk within one bounded retry", async () => {
     vi.useFakeTimers();

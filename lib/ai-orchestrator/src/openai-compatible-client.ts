@@ -1596,20 +1596,19 @@ export async function openrouterCompleteWithFallback(
       recordModelSuccess("openrouter", model);
       return response;
     } catch (err) {
-      // A rate limit is normally scoped to the provider credential/window, not
-      // to the model slug. Do not turn one OpenRouter 429 into a burst of
-      // same-provider requests against the next free models; the caller must
-      // honor the provider cooldown or move to another provider.
+      // Do not turn a provider-scoped 429 into a burst against the next model
+      // in this request. A shared-pool limit cools only this attempted model
+      // for later requests; a provider-credential limit must not penalize one
+      // model because it applies across the credential.
       const providerScopedRateLimit =
         err instanceof GroqClientError &&
         (err.code === "RATE_LIMITED" || err.code === "QUOTA");
       if (providerScopedRateLimit) {
         const providerRateLimitScope =
           err instanceof GroqClientError ? err.rateLimitScope : undefined;
-        const modelScopedRateLimit =
-          providerRateLimitScope !== "upstream_shared_pool" &&
+        const shouldCoolFailedModel =
           providerRateLimitScope !== "provider_credential";
-        if (modelScopedRateLimit) {
+        if (shouldCoolFailedModel) {
           recordModelFailure(
             "openrouter",
             model,
@@ -1741,7 +1740,40 @@ export async function* openrouterCompleteStream(
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
       ? opts.maxFallbackModels
       : undefined;
-  const chain = (maxFallbackModels ? resolved.slice(0, maxFallbackModels) : resolved);
+  const coolingModels = resolved.filter((model) =>
+    isModelCoolingDown("openrouter", model),
+  );
+  const eligibleModels = resolved.filter((model) =>
+    !isModelCoolingDown("openrouter", model),
+  );
+  if (coolingModels.length > 0) {
+    console.info(JSON.stringify({
+      scope: "openrouter-fallback",
+      code: "STREAM_MODELS_SKIPPED_COOLDOWN",
+      coolingModels,
+      remainingModels: eligibleModels,
+    }));
+  }
+  if (eligibleModels.length === 0 && coolingModels.length > 0) {
+    const retryAfterMs = Math.max(
+      ...coolingModels.map((model) => getModelCooldownRemainingMs("openrouter", model) ?? 0),
+    );
+    throw new GroqClientError(
+      "RATE_LIMITED",
+      "All eligible OpenRouter stream models are cooling down",
+      {
+        context: {
+          providerName: "OpenRouter",
+          providerCode: "MODEL_COOLDOWN",
+          retryAfterMs,
+          providerAttemptedModels: coolingModels,
+        },
+      },
+    );
+  }
+  const chain = maxFallbackModels
+    ? eligibleModels.slice(0, maxFallbackModels)
+    : eligibleModels;
   const attemptedModels: string[] = [];
   let lastError: GroqClientError | undefined;
 
@@ -1756,9 +1788,17 @@ export async function* openrouterCompleteStream(
           emitted = true;
           yield delta;
         }
+        recordModelSuccess("openrouter", model);
         return;
       } catch (err) {
         const providerError = err instanceof GroqClientError ? err : undefined;
+        if (
+          providerError &&
+          (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA") &&
+          providerError.rateLimitScope !== "provider_credential"
+        ) {
+          recordModelFailure("openrouter", model, providerError.retryAfterMs);
+        }
         // Once bytes have been emitted, retrying would duplicate or splice the
         // answer. The caller must terminalize the partial stream instead.
         if (emitted || !providerError) {

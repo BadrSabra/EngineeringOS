@@ -207,9 +207,11 @@ their existing bounded behavior. The same scope rule applies before and during
 stream startup; after stream output begins, a failure is terminal to avoid
 duplicating partial output.
 
-This rule prevents duplicate same-provider attempts within an execution. It
-does not add a persistent upstream-pool quarantine or change the separate,
-process-local provider circuit breaker.
+An `upstream_shared_pool` rate limit also cools only the exact failed model for
+90 seconds in the current process, in both regular and streaming requests.
+Other OpenRouter models remain eligible; this is not a pool-wide or
+cross-instance quarantine. `provider_credential` limits do not create a
+model-specific cooldown. The provider circuit remains separate and unchanged.
 
 ### 4d. Task AI Execute
 
