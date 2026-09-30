@@ -3774,6 +3774,28 @@ G9 Revocation Safety
   الاستقلال وقواعد المنشأ والحجب أولًا؛ إذا تعذر المحلي فلا
   تُحسب نسخ المشاريع ضمن v1 ولا يبدأ P11.
 
+### 43.21 — تحقق حتمي من حاجز ECE للتوقع الثابت (2026-09-30)
+
+- **phase/step:** P7.5 — تثبيت حساب الجدوى العددي باختبار غير تشغيلي.
+- **status:** `done — evaluator arithmetic checked؛ collection blocked`
+- **what changed:** شدد اختبار كل النتائج `runtime_running` على
+  `ECE=5/18` وحد bootstrap المطابق، وأضاف مثالَي 22/30
+  و23/30 بنتائج `running/not_running` لإظهار عبور ECE
+  النقطية للحد. وُسم مثال `runtime_other` القائم بأنه fixture
+  رياضي وليس إثبات وصول تشغيلي.
+- **files/schema/contracts touched:** اختبار المقيم وسجل التقدم
+  فقط؛ لا تغيير في evaluator أو forecast أو schema أو runtime.
+- **validation:** تشغيل اختبار المقيم المحدد من حزمة API،
+  وفحص diff وإعادة تشغيل workflow المعني.
+- **authority/safety impact:** أمثلة مصطنعة فقط ولا تُحتسب
+  held-out؛ شرط الاستقلال ومصدر النتائج ما زالا
+  `NO_QUALIFIED_SOURCE`، وشروط الثقة السبعة `MISSING`،
+  و`collectionAuthorized=false` و`fixed_safe_probe` بلا تغيير.
+- **remaining/blocker:** صحة الحساب لا تثبت استقلال Missions
+  أو صلاحية معايرة فعلية أو سلامة مصدر held-out؛ لا جمع.
+- **next step:** قرار منهجي ومالك بشأن وحدة الاستقلال والنطاق
+  وسلطة المصدر، لا إنشاء تشغيلات للوصول إلى 30.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

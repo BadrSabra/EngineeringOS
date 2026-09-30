@@ -103,6 +103,8 @@ function continuationResultFor(source: RuntimeStartCalibrationExperiment) {
 
 describe("runtime-start hypothesis calibration", () => {
   it("keeps threshold-passing outcomes advisory without sampling and held-out proof", () => {
+    // This synthetic outcome mix includes runtime_other, which the current
+    // measurement continuation does not emit. It verifies evaluator math only.
     const outcomes: Array<"runtime_running" | "runtime_not_running" | "runtime_other"> = [
       ...Array.from({ length: 40 }, () => "runtime_running" as const),
       ...Array.from({ length: 40 }, () => "runtime_not_running" as const),
@@ -179,8 +181,27 @@ describe("runtime-start hypothesis calibration", () => {
     });
 
     expect(evaluation.status).toBe("threshold_not_met");
-    expect(evaluation.expectedCalibrationError).toBeGreaterThan(0.15);
-    expect(evaluation.eceUpperBound95).toBeGreaterThan(0.15);
+    expect(evaluation.expectedCalibrationError).toBeCloseTo(5 / 18, 12);
+    expect(evaluation.eceUpperBound95).toBeCloseTo(5 / 18, 12);
+  });
+
+  it("keeps the 22/30 versus 23/30 running boundary visible without implying a pass", () => {
+    const evaluate = (runningCount: number) => evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: Array.from(
+        { length: RUNTIME_START_CALIBRATION_MINIMUM_MISSIONS },
+        (_, index) => experiment(index, index < runningCount ? "runtime_running" : "runtime_not_running"),
+      ),
+    });
+    const twentyTwoRunning = evaluate(22);
+    const twentyThreeRunning = evaluate(23);
+
+    // Fixed marginal: running=4/9, not_running=4/9, other=1/9, unexpected=0.
+    // These are point ECE values, not the bootstrap upper bound or proof that
+    // the 30 synthetic Mission IDs are independent experimental units.
+    expect(twentyTwoRunning.expectedCalibrationError).toBeCloseTo(13 / 90, 12);
+    expect(twentyThreeRunning.expectedCalibrationError).toBeCloseTo(29 / 180, 12);
+    expect(twentyThreeRunning.status).toBe("threshold_not_met");
   });
 
   it("matches a hand-calculated classwise ECE with a rare observed class and an absent class", () => {
