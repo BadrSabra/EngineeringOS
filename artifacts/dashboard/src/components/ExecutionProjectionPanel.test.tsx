@@ -131,6 +131,33 @@ describe('ExecutionProjectionPanel', () => {
     );
   });
 
+  it('keeps destination links in natural order with visible keyboard focus styling', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={projection}
+        executionId="execution-1"
+        taskId="task-1"
+      />,
+    );
+
+    const destinations = screen.getByRole('navigation', { name: 'Execution destinations' });
+    const links = Array.from(destinations.querySelectorAll('a'));
+
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/flight-deck?executionId=execution-1',
+      '/mission-control?executionId=execution-1',
+      '/tasks?taskId=task-1',
+    ]);
+    for (const link of links) {
+      expect(link).toHaveClass(
+        'focus-visible:outline-none',
+        'focus-visible:ring-2',
+        'focus-visible:ring-ring',
+        'focus-visible:ring-offset-2',
+      );
+    }
+  });
+
   it('delegates every displayed action to the owning surface without making an API request', async () => {
     const onAction = vi.fn().mockResolvedValue(undefined);
     renderPanel(<ExecutionProjectionPanel projection={projection} executionId="execution-1" onAction={onAction} />);

@@ -374,14 +374,14 @@ export function ExecutionProjectionPanel({
             <>
               <Link
                 href={`/flight-deck?executionId=${encodeURIComponent(executionId)}`}
-                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-primary/25 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-primary/25 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <span>Open Flight Deck</span>
                 <span className="text-[11px] font-normal text-muted-foreground">Run steps and evidence</span>
               </Link>
               <Link
                 href={`/mission-control?executionId=${encodeURIComponent(executionId)}`}
-                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <span>Open Mission Control</span>
                 <span className="text-[11px] font-normal text-muted-foreground">Status, recovery, and validation</span>
@@ -391,7 +391,7 @@ export function ExecutionProjectionPanel({
           {taskId && (
             <Link
               href={`/tasks?taskId=${encodeURIComponent(taskId)}`}
-              className="inline-flex min-h-10 items-center rounded border border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              className="inline-flex min-h-10 items-center rounded border border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Open Task
             </Link>
