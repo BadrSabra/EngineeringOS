@@ -8,3 +8,9 @@ Authenticated Dashboard browser journeys run under `/dashboard/`; their rendered
 **Why:** The router applies the artifact base path in the browser, and stale end-to-end selectors can prevent a new keyboard assertion from running at all.
 
 **How to apply:** When adding Dashboard browser assertions, derive expected hrefs from the mounted artifact path and confirm selectors against the current rendered UI. Run the focused journey before the broader suite.
+
+For Firefox reload assertions, use `page.reload({ waitUntil: "domcontentloaded" })` when the UI renders but waiting for the full `load` event stalls; follow it with assertions on the persisted UI state.
+
+**Why:** A multi-route Firefox journey showed the Flight Deck proof fully rendered in the failure screenshot, while `page.reload()` still waited for `load` until the test timed out.
+
+**How to apply:** Prefer the DOM-content milestone for reload persistence checks, then let accessible UI assertions verify that data has reloaded. Keep full-load waits only when the test specifically depends on all page resources completing.

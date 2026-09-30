@@ -4779,7 +4779,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
       const proofBeforeReload = await deliveryProof.innerText();
 
-      await page.reload();
+      await page.reload({ waitUntil: "domcontentloaded" });
       const reloadedDeliveryProof = page.getByRole("region", {
         name: "Delivery proof chain",
       });
@@ -4994,7 +4994,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(deliveryProof).toContainText("GitCommitCreated");
     await expect(deliveryProof).toContainText("GitPushed");
 
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(deliveryProof).toBeVisible();
     await expect(deliveryProof).toContainText("e2e-revision-42");
     await expect(deliveryProof).toContainText("AiChangesApplied");
@@ -5058,7 +5058,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(deliveryProof).not.toContainText("Verified chain");
     const beforeReload = await deliveryProof.innerText();
 
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedProof = page.getByRole("region", {
       name: "Delivery proof chain",
     });

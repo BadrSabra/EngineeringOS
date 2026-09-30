@@ -40,7 +40,7 @@
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
-- [Dashboard browser route assertions](dashboard-browser-route-assertions.md) — authenticated Playwright hrefs include `/dashboard/`, unlike isolated component tests; use current UI selectors.
+- [Dashboard browser route assertions](dashboard-browser-route-assertions.md) — use artifact-prefixed routes and current selectors; use DOMContentLoaded reloads when Firefox load events stall after rendering.
 - [Dashboard Chromium SIGBUS](dashboard-chromium-sigbus.md) — distinguish browser-process failure from app navigation; clean only exact test-created projects through the owner-scoped API.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable writes require the current lease; Episode actor IDs remain provenance across same-attempt recovery.
