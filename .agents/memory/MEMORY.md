@@ -154,3 +154,4 @@
 - [P7.5 readiness boundary](p75-readiness-boundary.md) — numerical calibration is advisory without provenance; Clerk identity is not review authority; collection stays closed.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.
 - [AI conversation route precedence](ai-conversation-route-precedence.md) — explicit project/session links beat stale local execution pointers; unavailable targets must not silently open another session.
+- [Benchmark smoke environment](benchmark-smoke-database-env.md) — an unset DATABASE_URL can masquerade as provider failure during orchestrator import; use a non-production local DSN.
