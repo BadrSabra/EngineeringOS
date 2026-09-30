@@ -6559,7 +6559,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const mission = page.getByTestId("mission-capsule");
     await expect(mission).toBeVisible();
     await expect(mission).toContainText("Delivered");
-    await expect(page.getByTestId("mission-identity")).toContainText("e2e-operation");
+    await expect(page.getByTestId("execution-identities")).toContainText(
+      "e2e-operation",
+    );
     await expect(page.getByTestId("mission-timeline")).toBeVisible();
     const destinations = mission.getByRole("navigation", {
       name: "Execution destinations",
@@ -6572,11 +6574,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await expect(flightDeckLink).toHaveAttribute(
       "href",
-      `/flight-deck?executionId=${EXECUTION_ID}`,
+      `/dashboard/flight-deck?executionId=${EXECUTION_ID}`,
     );
     await expect(missionControlLink).toHaveAttribute(
       "href",
-      `/mission-control?executionId=${EXECUTION_ID}`,
+      `/dashboard/mission-control?executionId=${EXECUTION_ID}`,
     );
     await expect(
       destinations.getByRole("link", { name: "Open Task" }),
@@ -6636,7 +6638,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedMission = page.getByTestId("mission-capsule");
     await expect(reloadedMission).toBeVisible();
     await expect(reloadedMission).toContainText("Delivered");
-    await expect(page.getByTestId("mission-identity")).toContainText("e2e-operation");
+    await expect(page.getByTestId("execution-identities")).toContainText(
+      "e2e-operation",
+    );
     await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
     await expect(
       page.getByLabel("Redacted audit preview"),
