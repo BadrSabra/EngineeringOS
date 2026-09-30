@@ -456,6 +456,7 @@ beforeEach(() => {
     role: 'assistant',
     content: 'Existing response',
     toolTrace: undefined,
+    turnIntent: undefined,
     behaviorEvidence: undefined,
     missionCorrelationReport: undefined,
     taskResult: undefined,
@@ -598,6 +599,62 @@ describe('AiChat settings disclosure', () => {
       .toHaveClass('text-xs', 'leading-5');
     expect(within(modelQuality).getByRole('combobox', { name: 'Model quality provider' }))
       .toHaveClass('text-xs');
+  });
+});
+
+describe('AiChat turn intent labels', () => {
+  beforeEach(() => {
+    mocks.serverProposal = { changes: [] };
+  });
+
+  it.each([
+    ['CHAT', 'Chat'],
+    ['PROJECT_QUERY', 'Project query'],
+    ['FORENSIC_AUDIT', 'Forensic audit'],
+    ['DELIVERY', 'Delivery'],
+  ])('shows the %s intent from the assistant message', async (turnIntent, label) => {
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent,
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByTestId('text-turn-intent-message-1')).toHaveTextContent(label);
+  });
+
+  it('uses DELIVERY operation mode when the turn intent is absent', async () => {
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      operationMode: 'DELIVERY',
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByTestId('text-turn-intent-message-1')).toHaveTextContent('Delivery');
+  });
+
+  it('prefers a known turn intent over a conflicting operation mode', async () => {
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent: 'PROJECT_QUERY',
+      operationMode: 'DELIVERY',
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByTestId('text-turn-intent-message-1')).toHaveTextContent('Project query');
+  });
+
+  it('does not add a turn intent label to legacy messages without intent metadata', async () => {
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.queryByTestId('text-turn-intent-message-1')).not.toBeInTheDocument();
   });
 });
 

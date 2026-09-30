@@ -254,6 +254,25 @@ type ChatMessage = {
 
 type OperationMode = 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
 
+function getTurnIntentLabel(
+  message: Pick<ChatMessage, 'role' | 'turnIntent' | 'operationMode'>,
+): string | undefined {
+  if (message.role === 'user') return undefined;
+
+  switch (message.turnIntent ?? message.operationMode) {
+    case 'CHAT':
+      return 'Chat';
+    case 'PROJECT_QUERY':
+      return 'Project query';
+    case 'FORENSIC_AUDIT':
+      return 'Forensic audit';
+    case 'DELIVERY':
+      return 'Delivery';
+    default:
+      return undefined;
+  }
+}
+
 const projectQueryTargetCopy: Record<
   NonNullable<ChatMessage['projectQueryTarget']>['mode'],
   { title: string; detail: string; className: string }
@@ -5894,6 +5913,7 @@ function MessageBubble({
 }) {
   const isUser = msg.role === 'user';
   const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
+  const turnIntentLabel = getTurnIntentLabel(msg);
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const canOfferMissionHandoff = isUser && Boolean(projectId && sessionId && onMissionHandoff);
   const sources = parseSources(msg.sources);
@@ -6097,13 +6117,21 @@ function MessageBubble({
       </div>
       <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-2 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
         <div
-          aria-hidden="true"
           className={`flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
             isUser ? 'text-primary/80' : 'text-muted-foreground'
           }`}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${isUser ? 'bg-primary' : 'bg-sky-300/70'}`} />
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${isUser ? 'bg-primary' : 'bg-sky-300/70'}`} />
           {isUser ? 'You' : 'EngineeringOS AI'}
+          {turnIntentLabel && (
+            <span
+              aria-label={`Turn intent: ${turnIntentLabel}`}
+              data-testid={`text-turn-intent-${msg.id}`}
+              className="ml-1 rounded border border-border/70 bg-background/40 px-1.5 py-0.5 text-[9px] leading-none tracking-[0.08em]"
+            >
+              {turnIntentLabel}
+            </span>
+          )}
         </div>
         {!isStructuredPlan && <div
           className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed shadow-sm [overflow-wrap:anywhere] ${
