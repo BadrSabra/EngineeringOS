@@ -8301,6 +8301,7 @@ type AgentExecutionProofStatus = {
   status?: string;
   attempt?: number;
   operationId?: string | null;
+  linkedTaskId?: string | null;
   projectRevision?: string | null;
   terminalReason?: string | null;
   flightState?:

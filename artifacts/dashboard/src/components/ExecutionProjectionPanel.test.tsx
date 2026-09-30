@@ -77,10 +77,13 @@ describe('ExecutionProjectionPanel', () => {
     expect(identities).toHaveTextContent('Execution execution-1');
     expect(identities).toHaveTextContent('Operation operation-1');
     expect(identities).not.toHaveTextContent('Mission');
-    expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Flight Deck');
-    expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Mission Control');
-    expect(screen.getByTestId('mission-links').querySelector('a[href="/flight-deck?executionId=execution-1"]')).toBeTruthy();
-    expect(screen.getByTestId('mission-links').querySelector('a[href="/mission-control?executionId=execution-1"]')).toBeTruthy();
+    const destinations = screen.getByRole('navigation', { name: 'Execution destinations' });
+    expect(destinations).toHaveTextContent('Open Flight Deck');
+    expect(destinations).toHaveTextContent('Run steps and evidence');
+    expect(destinations).toHaveTextContent('Open Mission Control');
+    expect(destinations).toHaveTextContent('Status, recovery, and validation');
+    expect(destinations.querySelector('a[href="/flight-deck?executionId=execution-1"]')).toBeTruthy();
+    expect(destinations.querySelector('a[href="/mission-control?executionId=execution-1"]')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Open Task' })).not.toBeInTheDocument();
     expect(screen.getByTestId('mission-timeline')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
