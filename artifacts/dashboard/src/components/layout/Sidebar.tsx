@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser, useClerk } from '@clerk/react';
 import { ChevronDown, LogOut, Network, X } from 'lucide-react';
@@ -20,9 +20,13 @@ function operatorInitials(name: string | null | undefined): string {
 export function Sidebar({
   mobileOpen = false,
   onMobileClose,
+  mobileDrawerRef,
+  mobileCloseRef,
 }: {
   mobileOpen?: boolean;
   onMobileClose?: () => void;
+  mobileDrawerRef?: Ref<HTMLDivElement>;
+  mobileCloseRef?: Ref<HTMLButtonElement>;
 }) {
   const [location] = useLocation();
   const { user } = useUser();
@@ -78,6 +82,12 @@ export function Sidebar({
 
   return (
     <div
+      ref={mobileDrawerRef}
+      id="mobile-navigation-drawer"
+      role={mobileOpen ? 'dialog' : undefined}
+      aria-label={mobileOpen ? 'Main navigation menu' : undefined}
+      aria-modal={mobileOpen ? true : undefined}
+      tabIndex={-1}
       className={`${mobileOpen ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-50 w-72 max-w-[calc(100vw-1rem)] border-r border-border bg-card flex-col h-full shrink-0 shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-64 md:max-w-none md:shadow-none`}
     >
       <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
@@ -88,6 +98,7 @@ export function Sidebar({
           EngineeringOS
         </div>
         <button
+          ref={mobileCloseRef}
           type="button"
           onClick={onMobileClose}
           className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
