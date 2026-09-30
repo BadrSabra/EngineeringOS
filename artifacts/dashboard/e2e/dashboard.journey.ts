@@ -4676,6 +4676,118 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
     }
     if (
+      campaignScenario === "delivery-success" &&
+      successStates.has(terminalState)
+    ) {
+      const operationId = String(execution.operationId ?? "");
+      const eventPayload = (event: Record<string, any> | undefined) =>
+        event?.payload &&
+        typeof event.payload === "object" &&
+        !Array.isArray(event.payload)
+          ? (event.payload as Record<string, any>)
+          : {};
+      const commitEvent = events.find(
+        (event) => event?.type === "GitCommitCreated",
+      );
+      const pushEvent = events.find((event) => event?.type === "GitPushed");
+      const commitPayload = eventPayload(commitEvent);
+      const pushPayload = eventPayload(pushEvent);
+      const canonicalProof = execution.operationEvidence?.proof;
+      const commitHash =
+        typeof commitPayload.commitHash === "string"
+          ? commitPayload.commitHash
+          : undefined;
+      const remoteCommitHash =
+        typeof pushPayload.remoteCommitHash === "string"
+          ? pushPayload.remoteCommitHash
+          : undefined;
+      const proposalId =
+        typeof pushPayload.proposalId === "string"
+          ? pushPayload.proposalId
+          : undefined;
+      if (
+        !operationId ||
+        canonicalProof?.verdict !== "PROVEN" ||
+        canonicalProof?.accepted !== true ||
+        canonicalProof?.executionId !== executionId ||
+        canonicalProof?.operationId !== operationId ||
+        canonicalProof?.sourceRevision !== projectRevision ||
+        !commitHash ||
+        pushPayload.operationId !== operationId ||
+        pushPayload.commitHash !== commitHash ||
+        !remoteCommitHash ||
+        !proposalId ||
+        typeof pushPayload.branch !== "string"
+      ) {
+        throw new Error(
+          "Delivery-success campaign requires an accepted canonical proof and a matching remote push receipt.",
+        );
+      }
+
+      // Repeating the exact committed operation must return its durable remote
+      // receipt without creating a second push.
+      const replayResponse = await liveRequest(
+        page,
+        `/api/projects/${encodeURIComponent(projectId)}/git/push`,
+        {
+          method: "POST",
+          timeout: liveTimeoutMs(),
+          body: { proposalId, operationId },
+        },
+      );
+      if (replayResponse.status < 200 || replayResponse.status >= 300) {
+        throw new Error(
+          "The already-recorded delivery could not be replayed idempotently.",
+        );
+      }
+      const replay = JSON.parse(replayResponse.body) as Record<string, any>;
+      if (
+        replay.idempotent !== true ||
+        replay.correlationId !== operationId ||
+        replay.commitHash !== commitHash ||
+        replay.remoteCommitHash !== remoteCommitHash ||
+        replay.branch !== pushPayload.branch
+      ) {
+        throw new Error(
+          "Delivery replay changed the operation or remote commit receipt.",
+        );
+      }
+      const replayedEvents = await liveArray(
+        page,
+        `/api/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(operationId)}`,
+      );
+      if (
+        replayedEvents.filter((event) => event?.type === "GitPushed").length !==
+        1
+      ) {
+        throw new Error(
+          "Delivery replay created a duplicate push receipt for the operation.",
+        );
+      }
+
+      await page.goto(
+        `${DASHBOARD_PATH}flight-deck?executionId=${encodeURIComponent(executionId)}`,
+      );
+      const deliveryProof = page.getByRole("region", {
+        name: "Delivery proof chain",
+      });
+      await expect(deliveryProof).toBeVisible();
+      await expect(deliveryProof).toContainText("Verified chain");
+      await expect(deliveryProof).toContainText(operationId);
+      await expect(deliveryProof).toContainText(
+        String(execution.operationEvidence?.revision ?? projectRevision),
+      );
+      const proofBeforeReload = await deliveryProof.innerText();
+
+      await page.reload();
+      const reloadedDeliveryProof = page.getByRole("region", {
+        name: "Delivery proof chain",
+      });
+      await expect(reloadedDeliveryProof).toBeVisible();
+      expect(await reloadedDeliveryProof.innerText()).toBe(proofBeforeReload);
+      await expect(reloadedDeliveryProof).toContainText("Verified chain");
+    }
+    if (
       successStates.has(terminalState) &&
       (evidenceCount < 1 || validation.length < 1)
     ) {
