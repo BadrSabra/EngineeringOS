@@ -3938,6 +3938,33 @@ G9 Revocation Safety
 - **next step:** لا تعديل للمقيم أو الفئات أو forecast قبل اعتماد
   بروتوكول مستقل جديد وموافقة جمع صريحة.
 
+### 43.28 — فرض حظر جمع P7.5 في مسار runtime.start (2026-09-30)
+
+- **phase/step:** P7.5 — enforcement خادمي لقرار `NO-GO`، مع إبقاء تصميم
+  الاستقلال والمراجعة للمراجعة البشرية فقط.
+- **status:** `done — default production collection path closed; protocol remains unapproved`
+- **what changed:** أُغلقت بوابة P7.5 خادميًا في تسجيل التجربة وقراءة
+  continuation الافتراضية، وربطت تقارير الجاهزية وحزمة الأدلة بالسياسة
+  نفسها. يبقى تشغيل `runtime.start` وفحص Gate C العاديان متاحين. راجعت
+  مستندات البروتوكول وإجراء الحوكمة وعقد المصادر وسجل القرار القائمة؛
+  تغطي مسودة المراجعة المطلوبة، لذلك لم تُنشأ نسخة مكررة أو يُعيّن مصدر.
+- **files/schema/contracts touched:** سياسة جمع P7.5 المشتركة، مسار
+  `recipe-operation-runner` واختباره، تقارير الجاهزية، وهذه الوثيقة؛
+  لا schema أو مصدر سلطة أو verifier أو approval flow.
+- **validation:** API typecheck؛ اختبارات recipe-operation-runner وP7.5
+  readiness/ledger/continuation: 4 ملفات، 56/56؛ إعادة تشغيل API وسجلات
+  `Server listening`؛ `git diff --check`.
+- **authority/safety impact:** لا cohort أو pilot أو جمع حي. لا تنشأ سجلات
+  P7.5 أو قراءة continuation الافتراضية على المسار الإنتاجي؛ لا تحذف سجلات
+  تاريخية. تبقى `collectionAuthorized=false` و`fixed_safe_probe` وGate C
+  دون تغيير.
+- **remaining/blocker:** `NO_QUALIFIED_SOURCE` لاستقلال العينة ومنشأ
+  held-out؛ سلطة المراجع وإعادة الضبط وتجميد البروتوكول وملاءمة المقيم
+  غير محسومة؛ كما يبقى emitter لـ`runtime_other` فجوة في عقد النتيجة.
+- **next step:** مراجعة المالك والمراجع المنهجي للمستندات القائمة وحسم
+  وحدة الاستقلال ومصادر الدليل والادعاء والنتائج؛ لا إعادة فتح البوابة
+  أو أي تشغيل قبل قرار وتفويض منفصلين.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
