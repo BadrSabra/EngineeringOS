@@ -4411,7 +4411,13 @@ function PendingChangesCard({
   const hasPartialSelection = rejectedCount > 0 && totalHunkCount > 0;
 
   return (
-    <div className="max-w-3xl mx-auto mb-4">
+    <div
+      id="region-candidate-changes"
+      tabIndex={-1}
+      role="region"
+      aria-label="Candidate changes and approval"
+      className="max-w-3xl mx-auto mb-4"
+    >
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-amber-500/20 bg-amber-500/10">
@@ -8815,6 +8821,9 @@ function AgentExecutionProofPanel({
 
   return (
     <div
+      id="region-agent-execution-proof"
+      tabIndex={-1}
+      role="region"
       className={`mx-auto mb-3 w-full max-w-3xl overflow-hidden rounded-xl border ${
         status === 'failed'
           ? 'border-red-500/30 bg-red-500/5'
@@ -12414,6 +12423,21 @@ export default function AiChat() {
                 nextStep: 'Review the recoverable delivery operation below',
               }
             : null;
+  const workSummaryTargetId = activeExecutionIsProofBearing && recoveryView
+    ? isAgentBusy
+      ? 'group-assistant-response-progress'
+      : recoveryView.action
+        ? 'button-recover-execution'
+        : 'region-agent-execution-proof'
+    : proposalUnavailable && pendingChanges.length === 0
+      ? 'alert-proposal-unavailable'
+      : pendingChanges.length > 0
+        ? 'region-candidate-changes'
+        : isAgentBusy
+          ? 'group-assistant-response-progress'
+          : (recoverableDeliveries?.operations?.length ?? 0) > 0
+            ? 'region-recoverable-deliveries'
+            : null;
   const confirmedExecutionDestinationId = activeExecutionIsProofBearing
     && selectedProjectId
     && activeExecution?.projectId === selectedProjectId
@@ -12981,6 +13005,20 @@ export default function AiChat() {
               <div className="mt-2 border-t border-border/50 pt-2 text-xs text-foreground" data-testid="text-current-work-next-step">
                 <span className="font-semibold">Next step:</span> {workSummary.nextStep}
               </div>
+              {workSummaryTargetId && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById(workSummaryTargetId)?.focus()}
+                    aria-label={`Go to next step: ${workSummary.nextStep}`}
+                    data-testid="button-current-work-next-step"
+                    className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-primary/40 bg-background/40 px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Go to next step
+                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
               {selectedProjectId && (
                 <nav className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2"
                   aria-label="Follow-up destinations" data-testid="nav-current-work-destinations">
@@ -13065,7 +13103,8 @@ export default function AiChat() {
             </div>
           )}
           {(recoverableDeliveries?.operations?.length ?? 0) > 0 && (
-            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
+            <div id="region-recoverable-deliveries" tabIndex={-1}
+              className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
               <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
                 <RotateCcw className="h-3.5 w-3.5" />
                 Recoverable delivery work
@@ -13362,6 +13401,8 @@ export default function AiChat() {
                {(isAgentBusy || liveBehaviorProgress) ? (
                 /* Single unified live bubble — steps always visible above streaming text */
                  <div
+                   id="group-assistant-response-progress"
+                   tabIndex={-1}
                    role="group"
                    aria-label="Assistant response in progress"
                    className="chat-message flex min-w-0 max-w-full gap-3 mb-6"
@@ -13497,6 +13538,8 @@ export default function AiChat() {
               )}
               {pendingChanges.length === 0 && proposalUnavailable && (
                 <div
+                  id="alert-proposal-unavailable"
+                  tabIndex={-1}
                   className="mx-auto mb-4 flex w-full max-w-3xl items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
                   role="alert"
                 >
@@ -13566,6 +13609,7 @@ export default function AiChat() {
                     variant="outline"
                       onClick={() => void resumeActiveExecution(recoveryView.action ?? 'resume')}
                     disabled={resumeRecoveryPending}
+                      id="button-recover-execution"
                       data-testid="button-recover-execution"
                       aria-label={resumeRecoveryError
                         ? recoveryView.action === 'retry' ? 'Retry checkpoint again' : 'Retry resume execution'

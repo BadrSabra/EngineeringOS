@@ -1034,9 +1034,14 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(within(await screen.findByTestId('current-work-summary'))
-      .getByText('Saved execution paused — resume available')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
+    const summary = await screen.findByTestId('current-work-summary');
+    expect(within(summary).getByText('Saved execution paused — resume available')).toBeInTheDocument();
+    fireEvent.click(within(summary).getByRole('button', {
+      name: 'Go to next step: Resume this saved execution',
+    }));
+    const resumeButton = screen.getByRole('button', { name: 'Resume execution' });
+    expect(resumeButton).toHaveFocus();
+    fireEvent.click(resumeButton);
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       projectId: 'project-1',
@@ -1356,6 +1361,12 @@ describe('AiChat authenticated generated mutations', () => {
     });
 
     renderAiChat();
+    const summary = await screen.findByTestId('current-work-summary');
+    expect(summary).toHaveTextContent('Retained delivery work needs attention');
+    fireEvent.click(within(summary).getByRole('button', {
+      name: 'Go to next step: Review the recoverable delivery operation below',
+    }));
+    expect(screen.getByRole('region', { name: 'Recoverable delivery operations' })).toHaveFocus();
     expect(await screen.findByText(/These are retained delivery workspaces, not paused AI executions/))
       .toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Discard delivery workspace' }));
@@ -1667,7 +1678,7 @@ describe('AiChat authenticated generated mutations', () => {
       proofRequired: true,
     }));
     renderAiChat();
-    expect(await screen.findByRole('generic', { name: 'Agent execution proof' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Agent execution proof' })).toBeInTheDocument();
     expect(screen.getByText(
       'The saved execution has retained proof, but no conversation messages were recorded for this session.',
     )).toBeInTheDocument();
@@ -1694,6 +1705,10 @@ describe('AiChat authenticated generated mutations', () => {
     expect(summary).toHaveTextContent('Execution ended — proof not accepted');
     expect(summary).toHaveTextContent('Next step: Review the recorded proof');
     const proofPanel = screen.getByLabelText('Agent execution proof');
+    fireEvent.click(within(summary).getByRole('button', {
+      name: 'Go to next step: Review the recorded proof',
+    }));
+    expect(proofPanel).toHaveFocus();
     expect(summary.compareDocumentPosition(proofPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(proofPanel).getByText('Required source evidence is missing.').closest('details')).toBeNull();
     const details = within(proofPanel).getByTestId('details-execution-proof-technical');
@@ -1725,6 +1740,11 @@ describe('AiChat authenticated generated mutations', () => {
     expect(summary).toHaveTextContent('Candidate changes need review');
     expect(summary).toHaveTextContent('Next step: Review validation and the change proposal below');
     expect(screen.getByTestId('status-current-work-approval')).toHaveTextContent('require validation and any applicable approval');
+    const candidateChanges = screen.getByRole('region', { name: 'Candidate changes and approval' });
+    fireEvent.click(within(summary).getByRole('button', {
+      name: 'Go to next step: Review validation and the change proposal below',
+    }));
+    expect(candidateChanges).toHaveFocus();
     expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
     expect(screen.getByTestId('link-current-work-mission-control')).toHaveAttribute('href', '/mission-control?projectId=project-1');
     expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
@@ -2238,7 +2258,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
     renderAiChat(false);
 
-    expect(screen.queryByRole('generic', { name: 'Agent execution proof' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Agent execution proof' })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('test-model');
 
     expect(screen.queryByRole('button', { name: 'Open sessions' })).toBeInTheDocument();
@@ -4327,7 +4347,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
       });
     });
 
-    const proofPanel = await screen.findByRole('generic', { name: 'Agent execution proof' });
+    const proofPanel = await screen.findByRole('region', { name: 'Agent execution proof' });
     expect(proofPanel).toHaveTextContent('Agent execution proof');
     expect(proofPanel).toHaveTextContent('Checking status');
     expect(proofPanel).toHaveTextContent('execution-proof-1');
