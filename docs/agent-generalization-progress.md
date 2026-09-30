@@ -3870,6 +3870,33 @@ G9 Revocation Safety
   إثبات وحدة محلية، يوثق `NO-GO` ويحتاج أي بديل بروتوكولًا وقرارًا
   منفصلين. لا تفويض تشغيل أو جمع ضمن هذه الخطوة.
 
+### 43.25 — توحيد حدود وحدة العينة وفئات outcome قبل معايرة P7.5 (2026-09-30)
+
+- **phase/step:** P7.5 — توضيح عقد القياس واختبارات حسابية اصطناعية فقط.
+- **status:** `partial — documentation/tests aligned؛ methodological approval pending`
+- **what changed:** §25.4 لم يعد يعامل Episode/Mission IDs كدليل استقلال؛
+  ربط وحدة local بإطار اختيار وفرصة مسجلة مسبقًا يثبت المراجع استقلالها،
+  مع إبقاء العدد الحالي تشخيصيًا حتى ذلك الحين. أضيف جدول يبين منتجي
+  الفئات الفعلية: `runtime_other` بلا emitter ويظل غير المصنف partial،
+  و`runtime_unexpected` يظل نتيجة صالحة حتى مع احتمال forecast صفري.
+  أضيف اختبار ECE اصطناعي يحسب الحالة المفاجئة دون إسقاطها، وسمّي اختبار
+  continuation القائم لتثبيت بقاء القراءة غير المصنفة partial؛ لم يتغير
+  منطق الإنتاج أو forecast أو evaluator.
+- **files/schema/contracts touched:** §25.4، تدقيق جدوى P7.5، سجل قرار
+  السلطة، واختبارا calibration وcontinuation runner؛ لا schema أو production code.
+- **validation:** اختبارات calibration وcalibration-readiness وcontinuation
+  (الـrunner والعقد) نجحت: 4 ملفات، 41/41؛ API typecheck و`git diff --check`
+  اجتازا.
+- **authority/safety impact:** اختبارات حتمية/محاكاة ومراجعة وثائق فقط؛
+  لا runtime أو reset أو cohort أو جمع. بقيت
+  `NO_QUALIFIED_SOURCE`، وشروط الثقة السبعة `MISSING`،
+  و`collectionAuthorized=false` و`fixed_safe_probe`.
+- **remaining/blocker:** لم يعتمد المالك والمراجع المنهجي وحدة الاستقلال
+  المحلية أو معنى `runtime_other` أو مصدر held-out؛ النتائج الاصطناعية لا
+  تؤهل المصدر ولا تثبت معايرة تشغيلية.
+- **next step:** مراجعة منهجية قبل أي تغيير policy/version؛ لا emitter جديد
+  أو تعديل forecast أو جمع قبل تجميد العقد والسلطة والتفويض المنفصل.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

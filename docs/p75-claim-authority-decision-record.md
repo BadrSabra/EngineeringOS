@@ -253,8 +253,12 @@ share above about `74.4%` would exceed the existing `0.15` limit. This is a
 hypothetical sensitivity calculation, not an observed result. The audit also
 identifies an outcome-mapping mismatch: the current continuation path does not
 emit `runtime_other`, although the forecast assigns it nonzero probability.
-Reconcile the outcome contract and test the evaluator against the intended
-rare/absent classes before freezing any future protocol.
+The deterministic calibration fixtures test evaluator math with synthetic
+`runtime_other` and rare/absent classes; they do not prove that a runtime path
+can emit those outcomes. Unclassified continuation observations remain
+incomplete rather than being coerced to `runtime_other`. A fresh,
+versioned decision must define any emitter before changing the result mapping,
+forecast, evaluator, or policy.
 
 ### Cross-project calibration: distinct future claim
 

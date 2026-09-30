@@ -3192,12 +3192,16 @@ upper uncertainty bound for ECE in each promoted scope/task stratum: <= 0.15
 حدود `held-out cases >= 30` و`independent transfer fixtures >= 3` هي minimums
 وليست ضمانًا كافيًا لدقة المعايرة. يجب كذلك ألا يتجاوز الحد الأعلى لفاصل عدم
 اليقين لـECE مقدار `0.15` في كل scope/task stratum يجري الترويج له؛ إذا لم يثبت
-الفاصل اجتياز هذا الحد يبقى التقييم غير مكتمل. يثبت split قبل التقييم: للمعايرة scoped
-تكون وحدات held-out مستقلة من episodes/missions داخل scope نفسه؛ ولـcross-project
-transfer تُحجز projects/fixtures كاملة مع trajectories المرتبطة بها. لا تتسرب
-episode أو revision مشتقة من المصدر نفسه بين training وcalibration وfinal holdout.
-تعرض النتائج لكل scope/task stratum، مع Brier وECE وفاصل عدم يقين محسوب على
-وحدة الاستقلال (episode/mission للمعايرة المحلية، وproject/fixture للنقل). إذا
+الفاصل اجتياز هذا الحد يبقى التقييم غير مكتمل. يثبت split قبل التقييم. للمعايرة
+المحلية تكون وحدات held-out فرصًا تجريبية مؤهلة ومحددة مسبقًا داخل scope نفسه؛
+ويجب أن يثبت إطار الاختيار ومصدره استقلالها. episode/mission IDs مراجع تسجيل
+أو تجميع، وليست دليل استقلال بحد ذاتها. عداد Missions في المقيم الحالي حد
+عددي تشخيصي فقط إلى أن يثبت المالك والمراجع المنهجي أن Mission-cluster هي
+وحدة الاستقلال المناسبة وأن الحالة المشتركة بين الوحدات مضبوطة. ولـcross-project
+transfer تُحجز عائلات منشأ projects/fixtures كاملة مع trajectories المرتبطة بها.
+لا تتسرب episode أو revision مشتقة من المصدر نفسه بين training وcalibration و
+final holdout. تعرض النتائج لكل scope/task stratum، مع Brier وECE وفاصل عدم
+يقين محسوب على وحدة الاستقلال المثبتة مسبقًا؛ لا يجعل bootstrap الوحدة مستقلة. إذا
 كان فاصل عدم اليقين لا يسمح بالحكم الواضح على اجتياز أي حد قائم، يبقى التقييم
 غير مكتمل؛ وبالنسبة إلى ECE تحديدًا يجب أن يكون الحد الأعلى نفسه `<= 0.15`.
 لا تعدل العتبات الرقمية في §25.4 لتجاوز نقص القوة الإحصائية. بيانات

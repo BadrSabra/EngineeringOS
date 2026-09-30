@@ -33,7 +33,11 @@ const calibrationScopeRef = () => buildRuntimeStartHypothesisExperimentRegistrat
 
 function experiment(
   index: number,
-  actualOutcomeKey: "runtime_running" | "runtime_not_running" | "runtime_other" = "runtime_running",
+  actualOutcomeKey:
+    | "runtime_running"
+    | "runtime_not_running"
+    | "runtime_other"
+    | "runtime_unexpected" = "runtime_running",
   missionId = `mission-${index}`,
 ): RuntimeStartCalibrationExperiment {
   const registration = buildRuntimeStartHypothesisExperimentRegistration({
@@ -219,6 +223,25 @@ describe("runtime-start hypothesis calibration", () => {
     // runtime_other classes each differ by 0.1; their mean over four classes
     // is 0.05. runtime_unexpected is absent from observations and forecasts.
     expect(evaluation.expectedCalibrationError).toBeCloseTo(0.05, 10);
+    expect(evaluation.independentMissionCount).toBe(90);
+  });
+
+  it("scores an observed zero-probability outcome instead of dropping it", () => {
+    const outcomes: Array<"runtime_running" | "runtime_not_running" | "runtime_unexpected"> = [
+      ...Array.from({ length: 49 }, () => "runtime_running" as const),
+      ...Array.from({ length: 40 }, () => "runtime_not_running" as const),
+      "runtime_unexpected",
+    ];
+    const evaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: outcomes.map((outcome, index) => experiment(index, outcome)),
+    });
+
+    // The forecast assigns runtime_unexpected probability 0. Its observed
+    // frequency still contributes 1/90 to that class's error; this synthetic
+    // test checks evaluator math, not a live runtime outcome path.
+    expect(evaluation.expectedCalibrationError).toBeCloseTo(1 / 18, 10);
+    expect(evaluation.usableOutcomeCount).toBe(90);
     expect(evaluation.independentMissionCount).toBe(90);
   });
 

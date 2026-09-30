@@ -161,7 +161,7 @@ describe("P7.5 runtime-start measurement continuation runner", () => {
     expect(fixture.appended[1]?.payload).toHaveProperty("observationId");
   });
 
-  it("writes a current-attempt runtime.status continuation and keeps inconclusive observations partial", async () => {
+  it("keeps unclassified runtime.status observations partial instead of mapping them to runtime_other", async () => {
     const events = [sourceEvent()];
     const fixture = dependencies(events, {
       runtimeStatus: {
