@@ -207,3 +207,16 @@ export class GroqClientError extends Error {
     });
   }
 }
+
+/**
+ * A same-provider retry cannot resolve these explicitly broader rate limits.
+ * Callers may still hand off to an already-authorized, different provider.
+ */
+export function isProviderScopedRateLimit(error: unknown): boolean {
+  return (
+    error instanceof GroqClientError &&
+    error.code === "RATE_LIMITED" &&
+    (error.rateLimitScope === "upstream_shared_pool" ||
+      error.rateLimitScope === "provider_credential")
+  );
+}

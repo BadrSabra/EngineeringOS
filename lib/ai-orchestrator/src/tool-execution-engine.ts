@@ -16,7 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { GroqClientError } from "./errors.js";
+import { GroqClientError, isProviderScopedRateLimit } from "./errors.js";
 import type {
   AuditState,
   ForensicDecisionTrace,
@@ -3337,9 +3337,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
   /**
    * OR-004: Transient error codes that warrant a powerModel retry within
-   * the same provider. User/validation errors (NON_200, AUTH_ERROR) are not
-   * retried. EMPTY_RESPONSE gets one bounded same-model retry below because
-   * free-tier providers can occasionally return an empty completion.
+   * the same provider. Explicit shared-pool and provider-credential rate limits
+   * are excluded because another model on the same provider cannot resolve
+   * those scopes. User/validation errors are not retried.
    */
   const TRANSIENT_CODES = new Set<string>(["TIMEOUT", "NETWORK_ERROR", "RATE_LIMITED", "SERVER_ERROR"]);
   let emptyResponseRetryUsed = false;
@@ -4368,6 +4368,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (
         err instanceof GroqClientError &&
         TRANSIENT_CODES.has(err.code) &&
+        !isProviderScopedRateLimit(err) &&
         model !== powerModel &&
         (!synthesisOnly || synthesisAttempts < boundedSynthesisMaxAttempts)
       ) {

@@ -3812,6 +3812,9 @@ canonical غير مكتمل عند فشل synthesis، ولا يفتح هذا ا�
 - يعالج OpenRouter سلسلة النماذج وفق rate-limit scope؛ يحافظ الإصلاح على
   السلوك القائم الذي يوقف سلسلة النموذج عند حدود provider-scoped، ولا يعيد
   تدوير النماذج نفسها عند `upstream_shared_pool` أو `provider_credential`.
+  يجب أن يحترم احتياط `powerModel` العام في tool loop النطاقين نفسيهما، لأنه
+  استدعاء إضافي عبر provider strategy ذاته. يبقى انتقال provider مسؤولية
+  المستدعي الذي يملك قائمة بدائل مصرحًا بها؛ لا تنشأ سلسلة تعافٍ ثانية.
 - trace الحالي يربط المحاولة المقبولة والـmanifest والرد، لكن `attemptId`
   الحالي لا يتضمن provider identity. يجب أن تكون هوية محاولة synthesis فريدة
   عبر انتقالات المزود، وأن يبقى model قيمة منفصلة لأن OpenRouter قد يختار

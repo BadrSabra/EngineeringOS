@@ -18,6 +18,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   geminiCompleteRaw,
+  openrouterCompleteRaw,
   openrouterCompleteWithFallback,
   oacCompleteRaw,
   validateGeminiDefaultModels,
@@ -744,6 +745,41 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ["upstream shared pool", "upstream_provider_shared_pool", "upstream_shared_pool"],
+    ["provider credential", "provider_rate_limit", "provider_credential"],
+  ] as const)(
+    "does not retry a %s 429 by default",
+    async (_scopeName, limitSource, expectedScope) => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 429,
+        json: async () => ({}),
+        text: async () => JSON.stringify({
+          error: {
+            message: "Provider returned error",
+            metadata: { limit_source: limitSource },
+          },
+        }),
+      } as Response));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        openrouterCompleteRaw(baseMessages as any, {
+          apiKey: "test-key",
+          model: primaryModel,
+          maxTokens: 10,
+        }),
+      ).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof GroqClientError &&
+          err.code === "RATE_LIMITED" &&
+          err.rateLimitScope === expectedScope,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("429 stops same-provider fallback when transient retry is disabled", async () => {
     let callCount = 0;

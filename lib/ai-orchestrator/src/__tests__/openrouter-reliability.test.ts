@@ -910,6 +910,54 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     vi.restoreAllMocks();
   });
 
+  it.each([
+    {
+      scope: "upstream_shared_pool",
+      limitSource: "upstream_provider_shared_pool",
+      retryTransient: undefined,
+    },
+    {
+      scope: "provider_credential",
+      limitSource: "provider_rate_limit",
+      retryTransient: false,
+    },
+  ] as const)(
+    "does not retry or advance the stream for $scope limits",
+    async ({ scope, limitSource, retryTransient }) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(
+        JSON.stringify({
+          error: {
+            message: "Provider returned error",
+            metadata: { limit_source: limitSource },
+          },
+        }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      ));
+      global.fetch = fetchMock as typeof fetch;
+
+      const run = async () => {
+        for await (const _chunk of openrouterCompleteStream(
+          [{ role: "user", content: "hi" }],
+          {
+            apiKey: "fixture-key",
+            quality: "fast",
+            capability: "chat",
+            maxFallbackModels: 2,
+            ...(retryTransient !== undefined ? { retryTransient } : {}),
+          },
+        )) {
+          // No chunks are expected for a rejected response.
+        }
+      };
+
+      await expect(run()).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        rateLimitScope: scope,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("retries a transient failure before the first chunk within one bounded retry", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()

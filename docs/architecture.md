@@ -191,6 +191,26 @@ Client POST /api/ai/chat or /api/ai/chat/stream
 
 See `.agents/memory/ai-orchestrator-layer.md`, `.agents/memory/ai-tool-calling.md`.
 
+#### Provider retry and fallback ownership
+
+Provider failures carry a bounded, server-classified rate-limit scope. A
+`RATE_LIMITED` response attributed to `upstream_shared_pool` or
+`provider_credential` is not retried against the same model and does not trigger
+the tool loop's same-provider `powerModel` retry. The OpenRouter client remains
+the owner of its bounded model chain; for these scopes it returns the failure
+instead of cascading to another OpenRouter model. A caller may move to another
+provider only when that caller already owns an authorized fallback candidate.
+
+Retry decisions are deterministic and use the typed error scope; the language
+model does not decide whether to retry. Unknown/model-scoped rate limits retain
+their existing bounded behavior. The same scope rule applies before and during
+stream startup; after stream output begins, a failure is terminal to avoid
+duplicating partial output.
+
+This rule prevents duplicate same-provider attempts within an execution. It
+does not add a persistent upstream-pool quarantine or change the separate,
+process-local provider circuit breaker.
+
 ### 4d. Task AI Execute
 
 ```

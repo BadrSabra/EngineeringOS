@@ -19,6 +19,7 @@
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import {
   GroqClientError,
+  isProviderScopedRateLimit,
   type GroqErrorCode,
   type ProviderRateLimitScope,
 } from "./errors.js";
@@ -1277,9 +1278,9 @@ const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
  *
  * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
  *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
- * OR-005: retries once (after 1.5 s back-off) on transient errors (429, 5xx,
- *         timeout, network) before propagating — avoids needless provider
- *         fallback for brief free-tier blips.
+ * OR-005: retries once (after 1.5 s back-off) on transient transport errors
+ *         and rate limits without a known broader scope. A shared-pool or
+ *         provider-credential limit is surfaced for route-level recovery.
  */
 export async function openrouterCompleteRaw(
   messages: RawMessage[],
@@ -1322,8 +1323,7 @@ export async function openrouterCompleteRaw(
       err.code === "RATE_LIMITED" &&
       err.retryAfterMs !== undefined &&
       opts.waitOnRateLimit === true &&
-      err.rateLimitScope !== "upstream_shared_pool" &&
-      err.rateLimitScope !== "provider_credential"
+      !isProviderScopedRateLimit(err)
     ) {
       const remainingMs = opts.executionLedger
         ? opts.executionLedger.timeoutMs()
@@ -1365,7 +1365,13 @@ export async function openrouterCompleteRaw(
       );
       throw err;
     }
-    if (!isTransientError(err) || opts.retryTransient === false) throw err;
+    if (
+      !isTransientError(err) ||
+      opts.retryTransient === false ||
+      isProviderScopedRateLimit(err)
+    ) {
+      throw err;
+    }
     console.warn(
       JSON.stringify({
         scope: "openrouter-client",
@@ -1699,7 +1705,8 @@ export async function openrouterCompleteWithFallback(
  * Streaming completion via OpenRouter.
  *
  * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
- * OR-005: retries the stream once on transient errors.
+ * OR-005: retries the stream once on transient errors unless the rate limit
+ *         scope is broader than the current model/provider attempt.
  */
 export async function* openrouterCompleteStream(
   messages: RawMessage[],
@@ -1773,14 +1780,16 @@ export async function* openrouterCompleteStream(
           !transientRetried &&
           opts.retryTransient !== false &&
           isTransientError(providerError) &&
+          !isProviderScopedRateLimit(providerError) &&
           providerError.retryAfterMs === undefined
         ) {
           transientRetried = true;
           await sleep(1500, retrySignal);
           continue;
         }
-        const canAdvance = isModelUnavailableError(providerError) ||
-          (opts.retryTransient === false && isTransientError(providerError));
+        const canAdvance = !isProviderScopedRateLimit(providerError) &&
+          (isModelUnavailableError(providerError) ||
+            (opts.retryTransient === false && isTransientError(providerError)));
         if (!canAdvance || index >= chain.length - 1) {
           throw new GroqClientError(providerError.code, providerError.message, {
             cause: providerError,

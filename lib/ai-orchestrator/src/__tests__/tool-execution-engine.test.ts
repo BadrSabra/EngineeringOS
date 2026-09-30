@@ -6873,6 +6873,45 @@ describe("executeToolLoop — TIMEOUT degradation (task #67)", () => {
   });
 });
 
+describe("executeToolLoop — provider-scoped rate limits", () => {
+  it.each(["upstream_shared_pool", "provider_credential"] as const)(
+    "does not retry a %s failure through the same-provider powerModel",
+    async (rateLimitScope) => {
+      const { executeToolLoop } = await import("../tool-execution-engine.js");
+      const rateLimitError = new GroqClientError(
+        "RATE_LIMITED",
+        "Provider rate limit reached",
+        { context: { providerName: "OpenRouter", rateLimitScope } },
+      );
+      const strategy: ProviderStrategy = {
+        providerId: "openrouter",
+        supportsNativeStream: false,
+        call: vi.fn(async () => { throw rateLimitError; }),
+        stream: async function* () { yield ""; },
+      };
+
+      await expect(
+        executeToolLoop({
+          messages: makeMessages(),
+          strategy,
+          model: "fast-model",
+          powerModel: "power-model",
+          provider: "openrouter",
+          tools: undefined,
+          rootPath: "",
+          pendingChanges: [],
+          maxIterations: 1,
+        }),
+      ).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+        rateLimitScope,
+      });
+
+      expect(strategy.call).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
 // ── _stripOrphanedToolMessages ────────────────────────────────────────────────
 
 describe("_stripOrphanedToolMessages", () => {
