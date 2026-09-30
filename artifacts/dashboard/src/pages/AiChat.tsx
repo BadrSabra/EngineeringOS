@@ -8880,7 +8880,7 @@ function AgentExecutionProofPanel({
             </span>
              {execution?.evidenceVerdict && (
                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(execution.evidenceVerdict)}`}>
-                 Evidence: {execution.evidenceVerdict.replace('_', ' ')}
+                  Proof verdict: {execution.evidenceVerdict.replace('_', ' ')}
                </span>
              )}
              {forensicVerdict && (
@@ -8964,6 +8964,15 @@ function AgentExecutionProofPanel({
               {recoveryView.title} · {recoveryView.nextStep}
             </p>
           )}
+          <p
+            className="mt-2 rounded-md border border-border/40 bg-background/20 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+            role="note"
+            data-testid="text-execution-lifecycle-distinction"
+          >
+            <span className="font-semibold text-foreground">Separate outcomes.</span>{' '}
+            Run completion does not mean proof was accepted, and accepted proof does not approve changes for delivery.
+            Check each status independently.
+          </p>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>Phase: <strong className="font-medium text-foreground/80">{checkpointStage ?? phase}</strong></span>
             <span>Attempt: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
@@ -9156,7 +9165,7 @@ function AgentExecutionProofPanel({
         </summary>
       <div className="grid grid-cols-2 gap-px bg-border/30 sm:grid-cols-4">
         <div className="bg-background/20 px-3 py-2">
-          <div className="text-[10px] text-muted-foreground">Evidence</div>
+          <div className="text-[10px] text-muted-foreground">Evidence record</div>
           <div className={`mt-0.5 text-[11px] font-medium ${
             evidenceIntegrity?.consistent ? 'text-green-300' : isFixtureLocal ? 'text-violet-200' : 'text-foreground'
           }`}>
@@ -9175,7 +9184,7 @@ function AgentExecutionProofPanel({
           </div>
         </div>
         <div className="bg-background/20 px-3 py-2">
-          <div className="text-[10px] text-muted-foreground">Delivery</div>
+          <div className="text-[10px] text-muted-foreground">Delivery status</div>
           <div className="mt-0.5 text-[11px] font-medium text-foreground">{deliveryLabel}</div>
         </div>
         <div className="bg-background/20 px-3 py-2">

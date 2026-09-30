@@ -1762,6 +1762,9 @@ describe('AiChat authenticated generated mutations', () => {
     expect(summary).toHaveTextContent('Execution ended — proof not accepted');
     expect(summary).toHaveTextContent('Next step: Review the recorded proof');
     const proofPanel = screen.getByLabelText('Agent execution proof');
+    expect(within(proofPanel).getByTestId('text-execution-lifecycle-distinction'))
+      .toHaveTextContent('Run completion does not mean proof was accepted');
+    expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
     fireEvent.click(within(summary).getByRole('button', {
       name: 'Go to next step: Review the recorded proof',
     }));
