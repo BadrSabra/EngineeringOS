@@ -877,6 +877,8 @@ export type AiExecutionRequestEnvelope = {
   /** Server-owned validator profiles selected by the immutable task contract. */
   validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   proofRequired?: boolean;
+  /** Server-owned effect proof requirement, retained for recovery/finalization. */
+  effectRequired?: boolean;
 };
 
 export type AiOrientationRoleManifest = {
@@ -1102,7 +1104,8 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       (value.sessionId !== undefined && typeof value.sessionId !== "string") ||
       typeof value.message !== "string" ||
       typeof value.modelMessage !== "string" ||
-      !Array.isArray(value.validationTargetPaths)
+      !Array.isArray(value.validationTargetPaths) ||
+      (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean")
     ) {
       return undefined;
     }

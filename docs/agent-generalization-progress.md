@@ -3494,6 +3494,35 @@ G9 Revocation Safety
 - **next step:** ثبّت أهلية scope واحد محدد لـP7/P7.5 قبل بدء أي توسعة معرفية؛
   أبقِ P8 مؤجلًا ما دامت P7.5 بلا scope معاير ومراجع.
 
+### 43.09 — إغلاق Apply Changes من القبول حتى dispatch تابع Mission (2026-09-30)
+
+- **phase/step:** إغلاق محدود لمسار P6 Apply Changes D2.
+- **status:** `passed — قبول الأثر، materialized transition، وإطلاق successor مرة واحدة مثبتة عبر endpoint`
+- **what changed:** حُفظ `effectRequired: true` مع `proofRequired: true` في عقد التنفيذ، مع
+  `sourceEvidenceRequired: false` لأن هذا البرهان قائم على ملاحظات live لا قراءات مصدرية.
+  يستبعد حساب مراجعة World State للأب Episode التنفيذ الجاري، ليطابق الاستبعاد نفسه عند
+  finalization ويمنع إعادة محاولة transition صحيح بسبب اختلاف المراجعة. استُبعد successor
+  الذي لا يحمل متطلب Apply من مرشحي ربط المقترح. يمر الاختبار الجديد عبر endpoint الحقيقي
+  وfinalizer وD2؛ ويثبت ملاحظتي الشجرة live قبل/بعد، وtransition ماديًا، وقبول Apply
+  `PROVEN`، وdispatch واحد للـsuccessor.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/ai-execution-state.ts`,
+  `artifacts/api-server/src/routes/ai/chat.ts`,
+  `artifacts/api-server/src/routes/ai.test.ts`,
+  `.agents/memory/apply-changes-acceptance-gate.md`,
+  وهذا السجل. لا تغييرات schema أو migrations.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` نجح؛
+  اختبار endpoint المحدد في `ai.test.ts` نجح (1/1)؛ مجموعة Mission المحددة من
+  مجلد `artifacts/api-server` نجحت (50/50 عبر 4 ملفات)؛ `git diff --check` نجح.
+  أُعيد تشغيل `artifacts/api-server: API Server`؛ اكتمل البناء وبدأ الخادم يستمع
+  على المنفذ 8080 بلا أخطاء بدء تشغيل.
+- **authority/safety impact:** تظل Canonical/Gate C acceptance مستقلة عن D2.
+  لا تكفي حالة القبول وحدها لإطلاق التابع؛ يلزم transition مربوط بإثبات الأثر
+  وملاحظات live مباشرة وحديثة ومراجعة بيئة واحدة. فشل D2 لا يعيد الترويج ولا
+  يمنح صلاحية كتابة جديدة.
+- **remaining/blocker:** لا شيء ضمن مسار Apply Changes المطلوب. لم يبدأ عمل
+  P7.5 أو shadow-loop أو توسعة جديدة لـ`runtime.start`.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -15756,7 +15756,16 @@ async function applyChangesHandler(req: Request, res: Response) {
         const applyMission = policy.applyMission && typeof policy.applyMission === "object"
           ? policy.applyMission as Record<string, unknown>
           : {};
-        return requirement.proposalId === proposalId || applyMission.proposalId === proposalId;
+        const activeRevision = typeof policy.activePlanRevision === "string"
+          ? policy.activePlanRevision
+          : undefined;
+        const binding = applyChangesMissionRequirement(
+          linked.goal,
+          linked.mission,
+          activeRevision,
+        );
+        return binding.kind !== "none"
+          && (requirement.proposalId === proposalId || applyMission.proposalId === proposalId);
       });
       if (proposalBindings.length > 0) {
         const validBindings = proposalBindings.filter((linked) => {
@@ -15800,6 +15809,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           workspaceRoot: resolvedRoot,
           validationTargetPaths: writableChanges.map((change) => change.path),
           proofRequired: true,
+          effectRequired: true,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
@@ -16441,7 +16451,9 @@ async function applyChangesHandler(req: Request, res: Response) {
           applyD2EvidenceFailure = applyD2EvidenceFailure ?? "apply_transition_evidence_incomplete";
         } else {
           try {
-          const world = await getProjectWorldState(projectId);
+          const world = await getProjectWorldState(projectId, {
+            excludeEpisodeIds: [applyProof.episodeId],
+          });
           applyD2TransitionId = await createPendingApplyChangesTransition({
             projectId, executionId: applyProof.executionId, attempt: applyProof.attempt,
             episodeId: applyProof.episodeId, actionId: applyProof.action.actionId,
@@ -16497,7 +16509,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           candidateIdentity: `${proposalId}:${candidateHash}`,
           verdict: allOk ? "PROVEN" : "INCOMPLETE",
           required: true,
-          sourceEvidenceRequired: true,
+          sourceEvidenceRequired: false,
           reads: [],
         },
       });

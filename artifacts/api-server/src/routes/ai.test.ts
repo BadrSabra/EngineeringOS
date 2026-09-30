@@ -18,6 +18,9 @@ import {
   eventsTable,
   workflowsTable,
   workflowExecutionsTable,
+  aiMissionsTable,
+  aiGoalsTable,
+  aiGoalDependenciesTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
@@ -49,6 +52,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
+import * as aiTaskRoutes from "./ai/tasks.js";
 import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
 import {
   canCreateProposal,
@@ -893,6 +897,7 @@ async function insertImplementationPlan(projectId: string): Promise<string> {
 const projectIds: string[] = [];
 const workflowIds: string[] = [];
 const deliveryWorkspaceRoots: string[] = [];
+const fixtureProjectRoots: string[] = [];
 
 async function cleanupProjectFixture(projectId: string): Promise<void> {
   const sessions = await db
@@ -938,6 +943,9 @@ async function cleanupProjectFixture(projectId: string): Promise<void> {
     await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, workflowId));
   }
   await db.delete(workflowsTable).where(eq(workflowsTable.projectId, projectId));
+  await db.delete(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.projectId, projectId));
+  await db.delete(aiGoalsTable).where(eq(aiGoalsTable.projectId, projectId));
+  await db.delete(aiMissionsTable).where(eq(aiMissionsTable.projectId, projectId));
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
 }
 
@@ -969,6 +977,9 @@ afterEach(async () => {
   });
   for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+  for (const projectRoot of fixtureProjectRoots.splice(0)) {
+    await fs.rm(projectRoot, { recursive: true, force: true }).catch(() => undefined);
   }
   for (const pid of projectIds.splice(0)) {
     await cleanupProjectFixture(pid);
@@ -6858,6 +6869,334 @@ describe("POST /api/ai/chat/apply-changes", () => {
       await fs.rm(absolutePath, { force: true });
       await fs.rm(projectRoot, { recursive: true, force: true });
       await fs.rm(projectParent, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a Mission-linked apply through D2 and dispatches its successor", async () => {
+    const projectId = randomUUID();
+    const projectParent = await fs.mkdtemp(
+      `${process.env.WORKSPACE_PATH ?? "/home/runner/workspace"}/.apply-mission-route-`,
+    );
+    const rootPath = `${projectParent}/project`;
+    await fs.mkdir(rootPath);
+    await fs.writeFile(`${rootPath}/package.json`, JSON.stringify({
+      name: `apply-mission-${projectId.slice(0, 8)}`,
+    }));
+    const projectNow = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `apply-mission-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: projectNow,
+      updatedAt: projectNow,
+    });
+    fixtureProjectRoots.push(projectParent);
+    projectIds.push(projectId);
+    const fileName = `mission-apply-${randomUUID().slice(0, 8)}.ts`;
+    const change = {
+      path: fileName,
+      absolutePath: `${rootPath}/${fileName}`,
+      originalContent: null,
+      newContent: "export const missionApplyAccepted = true;\n",
+      reason: "Verify Mission-linked Apply Changes acceptance.",
+      validationProfile: "workspace-typecheck" as const,
+    };
+    const proposalId = await insertChangeProposal(projectId, [change]);
+    const operationId = randomUUID();
+    const deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath,
+      operationId,
+      baseRevision: `test-revision-${randomUUID()}`,
+      changes: [{ path: change.path, newContent: change.newContent }],
+    });
+    deliveryWorkspaceRoots.push(deliveryWorkspace.workspaceRoot);
+    await db.update(aiChangeProposalsTable).set({
+      operationId,
+      workspaceRoot: deliveryWorkspace.workspaceRoot,
+      baseRevision: deliveryWorkspace.baseRevision,
+      changeSetHash: deliveryWorkspace.changeSetHash,
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+    }).where(eq(aiChangeProposalsTable.id, proposalId));
+
+    const missionId = randomUUID();
+    const applyGoalId = randomUUID();
+    const reportGoalId = randomUUID();
+    const reportTaskId = randomUUID();
+    const planRevision = "e".repeat(64);
+    const requirement = {
+      kind: "apply.changes" as const,
+      version: 1 as const,
+      sourceStepId: "apply-changes" as const,
+      proposalId,
+      baseRevision: deliveryWorkspace.baseRevision,
+      candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+      changeSetHash: deliveryWorkspace.changeSetHash,
+      from: "candidate" as const,
+      to: "applied" as const,
+    };
+    const plan = {
+      hash: planRevision,
+      applyRequirement: requirement,
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"] },
+      ],
+    };
+    const now = new Date();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Apply changes mission",
+      intent: "Apply a verified proposal and report the result",
+      status: "waiting",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {
+        activePlanRevision: planRevision,
+        applyMission: { proposalId, requirement },
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: applyGoalId,
+        missionId,
+        projectId,
+        title: "Apply approved changes",
+        status: "waiting_for_event",
+        blockedReason: "apply_changes_pending",
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+        successCriteria: {
+          stepId: "apply-changes",
+          applyRequirement: requirement,
+          planRevision: plan,
+        },
+        outcomeContract: {
+          stepId: "apply-changes",
+          applyRequirement: requirement,
+          candidateIdentity: `${proposalId}:${deliveryWorkspace.candidateTreeHash}`,
+          planRevision: plan,
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: reportGoalId,
+        missionId,
+        projectId,
+        title: "Report applied changes",
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        nextAction: { kind: "task", taskId: reportTaskId, purpose: "execution" },
+        successCriteria: {
+          stepId: "report-applied",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          stepId: "report-applied",
+          planRevision: { hash: planRevision },
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId,
+      projectId,
+      goalId: reportGoalId,
+      dependsOnGoalId: applyGoalId,
+      planRevision,
+      createdAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: reportTaskId,
+      projectId,
+      goalId: reportGoalId,
+      title: "Prepare the apply report",
+      status: "verifying",
+      prompt: "Report the verified changes that were applied.",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValueOnce({
+        status: "passed",
+        profile: "workspace-typecheck",
+        exitCode: 0,
+        scenario: "Run the workspace TypeScript typecheck.",
+        command: "pnpm run typecheck",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "stub",
+        },
+        detail: "Stubbed for Mission-linked Apply Changes test.",
+      });
+    const scheduleSpy = vi.spyOn(aiTaskRoutes, "scheduleAiTaskExecution")
+      .mockImplementation(() => undefined);
+
+    try {
+      const response = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId, proposalId, changes: [change] });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.results[0]).toMatchObject({ ok: true });
+
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        attempt: aiExecutionsTable.attempt,
+        request: aiExecutionsTable.request,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.proposalId, proposalId)).limit(1);
+      expect(execution).toBeDefined();
+      expect(JSON.parse(execution!.request)).toMatchObject({
+        proofRequired: true,
+        effectRequired: true,
+      });
+
+      const [acceptance] = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id)).limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        reasonCode: "ACCEPTED",
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        effectBundleId: expect.any(String),
+        disposition: expect.objectContaining({
+          proof: expect.objectContaining({
+            verdict: "PROVEN",
+            evidenceComplete: true,
+            sourceBound: true,
+            candidateBound: true,
+          }),
+        }),
+      });
+
+      const transitions = await db.select({
+        status: aiWorldTransitionsTable.status,
+        effectBundleId: aiWorldTransitionsTable.effectBundleId,
+        environmentRevision: aiWorldTransitionsTable.environmentRevision,
+        beforeObservationIds: aiWorldTransitionsTable.beforeObservationIds,
+        afterObservationIds: aiWorldTransitionsTable.afterObservationIds,
+        failureCode: aiWorldTransitionsTable.failureCode,
+        retryCount: aiWorldTransitionsTable.retryCount,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, execution!.id));
+      const transitionDiagnostics = {
+        observations: await db.select({
+          id: aiAgentObservationsTable.id,
+          subject: aiAgentObservationsTable.subject,
+          predicate: aiAgentObservationsTable.predicate,
+          projectRevision: aiAgentObservationsTable.projectRevision,
+          environmentRevision: aiAgentObservationsTable.environmentRevision,
+          environmentFreshness: aiAgentObservationsTable.environmentFreshness,
+          value: aiAgentObservationsTable.value,
+          provenance: aiAgentObservationsTable.provenance,
+          freshness: aiAgentObservationsTable.freshness,
+          completeness: aiAgentObservationsTable.completeness,
+        }).from(aiAgentObservationsTable)
+          .where(eq(aiAgentObservationsTable.executionId, execution!.id)),
+        applyGoal: await db.select({
+          status: aiGoalsTable.status,
+          blockedReason: aiGoalsTable.blockedReason,
+        }).from(aiGoalsTable).where(eq(aiGoalsTable.id, applyGoalId)).limit(1),
+      };
+      expect(transitions, JSON.stringify(transitionDiagnostics)).toHaveLength(1);
+      expect(transitions[0]).toMatchObject({
+        status: "materialized",
+        effectBundleId: acceptance!.effectBundleId,
+        failureCode: null,
+      });
+      const transition = transitions[0]!;
+      const beforeObservationIds = transition.beforeObservationIds as string[];
+      const afterObservationIds = transition.afterObservationIds as string[];
+      expect(beforeObservationIds).toHaveLength(1);
+      expect(afterObservationIds).toHaveLength(1);
+      const beforeObservation = transitionDiagnostics.observations.find(
+        (observation) => observation.id === beforeObservationIds[0],
+      );
+      const afterObservation = transitionDiagnostics.observations.find(
+        (observation) => observation.id === afterObservationIds[0],
+      );
+      expect(beforeObservation).toMatchObject({
+        subject: `project:${projectId}`,
+        predicate: "workspace.tree_hash",
+        projectRevision: deliveryWorkspace.baseTreeHash,
+        environmentRevision: transition.environmentRevision,
+        environmentFreshness: "fresh",
+        value: deliveryWorkspace.baseTreeHash,
+        provenance: "DIRECT_OBSERVATION",
+        freshness: "fresh",
+        completeness: "complete",
+      });
+      expect(afterObservation).toMatchObject({
+        subject: `project:${projectId}`,
+        predicate: "workspace.tree_hash",
+        projectRevision: deliveryWorkspace.candidateTreeHash,
+        environmentRevision: transition.environmentRevision,
+        environmentFreshness: "fresh",
+        value: deliveryWorkspace.candidateTreeHash,
+        provenance: "DIRECT_OBSERVATION",
+        freshness: "fresh",
+        completeness: "complete",
+      });
+      expect(transition.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
+
+      const [applyGoal] = await db.select({
+        status: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, applyGoalId)).limit(1);
+      const [reportGoal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId)).limit(1);
+      expect(applyGoal?.status).toBe("completed");
+      expect(applyGoal?.outcomeContract).toMatchObject({
+        acceptance: {
+          verdict: "PROVEN",
+          reasonCode: "APPLY_CHANGES_D2_PROVEN",
+        },
+      });
+      expect(reportGoal?.status).toBe("running");
+
+      const events = await db.select({
+        type: eventsTable.type,
+        goalId: eventsTable.goalId,
+        taskId: eventsTable.taskId,
+      }).from(eventsTable).where(eq(eventsTable.projectId, projectId));
+      const reportDispatches = events.filter((event) =>
+        event.type === "AiGoalDispatchRequested" && event.goalId === reportGoalId,
+      );
+      expect(reportDispatches).toEqual([
+        expect.objectContaining({ taskId: reportTaskId }),
+      ]);
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
+      expect(scheduleSpy).toHaveBeenCalledWith(
+        reportTaskId,
+        "test-user",
+        { parentExecutionId: null },
+      );
+    } finally {
+      validationSpy.mockRestore();
+      scheduleSpy.mockRestore();
     }
   });
 

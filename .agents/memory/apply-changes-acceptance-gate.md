@@ -20,3 +20,9 @@ Never treat candidate/proposal-scoped observations as live-project facts. For an
 **Why:** Candidate verification, Gate-C acceptance, and filesystem promotion are separate from a durable live-world claim. Candidate-scoped hashes must not become live facts, and an accepted apply cannot satisfy Mission D2 without direct, revision-bound observations.
 
 **How to apply:** Require the active-plan binding, accepted execution attempt/effect bundle, materialized transition, before/after tree hashes, and fresh environment binding. D2 failure blocks the linked successor and requires replan, but never revokes independent Gate-C acceptance or repeats filesystem promotion.
+
+When recording the parent World State revision for an Apply Changes transition, exclude the active apply Episode; finalization must compare against that same parent projection.
+
+**Why:** The live before/after observations are retained before the transition is created. Including them in the parent revision and excluding them during finalization makes a valid transition look like parent drift and leaves it retrying.
+
+**How to apply:** Capture the parent with `getProjectWorldState` excluding the transition Episode, then preserve the matching exclusion during materialization. Keep those direct observations linked to the transition itself.
