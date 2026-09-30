@@ -3897,6 +3897,27 @@ G9 Revocation Safety
 - **next step:** مراجعة منهجية قبل أي تغيير policy/version؛ لا emitter جديد
   أو تعديل forecast أو جمع قبل تجميد العقد والسلطة والتفويض المنفصل.
 
+### 43.26 — تثبيت NO-GO لجمع v1 الحالي (2026-09-30)
+
+- **phase/step:** P7.5 — توحيد حالة البروتوكول مع سجل قرارات المصادر.
+- **status:** `done — current-protocol disposition recorded; no collection`
+- **what changed:** أصبح سجل السلطة يصرح بـ`NO-GO` لتكوين cohort أو جمع
+  معايرة v1 تحت البروتوكول الحالي، مع توضيح أن ذلك حكم جاهزية وسلطة لا
+  حكم على دقة forecast أو أداء runtime. السبب هو غياب مصدر مؤهل للاستقلال
+  وheld-out، وغياب سلطة/مراجعة لازمة، وفجوة emitter لـ`runtime_other`.
+  عُدّل الملخص التنفيذي للخطة ليطابق §42.8.
+- **files/schema/contracts touched:** سجل قرار P7.5، ملخص خطة التنفيذ،
+  وسجل التقدم؛ لا schema أو production code أو policy/evaluator change.
+- **validation:** مطابقة الحالة مع جدول الادعاءات السبعة و§42.8 وتدقيق
+  الجدوى؛ `git diff --check`.
+- **authority/safety impact:** تثبيت الحاجز الحالي فقط؛
+  `collectionAuthorized=false` و`fixed_safe_probe` بلا تغيير. لا runtime،
+  reset، cohort، أو جمع.
+- **remaining/blocker:** إعادة الفتح تتطلب بروتوكولًا محدد النطاق/الإصدار
+  وإثبات الادعاءات المحجوبة وموافقة جمع صريحة.
+- **next step:** لا متابعة تشغيلية ضمن البروتوكول الحالي؛ الخطوة التالية
+  قرار بشري/منهجي على بروتوكول مستقبلي مستقل.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

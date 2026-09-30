@@ -1,7 +1,7 @@
 # P7.5 Claim-to-Authority Decision Record
 
 **Decision date:** 2026-09-28
-**Status:** Owner decision values recorded; runtime evidence verification and collection remain blocked.
+**Status:** Current P7.5 v1 collection is `NO-GO` under the present protocol; runtime evidence verification and collection remain blocked.
 
 ## Decision boundary
 
@@ -16,6 +16,21 @@ Runtime evidence continues to use `SERVER_VERIFIED`, `HUMAN_REVIEW_REQUIRED`,
 `MISSING`, `UNVERIFIABLE`, `CONFLICTING`, and `OUT_OF_SCOPE`. None of the
 governance decisions below changes a runtime evidence state or collection
 authorization.
+
+## Current v1 disposition
+
+`NO-GO` applies to forming or collecting a P7.5 v1 calibration cohort under
+the present protocol. The independent-sampling and held-out-provenance claims
+have `NO_QUALIFIED_SOURCE`; reviewer authority, controlled reset,
+pre-outcome freeze, and evaluator applicability still require designated
+human authority/review. The unresolved `runtime_other` emitter is an
+additional outcome-contract blocker.
+
+This is a readiness and authority disposition, not a finding that the forecast
+is miscalibrated or that runtime behavior failed. It does not authorize a
+replacement sample source or unit. Reopening collection requires a separately
+scoped/versioned protocol with the missing claims resolved and explicit
+collection approval.
 
 ## Seven-claim owner decisions
 
