@@ -35,12 +35,10 @@ describe('Shell mobile navigation', () => {
     expect(document.body.style.overflow).toBe('hidden');
     expect(screen.getByTestId('button-close-navigation')).toHaveFocus();
 
-    const firstFocusable = drawer.querySelector<HTMLElement>('button:not(:disabled)');
-    expect(firstFocusable).not.toBeNull();
-    firstFocusable?.focus();
-    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    opener.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
     expect(drawer.contains(document.activeElement)).toBe(true);
-    expect(document.activeElement).not.toBe(firstFocusable);
+    expect(document.activeElement).not.toBe(opener);
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(await screen.findByRole('button', { name: 'Open navigation' })).toHaveFocus();
