@@ -161,6 +161,71 @@ describe("P7.5 runtime-start measurement continuation runner", () => {
     expect(fixture.appended[1]?.payload).toHaveProperty("observationId");
   });
 
+  it.each([
+    {
+      label: "failed status with a dead process",
+      processAlive: false,
+      actualOutcomeKey: "runtime_not_running",
+    },
+    {
+      label: "failed status with a live process",
+      processAlive: true,
+      actualOutcomeKey: "runtime_unexpected",
+    },
+  ])("maps $label to $actualOutcomeKey", async ({ processAlive, actualOutcomeKey }) => {
+    const fixture = dependencies([sourceEvent()], {
+      runtimeStatus: {
+        status: "failed",
+        processAlive,
+        portReady: false,
+        servingRevision: null,
+      },
+    });
+
+    const result = await runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    );
+
+    expect(result).toMatchObject({
+      reasonCode: "P75_MEASUREMENT_CONTINUATION_RECORDED",
+      measurementValidity: "complete_fresh",
+    });
+    expect(fixture.appended[1]?.payload).toMatchObject({
+      recordKind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT",
+      measurementValidity: "complete_fresh",
+      actualOutcomeKey,
+      calibrationEligibility: "not_eligible_without_versioned_policy_review",
+    });
+  });
+
+  it("keeps a passed but non-serving runtime status partial without assigning an outcome", async () => {
+    const fixture = dependencies([sourceEvent()], {
+      runtimeStatus: {
+        status: "passed",
+        processAlive: true,
+        portReady: false,
+        servingRevision: null,
+      },
+    });
+
+    const result = await runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    );
+
+    expect(result).toMatchObject({
+      reasonCode: "P75_MEASUREMENT_CONTINUATION_RECORDED",
+      measurementValidity: "partial",
+    });
+    expect(fixture.appended[1]?.payload).toMatchObject({
+      recordKind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT",
+      measurementValidity: "partial",
+      calibrationEligibility: "not_eligible_without_versioned_policy_review",
+    });
+    expect(fixture.appended[1]?.payload).not.toHaveProperty("actualOutcomeKey");
+  });
+
   it("keeps unclassified runtime.status observations partial instead of mapping them to runtime_other", async () => {
     const events = [sourceEvent()];
     const fixture = dependencies(events, {
