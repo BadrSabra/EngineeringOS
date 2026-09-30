@@ -189,6 +189,10 @@ trust from provider prose. Collection approval remains a separate gate.
 
 ## Guardrails
 
+- The proposed operating procedure in
+  `docs/p75-sampling-heldout-governance-procedure.md` was authorized for
+  design only on 2026-09-30. No issuer, source, reviewer, or authority basis
+  was designated; the two `NO_QUALIFIED_SOURCE` decisions above are unchanged.
 - Do not infer additional authority or evidence from source presence, caller claims, hashes, or examples.
 - Do not add IAM, approval storage, an endpoint, Dashboard controls, a cohort, a selector, a verifier, or collection authorization as part of this decision record.
 - P7.5 remains `BLOCKED`; `collectionAuthorized=false`; `fixed_safe_probe` remains unchanged.
