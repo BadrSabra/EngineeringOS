@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { getMissionState } from './mission-state';
+import type { ExecutionRecoveryView } from '@/lib/execution-recovery-view';
 
 export type ProjectionAction = AiExecutionProjection['allowedActions'][number];
 
@@ -46,6 +47,10 @@ export type ExecutionProjectionPanelProps = {
   missionId?: string | null;
   operationId?: string | null;
   proposalId?: string | null;
+  /** AI chat supplies its server-scoped recovery presentation to every surface. */
+  recoveryView?: ExecutionRecoveryView;
+  readOnly?: boolean;
+  hideRecoveryActions?: boolean;
 };
 
 const actionLabels: Record<ProjectionAction, string> = {
@@ -184,6 +189,9 @@ export function ExecutionProjectionPanel({
   missionId,
   operationId,
   proposalId,
+  recoveryView,
+  readOnly = false,
+  hideRecoveryActions = false,
 }: ExecutionProjectionPanelProps) {
   const queryClient = useQueryClient();
   const [pendingAction, setPendingAction] = useState<ProjectionAction | null>(null);
@@ -200,7 +208,15 @@ export function ExecutionProjectionPanel({
   const recentTools = projection.tools?.recent ?? [];
   const changedFiles = projection.workspace?.changedFiles ?? [];
   const allowedActions = projection.allowedActions ?? [];
-  const orderedActions = [...allowedActions].sort(
+  const orderedActions = allowedActions.filter((action) => {
+    if (readOnly && action !== 'REVIEW_PROOF' && action !== 'REVIEW_DIFF') return false;
+    if (hideRecoveryActions && (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT')) return false;
+    if (recoveryView && (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT')) {
+      return action === (recoveryView.action === 'retry' ? 'RETRY_CHECKPOINT'
+        : recoveryView.action === 'resume' ? 'RESUME_CHECKPOINT' : null);
+    }
+    return true;
+  }).sort(
     (left, right) => actionOrder.indexOf(left) - actionOrder.indexOf(right),
   );
   const verdict = evidenceVerdict ?? projection.verification?.evidenceVerdict;
@@ -217,7 +233,16 @@ export function ExecutionProjectionPanel({
   const isStopped = Boolean(projection.stopped?.outcome);
   const resolvedMissionId = missionId ?? operationId ?? executionId;
   const resolvedProposalId = proposalId ?? projection.approval?.proposalId;
-  const primaryAction = missionState.primaryAction;
+  const recoveryAction = recoveryView?.action === 'retry' ? 'RETRY_CHECKPOINT'
+    : recoveryView?.action === 'resume' ? 'RESUME_CHECKPOINT' : null;
+  const recoveryState = readOnly || executionStatus === 'paused' || executionStatus === 'failed';
+  const primaryAction = recoveryState && recoveryView && hideRecoveryActions
+    ? null
+    : recoveryAction && orderedActions.includes(recoveryAction)
+    ? recoveryAction
+    : missionState.primaryAction && orderedActions.includes(missionState.primaryAction)
+      ? missionState.primaryAction
+      : null;
   const secondaryActions = orderedActions.filter((action) => action !== primaryAction);
 
   async function loadDiff(): Promise<void> {
@@ -246,6 +271,7 @@ export function ExecutionProjectionPanel({
   }
 
   async function runAction(action: ProjectionAction): Promise<void> {
+    if (!orderedActions.includes(action)) return;
     if (action === 'REVIEW_DIFF') {
       await loadDiff();
       return;
@@ -461,8 +487,14 @@ export function ExecutionProjectionPanel({
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Next action</div>
-            <div className="mt-0.5 text-xs font-semibold text-foreground">{missionState.primaryActionLabel}</div>
-            {nextAction && (
+            <div className="mt-0.5 text-xs font-semibold text-foreground">
+              {recoveryState && recoveryView ? recoveryView.nextStep : missionState.primaryActionLabel}
+            </div>
+            {recoveryState && recoveryView ? (
+              <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="text-next-action">
+                {recoveryView.detail}
+              </div>
+            ) : nextAction && (
               <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="text-next-action">
                 {nextAction}
               </div>

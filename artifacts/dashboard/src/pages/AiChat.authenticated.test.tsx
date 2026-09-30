@@ -518,7 +518,8 @@ describe('AiChat settings disclosure', () => {
     const settingsToggle = screen.getByRole('button', { name: 'AI settings and diagnostics' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
-    expect(screen.queryByText('No cancelled or incomplete audits for this project.')).not.toBeInTheDocument();
+    expect(screen.getByText('No cancelled or incomplete audits for this project.')
+      .closest('#historical-audits-content')).toHaveAttribute('hidden');
 
     const policy = screen.getByRole('region', { name: 'Automatic delivery promotion policy' });
     const policyToggle = within(policy).getByRole('button', { name: /Automatic delivery promotion/i });
@@ -969,8 +970,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(await screen.findByText('Saved execution paused — resume available')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       projectId: 'project-1',
@@ -993,7 +994,7 @@ describe('AiChat authenticated generated mutations', () => {
     }));
 
     renderAiChat();
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       projectId: 'project-1',
@@ -1148,7 +1149,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/ai/executions/execution-missing-token/resume-capability',
@@ -1157,7 +1158,7 @@ describe('AiChat authenticated generated mutations', () => {
       expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}').resumeToken)
         .toBe('recovered-opaque-resume-token');
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       executionId: 'execution-missing-token',
       resumeToken: 'recovered-opaque-resume-token',
@@ -1191,9 +1192,9 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
     expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry resume execution' })).toBeInTheDocument();
     fetchSpy.mockRestore();
   });
 
@@ -1244,7 +1245,10 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Retry checkpoint' }))[0]);
+    expect(await screen.findByTestId('execution-recovery-banner'))
+      .toHaveTextContent('Execution failed — checkpoint retry available');
+    expect(screen.getAllByRole('button', { name: 'Retry checkpoint' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry checkpoint' }));
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/ai/executions/execution-retry-checkpoint/retry-capability',
@@ -1260,6 +1264,47 @@ describe('AiChat authenticated generated mutations', () => {
         message: 'Retry the timed out execution',
       }));
     });
+    fetchSpy.mockRestore();
+  });
+
+  it('explains delivery recovery and requires confirmation before discarding its workspace', async () => {
+    const discardUrl = '/api/ai/delivery/proposal-recoverable/discard';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      if (String(input).includes('/api/ai/delivery/recoverable')) {
+        return Promise.resolve(new Response(JSON.stringify({ operations: [{
+          proposalId: 'proposal-recoverable',
+          operationId: 'operation-recoverable',
+          sessionId: 'session-1',
+          lifecycle: 'blocked',
+          status: 'blocked',
+          recoveryState: 'recoverable',
+          operatorExplanation: 'Checks did not complete.',
+          nextAction: 'Resume validation or discard the retained workspace.',
+          workspaceAvailable: true,
+          changeCount: 1,
+          createdAt: '2026-09-30T00:00:00.000Z',
+        }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response('{}', {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    });
+
+    renderAiChat();
+    expect(await screen.findByText(/These are retained delivery workspaces, not paused AI executions/))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard delivery workspace' }));
+    expect(screen.getByRole('dialog', { name: 'Discard this delivery workspace?' })).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalledWith(discardUrl, expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'Keep workspace' }));
+    expect(fetchSpy).not.toHaveBeenCalledWith(discardUrl, expect.anything());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard delivery workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard temporary workspace' }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      discardUrl,
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    ));
     fetchSpy.mockRestore();
   });
 
@@ -1284,8 +1329,29 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByText('Execution ended — start a new run')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Recovering…' })).not.toBeInTheDocument();
+  });
+
+  it('does not use a status row belonging to another execution after switching sessions', async () => {
+    mocks.activeExecutionStatus = {
+      id: 'execution-from-other-session',
+      status: 'paused',
+      resumable: true,
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-current-session',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: 'Continue current execution',
+      proofRequired: true,
+    }));
+
+    renderAiChat();
+    expect(await screen.findByTestId('execution-recovery-banner'))
+      .toHaveTextContent('Checking saved execution status');
+    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
   });
 
   it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
@@ -1300,8 +1366,8 @@ describe('AiChat authenticated generated mutations', () => {
     }));
 
     const { invalidateQueries } = renderAiChat();
-    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(await screen.findByText('Execution failed — resume available')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       executionId: 'execution-failed-resume',
@@ -3934,7 +4000,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     const proofPanel = await screen.findByRole('generic', { name: 'Agent execution proof' });
     expect(proofPanel).toHaveTextContent('Agent execution proof');
-    expect(proofPanel).toHaveTextContent('Running');
+    expect(proofPanel).toHaveTextContent('Checking status');
     expect(proofPanel).toHaveTextContent('execution-proof-1');
     expect(proofPanel).toHaveTextContent('Telemetry consistent');
     expect(proofPanel).toHaveTextContent('No writes applied automatically');

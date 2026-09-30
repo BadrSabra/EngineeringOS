@@ -66,6 +66,11 @@ import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
 import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import {
+  executionCanResume,
+  getExecutionRecoveryView,
+  type ExecutionRecoveryView,
+} from '@/lib/execution-recovery-view';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 import { parseProjectQuerySourceReference } from '@/lib/project-query-source-reference';
 import {
@@ -8333,26 +8338,6 @@ type AgentExecutionProofStatus = {
   projection?: AiExecutionProjection | null;
 };
 
-function executionCanResume(
-  execution: Pick<AgentExecutionProofStatus, 'status' | 'resumable' | 'acceptance'> | null | undefined,
-): boolean {
-  if (!execution || (execution.status !== 'paused' && execution.status !== 'failed')) {
-    return false;
-  }
-  // The durable status response is authoritative. Keep the undefined checks
-  // for older/test projections that predate the acceptance fields, but never
-  // offer resume when the server explicitly rejected it.
-  return execution.resumable !== false
-    && execution.acceptance?.resumable !== false
-    && (
-      execution.acceptance?.nextActionCode === undefined
-      || execution.acceptance.nextActionCode === 'RESUME_ALLOWED'
-      || execution.acceptance.nextActionCode === 'RETRY_AFTER_PARSE'
-      || execution.acceptance.nextActionCode === 'RETRY_AFTER_TIMEOUT'
-      || execution.acceptance.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
-    );
-}
-
 function flightDeckStateLabel(state: AgentExecutionProofStatus['flightState']): string {
   switch (state) {
     case 'READY_FOR_REVIEW':
@@ -8569,6 +8554,8 @@ function BenchmarkMissionControl() {
 
 function proofStatusLabel(status: string | undefined): string {
   switch (status) {
+    case 'checking':
+      return 'Checking status';
     case 'queued':
       return 'Queued';
     case 'running':
@@ -8660,6 +8647,7 @@ type AuditPreview = ExportAiExecutionAudit200;
 
 function AgentExecutionProofPanel({
   execution,
+  recoveryView,
   terminalProjection,
   executionId,
   executionNodes,
@@ -8676,7 +8664,6 @@ function AgentExecutionProofPanel({
   isFixtureLocal,
   verdictScope,
   onCancel,
-  onResume,
   onProjectionAction,
   onExport,
   onPreview,
@@ -8690,6 +8677,7 @@ function AgentExecutionProofPanel({
   forensicVerdict,
 }: {
   execution?: AgentExecutionProofStatus | null;
+  recoveryView?: ExecutionRecoveryView;
   terminalProjection?: AiTerminalProjection | null;
   executionId?: string;
   executionNodes: AiExecutionNodeSnapshot[];
@@ -8718,7 +8706,6 @@ function AgentExecutionProofPanel({
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   } | null;
   onCancel?: () => void;
-  onResume?: (mode?: 'resume' | 'retry') => void;
   onProjectionAction?: (action: AiExecutionProjection['allowedActions'][number]) => Promise<void> | void;
   onExport?: () => void;
   onPreview?: () => void;
@@ -8738,7 +8725,7 @@ function AgentExecutionProofPanel({
     ? persistedStatus ?? 'running'
     : persistedStatus ??
       (executionId
-        ? 'running'
+        ? 'checking'
         : pushReady
         ? 'ready-to-push'
         : commitReadyPaths.length > 0
@@ -8813,8 +8800,6 @@ function AgentExecutionProofPanel({
           ? 'Evidence integrity risk'
           : 'No unresolved patch risk recorded';
   const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
-  const retryCheckpoint = execution?.projection?.allowedActions.includes('RETRY_CHECKPOINT');
-  const canResume = Boolean(onResume && (executionCanResume(execution) || retryCheckpoint));
   const canExport = Boolean(
     executionId
       && onExport
@@ -8885,7 +8870,7 @@ function AgentExecutionProofPanel({
             <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
               {busy ? `${formatElapsed(elapsedSeconds)} elapsed` : 'Persisted proof'}
             </span>
-            {canExport || canCancel || canResume ? (
+            {canExport || canCancel ? (
               <div className="flex shrink-0 items-center gap-1.5">
                 {canExport && (
                   <>
@@ -8932,23 +8917,15 @@ function AgentExecutionProofPanel({
                     {status === 'cancelling' ? 'Cancelling…' : 'Cancel'}
                   </Button>
                 )}
-                {canResume && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onResume?.(retryCheckpoint ? 'retry' : 'resume')}
-                    disabled={controlPending}
-                    className="h-6 px-2 text-[10px]"
-                  >
-                    <RotateCcw className="mr-1 h-3 w-3" />
-                    {retryCheckpoint ? 'Retry checkpoint' : 'Resume'}
-                  </Button>
-                )}
               </div>
             ) : null}
           </div>
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{phase}</p>
+          {recoveryView && (
+            <p className="mt-1 text-[10px] font-medium text-foreground" data-testid="text-execution-recovery-state">
+              {recoveryView.title} · {recoveryView.nextStep}
+            </p>
+          )}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>Phase: <strong className="font-medium text-foreground/80">{checkpointStage ?? phase}</strong></span>
             <span>Attempt: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
@@ -9005,6 +8982,9 @@ function AgentExecutionProofPanel({
         resumable={execution?.resumable}
         nextAction={execution?.evidenceReason ?? execution?.acceptanceDisposition?.operatorAction}
         onAction={onProjectionAction}
+        recoveryView={recoveryView}
+        readOnly={!onProjectionAction}
+        hideRecoveryActions
         compact
       />
 
@@ -10587,6 +10567,10 @@ export default function AiChat() {
     },
   });
   const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
+  const [deliveryToDiscard, setDeliveryToDiscard] = useState<{
+    projectId: string;
+    delivery: RecoverableDelivery;
+  } | null>(null);
 
   async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
     if (deliveryRecoveryPending || proposal.recoveryState !== 'recoverable') return;
@@ -12302,15 +12286,20 @@ export default function AiChat() {
   const latestForensicVerdict = latestForensicMessage
     ? getFinalForensicVerdict(latestForensicMessage.content, latestForensicStatus)
     : null;
+  const scopedExecutionStatus = activeExecutionStatus?.id
+    && activeExecutionStatus.id !== activeExecution?.id ? null : activeExecutionStatus;
+  const recoveryView = activeExecution
+    ? getExecutionRecoveryView(scopedExecutionStatus, Boolean(historicalExecutionId))
+    : null;
   const activeExecutionIsProofBearing = Boolean(
     activeExecution
     && (
       activeExecution.proofRequired === true
-      || activeExecutionStatus?.proofRequired === true
+      || scopedExecutionStatus?.proofRequired === true
       || operationMode !== 'CHAT'
     )
     && activeExecution.proofRequired !== false
-    && activeExecutionStatus?.proofRequired !== false,
+    && scopedExecutionStatus?.proofRequired !== false,
   );
   const showExecutionProof = Boolean(
     activeExecutionIsProofBearing ||
@@ -12327,7 +12316,7 @@ export default function AiChat() {
     && (
       historicalExecutionId
       || activeExecution?.proofRequired === true
-      || activeExecutionStatus?.proofRequired === true
+      || scopedExecutionStatus?.proofRequired === true
     ),
   );
 
@@ -12808,6 +12797,10 @@ export default function AiChat() {
                 <RotateCcw className="h-3.5 w-3.5" />
                 Recoverable delivery work
               </div>
+               <p className="mt-1 text-[11px] leading-4 text-amber-100/80">
+                 These are retained delivery workspaces, not paused AI executions. Resuming validation reruns the registered checks;
+                 an owner-enabled automatic promotion policy may then apply a passing low-risk candidate.
+               </p>
               <div className="mt-2 space-y-2">
                   {recoverableDeliveries!.operations.map((delivery) => (
                     <div
@@ -12884,7 +12877,7 @@ export default function AiChat() {
                         onClick={() => void recoverDelivery(delivery, 'resume-validation')}
                       >
                         {deliveryRecoveryPending === delivery.proposalId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
-                        Resume validation
+                        Resume delivery validation
                       </Button>
                       <Button
                         type="button"
@@ -12892,10 +12885,10 @@ export default function AiChat() {
                         variant="ghost"
                         className="h-7 px-2 text-[11px] text-red-200 hover:text-red-100"
                         disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
-                        onClick={() => void recoverDelivery(delivery, 'discard')}
+                        onClick={() => setDeliveryToDiscard({ projectId: selectedProjectId, delivery })}
                       >
                         <Trash2 className="mr-1 h-3 w-3" />
-                        Discard workspace
+                        Discard delivery workspace
                       </Button>
                     </div>
                   </div>
@@ -12993,7 +12986,8 @@ export default function AiChat() {
             <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
                {showExecutionProof && (
                  <AgentExecutionProofPanel
-                   execution={activeExecutionStatus}
+                    execution={scopedExecutionStatus}
+                    recoveryView={recoveryView ?? undefined}
                    terminalProjection={activeExecution?.terminalProjection}
                    executionId={activeExecution?.id}
                     executionNodes={executionNodes}
@@ -13006,12 +13000,11 @@ export default function AiChat() {
                    commitReadyPaths={commitReadyPaths}
                    pushReady={pushReady}
                    evidenceIntegrity={liveEvidenceIntegrity}
-                    persistedEvidenceFiles={persistedCompletedReadFiles(activeExecutionStatus)}
+                     persistedEvidenceFiles={persistedCompletedReadFiles(scopedExecutionStatus)}
                    isFixtureLocal={liveFixtureLocal}
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
-                    onResume={historicalExecutionId ? undefined : (mode) => void resumeActiveExecution(mode)}
-                   onProjectionAction={handleProjectionAction}
+                    onProjectionAction={historicalExecutionId ? undefined : handleProjectionAction}
                    onExport={exportExecutionAudit}
                    onPreview={previewExecutionAudit}
                    onRetryPreview={previewExecutionAudit}
@@ -13246,35 +13239,21 @@ export default function AiChat() {
 
         {/* Input */}
          <div className="chat-input-bar min-w-0 shrink-0 border-t border-border bg-background/90 p-3 backdrop-blur sm:p-4">
-          {activeExecution && activeExecutionIsProofBearing && !isAgentBusy && (
-            <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+           {activeExecution && recoveryView && activeExecutionIsProofBearing && !isAgentBusy && (
+             <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs" role="status" data-testid="execution-recovery-banner">
               <div className="min-w-0">
                 <div className="font-medium text-foreground">
-                  {activeExecutionStatus?.status === 'running'
-                    ? 'The AI execution is still running on the server'
-                    : activeExecutionStatus?.status === 'queued'
-                      ? 'The AI execution is queued on the server'
-                      : activeExecutionStatus?.status === 'cancelling'
-                        ? 'The AI execution is being cancelled'
-                      : activeExecutionStatus?.status === 'completed'
-                        ? 'The AI execution is complete'
-                      : activeExecutionStatus?.status === 'cancelled'
-                        ? 'The AI execution was cancelled'
-                      : activeExecutionStatus
-                        && !executionCanResume(activeExecutionStatus)
-                          ? 'Execution ended — start a new run'
-                          : 'A saved AI execution is ready to resume'}
+                   {recoveryView.title}
                 </div>
-                <div className="truncate text-muted-foreground">
-                  Execution {activeExecution.id.slice(0, 8)}… · no file changes were applied automatically
-                  {activeExecutionStatus?.checkpointVersion != null
-                    ? ` · checkpoint ${activeExecutionStatus.checkpointVersion}`
+                 <div className="text-muted-foreground">
+                   {recoveryView.detail}
+                   {' · '}Execution {activeExecution.id.slice(0, 8)}…
+                   {scopedExecutionStatus?.checkpointVersion != null
+                     ? ` · checkpoint ${scopedExecutionStatus.checkpointVersion}`
                     : ''}
                 </div>
               </div>
-              {!historicalExecutionId
-                && (!activeExecutionStatus || executionCanResume(activeExecutionStatus))
-                && (
+               {recoveryView.action && (
                 <div className="flex shrink-0 items-center gap-2">
                   {resumeRecoveryError && (
                     <span className="max-w-40 text-right text-[10px] text-destructive">
@@ -13284,15 +13263,17 @@ export default function AiChat() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => void resumeActiveExecution()}
+                      onClick={() => void resumeActiveExecution(recoveryView.action ?? 'resume')}
                     disabled={resumeRecoveryPending}
+                      data-testid="button-recover-execution"
+                      aria-label={resumeRecoveryError
+                        ? recoveryView.action === 'retry' ? 'Retry checkpoint again' : 'Retry resume execution'
+                        : recoveryView.actionLabel ?? undefined}
                   >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                    {resumeRecoveryPending
-                      ? 'Recovering…'
-                      : resumeRecoveryError
-                        ? 'Retry'
-                        : 'Resume'}
+                    {resumeRecoveryPending ? 'Recovering…' : resumeRecoveryError
+                      ? recoveryView.action === 'retry' ? 'Retry checkpoint again' : 'Retry resume execution'
+                      : recoveryView.actionLabel}
                   </Button>
                 </div>
               )}
@@ -13320,6 +13301,7 @@ export default function AiChat() {
                disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
                className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
+              aria-label={applyMutation.isPending ? 'Applying changes' : isAgentBusy ? 'AI is working' : getSendTitle()}
             >
               {isSending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -13331,6 +13313,38 @@ export default function AiChat() {
           </div>
         </div>
       </div>
+      <Dialog
+        open={Boolean(deliveryToDiscard && deliveryToDiscard.projectId === selectedProjectId)}
+        onOpenChange={(open) => {
+          if (!open && !deliveryRecoveryPending) setDeliveryToDiscard(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard this delivery workspace?</DialogTitle>
+            <DialogDescription>
+              This removes the temporary workspace and its unapplied candidate changes for this delivery operation.
+              It does not delete your project. This is not the same as stopping or resuming the AI execution.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeliveryToDiscard(null)}
+              disabled={deliveryRecoveryPending !== null} data-testid="button-cancel-delivery-discard">
+              Keep workspace
+            </Button>
+            <Button type="button" variant="destructive" data-testid="button-confirm-delivery-discard"
+              disabled={deliveryRecoveryPending !== null}
+              onClick={() => {
+                if (!deliveryToDiscard || deliveryToDiscard.projectId !== selectedProjectId) return;
+                const delivery = deliveryToDiscard.delivery;
+                setDeliveryToDiscard(null);
+                void recoverDelivery(delivery, 'discard');
+              }}>
+              Discard temporary workspace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
