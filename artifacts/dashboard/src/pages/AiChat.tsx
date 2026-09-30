@@ -6273,6 +6273,16 @@ function MessageBubble({
             </ReactMarkdown>
           )}
         </div>}
+        {!isUser && msg.projection?.kind === 'DELIVERY' && (
+          <MissionCapsule
+            projection={msg.projection}
+            executionId={msg.executionId}
+            proposalId={msg.projection.approval?.proposalId}
+            readOnly
+            hideRecoveryActions
+            timelineOpenByDefault
+          />
+        )}
         {canOfferMissionHandoff && (
           <Button
             type="button"

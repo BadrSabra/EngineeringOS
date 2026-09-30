@@ -20,3 +20,9 @@ For cross-provider PROJECT_QUERY synthesis, the accepted synthesis provider—no
 **Why:** A provider may acquire evidence successfully and fail only at synthesis, after which another authorized provider supplies the answer. Reporting the first provider as the answer source misstates provenance.
 
 **How to apply:** Capture accepted synthesis identity in server-owned state and use it for effective-provider telemetry and response projections; use only the model ID reported by the accepted synthesis call.
+
+Delivery projections must remain visible on the persisted assistant message after a successful terminal event clears the active execution panel. The message/history view should render the server-owned stage projection, not derive milestone state from response text or run status.
+
+**Why:** A correct SSE and history payload can still appear to lose delivery state if the UI only renders the temporary active-execution projection; execution completion can precede push or other delivery milestones.
+
+**How to apply:** For delivery turns, compare execution-detail and message-history stage statuses across reconnect and reload, and render the persisted projection read-only when the active execution panel is gone.

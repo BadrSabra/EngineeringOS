@@ -277,6 +277,9 @@ const executionFixture = {
       { id: "build", label: "Build candidate", status: "completed", detail: "1 scoped file changed." },
       { id: "validate", label: "Validate candidate", status: "completed", detail: "Candidate-bound validation passed." },
       { id: "review", label: "Review changes", status: "completed", detail: "Approved change reviewed." },
+      { id: "apply", label: "Apply changes", status: "completed", detail: "Apply receipt recorded for this operation." },
+      { id: "commit", label: "Commit changes", status: "completed", detail: "Commit receipt recorded for this operation." },
+      { id: "push", label: "Push to Git", status: "completed", detail: "Push receipt recorded for this operation." },
       { id: "deliver", label: "Deliver to Git", status: "completed", detail: "Apply, commit, and push receipts are recorded for this operation." },
     ],
     allowedActions: [],
@@ -655,6 +658,7 @@ async function installApiFixtures(
       execution: Record<string, unknown>;
       recoveredToken: string;
       resumedStreamBody: string;
+      projectionAfterResume?: Record<string, unknown>;
     };
     missionControl?: Record<string, unknown>;
     executionDetails?: Record<string, Record<string, unknown>>;
@@ -888,6 +892,9 @@ async function installApiFixtures(
             stage: "complete",
             detail: "The Capability Probe completed after reconnect.",
           },
+          ...(overrides.interruptedResume.projectionAfterResume
+            ? { projection: overrides.interruptedResume.projectionAfterResume }
+            : {}),
           updatedAt: "2026-01-01T00:03:00.000Z",
         });
         return route.fulfill({
@@ -8319,6 +8326,258 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(await reloadedAcceptance.innerText()).toBe(
       await acceptance.innerText(),
     );
+  });
+
+  test("keeps server delivery stages aligned through SSE reconnect and reload", async ({
+    page,
+  }) => {
+    const recovery = installInterruptedCapabilityProbeFixture();
+    const question = "Verify delivery stages after reconnect.";
+    const sessionId = "e2e-delivery-reconnect-session";
+    const executionId = recovery.fixture.executionId!;
+    const operationId = "e2e-delivery-reconnect-operation";
+    const projectRevision = "e2e-delivery-reconnect-revision";
+    const finalProjection = {
+      ...executionFixture.projection,
+      phase: "COMPLETE",
+      objective: question,
+      progress: {
+        ...executionFixture.projection.progress,
+        percent: 80,
+        label: "Commit recorded; push remains pending.",
+        currentStep: "Push to Git",
+        completedSteps: 4,
+        totalSteps: 5,
+      },
+      stopped: {
+        reason: "The run completed with a commit receipt; no push receipt is recorded.",
+        outcome: "SUCCEEDED",
+      },
+      timeline: executionFixture.projection.timeline.map((item) =>
+        item.id === "push"
+          ? { ...item, status: "pending", detail: "Commit is recorded; push remains pending." }
+          : item.id === "deliver"
+            ? { ...item, status: "active", detail: "Commit is recorded; the push receipt is still pending." }
+            : item,
+      ),
+    };
+    const pausedProjection = {
+      ...finalProjection,
+      phase: "COMMIT",
+      progress: {
+        ...finalProjection.progress,
+        percent: 70,
+        label: "Resuming commit",
+        currentStep: "Commit changes",
+        completedSteps: 3,
+      },
+      stopped: {
+        reason: "The browser stream disconnected before the commit receipt was recorded.",
+        outcome: "INTERRUPTED",
+      },
+      allowedActions: ["RESUME_CHECKPOINT"],
+      timeline: finalProjection.timeline.map((item) =>
+        item.id === "commit"
+          ? { ...item, status: "active", detail: "The commit stage is active after reconnect." }
+          : item,
+      ),
+    };
+    const finalMessage = {
+      id: "e2e-delivery-reconnect-message",
+      sessionId,
+      role: "assistant",
+      content: "The commit receipt is recorded. Push remains pending.",
+      executionId,
+      operationId,
+      projectRevision,
+      outcome: "SUCCEEDED",
+      acceptance: recovery.acceptedAcceptance,
+      projection: finalProjection,
+      createdAt: "2026-01-01T00:03:00.000Z",
+    };
+    const sse = (event: Record<string, unknown>) =>
+      `data: ${JSON.stringify(event)}\n\n`;
+
+    recovery.fixture.sessionId = sessionId;
+    recovery.fixture.question = question;
+    recovery.fixture.answer = finalMessage.content;
+    recovery.fixture.message = finalMessage;
+    recovery.fixture.streamBody = [
+      sse({ type: "session_started", sessionId }),
+      sse({
+        type: "execution_started",
+        executionId,
+        status: "running",
+        resumable: true,
+        resumeToken: recovery.initialToken,
+      }),
+    ].join("");
+    Object.assign(recovery.execution, {
+      sessionId,
+      operationId,
+      projectRevision,
+      objective: { objective: question },
+      status: "paused",
+      flightState: "PAUSED",
+      checkpoint: {
+        stage: "commit",
+        detail: "The delivery stream disconnected while the commit stage was active.",
+      },
+      projection: pausedProjection,
+    });
+
+    const resumedStreamBody = [
+      sse({ type: "session_started", sessionId }),
+      sse({
+        type: "execution_started",
+        executionId,
+        status: "running",
+        resumable: true,
+        resumeToken: recovery.recoveredToken,
+      }),
+      sse({ type: "stage", stage: "resuming-checkpoint" }),
+      sse({ type: "delta", delta: finalMessage.content }),
+      sse({
+        type: "done",
+        sessionId,
+        executionId,
+        operationId,
+        projectRevision,
+        message: finalMessage,
+        projection: finalProjection,
+        acceptance: recovery.acceptedAcceptance,
+        pendingChanges: [],
+      }),
+    ].join("");
+
+    await installApiFixtures(page, {
+      interruptedResume: {
+        fixture: recovery.fixture,
+        execution: recovery.execution,
+        recoveredToken: recovery.recoveredToken,
+        resumedStreamBody,
+        projectionAfterResume: finalProjection,
+      },
+    });
+    await page.addInitScript(
+      ({ execution, projectId, sessionId, resumeToken, message }) => {
+        localStorage.setItem(`eos_ai_execution_current_${projectId}`, sessionId);
+        localStorage.setItem(
+          `eos_ai_execution_${projectId}_${sessionId}`,
+          JSON.stringify({
+            ...execution,
+            id: execution.id,
+            projectId,
+            sessionId,
+            resumeToken,
+            message,
+          }),
+        );
+      },
+      {
+        execution: recovery.execution,
+        projectId: "e2e-project",
+        sessionId,
+        resumeToken: recovery.initialToken,
+        message: question,
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    const capsule = page.getByTestId("mission-capsule").last();
+    const timeline = capsule.getByTestId("mission-timeline");
+    await expect(timeline.getByTestId("timeline-approval")).toContainText("Done");
+    await expect(timeline.getByTestId("timeline-validate")).toContainText("Done");
+    await expect(timeline.getByTestId("timeline-apply")).toContainText("Done");
+    await expect(timeline.getByTestId("timeline-commit")).toContainText("Now");
+    await expect(timeline.getByTestId("timeline-push")).toContainText("Next");
+
+    const resumeResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith("/api/ai/chat/stream") &&
+      response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Resume execution", exact: true }).click();
+    const resumeResponse = await resumeResponsePromise;
+    expect(resumeResponse.status()).toBe(200);
+    const terminalEvents = parseSse(await resumeResponse.text()).filter(
+      (event) => event.type === "done",
+    );
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]?.message).toEqual(
+      expect.objectContaining({ projection: finalProjection }),
+    );
+
+    const readServerStages = () =>
+      page.evaluate(async ({ executionId: requestedExecutionId, sessionId: requestedSessionId, stageIds }) => {
+        const [executionResponse, messagesResponse] = await Promise.all([
+          fetch(`/api/ai/executions/${requestedExecutionId}`, { credentials: "include" }),
+          fetch(`/api/ai/chat/${requestedSessionId}/messages`, { credentials: "include" }),
+        ]);
+        const execution = await executionResponse.json() as {
+          status: string;
+          projection?: { timeline?: Array<{ id: string; status: string }> };
+        };
+        const messages = await messagesResponse.json() as Array<{
+          projection?: { timeline?: Array<{ id: string; status: string }> };
+        }>;
+        const statuses = (projection?: { timeline?: Array<{ id: string; status: string }> }) =>
+          Object.fromEntries(stageIds.map((id) => [
+            id,
+            projection?.timeline?.find((item) => item.id === id)?.status ?? null,
+          ]));
+        return {
+          executionStatus: execution.status,
+          executionStages: statuses(execution.projection),
+          messageStages: statuses(messages.at(-1)?.projection),
+        };
+      }, {
+        executionId,
+        sessionId,
+        stageIds: ["approval", "validate", "apply", "commit", "push", "deliver"],
+      });
+
+    const afterReconnect = await readServerStages();
+    expect(afterReconnect).toEqual({
+      executionStatus: "completed",
+      executionStages: {
+        approval: "completed",
+        validate: "completed",
+        apply: "completed",
+        commit: "completed",
+        push: "pending",
+        deliver: "active",
+      },
+      messageStages: {
+        approval: "completed",
+        validate: "completed",
+        apply: "completed",
+        commit: "completed",
+        push: "pending",
+        deliver: "active",
+      },
+    });
+    const reconnectedTimeline = page.getByTestId("mission-timeline").last();
+    await expect(reconnectedTimeline.getByTestId("timeline-approval")).toContainText("Done");
+    await expect(reconnectedTimeline.getByTestId("timeline-validate")).toContainText("Done");
+    await expect(reconnectedTimeline.getByTestId("timeline-apply")).toContainText("Done");
+    await expect(reconnectedTimeline.getByTestId("timeline-commit")).toContainText("Done");
+    await expect(reconnectedTimeline.getByTestId("timeline-push")).toContainText("Next");
+    await expect(reconnectedTimeline.getByTestId("timeline-deliver")).toContainText("Now");
+
+    await page.reload();
+    const reloadedCapsule = page.getByTestId("mission-capsule").last();
+    const reloadedTimeline = reloadedCapsule.getByTestId("mission-timeline");
+    await expect(reloadedTimeline).toBeVisible();
+    await expect(reloadedTimeline.getByTestId("timeline-approval")).toContainText("Done");
+    await expect(reloadedTimeline.getByTestId("timeline-validate")).toContainText("Done");
+    await expect(reloadedTimeline.getByTestId("timeline-apply")).toContainText("Done");
+    await expect(reloadedTimeline.getByTestId("timeline-commit")).toContainText("Done");
+    await expect(reloadedTimeline.getByTestId("timeline-push")).toContainText("Next");
+    await expect(reloadedTimeline.getByTestId("timeline-deliver")).toContainText("Now");
+    expect(await readServerStages()).toEqual(afterReconnect);
   });
 
   test("reopens a cancelled forensic report from session history after reload", async ({
