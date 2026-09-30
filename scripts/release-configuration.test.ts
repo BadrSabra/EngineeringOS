@@ -601,7 +601,7 @@ test("keeps the local Project workflow and release validation separate", async (
     "[workflows.workflow.metadata]",
   );
   assert.deepEqual(releaseWorkflowCommands, [
-    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs"',
+    'args = "RELEASE_PROCESS_RECOVERY_REQUIRED=1 APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs"',
   ]);
 
   const normalTestCommand = packageJson.scripts?.test;
@@ -627,7 +627,7 @@ test("keeps the standalone journey responsible for service orchestration", async
   const journeySection = replitConfig.slice(journeyStart);
   assert.match(
     journeySection,
-    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_BROWSER=firefox DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
   );
   assert.doesNotMatch(
     replitConfig.slice(0, journeyStart),

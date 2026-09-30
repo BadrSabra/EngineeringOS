@@ -36,6 +36,10 @@ grading rules agree. It is not proof of live agent quality, rollout readiness,
 or provider performance. Live benchmark baselines require their own approved
 comparison and remain subject to the release quality gate.
 
+The rollout verifier accepts only a complete live scorecard bound to the
+current Git revision and the exact approved baseline ID. Historical
+baseline-shaped compatibility artifacts cannot stand in for that evidence.
+
 The current provider-free authority is the deterministic artifact set under
 `lib/ai-orchestrator/benchmark-results/code-agent-deterministic/`. The checked-in
 `code-agent-benchmark-baseline.json`, `code-agent-benchmark-live.json`, and

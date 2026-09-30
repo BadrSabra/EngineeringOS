@@ -80,9 +80,49 @@ test("process-recovery script keeps the last passing receipt on skipped runs", a
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      childProcess.once("exit", (code, signal) => resolve({ code, signal }));
+      const stderr = [];
+      childProcess.stderr.on("data", (chunk) => stderr.push(chunk));
+      childProcess.once("exit", (code, signal) =>
+        resolve({ code, signal, stderr: Buffer.concat(stderr).toString("utf8") }),
+      );
     });
-    assert.deepEqual(child, { code: 0, signal: null });
+    assert.equal(child.code, 0);
+    assert.equal(child.signal, null);
+    assert.match(child.stderr, /SKIP: .*this run does not prove process recovery/);
+    assert.equal(await readFile(receiptPath, "utf8"), previous);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("required process-recovery runs fail visibly when real recovery is skipped", async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "process-recovery-receipt-test-"),
+  );
+  const receiptPath = path.join(directory, "receipt.json");
+  const previous = JSON.stringify({ kind: "previous-pass", revision: "old" });
+  await writeFile(receiptPath, previous, "utf8");
+  try {
+    const result = await new Promise((resolve) => {
+      const childProcess = spawn(process.execPath, [scriptPath], {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          RUN_REAL_API_PROCESS_RECOVERY: undefined,
+          RELEASE_PROCESS_RECOVERY_REQUIRED: "1",
+          LIVE_RECOVERY_RECEIPT_PATH: receiptPath,
+        },
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      const stderr = [];
+      childProcess.stderr.on("data", (chunk) => stderr.push(chunk));
+      childProcess.once("exit", (code, signal) =>
+        resolve({ code, signal, stderr: Buffer.concat(stderr).toString("utf8") }),
+      );
+    });
+    assert.equal(result.code, 1);
+    assert.equal(result.signal, null);
+    assert.match(result.stderr, /BLOCKED: this release workflow requires real process-recovery evidence/);
     assert.equal(await readFile(receiptPath, "utf8"), previous);
   } finally {
     await rm(directory, { recursive: true, force: true });

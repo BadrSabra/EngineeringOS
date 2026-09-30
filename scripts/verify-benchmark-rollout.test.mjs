@@ -47,10 +47,46 @@ async function readFixture(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
 }
 
+async function readCurrentSourceRevision() {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: projectRoot,
+    encoding: "utf8",
+  });
+  return stdout.trim();
+}
+
+function buildLiveScorecard(baseline, sourceRevision) {
+  const cases = Object.entries(baseline.metrics.gradeCounts).flatMap(
+    ([grade, count]) => Array.from({ length: count }, (_, index) => ({
+      caseId: `${grade.toLowerCase()}-${index + 1}`,
+      grade,
+      sourceRevision,
+      ...(grade === "D" ? { diagnosis: "Safely blocked by the fixture contract." } : {}),
+    })),
+  );
+  return {
+    kind: "code-agent-benchmark",
+    version: 1,
+    suiteVersion: baseline.suiteVersion,
+    generatedAt: new Date().toISOString(),
+    sourceRevision,
+    cases,
+    metrics: { ...baseline.metrics },
+    rolloutAllowed: true,
+    rolloutBlockers: [],
+    baselineComparison: {
+      status: "passed",
+      baselineId: baseline.baselineId,
+      blockers: [],
+    },
+  };
+}
+
 describe("benchmark rollout verifier", () => {
-  it("accepts the approved flight-deck-v2 baseline-shaped live scorecard", async () => {
-    const live = await readFixture(liveFixturePath);
+  it("accepts a complete live scorecard bound to the approved baseline and current source", async () => {
     const baseline = await readFixture(baselineFixturePath);
+    const sourceRevision = await readCurrentSourceRevision();
+    const live = buildLiveScorecard(baseline, sourceRevision);
 
     const result = await runVerifier(live, baseline);
 
@@ -58,15 +94,26 @@ describe("benchmark rollout verifier", () => {
       ok: true,
       suiteVersion: "flight-deck-v2",
       baselineId: baseline.baselineId,
+      sourceRevision,
       observedCases: baseline.metrics.observedCases,
       rolloutAllowed: true,
     });
   });
 
-  it("rejects a stale flight-deck-v1 live scorecard", async () => {
+  it("rejects a historical baseline-shaped scorecard as live evidence", async () => {
     const live = await readFixture(liveFixturePath);
     const baseline = await readFixture(baselineFixturePath);
-    live.kind = "code-agent-benchmark";
+
+    await rejects(runVerifier(live, baseline), (error) => {
+      match(error.stderr, /unsupported kind/);
+      return true;
+    });
+  });
+
+  it("rejects a stale flight-deck-v1 live scorecard", async () => {
+    const baseline = await readFixture(baselineFixturePath);
+    const sourceRevision = await readCurrentSourceRevision();
+    const live = buildLiveScorecard(baseline, sourceRevision);
     live.suiteVersion = "flight-deck-v1";
 
     await rejects(runVerifier(live, baseline), (error) => {
@@ -75,9 +122,42 @@ describe("benchmark rollout verifier", () => {
     });
   });
 
-  it("rejects a live scorecard with provider-blocked cases", async () => {
-    const live = await readFixture(liveFixturePath);
+  it("rejects a live scorecard compared against a different baseline", async () => {
     const baseline = await readFixture(baselineFixturePath);
+    const live = buildLiveScorecard(baseline, await readCurrentSourceRevision());
+    live.baselineComparison.baselineId = "unapproved-baseline";
+
+    await rejects(runVerifier(live, baseline), (error) => {
+      match(error.stderr, /not approved baseline/);
+      return true;
+    });
+  });
+
+  it("rejects a live scorecard from another source revision", async () => {
+    const baseline = await readFixture(baselineFixturePath);
+    const live = buildLiveScorecard(baseline, await readCurrentSourceRevision());
+    live.sourceRevision = "f".repeat(40);
+
+    await rejects(runVerifier(live, baseline), (error) => {
+      match(error.stderr, /does not match current source/);
+      return true;
+    });
+  });
+
+  it("rejects case observations that are not bound to the current source revision", async () => {
+    const baseline = await readFixture(baselineFixturePath);
+    const live = buildLiveScorecard(baseline, await readCurrentSourceRevision());
+    live.cases[0].sourceRevision = "f".repeat(40);
+
+    await rejects(runVerifier(live, baseline), (error) => {
+      match(error.stderr, /not bound to the current source revision/);
+      return true;
+    });
+  });
+
+  it("rejects a live scorecard with provider-blocked cases", async () => {
+    const baseline = await readFixture(baselineFixturePath);
+    const live = buildLiveScorecard(baseline, await readCurrentSourceRevision());
     live.metrics.providerUnavailableCount = 1;
 
     await rejects(runVerifier(live, baseline), (error) => {

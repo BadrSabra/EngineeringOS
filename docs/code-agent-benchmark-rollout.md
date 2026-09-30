@@ -11,6 +11,14 @@ Before `rolloutAllowed` can become `true`, the live run must be complete, have
 no provider-unavailable (`U`) observations, and pass the approved baseline
 comparison.
 
+The read-only rollout verifier accepts only a `code-agent-benchmark` live
+scorecard. It requires the scorecard and every case observation to name the
+current Git `HEAD`, and the passed baseline comparison must name the exact
+approved `baselineId` loaded by the verifier. Baseline-shaped historical files
+and results from another revision cannot authorize rollout. The live runner
+captures the source revision before execution and binds resumed progress to it;
+progress from another source revision starts a fresh run.
+
 ## Baseline contract
 
 Set `BENCHMARK_BASELINE_PATH` to an explicitly reviewed JSON file. If it is not

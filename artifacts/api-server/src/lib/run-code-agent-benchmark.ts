@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
 import {
   buildCodeAgentBenchmarkReplayRecord,
   buildCodeAgentBenchmarkScorecard,
@@ -90,8 +92,22 @@ type BenchmarkProgressFile = {
   provider: ProviderId;
   model: string | null;
   generatedAt: string;
+  sourceRevision: string;
   cases: CodeAgentBenchmarkObservation[];
 };
+
+const execFileAsync = promisify(execFile);
+
+async function resolveSourceRevision(root: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "HEAD"], {
+    maxBuffer: 4096,
+  });
+  const revision = stdout.trim();
+  if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) {
+    throw new Error("Benchmark source revision is missing or malformed.");
+  }
+  return revision;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -138,6 +154,7 @@ function parseProgressFile(
   raw: string,
   provider: ProviderId,
   model: string | undefined,
+  sourceRevision: string,
 ): BenchmarkProgressFile | undefined {
   try {
     const value: unknown = JSON.parse(raw);
@@ -148,11 +165,13 @@ function parseProgressFile(
       value.provider !== provider ||
       (value.model !== null && typeof value.model !== "string") ||
       typeof value.generatedAt !== "string" ||
+      value.sourceRevision !== sourceRevision ||
       !Array.isArray(value.cases)
     ) return undefined;
     if ((value.model ?? null) !== (model ?? null)) return undefined;
 
     const cases = value.cases.filter(isProgressObservation);
+    if (cases.some((result) => result.sourceRevision !== sourceRevision)) return undefined;
     const seen = new Set<string>();
     if (cases.some((result) => seen.has(result.caseId) || (seen.add(result.caseId), false))) {
       return undefined;
@@ -163,6 +182,7 @@ function parseProgressFile(
       provider,
       model: value.model as string | null,
       generatedAt: value.generatedAt,
+      sourceRevision,
       cases,
     };
   } catch {
@@ -323,6 +343,7 @@ if (!apiKey) {
   throw new Error(`Missing ${PROVIDER_KEY_ENV[provider]} for live benchmark execution.`);
 }
 
+const sourceRevision = await resolveSourceRevision(sourceRoot);
 const isolated = await createIsolatedBenchmarkRoot(sourceRoot);
 try {
   const outputDir = path.resolve(
@@ -352,6 +373,7 @@ try {
         await fs.readFile(progressPath, "utf8"),
         provider,
         configuredModel,
+        sourceRevision,
       );
       if (progress?.suiteVersion === CODE_AGENT_BENCHMARK_VERSION) {
         initialResults = progress.cases.filter((result) => result.providerUnavailable !== true);
@@ -391,6 +413,7 @@ try {
       provider,
       model: configuredModel ?? null,
       generatedAt,
+      sourceRevision,
       cases: progressScorecard.cases,
     } satisfies BenchmarkProgressFile);
   };
@@ -425,6 +448,7 @@ try {
     historyForCase: defaultApiBenchmarkHistory,
     caseTimeoutMs,
     generatedAt,
+    sourceRevision,
   });
   const scorecard = {
     ...applyCodeAgentBenchmarkBaselineGate({
@@ -454,6 +478,7 @@ try {
       provider,
       model: configuredModel ?? null,
       generatedAt,
+      sourceRevision,
       cases: scorecard.cases,
     } satisfies BenchmarkProgressFile);
   }

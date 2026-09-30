@@ -26,8 +26,14 @@ const requiredEnvironment = ["DATABASE_URL", providerEnvironment[liveProvider]];
 const missingEnvironment = requiredEnvironment.filter((name) => !name || !process.env[name]);
 
 if (process.env.RUN_REAL_API_PROCESS_RECOVERY !== "1") {
+  if (process.env.RELEASE_PROCESS_RECOVERY_REQUIRED === "1") {
+    console.error(
+      "BLOCKED: this release workflow requires real process-recovery evidence. Set RUN_REAL_API_PROCESS_RECOVERY=1 in a controlled environment to run it.",
+    );
+    process.exit(1);
+  }
   console.error(
-    "SKIP: real process-recovery validation is opt-in. Set RUN_REAL_API_PROCESS_RECOVERY=1 to run it.",
+    "SKIP: real process-recovery validation is opt-in; this run does not prove process recovery.",
   );
   process.exit(0);
 }
