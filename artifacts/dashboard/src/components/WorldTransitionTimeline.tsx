@@ -1,5 +1,6 @@
 import type {
   AiExecutionAcceptance,
+  GetAiExecution200ApplyMission,
   RuntimeWorldTransitionProjection,
 } from "@workspace/api-client-react";
 
@@ -13,6 +14,7 @@ type Props = {
   transitions?: RuntimeWorldTransitionProjection[];
   acceptance?: AiExecutionAcceptance | null;
   proofVerdict?: string;
+  applyMission?: GetAiExecution200ApplyMission | null;
 };
 
 const stateLabel: Record<TimelineState, string> = {
@@ -40,7 +42,7 @@ function isBoundDirectObservation(observation: Observation | undefined): observa
     && observation.completeness === "complete"
     && observation.freshness === "fresh"
     && observation.environmentFreshness === "fresh"
-    && observation.runtimeStatus,
+    && (observation.predicate === "workspace.tree_hash" || observation.runtimeStatus),
   );
 }
 
@@ -91,7 +93,9 @@ function ObservationRows({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span>{observation.predicate}</span>
             <span className="text-foreground">
-              {observation.runtimeStatus ?? "state not independently verified"}
+              {observation.predicate === "workspace.tree_hash"
+                ? "tree hash value not shown"
+                : observation.runtimeStatus ?? "state not independently verified"}
             </span>
           </div>
           <div className="break-all font-mono text-[9px] opacity-80">{observation.id}</div>
@@ -180,7 +184,7 @@ function TransitionEntry({
           proofVerdict={proofVerdict}
         />
         <StageCard title="World materialization" state="missing">
-          <p>No World Transition record is available for this runtime.start attempt.</p>
+          <p>No World Transition record is available for this attempt.</p>
         </StageCard>
       </div>
     );
@@ -260,13 +264,23 @@ export default function WorldTransitionTimeline({
   transitions = [],
   acceptance,
   proofVerdict,
+  applyMission,
 }: Props) {
-  if (recipeId !== "runtime.start" && transitions.length === 0) return null;
+  if (recipeId !== "runtime.start" && transitions.length === 0 && !applyMission) return null;
 
   const visibleTransitions = transitions.filter((transition) => (
     (!executionId || transition.executionId === executionId)
     && (typeof attempt !== "number" || transition.attempt === attempt)
   ));
+  const handoffProven = applyMission?.d2.state === "PROVEN"
+    && visibleTransitions.some((transition) => (
+      transition.id === applyMission.d2.transitionId
+      && transition.status === "materialized"
+      && transition.resultingWorldRevision === applyMission.d2.resultingWorldRevision
+    ));
+  const handoffState = applyMission?.d2.state === "PROVEN" && !handoffProven
+    ? "INCOMPLETE"
+    : applyMission?.d2.state;
 
   return (
     <section className="rounded-xl border border-border bg-card" aria-label="World Transition timeline">
@@ -293,6 +307,36 @@ export default function WorldTransitionTimeline({
               proofVerdict={proofVerdict}
             />
           ))
+        )}
+        {applyMission && (
+          <div className="rounded-lg border border-border/70 bg-background/20 px-3 py-2 text-xs" aria-label="Apply Mission handoff" data-testid="status-apply-mission-handoff">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span data-testid="status-apply-d2">
+                Apply D2: <strong>{handoffState}</strong>
+              </span>
+              <span data-testid="status-report-goal">
+                report-applied goal: <strong>{applyMission.successor?.status ?? "not linked"}</strong>
+              </span>
+            </div>
+            {handoffProven && (
+              <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                World revision: {applyMission.d2.resultingWorldRevision}
+              </p>
+            )}
+            {applyMission.reason && (
+              <p className="mt-1 text-muted-foreground">Binding reason: {applyMission.reason}</p>
+            )}
+            {applyMission.successor?.blockedReason && (
+              <p className="mt-1 text-muted-foreground">Goal reason: {applyMission.successor.blockedReason}</p>
+            )}
+            <p className="mt-1 text-muted-foreground">
+              {applyMission.successor?.status === "completed" && handoffProven
+                ? "The report goal is complete. External delivery is not implied."
+                : applyMission.successor
+                  ? "The report goal is not verified complete; dispatch is not completion or external delivery."
+                  : "No report goal can be linked to this active plan; external delivery is not implied."}
+            </p>
+          </div>
         )}
       </div>
     </section>

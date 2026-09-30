@@ -183,7 +183,7 @@ type ApplyBinding = {
   promotedTreeHash: string;
 };
 
-function readApplyBinding(value: unknown): ApplyBinding | undefined {
+export function readApplyBinding(value: unknown): ApplyBinding | undefined {
   if (!Array.isArray(value)) return undefined;
   const refs = value.filter((item): item is string =>
     typeof item === "string" && item.startsWith("apply-binding:v1:"),

@@ -21,6 +21,12 @@ Never treat candidate/proposal-scoped observations as live-project facts. For an
 
 **How to apply:** Require the active-plan binding, accepted execution attempt/effect bundle, materialized transition, before/after tree hashes, and fresh environment binding. D2 failure blocks the linked successor and requires replan, but never revokes independent Gate-C acceptance or repeats filesystem promotion.
 
+The read-only Mission handoff must reconstruct D2 from the durable Goal acceptance bound to the current attempt and transition, then display the successor's actual durable status. A materialized transition or dispatched report is not completion. Show a stale plan as blocked rather than silently omitting the handoff, and show only metadata—not the tree-hash values—of direct project observations.
+
+**Why:** An earlier attempt or an accepted-but-stale plan can otherwise look proven after reload; treating dispatch as completion would overstate the outcome, while exposing observation values would leak project state.
+
+**How to apply:** Keep active-plan and ownership checks in the read path; bind acceptance, execution attempt, transition, effect, and fresh before/after project observations before showing PROVEN. Continue reading nonterminal successor states so queued work eventually updates, and keep external delivery separate.
+
 When recording the parent World State revision for an Apply Changes transition, exclude the active apply Episode; finalization must compare against that same parent projection.
 
 **Why:** The live before/after observations are retained before the transition is created. Including them in the parent revision and excluding them during finalization makes a valid transition look like parent drift and leaves it retrying.

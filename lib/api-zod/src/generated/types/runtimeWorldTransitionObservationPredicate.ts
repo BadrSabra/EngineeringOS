@@ -13,4 +13,5 @@ export const RuntimeWorldTransitionObservationPredicate = {
   runtimebefore_state: 'runtime.before_state',
   runtimeafter_state: 'runtime.after_state',
   runtimestatus: 'runtime.status',
+  workspacetree_hash: 'workspace.tree_hash',
 } as const;

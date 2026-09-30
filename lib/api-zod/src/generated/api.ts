@@ -4593,7 +4593,7 @@ export const GetAiExecutionResponse = zod.object({
   "freshness": zod.enum(['fresh', 'stale', 'unknown']),
   "beforeObservations": zod.array(zod.object({
   "id": zod.string().describe('Server-owned reference to an observation linked to this transition.'),
-  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status']),
+  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status', 'workspace.tree_hash']),
   "provenance": zod.enum(['DIRECT_OBSERVATION', 'SERVER_DERIVED', 'MODEL_INFERRED']),
   "completeness": zod.enum(['complete', 'partial', 'failed']),
   "freshness": zod.enum(['fresh', 'stale', 'unknown']),
@@ -4603,7 +4603,7 @@ export const GetAiExecutionResponse = zod.object({
 })),
   "afterObservations": zod.array(zod.object({
   "id": zod.string().describe('Server-owned reference to an observation linked to this transition.'),
-  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status']),
+  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status', 'workspace.tree_hash']),
   "provenance": zod.enum(['DIRECT_OBSERVATION', 'SERVER_DERIVED', 'MODEL_INFERRED']),
   "completeness": zod.enum(['complete', 'partial', 'failed']),
   "freshness": zod.enum(['fresh', 'stale', 'unknown']),
@@ -4618,7 +4618,24 @@ export const GetAiExecutionResponse = zod.object({
   "failureCode": zod.string().regex(getAiExecutionResponseWorldTransitionsItemFailureCodeRegExp).nullable(),
   "createdAt": zod.coerce.date(),
   "materializedAt": zod.coerce.date().nullable()
-})).describe('Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.'),
+})).describe('Bounded server-owned World Transition projections for the current runtime.start or linked Apply attempt; excludes observation bodies and raw evidence.'),
+  "applyMission": zod.object({
+  "goalId": zod.string(),
+  "missionId": zod.string(),
+  "planRevision": zod.string(),
+  "reason": zod.string().nullable(),
+  "d2": zod.object({
+  "state": zod.enum(['PROVEN', 'INCOMPLETE', 'BLOCKED']),
+  "transitionId": zod.string().nullable(),
+  "resultingWorldRevision": zod.string().nullable()
+}),
+  "successor": zod.object({
+  "goalId": zod.string(),
+  "status": zod.string(),
+  "blockedReason": zod.string().nullable(),
+  "taskId": zod.string().nullable()
+}).nullable()
+}).nullish().describe('Read-only active-plan Apply D2 result and the actual linked report goal state; neither implies external delivery.'),
   "evidenceBraid": zod.object({
   "executionId": zod.string(),
   "projectId": zod.string(),

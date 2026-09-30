@@ -1768,9 +1768,35 @@ paths:
                     $ref: "#/components/schemas/AiExecutionProjection"
                   worldTransitions:
                     type: array
-                    description: Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.
+                    description: Bounded server-owned World Transition projections for the current runtime.start or linked Apply attempt; excludes observation bodies and raw evidence.
                     items:
                       $ref: "#/components/schemas/RuntimeWorldTransitionProjection"
+                  applyMission:
+                    type: object
+                    nullable: true
+                    description: Read-only active-plan Apply D2 result and the actual linked report goal state; neither implies external delivery.
+                    required: [goalId, missionId, planRevision, reason, d2, successor]
+                    properties:
+                      goalId: { type: string }
+                      missionId: { type: string }
+                      planRevision: { type: string }
+                      reason: { type: string, nullable: true }
+                      d2:
+                        type: object
+                        required: [state, transitionId, resultingWorldRevision]
+                        properties:
+                          state: { type: string, enum: [PROVEN, INCOMPLETE, BLOCKED] }
+                          transitionId: { type: string, nullable: true }
+                          resultingWorldRevision: { type: string, nullable: true }
+                      successor:
+                        type: object
+                        nullable: true
+                        required: [goalId, status, blockedReason, taskId]
+                        properties:
+                          goalId: { type: string }
+                          status: { type: string }
+                          blockedReason: { type: string, nullable: true }
+                          taskId: { type: string, nullable: true }
                   evidenceBraid:
                     $ref: "#/components/schemas/AiExecutionEvidenceBraid"
                     description: Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values.
@@ -5078,7 +5104,7 @@ components:
           description: Server-owned reference to an observation linked to this transition.
         predicate:
           type: string
-          enum: [runtime.before_state, runtime.after_state, runtime.status]
+          enum: [runtime.before_state, runtime.after_state, runtime.status, workspace.tree_hash]
         provenance:
           type: string
           enum: [DIRECT_OBSERVATION, SERVER_DERIVED, MODEL_INFERRED]

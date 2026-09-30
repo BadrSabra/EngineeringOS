@@ -872,6 +872,7 @@ export const RuntimeWorldTransitionObservationPredicate = {
   runtimebefore_state: 'runtime.before_state',
   runtimeafter_state: 'runtime.after_state',
   runtimestatus: 'runtime.status',
+  workspacetree_hash: 'workspace.tree_hash',
 } as const;
 
 export type RuntimeWorldTransitionObservationProvenance = typeof RuntimeWorldTransitionObservationProvenance[keyof typeof RuntimeWorldTransitionObservationProvenance];
@@ -6076,6 +6077,40 @@ export type GetAiExecution200Recovery = {
   outcome: string | null;
 };
 
+export type GetAiExecution200ApplyMissionD2State = typeof GetAiExecution200ApplyMissionD2State[keyof typeof GetAiExecution200ApplyMissionD2State];
+
+
+export const GetAiExecution200ApplyMissionD2State = {
+  PROVEN: 'PROVEN',
+  INCOMPLETE: 'INCOMPLETE',
+  BLOCKED: 'BLOCKED',
+} as const;
+
+export type GetAiExecution200ApplyMissionD2 = {
+  state: GetAiExecution200ApplyMissionD2State;
+  transitionId: string | null;
+  resultingWorldRevision: string | null;
+};
+
+export type GetAiExecution200ApplyMissionSuccessor = {
+  goalId: string;
+  status: string;
+  blockedReason: string | null;
+  taskId: string | null;
+} | null;
+
+/**
+ * Read-only active-plan Apply D2 result and the actual linked report goal state; neither implies external delivery.
+ */
+export type GetAiExecution200ApplyMission = {
+  goalId: string;
+  missionId: string;
+  planRevision: string;
+  reason: string | null;
+  d2: GetAiExecution200ApplyMissionD2;
+  successor: GetAiExecution200ApplyMissionSuccessor;
+} | null;
+
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
   id: string;
@@ -6117,8 +6152,10 @@ export type GetAiExecution200 = {
   operationEvidence: OperationEvidenceProjection;
   executionDiagnostics: AiExecutionDiagnostics;
   projection: AiExecutionProjection;
-  /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
+  /** Bounded server-owned World Transition projections for the current runtime.start or linked Apply attempt; excludes observation bodies and raw evidence. */
   worldTransitions: RuntimeWorldTransitionProjection[];
+  /** Read-only active-plan Apply D2 result and the actual linked report goal state; neither implies external delivery. */
+  applyMission?: GetAiExecution200ApplyMission;
   /** Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values. */
   evidenceBraid?: AiExecutionEvidenceBraid;
   createdAt?: string;

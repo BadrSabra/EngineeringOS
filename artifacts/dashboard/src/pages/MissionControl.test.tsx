@@ -121,6 +121,8 @@ const historicalRecoveryFixture = vi.hoisted(() => ({
 let currentMissionControl = missionControlFixture;
 let currentExecutionDetail: any = undefined;
 const refetchMissionControl = vi.hoisted(() => vi.fn());
+const refetchExecutionDetail = vi.hoisted(() => vi.fn());
+const selectedExecutionQuery = vi.hoisted(() => ({ options: undefined as any }));
 
 vi.mock('@workspace/api-client-react', () => ({
   useGetAiMissionControl: () => ({
@@ -131,14 +133,17 @@ vi.mock('@workspace/api-client-react', () => ({
     isFetching: false,
     refetch: refetchMissionControl,
   }),
-  useGetAiExecution: () => ({
-    data: currentExecutionDetail,
-    error: null,
-    isError: false,
-    isLoading: false,
-    isFetching: false,
-    refetch: vi.fn(),
-  }),
+  useGetAiExecution: (_id: string, options: any) => {
+    selectedExecutionQuery.options = options.query;
+    return {
+      data: currentExecutionDetail,
+      error: null,
+      isError: false,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchExecutionDetail,
+    };
+  },
 }));
 
 function renderPage() {
@@ -258,6 +263,7 @@ describe('Mission Control', () => {
     currentMissionControl = missionControlFixture;
     currentExecutionDetail = undefined;
     refetchMissionControl.mockReset();
+    refetchExecutionDetail.mockReset();
   });
 
   it('shows execution state, operational metrics, evidence, and Flight Deck link', async () => {
@@ -299,6 +305,113 @@ describe('Mission Control', () => {
     expect(within(timeline).getByText('world-after')).toBeInTheDocument();
     expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
     expect(timeline).toHaveTextContent('Observation, effect, acceptance, and World materialization are separate records');
+  });
+
+  it('shows the Apply handoff separately from report completion and reloads the actual successor state', async () => {
+    const detail = runtimeStartDetail();
+    const transition = {
+      ...detail.worldTransitions[0],
+      id: 'apply-transition',
+      beforeObservations: detail.worldTransitions[0].beforeObservations.map((observation) => ({
+        ...observation,
+        predicate: 'workspace.tree_hash',
+        runtimeStatus: null,
+      })),
+      afterObservations: detail.worldTransitions[0].afterObservations.map((observation) => ({
+        ...observation,
+        predicate: 'workspace.tree_hash',
+        runtimeStatus: null,
+      })),
+    };
+    const applyMission = {
+      goalId: 'apply-goal',
+      missionId: 'mission-1',
+      planRevision: 'revision-1',
+      d2: { state: 'PROVEN', transitionId: 'apply-transition', resultingWorldRevision: 'world-after' },
+      successor: { goalId: 'report-goal', status: 'running', blockedReason: null, taskId: 'task-1' },
+    };
+    currentExecutionDetail = runtimeStartDetail({
+      recipeReceipt: null,
+      worldTransitions: [transition],
+      applyMission,
+    });
+    const firstView = renderPage();
+    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    const handoff = within(timeline).getByLabelText('Apply Mission handoff');
+    expect(within(timeline).getAllByText('tree hash value not shown')).toHaveLength(2);
+    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('Apply D2: PROVEN');
+    expect(within(handoff).getByTestId('status-report-goal')).toHaveTextContent('report-applied goal: running');
+    expect(handoff).toHaveTextContent('dispatch is not completion or external delivery');
+
+    firstView.unmount();
+    currentExecutionDetail = runtimeStartDetail({
+      recipeReceipt: null,
+      worldTransitions: [transition],
+      applyMission: {
+        ...applyMission,
+        successor: { ...applyMission.successor, status: 'completed' },
+      },
+    });
+    renderPage();
+    const reloadedHandoff = await screen.findByLabelText('Apply Mission handoff');
+    expect(reloadedHandoff).toHaveTextContent('report-applied goal: completed');
+    expect(reloadedHandoff).toHaveTextContent('The report goal is complete. External delivery is not implied.');
+  });
+
+  it('does not show Apply D2 proven when its transition is absent from the current attempt', async () => {
+    currentExecutionDetail = runtimeStartDetail({
+      recipeReceipt: null,
+      worldTransitions: [],
+      applyMission: {
+        goalId: 'apply-goal',
+        missionId: 'mission-1',
+        planRevision: 'revision-1',
+        d2: { state: 'PROVEN', transitionId: 'old-transition', resultingWorldRevision: 'world-after' },
+        successor: { goalId: 'report-goal', status: 'completed', blockedReason: null, taskId: 'task-1' },
+      },
+    });
+    renderPage();
+    const handoff = await screen.findByLabelText('Apply Mission handoff');
+    expect(within(handoff).getByTestId('status-apply-d2')).toHaveTextContent('Apply D2: INCOMPLETE');
+    expect(handoff).not.toHaveTextContent('The report goal is complete.');
+    expect(handoff).not.toHaveTextContent('World revision:');
+  });
+
+  it('shows a stale Apply plan as blocked without claiming a linked report goal', async () => {
+    currentExecutionDetail = runtimeStartDetail({
+      recipeReceipt: null,
+      worldTransitions: [],
+      applyMission: {
+        goalId: 'apply-goal',
+        missionId: 'mission-1',
+        planRevision: 'old-revision',
+        reason: 'apply_plan_binding_invalid',
+        d2: { state: 'BLOCKED', transitionId: null, resultingWorldRevision: null },
+        successor: null,
+      },
+    });
+    renderPage();
+    const handoff = await screen.findByLabelText('Apply Mission handoff');
+    expect(handoff).toHaveTextContent('Apply D2: BLOCKED');
+    expect(handoff).toHaveTextContent('report-applied goal: not linked');
+    expect(handoff).toHaveTextContent('apply_plan_binding_invalid');
+    expect(handoff).not.toHaveTextContent('The report goal is complete.');
+  });
+
+  it('keeps reading a queued report goal until it terminates', () => {
+    renderPage();
+    const interval = selectedExecutionQuery.options.refetchInterval;
+    const detail = (status: string) => ({
+      state: { data: { status: 'completed', applyMission: {
+        d2: { state: 'PROVEN' },
+        successor: { status },
+      } } },
+    });
+    expect(interval(detail('queued'))).toBe(5_000);
+    expect(interval(detail('planning'))).toBe(5_000);
+    expect(interval(detail('verifying'))).toBe(5_000);
+    expect(interval(detail('completed'))).toBe(false);
+    expect(interval(detail('blocked'))).toBe(false);
   });
 
   it('shows a redacted current-attempt Evidence Braid without promoting it to acceptance', async () => {
@@ -386,7 +499,7 @@ describe('Mission Control', () => {
 
     const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
     expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
-    expect(within(timeline).getByText('No World Transition record is available for this runtime.start attempt.')).toBeInTheDocument();
+    expect(within(timeline).getByText('No World Transition record is available for this attempt.')).toBeInTheDocument();
     expect(within(timeline).queryByText('MATERIALIZED')).not.toBeInTheDocument();
   });
 
@@ -572,6 +685,7 @@ describe('Mission Control', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(refetchMissionControl).toHaveBeenCalledTimes(1);
+    expect(refetchExecutionDetail).toHaveBeenCalledTimes(1);
 
     currentMissionControl = {
       ...historicalRecoveryFixture,

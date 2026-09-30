@@ -10,6 +10,7 @@ const OBSERVATION_PREDICATES = new Set([
   "runtime.before_state",
   "runtime.after_state",
   "runtime.status",
+  "workspace.tree_hash",
 ]);
 const OBSERVATION_PROVENANCE = new Set([
   "DIRECT_OBSERVATION",
@@ -26,7 +27,7 @@ const EFFECT_VERDICTS = new Set([
 
 export type RuntimeWorldTransitionObservationProjection = {
   id: string;
-  predicate: "runtime.before_state" | "runtime.after_state" | "runtime.status";
+  predicate: "runtime.before_state" | "runtime.after_state" | "runtime.status" | "workspace.tree_hash";
   provenance: "DIRECT_OBSERVATION" | "SERVER_DERIVED" | "MODEL_INFERRED";
   completeness: "complete" | "partial" | "failed";
   freshness: "fresh" | "stale" | "unknown";
@@ -125,8 +126,15 @@ function projectObservation(
     || observation.episodeId !== transition.episodeId
     || !OBSERVATION_PREDICATES.has(observation.predicate)
     || (side === "before"
-      ? !["runtime.before_state", "runtime.status"].includes(observation.predicate)
-      : !["runtime.after_state", "runtime.status"].includes(observation.predicate))
+      ? !["runtime.before_state", "runtime.status", "workspace.tree_hash"].includes(observation.predicate)
+      : !["runtime.after_state", "runtime.status", "workspace.tree_hash"].includes(observation.predicate))
+    || (observation.predicate === "workspace.tree_hash" && (
+      transition.taskScope !== "project"
+      || observation.subject !== `project:${transition.projectId}`
+      || !transition.environmentRevision
+      || observation.environmentRevision !== transition.environmentRevision
+      || sharedAcrossSides
+    ))
     || !OBSERVATION_PROVENANCE.has(observation.provenance)
     || !["complete", "partial", "failed"].includes(observation.completeness)
     || !["fresh", "stale", "unknown"].includes(observation.freshness)

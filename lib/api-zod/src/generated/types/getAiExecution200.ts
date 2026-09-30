@@ -10,6 +10,7 @@ import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
 import type { AiExecutionEvidenceBraid } from './aiExecutionEvidenceBraid';
 import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
+import type { GetAiExecution200ApplyMission } from './getAiExecution200ApplyMission';
 import type { GetAiExecution200Checkpoint } from './getAiExecution200Checkpoint';
 import type { GetAiExecution200EvidenceVerdict } from './getAiExecution200EvidenceVerdict';
 import type { GetAiExecution200FlightState } from './getAiExecution200FlightState';
@@ -61,8 +62,10 @@ export type GetAiExecution200 = {
   operationEvidence: OperationEvidenceProjection;
   executionDiagnostics: AiExecutionDiagnostics;
   projection: AiExecutionProjection;
-  /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
+  /** Bounded server-owned World Transition projections for the current runtime.start or linked Apply attempt; excludes observation bodies and raw evidence. */
   worldTransitions: RuntimeWorldTransitionProjection[];
+  /** Read-only active-plan Apply D2 result and the actual linked report goal state; neither implies external delivery. */
+  applyMission?: GetAiExecution200ApplyMission;
   /** Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values. */
   evidenceBraid?: AiExecutionEvidenceBraid;
   createdAt?: Date;

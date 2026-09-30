@@ -1212,7 +1212,7 @@ export default function MissionControl() {
   );
   const selectedExecution = executions.find((execution) => execution.id === selectedId)
     ?? (requestedExecutionId ? undefined : executions[0]);
-  const { data: selectedExecutionDetail } = useGetAiExecution(selectedExecution?.id ?? '', {
+  const { data: selectedExecutionDetail, refetch: refetchSelectedExecutionDetail } = useGetAiExecution(selectedExecution?.id ?? '', {
     query: {
       queryKey: ['ai-mission-control-execution', selectedExecution?.id],
       enabled: Boolean(selectedExecution?.id),
@@ -1221,7 +1221,11 @@ export default function MissionControl() {
         const transitionPending = query.state.data?.worldTransitions?.some((transition) => (
           transition.status === 'pending' || transition.status === 'retrying'
         )) ?? false;
-        return status === 'queued' || status === 'running' || status === 'cancelling' || transitionPending
+        const handoff = query.state.data?.applyMission;
+        const successorPending = handoff?.d2.state === 'PROVEN'
+          && Boolean(handoff.successor
+            && !['completed', 'blocked', 'failed', 'cancelled', 'needs_replan'].includes(handoff.successor.status));
+        return status === 'queued' || status === 'running' || status === 'cancelling' || transitionPending || successorPending
           ? 5_000
           : false;
       },
@@ -1416,7 +1420,10 @@ export default function MissionControl() {
           {updatedLabel && <span className="hidden text-[11px] text-muted-foreground sm:block">Updated {updatedLabel}</span>}
           <button
             type="button"
-            onClick={() => void refetch()}
+            onClick={() => {
+              void refetch();
+              if (selectedExecution?.id) void refetchSelectedExecutionDetail();
+            }}
             disabled={isFetching}
             className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground hover-elevate disabled:opacity-60"
             title="Refresh mission control"
@@ -1851,6 +1858,7 @@ export default function MissionControl() {
             transitions={selectedExecutionDetail?.worldTransitions}
             acceptance={selectedExecutionDetail?.acceptance}
             proofVerdict={selectedExecutionDetail?.operationEvidence?.proof?.verdict}
+            applyMission={selectedExecutionDetail?.applyMission}
           />
 
            {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (

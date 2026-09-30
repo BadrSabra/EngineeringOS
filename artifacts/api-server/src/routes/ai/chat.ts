@@ -183,6 +183,12 @@ import {
   applyChangesMissionRequirement,
 } from "../../lib/agent-state/apply-changes-mission-gate.js";
 import {
+  isBoundApplyTransition,
+  loadApplyMissionLink,
+  projectApplyMissionLink,
+  projectBlockedApplyMissionLink,
+} from "../../lib/agent-state/apply-changes-read-projection.js";
+import {
   createPendingApplyChangesTransition,
   finalizeApplyChangesTransition,
 } from "../../lib/agent-state/runtime-start-transition.js";
@@ -13039,7 +13045,10 @@ router.get("/ai/executions/:executionId", async (req, res) => {
   const recipeReceipt = execution.recipeReceipt
     ? toPublicRecipeReceipt(execution.recipeReceipt)
     : null;
-  const worldTransitions = recipeReceipt?.recipeId === "runtime.start"
+  const applyLink = await loadApplyMissionLink(execution, req.userId);
+  const validApplyLink = applyLink?.kind === "valid" ? applyLink : null;
+  let boundApplyTransition: typeof aiWorldTransitionsTable.$inferSelect | undefined;
+  const worldTransitions = recipeReceipt?.recipeId === "runtime.start" || validApplyLink
     ? await (async () => {
         const transitionRows = await db
           .select()
@@ -13068,7 +13077,12 @@ router.get("/ai/executions/:executionId", async (req, res) => {
         const matchingEpisodeIds = new Set(matchingEpisodes.map((episode) => episode.id));
         const boundTransitionRows = transitionRows.filter((transition) => (
           matchingEpisodeIds.has(transition.episodeId)
+          && (recipeReceipt?.recipeId === "runtime.start"
+            || Boolean(validApplyLink && isBoundApplyTransition(
+              transition, execution, validApplyLink, acceptanceRow,
+            )))
         ));
+        if (validApplyLink) boundApplyTransition = boundTransitionRows[0];
         const observationIds = Array.from(new Set(
           boundTransitionRows.flatMap(linkedWorldTransitionObservationIds),
         ));
@@ -13220,6 +13234,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     executionDiagnostics,
     recipeReceipt,
     worldTransitions,
+    applyMission: validApplyLink
+      ? projectApplyMissionLink(
+          execution,
+          validApplyLink,
+          acceptanceRow,
+          boundApplyTransition,
+          worldTransitions.find((transition) => transition.id === boundApplyTransition?.id),
+        )
+      : applyLink?.kind === "blocked" ? projectBlockedApplyMissionLink(applyLink) : null,
     evidenceBraid,
   });
 });

@@ -7194,6 +7194,79 @@ describe("POST /api/ai/chat/apply-changes", () => {
         "test-user",
         { parentExecutionId: null },
       );
+
+      const detail = await request(app).get(`/api/ai/executions/${execution!.id}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.worldTransitions, JSON.stringify({
+        applyMission: detail.body.applyMission,
+        goalAcceptance: (applyGoal?.outcomeContract as Record<string, unknown>)?.acceptance,
+      })).toHaveLength(1);
+      expect(detail.body.worldTransitions[0].beforeObservations, JSON.stringify(detail.body.worldTransitions[0]))
+        .toHaveLength(1);
+      expect(detail.body.applyMission, JSON.stringify({
+        goalAcceptance: (applyGoal?.outcomeContract as Record<string, unknown>)?.acceptance,
+        transition: detail.body.worldTransitions[0],
+      })).toMatchObject({
+        goalId: applyGoalId,
+        missionId,
+        d2: {
+          state: "PROVEN",
+          transitionId: expect.any(String),
+          resultingWorldRevision: expect.any(String),
+        },
+        successor: {
+          goalId: reportGoalId,
+          status: "running",
+          taskId: reportTaskId,
+        },
+      });
+      expect(detail.body.worldTransitions).toHaveLength(1);
+      expect(detail.body.worldTransitions[0]).toMatchObject({
+        id: detail.body.applyMission.d2.transitionId,
+        status: "materialized",
+        beforeObservations: [{
+          predicate: "workspace.tree_hash",
+          provenance: "DIRECT_OBSERVATION",
+          freshness: "fresh",
+          runtimeStatus: null,
+        }],
+        afterObservations: [{
+          predicate: "workspace.tree_hash",
+          provenance: "DIRECT_OBSERVATION",
+          freshness: "fresh",
+          runtimeStatus: null,
+        }],
+        effectBundle: { verdict: "OBSERVED" },
+      });
+      expect(JSON.stringify(detail.body.worldTransitions)).not.toContain(deliveryWorkspace.candidateTreeHash);
+
+      // A later attempt cannot borrow the prior attempt's proof or transition.
+      await db.update(aiExecutionsTable).set({ attempt: execution!.attempt + 1 })
+        .where(eq(aiExecutionsTable.id, execution!.id));
+      const retryDetail = await request(app).get(`/api/ai/executions/${execution!.id}`);
+      expect(retryDetail.status).toBe(200);
+      expect(retryDetail.body.worldTransitions).toEqual([]);
+      expect(retryDetail.body.applyMission).toMatchObject({
+        d2: { state: "INCOMPLETE", transitionId: null, resultingWorldRevision: null },
+        successor: { goalId: reportGoalId, status: "running" },
+      });
+      const [missionRow] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId)).limit(1);
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: {
+          ...missionRow!.autonomyPolicy as Record<string, unknown>,
+          activePlanRevision: "0".repeat(64),
+        },
+      }).where(eq(aiMissionsTable.id, missionId));
+      const stalePlanDetail = await request(app).get(`/api/ai/executions/${execution!.id}`);
+      expect(stalePlanDetail.status).toBe(200);
+      expect(stalePlanDetail.body.worldTransitions).toEqual([]);
+      expect(stalePlanDetail.body.applyMission).toMatchObject({
+        d2: { state: "BLOCKED", transitionId: null, resultingWorldRevision: null },
+        reason: "apply_plan_binding_invalid",
+        successor: null,
+      });
+      expect(scheduleSpy).toHaveBeenCalledTimes(1);
     } finally {
       validationSpy.mockRestore();
       scheduleSpy.mockRestore();
