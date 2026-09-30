@@ -1440,7 +1440,7 @@ function GroqModelAvailabilityNotice({
 
   if (availability.status === 'available') {
     return (
-      <p className="mt-1.5 break-words text-[10px] text-green-300">
+      <p className="mt-1.5 break-words text-xs leading-5 text-green-300">
         Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
       </p>
     );
@@ -6491,7 +6491,7 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Optional</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Optional</span>
       </div>
 
       {isLoading ? (
@@ -6718,7 +6718,7 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Free · Priority</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Free · Priority</span>
       </div>
 
       {isLoading ? (
@@ -6831,7 +6831,7 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">Priority</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Priority</span>
       </div>
 
       {isLoading ? (

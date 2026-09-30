@@ -574,9 +574,11 @@ describe('AiChat settings disclosure', () => {
 
     const settingsToggle = screen.getByRole('button', { name: 'AI settings and diagnostics' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Providers, credentials, model quality')).toHaveClass('text-xs');
     expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
-    expect(screen.getByText('No cancelled or incomplete audits for this project.')
-      .closest('#historical-audits-content')).toHaveAttribute('hidden');
+    const emptyAudits = screen.getByText('No cancelled or incomplete audits for this project.');
+    expect(emptyAudits).toHaveClass('text-xs', 'leading-5');
+    expect(emptyAudits.closest('#historical-audits-content')).toHaveAttribute('hidden');
 
     const policy = screen.getByRole('region', { name: 'Automatic delivery promotion policy' });
     const policyToggle = within(policy).getByRole('button', { name: /Automatic delivery promotion/i });
@@ -590,7 +592,12 @@ describe('AiChat settings disclosure', () => {
 
     fireEvent.click(settingsToggle);
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('region', { name: 'Model contract quality' })).toBeInTheDocument();
+    const modelQuality = screen.getByRole('region', { name: 'Model contract quality' });
+    expect(modelQuality).toBeInTheDocument();
+    expect(within(modelQuality).getByText('Acceptance and citation matching from the durable metrics window.'))
+      .toHaveClass('text-xs', 'leading-5');
+    expect(within(modelQuality).getByRole('combobox', { name: 'Model quality provider' }))
+      .toHaveClass('text-xs');
   });
 });
 
@@ -1930,8 +1937,10 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByRole('button', { name: /Review audit Review the retained audit/ }))
       .not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Past audits' }));
-    expect(screen.getByRole('button', { name: /Review audit Review the retained audit/ }))
-      .toHaveClass('bg-primary/10');
+    const retainedAudit = screen.getByRole('button', { name: /Review audit Review the retained audit/ });
+    expect(retainedAudit).toHaveClass('bg-primary/10');
+    expect(within(retainedAudit).getByText('Review the retained audit')).toHaveClass('text-xs');
+    expect(within(retainedAudit).getByText('Cancelled').closest('span.mt-1')).toHaveClass('text-xs');
     expect(screen.getByText(/Execution historical-/)).toBeInTheDocument();
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
       JSON.stringify({
