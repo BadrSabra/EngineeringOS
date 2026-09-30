@@ -723,7 +723,7 @@ describe("recipe operation preparation", () => {
     }
   });
 
-  it("records one fixed-safe runtime.start status probe without changing Gate C acceptance", async () => {
+  it("keeps P7.5 collection closed while preserving normal Gate C runtime.start behavior", async () => {
     const fixture = await createGateCRecipeFixture("browser.verify");
     const missionId = crypto.randomUUID();
     const goalId = crypto.randomUUID();
@@ -786,41 +786,19 @@ describe("recipe operation preparation", () => {
       executionId = result.executionId;
       expect(result.status).not.toBe("completed");
       expect(startSpy).toHaveBeenCalledTimes(1);
-      expect(preStateObserver).toHaveBeenCalledTimes(2);
+      // The Gate C pre-state check remains; the separate P7.5 status read is closed.
+      expect(preStateObserver).toHaveBeenCalledTimes(1);
 
       const events = await db.select().from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
-      const registrationEvent = events.find((event) => {
+      const p75RegistrationEvent = events.find((event) => {
         const payload = event.payload;
         return payload
           && typeof payload === "object"
           && !Array.isArray(payload)
-          && (payload as Record<string, unknown>).recordKind
-            === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED";
+          && String((payload as Record<string, unknown>).recordKind ?? "").startsWith("P75_HYPOTHESIS_");
       });
-      const resultEvent = events.find((event) => {
-        const payload = event.payload;
-        return payload
-          && typeof payload === "object"
-          && !Array.isArray(payload)
-          && (payload as Record<string, unknown>).recordKind
-            === "P75_HYPOTHESIS_EXPERIMENT_RESULT";
-      });
-      expect(registrationEvent?.eventType).toBe("OBSERVATION_REQUESTED");
-      expect(registrationEvent?.payload).toMatchObject({
-        goalId,
-        planRevision,
-        selectionMode: "fixed_safe_probe",
-        candidate: { decisionValueStatus: "not_computed_bootstrap" },
-      });
-      expect(resultEvent?.payload).toMatchObject({
-        verdict: "matched",
-        actualOutcomeKey: "runtime_not_running",
-        measurementValidity: "complete_fresh",
-        environmentStatus: "same_scope",
-        beliefUpdateStatus: "unresolved_unvalidated_forecast",
-        observationRefs: [expect.any(String)],
-      });
+      expect(p75RegistrationEvent).toBeUndefined();
       expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
         eq(aiExecutionAcceptancesTable.executionId, executionId),
         eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),

@@ -4,6 +4,9 @@ import {
   RUNTIME_START_CALIBRATION_MINIMUM_MISSIONS,
 } from "./runtime-start-hypothesis-calibration.js";
 import {
+  RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED,
+} from "./runtime-start-hypothesis-collection-policy.js";
+import {
   RUNTIME_START_CALIBRATION_METHOD_VERSION,
   RUNTIME_START_CALIBRATION_PARTITION,
   RUNTIME_START_CALIBRATION_POLICY_VERSION,
@@ -499,7 +502,7 @@ function buildEvidencePack(
     kind: "p75-runtime-start-readiness-evidence-pack" as const,
     version: RUNTIME_START_READINESS_EVIDENCE_PACK_VERSION,
     status,
-    collectionAuthorized: false as const,
+    collectionAuthorized: RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED,
     aggregateCalibrationAssessmentComputed: false as const,
     writesPerformed: false as const,
     selectionMode: "fixed_safe_probe" as const,

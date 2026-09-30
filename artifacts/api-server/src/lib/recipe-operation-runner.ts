@@ -107,6 +107,9 @@ import {
   type RuntimeStartHypothesisExperimentRegistration,
 } from "./agent-state/runtime-start-hypothesis-experiment.js";
 import {
+  RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED,
+} from "./agent-state/runtime-start-hypothesis-collection-policy.js";
+import {
   evaluateRuntimeStartHypothesisCalibration,
   RuntimeStartHypothesisCalibrationAssessmentSchema,
   type RuntimeStartCalibrationExperiment,
@@ -1441,7 +1444,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             correlationId: executionId,
           });
           if (
-            params.recipeId === "runtime.start"
+            RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED
+            && params.recipeId === "runtime.start"
             && allowEffect
             && transitionEligible
             && params.missionId
@@ -2112,8 +2116,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let checkpointSequence = claimed.checkpointVersion;
   let latestNodes = resumedNodes;
   try {
-    if (episode && params.recipeId === "runtime.start") {
-      const continuationRunner = params.runtimeStartMeasurementContinuationRunner
+    const injectedMeasurementContinuationRunner =
+      params.runtimeStartMeasurementContinuationRunner;
+    if (
+      episode
+      && params.recipeId === "runtime.start"
+      && (
+        RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED
+        || injectedMeasurementContinuationRunner !== undefined
+      )
+    ) {
+      // The injectable runner is a server-internal test seam; production does
+      // not supply it and remains behind the closed collection policy gate.
+      const continuationRunner = injectedMeasurementContinuationRunner
         ?? runRuntimeStartHypothesisMeasurementContinuation;
       const measurementContinuation = await continuationRunner({
         projectId: params.projectId,

@@ -9,6 +9,9 @@ import {
   runtimeStartHypothesisCalibrationScopeRef,
   runtimeStartMarginalOutcomeDistribution,
 } from "./runtime-start-hypothesis-experiment.js";
+import {
+  RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED,
+} from "./runtime-start-hypothesis-collection-policy.js";
 
 export const RUNTIME_START_CALIBRATION_READINESS_VERSION = 1 as const;
 export const RUNTIME_START_CALIBRATION_READINESS_MAX_EXPERIMENTS = 5_000;
@@ -442,7 +445,7 @@ export function evaluateRuntimeStartHypothesisCalibrationReadiness(
   return {
     ...reportIdentity,
     readinessRef: `p75-runtime-start-readiness:${canonicalJsonHash(reportIdentity)}`,
-    collectionAuthorized: false,
+    collectionAuthorized: RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED,
     aggregateCalibrationAssessmentComputed: false,
     writesPerformed: false,
     selectionMode: "fixed_safe_probe",
