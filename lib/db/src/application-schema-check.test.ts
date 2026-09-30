@@ -167,8 +167,10 @@ function completeSnapshot() {
       }),
     ),
     indexes,
-    primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map(
-      (table_name) => ({ table_name, column_name: "id" }),
+    primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
+      (table_name) => table_name === "openrouter_model_cooldowns"
+        ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
+        : [{ table_name, column_name: "id" }],
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,

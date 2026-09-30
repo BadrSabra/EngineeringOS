@@ -60,6 +60,23 @@ type EnumRow = {
  */
 export const APPLICATION_SCHEMA_CONTRACT = {
   tables: {
+    openrouter_model_cooldowns: [
+      { name: "provider", dataType: "text", udtName: "text", nullable: false },
+      { name: "model", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "cooling_until",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+      },
+      {
+        name: "updated_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
     projects: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       {
@@ -722,6 +739,16 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ] satisfies readonly ColumnContract[],
   },
   indexes: [
+    {
+      name: "openrouter_model_cooldowns_provider_model_pk",
+      tableName: "openrouter_model_cooldowns",
+      columns: ["provider", "model"],
+    },
+    {
+      name: "idx_openrouter_model_cooldowns_expiry",
+      tableName: "openrouter_model_cooldowns",
+      columns: ["cooling_until"],
+    },
     {
       name: "uq_project_plugin_bindings_project_plugin",
       tableName: "project_plugin_bindings",
@@ -1586,18 +1613,25 @@ export function findApplicationSchemaIssues(
   }
 
   for (const tableName of REQUIRED_TABLES) {
+    const expectedColumns = tableName === "openrouter_model_cooldowns"
+      ? ["provider", "model"]
+      : ["id"];
+    const actualColumns = snapshot.primaryKeys
+      .filter((row) => row.table_name === tableName)
+      .map((row) => row.column_name);
     if (
       snapshot.tables.some((row) => row.table_name === tableName) &&
-      !snapshot.primaryKeys.some(
-        (row) => row.table_name === tableName && row.column_name === "id",
+      (
+        actualColumns.length !== expectedColumns.length ||
+        expectedColumns.some((column) => !actualColumns.includes(column))
       )
     ) {
       issues.push(
         issue(
           "missing_primary_key",
           tableName,
-          "id",
-          `PRIMARY KEY (${tableName}.id)`,
+          expectedColumns.join(","),
+          `PRIMARY KEY (${expectedColumns.map((column) => `${tableName}.${column}`).join(", ")})`,
         ),
       );
     }

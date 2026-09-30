@@ -20,7 +20,7 @@ const COOLDOWN_MS = 2 * 60 * 1_000; // 2 minutes
 // 30-second cooldown can expire while the current case is still falling
 // through its bounded model chain, causing the next case to immediately
 // re-admit the same upstream-throttled slug.
-const MODEL_COOLDOWN_MS = 90 * 1_000;
+export const MODEL_COOLDOWN_MS = 90 * 1_000;
 
 type CircuitState = {
   consecutiveFailures: number;
@@ -196,6 +196,26 @@ export function getModelCooldownRemainingMs(provider: string, model: string): nu
     return null;
   }
   return remaining;
+}
+
+/**
+ * Restore a still-active shared cooldown into this process without extending
+ * its server-owned expiry time.
+ */
+export function rememberModelCooldownUntil(
+  provider: string,
+  model: string,
+  remainingMs: number,
+): void {
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return;
+  const key = modelKey(provider, model);
+  const coolingUntil = Date.now() + Math.floor(remainingMs);
+  const previous = _modelCooldowns.get(key);
+  if (previous && previous.coolingUntil >= coolingUntil) return;
+  _modelCooldowns.set(key, {
+    coolingUntil,
+    failures: previous?.failures ?? 0,
+  });
 }
 
 export function recordModelFailure(

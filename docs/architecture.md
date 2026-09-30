@@ -1,6 +1,6 @@
 # EngineeringOS — Architecture Reference
 
-> **This is the current truth baseline** (last verified 2026-08-27).
+> **This is the current truth baseline** (last verified 2026-09-30).
 > `docs/completion-plan.md` and `docs/fact-record.md` are historical phase logs — see those
 > files' banners for context.
 
@@ -208,10 +208,11 @@ stream startup; after stream output begins, a failure is terminal to avoid
 duplicating partial output.
 
 An `upstream_shared_pool` rate limit also cools only the exact failed model for
-90 seconds in the current process, in both regular and streaming requests.
-Other OpenRouter models remain eligible; this is not a pool-wide or
-cross-instance quarantine. `provider_credential` limits do not create a
-model-specific cooldown. The provider circuit remains separate and unchanged.
+90 seconds in shared PostgreSQL state, in both regular and streaming requests.
+Other OpenRouter models remain eligible; this is model-specific coordination,
+not a pool-wide quarantine or a claim about other models' upstream routing.
+`provider_credential` limits do not create a model-specific cooldown. The
+provider circuit remains separate and unchanged.
 
 ### 4d. Task AI Execute
 

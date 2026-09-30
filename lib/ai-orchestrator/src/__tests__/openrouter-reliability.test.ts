@@ -26,6 +26,7 @@ import {
   recordModelSuccess,
   _resetCircuitsForTest,
 } from "../openrouter/circuit-breaker.js";
+import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
 import {
   resolveFallbackChain,
   buildFallbackChainFromId,
@@ -94,7 +95,13 @@ function sseDelta(text: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
 }
 
-beforeEach(() => _resetCircuitsForTest());
+beforeEach(() => {
+  _resetCircuitsForTest();
+  _setModelCooldownPersistenceForTest({
+    readActive: async () => [],
+    write: async () => {},
+  });
+});
 
 // ── Circuit Breaker ───────────────────────────────────────────────────────────
 

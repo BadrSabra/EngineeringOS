@@ -32,11 +32,13 @@ import {
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import {
-  getModelCooldownRemainingMs,
-  isModelCoolingDown,
   recordModelFailure,
   recordModelSuccess,
 } from "./openrouter/circuit-breaker.js";
+import {
+  persistSharedPoolModelCooldown,
+  readModelCooldowns,
+} from "./openrouter/model-cooldown-store.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
 import { getPhaseBudget } from "./quality/execution-phases.js";
@@ -1483,11 +1485,12 @@ export async function openrouterCompleteWithFallback(
       .map((model) => model.trim())
       .filter(Boolean),
   );
+  const modelCooldowns = await readModelCooldowns("openrouter", resolvedChain);
   const coolingModels = resolvedChain.filter((model) =>
-    !excludedModels.has(model) && isModelCoolingDown("openrouter", model),
+    !excludedModels.has(model) && modelCooldowns.has(model),
   );
   const eligibleChain = resolvedChain.filter((model) =>
-    !excludedModels.has(model) && !isModelCoolingDown("openrouter", model),
+    !excludedModels.has(model) && !modelCooldowns.has(model),
   );
   if (coolingModels.length > 0) {
     console.info(JSON.stringify({
@@ -1499,7 +1502,7 @@ export async function openrouterCompleteWithFallback(
   }
   if (eligibleChain.length === 0 && coolingModels.length > 0) {
     const retryAfterMs = Math.max(
-      ...coolingModels.map((model) => getModelCooldownRemainingMs("openrouter", model) ?? 0),
+      ...coolingModels.map((model) => modelCooldowns.get(model) ?? 0),
     );
     throw new GroqClientError(
       "RATE_LIMITED",
@@ -1614,6 +1617,9 @@ export async function openrouterCompleteWithFallback(
             model,
             err instanceof GroqClientError ? err.retryAfterMs : undefined,
           );
+          if (providerRateLimitScope === "upstream_shared_pool") {
+            await persistSharedPoolModelCooldown("openrouter", model);
+          }
         }
         if (
           err instanceof GroqClientError &&
@@ -1740,12 +1746,9 @@ export async function* openrouterCompleteStream(
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
       ? opts.maxFallbackModels
       : undefined;
-  const coolingModels = resolved.filter((model) =>
-    isModelCoolingDown("openrouter", model),
-  );
-  const eligibleModels = resolved.filter((model) =>
-    !isModelCoolingDown("openrouter", model),
-  );
+  const modelCooldowns = await readModelCooldowns("openrouter", resolved);
+  const coolingModels = resolved.filter((model) => modelCooldowns.has(model));
+  const eligibleModels = resolved.filter((model) => !modelCooldowns.has(model));
   if (coolingModels.length > 0) {
     console.info(JSON.stringify({
       scope: "openrouter-fallback",
@@ -1756,7 +1759,7 @@ export async function* openrouterCompleteStream(
   }
   if (eligibleModels.length === 0 && coolingModels.length > 0) {
     const retryAfterMs = Math.max(
-      ...coolingModels.map((model) => getModelCooldownRemainingMs("openrouter", model) ?? 0),
+      ...coolingModels.map((model) => modelCooldowns.get(model) ?? 0),
     );
     throw new GroqClientError(
       "RATE_LIMITED",
@@ -1798,6 +1801,9 @@ export async function* openrouterCompleteStream(
           providerError.rateLimitScope !== "provider_credential"
         ) {
           recordModelFailure("openrouter", model, providerError.retryAfterMs);
+          if (providerError.rateLimitScope === "upstream_shared_pool") {
+            await persistSharedPoolModelCooldown("openrouter", model);
+          }
         }
         // Once bytes have been emitted, retrying would duplicate or splice the
         // answer. The caller must terminalize the partial stream instead.

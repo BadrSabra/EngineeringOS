@@ -30,17 +30,27 @@ import {
   _resetCircuitsForTest,
   isModelCoolingDown,
 } from "../openrouter/circuit-breaker.js";
+import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
+let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
 
 
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
+  persistedCooldownWrites = [];
+  _setModelCooldownPersistenceForTest({
+    readActive: async () => [],
+    write: async (provider, model, cooldownMs) => {
+      persistedCooldownWrites.push({ provider, model, cooldownMs });
+    },
+  });
 });
 
 afterEach(() => {
+  _setModelCooldownPersistenceForTest(undefined);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -772,6 +782,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(attemptedModels).toHaveLength(2);
     expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(persistedCooldownWrites).toEqual([{
+      provider: "openrouter",
+      model: attemptedModels[0]!,
+      cooldownMs: 90_000,
+    }]);
   });
 
   it("does not cool an individual model for a provider-credential limit", async () => {
@@ -799,6 +814,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       rateLimitScope: "provider_credential",
     });
     expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
