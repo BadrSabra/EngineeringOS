@@ -9,6 +9,12 @@ Provider failures in evidence-required turns must project the observed evidence 
 
 **How to apply:** Build the summary from the current trace plus retained complete evidence before persisting the assistant failure or terminal execution state. Preserve cancellation precedence and ordinary-chat wording.
 
+Keep the sanitized primary failure cause separate from proof acceptance. A timeout or exhausted investigation budget may be surfaced as the reason the turn stopped, while the acceptance disposition remains `INCOMPLETE`; do not replace the cause with only `EXECUTION_ACCEPTANCE_INCOMPLETE` or expose raw provider error text.
+
+**Why:** A development code-check session read complete sources but exhausted its 150-second deadline during provider retries. The durable forensic diagnostic recorded `TIMEOUT`, while the persisted assistant error exposed only missing acceptance evidence.
+
+**How to apply:** For failed proof-required turns, correlate the durable diagnostic and request ledger with the acceptance row. Preserve the safe terminal cause and incomplete evidence status as separate fields in user-facing projection.
+
 Telemetry coverage and persisted evidence snapshots are separate layers. A
 snapshot must not silently drop reads because of a retention cap and then let
 acceptance infer that the investigation had fewer or no usable sources.
