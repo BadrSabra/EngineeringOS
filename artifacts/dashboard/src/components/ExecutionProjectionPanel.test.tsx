@@ -61,6 +61,7 @@ describe('ExecutionProjectionPanel', () => {
       <ExecutionProjectionPanel
         projection={projection}
         executionId="execution-1"
+        operationId="operation-1"
         executionStatus="running"
         flightState="VALIDATING"
         resumable
@@ -72,11 +73,15 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
     expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Awaiting approval');
     expect(screen.getByTestId('status-canonical')).toHaveTextContent('Mission state');
-    expect(screen.getByTestId('mission-identity')).toHaveTextContent('execution-1');
+    const identities = screen.getByTestId('execution-identities');
+    expect(identities).toHaveTextContent('Execution execution-1');
+    expect(identities).toHaveTextContent('Operation operation-1');
+    expect(identities).not.toHaveTextContent('Mission');
     expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Flight Deck');
     expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Mission Control');
     expect(screen.getByTestId('mission-links').querySelector('a[href="/flight-deck?executionId=execution-1"]')).toBeTruthy();
     expect(screen.getByTestId('mission-links').querySelector('a[href="/mission-control?executionId=execution-1"]')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open Task' })).not.toBeInTheDocument();
     expect(screen.getByTestId('mission-timeline')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
@@ -90,6 +95,37 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('button-action-approve_changes')).toHaveAttribute('data-primary-action', 'true');
     expect(screen.getByTestId('primary-next-action')).toHaveTextContent('Next action');
     expect(screen.queryByTestId('button-action-resume_checkpoint')).not.toBeInTheDocument();
+  });
+
+  it('shows a Mission identity only when an actual Mission ID is supplied', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={projection}
+        missionId="mission-1"
+        executionId="execution-1"
+        operationId="operation-1"
+      />,
+    );
+
+    const identities = screen.getByTestId('execution-identities');
+    expect(identities).toHaveTextContent('Mission mission-1');
+    expect(identities).toHaveTextContent('Execution execution-1');
+    expect(identities).toHaveTextContent('Operation operation-1');
+  });
+
+  it('links to a Task only when the execution has a linked Task ID', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={projection}
+        executionId="execution-1"
+        taskId="task-1"
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Open Task' })).toHaveAttribute(
+      'href',
+      '/tasks?taskId=task-1',
+    );
   });
 
   it('delegates every displayed action to the owning surface without making an API request', async () => {

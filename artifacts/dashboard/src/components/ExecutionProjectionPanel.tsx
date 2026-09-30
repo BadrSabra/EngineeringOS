@@ -43,7 +43,7 @@ export type ExecutionProjectionPanelProps = {
    * routing; the owning surface still controls execution actions.
    */
   taskId?: string | null;
-  /** Stable mission identity. Falls back to operationId, then executionId. */
+    /** Actual Mission identity only; never infer it from operation or execution IDs. */
   missionId?: string | null;
   operationId?: string | null;
   proposalId?: string | null;
@@ -231,7 +231,7 @@ export function ExecutionProjectionPanel({
   const percent = typeof progress?.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : null;
   const approvalPending = projection.approval?.required && projection.approval.status === 'PENDING';
   const isStopped = Boolean(projection.stopped?.outcome);
-  const resolvedMissionId = missionId ?? operationId ?? executionId;
+  const resolvedMissionId = missionId?.trim() || null;
   const resolvedProposalId = proposalId ?? projection.approval?.proposalId;
   const recoveryAction = recoveryView?.action === 'retry' ? 'RETRY_CHECKPOINT'
     : recoveryView?.action === 'resume' ? 'RESUME_CHECKPOINT' : null;
@@ -353,10 +353,14 @@ export function ExecutionProjectionPanel({
         {missionState.detail}
       </div>
 
-      {resolvedMissionId && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid="mission-identity">
-          <span className="font-semibold uppercase tracking-wide text-primary">Mission</span>
-          <code className="max-w-[18rem] truncate text-foreground" title={resolvedMissionId}>{resolvedMissionId}</code>
+      {(resolvedMissionId || executionId || operationId || taskId || resolvedProposalId) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid="execution-identities">
+          {resolvedMissionId && (
+            <span>
+              <span className="font-semibold uppercase tracking-wide text-primary">Mission</span>{' '}
+              <code className="max-w-[18rem] truncate text-foreground" title={resolvedMissionId}>{resolvedMissionId}</code>
+            </span>
+          )}
           {executionId && executionId !== resolvedMissionId && <span>Execution <code className="text-foreground">{executionId}</code></span>}
           {operationId && operationId !== resolvedMissionId && <span>Operation <code className="text-foreground">{operationId}</code></span>}
           {taskId && <span>Task <code className="text-foreground">{taskId}</code></span>}

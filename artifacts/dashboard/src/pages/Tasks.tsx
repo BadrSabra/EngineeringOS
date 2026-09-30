@@ -304,7 +304,6 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
     <MissionCapsule
       projection={execution.projection}
       executionId={executionId}
-      missionId={execution.operationId ?? executionId}
       operationId={execution.operationId}
       proposalId={execution.proposalId}
       taskId={taskId}

@@ -466,7 +466,6 @@ export default function FlightDeck() {
           <MissionCapsule
             projection={execution.projection}
             executionId={executionId}
-            missionId={operationId ?? executionId}
             operationId={operationId}
             proposalId={execution.proposalId}
             executionStatus={execution.status}
