@@ -1,5 +1,5 @@
 - [Canonical proof foundation](proof-foundation.md) — server-only completion proof binds acceptance, execution, evidence, scope, revision, candidate, and delivery identities.
-- [Clerk release handoff](clerk-release-handoff.md) — concurrent Firefox journeys need a bounded 60-second per-session handoff under full-suite load.
+- [Clerk release handoff](clerk-release-handoff.md) — concurrent Firefox journeys need bounded 60-second session handoff and test budgets under suite load.
 - [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.

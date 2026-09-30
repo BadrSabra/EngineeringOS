@@ -4793,6 +4793,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("signs in and traverses the authenticated operational shell", async ({
     page,
   }) => {
+    // This multi-route Firefox journey can exceed the suite's 45-second
+    // default under full-run load even though it passes in isolation.
+    test.setTimeout(60_000);
     await installApiFixtures(page);
     await programmaticSignIn(page);
     for (const origin of approvedDashboardOrigins()) {
