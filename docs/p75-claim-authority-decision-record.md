@@ -192,6 +192,95 @@ locate candidate records, but only a server-owned verifier may classify their
 authority and evidence state. Do not add a second planner/executor or infer
 trust from provider prose. Collection approval remains a separate gate.
 
+## Design-only assessment of local calibration and cross-project transfer (2026-09-30)
+
+This assessment records a desk-review conclusion only. It does not select a
+source, approve an estimand, designate an authority, change the P7.5 protocol,
+or authorize an operational probe, reset, cohort, or collection.
+
+### Current disposition
+
+There is no presently defensible collection path. Keep P7.5 `BLOCKED`,
+`collectionAuthorized=false`, and `fixed_safe_probe`. Local calibration is a
+conditional design candidate, not an adopted target: it would require a
+defensible independent operating-opportunity unit and a repeatable, scoped
+reset whose evidence is linked to each registered opportunity. Cross-project
+calibration is not a substitute for proving local independence; it is a
+different claim requiring a separately versioned scope and evaluation
+protocol.
+
+### What the current implementation establishes
+
+The Mission `runtime.start` experiment binds server-derived registration,
+forecast, execution, Episode, project/environment revisions, and result
+identities, and the evaluator computes Brier/classwise ECE with a
+Mission-cluster uncertainty estimate. These are useful integrity and
+measurement primitives, but they do not establish that distinct Mission IDs
+are independent sampling units, that a fixed partition is genuinely held out,
+or that an issuer is authorized for the relevant claim.
+
+The observe-only continuation reads `runtime.status`, does not replay
+`runtime.start`, and remains excluded from calibration v1. The fixed-safe
+probe remains advisory; expected-decision-value ranking and automatic
+observation selection are not implemented. A numerical calibration result
+therefore would not establish improved decisions, a learned selector, or
+cross-project generalization.
+
+### Local calibration: conditional candidate, not yet feasible for collection
+
+Repeated `stop → start` operations in one project are mechanically possible,
+but neither a Mission ID nor a Gate C stop receipt establishes an independent
+opportunity. The source must define a target population and sampling frame,
+explain the source of variation between opportunities, account for shared
+files/processes/services/state, and bind a controlled reset and the subsequent
+registration, forecast, observation, and result. If that unit cannot be
+defended within one fixed project/environment scope, local v1 remains `NO-GO`;
+do not manufacture Missions or count resets to reach a numeric minimum.
+
+There is a documentation tension to resolve before using the local threshold:
+§25.4 describes local held-out units as independent episodes/missions, while
+the P7.5-specific feasibility and governance reviews say that Mission
+distinctness alone does not prove independence. The stricter P7.5-specific
+interpretation governs until the owner and methodological reviewer resolve
+the unit explicitly.
+
+The fixed bootstrap forecast also has a material sensitivity risk. Its
+marginal probabilities are `4/9` for `runtime_running`, `4/9` for
+`runtime_not_running`, `1/9` for `runtime_other`, and `0` for
+`runtime_unexpected`. Under the feasibility audit's classwise ECE calculation,
+an all-success outcome distribution would yield ECE about `0.278`; a success
+share above about `74.4%` would exceed the existing `0.15` limit. This is a
+hypothetical sensitivity calculation, not an observed result. The audit also
+identifies an outcome-mapping mismatch: the current continuation path does not
+emit `runtime_other`, although the forecast assigns it nonzero probability.
+Reconcile the outcome contract and test the evaluator against the intended
+rare/absent classes before freezing any future protocol.
+
+### Cross-project calibration: distinct future claim
+
+A transfer claim requires project-origin-family provenance, grouping or
+blocking projects that share repositories, fixtures, data, or trajectories;
+freezing family membership and outcome/tuning rules before outcomes; holding
+out complete families; and calculating uncertainty at the family level. It
+also needs a separate scope/version, evaluator, and qualified sources for
+lineage, held-out custody, review authority, and applicability. The current
+implementation does not provide project-family sampling or transfer
+evaluation. The `>=30` outcome and `>=3` transfer-fixture values in §25.4 are
+minimum gates, not a sample-size justification or proof of transfer.
+
+### Permitted next step
+
+Only a non-operational review is supported now. The owner and an independent
+methodological reviewer should first decide the exact claim and target
+population, determine whether a local independent operating-opportunity unit
+and reset can be evidenced, and resolve the forecast/outcome mapping and
+evaluator applicability. They must separately identify qualified sampling
+and held-out authorities and freeze membership, access/tuning history,
+forecast, policy, and evaluator before any outcome. If local independence is
+not defensible, record that no-go and consider a separately authorized
+alternative protocol; do not pool projects into v1. Any operational
+feasibility check and any later collection require separate authorization.
+
 ## Guardrails
 
 - The proposed operating procedure in
