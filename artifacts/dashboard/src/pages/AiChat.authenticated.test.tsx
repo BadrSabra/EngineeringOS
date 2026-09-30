@@ -2261,6 +2261,25 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(document.body.style.overflow).toBe('');
   });
 
+  it('traps keyboard focus in the mobile sessions dialog and closes it with Escape', async () => {
+    renderAiChat(false);
+    const opener = screen.getByRole('button', { name: 'Open sessions' });
+    fireEvent.click(opener);
+
+    const drawer = await screen.findByRole('dialog', { name: 'Chat sessions' });
+    expect(drawer).toHaveAttribute('aria-modal', 'true');
+    const firstFocusable = drawer.querySelector<HTMLElement>('button:not(:disabled)');
+    expect(firstFocusable).not.toBeNull();
+    firstFocusable?.focus();
+    fireEvent.keyDown(firstFocusable!, { key: 'Tab', shiftKey: true });
+    expect(drawer.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(firstFocusable);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(await screen.findByRole('button', { name: 'Open sessions' })).toHaveFocus();
+    expect(drawer).not.toHaveAttribute('aria-modal', 'true');
+  });
+
   it('keeps every provider key card control available in the mobile drawer', async () => {
     renderAiChat(false);
 

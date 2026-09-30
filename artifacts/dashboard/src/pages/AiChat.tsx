@@ -12460,6 +12460,13 @@ export default function AiChat() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
   );
+  const sessionsDrawerRef = useRef<HTMLDivElement>(null);
+  const sessionsToggleRef = useRef<HTMLButtonElement>(null);
+  const sessionsCloseRef = useRef<HTMLButtonElement>(null);
+  const mobileSessionsWasOpenRef = useRef(false);
+  const mobileSessionsOpenerRef = useRef<HTMLElement | null>(null);
+  const isMobileSessionDrawer = typeof window !== 'undefined'
+    && !window.matchMedia('(min-width: 768px)').matches;
 
   useEffect(() => {
     if (!sidebarOpen || window.matchMedia('(min-width: 768px)').matches) return;
@@ -12469,6 +12476,65 @@ export default function AiChat() {
       document.body.style.overflow = previousOverflow;
     };
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (sidebarOpen && isMobileSessionDrawer) {
+      if (!mobileSessionsWasOpenRef.current) {
+        mobileSessionsOpenerRef.current = sessionsToggleRef.current
+          ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        mobileSessionsWasOpenRef.current = true;
+      }
+      sessionsCloseRef.current?.focus();
+
+      const handleDrawerKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setSidebarOpen(false);
+          return;
+        }
+        if (event.key !== 'Tab') return;
+
+        const drawer = sessionsDrawerRef.current;
+        if (!drawer) return;
+        const focusable = Array.from(drawer.querySelectorAll<HTMLElement>(
+          'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        )).filter((element) => (
+          element.getAttribute('aria-hidden') !== 'true'
+          && !element.closest('[hidden], [inert]')
+          && window.getComputedStyle(element).visibility !== 'hidden'
+          && window.getComputedStyle(element).display !== 'none'
+        ));
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) {
+          event.preventDefault();
+          drawer.focus();
+          return;
+        }
+        if (!drawer.contains(document.activeElement)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      };
+
+      document.addEventListener('keydown', handleDrawerKeyDown);
+      return () => document.removeEventListener('keydown', handleDrawerKeyDown);
+    }
+
+    if (!sidebarOpen && mobileSessionsWasOpenRef.current) {
+      mobileSessionsWasOpenRef.current = false;
+      const opener = mobileSessionsOpenerRef.current;
+      mobileSessionsOpenerRef.current = null;
+      if (opener?.isConnected) opener.focus();
+    }
+    return undefined;
+  }, [isMobileSessionDrawer, sidebarOpen]);
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden overscroll-contain">
@@ -12494,7 +12560,13 @@ export default function AiChat() {
       {/* UI-01: desktop sidebar is collapsible; mobile drawer overlays the chat
        * instead of shrinking it to a narrow unreadable column. */}
       <div
+        ref={sessionsDrawerRef}
+        id="ai-sessions-drawer"
         data-testid="sessions-drawer"
+        role={sidebarOpen && isMobileSessionDrawer ? 'dialog' : undefined}
+        aria-label={sidebarOpen && isMobileSessionDrawer ? 'Chat sessions' : undefined}
+        aria-modal={sidebarOpen && isMobileSessionDrawer ? true : undefined}
+        tabIndex={-1}
         className={`${sidebarOpen ? 'flex md:flex' : 'hidden md:hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:h-auto md:w-56 md:max-w-none md:shadow-none`}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
@@ -12503,6 +12575,7 @@ export default function AiChat() {
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Sessions</span>
           <div className="flex items-center gap-1">
             <Button
+              ref={sessionsCloseRef}
               size="sm"
               variant="ghost"
               className="h-6 w-6 p-0"
@@ -12827,12 +12900,15 @@ export default function AiChat() {
         {/* Header */}
         <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
           <Button
+            ref={sessionsToggleRef}
             size="icon"
             variant="ghost"
             className={`h-8 w-8 shrink-0 ${sidebarOpen ? 'hidden md:inline-flex' : 'inline-flex'}`}
             onClick={() => setSidebarOpen((open) => !open)}
             title={sidebarOpen ? 'Close sessions' : 'Open sessions'}
             aria-label={sidebarOpen ? 'Close sessions' : 'Open sessions'}
+            aria-expanded={sidebarOpen}
+            aria-controls="ai-sessions-drawer"
           >
             {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
