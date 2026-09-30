@@ -86,9 +86,7 @@
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
-- [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
-- [Orientation recovery telemetry](orientation-recovery-telemetry.md) — malformed project-orientation recovery must consume the request ledger and usage contract, not only increment a local terminal counter.
-- [Orientation deterministic fallback](project-orientation-deterministic-fallback.md) — complete role reads can produce a bounded server-owned answer when provider synthesis fails; missing roles remain incomplete.
+- [Orientation proof and recovery index](orientation-proof-recovery-index.md) — grouped pointers for role manifests, proof, fallback, admission, and recovery contracts.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
 - [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
@@ -107,8 +105,6 @@
 - [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
 - [Durable orientation role manifest](orientation-role-manifest.md) — preserve the server-owned role-to-path mapping across resume and provider fallback; never replan it mid-execution.
 - [Orientation acceptance boundary](orientation-acceptance.md) — complete role coverage is the orientation proof gate; do not force orientation through targeted project-query analysis evidence.
-- [Orientation proof compatibility](orientation-acceptance-proof.md) — proof-required orientation needs an explicit acceptance branch that maps role coverage to server-owned evidence.
-- [Project orientation recovery](project-orientation-recovery.md) — orientation PROJECT_QUERY is proof-bound but may resume after a pre-read provider failure; targeted claims remain incomplete.
 - [P7.5 measurement continuation](p75-measurement-continuation.md) — cross-attempt measurement needs distinct source/observer identities and stays outside calibration until versioned review.
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
@@ -117,7 +113,6 @@
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
-- [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
@@ -157,3 +152,4 @@
 - [P7.5 Mission context boundary](p75-mission-context-boundary.md) — calibrated runtime observations stay advisory until a server-owned observation path and existing acceptance edge bind them.
 - [P7.5 readiness boundary](p75-readiness-boundary.md) — numerical calibration is advisory without provenance; Clerk identity is not review authority; collection stays closed.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.
+- [AI conversation route precedence](ai-conversation-route-precedence.md) — explicit project/session links beat stale local execution pointers; unavailable targets must not silently open another session.
