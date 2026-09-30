@@ -1,0 +1,93 @@
+{
+  "kind": "code-agent-benchmark",
+  "version": 1,
+  "suiteVersion": "flight-deck-v2",
+  "generatedAt": "2026-09-30T23:15:03.613Z",
+  "cases": [
+    {
+      "caseId": "single-file-001",
+      "candidateHash": "18a4cd143316318dc54061c69afa303dd8260227b6609da75d3d2f88a2ed43c3",
+      "sourceRevision": "412533c7a4254cb7da485788675a49f7648559ed",
+      "grade": "F",
+      "correct": false,
+      "completedFirstAttempt": false,
+      "repairedWithinThreeAttempts": false,
+      "usefulButIncomplete": false,
+      "safelyBlocked": false,
+      "falseSuccess": false,
+      "scopeEscape": false,
+      "conflict": false,
+      "typecheckPassed": null,
+      "testsPassed": null,
+      "diagnosis": "Behavioral contract proof failed (TERMINAL_MISMATCH).",
+      "filesRead": 1,
+      "toolCalls": 2,
+      "repairAttempts": 0,
+      "rejectedChanges": 0,
+      "latencyMs": 8487,
+      "providerUnavailable": false,
+      "providerAttemptedModels": [
+        "cohere/north-mini-code:free"
+      ],
+      "providerFinalModel": "cohere/north-mini-code:free",
+      "providerModelsFree": true,
+      "providerCapabilityValid": true,
+      "oracleStatus": "failed",
+      "oracleCode": "TERMINAL_MISMATCH",
+      "behavioralOracleStatus": "not-run"
+    }
+  ],
+  "candidateHash": "18a4cd143316318dc54061c69afa303dd8260227b6609da75d3d2f88a2ed43c3",
+  "sourceRevision": "412533c7a4254cb7da485788675a49f7648559ed",
+  "missingCaseIds": [],
+  "metrics": {
+    "totalCases": 1,
+    "observedCases": 1,
+    "complete": true,
+    "firstAttemptRate": 0,
+    "repairedWithinThreeRate": 0,
+    "correctCompletionRate": 0,
+    "usefulIncompleteRate": 0,
+    "safelyBlockedRate": 0,
+    "falseSuccessRate": 0,
+    "scopeEscapeRate": 0,
+    "conflictRate": 0,
+    "typecheckSuccessRate": null,
+    "testSuccessRate": null,
+    "averageFilesRead": 1,
+    "averageToolCalls": 2,
+    "averageRepairAttempts": 0,
+    "averageRejectedChanges": 0,
+    "averageLatencyMs": 8487,
+    "gradeCounts": {
+      "A": 0,
+      "B": 0,
+      "C": 0,
+      "D": 0,
+      "F": 1,
+      "U": 0
+    },
+    "providerUnavailableCount": 0
+  },
+  "rolloutAllowed": false,
+  "rolloutBlockers": [
+    "failing benchmark case detected",
+    "behavioral oracle missing or failed for 1 observed case",
+    "benchmark baseline is incompatible with the live suite"
+  ],
+  "baseline": {
+    "baselineId": "baseline-flight-deck-v2-paid-clean-witness-20260819",
+    "suiteVersion": "flight-deck-v2",
+    "generatedAt": "2026-08-19T01:02:49.491Z"
+  },
+  "baselineComparison": {
+    "status": "incompatible",
+    "baselineId": "baseline-flight-deck-v2-paid-clean-witness-20260819",
+    "baselineGeneratedAt": "2026-08-19T01:02:49.491Z",
+    "blockers": [
+      "benchmark baseline is incompatible with the live suite"
+    ]
+  },
+  "provider": "openrouter",
+  "model": null
+}

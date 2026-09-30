@@ -156,6 +156,7 @@ const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
 
 const MODEL_CANDIDATE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "EMPTY_RESPONSE",
+  "TIMEOUT",
   "MODEL_NOT_FOUND",
   "MODEL_UNAVAILABLE",
   "PLAN_RESTRICTED",

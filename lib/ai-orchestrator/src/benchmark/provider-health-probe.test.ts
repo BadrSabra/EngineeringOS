@@ -195,6 +195,48 @@ describe("providerHealthProbe", () => {
     });
   });
 
+  it("advances to the next OpenRouter candidate after a per-model timeout", async () => {
+    const calls: string[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        const model = options.model ?? "";
+        calls.push(model);
+        if (calls.length === 1) {
+          throw new GroqClientError("TIMEOUT", "OpenRouter request timed out", {
+            context: { providerModel: model },
+          });
+        }
+        return {
+          ...response([{
+            id: "probe-1",
+            type: "function",
+            function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"ok"}' },
+          }]),
+          model,
+        };
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      maxFallbackModels: 2,
+      strategy,
+    });
+
+    expect(result.status).toBe("usable");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).not.toBe(calls[1]);
+    expect(result.report).toMatchObject({
+      attemptCount: 2,
+      attemptedModels: calls,
+    });
+  });
+
   it("requires a valid ChatResponse envelope before accepting a probe candidate", async () => {
     const calls: Array<{ model: string; structured: boolean }> = [];
     const strategy: ProviderStrategy = {
