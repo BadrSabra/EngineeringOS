@@ -2,10 +2,10 @@
   "kind": "live-api-process-recovery",
   "version": 1,
   "redacted": true,
-  "revision": "d6c33852b523",
+  "revision": "e5d9dd4f9535",
   "build": {
     "artifact": "artifacts/api-server/dist/index.mjs",
-    "sha256": "573ad24342285a03fd38076a7618a15d542e93a2188e7ef46a16cae129d51bb1"
+    "sha256": "bccd9f0600393e3a8d4d91f78d862744955c81043be4e23b9eec26681ba1687a"
   },
   "provider": {
     "id": "openrouter",
@@ -18,15 +18,15 @@
     "name": "test:process-recovery",
     "runRealApiProcessRecovery": true,
     "liveRecoveryProviderExplicit": true,
-    "timeoutMs": 180000
+    "timeoutMs": 240000
   },
   "result": {
     "outcome": "passed",
     "exitCode": 0,
     "testFilesPassed": 1,
     "testsPassed": 1,
-    "testsSkipped": 58,
-    "durationMs": 48221
+    "testsSkipped": 106,
+    "durationMs": 50156
   },
   "milestones": {
     "initialHealth": "passed",
