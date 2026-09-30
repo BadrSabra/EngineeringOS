@@ -3918,6 +3918,26 @@ G9 Revocation Safety
 - **next step:** لا متابعة تشغيلية ضمن البروتوكول الحالي؛ الخطوة التالية
   قرار بشري/منهجي على بروتوكول مستقبلي مستقل.
 
+### 43.27 — تغطية فروع تصنيف runtime.status المحاكية (2026-09-30)
+
+- **phase/step:** P7.5 — تثبيت عقد outcome الحالي باختبارات من دون تغيير المعنى.
+- **status:** `done — deterministic tests only`
+- **what changed:** أضيفت حالات runner محاكية تثبت أن `failed` مع process
+  ميت يصدر `runtime_not_running`، ومع process حي يصدر `runtime_unexpected`،
+  بينما `passed` غير الجاهز يظل جزئيًا بلا outcome. ظل `unavailable`
+  غير المصنف partial كما قبل. لم يتغير production mapping؛ لا يوجد emitter
+  جديد لـ`runtime_other`.
+- **files/schema/contracts touched:** اختبار continuation runner وسجل
+  التقدم؛ لا schema أو production code.
+- **validation:** اختبارات continuation runner وcalibration نجحت:
+  ملفان، 26/26؛ API typecheck و`git diff --check` اجتازا.
+- **authority/safety impact:** fixtures محاكية فقط؛ لا runtime أو reset
+  أو cohort أو جمع. يبقى جمع P7.5 v1 `NO-GO` تحت البروتوكول الحالي.
+- **remaining/blocker:** معنى `runtime_other` ووحدة الاستقلال ومصدر
+  held-out وسلطة المراجعة تتطلب قرارًا منهجيًا؛ لا تستنتجها هذه الاختبارات.
+- **next step:** لا تعديل للمقيم أو الفئات أو forecast قبل اعتماد
+  بروتوكول مستقل جديد وموافقة جمع صريحة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
