@@ -3523,6 +3523,27 @@ G9 Revocation Safety
 - **remaining/blocker:** لا شيء ضمن مسار Apply Changes المطلوب. لم يبدأ عمل
   P7.5 أو shadow-loop أو توسعة جديدة لـ`runtime.start`.
 
+### 43.10 — عقد قرار لمصدري استقلال العينات وheld-out (2026-09-30، 04:58 EEST)
+
+- **phase/step:** P7.5 — تعريف التزامات إثبات مصدرين ما زالا بلا مصدر مؤهل.
+- **status:** `done — design-only؛ P7.5 collection ما زالت blocked`
+- **what changed:** وُثق عقد فصل المصدر والسلطة والدليل للشرطين
+  `independent-sampling-definition` و`held-out-provenance`، مع متطلبات
+  النطاق والنسب والتوقيت والفصل عن الضبط وحالات الرفض وخيارات قرار المالك.
+  لا يختار مصدرًا ولا يغيّر قرارات `NO_QUALIFIED_SOURCE` المسجلة.
+- **files/schema/contracts touched:** `docs/p75-sampling-heldout-source-contract.md`
+  وهذا السجل فقط؛ لا schema أو قاعدة بيانات أو كود تشغيل.
+- **validation:** مراجعة `docs/p75-claim-authority-decision-record.md`
+  و§31/§42.8 في خطة التنفيذ، وفحص نص العقد و`git diff --check`.
+- **authority/safety impact:** وثيقة تصميم فقط؛ لا writer أو verifier أو
+  cohort أو selector أو approval جديد. الشروط السبعة في runtime لا تزال
+  `MISSING`، و`collectionAuthorized=false` و`fixed_safe_probe` كما هما.
+- **remaining/blocker:** لا مصدر مؤهل مثبت للشرطين؛ ومتطلبات هوية المراجع
+  وسلطته والـreset والـfreeze وملاءمة المقيم ما زالت غير مثبتة أيضًا.
+- **next step:** يحدد المالك أهلية مصدر وسلطته لكل من الشرطين أو يبقي
+  `NO_QUALIFIED_SOURCE`. أي تنفيذ للتحقق أو جمع نتائج يحتاج نطاقًا وتفويضًا
+  منفصلين؛ لا ينتقل إلى P8/P9/P10.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
