@@ -17,5 +17,8 @@ export const AiExecutionProjectionTimelineItemId = {
   build: 'build',
   validate: 'validate',
   review: 'review',
+  apply: 'apply',
+  commit: 'commit',
+  push: 'push',
   deliver: 'deliver',
 } as const;

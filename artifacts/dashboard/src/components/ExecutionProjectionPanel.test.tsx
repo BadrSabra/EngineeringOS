@@ -116,6 +116,41 @@ describe('ExecutionProjectionPanel', () => {
     expect(identities).toHaveTextContent('Operation operation-1');
   });
 
+  it('keeps delivery gates and recorded apply/commit/push progress visible in compact chat capsules', () => {
+    const deliveryProjection: AiExecutionProjection = {
+      ...projection,
+      timeline: [
+        ...projection.timeline.filter((item) => item.id !== 'deliver'),
+        { id: 'apply', label: 'Apply changes', status: 'completed', detail: 'Apply receipt recorded.' },
+        { id: 'commit', label: 'Commit changes', status: 'pending', detail: 'Apply is recorded; commit remains pending.' },
+        { id: 'push', label: 'Push to Git', status: 'pending', detail: null },
+        { id: 'deliver', label: 'Deliver to Git', status: 'active', detail: 'Apply is recorded; commit and push remain pending.' },
+      ],
+    };
+
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={deliveryProjection}
+        executionId="execution-delivery"
+        executionStatus="completed"
+        flightState="APPLIED"
+        compact
+        timelineOpenByDefault
+      />,
+    );
+
+    const timeline = screen.getByTestId('mission-timeline');
+    expect(timeline).toHaveAttribute('open');
+    expect(timeline).toHaveTextContent('Delivery stages');
+    expect(screen.getByTestId('timeline-approval')).toHaveTextContent('Approval required.');
+    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
+    expect(screen.getByTestId('timeline-apply')).toHaveTextContent('Done');
+    expect(screen.getByTestId('timeline-commit')).toHaveTextContent('Next');
+    expect(screen.getByTestId('timeline-push')).toHaveTextContent('Next');
+    expect(screen.getByTestId('timeline-deliver'))
+      .toHaveTextContent('Apply is recorded; commit and push remain pending.');
+  });
+
   it('links to a Task only when the execution has a linked Task ID', () => {
     renderPanel(
       <ExecutionProjectionPanel

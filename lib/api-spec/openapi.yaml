@@ -7175,13 +7175,13 @@ components:
             outcome: { type: string, enum: [SUCCEEDED, FAILED, INTERRUPTED], nullable: true }
         timeline:
           type: array
-          maxItems: 8
+          maxItems: 11
           items:
             type: object
             additionalProperties: false
             required: [id, label, status, detail]
             properties:
-              id: { type: string, enum: [understand, investigate, plan, approval, build, validate, review, deliver] }
+              id: { type: string, enum: [understand, investigate, plan, approval, build, validate, review, apply, commit, push, deliver] }
               label: { type: string, maxLength: 80 }
               status: { type: string, enum: [pending, active, completed, blocked, not_applicable] }
               detail: { type: string, maxLength: 240, nullable: true }

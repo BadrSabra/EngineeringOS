@@ -2919,6 +2919,9 @@ export const AiExecutionProjectionTimelineItemId = {
   build: 'build',
   validate: 'validate',
   review: 'review',
+  apply: 'apply',
+  commit: 'commit',
+  push: 'push',
   deliver: 'deliver',
 } as const;
 
@@ -3065,7 +3068,7 @@ export interface AiExecutionProjection {
   orientation?: AiExecutionProjectionOrientation;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
-  /** @maxItems 8 */
+  /** @maxItems 11 */
   timeline: AiExecutionProjectionTimelineItem[];
   /** @maxItems 7 */
   allowedActions: AiExecutionProjectionAllowedActionsItem[];

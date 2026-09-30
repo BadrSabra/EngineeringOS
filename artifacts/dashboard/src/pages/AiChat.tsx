@@ -9032,6 +9032,7 @@ function AgentExecutionProofPanel({
         recoveryView={recoveryView}
         readOnly={!onProjectionAction}
         hideRecoveryActions
+        timelineOpenByDefault={execution?.projection?.kind === 'DELIVERY'}
         compact
       />
 

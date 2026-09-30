@@ -37,7 +37,7 @@ export interface AiExecutionProjection {
   orientation?: AiExecutionProjectionOrientation;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
-  /** @maxItems 8 */
+  /** @maxItems 11 */
   timeline: AiExecutionProjectionTimelineItem[];
   /** @maxItems 7 */
   allowedActions: AiExecutionProjectionAllowedActionsItem[];

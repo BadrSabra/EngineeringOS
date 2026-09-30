@@ -40,6 +40,9 @@ describe("buildAiExecutionProjection", () => {
       ["build", "pending"],
       ["validate", "active"],
       ["review", "active"],
+      ["apply", "pending"],
+      ["commit", "pending"],
+      ["push", "pending"],
       ["deliver", "pending"],
     ]);
     expect(projection.allowedActions).toEqual(["CANCEL", "REVIEW_PROOF", "REVIEW_DIFF", "APPROVE_CHANGES"]);
@@ -62,6 +65,9 @@ describe("buildAiExecutionProjection", () => {
     expect(projection.kind).toBe("TASK");
     expect(projection.stopped).toEqual({ reason: "EXECUTION_PAUSED", outcome: "FAILED" });
     expect(projection.timeline.find((item) => item.id === "build")?.status).toBe("not_applicable");
+    expect(projection.timeline.find((item) => item.id === "apply")?.status).toBe("not_applicable");
+    expect(projection.timeline.find((item) => item.id === "commit")?.status).toBe("not_applicable");
+    expect(projection.timeline.find((item) => item.id === "push")?.status).toBe("not_applicable");
     expect(projection.timeline.find((item) => item.id === "deliver")?.status).toBe("not_applicable");
     expect(projection.allowedActions).toEqual(["RESUME_CHECKPOINT", "REVIEW_PROOF"]);
   });
@@ -138,5 +144,53 @@ describe("buildAiExecutionProjection", () => {
       missingRoles: ["uncertainty"],
     });
     expect(projection.verification.evidenceVerdict).toBe("PROVEN");
+  });
+
+  it("projects apply, commit, and push from their matching durable operation receipts", () => {
+    const common = {
+      execution: { id: "exec-delivery", status: "completed", proposalId: "proposal-delivery" },
+      request: { objective: "Deliver validated changes" },
+      checkpoint: { stage: "complete", recentSteps: [] },
+      evidenceVerdict: "PROVEN",
+      proofRequired: true,
+      terminalReason: null,
+    };
+    const applied = buildAiExecutionProjection({
+      ...common,
+      hasAppliedChanges: true,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+    const committed = buildAiExecutionProjection({
+      ...common,
+      hasAppliedChanges: true,
+      hasCommittedChanges: true,
+      hasPushedChanges: false,
+    });
+    const pushed = buildAiExecutionProjection({
+      ...common,
+      hasAppliedChanges: true,
+      hasCommittedChanges: true,
+      hasPushedChanges: true,
+    });
+
+    expect(applied.timeline.find((item) => item.id === "apply")).toMatchObject({
+      status: "completed",
+      detail: "Apply receipt recorded for this operation.",
+    });
+    expect(applied.timeline.find((item) => item.id === "commit")).toMatchObject({
+      status: "pending",
+      detail: "Apply is recorded; commit remains pending.",
+    });
+    expect(applied.timeline.find((item) => item.id === "push")?.status).toBe("pending");
+    expect(committed.timeline.find((item) => item.id === "commit")?.status).toBe("completed");
+    expect(committed.timeline.find((item) => item.id === "push")).toMatchObject({
+      status: "pending",
+      detail: "Commit is recorded; push remains pending.",
+    });
+    expect(pushed.timeline
+      .filter((item) => ["apply", "commit", "push"].includes(item.id))
+      .every((item) => item.status === "completed"))
+      .toBe(true);
   });
 });

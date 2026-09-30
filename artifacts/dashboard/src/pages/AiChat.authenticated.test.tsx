@@ -1782,6 +1782,64 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
   });
 
+  it('opens the server delivery stages in chat for delivery executions', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+      flightState: 'APPLIED',
+      projection: {
+        schemaVersion: 2,
+        kind: 'DELIVERY',
+        phase: 'APPLY',
+        objective: 'Apply the validated candidate',
+        progress: { percent: 100, label: 'Candidate applied', currentStep: null, completedSteps: 2, totalSteps: 2 },
+        plan: { steps: [], currentStepId: null },
+        tools: { totalCalls: 0, activeTool: null, recent: [] },
+        workspace: { changedFiles: ['src/app.ts'], diffStatus: 'available' },
+        verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: true },
+        approval: { required: true, status: 'APPROVED', proposalId: 'proposal-delivery' },
+        stopped: { reason: null, outcome: 'SUCCEEDED' },
+        timeline: [
+          { id: 'approval', label: 'Approve change', status: 'completed', detail: null },
+          { id: 'validate', label: 'Validate candidate', status: 'completed', detail: null },
+          { id: 'apply', label: 'Apply changes', status: 'completed', detail: 'Apply receipt recorded for this operation.' },
+          { id: 'commit', label: 'Commit changes', status: 'pending', detail: 'Apply is recorded; commit remains pending.' },
+          { id: 'push', label: 'Push to Git', status: 'pending', detail: null },
+          {
+            id: 'deliver',
+            label: 'Deliver to Git',
+            status: 'active',
+            detail: 'Apply is recorded; commit and push remain pending.',
+          },
+        ],
+        allowedActions: [],
+      },
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-delivery-stages',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      message: 'Apply the validated candidate',
+    }));
+
+    renderAiChat();
+
+    const proofPanel = await screen.findByLabelText('Agent execution proof');
+    const timeline = within(proofPanel).getByTestId('mission-timeline');
+    expect(timeline).toHaveAttribute('open');
+    expect(timeline).toHaveTextContent('Delivery stages');
+    expect(within(timeline).getByTestId('timeline-approval')).toHaveTextContent('Done');
+    expect(within(timeline).getByTestId('timeline-validate')).toHaveTextContent('Done');
+    expect(within(timeline).getByTestId('timeline-apply')).toHaveTextContent('Done');
+    expect(within(timeline).getByTestId('timeline-commit')).toHaveTextContent('Next');
+    expect(within(timeline).getByTestId('timeline-push')).toHaveTextContent('Next');
+    expect(within(timeline).getByTestId('timeline-deliver'))
+      .toHaveTextContent('Apply is recorded; commit and push remain pending.');
+  });
+
   it('puts candidate review and its approval gate before the detailed change card', async () => {
     mocks.serverProposal = {
       proposalId: 'proposal-review-summary',

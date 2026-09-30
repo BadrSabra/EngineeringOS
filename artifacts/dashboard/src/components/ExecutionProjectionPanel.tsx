@@ -36,6 +36,7 @@ export type ExecutionProjectionPanelProps = {
   resumable?: boolean | null;
   nextAction?: string | null;
   compact?: boolean;
+  timelineOpenByDefault?: boolean;
   onAction?: (action: ProjectionAction) => Promise<void> | void;
   /**
    * Kept for callers that still pass the task identity while surfaces migrate
@@ -192,6 +193,7 @@ export function ExecutionProjectionPanel({
   recoveryView,
   readOnly = false,
   hideRecoveryActions = false,
+  timelineOpenByDefault = false,
 }: ExecutionProjectionPanelProps) {
   const queryClient = useQueryClient();
   const [pendingAction, setPendingAction] = useState<ProjectionAction | null>(null);
@@ -400,9 +402,13 @@ export function ExecutionProjectionPanel({
       )}
 
       {projection.timeline?.length > 0 && (
-        <details className="mt-3 rounded-md border border-border/45 bg-background/20" open={!compact} data-testid="mission-timeline">
+        <details
+          className="mt-3 rounded-md border border-border/45 bg-background/20"
+          open={!compact || timelineOpenByDefault}
+          data-testid="mission-timeline"
+        >
           <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[10px] font-semibold text-foreground">
-            <span>Mission timeline</span>
+            <span>{projection.kind === 'DELIVERY' ? 'Delivery stages' : 'Mission timeline'}</span>
             <span className="font-normal text-muted-foreground">({projection.timeline.length} stages)</span>
             <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[9px] ${stateTone(missionState.key)}`}>{missionState.label}</span>
           </summary>

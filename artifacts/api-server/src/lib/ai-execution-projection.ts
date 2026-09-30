@@ -65,7 +65,7 @@ export type AiExecutionProjection = {
     outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null;
   };
   timeline: Array<{
-    id: "understand" | "investigate" | "plan" | "approval" | "build" | "validate" | "review" | "deliver";
+    id: "understand" | "investigate" | "plan" | "approval" | "build" | "validate" | "review" | "apply" | "commit" | "push" | "deliver";
     label: string;
     status: "pending" | "active" | "completed" | "blocked" | "not_applicable";
     detail: string | null;
@@ -215,6 +215,33 @@ function timelineProjection(input: ProjectionInput, values: {
   const validationBlocked = verificationStatus === "failed" || verificationStatus === "unavailable";
   const reviewRequired = Boolean(input.execution.proposalId || input.execution.buildPlanMessageId);
   const reviewComplete = input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges;
+  const applyStatus: TimelineStatus = !deliveryExecution
+    ? "not_applicable"
+    : input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges
+      ? "completed"
+      : phaseMatches(phase, "APPLY")
+        ? "active"
+        : validationBlocked
+          ? "blocked"
+          : "pending";
+  const commitStatus: TimelineStatus = !deliveryExecution
+    ? "not_applicable"
+    : input.hasCommittedChanges || input.hasPushedChanges
+      ? "completed"
+      : phaseMatches(phase, "COMMIT")
+        ? "active"
+        : validationBlocked
+          ? "blocked"
+          : "pending";
+  const pushStatus: TimelineStatus = !deliveryExecution
+    ? "not_applicable"
+    : input.hasPushedChanges
+      ? "completed"
+      : phaseMatches(phase, "PUSH")
+        ? "active"
+        : validationBlocked
+          ? "blocked"
+          : "pending";
   const deliverStatus: TimelineStatus = !deliveryExecution
     ? "not_applicable"
     : input.hasPushedChanges
@@ -297,6 +324,46 @@ function timelineProjection(input: ProjectionInput, values: {
             ? "active"
             : "pending",
       approvalStatus === "PENDING" ? "Review the proposal before approval." : null,
+    ),
+    timelineEntry(
+      "apply",
+      "Apply changes",
+      applyStatus,
+      input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges
+        ? "Apply receipt recorded for this operation."
+        : applyStatus === "active"
+          ? "Applying the candidate is in progress."
+          : applyStatus === "blocked"
+            ? "Applying changes is blocked until server-owned validation passes."
+            : null,
+    ),
+    timelineEntry(
+      "commit",
+      "Commit changes",
+      commitStatus,
+      input.hasCommittedChanges || input.hasPushedChanges
+        ? "Commit receipt recorded for this operation."
+        : commitStatus === "active"
+          ? "Git commit is in progress."
+          : input.hasAppliedChanges
+            ? "Apply is recorded; commit remains pending."
+            : commitStatus === "blocked"
+              ? "Commit is blocked until server-owned validation passes."
+              : null,
+    ),
+    timelineEntry(
+      "push",
+      "Push to Git",
+      pushStatus,
+      input.hasPushedChanges
+        ? "Push receipt recorded for this operation."
+        : pushStatus === "active"
+          ? "Git push is in progress."
+          : input.hasCommittedChanges
+            ? "Commit is recorded; push remains pending."
+            : pushStatus === "blocked"
+              ? "Push is blocked until server-owned validation passes."
+              : null,
     ),
     timelineEntry(
       "deliver",

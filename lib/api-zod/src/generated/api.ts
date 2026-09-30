@@ -3710,7 +3710,7 @@ export const aiChatResponseMessageProjectionOneTimelineItemLabelMax = 80;
 
 export const aiChatResponseMessageProjectionOneTimelineItemDetailMax = 240;
 
-export const aiChatResponseMessageProjectionOneTimelineMax = 8;
+export const aiChatResponseMessageProjectionOneTimelineMax = 11;
 
 export const aiChatResponseMessageProjectionOneAllowedActionsMax = 7;
 
@@ -3989,7 +3989,7 @@ export const AiChatResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
   "timeline": zod.array(zod.object({
-  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
   "label": zod.string().max(aiChatResponseMessageProjectionOneTimelineItemLabelMax),
   "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
   "detail": zod.string().max(aiChatResponseMessageProjectionOneTimelineItemDetailMax).nullable()
@@ -4358,7 +4358,7 @@ export const getAiExecutionResponseProjectionTimelineItemLabelMax = 80;
 
 export const getAiExecutionResponseProjectionTimelineItemDetailMax = 240;
 
-export const getAiExecutionResponseProjectionTimelineMax = 8;
+export const getAiExecutionResponseProjectionTimelineMax = 11;
 
 export const getAiExecutionResponseProjectionAllowedActionsMax = 7;
 
@@ -4573,7 +4573,7 @@ export const GetAiExecutionResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
   "timeline": zod.array(zod.object({
-  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
   "label": zod.string().max(getAiExecutionResponseProjectionTimelineItemLabelMax),
   "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
   "detail": zod.string().max(getAiExecutionResponseProjectionTimelineItemDetailMax).nullable()
@@ -4773,7 +4773,7 @@ export const listAiExecutionHistoryResponseProjectionTimelineItemLabelMax = 80;
 
 export const listAiExecutionHistoryResponseProjectionTimelineItemDetailMax = 240;
 
-export const listAiExecutionHistoryResponseProjectionTimelineMax = 8;
+export const listAiExecutionHistoryResponseProjectionTimelineMax = 11;
 
 export const listAiExecutionHistoryResponseProjectionAllowedActionsMax = 7;
 
@@ -4884,7 +4884,7 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
   "timeline": zod.array(zod.object({
-  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
   "label": zod.string().max(listAiExecutionHistoryResponseProjectionTimelineItemLabelMax),
   "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
   "detail": zod.string().max(listAiExecutionHistoryResponseProjectionTimelineItemDetailMax).nullable()
@@ -7037,7 +7037,7 @@ export const listAiChatMessagesResponseProjectionOneTimelineItemLabelMax = 80;
 
 export const listAiChatMessagesResponseProjectionOneTimelineItemDetailMax = 240;
 
-export const listAiChatMessagesResponseProjectionOneTimelineMax = 8;
+export const listAiChatMessagesResponseProjectionOneTimelineMax = 11;
 
 export const listAiChatMessagesResponseProjectionOneAllowedActionsMax = 7;
 
@@ -7270,7 +7270,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
   "timeline": zod.array(zod.object({
-  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
   "label": zod.string().max(listAiChatMessagesResponseProjectionOneTimelineItemLabelMax),
   "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
   "detail": zod.string().max(listAiChatMessagesResponseProjectionOneTimelineItemDetailMax).nullable()
