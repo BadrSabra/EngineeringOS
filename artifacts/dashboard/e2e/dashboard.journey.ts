@@ -6561,6 +6561,40 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(mission).toContainText("Delivered");
     await expect(page.getByTestId("mission-identity")).toContainText("e2e-operation");
     await expect(page.getByTestId("mission-timeline")).toBeVisible();
+    const destinations = mission.getByRole("navigation", {
+      name: "Execution destinations",
+    });
+    const flightDeckLink = destinations.getByRole("link", {
+      name: /Open Flight Deck/,
+    });
+    const missionControlLink = destinations.getByRole("link", {
+      name: /Open Mission Control/,
+    });
+    await expect(flightDeckLink).toHaveAttribute(
+      "href",
+      `/flight-deck?executionId=${EXECUTION_ID}`,
+    );
+    await expect(missionControlLink).toHaveAttribute(
+      "href",
+      `/mission-control?executionId=${EXECUTION_ID}`,
+    );
+    await expect(
+      destinations.getByRole("link", { name: "Open Task" }),
+    ).toHaveCount(0);
+
+    await flightDeckLink.focus();
+    await page.keyboard.press("Tab");
+    await expect(missionControlLink).toBeFocused();
+    const focusIndicatorVisible = await missionControlLink.evaluate(
+      (element) => {
+        const style = window.getComputedStyle(element);
+        return style.boxShadow !== "none" || style.outlineStyle !== "none";
+      },
+    );
+    expect(focusIndicatorVisible).toBe(true);
+    await page.keyboard.press("Shift+Tab");
+    await expect(flightDeckLink).toBeFocused();
+
     await expect(page.getByTestId("timeline-validate")).toContainText("Done");
     await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
 
