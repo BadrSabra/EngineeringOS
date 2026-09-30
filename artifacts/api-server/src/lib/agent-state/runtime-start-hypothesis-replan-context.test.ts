@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 import {
   buildRuntimeStartHypothesisExperimentRegistration,
   buildRuntimeStartHypothesisExperimentResult,
 } from "./runtime-start-hypothesis-experiment.js";
 import {
   evaluateRuntimeStartHypothesisCalibration,
+  RuntimeStartHypothesisCalibrationAssessmentSchema,
   type RuntimeStartCalibrationExperiment,
 } from "./runtime-start-hypothesis-calibration.js";
 import {
@@ -31,7 +33,7 @@ const registrationFor = (
   predictionRegisteredAt: "2026-09-26T10:00:00.000Z",
 });
 
-function fixture() {
+function fixture(legacyValidated = true) {
   const calibrationExperiments: RuntimeStartCalibrationExperiment[] =
     Array.from({ length: 90 }, (_, index) => {
       const registration = registrationFor(index);
@@ -59,11 +61,25 @@ function fixture() {
   const firstRegistration = calibrationExperiments[0]!.registration;
   if (!firstRegistration) throw new Error("Calibration fixture is missing its registration.");
   const scopeRef = firstRegistration.calibrationScopeRef;
-  const assessment = evaluateRuntimeStartHypothesisCalibration({
+  const thresholdAssessment = evaluateRuntimeStartHypothesisCalibration({
     calibrationScopeRef: scopeRef,
     experiments: calibrationExperiments,
   });
-  expect(assessment.status).toBe("validated_for_scope");
+  expect(thresholdAssessment.status).toBe("thresholds_met_unverified");
+  // Historical assessments may already have the old numeric-only validated
+  // status. Keep their advisory replay compatibility without allowing new
+  // evaluations to produce that status.
+  const { schemaVersion, recordKind, assessmentRef, ...hashFields } = thresholdAssessment;
+  const assessment = legacyValidated
+    ? RuntimeStartHypothesisCalibrationAssessmentSchema.parse({
+      ...thresholdAssessment,
+      status: "validated_for_scope",
+      assessmentRef: `p75-runtime-start-calibration:${canonicalJsonHash({
+        ...hashFields,
+        status: "validated_for_scope",
+      })}`,
+    })
+    : thresholdAssessment;
 
   const registration = buildRuntimeStartHypothesisExperimentRegistration({
     projectId: "project-p75",
@@ -80,7 +96,7 @@ function fixture() {
     beforeObservationIds: ["observation-before-target"],
     predictionRegisteredAt: "2026-09-26T11:00:00.000Z",
     calibrationAssessment: {
-      status: "validated_for_scope",
+      status: legacyValidated ? "validated_for_scope" : "unvalidated",
       assessmentRef: assessment.assessmentRef,
     },
   });
@@ -132,7 +148,7 @@ function fixture() {
 }
 
 describe("P7.5 Mission replan evidence adapter", () => {
-  it("exposes only a validated, complete result bound to its pre-run assessment and episode", () => {
+  it("preserves advisory replay for a historical validated result bound to its episode", () => {
     const data = fixture();
 
     expect(resolveRuntimeStartHypothesisReplanEvidence({
@@ -152,6 +168,19 @@ describe("P7.5 Mission replan evidence adapter", () => {
       contradictingHypothesisIds: data.result.contradictingHypothesisIds,
       beliefUpdateStatus: "unresolved_unvalidated_forecast",
     });
+  });
+
+  it("does not treat threshold-passing new assessments as validated replan evidence", () => {
+    const data = fixture(false);
+    expect(data.registration.calibrationStatus).toBe("unvalidated");
+    expect(data.registration.candidate.forecasts.every(
+      (forecast) => forecast.calibrationStatus === "unvalidated",
+    )).toBe(true);
+    expect(resolveRuntimeStartHypothesisReplanEvidence({
+      identity: data.identity,
+      episodeEvents: data.episodeEvents,
+      experimentResultEvents: data.resultEvents,
+    })).toBeUndefined();
   });
 
   it("fails closed on a different plan revision, duplicate result, or attempt mismatch", () => {

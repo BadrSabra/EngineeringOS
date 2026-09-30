@@ -102,7 +102,7 @@ function continuationResultFor(source: RuntimeStartCalibrationExperiment) {
 }
 
 describe("runtime-start hypothesis calibration", () => {
-  it("validates only pre-registered, complete same-scope held-out outcomes", () => {
+  it("keeps threshold-passing outcomes advisory without sampling and held-out proof", () => {
     const outcomes: Array<"runtime_running" | "runtime_not_running" | "runtime_other"> = [
       ...Array.from({ length: 40 }, () => "runtime_running" as const),
       ...Array.from({ length: 40 }, () => "runtime_not_running" as const),
@@ -114,7 +114,7 @@ describe("runtime-start hypothesis calibration", () => {
       experiments,
     });
 
-    expect(evaluation.status).toBe("validated_for_scope");
+    expect(evaluation.status).toBe("thresholds_met_unverified");
     expect(evaluation.independentMissionCount).toBe(90);
     expect(evaluation.expectedCalibrationError).toBeLessThanOrEqual(0.15);
     expect(evaluation.eceUpperBound95).toBeLessThanOrEqual(0.15);
@@ -122,6 +122,30 @@ describe("runtime-start hypothesis calibration", () => {
       calibrationScopeRef: calibrationScopeRef(),
       experiments,
     }).assessmentRef).toBe(evaluation.assessmentRef);
+    const nextRegistration = buildRuntimeStartHypothesisExperimentRegistration({
+      projectId: "project-calibration",
+      missionId: "mission-next",
+      goalId: "goal-next",
+      executionId: "execution-next",
+      attempt: 0,
+      episodeId: "episode-next",
+      actionId: "action-next",
+      planRevision: "plan-calibration",
+      projectRevision: "project-calibration-revision",
+      environmentRevision: `env-v1:${"a".repeat(64)}`,
+      parentWorldRevision: "b".repeat(64),
+      beforeObservationIds: ["observation-before-next"],
+      predictionRegisteredAt: "2026-09-26T11:00:00.000Z",
+      calibrationAssessment: {
+        status: "unvalidated",
+        assessmentRef: evaluation.assessmentRef,
+      },
+    });
+    expect(nextRegistration.calibrationStatus).toBe("unvalidated");
+    expect(nextRegistration.candidate.forecasts.every(
+      (forecast) => forecast.calibrationStatus === "unvalidated",
+    )).toBe(true);
+    expect(nextRegistration.selectionMode).toBe("fixed_safe_probe");
   });
 
   it("keeps a good-looking score unvalidated when any registered experiment is unresolved", () => {

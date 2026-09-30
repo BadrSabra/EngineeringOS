@@ -3568,6 +3568,50 @@ G9 Revocation Safety
 - **next step:** بعد قرار المالك فقط، يُحدد نطاق تفويض منفصل لتصميم آلية
   الإثبات والتحقق؛ لا جمع أو معايرة أو انتقال إلى P8/P9/P10 الآن.
 
+### 43.12 — مراجعة التعارض بين المعايرة ومصادر P7.5 (2026-09-30)
+
+- **phase/step:** P7.5 — تدقيق إعادة الاستخدام قبل تنفيذ مصادر جديدة.
+- **status:** `done — audit/design؛ collection blocked`
+- **what changed:** صُحح فهم خيار 43.11: المطلوب فئتا دليل لا سجلان
+  ماديان تلقائيًا. وُثق أن evaluator قد يصدر `validated_for_scope` من
+  Mission IDs فريدة وعتبات عددية دون trust boundary؛ بينما الحزمة لا
+  تمنح إذن الجمع. وُثق حد التسجيل الواحد، وفصل strategy replay،
+  ونقص هوية dataset/عضويتها في scope v1.
+- **files/schema/contracts touched:** عقد مصادر P7.5 وخطة التنفيذ
+  وسجل التقدم؛ لا schema أو مصدر جديد.
+- **validation:** مراجعة مسار Mission والمقيم ومحمّل إعادة التخطيط
+  وحزمة الجاهزية وعقد Episode؛ تدقيق للقراءة فقط للشيفرة.
+- **authority/safety impact:** تصحيح تصميمي لا يغير قرار المالك؛
+  `NO_QUALIFIED_SOURCE` للشرطين، شروط runtime السبعة `MISSING`،
+  و`collectionAuthorized=false` و`fixed_safe_probe` بلا تغيير.
+- **remaining/blocker:** سدّ فجوة الوسم في الكود ثم اختبار الحاجز؛
+  تعيين المصدر والسلطة البشرية والاحتفاظ لبقية المطالب لم يُحسم.
+- **next step:** فصل نتيجة العتبات عن الاعتماد للنطاق دون إضافة writer
+  أو verifier أو cohort؛ إبقاء الجمع مغلقًا.
+
+### 43.13 — فصل العتبات العددية عن اعتماد نطاق P7.5 (2026-09-30)
+
+- **phase/step:** P7.5 — حاجز fail-closed لوسم المعايرة في Mission runtime.
+- **status:** `done — numerical assessment remains advisory؛ collection blocked`
+- **what changed:** أصبح اجتياز 30 Mission ID وعتبتي ECE يصدر
+  `thresholds_met_unverified` مع بقاء المقاييس ومرجع التقييم؛ التسجيل
+  والتوقعات الجديدة تبقى `unvalidated`، حتى لو أعاد المقيم وسمًا تاريخيًا.
+  بقيت قراءة التقارير التاريخية وسياق replan الاستشاري متوافقة.
+- **files/schema/contracts touched:** مقيم P7.5 ومسار Mission runtime
+  واختبارات المقيم وreplan، وخطة التنفيذ وعقد المصادر وهذا السجل؛
+  لا schema قاعدة بيانات أو مصادر أدلة جديدة.
+- **validation:** API build وtypecheck ناجحان؛ 20 اختبارًا موجهًا
+  للمقيم والتسجيل وreplan ناجحة، بما فيها رفض تقرير عددي جديد
+  كسياق replan معتمد.
+- **authority/safety impact:** لا verifier ولا صلاحية جمع ولا عينة
+  جديدة؛ `NO_QUALIFIED_SOURCE` للشرطين، شروط runtime السبعة `MISSING`،
+  `collectionAuthorized=false` و`fixed_safe_probe` وGate C بلا تغيير.
+- **remaining/blocker:** تحديد المصادر المؤهلة وسلطتها وفصل الواجبات
+  وسياسة الاحتفاظ وبقية شروط الجاهزية بموافقة المالك؛ لا تستنبط
+  سلطة من الحالة العددية أو التقرير التاريخي.
+- **next step:** بعد قرار المالك فقط، تصميم تحقق خادمي للأدلة
+  مربوط بالتجربة الحالية؛ لا cohort أو writer أو جمع الآن.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

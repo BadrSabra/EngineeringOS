@@ -1570,9 +1570,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   beforeObservationIds,
                   predictionRegisteredAt: new Date().toISOString(),
                   calibrationAssessment: {
-                    status: calibrationAssessment.status === "validated_for_scope"
-                      ? "validated_for_scope"
-                      : "unvalidated",
+                    // Numerical calibration is advisory until independently
+                    // verified sampling and held-out provenance are available.
+                    // Do not promote even a legacy "validated" assessment here.
+                    status: "unvalidated",
                     assessmentRef: calibrationAssessment.assessmentRef,
                   },
                 });

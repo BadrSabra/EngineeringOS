@@ -155,5 +155,5 @@
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
 - [P7.5 Mission context boundary](p75-mission-context-boundary.md) — calibrated runtime observations stay advisory until a server-owned observation path and existing acceptance edge bind them.
-- [P7.5 readiness boundary](p75-readiness-boundary.md) — Clerk identity is not a review binding; require exact review, pack, protocol, scope, and validity or block; collection stays closed.
+- [P7.5 readiness boundary](p75-readiness-boundary.md) — numerical calibration is advisory without provenance; Clerk identity is not review authority; collection stays closed.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.

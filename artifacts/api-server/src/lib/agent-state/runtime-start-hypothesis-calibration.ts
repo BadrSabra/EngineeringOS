@@ -37,6 +37,7 @@ export const RuntimeStartHypothesisCalibrationAssessmentSchema = z.object({
     "insufficient_data",
     "incomplete_measurements",
     "threshold_not_met",
+    "thresholds_met_unverified",
     "validated_for_scope",
   ]),
   registeredExperimentCount: z.number().int().nonnegative(),
@@ -101,7 +102,10 @@ export const RuntimeStartHypothesisCalibrationAssessmentSchema = z.object({
       path: ["status"],
     });
   }
-  if (assessment.status === "validated_for_scope" && (
+  if ((
+    assessment.status === "thresholds_met_unverified"
+    || assessment.status === "validated_for_scope"
+  ) && (
     assessment.unresolvedExperimentCount > 0
     || assessment.independentMissionCount < RUNTIME_START_CALIBRATION_MINIMUM_MISSIONS
     || assessment.expectedCalibrationError === null
@@ -111,7 +115,7 @@ export const RuntimeStartHypothesisCalibrationAssessmentSchema = z.object({
   )) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Scoped calibration requires at least 30 complete missions and both ECE bounds at or below 0.15.",
+      message: "Threshold-passing calibration requires at least 30 complete missions and both ECE bounds at or below 0.15.",
       path: ["status"],
     });
   }
@@ -318,6 +322,8 @@ export function evaluateRuntimeStartHypothesisCalibration(input: {
       : null,
     resultId: experiment.result?.resultId ?? null,
   })));
+  // Retain the v1 metric name for historical assessments. Distinct Mission IDs
+  // are only a numerical cluster count, not proof of independent sampling.
   const independentMissionCount = new Set(samples.map((sample) => sample.missionId)).size;
   const meanBrierScore = samples.length > 0
     ? samples.reduce((total, sample) => total + sample.predictionErrorScore, 0) / samples.length
@@ -340,7 +346,9 @@ export function evaluateRuntimeStartHypothesisCalibration(input: {
     expectedCalibrationError <= RUNTIME_START_CALIBRATION_MAXIMUM_ECE
     && eceUpperBound95 <= RUNTIME_START_CALIBRATION_MAXIMUM_ECE
   ) {
-    status = "validated_for_scope";
+    // No qualified sampling/held-out evidence source or authority verifier is
+    // available yet. Passing numerical thresholds cannot validate the scope.
+    status = "thresholds_met_unverified";
   } else {
     status = "threshold_not_met";
   }

@@ -5438,7 +5438,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery عبر listener supervisor المُدار verified؛ read-only pre-collection preflight added؛ no eligible scope (2026-09-28)`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ numerical thresholds advisory/unverified؛ observe-only recovery عبر listener supervisor المُدار verified؛ read-only pre-collection preflight added؛ no eligible scope (2026-09-30)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5452,8 +5452,10 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
   وadvisory فقط؛ لا يحدثان Belief ولا يمنحان اختيارًا آليًا.
 - يسجل Brier لكل outcome كامل، ويصدر evaluator server-owned تقريرًا scoped
   يستخدم classwise ECE-10 وفاصلًا علويًا أحادي الطرف 95% عبر mission-cluster
-  bootstrap. التقرير لا يتحقق دون 30 Mission مستقلة مكتملة، وأي تجربة مسجلة
-  unresolved تمنع التحقق بدل استبعادها انتقائيًا.
+  bootstrap. يعدّ v1 معرّفات Mission الفريدة فقط؛ اجتياز الحد العددي
+  للـ30 مع ECE لا يثبت الاستقلال أو held-out، فيصدر
+  `thresholds_met_unverified` لا `validated_for_scope`. أي تجربة مسجلة
+  unresolved تمنع اجتياز العتبات بدل استبعادها انتقائيًا.
 - الاختيار هو fixed-safe `runtime.status`. إذا فشل start أو تعذر after-state،
   يمكن إجراء قراءة مستقلة واحدة باستخدام `observeStartBeforeState`؛ لا يعاد
   استدعاء start. في مسار النجاح يستخدم القياس المباشر المطابق الموجود.
@@ -5720,6 +5722,36 @@ contract، وكاتب دائم، وصفوف مرصودة في بيئة بعين�
 holdout. هذه لقطة تطوير محدودة بالأسماء والجداول المفحوصة، وليست نفيًا لبيانات
 في بيئة أو مخزن آخر. لا تغير النتيجة حالات runtime أو قرار الجمع.
 
+**تدقيق التعارض وإعادة الاستخدام (2026-09-30):** Episode هو مصدر هوية
+التسجيل والنتيجة، لا مصدر استقلال العينة أو تاريخ حجب held-out؛ محمّل
+إعادة التخطيط يتوقع تسجيلًا واحدًا ونتيجة واحدة، فلا تنشأ تسجيلات موازية.
+وسم `held_out` في strategy replay يخص إثبات مرشح مختلفًا ولا يدخل
+cohort P7.5؛ Canonical Proof وGoal وWorld State وshadow telemetry لا
+تحل محل سلطة مصدرَي الدليل. فئتا الدليل لا تستلزمان سجلين ماديين؛ يحدد
+المالك مصدر كل ادعاء وسلطته وفصل الواجبات قبل أي writer أو verifier.
+قد تُحذف أحداث Episode مع المشروع، فلا يُفترض أنها أرشيف حوكمة مستقل.
+
+**فجوة وسم المعايرة:** يستدعي Mission runtime المقيم مباشرة؛ يعدّ المقيم
+Mission IDs الفريدة `independentMissionCount` وقد ينتج
+`validated_for_scope` من اكتمال القياس وECE وحدّها الأعلى، دون فحص
+readiness trust boundary أو إثبات الاستقلال وheld-out. ثم قد يحمل
+تسجيل جديد وتوقعاته هذا الوسم. نتيجة العتبات العددية ليست اعتمادًا
+متحققًا؛ يجب إبقاؤها advisory وغير معتمدة حتى يوجد مصدر مؤهل ومدقق
+خادمي، دون تغيير الاختيار `fixed_safe_probe` أو Gate C أو إذن الجمع.
+معرّف scope الحالي يربط policy والـpartition الثابت ولا يربط عضوية
+dataset جديدة: أي مصدر/نسخة جديدة يحتاج سياسة ونطاقًا منفصلين قبل
+أول outcome؛ لا يُخلط مع بيانات v1. تبقى نتائج continuation مستبعدة.
+
+**الحاجز المطبق (2026-09-30):** يحتفظ التقييم بـBrier وECE والحد الأعلى
+وعدد Mission IDs، لكن اجتياز العتبات يعطي `thresholds_met_unverified`
+فقط، مع مرجع تقرير مستقل؛ لا يُنتج المقيم الحي `validated_for_scope`.
+يسجل مسار Mission التوقعات والتسجيل الجديدين `unvalidated` حتى لو
+وجد تقرير تاريخي موسوم `validated_for_scope`. تبقى صيغة التقرير القديمة
+قابلة للقراءة للتوافق، ويظل سياق إعادة التخطيط التاريخي advisory لا
+سلطة للجمع؛ لا تُعاد كتابة أحداث Episode. لا مصدر مؤهل ولا verifier
+أُضيفا، ولا تُفتح الجاهزية أو الاختيار الآلي. يجب إعادة فحص صلاحية
+الـcohort وسلطته قبل أي ترقية مستقبلية، لا الاكتفاء بالوسم القديم.
+
 يجب أن تتطابق حالات الوثائق مع enum وblocker classification في runtime، وبالأخص
 أن تمثل `UNVERIFIABLE` وتحجبه عن الجاهزية. تم توحيد هذا التصنيف دون تغيير
 حالات runtime الحالية. قرار المالك المسجل أعلاه لا يغير evidence أو الجاهزية.
@@ -5760,7 +5792,8 @@ holdout. هذه لقطة تطوير محدودة بالأسماء والجداو
    أو تنتظر approval؛ ولا ينفذ observation لمجرد أن النموذج اقترحه.
 7. يبدأ التكامل الآلي في task family ضيقة واحدة، ولا يتوسع إلى objectives أو
    environments أخرى قبل اجتياز اختبار الحلقة end-to-end.
-8. لا تفسر `validated_for_scope` الصادرة عن bootstrap `runtime.start` على أنها
+8. لا تفسر `thresholds_met_unverified` الحالية أو
+   `validated_for_scope` التاريخية الخاصة بـbootstrap `runtime.start` على أنها
    معايرة لمصنف/selector أو صلاحية نقل. يتطلب أي ranking آلي forecast وسياسة
    decision-value محددين ومثبتين ضمن scope مستقل، ويظل هذا التغيير منفصلًا عن
    gate قياس forecast الحالية.
