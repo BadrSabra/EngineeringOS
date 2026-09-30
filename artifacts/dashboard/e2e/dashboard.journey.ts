@@ -4890,6 +4890,71 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(deliveryProof).toContainText("GitPushed");
   });
 
+  test("keeps a mismatched push receipt blocked after Flight Deck reload", async ({
+    page,
+  }) => {
+    const mismatchExecution = {
+      ...executionFixture,
+      // Terminal execution status alone must not override the canonical proof.
+      evidenceVerdict: "PROVEN",
+      operationEvidence: {
+        ...executionFixture.operationEvidence,
+        completeness: "blocked",
+        proof: {
+          ...executionFixture.operationEvidence.proof,
+          verdict: "BLOCKED",
+          accepted: false,
+          failureReasons: ["PUSH_COMMIT_HASH_MISMATCH"],
+        },
+        receipts: executionFixture.operationEvidence.receipts.map((receipt) =>
+          receipt.kind === "push"
+            ? {
+                ...receipt,
+                status: "blocked",
+                detail:
+                  "Push receipt hash did not match the committed hash.",
+              }
+            : receipt,
+        ),
+        gaps: [
+          {
+            kind: "mismatch",
+            source: "push_receipt",
+            detail:
+              "The push receipt references a different commit than the committed change.",
+          },
+        ],
+      },
+    };
+    await installApiFixtures(page, {
+      executionDetails: {
+        [EXECUTION_ID]: mismatchExecution,
+      },
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
+
+    const deliveryProof = page.getByRole("region", {
+      name: "Delivery proof chain",
+    });
+    await expect(deliveryProof).toBeVisible();
+    await expect(deliveryProof).toContainText("blocked");
+    await expect(deliveryProof).toContainText("Blocked");
+    await expect(deliveryProof).toContainText(
+      "The push receipt references a different commit than the committed change.",
+    );
+    await expect(deliveryProof).not.toContainText("Verified chain");
+    const beforeReload = await deliveryProof.innerText();
+
+    await page.reload();
+    const reloadedProof = page.getByRole("region", {
+      name: "Delivery proof chain",
+    });
+    await expect(reloadedProof).toBeVisible();
+    expect(await reloadedProof.innerText()).toBe(beforeReload);
+    await expect(reloadedProof).not.toContainText("Verified chain");
+  });
+
   test("keeps the runtime.start transition chain visible after Mission Control reload", async ({
     page,
   }) => {
