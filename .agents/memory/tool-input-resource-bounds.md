@@ -28,3 +28,9 @@ Command output limits are enforced by the real registered runner and bounded exe
 **Why:** A deliberately unbounded fake runner can return more output than its profile limit, but that violates the trusted runner contract and does not test the subprocess boundary. Using it as a resource test produces a false failure or false assurance.
 
 **How to apply:** For command output and timeout acceptance, pass a fixed server-owned profile through `runRegisteredCommand`/`runBoundedCommand`. Keep separate tests for provider-supplied arguments and for tool-loop message caps.
+
+Enforce final serialized-output ceilings in the central dispatcher before hashing, recording completed read receipts, caching, or forwarding output. If a result exceeds its ceiling, withhold it entirely and return a typed failure; never truncate it and report it as complete. Keep this separate from process-level output bounds enforced by the real runner.
+
+**Why:** An oversized result accepted before this gate could become a completed evidence hash or occupy the next model request. A final dispatcher ceiling does not prevent a runner from allocating a large string before returning it.
+
+**How to apply:** Derive per-tool ceilings from operational metadata where available, use a finite global ceiling for dynamic or unspecified results, and check before every acceptance/hash callback. Pass `AbortSignal` into built-in executors, check it at asynchronous boundaries, and reject results returned after cancellation.

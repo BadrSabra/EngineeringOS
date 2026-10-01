@@ -462,7 +462,8 @@ function isSensitiveTreePath(relativePath: string): boolean {
     || relativePath.split("/").some((segment) => BLOCKED_TREE_SEGMENT.test(segment));
 }
 
-async function listManagedProjectTree(rootPath: string): Promise<string> {
+async function listManagedProjectTree(rootPath: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
   const absoluteRoot = path.resolve(rootPath);
   const rootStat = await fs.lstat(absoluteRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -478,6 +479,7 @@ async function listManagedProjectTree(rootPath: string): Promise<string> {
   let truncated = false;
 
   const verifyDirectory = async (absolutePath: string): Promise<void> => {
+    signal?.throwIfAborted();
     const stat = await fs.lstat(absolutePath);
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw new Error("project_tree_directory_changed");
@@ -492,6 +494,7 @@ async function listManagedProjectTree(rootPath: string): Promise<string> {
   };
 
   const walk = async (relativeDirectory: string, depth: number): Promise<void> => {
+    signal?.throwIfAborted();
     const absoluteDirectory = relativeDirectory
       ? path.join(canonicalRoot, ...relativeDirectory.split("/"))
       : canonicalRoot;
@@ -501,6 +504,7 @@ async function listManagedProjectTree(rootPath: string): Promise<string> {
     const children: Array<{ name: string; kind: "directory" | "file" }> = [];
     try {
       for await (const item of directory) {
+        signal?.throwIfAborted();
         scannedEntries += 1;
         if (
           scannedEntries > MAX_PROJECT_TREE_SCANNED_ENTRIES
@@ -524,6 +528,7 @@ async function listManagedProjectTree(rootPath: string): Promise<string> {
     );
 
     for (const child of children) {
+      signal?.throwIfAborted();
       if (entries.length >= MAX_PROJECT_TREE_ENTRIES) {
         truncated = true;
         return;
@@ -556,6 +561,7 @@ async function listManagedProjectTree(rootPath: string): Promise<string> {
   };
 
   await walk("", 0);
+  signal?.throwIfAborted();
   const result = {
     kind: "project_tree",
     root: ".",
@@ -1101,6 +1107,7 @@ export async function executeFileTool(
   pendingChanges: PendingChange[],
   signal?: AbortSignal,
 ): Promise<string> {
+  assertFileOperationActive(signal);
   // Resolve the root once with realpath so every safePath call in this
   // invocation uses the same canonical base. This also catches a rootPath
   // that is itself a symlink pointing somewhere unexpected, and provides a
@@ -1108,7 +1115,8 @@ export async function executeFileTool(
   let resolvedRoot: string;
   try {
     resolvedRoot = await fs.realpath(path.resolve(rootPath));
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return "Error: project root path does not exist or is not accessible.";
   }
   assertFileOperationActive(signal);
@@ -1118,7 +1126,7 @@ export async function executeFileTool(
       if (Object.keys(args).length > 0) {
         throw new Error("project_tree_arguments_not_allowed");
       }
-      return listManagedProjectTree(rootPath);
+      return listManagedProjectTree(rootPath, signal);
     }
 
     // ── read_file ─────────────────────────────────────────────────────────────

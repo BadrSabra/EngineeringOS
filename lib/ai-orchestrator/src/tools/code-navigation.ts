@@ -56,6 +56,7 @@ export const CODE_NAVIGATION_TOOL_NAMES = new Set(
 type NavigationContext = {
   operationId?: string;
   revision?: string;
+  signal?: AbortSignal;
 };
 
 type SourceUnit = {
@@ -87,16 +88,25 @@ async function resolveScope(rootPath: string, requestedPath?: string): Promise<s
   return realCandidate;
 }
 
-async function collectSourceFiles(root: string, scope: string): Promise<string[]> {
+async function collectSourceFiles(
+  root: string,
+  scope: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  signal?.throwIfAborted();
   const stat = await fs.stat(scope);
+  signal?.throwIfAborted();
   if (stat.isFile()) {
     return SOURCE_EXTENSIONS.has(path.extname(scope).toLowerCase()) ? [scope] : [];
   }
   const files: string[] = [];
   const walk = async (directory: string): Promise<void> => {
+    signal?.throwIfAborted();
     if (files.length >= MAX_FILES) return;
     const entries = await fs.readdir(directory, { withFileTypes: true });
+    signal?.throwIfAborted();
     for (const entry of entries) {
+      signal?.throwIfAborted();
       if (files.length >= MAX_FILES) return;
       if (entry.isDirectory() && !SKIP_DIRECTORIES.has(entry.name)) {
         await walk(path.join(directory, entry.name));
@@ -109,17 +119,26 @@ async function collectSourceFiles(root: string, scope: string): Promise<string[]
   return files.map((file) => path.relative(root, file).replaceAll(path.sep, "/"));
 }
 
-async function parseSources(root: string, requestedPath?: string): Promise<SourceUnit[]> {
+async function parseSources(
+  root: string,
+  requestedPath?: string,
+  signal?: AbortSignal,
+): Promise<SourceUnit[]> {
+  signal?.throwIfAborted();
   const scope = await resolveScope(root, requestedPath);
+  signal?.throwIfAborted();
   if (!scope) return [];
-  const relativeFiles = await collectSourceFiles(root, scope);
+  const relativeFiles = await collectSourceFiles(root, scope, signal);
   const units: SourceUnit[] = [];
   for (const relativePath of relativeFiles) {
+    signal?.throwIfAborted();
     try {
       const absolutePath = path.join(root, relativePath);
       const stat = await fs.stat(absolutePath);
+      signal?.throwIfAborted();
       if (stat.size > MAX_FILE_BYTES) continue;
-      const text = await fs.readFile(absolutePath, "utf8");
+      const text = await fs.readFile(absolutePath, { encoding: "utf8", signal });
+      signal?.throwIfAborted();
       const extension = path.extname(relativePath).toLowerCase();
       const scriptKind = extension === ".tsx"
         ? ts.ScriptKind.TSX
@@ -132,7 +151,8 @@ async function parseSources(root: string, requestedPath?: string): Promise<Sourc
         relativePath,
         sourceFile: ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true, scriptKind),
       });
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       // A disappearing or unreadable file is not accepted as navigation evidence.
     }
   }
@@ -171,9 +191,11 @@ function collectResults(
   unit: SourceUnit,
   operation: "definition" | "references" | "imports" | "callers",
   symbol: string,
+  signal?: AbortSignal,
 ): NavigationResult[] {
   const results: NavigationResult[] = [];
   const visit = (node: ts.Node): void => {
+    signal?.throwIfAborted();
     if (results.length >= MAX_RESULTS) return;
     if (operation === "imports" && ts.isImportDeclaration(node)) {
       const moduleName = node.moduleSpecifier.getText(unit.sourceFile).replace(/^['"]|['"]$/g, "");
@@ -206,6 +228,7 @@ export async function executeCodeNavigationTool(
   rootPath: string,
   context?: NavigationContext,
 ): Promise<string> {
+  context?.signal?.throwIfAborted();
   if (!CODE_NAVIGATION_TOOL_NAMES.has(name)) {
     return JSON.stringify({ tool: name, status: "failed", code: "UNKNOWN_CODE_NAVIGATION_TOOL" });
   }
@@ -237,12 +260,15 @@ export async function executeCodeNavigationTool(
   }
   try {
     const root = await fs.realpath(path.resolve(rootPath));
-    const units = await parseSources(root, args.path);
+    context.signal?.throwIfAborted();
+    const units = await parseSources(root, args.path, context.signal);
     const results = units.flatMap((unit) => collectResults(
       unit,
       operation as "definition" | "references" | "imports" | "callers",
       symbol,
+      context.signal,
     )).slice(0, MAX_RESULTS);
+    context.signal?.throwIfAborted();
     return JSON.stringify({
       tool: name,
       status: "complete",
@@ -253,7 +279,8 @@ export async function executeCodeNavigationTool(
       filesScanned: units.length,
       results,
     });
-  } catch {
+  } catch (error) {
+    if (context.signal?.aborted) throw error;
     return JSON.stringify({
       tool: name,
       status: "unavailable",

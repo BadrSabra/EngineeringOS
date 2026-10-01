@@ -509,6 +509,10 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       expect(metadata.replay.cache, name).toBeTruthy();
       expect(metadata.replay.durableRecovery, name).toBeTruthy();
     }
+    expect(EXPECTED_TOOL_NAMES.filter((name) =>
+      TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA]
+        .cancellation.signal === "unsupported",
+    )).toEqual([]);
     expect(TOOL_OPERATIONAL_METADATA.run_command.outputBound).toMatchObject({
       kind: "profile_field",
       profileField: "CommandProfile.maxOutputBytes",
@@ -867,6 +871,35 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     expect(Buffer.byteLength(visibleOutput(searchResult), "utf8")).toBeLessThan(96_000);
   });
 
+  it("fails closed when an executor returns output above its server-owned cap", async () => {
+    const oversizedOutput = "T8_OVERSIZED_ANALYSIS_OUTPUT".repeat(40_000);
+    const call = makeCall("refresh_project_scan", {}, {
+      analysisToolRunner: async (_name, _args, _signal, correlation) => {
+        if (!correlation) throw new Error("T8 analysis correlation missing");
+        return {
+          status: "complete",
+          output: oversizedOutput,
+          source: "t8-fixture",
+          correlation,
+        };
+      },
+    });
+    const result = await executeSingleTool(call.options);
+
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") {
+      expect(result.failureKind).toBe("execution");
+      expect(result.diagnosticCode).toBe("TOOL_OUTPUT_LIMIT");
+      expect(result.safeMessage).not.toContain("T8_OVERSIZED_ANALYSIS_OUTPUT");
+      expect(result.safeMessage).toContain("server output limit");
+    }
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "failed",
+    ]);
+  });
+
   it("bounds command output and reports in-flight cancellation as incomplete", async () => {
     const outputProfile: CommandProfile = {
       name: "fixture-output-bound",
@@ -999,6 +1032,32 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       await runnerEntered;
       controller.abort();
       const result = await pending;
+
+      expect(result.kind, name).toBe("failed");
+      if (result.kind === "failed") {
+        expect(result.failureKind, name).toBe("cancelled");
+        expect(result.diagnosticCode, name).toBe("TOOL_CANCELLED");
+      }
+      expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "cancelled",
+      ]);
+    },
+  );
+
+  const cooperativeCancellationCases = TOOL_CASES.filter(({ name }) => {
+    const metadata = TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA];
+    return metadata.cancellation.signal === "cooperative" && metadata.executor !== "execution";
+  });
+
+  it.each(cooperativeCancellationCases)(
+    "$name does not accept a result after cancellation",
+    async ({ name, args }) => {
+      const controller = new AbortController();
+      controller.abort();
+      const call = makeCall(name, args, { signal: controller.signal });
+      const result = await executeSingleTool(call.options);
 
       expect(result.kind, name).toBe("failed");
       if (result.kind === "failed") {

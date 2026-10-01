@@ -75,16 +75,23 @@ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
 
 // ── Execution ─────────────────────────────────────────────────────────────────
 
-async function safeGit(args: string[], rootPath: string): Promise<string> {
+async function safeGit(
+  args: string[],
+  rootPath: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   try {
     const { stdout, stderr } = await execFileAsync("git", ["-C", rootPath, ...args], {
       timeout: GIT_TIMEOUT_MS,
       maxBuffer: GIT_MAX_BUFFER,
+      signal,
     });
     const out = stdout.trim();
     const err = stderr.trim();
     return out + (err ? `\n[git stderr]: ${err}` : "");
   } catch (err: unknown) {
+    if (signal?.aborted) throw err;
     const e = err as { stderr?: string; stdout?: string; message?: string };
     // Prefer stderr for git errors — it's more informative than the exit message.
     return `[git error]: ${e.stderr?.trim() || e.message || String(err)}`;
@@ -95,10 +102,12 @@ export async function executeGitTool(
   name: string,
   args: Record<string, string>,
   rootPath: string,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   switch (name) {
     case "git_status": {
-      const out = await safeGit(["status", "--short", "-u"], rootPath);
+      const out = await safeGit(["status", "--short", "-u"], rootPath, signal);
       return out || "Working tree clean — nothing to commit.";
     }
 
@@ -121,7 +130,7 @@ export async function executeGitTool(
         }
         gitArgs.push("--", args.path);
       }
-      const out = await safeGit(gitArgs, rootPath);
+      const out = await safeGit(gitArgs, rootPath, signal);
       return out || "No uncommitted changes.";
     }
 
@@ -129,6 +138,7 @@ export async function executeGitTool(
       const out = await safeGit(
         ["log", "--oneline", "--decorate", "--format=%h %ad %s", "--date=short", "-15"],
         rootPath,
+        signal,
       );
       return out || "No commits yet in this repository.";
     }

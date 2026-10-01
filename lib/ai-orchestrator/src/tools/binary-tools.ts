@@ -130,32 +130,45 @@ export function parseBinaryEvidencePacket(
 type BinaryToolContext = {
   operationId?: string;
   revision?: string;
+  signal?: AbortSignal;
 };
 
-async function readHeader(filePath: string): Promise<Buffer> {
+async function readHeader(filePath: string, signal?: AbortSignal): Promise<Buffer> {
+  signal?.throwIfAborted();
   const handle = await fs.open(filePath, "r");
   try {
+    signal?.throwIfAborted();
     const buffer = Buffer.alloc(MAX_HEADER_BYTES);
     const { bytesRead } = await handle.read(buffer, 0, MAX_HEADER_BYTES, 0);
+    signal?.throwIfAborted();
     return buffer.subarray(0, bytesRead);
   } finally {
     await handle.close();
   }
 }
 
-async function hashFile(filePath: string, sizeBytes: number, header: Buffer): Promise<{
+async function hashFile(
+  filePath: string,
+  sizeBytes: number,
+  header: Buffer,
+  signal?: AbortSignal,
+): Promise<{
   digest: string;
   complete: boolean;
 }> {
+  signal?.throwIfAborted();
   const hash = createHash("sha256");
   if (sizeBytes > MAX_HASH_BYTES) {
     hash.update(header);
+    signal?.throwIfAborted();
     return { digest: hash.digest("hex"), complete: false };
   }
-  const stream = createReadStream(filePath);
+  const stream = createReadStream(filePath, { signal });
   for await (const chunk of stream) {
+    signal?.throwIfAborted();
     hash.update(chunk as Buffer);
   }
+  signal?.throwIfAborted();
   return { digest: hash.digest("hex"), complete: true };
 }
 
@@ -246,6 +259,7 @@ export async function executeBinaryTool(
   rootPath: string,
   context?: BinaryToolContext,
 ): Promise<string> {
+  context?.signal?.throwIfAborted();
   if (!BINARY_TOOL_NAMES.has(name)) {
     return JSON.stringify({ tool: name, status: "failed", code: "UNKNOWN_BINARY_TOOL" });
   }
@@ -280,8 +294,10 @@ export async function executeBinaryTool(
       throw new Error("outside-root");
     }
     const stat = await fs.stat(realPath);
+    context.signal?.throwIfAborted();
     if (!stat.isFile()) throw new Error("not-file");
-    const headerBytes = await readHeader(realPath);
+    const headerBytes = await readHeader(realPath, context.signal);
+    context.signal?.throwIfAborted();
     const metadata = detectFormat(headerBytes, requestedPath);
     const supportedKind = metadata.mediaType === "image/png"
       ? "png" as const
@@ -299,7 +315,7 @@ export async function executeBinaryTool(
         workspaceRevision: context.revision,
       });
     }
-    const hash = await hashFile(realPath, stat.size, headerBytes);
+    const hash = await hashFile(realPath, stat.size, headerBytes, context.signal);
     if (!hash.complete) {
       return JSON.stringify({
         tool: name,
@@ -336,6 +352,7 @@ export async function executeBinaryTool(
       ...metadata,
     });
   } catch (error) {
+    if (context.signal?.aborted) throw error;
     if (error instanceof PngInspectionError) {
       return JSON.stringify({
         tool: name,

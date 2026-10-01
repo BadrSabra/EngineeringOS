@@ -33,19 +33,30 @@ export const PACKAGE_TOOL_NAMES = new Set(PACKAGE_TOOL_DEFINITIONS.map((tool) =>
 type PackageToolContext = {
   operationId?: string;
   revision?: string;
+  signal?: AbortSignal;
 };
 
-async function readProjectFile(root: string, relativePath: string): Promise<string | undefined> {
+async function readProjectFile(
+  root: string,
+  relativePath: string,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  signal?.throwIfAborted();
   if (!ALLOWED_MANIFESTS.has(relativePath) || isSensitiveProjectPath(relativePath)) return undefined;
   const absolutePath = path.resolve(root, relativePath);
   if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) return undefined;
   try {
     const realPath = await fs.realpath(absolutePath);
+    signal?.throwIfAborted();
     if (realPath !== root && !realPath.startsWith(`${root}${path.sep}`)) return undefined;
     const stat = await fs.stat(realPath);
+    signal?.throwIfAborted();
     if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) return undefined;
-    return await fs.readFile(realPath, "utf8");
-  } catch {
+    const text = await fs.readFile(realPath, { encoding: "utf8", signal });
+    signal?.throwIfAborted();
+    return text;
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return undefined;
   }
 }
@@ -79,6 +90,7 @@ export async function executePackageTool(
   rootPath: string,
   context?: PackageToolContext,
 ): Promise<string> {
+  context?.signal?.throwIfAborted();
   if (!PACKAGE_TOOL_NAMES.has(name)) {
     return JSON.stringify({ tool: name, status: "failed", code: "UNKNOWN_PACKAGE_TOOL" });
   }
@@ -103,7 +115,8 @@ export async function executePackageTool(
   }
   try {
     const root = await fs.realpath(path.resolve(rootPath));
-    const text = await readProjectFile(root, manifest);
+    context.signal?.throwIfAborted();
+    const text = await readProjectFile(root, manifest, context.signal);
     if (text === undefined) {
       return JSON.stringify({
         tool: name,
@@ -130,7 +143,8 @@ export async function executePackageTool(
       output.truncated = text.length > 32_000;
     }
     return JSON.stringify(output);
-  } catch {
+  } catch (error) {
+    if (context.signal?.aborted) throw error;
     return JSON.stringify({
       tool: name,
       status: "unavailable",

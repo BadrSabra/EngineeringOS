@@ -347,6 +347,66 @@ const TOOL_DEFINITION_BY_NAME = new Map(
   TOOL_DEFINITIONS.map((definition) => [definition.function.name, definition] as const),
 );
 const MAX_TOOL_ARGUMENT_STRING_BYTES = 128_000;
+const MAX_SERIALIZED_TOOL_OUTPUT_BYTES = 2_000_000;
+const MAX_UNSPECIFIED_TOOL_OUTPUT_BYTES = 1_000_000;
+const MAX_DYNAMIC_TOOL_OUTPUT_BYTES = 512_000;
+const TOOL_OUTPUT_PROTOCOL_OVERHEAD_BYTES = 4_096;
+
+class ToolOutputLimitExceeded extends Error {
+  constructor(
+    readonly outputBytes: number,
+    readonly maxBytes: number,
+  ) {
+    super("Tool output exceeded its server-owned byte limit.");
+    this.name = "ToolOutputLimitExceeded";
+  }
+}
+
+function getToolOutputLimitBytes(
+  name: string,
+  args: Record<string, unknown>,
+  commandProfiles?: readonly { name: string; maxOutputBytes: number }[],
+): number {
+  const metadata = getToolOperationalMetadata(name);
+  if (!metadata) return MAX_SERIALIZED_TOOL_OUTPUT_BYTES;
+  const bound = metadata.outputBound;
+  let limit: number;
+
+  switch (bound.kind) {
+    case "fixed_bytes":
+      limit = bound.surface === "serialized_result"
+        ? bound.maxBytes
+        : bound.maxBytes + TOOL_OUTPUT_PROTOCOL_OVERHEAD_BYTES;
+      break;
+    case "mode_dependent": {
+      const mode = args.complete === true || args.complete === "true" ? "complete" : "default";
+      const selected = bound.limits.find((entry) => entry.mode === mode)
+        ?? bound.limits[0];
+      limit = selected.maxBytes + TOOL_OUTPUT_PROTOCOL_OVERHEAD_BYTES;
+      break;
+    }
+    case "profile_field": {
+      const profileName = typeof args.profile === "string" ? args.profile : "";
+      const profileLimit = commandProfiles?.find((profile) => profile.name === profileName)?.maxOutputBytes
+        ?? bound.hardMaxBytes;
+      // The command tool serializes stdout, stderr, and combined output. The
+      // runner bounds process bytes; this ceiling bounds the serialized envelope.
+      limit = Math.min(MAX_SERIALIZED_TOOL_OUTPUT_BYTES, profileLimit * 12 + 16_384);
+      break;
+    }
+    case "result_count":
+      limit = MAX_DYNAMIC_TOOL_OUTPUT_BYTES;
+      break;
+    case "dynamic":
+      limit = MAX_DYNAMIC_TOOL_OUTPUT_BYTES;
+      break;
+    case "unspecified":
+      limit = MAX_UNSPECIFIED_TOOL_OUTPUT_BYTES;
+      break;
+  }
+
+  return Math.min(MAX_SERIALIZED_TOOL_OUTPUT_BYTES, limit);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object"
@@ -1267,7 +1327,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       await emitToolLifecycle("started");
     }
     const output = await (isGitTool
-      ? await executeGitTool(name, effectiveArgs, rootPath)
+      ? await (opts.signal
+          ? executeGitTool(name, effectiveArgs, rootPath, opts.signal)
+          : executeGitTool(name, effectiveArgs, rootPath))
       : isFileTool
         ? await (opts.signal
             ? executeFileTool(name, effectiveArgs, rootPath, pendingChanges, opts.signal)
@@ -1276,16 +1338,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
               operationId: opts.analysisCorrelation?.operationId,
               revision: opts.analysisCorrelation?.projectRevision,
+              ...(opts.signal ? { signal: opts.signal } : {}),
             })
         : isPackageTool
           ? await executePackageTool(name, effectiveArgs, rootPath, {
               operationId: opts.analysisCorrelation?.operationId,
               revision: opts.analysisCorrelation?.projectRevision,
+              ...(opts.signal ? { signal: opts.signal } : {}),
             })
         : isBinaryTool
           ? await executeBinaryTool(name, effectiveArgs, rootPath, {
               operationId: opts.analysisCorrelation?.operationId,
               revision: opts.analysisCorrelation?.projectRevision,
+              ...(opts.signal ? { signal: opts.signal } : {}),
             })
         : name === "run_validation"
         ? await executeValidationTool(
@@ -1349,6 +1414,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               opts.browserValidationContext,
               pendingChanges,
             ));
+
+    opts.signal?.throwIfAborted();
+    const outputBytes = Buffer.byteLength(output, "utf8");
+    const maxOutputBytes = getToolOutputLimitBytes(name, effectiveArgs, opts.commandProfiles);
+    if (outputBytes > maxOutputBytes) {
+      throw new ToolOutputLimitExceeded(outputBytes, maxOutputBytes);
+    }
 
     if (mutationCallback && mutationInvocationBase) {
       const queuedSuccessfully = name === "write_file"
@@ -1474,13 +1546,20 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     if (mutationInvocationActive) {
       pendingChanges.splice(mutationPendingStart);
     }
+    const cancelled = opts.signal?.aborted === true;
+    const outputLimitError = error instanceof ToolOutputLimitExceeded ? error : undefined;
+    const diagnosticCode = cancelled
+      ? "TOOL_CANCELLED"
+      : outputLimitError
+        ? "TOOL_OUTPUT_LIMIT"
+        : "TOOL_EXECUTION_FAILED";
     if (readCallback && readInvocationBase) {
       try {
         await readCallback({
           ...readInvocationBase,
           phase: "recorded",
-          status: opts.signal?.aborted ? "cancelled" : "failed",
-          diagnosticCode: opts.signal?.aborted ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+          status: cancelled ? "cancelled" : "failed",
+          diagnosticCode,
         });
       } catch {
         return {
@@ -1492,12 +1571,11 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       }
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const cancelled = opts.signal?.aborted === true;
     if (lifecycleRequested) {
       try {
         await emitToolLifecycle(
           cancelled ? "cancelled" : "failed",
-          { diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED" },
+          { diagnosticCode },
         );
       } catch {
         // A terminal observation failure must not replace the original tool failure.
@@ -1505,17 +1583,24 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     console.error(JSON.stringify({
       scope: "tool-execution-engine",
-      code: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+      code: diagnosticCode,
       tool: name,
-      error: errorMessage,
+      ...(outputLimitError
+        ? {
+            outputBytes: outputLimitError.outputBytes,
+            maxOutputBytes: outputLimitError.maxBytes,
+          }
+        : { error: errorMessage }),
     }));
     return {
       kind: "failed",
       failureKind: cancelled ? "cancelled" : "execution",
-      diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+      diagnosticCode,
       safeMessage: cancelled
         ? `Tool "${name}" was cancelled; the operation did not complete.`
-        : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
+        : outputLimitError
+          ? `Tool "${name}" exceeded the server output limit of ${outputLimitError.maxBytes} bytes; its output was withheld. Use a narrower query or scope.`
+          : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
     };
   }
 }
@@ -2295,6 +2380,7 @@ export type AgentDiagnosticCode =
   | "EXECUTION_PHASE_TOOL_REJECTED"
   | "EXECUTION_BEHAVIORAL_PROOF_FAILED"
   | "TOOL_EXECUTION_FAILED"
+  | "TOOL_OUTPUT_LIMIT"
   | "TOOL_ARGUMENTS_TOO_LARGE"
   | "TOOL_UNAVAILABLE"
   | "TOOL_CANCELLED"

@@ -86,10 +86,6 @@ const COOPERATIVE_NO_TIMEOUT: ToolOperationalMetadata["cancellation"] = {
   signal: "cooperative",
   timeout: { kind: "none" },
 };
-const UNSUPPORTED_NO_TIMEOUT: ToolOperationalMetadata["cancellation"] = {
-  signal: "unsupported",
-  timeout: { kind: "none" },
-};
 const CONTEXTUAL_READ_REPLAY: ToolOperationalMetadata["replay"] = {
   cache: "contextual_result",
   durableRecovery: "safe_to_replay",
@@ -149,7 +145,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "serialized_result",
       notes: "Also limited to depth 2 and 100 entries.",
     },
-    cancellation: UNSUPPORTED_NO_TIMEOUT,
+    cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
   },
   list_directory: {
@@ -159,7 +155,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "generic_denied",
     outputBound: {
       kind: "dynamic",
-      basis: "Directory listing is limited to 24,000 bytes/100 entries; file fallback uses the 128,000-byte read body limit.",
+      basis: "Directory listing is limited to 24,000 bytes/100 entries; file fallback uses the 128,000-byte read body limit; the dispatcher rejects serialized results over 512,000 bytes.",
     },
     cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
@@ -214,10 +210,10 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "fixed_bytes",
       maxBytes: 512 * 1024,
       surface: "process_buffer",
-      notes: "This is execFile maxBuffer; there is no separate serialized tool-result cap.",
+      notes: "execFile maxBuffer applies; the dispatcher separately rejects serialized results above its runtime cap.",
     },
     cancellation: {
-      signal: "unsupported",
+      signal: "cooperative",
       timeout: { kind: "fixed_ms", maxMs: 10_000 },
     },
     replay: CONTEXTUAL_READ_REPLAY,
@@ -231,10 +227,10 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "fixed_bytes",
       maxBytes: 512 * 1024,
       surface: "process_buffer",
-      notes: "This is execFile maxBuffer; there is no separate serialized tool-result cap.",
+      notes: "execFile maxBuffer applies; the dispatcher separately rejects serialized results above its runtime cap.",
     },
     cancellation: {
-      signal: "unsupported",
+      signal: "cooperative",
       timeout: { kind: "fixed_ms", maxMs: 10_000 },
     },
     replay: CONTEXTUAL_READ_REPLAY,
@@ -248,10 +244,10 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "fixed_bytes",
       maxBytes: 512 * 1024,
       surface: "process_buffer",
-      notes: "This is execFile maxBuffer; the command also limits history to 15 commits.",
+      notes: "execFile maxBuffer applies; the command also limits history to 15 commits, and the dispatcher rejects oversized serialized results.",
     },
     cancellation: {
-      signal: "unsupported",
+      signal: "cooperative",
       timeout: { kind: "fixed_ms", maxMs: 10_000 },
     },
     replay: CONTEXTUAL_READ_REPLAY,
@@ -265,9 +261,9 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "result_count",
       maxItems: 80,
       maxItemChars: 240,
-      notes: "Scans at most 200 files and 512,000 bytes per file; no serialized byte cap.",
+      notes: "Scans at most 200 files and 512,000 bytes per file; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: UNSUPPORTED_NO_TIMEOUT,
+    cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
   },
   ast_navigation: {
@@ -279,9 +275,9 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "result_count",
       maxItems: 80,
       maxItemChars: 240,
-      notes: "Scans at most 200 files and 512,000 bytes per file; no serialized byte cap.",
+      notes: "Scans at most 200 files and 512,000 bytes per file; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: UNSUPPORTED_NO_TIMEOUT,
+    cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
   },
   inspect_dependencies: {
@@ -291,9 +287,9 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "dynamic",
-      basis: "Manifest summaries vary by package count; lockfile previews are limited to 32,000 characters, with no total serialized byte cap.",
+      basis: "Manifest summaries vary by package count; lockfile previews are limited to 32,000 characters; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: UNSUPPORTED_NO_TIMEOUT,
+    cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
   },
   inspect_binary: {
@@ -303,9 +299,9 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "dynamic",
-      basis: "Reads a 1-MiB header and may hash a file up to 32 MiB; the structured result has no independent byte cap.",
+      basis: "Reads a 1-MiB header and may hash a file up to 32 MiB; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: UNSUPPORTED_NO_TIMEOUT,
+    cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: CONTEXTUAL_READ_REPLAY,
   },
   run_validation: {
@@ -315,7 +311,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is owned by the injected validation runner; this adapter does not cap it.",
+      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -333,7 +329,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is owned by the injected browser-validation runner; this adapter does not cap it.",
+      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -351,7 +347,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "process_output",
       profileField: "CommandProfile.maxOutputBytes",
       hardMaxBytes: 8 * 1024 * 1024,
-      notes: "The combined output is bounded; serialized result JSON repeats stdout/stderr and may be larger.",
+      notes: "The runner bounds combined process output; the dispatcher rejects serialized results above the 2,000,000-byte runtime ceiling.",
     },
     cancellation: {
       signal: "cooperative",
@@ -371,7 +367,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is owned by the analysis runner; this adapter does not cap it.",
+      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -386,7 +382,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is owned by the analysis runner; this adapter does not cap it.",
+      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -401,7 +397,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is owned by the analysis runner; this adapter does not cap it.",
+      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
