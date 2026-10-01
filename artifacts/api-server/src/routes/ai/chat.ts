@@ -14050,7 +14050,7 @@ router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
     .from(aiChatSessionsTable)
     .where(eq(aiChatSessionsTable.id, sessionId))
     .limit(1);
-  if (!session || session.projectId !== projectId) {
+  if (!session || session.id !== sessionId || session.projectId !== projectId) {
     return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
   }
 
@@ -14069,7 +14069,13 @@ router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
       eq(aiExecutionsTable.userId, req.userId),
     ))
     .limit(1);
-  if (!execution) {
+  if (
+    !execution
+    || execution.id !== executionId
+    || execution.projectId !== projectId
+    || execution.sessionId !== sessionId
+    || execution.userId !== req.userId
+  ) {
     return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
   }
 
@@ -14090,7 +14096,14 @@ router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
       eq(aiChatMessagesTable.role, "assistant"),
     ))
     .limit(1);
-  if (!message || message.turnIntent !== "PROJECT_QUERY") {
+  if (
+    !message
+    || message.id !== messageId
+    || message.sessionId !== sessionId
+    || message.executionId !== executionId
+    || message.role !== "assistant"
+    || message.turnIntent !== "PROJECT_QUERY"
+  ) {
     return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
   }
 
@@ -14108,6 +14121,9 @@ router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
   const [acceptance] = await db
     .select({
       id: aiExecutionAcceptancesTable.id,
+      executionId: aiExecutionAcceptancesTable.executionId,
+      projectId: aiExecutionAcceptancesTable.projectId,
+      messageId: aiExecutionAcceptancesTable.messageId,
       attempt: aiExecutionAcceptancesTable.attempt,
       terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
       outcome: aiExecutionAcceptancesTable.outcome,
@@ -14124,6 +14140,9 @@ router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
     .limit(1);
   if (
     !acceptance
+    || acceptance.executionId !== executionId
+    || acceptance.projectId !== projectId
+    || acceptance.messageId !== messageId
     || acceptance.terminalStatus !== "completed"
     || acceptance.outcome !== "SUCCEEDED"
     || acceptance.evidenceRequired !== 1

@@ -93,7 +93,8 @@ const mocks = vi.hoisted(() => {
     isError: false,
     error: null,
     isSuccess: false,
-    data: undefined,
+    data: undefined as unknown,
+    variables: undefined as unknown,
   });
 
   return {
@@ -403,6 +404,8 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.toast.mockReset();
+  mocks.mutations.fallbackDiagnostic.data = undefined;
+  mocks.mutations.fallbackDiagnostic.variables = undefined;
   mocks.proposalMessages.length = 1;
   mocks.serverProposal = undefined;
   mocks.groqStatus = undefined;
@@ -689,6 +692,65 @@ describe('AiChat fallback explanation', () => {
         executionId: 'execution-1',
       },
     });
+  });
+
+  it('renders the verified explanation only for its exact message and execution', async () => {
+    mocks.mutations.fallbackDiagnostic.data = {
+      schemaVersion: 1,
+      messageId: 'fallback-message-1',
+      executionId: 'execution-1',
+      acceptanceId: 'acceptance-1',
+      attempt: 2,
+      responseSource: 'deterministic_fallback',
+      fallbackReason: 'provider_candidate_incomplete',
+      acceptanceOutcome: 'SUCCEEDED',
+      evidenceRequired: true,
+      evidenceComplete: true,
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const explanation = await screen.findByTestId('fallback-explanation-fallback-message-1');
+    expect(explanation).toHaveTextContent('did not satisfy the response contract');
+    expect(explanation).toHaveTextContent('required evidence complete');
+    expect(explanation).toHaveTextContent('attempt 2');
+  });
+
+  it('binds a narrow manual follow-up to the latest fallback in the active session', async () => {
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const input = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(input, { target: { value: 'Explain this fallback' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(mocks.mutations.fallbackDiagnostic.mutate).toHaveBeenCalledWith({
+      data: {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        messageId: 'fallback-message-1',
+        executionId: 'execution-1',
+      },
+    });
+  });
+
+  it('asks the user to identify a run instead of borrowing unrelated chat context', async () => {
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      id: 'ordinary-message-1',
+      turnIntent: 'CHAT',
+      projectQueryResponseSource: undefined,
+      projectQueryResponseFallbackReason: undefined,
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const input = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(input, { target: { value: 'Explain this fallback' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(mocks.mutations.fallbackDiagnostic.mutate).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Which run should I explain?',
+    }));
   });
 });
 

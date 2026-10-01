@@ -972,6 +972,21 @@ describe("accepted project-query fallback diagnostic", () => {
     expect(unaccepted.body.code).toBe("FALLBACK_ACCEPTANCE_UNAVAILABLE");
   });
 
+  it("rejects a different execution even when a database adapter returns a stale row", async () => {
+    await seedAcceptedFallback();
+
+    const response = await request(app)
+      .post("/api/ai/chat/fallback-diagnostic")
+      .send({
+        projectId,
+        sessionId,
+        messageId,
+        executionId: "66666666-6666-4666-8666-666666666666",
+      });
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe("DIAGNOSTIC_NOT_FOUND");
+  });
 });
 
 describe("provider history projection parity", () => {
