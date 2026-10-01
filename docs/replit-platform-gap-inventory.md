@@ -587,3 +587,26 @@ confirmed missing UI actions from backend-only routes whose operator-facing
 intent is not established. Keep
 “implemented,” “exposed in the UI,” and “proven by the intended user journey” as
 separate claims.
+
+## 12. Tool response resource-bound supplement (2026-10-01)
+
+This narrow supplement adds current source/test evidence without changing the
+inventory's 2026-09-14 observation date or its broader readiness conclusions:
+
+- Raw tool-argument JSON is capped at 2,000,000 bytes before parsing.
+- Successful provider response bodies are capped at 20,000,000 bytes; error
+  bodies have a separate 64,000-byte cap.
+- Groq SDK responses, direct DeepSeek/OpenAI-compatible completions, and
+  DeepSeek/OpenAI-compatible SSE streams are bounded while bytes are consumed.
+  OpenRouter and Gemini use the OpenAI-compatible paths.
+- Oversize responses fail as `INVALID_PROVIDER_RESPONSE`; local tests cover
+  chunked bodies without `Content-Length`, oversize cancellation, normal SSE
+  parsing, and caller cancellation.
+- The focused validation passed 112 tests across seven files, orchestrator
+  typecheck, `git diff --check`, and an API restart with `Server listening`.
+  No live completion-stream acceptance was run.
+
+See [Reliable Tool Agent — resource-bound progress](reliable-tool-agent-progress.md)
+for exact validation commands and the remaining acceptance boundaries. This
+closes only the response-resource slice; it does not establish that the complete
+Reliable Tool Agent adversarial gate or a project-wide 100% status has passed.
