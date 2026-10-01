@@ -26,6 +26,10 @@ import {
   normalizeProviderResponse,
   normalizeProviderToolCalls,
 } from "./provider-tool-calls.js";
+import {
+  createBoundedProviderFetch,
+  getProviderResponseTooLargeLimit,
+} from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export type Message = {
@@ -262,7 +266,7 @@ function getClient(apiKey?: string): Groq {
         const oldest = _keyedClients.keys().next().value;
         if (oldest !== undefined) _keyedClients.delete(oldest);
       }
-      client = new Groq({ apiKey });
+      client = new Groq({ apiKey, fetch: createBoundedProviderFetch() });
       _keyedClients.set(apiKey, client);
     }
     return client;
@@ -272,7 +276,7 @@ function getClient(apiKey?: string): Groq {
     if (!envKey) {
       throw new GroqClientError("INVALID_CONFIG", "GROQ_API_KEY environment variable is not set");
     }
-    _envClient = new Groq({ apiKey: envKey });
+    _envClient = new Groq({ apiKey: envKey, fetch: createBoundedProviderFetch() });
   }
   return _envClient;
 }
@@ -560,6 +564,21 @@ export async function completeRaw(
 
 function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqClientError {
   if (err instanceof GroqClientError) return err;
+  const responseLimit = getProviderResponseTooLargeLimit(err);
+  if (responseLimit !== undefined) {
+    return new GroqClientError(
+      "INVALID_PROVIDER_RESPONSE",
+      `Groq response exceeded the ${responseLimit}-byte limit`,
+      {
+        cause: err,
+        context: {
+          providerName: "Groq",
+          providerModel: model,
+          providerCode: "RESPONSE_TOO_LARGE",
+        },
+      },
+    );
+  }
   if (aborted) return new GroqClientError("TIMEOUT", "Groq request timed out", { cause: err });
 
   const candidate = err as {

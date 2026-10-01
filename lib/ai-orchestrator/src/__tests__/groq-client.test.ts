@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { MAX_PROVIDER_RESPONSE_BYTES } from "../provider-response-limits.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -41,6 +42,51 @@ describe("groq-client", () => {
       model: "openai/gpt-oss-20b",
       usage: { promptTokens: 10, completionTokens: 5 },
     });
+  });
+
+  it("maps a streamed response overflow to INVALID_PROVIDER_RESPONSE", async () => {
+    let sdkFetch: typeof fetch | undefined;
+    let sentBytes = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const remaining = MAX_PROVIDER_RESPONSE_BYTES + 1 - sentBytes;
+        if (remaining <= 0) {
+          controller.close();
+          return;
+        }
+        const chunkSize = Math.min(1_000_000, remaining);
+        sentBytes += chunkSize;
+        controller.enqueue(new Uint8Array(chunkSize));
+      },
+    }))));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        constructor(options: { fetch?: typeof fetch }) {
+          sdkFetch = options.fetch;
+        }
+        chat = {
+          completions: {
+            create: vi.fn(async () => {
+              const response = await sdkFetch!("https://provider.invalid/");
+              await response.text();
+              throw new Error("Expected oversized response to fail while streaming");
+            }),
+          },
+        };
+      },
+    }));
+    const { completeRaw } = await import("../groq-client.js");
+
+    await expect(completeRaw(
+      [{ role: "user", content: "hi" }],
+      { maxRetries: 0 },
+    )).rejects.toMatchObject({
+      code: "INVALID_PROVIDER_RESPONSE",
+      providerName: "Groq",
+      providerCode: "RESPONSE_TOO_LARGE",
+    });
+    expect(typeof sdkFetch).toBe("function");
+    expect(sentBytes).toBeGreaterThan(MAX_PROVIDER_RESPONSE_BYTES);
   });
 
   it("sends required tool choice in the final Groq request body", async () => {

@@ -12,6 +12,7 @@ import {
   normalizeForensicSourcePath,
 } from "./forensic-source-policy.js";
 import { hasDisplayTruncationMarker } from "./source-read-status.js";
+import { isOversizedRawToolArgument } from "./tool-argument-limits.js";
 
 export type ForensicEvidenceScope = {
   roots?: readonly string[];
@@ -2004,7 +2005,9 @@ export function collectForensicEvidence(
       for (const toolCall of message.tool_calls) {
         if (toolCall.id && toolCall.function?.name === "read_file") {
           try {
-            const parsed = JSON.parse(String(toolCall.function.arguments ?? "{}")) as { path?: unknown };
+            const rawArguments = String(toolCall.function.arguments ?? "{}");
+            if (isOversizedRawToolArgument(rawArguments)) continue;
+            const parsed = JSON.parse(rawArguments) as { path?: unknown };
             if (typeof parsed.path === "string" && parsed.path.trim()) {
               const normalizedPath = normalizePath(parsed.path);
               if (isAllowedEvidencePath(normalizedPath, allowTestSources, scope)) {
@@ -2016,7 +2019,9 @@ export function collectForensicEvidence(
           }
         } else if (toolCall.id && toolCall.function?.name === "search_code") {
           try {
-            const parsed = JSON.parse(String(toolCall.function.arguments ?? "{}")) as {
+            const rawArguments = String(toolCall.function.arguments ?? "{}");
+            if (isOversizedRawToolArgument(rawArguments)) continue;
+            const parsed = JSON.parse(rawArguments) as {
               pattern?: unknown;
               file_glob?: unknown;
             };

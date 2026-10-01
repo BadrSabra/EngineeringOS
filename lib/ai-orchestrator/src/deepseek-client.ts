@@ -23,6 +23,11 @@ import {
   normalizeProviderResponse,
   normalizeProviderToolCalls,
 } from "./provider-tool-calls.js";
+import {
+  MAX_PROVIDER_ERROR_BODY_BYTES,
+  readBoundedProviderResponseJson,
+  readBoundedProviderResponseText,
+} from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
@@ -335,21 +340,31 @@ export async function deepseekCompleteRaw(
     );
   }
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
+    const text = await readBoundedProviderResponseText(
+      response,
+      MAX_PROVIDER_ERROR_BODY_BYTES,
+    ).catch(() => "");
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     throw classifyStatus(response.status, text);
   }
 
-  const data = await response.json() as {
+  let data: {
     choices: Array<{
       message?: { content?: string | null; tool_calls?: unknown };
     }>;
     model:  string;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  clearTimeout(timer);
-  signal?.removeEventListener("abort", onAbort);
+  try {
+    data = await readBoundedProviderResponseJson(response, {
+      providerName: "DeepSeek",
+      model,
+    });
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
 
   const msg = data.choices[0]?.message;
   if (!msg) {

@@ -7,6 +7,7 @@ import {
 } from "../provider-tool-calls.js";
 import { GroqClientError } from "../errors.js";
 import type { ToolDefinition } from "../groq-client.js";
+import { MAX_RAW_TOOL_ARGUMENT_BYTES } from "../tool-argument-limits.js";
 
 const tools: ToolDefinition[] = [
   {
@@ -107,6 +108,29 @@ describe("provider tool-call normalization", () => {
     ], options));
     invalid(() => normalizeProviderToolCalls([
       { id: "bad", type: "function", function: { name: "plan", arguments: "{}" } },
+    ], options));
+  });
+
+  it("rejects oversized raw and object-form arguments before parsing or serialization", () => {
+    const oversizedRaw = JSON.stringify({ content: "é".repeat(1_000_001) });
+    expect(Buffer.byteLength(oversizedRaw, "utf8")).toBeGreaterThan(MAX_RAW_TOOL_ARGUMENT_BYTES);
+    invalid(() => normalizeProviderToolCalls([
+      {
+        id: "oversized-raw",
+        type: "function",
+        function: { name: "write_file", arguments: oversizedRaw },
+      },
+    ], options));
+
+    const oversizedObject = {
+      content: "\u0000".repeat(Math.floor(MAX_RAW_TOOL_ARGUMENT_BYTES / 6) + 1),
+    };
+    invalid(() => normalizeProviderToolCalls([
+      {
+        id: "oversized-object",
+        type: "function",
+        function: { name: "write_file", arguments: oversizedObject },
+      },
     ], options));
   });
 

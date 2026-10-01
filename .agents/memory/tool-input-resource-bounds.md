@@ -16,3 +16,9 @@ Validate parsed arguments against the authoritative tool schema before cache or 
 **Why:** Cache hits can bypass the normal dispatcher, and converting numbers to strings before validation rejects valid schema inputs while allowing invalid inputs to collide with valid cache keys.
 
 **How to apply:** Preflight the original parsed value before any cache/replay shortcut, skip those shortcuts for invalid arguments, and keep synthetic tool-call arguments schema-typed through dispatch.
+
+Keep the complete provider-response cap separate and larger than the per-argument cap. Enforce it while consuming response bytes, even when Content-Length is absent, and use a smaller independent cap for provider error bodies.
+
+**Why:** A response envelope can contain multiple calls and metadata, so reusing the 2 MB argument cap can reject valid turns. Checking arguments only after buffering and parsing the whole envelope still permits excessive memory use.
+
+**How to apply:** Count streamed bytes before JSON parsing, cancel over-limit bodies promptly, and preserve a typed provider-response error through SDK wrappers.

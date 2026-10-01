@@ -32,12 +32,7 @@ function disableGuard(): void {
 }
 
 function response(body: unknown): Response {
-  return {
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => "",
-  } as Response;
+  return new Response(JSON.stringify(body), { status: 200 });
 }
 
 beforeEach(() => {

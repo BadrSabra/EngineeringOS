@@ -47,6 +47,15 @@ import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
 } from "./provider-tool-calls.js";
+import {
+  isOversizedRawToolArgument,
+  MAX_RAW_TOOL_ARGUMENT_BYTES,
+} from "./tool-argument-limits.js";
+import {
+  MAX_PROVIDER_ERROR_BODY_BYTES,
+  readBoundedProviderResponseJson,
+  readBoundedProviderResponseText,
+} from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export type OpenAICompatibleOptions = {
@@ -936,7 +945,10 @@ async function oacCompleteRawUntracked(
     );
   }
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
+    const text = await readBoundedProviderResponseText(
+      response,
+      MAX_PROVIDER_ERROR_BODY_BYTES,
+    ).catch(() => "");
     cleanup();
     // Log the raw response before classifying so we never lose context.
     console.warn(
@@ -975,7 +987,10 @@ async function oacCompleteRawUntracked(
     // Keep the request timer active until the response body has been fully
     // consumed. Fetch can resolve headers before a slow provider finishes
     // sending the JSON body.
-    data = (await response.json()) as typeof data;
+    data = await readBoundedProviderResponseJson<typeof data>(response, {
+      providerName,
+      model,
+    });
   } catch (err) {
     cleanup();
     if (controller.signal.aborted) {
@@ -2031,6 +2046,13 @@ function parseToolArguments(
   value: string,
   context: { providerName: string; model: string },
 ): Record<string, unknown> {
+  if (isOversizedRawToolArgument(value)) {
+    throw new GroqClientError(
+      "INVALID_TOOL_CALL",
+      `Gemini tool arguments exceed the ${MAX_RAW_TOOL_ARGUMENT_BYTES}-byte limit`,
+      { context },
+    );
+  }
   try {
     const parsed = JSON.parse(value) as unknown;
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -2193,7 +2215,10 @@ async function geminiCompleteWithTools(
     );
 
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
+      const text = await readBoundedProviderResponseText(
+        response,
+        MAX_PROVIDER_ERROR_BODY_BYTES,
+      ).catch(() => "");
       throw classifyStatus(response.status, text, "Gemini", model, response.headers);
     }
 
@@ -2208,7 +2233,10 @@ async function geminiCompleteWithTools(
         thoughtsTokenCount?: number;
       };
     };
-    const data = (await response.json()) as GeminiResponse;
+    const data = await readBoundedProviderResponseJson<GeminiResponse>(response, {
+      providerName: "Gemini",
+      model,
+    });
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
     const content = parts
@@ -2224,7 +2252,7 @@ async function geminiCompleteWithTools(
           type: "function" as const,
           function: {
             name: functionCall.name as string,
-            arguments: JSON.stringify(functionCall.args ?? {}),
+            arguments: functionCall.args ?? {},
           },
           ...(typeof part.thoughtSignature === "string" && part.thoughtSignature.trim()
             ? {

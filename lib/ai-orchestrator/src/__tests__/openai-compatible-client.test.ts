@@ -36,6 +36,13 @@ import { createExecutionLedger } from "../execution-ledger.js";
 const baseMessages = [{ role: "user", content: "hello" } as const];
 let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
 
+function jsonResponse(body: unknown, status = 200, headers?: Record<string, string> | Headers): Response {
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+function textResponse(body: string, status: number, headers?: Record<string, string> | Headers): Response {
+  return new Response(body, { status, headers });
+}
 
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
@@ -62,16 +69,11 @@ describe("geminiCompleteRaw", () => {
     let captured: Record<string, unknown> | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
           model: "gemini-2.0-flash",
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await geminiCompleteRaw(baseMessages as any, {
@@ -92,10 +94,7 @@ describe("geminiCompleteRaw", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL, init?: RequestInit) => {
       capturedUrl = String(url);
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           candidates: [{
             content: {
               role: "model",
@@ -104,9 +103,7 @@ describe("geminiCompleteRaw", () => {
             finishReason: "STOP",
           }],
           usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 3 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await geminiCompleteRaw(baseMessages as any, {
@@ -139,10 +136,7 @@ describe("geminiCompleteRaw", () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       captured.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
       requestCount += 1;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => requestCount === 1
+      return jsonResponse(requestCount === 1
           ? {
               candidates: [{
                 content: {
@@ -164,9 +158,7 @@ describe("geminiCompleteRaw", () => {
                 },
                 finishReason: "STOP",
               }],
-            },
-        text: async () => "",
-      } as Response;
+            });
     }));
 
     const options = {
@@ -228,16 +220,11 @@ describe("OpenAI-compatible outbound metadata", () => {
     let captured: Record<string, unknown> | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "ok" } }],
           model: "openrouter-test",
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     await oacCompleteRaw([
@@ -274,19 +261,14 @@ describe("validateGeminiDefaultModels", () => {
   };
 
   it("reports retired defaults from Google's model catalog without exposing the key", async () => {
-    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) => jsonResponse({
         models: [
           {
             name: "models/gemini-fast-fixture",
             supportedGenerationMethods: ["generateContent"],
           },
         ],
-      }),
-      text: async () => "",
-    }) as Response);
+      }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await validateGeminiDefaultModels("valid-gemini-key", defaults);
@@ -310,28 +292,20 @@ describe("validateGeminiDefaultModels", () => {
   });
 
   it("classifies a transient provider response without treating it as model drift", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 503,
-      json: async () => ({ error: { message: "temporary provider outage" } }),
-      text: async () => "temporary provider outage",
-    }) as Response));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse("temporary provider outage", 503)));
 
     await expect(validateGeminiDefaultModels("valid-gemini-key", defaults))
       .rejects.toMatchObject({ code: "SERVER_ERROR" });
   });
 
   it("confirms both defaults when the provider catalog supports generation", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
         models: [
           { name: "models/gemini-fast-fixture" },
           { name: "gemini-powerful-fixture" },
         ],
-      }),
-    }) as Response));
+      })));
 
     await expect(validateGeminiDefaultModels("valid-gemini-key", defaults))
       .resolves.toMatchObject({
@@ -375,16 +349,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     const codingOnlyModel = "cohere/north-mini-code:free";
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: '{"response":"ok"}' } }],
           model: body.model,
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -408,22 +377,17 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       callCount++;
       if (callCount === 1) {
         // First call: primary model → 400 invalid model
-        return {
-          ok: false, status: 400,
-          json: async () => ({}),
-          text: async () => `{"error":{"message":"${String(body.model)} is not a valid model ID"}}`,
-        } as Response;
+        return textResponse(
+          `{"error":{"message":"${String(body.model)} is not a valid model ID"}}`,
+          400,
+        );
       }
       // Fallback call: success
-      return {
-        ok: true, status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
           model: String(body.model),
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -442,23 +406,16 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       callCount++;
       if (callCount === 1) {
-        return {
-          ok: false,
-          status: 400,
-          json: async () => ({}),
-          text: async () => '{"error":{"message":"unsupported parameter: response_format"}}',
-        } as Response;
+        return textResponse(
+          '{"error":{"message":"unsupported parameter: response_format"}}',
+          400,
+        );
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
           model: String(body.model),
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -476,13 +433,9 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       callCount++;
       if (callCount === 1) {
-        return { ok: false, status: 404, json: async () => ({}), text: async () => '{"error":{"message":"model not found"}}' } as Response;
+        return textResponse('{"error":{"message":"model not found"}}', 404);
       }
-      return {
-        ok: true, status: 200,
-        json: async () => ({ choices: [{ message: { content: "ok" } }], model: "m", usage: {} }),
-        text: async () => "",
-      } as Response;
+      return jsonResponse({ choices: [{ message: { content: "ok" } }], model: "m", usage: {} });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -497,13 +450,9 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       callCount++;
       if (callCount === 1) {
-        return { ok: false, status: 410, json: async () => ({}), text: async () => '{"error":{"message":"model retired"}}' } as Response;
+        return textResponse('{"error":{"message":"model retired"}}', 410);
       }
-      return {
-        ok: true, status: 200,
-        json: async () => ({ choices: [{ message: { content: "ok-after-410" } }], model: "m", usage: {} }),
-        text: async () => "",
-      } as Response;
+      return jsonResponse({ choices: [{ message: { content: "ok-after-410" } }], model: "m", usage: {} });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -517,13 +466,9 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       callCount++;
       if (callCount === 1) {
-        return { ok: false, status: 422, json: async () => ({}), text: async () => '{"error":{"message":"selected model unavailable"}}' } as Response;
+        return textResponse('{"error":{"message":"selected model unavailable"}}', 422);
       }
-      return {
-        ok: true, status: 200,
-        json: async () => ({ choices: [{ message: { content: "ok-after-422" } }], model: "m", usage: {} }),
-        text: async () => "",
-      } as Response;
+      return jsonResponse({ choices: [{ message: { content: "ok-after-422" } }], model: "m", usage: {} });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -540,27 +485,17 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       callCount++;
       seenModels.push(String(body.model));
       if (callCount === 1) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
+        return jsonResponse({
             choices: [{ message: { content: null, tool_calls: [] } }],
             model: String(body.model),
             usage: {},
-          }),
-          text: async () => "",
-        } as Response;
+          });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "ok-after-empty" } }],
           model: String(body.model),
           usage: {},
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -582,10 +517,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       callCount++;
       seenModels.push(String(body.model));
       if (callCount === 1) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
+        return jsonResponse({
             choices: [{
               message: {
                 content: null,
@@ -601,20 +533,13 @@ describe("openrouterCompleteWithFallback — error classification", () => {
             }],
             model: body.model,
             usage: {},
-          }),
-          text: async () => "",
-        } as Response;
+          });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "ok-after-invalid-tool" } }],
           model: body.model,
           usage: {},
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -653,16 +578,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
           );
         });
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Promise.resolve(jsonResponse({
           choices: [{ message: { content: "ok-after-timeout" } }],
           model: body.model,
           usage: {},
-        }),
-        text: async () => "",
-      } as Response);
+        }));
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -680,11 +600,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 429,
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"too many requests"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"too many requests"}}', 429)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
@@ -692,11 +609,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("classifies OpenRouter shared-pool metadata without changing same-provider fallback", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      json: async () => ({}),
-      text: async () => JSON.stringify({
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
         error: {
           code: 429,
           message: "Provider returned error",
@@ -705,8 +618,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
             provider_name: "Poolside",
           },
         },
-      }),
-    } as Response)));
+      }), 429)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, {
@@ -733,11 +645,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       );
       attemptedModels.push(model);
       if (attemptedModels.length === 1) {
-        return {
-          ok: false,
-          status: 429,
-          json: async () => ({}),
-          text: async () => JSON.stringify({
+        return textResponse(JSON.stringify({
             error: {
               message: "Provider returned error",
               metadata: {
@@ -745,19 +653,13 @@ describe("openrouterCompleteWithFallback — error classification", () => {
                 provider_name: "Poolside",
               },
             },
-          }),
-        } as Response;
+          }), 429);
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "recovered" } }],
           model,
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -790,17 +692,12 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("does not cool an individual model for a provider-credential limit", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      json: async () => ({}),
-      text: async () => JSON.stringify({
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
         error: {
           message: "Provider returned error",
           metadata: { limit_source: "provider_rate_limit" },
         },
-      }),
-    } as Response)));
+      }), 429)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, {
@@ -818,20 +715,14 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      headers: new Headers({ "Retry-After": "120" }),
-      json: async () => ({}),
-      text: async () => JSON.stringify({
+    const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
         error: {
           message: "Provider returned error",
           metadata: {
             limit_source: "upstream_provider_shared_pool",
           },
         },
-      }),
-    } as Response));
+      }), 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -858,17 +749,12 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   ] as const)(
     "does not retry a %s 429 by default",
     async (_scopeName, limitSource, expectedScope) => {
-      const fetchMock = vi.fn(async () => ({
-        ok: false,
-        status: 429,
-        json: async () => ({}),
-        text: async () => JSON.stringify({
+      const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
           error: {
             message: "Provider returned error",
             metadata: { limit_source: limitSource },
           },
-        }),
-      } as Response));
+        }), 429));
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
@@ -894,12 +780,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       callCount++;
       seenModels.push(String(body.model));
-      return {
-        ok: false,
-        status: 429,
-        json: async () => ({}),
-        text: async () => '{"error":{"message":"temporarily rate-limited upstream"}}',
-      } as Response;
+      return textResponse('{"error":{"message":"temporarily rate-limited upstream"}}', 429);
     }));
 
     await expect(
@@ -920,13 +801,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("preserves a bounded Retry-After hint and avoids retrying the same model", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      headers: new Headers({ "Retry-After": "120" }),
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"temporarily rate limited"}}',
-    } as Response));
+    const fetchMock = vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -948,13 +824,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("keeps a short Retry-After hint precise for fallback callers", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      headers: new Headers({ "Retry-After": "2" }),
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"temporarily rate limited"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "2" }))));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, {
@@ -973,13 +844,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
 
   it("parses an HTTP-date Retry-After hint and keeps it bounded", async () => {
     const retryAt = new Date(Date.now() + 5_000).toUTCString();
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 429,
-      headers: new Headers({ "Retry-After": retryAt }),
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"temporarily rate limited"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": retryAt }))));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, {
@@ -1004,12 +870,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       callCount++;
       seenModels.push(String(callCount));
-      return {
-        ok: false,
-        status: 429,
-        json: async () => ({}),
-        text: async () => '{"error":{"message":"temporarily rate limited"}}',
-      } as Response;
+      return textResponse('{"error":{"message":"temporarily rate limited"}}', 429);
     }));
 
     await expect(
@@ -1031,12 +892,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       callCount++;
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       seenModels.push(String(body.model));
-      return {
-        ok: false,
-        status: 429,
-        json: async () => ({}),
-        text: async () => '{"error":{"message":"temporarily rate limited"}}',
-      } as Response;
+      return textResponse('{"error":{"message":"temporarily rate limited"}}', 429);
     }));
 
     let thrown: unknown;
@@ -1065,10 +921,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("keeps the requested model on reasoning-only EMPTY_RESPONSE", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
         choices: [{
           finish_reason: "stop",
           message: {
@@ -1078,9 +931,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         }],
         model: primaryModel,
         usage: { prompt_tokens: 1, completion_tokens: 1 },
-      }),
-      text: async () => "",
-    } as Response)));
+      })));
 
     await expect(
       oacCompleteRaw(baseMessages as any, {
@@ -1099,24 +950,15 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("keeps the requested model when the response body times out", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => ({
-      ok: true,
-      status: 200,
-      json: () =>
-        new Promise<never>((_resolve, reject) => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) =>
+      new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
           const signal = init?.signal;
-          if (signal?.aborted) {
-            reject(new DOMException("The operation was aborted", "AbortError"));
-            return;
-          }
-          signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("The operation was aborted", "AbortError")),
-            { once: true },
-          );
-        }),
-      text: async () => "",
-    } as unknown as Response)));
+          const abort = () => controller.error(new DOMException("The operation was aborted", "AbortError"));
+          if (signal?.aborted) abort();
+          else signal?.addEventListener("abort", abort, { once: true });
+        },
+      }), { status: 200 })));
 
     await expect(
       oacCompleteRaw(baseMessages as any, {
@@ -1136,11 +978,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("429 with 'quota' in body → QUOTA (PR-008)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 429,
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"billing quota exceeded for this month"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"billing quota exceeded for this month"}}', 429)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
@@ -1148,11 +987,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("429 with 'credits' in body → QUOTA (PR-008)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 429,
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"insufficient credits"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"insufficient credits"}}', 429)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
@@ -1160,9 +996,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("401 → AUTH_ERROR (not fallback-worthy)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 401, json: async () => ({}), text: async () => "",
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse("", 401)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "bad-key", model: primaryModel, maxTokens: 10 }),
@@ -1177,23 +1011,16 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       callCount++;
       seenModels.push(String(body.model));
       if (callCount === 1) {
-        return {
-          ok: false,
-          status: 403,
-          json: async () => ({}),
-          text: async () => '{"error":{"message":"This model is only available through an agent harness."}}',
-        } as Response;
+        return textResponse(
+          '{"error":{"message":"This model is only available through an agent harness."}}',
+          403,
+        );
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "ok-after-agent-harness-restriction" } }],
           model: String(body.model),
           usage: {},
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -1209,9 +1036,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("500 → SERVER_ERROR", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 500, json: async () => ({}), text: async () => "internal error",
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse("internal error", 500)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
@@ -1219,9 +1044,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("all candidates exhausted → throws MODEL_NOT_FOUND", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 404, json: async () => ({}), text: async () => '{"error":{"message":"model not found"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"message":"model not found"}}', 404)));
 
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
@@ -1229,13 +1053,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("shares provider-attempt budget across fallback candidates", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 404,
-      headers: new Headers(),
-      json: async () => ({}),
-      text: async () => '{"error":{"message":"model not found"}}',
-    } as Response));
+    const fetchMock = vi.fn(async () =>
+      textResponse('{"error":{"message":"model not found"}}', 404, new Headers()));
     vi.stubGlobal("fetch", fetchMock);
     const ledger = createExecutionLedger({
       budget: { providerAttempts: 2, deadlineMs: 10_000 },
@@ -1256,15 +1075,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("attributes bounded no-tools provider attempts to their recovery phase", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
         choices: [{ message: { content: "plain answer" }, finish_reason: "stop" }],
         model: primaryModel,
         usage: {},
-      }),
-    } as Response)));
+      })));
     const ledger = createExecutionLedger();
 
     await oacCompleteRaw(baseMessages as any, {
@@ -1291,10 +1106,7 @@ describe("OpenRouter tool selection", () => {
     let captured: Record<string, unknown> | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{
             message: {
               content: null,
@@ -1307,9 +1119,7 @@ describe("OpenRouter tool selection", () => {
           }],
           model: "test-model",
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     await oacCompleteRaw(baseMessages as any, {
@@ -1331,16 +1141,11 @@ describe("OpenRouter tool selection", () => {
     let captured: Record<string, unknown> | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return jsonResponse({
           choices: [{ message: { content: "plain prose" } }],
           model: "test-model",
           usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
+        });
     }));
 
     await oacCompleteRaw(baseMessages as any, {
@@ -1360,11 +1165,8 @@ describe("OpenRouter tool selection", () => {
 
 describe("GroqClientError — provider context (PR-007)", () => {
   it("preserves providerStatus, providerCode, providerMessage from 404", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false, status: 404,
-      json: async () => ({}),
-      text: async () => '{"error":{"code":"model_not_found","message":"The model has been discontinued"}}',
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse('{"error":{"code":"model_not_found","message":"The model has been discontinued"}}', 404)));
 
     let caught: GroqClientError | null = null;
     try {
@@ -1426,12 +1228,7 @@ describe("classifyStatus — non-string provider code does not crash (runtime ty
       expectedProviderCode: undefined,
     },
   ])("400 $name does not crash and still classifies as MODEL_NOT_FOUND", async ({ body, expectedProviderCode }) => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: false,
-      status: 400,
-      json: async () => ({}),
-      text: async () => body,
-    } as Response)));
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(body, 400)));
 
     await expect(
       oacCompleteRaw(baseMessages as any, {
@@ -1463,10 +1260,7 @@ describe("GroqErrorCode completeness (PR-008)", () => {
   });
 
   it("rejects finish_reason=error before normalized tool calls can be returned", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
         choices: [{
           finish_reason: "error",
           message: {
@@ -1479,9 +1273,7 @@ describe("GroqErrorCode completeness (PR-008)", () => {
           },
         }],
         model: "test-model",
-      }),
-      text: async () => "",
-    } as Response)));
+      })));
 
     await expect(
       oacCompleteRaw(baseMessages as any, {

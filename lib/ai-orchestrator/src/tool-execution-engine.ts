@@ -92,18 +92,16 @@ import {
   buildObjectiveClaimPlan,
   type ObjectiveClaimPlan,
 } from "./objective-claim-plan.js";
+import {
+  isOversizedRawToolArgument,
+  MAX_RAW_TOOL_ARGUMENT_BYTES,
+} from "./tool-argument-limits.js";
 
 // ── Defaults ────────────────────────
 
 export const DEFAULT_MAX_ITERATIONS = 128;
 export const DEFAULT_MAX_TOOL_CALLS = 480;
 export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
-const MAX_RAW_TOOL_ARGUMENT_BYTES = 2_000_000;
-
-function isOversizedToolArgument(value: unknown): value is string {
-  return typeof value === "string"
-    && Buffer.byteLength(value, "utf8") > MAX_RAW_TOOL_ARGUMENT_BYTES;
-}
 
 /**
  * Per-scope iteration and tool-call budgets (dynamic, complexity-keyed).
@@ -4939,7 +4937,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         return false;
       }
       const rawArguments: unknown = toolCall.function.arguments;
-      if (typeof rawArguments !== "string" || isOversizedToolArgument(rawArguments)) {
+      if (typeof rawArguments !== "string" || isOversizedRawToolArgument(rawArguments)) {
         return false;
       }
       try {
@@ -4953,7 +4951,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
     }) ?? false;
     const hasOversizedToolCall = result.toolCalls?.some((toolCall) =>
-      isOversizedToolArgument(toolCall.function.arguments)
+      isOversizedRawToolArgument(toolCall.function.arguments)
     ) ?? false;
     if (
       (
@@ -5272,7 +5270,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const oversizedToolCallIds = new Set<string>();
     const safeToolCalls = result.toolCalls.map((tc) => {
       const raw: unknown = tc.function?.arguments;
-      if (isOversizedToolArgument(raw)) {
+      if (isOversizedRawToolArgument(raw)) {
         oversizedToolCallIds.add(tc.id);
         return { ...tc, function: { ...tc.function, arguments: "{}" } };
       }

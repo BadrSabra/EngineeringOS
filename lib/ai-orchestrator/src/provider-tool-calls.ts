@@ -20,6 +20,12 @@
 import { createHash } from "node:crypto";
 import type { RawGroqResponse, ToolCall, ToolDefinition } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
+import {
+  isOversizedRawToolArgument,
+  jsonSerializedByteLengthWithinLimit,
+  MAX_PROVIDER_TOOL_CALL_PAYLOAD_BYTES,
+  MAX_RAW_TOOL_ARGUMENT_BYTES,
+} from "./tool-argument-limits.js";
 
 const MAX_PROVIDER_DIAGNOSTIC = 180;
 const PSEUDO_TOOL_NAMES = new Set([
@@ -85,9 +91,13 @@ function parseJsonObject(
   value: unknown,
   options: ProviderToolCallOptions,
   label: string,
+  maxBytes = MAX_RAW_TOOL_ARGUMENT_BYTES,
 ): Record<string, unknown> {
   let parsed: unknown = value;
   if (typeof value === "string") {
+    if (isOversizedRawToolArgument(value, maxBytes)) {
+      throw invalidToolCall(`${label} exceeds the ${maxBytes}-byte limit`, options);
+    }
     const trimmed = value.trim();
     if (!trimmed) throw invalidToolCall(`${label} is empty`, options);
     try {
@@ -124,6 +134,12 @@ function canonicalArguments(
   options: ProviderToolCallOptions,
 ): string {
   const parsed = parseJsonObject(value, options, "tool arguments");
+  if (jsonSerializedByteLengthWithinLimit(parsed) === undefined) {
+    throw invalidToolCall(
+      `tool arguments exceed the ${MAX_RAW_TOOL_ARGUMENT_BYTES}-byte limit or are not plain JSON`,
+      options,
+    );
+  }
   return JSON.stringify(parsed);
 }
 
@@ -222,7 +238,12 @@ function parseEnvelope(
   names: ReadonlySet<string>,
   options: ProviderToolCallOptions,
 ): { name: string; arguments: string } {
-  const parsed = parseJsonObject(body, options, "tool-call payload");
+  const parsed = parseJsonObject(
+    body,
+    options,
+    "tool-call payload",
+    MAX_PROVIDER_TOOL_CALL_PAYLOAD_BYTES,
+  );
   const keys = Object.keys(parsed).sort();
   if (keys.length !== 2 || keys[0] !== "arguments" || keys[1] !== "name") {
     throw invalidToolCall("tool-call payload must contain only name and arguments", options);
@@ -393,7 +414,7 @@ export function normalizeProviderText(
 }
 
 export function normalizeProviderResponse(
-  response: RawGroqResponse,
+  response: Omit<RawGroqResponse, "toolCalls"> & { toolCalls?: unknown },
   options: ProviderToolCallOptions = {},
 ): RawGroqResponse {
   const native = normalizeProviderToolCalls(response.toolCalls, options);
