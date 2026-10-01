@@ -189,6 +189,13 @@ Client POST /api/ai/chat or /api/ai/chat/stream
         reconnect/recovery without converting incomplete work into success
 ```
 
+Stream recovery reconciles durable status/checkpoint/history; a running
+execution does not currently reattach the caller to its live SSE feed or replay
+missed frames. Project daily provider reservations and terminal evidence
+snapshots also have different boundaries from the in-memory request ledger and
+checkpoint progress; see the supplemental findings in
+`docs/ai-layer-deep-analysis.md`.
+
 See `.agents/memory/ai-orchestrator-layer.md`, `.agents/memory/ai-tool-calling.md`.
 
 #### Provider retry and fallback ownership
@@ -235,6 +242,17 @@ Provider usage telemetry currently does not include the durable attempt in its
 stream attempt ID; duplicate IDs are ignored, and ordinary JSON chat telemetry
 does not carry an execution ID. Provider usage remains diagnostic evidence,
 not terminal acceptance.
+
+Checkpoint read progress contains paths and statuses, not the complete source
+bodies used for acceptance. Resumable evidence is restored from accepted
+evidence-read rows; preserve targeted-read spans when reusing those bodies.
+Likewise, project daily reservations pre-admit an outer provider candidate,
+not every physical request inside its tool loop; later usage events can count
+those requests when telemetry succeeds, but cannot prevent an overrun within
+that candidate. Telemetry failure must not silently remove consumed work from
+budget accounting. Session-list labels and historical acceptance projections
+should derive from each message's durable outcome and exact attempt, not report
+text or the execution's latest state.
 
 ### 4d. Task AI Execute
 

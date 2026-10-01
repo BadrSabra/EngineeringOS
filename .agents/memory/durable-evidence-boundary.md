@@ -21,6 +21,22 @@ Prefetch is part of the durable evidence boundary only when every accepted prefe
 
 **How to apply:** When adding a prefetch source, update both the loop/cache evidence map and the shared retained map at the same acceptance point; use that shared map for success, failure, retry, and history projections.
 
+Checkpoint evidence progress is not a durable source body. Before terminal
+acceptance, a checkpoint may record a completed or targeted read from metadata
+while the body exists only in the worker's memory. Resume must not treat that
+progress cursor as proof or as an instruction to skip the read. Reusable
+evidence must preserve its read type, source span, content hash, and byte
+length; a targeted range cannot silently become an un-ranged complete file.
+
+**Why:** A crash before acceptance can leave progress without a reloadable
+body, and the current path/body-only reuse projection loses whether a stored
+body was a partial line range.
+
+**How to apply:** Restore evidence only from validated durable read rows; keep
+checkpoint progress advisory until the required body is available. Carry span
+and integrity metadata through cache seeding and terminal snapshot creation,
+and test crash recovery and targeted-range reuse.
+
 Runtime failure summaries must use the same byte-limit and read-status normalization as acceptance snapshots. A retained prefetch body larger than the acceptance limit is not a complete proof, even if the in-memory map still contains the raw body.
 
 **Why:** A provider failure can otherwise produce a message saying complete evidence was retained while the durable snapshot correctly marks the same body truncated, making reload and resume disagree with the original turn.

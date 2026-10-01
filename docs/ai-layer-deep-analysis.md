@@ -839,3 +839,163 @@ normalization in the route adapters.
 
 These checks remain static-review findings only. No runtime behavior was
 changed in this supplement.
+
+## 9. Supplemental review — evidence, budgets, and reconnects (2026-10-01)
+
+This second supplement extends the static inspection to read-evidence
+continuity, project-level budget accounting, and client recovery projections.
+No runtime behavior was changed and no test suite was run.
+
+### 9.1 Checkpoint progress is not a durable source body
+
+Successful read events can update checkpoint `evidenceProgress` with a path
+marked complete or targeted. Those checkpoint records and tool-result traces
+retain status/path metadata, not the complete body. The complete verifier-owned
+bodies are written to evidence-read rows only when canonical acceptance
+finalization creates the terminal evidence snapshot. A process stop after the
+progress checkpoint but before that snapshot can therefore leave a checkpoint
+that reports completed reads for which no reusable body is durably stored.
+
+Resume serializes the checkpoint into bounded model context; it does not use
+`evidenceProgress.completedPaths` as a programmatic read-skip instruction. The
+next attempt restores only evidence-read rows from the prior accepted snapshot.
+This is a progress/body continuity mismatch and a recovery-quality risk, not
+evidence that the acceptance gate automatically treats checkpoint metadata as
+proof.
+
+### 9.2 Reused targeted reads can lose their source span
+
+Accepted evidence rows retain `lineStart`/`lineEnd`, but the resume loader
+selects only `path` and `body`, and the route restores only those values into
+the retained-read map. When the next attempt builds its evidence snapshot
+without a new range tool-call trace, it has no span to serialize; a retained
+body with no read status is treated as complete. The chat agent also seeds
+prefetch/cache state from retained bodies, so a later file-read tool call can
+reuse that body without dispatching a new whole-file read.
+
+This is a confirmed provenance loss: a body originally read from a line range
+can be represented in a later attempt as an un-ranged complete read. The
+current acceptance manifest allows both `READ_COMPLETE` and `READ_TARGETED`
+for required paths, so this does not demonstrate bypass of a full-file-only
+authorization rule. It can still misstate how much source was inspected and
+make the model rely on an excerpt as though it were the complete file.
+
+**Coverage gaps:** no inspected test crashes after a read/progress checkpoint
+but before evidence snapshot creation; reusable-read tests do not preserve or
+assert line-span metadata, content-hash verification, duplicate-path ordering,
+or the re-finalized status of a targeted body.
+
+**Evidence:** checkpoint progress and read-body collection in
+`artifacts/api-server/src/routes/ai/chat.ts`; terminal evidence snapshot writes
+and `loadReusableEvidenceReads` in
+`artifacts/api-server/src/lib/ai-execution-acceptance.ts`; read-row span columns
+in `lib/db/src/schema/ai_execution_acceptances.ts`.
+
+### 9.3 Project budget accounting is coarser than physical provider work
+
+The in-memory request execution ledger bounds model/tool/recovery work inside
+one chat invocation. Project-level daily reservations are different: the
+fallback helper admits one reservation per outer provider candidate (with
+additional admissions for specific synthesis fallback candidates), while the
+tool loop and provider clients can make multiple model or HTTP requests under
+one candidate reservation. The ledger may later project those lower-level
+attempts into usage-event rows, which also contribute to daily counts when
+telemetry succeeds. However, those events are recorded after the work and do
+not provide admission before every physical request; a tool loop or internal
+retry chain can exceed the remaining daily allowance within one candidate.
+
+The reservation identity is based on correlation, provider, and candidate
+index; it does not include the durable execution attempt. A resumed execution
+retains its correlation identity, and an existing reservation is accepted
+without a new reservation. Repeating the same provider at the same candidate
+index can therefore reuse the prior attempt's reservation. If the old
+reservation is from an earlier UTC day, or its provider event was not retained,
+the current-day admission can be skipped without a current-day attempt row.
+
+There is a second accounting gap if telemetry persistence fails. Daily attempt
+usage is calculated from usage-event rows plus reservations still marked
+`reserved`. Telemetry insertion is best-effort, and the route reconciles the
+reservation separately to `consumed`. If the event insert fails but
+reconciliation succeeds, that provider attempt no longer contributes to the
+daily attempt count. Unknown usage can still leave estimated token charges;
+this does not preserve the missing attempt count.
+
+Token accounting also does not establish an aggregate over every call in a
+multi-step tool loop. The success path supplies the final `result.usage` to the
+last newly projected provider event; the code does not demonstrate that this
+value sums earlier model calls, internal retries, or synthesis calls. Provider
+usage may be accurate for that final request, but the route lacks a verified
+operation-wide aggregate.
+
+These findings do not mean the per-invocation execution ledger is ineffective;
+they show that per-candidate pre-admission, post-hoc usage events, and token
+projections are different accounting controls. They do not automatically form
+a complete physical-request count or cumulative durable-operation budget.
+Whether budget limits are intended per HTTP invocation or per durable execution
+attempt should be explicit, but reused identities and missing telemetry must
+not silently erase work from daily accounting.
+
+**Coverage gaps:** existing budget tests cover direct reservation,
+attempt-limit, and unknown-usage behavior. They do not cover multi-call tool
+loops, provider-client retries, resumed execution identity reuse, telemetry
+insert failure followed by a new admission, or operation-wide token totals.
+
+**Evidence:** project budget admission and reconciliation in
+`artifacts/api-server/src/lib/ai-budget.ts`; fallback admission and provider
+event projection in `artifacts/api-server/src/lib/ai-route-helpers.ts`;
+best-effort persistence in `artifacts/api-server/src/lib/ai-telemetry.ts`;
+provider-client and execution-ledger admission in `lib/ai-orchestrator`.
+
+### 9.4 Reconnect and historical status boundaries
+
+**Running-stream reconnect is a documented limitation, not a demonstrated
+defect.** SSE frames have no event IDs/cursor, and a duplicate stream request
+for an already-running execution is rejected rather than attached to the
+existing feed. The route directs the client to durable status; later history
+provides the terminal message. This supports status/checkpoint recovery but
+does not replay missed live events. Treat it as a defect only if a client/API
+contract promises live stream reattachment or event replay.
+
+**Session-list forensic status can disagree with durable cancellation.** The
+sessions endpoint selects the latest assistant text and trace but does not
+project that row's outcome or its execution acceptance. It derives
+`forensicStatus` from trace stop/diagnostic markers and report text. If
+cancellation wins after a proven-looking report was generated, and that text
+and trace lack the cancellation markers, the session list can label the report
+`FINDING_PROVEN` while history correctly projects the assistant row as
+`INTERRUPTED`. This is conditional, not inevitable for every cancellation.
+
+**Historical acceptance lookup is capped at 500 rows.** Chat history loads the
+session's messages, then queries their acceptance rows with a 500-row limit and
+no ordering or pagination. Independent projection lookups partially
+compensate, but when an older acceptance is omitted the history path may use
+the execution's current attempt rather than the message's historical attempt.
+For a resumed execution with multiple terminal attempts, this can produce a
+missing or incorrect per-message acceptance disposition/projection; the
+message's stored outcome remains available. No inspected test covers a session
+with more than 500 acceptance rows or this multi-attempt truncation.
+
+**Evidence:** duplicate-running handling and terminal message projection in
+`artifacts/api-server/src/routes/ai/chat.ts`; session-list and history
+acceptance queries in the same route; cancellation finalization in
+`artifacts/api-server/src/lib/ai-execution-acceptance.ts`.
+
+### 9.5 Additional verification priorities
+
+1. Persist reusable evidence with its read type, source span, hash, and byte
+   length; verify those fields before seeding a resumed attempt.
+2. Reconcile checkpoint progress with durable bodies: after a crash, force
+   missing required reads rather than treating progress metadata as retained
+   evidence.
+3. Make project budget reservations unique to the intended budget unit and
+   durable attempt; ensure consumed work remains counted if telemetry storage
+   fails.
+4. Aggregate token usage across provider/tool-loop calls or report it as
+   partial/unknown instead of presenting terminal-call usage as operation-wide.
+5. Derive session-list forensic status from durable outcome/acceptance, and add
+   cancellation-with-proven-looking-content coverage.
+6. Bound acceptance queries with pagination or a complete per-message
+   projection; add a long-session, multi-attempt history fixture.
+
+These are follow-up verification findings from source inspection. They are not
+live incident claims and were not runtime-tested.
