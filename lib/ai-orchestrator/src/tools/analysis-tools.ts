@@ -69,7 +69,11 @@ export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          operation: { type: "string", enum: [...QUERY_KNOWLEDGE_GRAPH_OPERATIONS] },
+          operation: {
+            type: "string",
+            enum: [...QUERY_KNOWLEDGE_GRAPH_OPERATIONS],
+            default: "search",
+          },
           entity: { type: "string", description: "Entity name or ID for impact/neighborhood." },
           query: { type: "string", description: "Question or symbols to use for hierarchical retrieval." },
           paths: { type: "string", description: "Optional comma-separated project-relative paths to prioritize." },

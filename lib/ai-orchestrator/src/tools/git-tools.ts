@@ -37,7 +37,7 @@ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
       description:
         "Show the working-tree status: which files are modified, added, deleted, or untracked. " +
         "Run this before proposing a commit message or reviewing pending changes.",
-      parameters: { type: "object", properties: {} },
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
@@ -52,10 +52,12 @@ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
         properties: {
           path: {
             type: "string",
+            maxLength: 4_096,
             description:
               "Optional: project-relative path to a specific file. Omit to show all changes.",
           },
         },
+        additionalProperties: false,
       },
     },
   },
@@ -66,7 +68,7 @@ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
       description:
         "Show the last 15 commits as one-line summaries (hash · date · message). " +
         "Use this to understand recent history or pick a base for a new commit message.",
-      parameters: { type: "object", properties: {} },
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
 ];

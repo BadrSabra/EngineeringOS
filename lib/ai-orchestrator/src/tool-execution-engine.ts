@@ -47,11 +47,17 @@ import {
 } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
+  CODE_NAVIGATION_TOOL_DEFINITIONS,
   CODE_NAVIGATION_TOOL_NAMES,
   executeCodeNavigationTool,
 } from "./tools/code-navigation.js";
-import { PACKAGE_TOOL_NAMES, executePackageTool } from "./tools/package-tools.js";
 import {
+  PACKAGE_TOOL_DEFINITIONS,
+  PACKAGE_TOOL_NAMES,
+  executePackageTool,
+} from "./tools/package-tools.js";
+import {
+  BINARY_TOOL_DEFINITIONS,
   BINARY_TOOL_NAMES,
   executeBinaryTool,
   parseBinaryEvidencePacket,
@@ -68,6 +74,7 @@ import {
   type BrowserValidationRunner,
 } from "./tools/execution-tools.js";
 import {
+  ANALYSIS_TOOL_DEFINITIONS,
   ANALYSIS_TOOL_NAMES,
   executeAnalysisTool,
   type AnalysisToolRunner,
@@ -327,6 +334,122 @@ const PACKAGE_TOOL_NAMES_SET = new Set(PACKAGE_TOOL_NAMES);
 const BINARY_TOOL_NAMES_SET = new Set(BINARY_TOOL_NAMES);
 const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
 const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.function.name));
+const TOOL_DEFINITIONS = [
+  ...FILE_TOOL_DEFINITIONS,
+  ...GIT_TOOL_DEFINITIONS,
+  ...CODE_NAVIGATION_TOOL_DEFINITIONS,
+  ...PACKAGE_TOOL_DEFINITIONS,
+  ...BINARY_TOOL_DEFINITIONS,
+  ...EXECUTION_TOOL_DEFINITIONS,
+  ...ANALYSIS_TOOL_DEFINITIONS,
+];
+const TOOL_DEFINITION_BY_NAME = new Map(
+  TOOL_DEFINITIONS.map((definition) => [definition.function.name, definition] as const),
+);
+const MAX_TOOL_ARGUMENT_STRING_BYTES = 128_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && (
+      Object.getPrototypeOf(value) === Object.prototype
+      || Object.getPrototypeOf(value) === null
+    );
+}
+
+/**
+ * Validate and normalize untrusted provider arguments using the same schemas
+ * sent to the provider. The tool definitions remain the only contract source.
+ */
+function validateToolArguments(
+  name: string,
+  value: unknown,
+): Record<string, string> | undefined {
+  const definition = TOOL_DEFINITION_BY_NAME.get(name);
+  const parameters = definition?.function.parameters;
+  if (
+    !parameters
+    || parameters.type !== "object"
+    || parameters.additionalProperties !== false
+    || !isRecord(parameters.properties)
+    || !isRecord(value)
+  ) {
+    return undefined;
+  }
+
+  const properties = parameters.properties;
+  const candidate: Record<string, unknown> = { ...value };
+  for (const [key, property] of Object.entries(properties)) {
+    if (!isRecord(property)) return undefined;
+    if (
+      !Object.prototype.hasOwnProperty.call(candidate, key)
+      && Object.prototype.hasOwnProperty.call(property, "default")
+    ) {
+      candidate[key] = property.default;
+    }
+  }
+
+  const required = parameters.required;
+  if (
+    required !== undefined
+    && (
+      !Array.isArray(required)
+      || required.some((key) =>
+        typeof key !== "string"
+        || !Object.prototype.hasOwnProperty.call(candidate, key)
+        || candidate[key] === undefined
+      )
+    )
+  ) {
+    return undefined;
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [key, input] of Object.entries(candidate)) {
+    if (!Object.prototype.hasOwnProperty.call(properties, key)) return undefined;
+    const property = properties[key];
+    if (!isRecord(property) || input === undefined) return undefined;
+
+    const type = property.type;
+    if (
+      (type === "string" && typeof input !== "string")
+      || (type === "integer" && (typeof input !== "number" || !Number.isSafeInteger(input)))
+      || (type === "number" && (typeof input !== "number" || !Number.isFinite(input)))
+      || (type === "boolean" && typeof input !== "boolean")
+      || !["string", "integer", "number", "boolean"].includes(String(type))
+    ) {
+      return undefined;
+    }
+
+    if (Array.isArray(property.enum) && !property.enum.some((entry) => Object.is(entry, input))) {
+      return undefined;
+    }
+    if (
+      typeof input === "number"
+      && (
+        (typeof property.minimum === "number" && input < property.minimum)
+        || (typeof property.maximum === "number" && input > property.maximum)
+      )
+    ) {
+      return undefined;
+    }
+    if (typeof input === "string") {
+      const byteLength = Buffer.byteLength(input, "utf8");
+      if (
+        byteLength > MAX_TOOL_ARGUMENT_STRING_BYTES
+        || (typeof property.maxLength === "number" && byteLength > property.maxLength)
+        || (typeof property.minLength === "number" && byteLength < property.minLength)
+      ) {
+        return undefined;
+      }
+    }
+
+    normalized[key] = typeof input === "string" ? input : String(input);
+  }
+
+  return normalized;
+}
 
 function untrustedToolOutput(name: string, output: string, args: Record<string, string>): string {
   const source = GIT_TOOL_NAMES.has(name)
@@ -567,7 +690,7 @@ export type SingleToolOpts = {
   /** Registered tool name (e.g. "read_file", "git_status"). */
   name: string;
   /** Parsed arguments from the model's tool_call.function.arguments. */
-  args: Record<string, string>;
+  args: unknown;
   /** Absolute path to the project root — required for path containment. */
   rootPath: string;
   /** Accumulated pending changes array — mutated in place by write_file. */
@@ -892,10 +1015,6 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   const { name, args, rootPath, pendingChanges } = opts;
   const mutationPendingStart = pendingChanges.length;
   let mutationInvocationActive = false;
-  const effectiveArgs =
-    opts.completeReads && name === "read_file"
-      ? { ...args, complete: "true" }
-      : args;
 
   const isGitTool = GIT_TOOL_NAMES.has(name);
   const isFileTool = FILE_TOOL_NAMES.has(name);
@@ -919,6 +1038,20 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     };
   }
 
+  const validatedArgs = validateToolArguments(name, args);
+  if (!validatedArgs) {
+    return {
+      kind: "failed",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      safeMessage: `Tool "${name}" arguments did not match the server input contract; the operation did not complete.`,
+    };
+  }
+  const effectiveArgs =
+    opts.completeReads && name === "read_file"
+      ? { ...validatedArgs, complete: "true" }
+      : validatedArgs;
+
   try {
     if (isExecutionTool && !opts.allowExecutionTools) {
       return {
@@ -930,7 +1063,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     const authorization = authorizeToolInvocation({
       toolName: name,
-      args,
+      args: validatedArgs,
       approvalState: opts.approvalState,
       compoundWriteMode: opts.compoundWriteMode,
       ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
@@ -1045,10 +1178,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       ? {
           toolCallId: opts.toolCallId?.trim() ?? "",
           toolName: name as "write_file" | "replace_text",
-          path: args.path ?? "",
+          path: validatedArgs.path ?? "",
           inputHash: createHash("sha256")
             .update(JSON.stringify(Object.fromEntries(
-              Object.entries(args).sort(([left], [right]) => left.localeCompare(right)),
+              Object.entries(validatedArgs).sort(([left], [right]) => left.localeCompare(right)),
             )), "utf8")
             .digest("hex"),
         }
@@ -2493,7 +2626,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     objectiveEvidenceSources ?? [],
   );
   type ObjectiveTargetedReadRange =
-    | { startLine: string; endLine: string }
+    | { startLine: number; endLine: number }
     | { unavailable: true; reason: string };
   const objectiveTargetedReadRange = (
     path: string,
@@ -2669,7 +2802,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         reason: "the server-owned evidence window exceeds the read range limit",
       };
     }
-    return { startLine: String(startLine), endLine: String(endLine) };
+    return { startLine, endLine };
   };
   const sourceEvidenceByCanonical = new Map<string, string>();
   const sourceEvidenceStrengthByCanonical = new Map<string, ReadStatus>();
@@ -4864,8 +4997,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                   // A truncated full read has no reliable symbol span when no
                   // server-owned needle is available. Preserve the old bounded
                   // fallback and its fail-closed semantics.
-                  startLine: "1",
-                  endLine: "200",
+                  startLine: 1,
+                  endLine: 200,
                 }),
               }
             : { path: serverOwnedEvidencePath };
@@ -5187,9 +5320,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           safeMessage,
         );
       }
+      let rawArgs: unknown = {};
       let args: Record<string, string> = {};
       try {
-        args = JSON.parse(tc.function.arguments) as Record<string, string>;
+        rawArgs = JSON.parse(tc.function.arguments) as unknown;
+        if (isRecord(rawArgs)) {
+          args = Object.fromEntries(
+            Object.entries(rawArgs).map(([key, value]) => [
+              key,
+              typeof value === "string" ? value : JSON.stringify(value) ?? String(value),
+            ]),
+          );
+        }
       } catch {
         // Malformed arguments — leave args empty; handler returns an error string.
       }
@@ -5228,10 +5370,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           continue;
         }
         if (targetedRange) {
-          args = { ...args, ...targetedRange };
+          if (isRecord(rawArgs)) {
+            rawArgs = { ...rawArgs, ...targetedRange };
+          }
+          args = {
+            ...args,
+            startLine: String(targetedRange.startLine),
+            endLine: String(targetedRange.endLine),
+          };
         }
       }
 
+      const providerArgsValid = validateToolArguments(tc.function.name, rawArgs) !== undefined;
+      const reportArgs = providerArgsValid ? args : {};
       const isValidationCall = tc.function.name === "run_validation";
       const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
       const validationAttempt = isValidationCall
@@ -5249,7 +5400,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const key = isValidationCall
         ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
         : toolCacheKey(tc.function.name, args);
-      const cachedValue = toolCallCache.get(key);
+      const cachedValue = providerArgsValid ? toolCallCache.get(key) : undefined;
       const cachedPath =
         (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
         typeof args.path === "string"
@@ -5273,9 +5424,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // can safely use their retained cache, but writes, replacements, and
       // validation/command actions must never execute again from model replay.
       // Return a server-owned acknowledgement instead of dispatching them.
-      const priorToolCall =
-        priorToolCallMap.get(key) ??
-        priorToolCallMap.get(toolCacheKey(tc.function.name, args));
+      const priorToolCall = providerArgsValid
+        ? priorToolCallMap.get(key) ??
+          priorToolCallMap.get(toolCacheKey(tc.function.name, args))
+        : undefined;
       if (priorToolCall && nonIdempotentTools.has(tc.function.name)) {
         try {
           onStep?.({
@@ -6247,7 +6399,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         onStep?.({
           kind: "tool_call",
           tool: tc.function.name,
-          args,
+          args: reportArgs,
           cached: false,
           reasoning: REASONING_TOOLS.has(tc.function.name) && rawReasoning
             ? rawReasoning.slice(0, 500)
@@ -6289,7 +6441,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       try {
         toolResult = await executeSingleTool({
           name: tc.function.name,
-          args,
+          args: rawArgs,
           toolCallId: tc.id,
           rootPath,
           pendingChanges,

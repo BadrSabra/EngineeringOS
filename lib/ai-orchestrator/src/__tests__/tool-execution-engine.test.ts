@@ -69,8 +69,23 @@ function makeResponse(
   };
 }
 
-function makeToolCall(id: string, name: string, args: Record<string, string>) {
-  return { id, type: "function" as const, function: { name, arguments: JSON.stringify(args) } };
+function makeToolCall(id: string, name: string, args: Record<string, unknown>) {
+  // Older fixtures represented read ranges as strings; emit the integer JSON
+  // values required by the provider-facing tool schema.
+  const providerArgs = { ...args };
+  if (name === "read_file_range") {
+    for (const key of ["startLine", "endLine"]) {
+      const value = providerArgs[key];
+      if (typeof value === "string" && /^\d+$/.test(value)) {
+        providerArgs[key] = Number(value);
+      }
+    }
+  }
+  return {
+    id,
+    type: "function" as const,
+    function: { name, arguments: JSON.stringify(providerArgs) },
+  };
 }
 
 function makeStrategy(responses: RawGroqResponse[]): ProviderStrategy {
@@ -181,6 +196,136 @@ describe("executeSingleTool", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("rejects malformed and oversized arguments before hooks or handlers run", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const readCallback = vi.fn(async () => undefined);
+    const analysisRunner = vi.fn(async () => ({
+      status: "complete" as const,
+      output: "must not run",
+    }));
+
+    const malformedFileArgs = await executeSingleTool({
+      name: "read_file",
+      args: { path: { nested: "not a path" }, unexpected: true },
+      rootPath: "/project",
+      pendingChanges: [],
+      onReadOnlyInvocation: readCallback,
+    });
+    const oversizedGraphQuery = await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: { operation: "search", query: "x".repeat(128_001) },
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner: analysisRunner,
+      analysisCorrelation: {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision: "revision-1",
+        rootAvailable: true,
+        evidenceProvenance: "persisted-graph-search",
+      },
+    });
+    const malformedGraphDepth = await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: { operation: "search", depth: "2" },
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner: analysisRunner,
+      analysisCorrelation: {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision: "revision-1",
+        rootAvailable: true,
+        evidenceProvenance: "persisted-graph-search",
+      },
+    });
+    const missingRangeBounds = await executeSingleTool({
+      name: "read_file_range",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+
+    expect(malformedFileArgs).toMatchObject({
+      kind: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      safeMessage: expect.stringContaining("arguments"),
+    });
+    expect(oversizedGraphQuery.kind).toBe("failed");
+    expect(malformedGraphDepth.kind).toBe("failed");
+    expect(missingRangeBounds.kind).toBe("failed");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(readCallback).not.toHaveBeenCalled();
+    expect(analysisRunner).not.toHaveBeenCalled();
+  });
+
+  it("accepts declared booleans and integers, normalizing them for existing handlers", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+
+    const completeRead = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts", complete: true },
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+    const rangedRead = await executeSingleTool({
+      name: "read_file_range",
+      args: { path: "src/foo.ts", startLine: 2, endLine: 5 },
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+
+    expect(completeRead.kind).toBe("ok");
+    expect(rangedRead.kind).toBe("ok");
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "read_file",
+      { path: "src/foo.ts", complete: "true" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "read_file_range",
+      { path: "src/foo.ts", startLine: "2", endLine: "5" },
+      "/project",
+      [],
+    );
+  });
+
+  it("applies the declared graph-search default when the operation is omitted", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const correlation = {
+      operationId: "operation-a",
+      projectId: "project-a",
+      projectRevision: "revision-1",
+      rootAvailable: true,
+      evidenceProvenance: "persisted-graph-search",
+    };
+    const analysisRunner = vi.fn(async () => ({
+      status: "unavailable" as const,
+      output: "unavailable",
+      correlation,
+    }));
+
+    await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: {},
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner: analysisRunner,
+      analysisCorrelation: correlation,
+    });
+
+    expect(analysisRunner).toHaveBeenCalledWith(
+      "query_knowledge_graph",
+      { operation: "search" },
+      undefined,
+      correlation,
+      undefined,
+    );
   });
 
   it("dispatches read_file to executeFileTool and returns source", async () => {
@@ -347,7 +492,7 @@ describe("executeSingleTool", () => {
 
     await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "new value" },
+      args: { path: "src/foo.ts", content: "new value", reason: "test write" },
       rootPath: "/project",
       pendingChanges: [],
       approvalState: "APPROVED",
@@ -542,7 +687,7 @@ describe("executeSingleTool", () => {
 
     const result = await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "x" },
+      args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
       approvalState: "APPROVED",
@@ -578,7 +723,7 @@ describe("executeSingleTool", () => {
 
     const result = await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "x" },
+      args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
       approvalState: "APPROVED",
@@ -621,7 +766,12 @@ describe("executeSingleTool", () => {
 
     const result = await executeSingleTool({
       name: "replace_text",
-      args: { path: "src/foo.ts", old_text: "old", new_text: "updated" },
+      args: {
+        path: "src/foo.ts",
+        old_text: "old",
+        new_text: "updated",
+        reason: "test replacement",
+      },
       rootPath: "/project",
       pendingChanges: pending,
       approvalState: "APPROVED",
@@ -642,7 +792,7 @@ describe("executeSingleTool", () => {
     const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
     const denied = await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "x" },
+      args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: [],
       approvalState: "PENDING_APPROVAL",
@@ -672,7 +822,7 @@ describe("executeSingleTool", () => {
     const failedCallback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
     const failed = await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "x" },
+      args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
       approvalState: "APPROVED",
@@ -705,7 +855,7 @@ describe("executeSingleTool", () => {
     });
     const commitFailed = await executeSingleTool({
       name: "write_file",
-      args: { path: "src/foo.ts", content: "x" },
+      args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
       approvalState: "APPROVED",
@@ -6270,14 +6420,22 @@ describe("executeToolLoop", () => {
       },
     );
     const strategy = makeStrategy([
-      makeResponse("", [makeToolCall("r1", "read_file_range", { path: "src/primary.ts", start: "1", end: "20" })]),
+      makeResponse("", [makeToolCall("r1", "read_file_range", {
+        path: "src/primary.ts",
+        startLine: 1,
+        endLine: 20,
+      })]),
       // unproven range read of a NEW path — blocked
-      makeResponse("", [makeToolCall("r2", "read_file_range", { path: "src/dep.ts", start: "1", end: "5" })]),
+      makeResponse("", [makeToolCall("r2", "read_file_range", {
+        path: "src/dep.ts",
+        startLine: 1,
+        endLine: 5,
+      })]),
       // evidence-grounded range read of the same NEW path — allowed
       makeResponse("", [makeToolCall("r3", "read_file_range", {
         path: "src/dep.ts",
-        start: "1",
-        end: "5",
+        startLine: 1,
+        endLine: 5,
         from_file: "src/primary.ts",
         from_symbol: "run",
         reference: "import { run } from './dep'",
@@ -6471,10 +6629,10 @@ describe("executeToolLoop", () => {
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("r1", "read_file", { path: "src/executor.ts" })]),
       makeResponse("", [makeToolCall("p1", "git_status", {})]),
-      makeResponse("", [makeToolCall("p2", "git_log", { branch: "a" })]),
+      makeResponse("", [makeToolCall("p2", "git_log", {})]),
       makeResponse("", [makeToolCall("c1", "read_file", { path: "src/executor.ts" })]),
-      makeResponse("", [makeToolCall("p3", "git_diff", { file: "x.ts" })]),
-      makeResponse("", [makeToolCall("p4", "git_diff", { file: "y.ts" })]),
+      makeResponse("", [makeToolCall("p3", "git_diff", { path: "x.ts" })]),
+      makeResponse("", [makeToolCall("p4", "git_diff", { path: "y.ts" })]),
       makeResponse("", [makeToolCall("p5", "git_status", {})]),
       makeResponse("", [makeToolCall("r2", "read_file", { path: "src/other.ts" })]),
       makeResponse("final answer"),
@@ -6614,10 +6772,10 @@ describe("executeToolLoop", () => {
     FILE_TOOL_MOCK.mockResolvedValue("export const x = 1;");
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("p1", "git_status", {})]),
-      makeResponse("", [makeToolCall("p2", "git_log", { branch: "a" })]),
+      makeResponse("", [makeToolCall("p2", "git_log", {})]),
       makeResponse("", [makeToolCall("r1", "read_file", { path: "src/executor.ts" })]),
-      makeResponse("", [makeToolCall("p3", "git_diff", { file: "x.ts" })]),
-      makeResponse("", [makeToolCall("p4", "git_diff", { file: "y.ts" })]),
+      makeResponse("", [makeToolCall("p3", "git_diff", { path: "x.ts" })]),
+      makeResponse("", [makeToolCall("p4", "git_diff", { path: "y.ts" })]),
       makeResponse("", [makeToolCall("p5", "git_status", {})]),
       makeResponse("", [makeToolCall("r2", "read_file", { path: "src/other.ts" })]),
       makeResponse("final answer"),
