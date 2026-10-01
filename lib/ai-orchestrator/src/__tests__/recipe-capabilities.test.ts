@@ -215,6 +215,9 @@ describe("recipe capability adapters", () => {
       operation: "recipe",
       operationId: "operation-1",
       revision: "revision-1",
+      executionId: "execution-1",
+      executionAttempt: 1,
+      episodeId: "episode-1",
       authorized: true,
       approvalState: "APPROVED",
       scope: { kind: "project", paths: [] },
@@ -231,6 +234,9 @@ describe("recipe capability adapters", () => {
       operationId: "operation-1",
       rootPath: process.cwd(),
       revision: "revision-1",
+      executionId: "execution-1",
+      executionAttempt: 1,
+      episodeId: "episode-1",
     }]);
   });
 

@@ -26,6 +26,7 @@ describe("tool policy", () => {
     expect(toolNames).toEqual([
       "read_file",
       "read_file_range",
+      "project.list_tree",
       "list_directory",
       "search_code",
       "replace_text",
@@ -64,6 +65,7 @@ describe("tool policy", () => {
     expect(toolNames).toEqual([
       "read_file",
       "read_file_range",
+      "project.list_tree",
       "list_directory",
       "search_code",
       "git_status",
@@ -105,6 +107,7 @@ describe("tool policy", () => {
     expect(toolNames).toEqual([
       "read_file",
       "read_file_range",
+      "project.list_tree",
       "list_directory",
       "search_code",
       "symbol_search",

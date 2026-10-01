@@ -444,7 +444,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
       expect(integrity.evidenceFileCount).toBe(0);
       expect(integrity.completedReadFiles ?? []).not.toContain(LARGE_FILE);
       expect(integrity.retainedBodyFiles ?? []).not.toContain(LARGE_FILE);
-      expect(result.response).toMatch(/NOT PROVEN.*EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED/i);
+      expect(result.response).toMatch(/NOT PROVEN.*verifiable excerpt from a completed source read/i);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

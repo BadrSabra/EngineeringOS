@@ -30,6 +30,79 @@ async function createSearchProject(): Promise<{
 }
 
 describe("executeFileTool — search_code error handling", () => {
+  it("marks search incomplete after scanning 5,000 entries", async () => {
+    const { root, cleanup } = await createSearchProject();
+    let yieldedEntries = 0;
+    const fakeDirectory = {
+      async *[Symbol.asyncIterator]() {
+        for (let index = 0; index < 5_001; index += 1) {
+          yieldedEntries += 1;
+          yield {
+            name: `link-${String(index).padStart(4, "0")}`,
+            isDirectory: () => false,
+            isFile: () => false,
+            isSymbolicLink: () => true,
+          };
+        }
+      },
+      close: vi.fn(async () => undefined),
+    };
+    const originalOpendir = fs.opendir.bind(fs);
+    const opendirSpy = vi.spyOn(fs, "opendir").mockImplementation(async (requestedPath, options) => {
+      if (path.resolve(String(requestedPath)) === root) {
+        return fakeDirectory as unknown as Awaited<ReturnType<typeof fs.opendir>>;
+      }
+      return originalOpendir(requestedPath, options);
+    });
+    mockSpawn.mockClear();
+
+    try {
+      const result = await executeFileTool("search_code", { pattern: "match" }, root, []);
+      expect(yieldedEntries).toBe(5_001);
+      expect(fakeDirectory.close).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(result).toContain("No matches found within the bounded search window.");
+      expect(result).toContain("search incomplete");
+    } finally {
+      opendirSpy.mockRestore();
+      mockSpawn.mockClear();
+      await cleanup();
+    }
+  });
+
+  it("marks search incomplete at the 16,000,000-byte total read budget", async () => {
+    const { root, cleanup } = await createSearchProject();
+    const fileBytes = 512_000;
+    const sentinel = Buffer.from("TOTAL_BYTES_SENTINEL\n");
+    mockSpawn.mockClear();
+
+    try {
+      await Promise.all(Array.from({ length: 32 }, (_, index) => {
+        const contents = Buffer.alloc(fileBytes, 0x78);
+        if (index === 0) sentinel.copy(contents);
+        return fs.writeFile(
+          path.join(root, `${String(index).padStart(3, "0")}.txt`),
+          contents,
+        );
+      }));
+
+      const result = await executeFileTool(
+        "search_code",
+        { pattern: "TOTAL_BYTES_SENTINEL" },
+        root,
+        [],
+      );
+
+      expect(mockSpawn).toHaveBeenCalledTimes(32);
+      expect(result).toContain("000.txt:1:TOTAL_BYTES_SENTINEL");
+      expect(result).toContain("search incomplete");
+      expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(24_000);
+    } finally {
+      mockSpawn.mockClear();
+      await cleanup();
+    }
+  });
+
   it("returns 'No matches found.' for a complete search with no match", async () => {
     const { root, cleanup } = await createSearchProject();
     try {

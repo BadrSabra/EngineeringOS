@@ -53,3 +53,16 @@ to inspect without disguising ranking as semantic analysis or proof.
 
 **How to apply:** Keep the ranker lexical and server-side; never let excerpt
 ranking alter claims, evidence closure, or terminal acceptance.
+
+Read completion and content completeness are separate: a file can be opened and
+returned while its body is still truncated. Every source truncation marker,
+including the forensic safe-window marker, must mark its root as incomplete and
+must not count as complete retained evidence.
+
+**Why:** The forensic safe-window marker differed from the generic read and
+prefetch markers, so the source was excluded from retained evidence but its
+root was still reported COMPLETE.
+
+**How to apply:** Keep truncation-marker recognition and root-coverage projection
+in sync across normal, forensic, targeted, and prefetched reads; preserve the
+truncated paths in the coverage result.

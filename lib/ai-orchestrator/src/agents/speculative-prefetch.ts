@@ -319,7 +319,9 @@ export async function speculativePrefetch(opts: {
     sources,
     cacheEntries,
     failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
-    truncatedFiles: hits.filter((r) => /\[(?:prefetch|read) output truncated\b/i.test(r.content)).map((r) => r.filePath),
+    truncatedFiles: hits
+      .filter((r) => /\[(?:prefetch|read) output truncated\b|\[\.\.\. forensic read exceeded\b/i.test(r.content))
+      .map((r) => r.filePath),
   };
 }
 
@@ -435,7 +437,9 @@ export async function prefetchFileList(opts: {
     sources,
     cacheEntries,
     failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
-    truncatedFiles: hits.filter((r) => /\[(?:prefetch|read) output truncated\b/i.test(r.content)).map((r) => r.filePath),
+    truncatedFiles: hits
+      .filter((r) => /\[(?:prefetch|read) output truncated\b|\[\.\.\. forensic read exceeded\b/i.test(r.content))
+      .map((r) => r.filePath),
   };
 }
 
@@ -578,13 +582,14 @@ export async function prefetchForensicRoots(opts: {
       for (const source of result.sources) excluded.add(normalizePrefetchPath(source));
       remaining -= result.sources.length;
       const unreadFiles = candidates.length - result.sources.length;
+      const truncatedFiles = result.truncatedFiles ?? [];
       rootCoverage.push({
         root,
         discoveredFiles: candidates.length,
         readFiles: result.sources.length,
         unreadFiles,
         status:
-          unreadFiles > 0 || rootBudgetExhausted
+          unreadFiles > 0 || truncatedFiles.length > 0 || rootBudgetExhausted
             ? rootBudgetExhausted && unreadFiles === 0
               ? "BUDGET_EXHAUSTED"
               : "PARTIAL"
@@ -594,7 +599,7 @@ export async function prefetchForensicRoots(opts: {
             ...(result.failedFiles ?? []),
             ...candidates.slice(remaining),
           ].slice(0, MAX_FORENSIC_DISCOVERY_FILES),
-          truncatedPaths: (result.truncatedFiles ?? []).slice(0, MAX_FORENSIC_DISCOVERY_FILES),
+          truncatedPaths: truncatedFiles.slice(0, MAX_FORENSIC_DISCOVERY_FILES),
       });
       if (rootBudgetExhausted) budgetExhausted = true;
     } else {

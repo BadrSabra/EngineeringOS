@@ -1259,7 +1259,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
 
     const providerCreate = vi.fn().mockRejectedValue(
       Object.assign(new Error("fixture provider failure"), {
-        code: "FIXTURE_PROVIDER_FAILURE",
+        code: "AUTH_ERROR",
         status: 401,
         response: { status: 401 },
       }),
@@ -1326,11 +1326,13 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
       );
       expect(synthesisDiagnostics.some((step) =>
-        (step.details as string[] | undefined)?.some((detail) => detail.includes("provider synthesis failed")),
+        (step.details as string[] | undefined)?.some((detail) =>
+          detail.includes("failureClass=PROVIDER_AVAILABILITY"),
+        ),
       )).toBe(true);
       expect(synthesisDiagnostics.some((step) =>
         (step.details as string[] | undefined)?.some((detail) =>
-          detail.includes("failureChain=provider_failure:AUTH_ERROR"),
+          detail.includes("failureChain=PROVIDER_AVAILABILITY:AUTH_ERROR"),
         ),
       )).toBe(true);
       const failedSynthesisDetails = synthesisDiagnostics
