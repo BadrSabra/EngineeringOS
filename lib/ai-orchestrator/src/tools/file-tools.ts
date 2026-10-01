@@ -17,19 +17,35 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { type PendingChange } from "../schemas/chat.schema.js";
 import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
-
-const execFileAsync = promisify(execFile);
 
 const MAX_READ_BYTES = 128_000; // ~128 KB per normal file read — keeps previews bounded
 const MAX_FORENSIC_READ_BYTES = 512_000;
 const MAX_TARGETED_READ_LINES = 4_000; // read_file_range window cap
 const MAX_TARGETED_READ_BYTES = 128_000; // safety byte cap on a targeted window
-const MAX_FULL_REPLACEMENT_BYTES = 128_000; // full-file write safety cap remains independent from read previews
+const MAX_TARGETED_READ_SCAN_BYTES = 512_000; // bounds scanning before a late line range
+const TARGETED_READ_CHUNK_BYTES = 16_384;
+const MAX_TOOL_PATH_BYTES = 4_096;
+const MAX_CHANGE_REASON_BYTES = 2_000;
+const MAX_FULL_REPLACEMENT_BYTES = 128_000;
+const MAX_REPLACE_TEXT_FRAGMENT_BYTES = 128_000;
+const MAX_REPLACE_TEXT_SOURCE_BYTES = 2_000_000;
+const MAX_SEARCH_PATTERN_BYTES = 1_024;
+const MAX_SEARCH_GLOB_BYTES = 512;
 const MAX_SEARCH_LINES = 50;
+const MAX_SEARCH_DIRECTORY_DEPTH = 6;
+const MAX_SEARCH_SCANNED_ENTRIES = 5_000;
+const MAX_SEARCH_FILES = 100;
+const MAX_SEARCH_FILE_BYTES = 512_000;
+const MAX_SEARCH_TOTAL_BYTES = 16_000_000;
+const MAX_SEARCH_OUTPUT_BYTES = 24_000;
+const MAX_SEARCH_RUNTIME_MS = 10_000;
+const MAX_SEARCH_PROCESS_OUTPUT_BYTES = 64_000;
+const MAX_DIRECTORY_ENTRIES = 100;
+const MAX_DIRECTORY_SCANNED_ENTRIES = 1_000;
+const MAX_DIRECTORY_OUTPUT_BYTES = 24_000;
 const MAX_PROJECT_TREE_DEPTH = 2;
 const MAX_PROJECT_TREE_ENTRIES = 100;
 const MAX_PROJECT_TREE_SCANNED_ENTRIES = 5_000;
@@ -39,6 +55,10 @@ const READ_TRUNCATION_MARKER =
   "\n\n[... output truncated at 128 KB by the read tool; this is a display limit, not evidence that the file is incomplete or corrupted. Do not infer missing code from this marker. Use targeted search_code or replace_text for exact source-level evidence. ...]";
 const FORENSIC_READ_TRUNCATION_MARKER =
   "\n\n[... forensic read exceeded the maximum safe evidence window; complete source evidence is unavailable for this file. ...]";
+const DIRECTORY_TRUNCATION_MARKER =
+  "\n[... directory listing truncated by entry, scan, or output limit ...]";
+const SEARCH_TRUNCATION_MARKER =
+  "\n[... search incomplete: a scan, file, byte, time, or output limit was reached ...]";
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".next", "__pycache__", ".venv", "build", "coverage"]);
 const BLOCKED_SENSITIVE_PATH =
   /(?:^|[/\\])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.htpasswd|credentials(?:\.[^/\\]*)?|(?:service[-_.]?account|.*(?:private|secret|token|credential)).*\.(?:json|ya?ml|toml|ini|cfg|conf)|id_(?:rsa|dsa|ecdsa)|.*\.(?:pem|key|p12|pfx|jks|kdbx|gpg|asc))$/i;
@@ -107,14 +127,15 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "read_file",
       description:
-        "Read the first 128 KB of a source file. The result may be a bounded preview; a truncation marker is a tool display limit, not proof that the file is incomplete. Use search_code for targeted evidence and replace_text for focused edits.",
+        "Read the first 128 KB of a source file. A normal-read truncation marker is a display limit, not proof that the file is incomplete; complete=true reads up to 512 KB, and exceeding that forensic cap means the source evidence is incomplete. Use search_code for targeted evidence and replace_text for focused edits.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
+            maxLength: MAX_TOOL_PATH_BYTES,
             description:
-              "File path relative to the project root (e.g. 'src/index.ts', 'lib/auth.py').",
+              "File path relative to the project root (maximum 4 KB).",
           },
             complete: {
               type: "boolean",
@@ -151,12 +172,13 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "read_file_range",
       description:
-        "Read a specific line range of a source file (1-based, inclusive). Use this to retrieve a targeted source window (e.g. around a symbol found via search_code) instead of re-reading the whole file. The result is a bounded window; when the file is larger than a full read, this is the preferred way to obtain exact code for a claim.",
+        "Read a specific line range of a source file (1-based, inclusive). The requested range is capped at 4,000 lines, the returned window at 128 KB, and scanning at 512 KB. Use this for a targeted window instead of re-reading the whole file.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
+            maxLength: MAX_TOOL_PATH_BYTES,
             description: "File path relative to the project root (e.g. 'src/index.ts').",
           },
           startLine: {
@@ -209,14 +231,16 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     type: "function",
     function: {
       name: "list_directory",
-      description: "List the files and sub-directories in a directory of the project.",
+      description:
+        "List up to 100 entries from a directory. Scanning stops after 1,000 entries and the response is capped at 24 KB; a truncation marker indicates a listing limit.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
+            maxLength: MAX_TOOL_PATH_BYTES,
             description:
-              "Directory path relative to the project root. Use '.' to list the root itself.",
+              "Directory path relative to the project root (maximum 4 KB). Use '.' to list the root itself.",
           },
         },
         required: ["path"],
@@ -228,23 +252,26 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "search_code",
       description:
-        "Search for a text or regex pattern across all source files. Returns matching lines with file path and line number.",
+        "Search with a grep-compatible regular expression through a bounded project file set. Scans at most 5,000 directory entries and 100 files, reads up to 512 KB per file and 16 MB total, and returns at most 50 lines / 24 KB. If any limit is reached, the result is marked incomplete.",
       parameters: {
         type: "object",
         properties: {
           pattern: {
             type: "string",
-            description: "Plain text or basic regex pattern to search for.",
+            maxLength: MAX_SEARCH_PATTERN_BYTES,
+            description: "Plain text or basic regex pattern to search for (maximum 1 KB).",
           },
           file_glob: {
             type: "string",
+            maxLength: MAX_SEARCH_GLOB_BYTES,
             description:
-              "Optional glob to restrict the search to specific file types (e.g. '*.ts', '*.py'). Omit to search all files.",
+              "Optional glob to restrict the search to specific file types (maximum 512 bytes).",
           },
           path: {
             type: "string",
+            maxLength: MAX_TOOL_PATH_BYTES,
             description:
-              "Optional project-relative file or directory to search. Required for evidence-scoped analysis; omit only for ordinary project chat.",
+              "Optional project-relative file or directory to search (maximum 4 KB). Required for evidence-scoped analysis; omit only for ordinary project chat.",
           },
         },
         required: ["pattern"],
@@ -256,25 +283,29 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "replace_text",
       description:
-        "Propose a focused text replacement inside an existing file. The server reads the complete current file, requires the old text to match exactly once, and constructs the full pending change. Prefer this over write_file for existing source files, especially large files.",
+        "Propose a focused text replacement inside an existing text file up to 2 MB. Each old_text and new_text value is limited to 128 KB. The server requires one exact match and queues the complete change for approval.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
-            description: "File path relative to the project root.",
+            maxLength: MAX_TOOL_PATH_BYTES,
+            description: "File path relative to the project root (maximum 4 KB).",
           },
           old_text: {
             type: "string",
-            description: "The exact existing text to replace, including whitespace and line breaks.",
+            maxLength: MAX_REPLACE_TEXT_FRAGMENT_BYTES,
+            description: "The exact existing text to replace, including whitespace and line breaks (maximum 128 KB).",
           },
           new_text: {
             type: "string",
-            description: "The replacement text.",
+            maxLength: MAX_REPLACE_TEXT_FRAGMENT_BYTES,
+            description: "The replacement text (maximum 128 KB).",
           },
           reason: {
             type: "string",
-            description: "One-sentence explanation of why this focused change is needed.",
+            maxLength: MAX_CHANGE_REASON_BYTES,
+            description: "One-sentence explanation of why this focused change is needed (maximum 2 KB).",
           },
           validation_profile: {
             type: "string",
@@ -292,21 +323,24 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "write_file",
       description:
-        "Propose a file write or modification. The change is QUEUED for user approval and is NOT written to disk until the user explicitly approves it. Always read the file first before proposing a modification so you write the complete corrected content.",
+        "Propose a complete file write of at most 128 KB. Existing files over 128 KB cannot be replaced this way; use replace_text for text files up to 2 MB. The change is queued for user approval and is not written to disk until approved.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
-            description: "File path relative to the project root.",
+            maxLength: MAX_TOOL_PATH_BYTES,
+            description: "File path relative to the project root (maximum 4 KB).",
           },
           content: {
             type: "string",
-            description: "The complete new file content (not a diff — the full replacement).",
+            maxLength: MAX_FULL_REPLACEMENT_BYTES,
+            description: "The complete new file content (not a diff — the full replacement; maximum 128 KB).",
           },
           reason: {
             type: "string",
-            description: "One-sentence explanation of why this change is needed.",
+            maxLength: MAX_CHANGE_REASON_BYTES,
+            description: "One-sentence explanation of why this change is needed (maximum 2 KB).",
           },
           validation_profile: {
             type: "string",
@@ -560,6 +594,164 @@ function assertFileOperationActive(signal?: AbortSignal): void {
   }
 }
 
+function inputByteLimitError(field: string, value: string, maxBytes: number): string | null {
+  return Buffer.byteLength(value, "utf-8") > maxBytes
+    ? `Error: "${field}" exceeds the ${maxBytes}-byte tool input limit.`
+    : null;
+}
+
+const ALLOWED_VALIDATION_PROFILES = new Set([
+  "ai-orchestrator-tests",
+  "knowledge-engine-tests",
+  "api-ai-tests",
+]);
+
+function validateChangeMetadata(args: Record<string, string>): string | null {
+  const pathError = inputByteLimitError("path", args.path ?? "", MAX_TOOL_PATH_BYTES);
+  if (pathError) return pathError;
+  const reasonError = inputByteLimitError("reason", args.reason ?? "", MAX_CHANGE_REASON_BYTES);
+  if (reasonError) return reasonError;
+  if (
+    args.validation_profile
+    && !ALLOWED_VALIDATION_PROFILES.has(args.validation_profile)
+  ) {
+    return 'Error: "validation_profile" must be one of the registered validation profiles.';
+  }
+  return null;
+}
+
+async function readBoundedFilePrefix(
+  filePath: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<{ bytes: Buffer; truncated: boolean; bytesRead: number }> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    assertFileOperationActive(signal);
+    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    let totalBytesRead = 0;
+    while (totalBytesRead < buffer.length) {
+      assertFileOperationActive(signal);
+      const { bytesRead } = await handle.read(
+        buffer,
+        totalBytesRead,
+        buffer.length - totalBytesRead,
+        totalBytesRead,
+      );
+      assertFileOperationActive(signal);
+      if (bytesRead === 0) break;
+      totalBytesRead += bytesRead;
+    }
+    return {
+      bytes: buffer.subarray(0, Math.min(totalBytesRead, maxBytes)),
+      truncated: totalBytesRead > maxBytes,
+      bytesRead: totalBytesRead,
+    };
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+type BoundedLineRangeResult =
+  | { kind: "window"; lines: string[] }
+  | { kind: "no_content"; totalLines: number }
+  | { kind: "scan_limit" }
+  | { kind: "window_limit" };
+
+async function readBoundedLineRange(
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  signal?: AbortSignal,
+): Promise<BoundedLineRangeResult> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const selectedLines: string[] = [];
+    let selectedBytes = 0;
+    let currentLineParts: Buffer[] = [];
+    let currentLineBytes = 0;
+    let currentLine = 1;
+    let totalBytesRead = 0;
+
+    const appendToCurrentLine = (segment: Buffer): boolean => {
+      if (currentLine < startLine || currentLine > endLine || segment.length === 0) {
+        return true;
+      }
+      const separatorBytes = selectedLines.length > 0 ? 1 : 0;
+      if (
+        selectedBytes + separatorBytes + currentLineBytes + segment.length
+        > MAX_TARGETED_READ_BYTES
+      ) {
+        return false;
+      }
+      currentLineParts.push(Buffer.from(segment));
+      currentLineBytes += segment.length;
+      return true;
+    };
+
+    const finishCurrentLine = (): "continue" | "window_limit" => {
+      if (currentLine >= startLine && currentLine <= endLine) {
+        const separatorBytes = selectedLines.length > 0 ? 1 : 0;
+        const line = Buffer.concat(currentLineParts, currentLineBytes).toString("utf-8");
+        const outputLineBytes = Buffer.byteLength(line, "utf-8");
+        if (selectedBytes + separatorBytes + outputLineBytes > MAX_TARGETED_READ_BYTES) {
+          return "window_limit";
+        }
+        selectedLines.push(line);
+        selectedBytes += separatorBytes + outputLineBytes;
+      }
+      currentLineParts = [];
+      currentLineBytes = 0;
+      currentLine += 1;
+      return "continue";
+    };
+
+    while (true) {
+      assertFileOperationActive(signal);
+      const remainingScanBytes = MAX_TARGETED_READ_SCAN_BYTES - totalBytesRead;
+      const readLength = Math.min(
+        TARGETED_READ_CHUNK_BYTES,
+        Math.max(1, remainingScanBytes + 1),
+      );
+      const chunk = Buffer.allocUnsafe(readLength);
+      const { bytesRead } = await handle.read(chunk, 0, readLength, totalBytesRead);
+      assertFileOperationActive(signal);
+      if (bytesRead === 0) {
+        const finished = finishCurrentLine();
+        if (finished === "window_limit") return { kind: "window_limit" };
+        const totalLines = currentLine - 1;
+        return startLine > totalLines
+          ? { kind: "no_content", totalLines }
+          : { kind: "window", lines: selectedLines };
+      }
+
+      const bytesWithinBudget = Math.min(bytesRead, Math.max(0, remainingScanBytes));
+      let segmentStart = 0;
+      for (let index = 0; index < bytesWithinBudget; index += 1) {
+        if (chunk[index] !== 0x0a) continue;
+        if (!appendToCurrentLine(chunk.subarray(segmentStart, index))) {
+          return { kind: "window_limit" };
+        }
+        const finished = finishCurrentLine();
+        if (finished === "window_limit") return { kind: "window_limit" };
+        segmentStart = index + 1;
+        if (currentLine > endLine) {
+          return { kind: "window", lines: selectedLines };
+        }
+      }
+
+      if (!appendToCurrentLine(chunk.subarray(segmentStart, bytesWithinBudget))) {
+        return { kind: "window_limit" };
+      }
+
+      totalBytesRead += bytesRead;
+      if (bytesRead > bytesWithinBudget) return { kind: "scan_limit" };
+    }
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
 /**
  * Execute one tool call from the model. Returns a string that gets added as
  * the tool-result message. For write_file and replace_text the actual write is deferred —
@@ -594,43 +786,44 @@ export async function executeFileTool(
 
     // ── read_file ─────────────────────────────────────────────────────────────
     case "read_file": {
-      if (isSensitiveProjectPath(args.path ?? "")) {
-        return `Error: reading "${args.path}" is not allowed because the path is classified as sensitive.`;
+      const requestedPath = args.path ?? "";
+      const pathError = inputByteLimitError("path", requestedPath, MAX_TOOL_PATH_BYTES);
+      if (pathError) return pathError;
+      if (isSensitiveProjectPath(requestedPath)) {
+        return `Error: reading "${requestedPath}" is not allowed because the path is classified as sensitive.`;
       }
-      const abs = await safePath(resolvedRoot, args.path ?? "");
-      if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
+      const abs = await safePath(resolvedRoot, requestedPath);
+      if (!abs) return `Error: "${requestedPath}" resolves outside the project root.`;
       try {
-        const buf = await fs.readFile(abs);
         const complete =
           args.complete === "true" ||
           (args.complete as unknown) === true;
+        const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
+        const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal);
         if (complete) {
-          const truncated = buf.length > MAX_FORENSIC_READ_BYTES;
-          const sliced = truncated ? buf.subarray(0, MAX_FORENSIC_READ_BYTES) : buf;
-          const text = sliced.toString("utf-8");
+          const text = bytes.toString("utf-8");
           const content = truncated ? text + FORENSIC_READ_TRUNCATION_MARKER : text;
-          return `File: ${args.path}\n\`\`\`\n${content}\n\`\`\``;
+          return `File: ${requestedPath}\n\`\`\`\n${content}\n\`\`\``;
         }
-        // Slice the buffer BEFORE decoding to UTF-8: without this, a file
-        // close to the limit with multi-byte characters could expand beyond
-        // MAX_READ_BYTES in the string representation.
-        const truncated = buf.length > MAX_READ_BYTES;
-        const sliced = truncated ? buf.subarray(0, MAX_READ_BYTES) : buf;
-        const text = sliced.toString("utf-8");
+        const text = bytes.toString("utf-8");
         const content = truncated ? text + READ_TRUNCATION_MARKER : text;
-        return `File: ${args.path}\n\`\`\`\n${content}\n\`\`\``;
+        return `File: ${requestedPath}\n\`\`\`\n${content}\n\`\`\``;
       } catch (e) {
-        return formatFilesystemError("read", args.path ?? "", e);
+        if (signal?.aborted) throw e;
+        return formatFilesystemError("read", requestedPath, e);
       }
     }
 
     // ── read_file_range ──────────────────────────────────────────────────────
     case "read_file_range": {
-      if (isSensitiveProjectPath(args.path ?? "")) {
-        return `Error: reading "${args.path}" is not allowed because the path is classified as sensitive.`;
+      const requestedPath = args.path ?? "";
+      const pathError = inputByteLimitError("path", requestedPath, MAX_TOOL_PATH_BYTES);
+      if (pathError) return pathError;
+      if (isSensitiveProjectPath(requestedPath)) {
+        return `Error: reading "${requestedPath}" is not allowed because the path is classified as sensitive.`;
       }
-      const abs = await safePath(resolvedRoot, args.path ?? "");
-      if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
+      const abs = await safePath(resolvedRoot, requestedPath);
+      if (!abs) return `Error: "${requestedPath}" resolves outside the project root.`;
       const startLine = Number(args.startLine);
       const endLine = Number(args.endLine);
       if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine) {
@@ -642,33 +835,28 @@ export async function executeFileTool(
         return `Error: requested range exceeds the ${MAX_TARGETED_READ_LINES}-line targeted read window. Narrow the range around the symbol you need.`;
       }
       try {
-        const buf = await fs.readFile(abs);
-        const text = buf.toString("utf-8");
-        const lines = text.split("\n");
-        const from = startLine - 1;
-        const to = Math.min(endLine, lines.length);
-        if (from >= lines.length || lines.length === 0) {
-          return `No content in lines ${startLine}–${endLine} of "${args.path}" (file has ${lines.length} lines).`;
+        const result = await readBoundedLineRange(abs, startLine, endLine, signal);
+        if (result.kind === "scan_limit") {
+          return `Error: finding the requested range exceeded the ${MAX_TARGETED_READ_SCAN_BYTES}-byte scan budget. Narrow the range or search for a closer anchor.`;
         }
-        const window = lines.slice(from, to).join("\n");
-        // Measure only the returned window, not the full file. A large source
-        // file (up to 512 KB forensic limit) can still yield a small targeted
-        // window that is entirely within the safe evidence byte budget.
-        const windowBytes = Buffer.byteLength(window, "utf-8");
-        if (windowBytes > MAX_TARGETED_READ_BYTES) {
-          // A pathologically long single line (or very wide window) would still
-          // exceed the cap. Report so the caller knows the window is invalid.
+        if (result.kind === "window_limit") {
           return 'Error: the targeted window exceeds the safe evidence byte limit. Narrow the range.';
         }
-        return `File: ${args.path}\n\`\`\`\n${window}\n\`\`\``;
+        if (result.kind === "no_content") {
+          return `No content in lines ${startLine}–${endLine} of "${requestedPath}" (file has ${result.totalLines} lines).`;
+        }
+        return `File: ${requestedPath}\n\`\`\`\n${result.lines.join("\n")}\n\`\`\``;
       } catch (e) {
-        return formatFilesystemError("read", args.path ?? "", e);
+        if (signal?.aborted) throw e;
+        return formatFilesystemError("read", requestedPath, e);
       }
     }
 
     // ── list_directory ────────────────────────────────────────────────────────
     case "list_directory": {
       const target = args.path ?? ".";
+      const pathError = inputByteLimitError("path", target, MAX_TOOL_PATH_BYTES);
+      if (pathError) return pathError;
       if (isSensitiveProjectPath(target)) {
         return `Error: listing "${target}" is not allowed because the path is classified as sensitive.`;
       }
@@ -676,11 +864,11 @@ export async function executeFileTool(
       if (!abs) return `Error: "${target}" resolves outside the project root.`;
       try {
         const stat = await fs.stat(abs);
+        assertFileOperationActive(signal);
         // إصلاح #3: إعادة توجيه تلقائية عندما يُرسل النموذج list_directory على ملف.
         // النموذج يخلط أحياناً بين read_file وlist_directory — نُصحّح بشفافية
         // بدل إرجاع خطأ ENOTDIR الذي يُربك النموذج ويدفعه لتكرار المحاولة.
         if (stat.isFile()) {
-          const buf = await fs.readFile(abs);
           // A capability/forensic probe may use list_directory as a mistaken
           // read_file call. Preserve its explicit complete contract here; the
           // old branch silently downgraded it to the 128 KB display limit and
@@ -689,25 +877,71 @@ export async function executeFileTool(
             args.complete === "true" ||
             (args.complete as unknown) === true;
           const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
-          const truncated = buf.length > limit;
-          const text = (truncated ? buf.subarray(0, limit) : buf).toString("utf-8");
+          const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal);
+          assertFileOperationActive(signal);
+          const text = bytes.toString("utf-8");
           const content = truncated
             ? text + (complete ? FORENSIC_READ_TRUNCATION_MARKER : READ_TRUNCATION_MARKER)
             : text;
           return `[note: "${target}" is a file, not a directory — returning its contents via read_file]\nFile: ${target}\n\`\`\`\n${content}\n\`\`\``;
         }
-        const entries = await fs.readdir(abs, { withFileTypes: true });
-        const lines = entries
-          .filter((e) => !SKIP_DIRS.has(e.name) && !isSensitiveProjectPath(e.name))
-          .sort((a, b) => {
-            // Directories first, then files, alphabetically.
-            if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
-            return a.name.localeCompare(b.name);
-          })
-          .map((e) => `${e.isDirectory() ? "[dir]  " : "[file] "}${e.name}`)
-          .join("\n");
-        return `Contents of "${target}":\n${lines || "(empty)"}`;
+        const entries: Array<{ name: string; isDirectory: boolean }> = [];
+        let scannedEntries = 0;
+        let truncated = false;
+        const directory = await fs.opendir(abs);
+        try {
+          for await (const entry of directory) {
+            assertFileOperationActive(signal);
+            scannedEntries += 1;
+            if (scannedEntries > MAX_DIRECTORY_SCANNED_ENTRIES) {
+              truncated = true;
+              break;
+            }
+            if (SKIP_DIRS.has(entry.name) || isSensitiveProjectPath(entry.name)) continue;
+            entries.push({ name: entry.name, isDirectory: entry.isDirectory() });
+          }
+        } finally {
+          await directory.close().catch(() => undefined);
+        }
+        assertFileOperationActive(signal);
+        entries.sort((left, right) => {
+          // Directories first, then files, alphabetically.
+          if (left.isDirectory !== right.isDirectory) return left.isDirectory ? -1 : 1;
+          return left.name.localeCompare(right.name);
+        });
+
+        const header = `Contents of "${target}":\n`;
+        const markerBytes = Buffer.byteLength(DIRECTORY_TRUNCATION_MARKER, "utf-8");
+        const headerBytes = Buffer.byteLength(header, "utf-8");
+        if (
+          headerBytes + markerBytes + Buffer.byteLength("(empty)", "utf-8")
+          > MAX_DIRECTORY_OUTPUT_BYTES
+        ) {
+          return "Error: the requested path is too long for a bounded directory listing.";
+        }
+        const maxContentBytes = MAX_DIRECTORY_OUTPUT_BYTES - headerBytes - markerBytes;
+        const lines: string[] = [];
+        let contentBytes = 0;
+        for (const entry of entries) {
+          if (lines.length >= MAX_DIRECTORY_ENTRIES) {
+            truncated = true;
+            break;
+          }
+          const line = `${entry.isDirectory ? "[dir]  " : "[file] "}${entry.name}`;
+          const separatorBytes = lines.length > 0 ? 1 : 0;
+          const lineBytes = Buffer.byteLength(line, "utf-8");
+          if (contentBytes + separatorBytes + lineBytes > maxContentBytes) {
+            truncated = true;
+            break;
+          }
+          lines.push(line);
+          contentBytes += separatorBytes + lineBytes;
+        }
+        if (entries.length > lines.length) truncated = true;
+        const content = lines.join("\n") || "(empty)";
+        return `${header}${content}${truncated ? DIRECTORY_TRUNCATION_MARKER : ""}`;
       } catch (e) {
+        if (signal?.aborted) throw e;
         return formatFilesystemError("list", target, e);
       }
     }
@@ -715,8 +949,22 @@ export async function executeFileTool(
     // ── search_code ───────────────────────────────────────────────────────────
     case "search_code": {
       if (!args.pattern) return 'Error: "pattern" argument is required.';
+      const patternError = inputByteLimitError(
+        "pattern",
+        args.pattern,
+        MAX_SEARCH_PATTERN_BYTES,
+      );
+      if (patternError) return patternError;
       if (args.pattern.includes("\0")) return 'Error: "pattern" must not contain null bytes.';
+      const globError = inputByteLimitError(
+        "file_glob",
+        args.file_glob ?? "",
+        MAX_SEARCH_GLOB_BYTES,
+      );
+      if (globError) return globError;
       const searchTarget = args.path?.trim() || ".";
+      const pathError = inputByteLimitError("path", searchTarget, MAX_TOOL_PATH_BYTES);
+      if (pathError) return pathError;
       if (isSensitiveProjectPath(searchTarget)) {
         return `Error: searching "${searchTarget}" is not allowed because the path is classified as sensitive.`;
       }
@@ -782,6 +1030,14 @@ export async function executeFileTool(
       if (!args.path || args.content === undefined) {
         return 'Error: "path" and "content" are required.';
       }
+      const metadataError = validateChangeMetadata(args);
+      if (metadataError) return metadataError;
+      const contentError = inputByteLimitError(
+        "content",
+        args.content,
+        MAX_FULL_REPLACEMENT_BYTES,
+      );
+      if (contentError) return contentError;
 
       // ── Sensitive-extension guard ──────────────────────────────────────────
       // Prevent the AI from proposing writes to secret material or executable
@@ -838,25 +1094,42 @@ export async function executeFileTool(
       // form (e.g. "src/foo.ts" rather than "./src/foo.ts" or "src/../src/foo.ts").
       const relativePath = path.relative(resolvedRoot, abs);
 
-      // Read the current file content so the UI can show a proper diff.
       let originalContent: string | null = null;
       try {
-        originalContent = await fs.readFile(abs, "utf-8");
-      } catch {
-        // File doesn't exist yet — that's fine for new files.
+        const stat = await fs.stat(abs);
+        assertFileOperationActive(signal);
+        if (!stat.isFile()) {
+          return `Error: "${relativePath}" is not a regular file and cannot be replaced.`;
+        }
+        if (stat.size > MAX_FULL_REPLACEMENT_BYTES) {
+          return (
+            `Error: "${relativePath}" is larger than ${MAX_FULL_REPLACEMENT_BYTES} bytes. ` +
+            `Full-file replacement is blocked to keep the staged diff bounded. Use replace_text ` +
+            `for text files up to ${MAX_REPLACE_TEXT_SOURCE_BYTES} bytes.`
+          );
+        }
+        const current = await readBoundedFilePrefix(
+          abs,
+          MAX_FULL_REPLACEMENT_BYTES,
+          signal,
+        );
+        if (current.truncated) {
+          return (
+            `Error: "${relativePath}" exceeded the ${MAX_FULL_REPLACEMENT_BYTES}-byte ` +
+            "full-file replacement limit while being read. Use replace_text for a focused change."
+          );
+        }
+        originalContent = current.bytes.toString("utf-8");
+      } catch (e) {
+        if (signal?.aborted) throw e;
+        const code = e && typeof e === "object" && "code" in e
+          ? String((e as { code?: unknown }).code ?? "")
+          : "";
+        if (code !== "ENOENT") {
+          return formatFilesystemError("read", relativePath, e);
+        }
       }
       assertFileOperationActive(signal);
-
-      if (
-        originalContent !== null &&
-        Buffer.byteLength(originalContent, "utf8") > MAX_FULL_REPLACEMENT_BYTES &&
-        /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|vue|svelte)$/i.test(relativePath)
-      ) {
-        return (
-          `Error: "${relativePath}" is an existing source file larger than ${MAX_FULL_REPLACEMENT_BYTES} bytes. ` +
-          `Full-file replacement is blocked to prevent truncation. Use replace_text with the exact old_text and new_text instead.`
-        );
-      }
 
       pendingChanges.push({
         path: relativePath,
@@ -877,6 +1150,21 @@ export async function executeFileTool(
       if (!args.path || args.old_text === undefined || args.new_text === undefined) {
         return 'Error: "path", "old_text", and "new_text" are required.';
       }
+      const metadataError = validateChangeMetadata(args);
+      if (metadataError) return metadataError;
+      const oldTextError = inputByteLimitError(
+        "old_text",
+        args.old_text,
+        MAX_REPLACE_TEXT_FRAGMENT_BYTES,
+      );
+      if (oldTextError) return oldTextError;
+      const newTextError = inputByteLimitError(
+        "new_text",
+        args.new_text,
+        MAX_REPLACE_TEXT_FRAGMENT_BYTES,
+      );
+      if (newTextError) return newTextError;
+      if (!args.old_text) return 'Error: "old_text" must not be empty.';
 
       const BLOCKED_WRITE_EXTENSIONS =
         /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
@@ -906,12 +1194,23 @@ export async function executeFileTool(
 
       let originalContent: string;
       try {
-        originalContent = await fs.readFile(abs, "utf-8");
+        const current = await readBoundedFilePrefix(
+          abs,
+          MAX_REPLACE_TEXT_SOURCE_BYTES,
+          signal,
+        );
+        if (current.truncated) {
+          return (
+            `Error: "${args.path}" is larger than the ${MAX_REPLACE_TEXT_SOURCE_BYTES}-byte ` +
+            "replace_text source limit. No change was queued."
+          );
+        }
+        originalContent = current.bytes.toString("utf-8");
       } catch (e) {
-        return `Error reading "${args.path}": ${e instanceof Error ? e.message : String(e)}`;
+        if (signal?.aborted) throw e;
+        return formatFilesystemError("read", args.path, e);
       }
       assertFileOperationActive(signal);
-      if (!args.old_text) return 'Error: "old_text" must not be empty.';
 
       const firstIndex = originalContent.indexOf(args.old_text);
       if (firstIndex < 0) {
@@ -922,10 +1221,19 @@ export async function executeFileTool(
         return `Error: old_text occurs more than once in "${relForCheck}". Include more surrounding context so the replacement is unique.`;
       }
 
-      const newContent =
-        originalContent.slice(0, firstIndex) +
-        args.new_text +
-        originalContent.slice(firstIndex + args.old_text.length);
+      const prefix = originalContent.slice(0, firstIndex);
+      const suffix = originalContent.slice(firstIndex + args.old_text.length);
+      const newContentBytes =
+        Buffer.byteLength(prefix, "utf-8")
+        + Buffer.byteLength(args.new_text, "utf-8")
+        + Buffer.byteLength(suffix, "utf-8");
+      if (newContentBytes > MAX_REPLACE_TEXT_SOURCE_BYTES) {
+        return (
+          `Error: the replacement would make "${relForCheck}" exceed the ` +
+          `${MAX_REPLACE_TEXT_SOURCE_BYTES}-byte replace_text result limit. No change was queued.`
+        );
+      }
+      const newContent = prefix + args.new_text + suffix;
       const relativePath = path.relative(resolvedRoot, abs);
       pendingChanges.push({
         path: relativePath,

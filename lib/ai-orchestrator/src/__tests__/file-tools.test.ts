@@ -142,6 +142,48 @@ describe("executeFileTool — bounded source reads", () => {
     }
   });
 
+  it("reads only the configured prefix plus one byte to detect truncation", async () => {
+    const filePath = path.join("/tmp", `bounded-read-budget-${Date.now()}.ts`);
+    await fs.writeFile(filePath, "x", "utf-8");
+    const virtualFileBytes = 2_000_000;
+    let bytesReturned = 0;
+    const read = vi.fn(async (
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number,
+    ) => {
+      const bytesRead = Math.min(length, virtualFileBytes - position);
+      buffer.fill(0x78, offset, offset + bytesRead);
+      bytesReturned += bytesRead;
+      return { bytesRead, buffer };
+    });
+    const fakeHandle = { read, close: vi.fn(async () => undefined) };
+    const originalOpen = fs.open.bind(fs);
+    const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
+      requestedPath: any,
+      ...options: any[]
+    ) => {
+      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
+      return originalOpen(requestedPath, ...options);
+    });
+
+    try {
+      const result = await executeFileTool(
+        "read_file",
+        { path: path.basename(filePath) },
+        "/tmp",
+        [],
+      );
+      expect(result).toContain("output truncated at 128 KB by the read tool");
+      expect(bytesReturned).toBe(128_001);
+      expect(bytesReturned).toBeLessThan(virtualFileBytes);
+    } finally {
+      openSpy.mockRestore();
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("supports a complete forensic read without the normal 128 KB marker", async () => {
     const filePath = path.join("/tmp", `complete-read-${Date.now()}.ts`);
     const tail = "export const completeTail = true;\n";
@@ -179,6 +221,51 @@ describe("executeFileTool — bounded source reads", () => {
       expect(result).not.toContain("forensic read exceeded the maximum safe evidence window");
     } finally {
       await fs.rm(filePath, { force: true });
+    }
+  });
+
+  it("bounds directory enumeration and serialized listing output", async () => {
+    const directoryPath = path.join("/tmp", `bounded-directory-${Date.now()}`);
+    await fs.mkdir(directoryPath);
+    let yieldedEntries = 0;
+    const fakeDirectory = {
+      async *[Symbol.asyncIterator]() {
+        for (let index = 0; index < 5_000; index += 1) {
+          yieldedEntries += 1;
+          yield {
+            name: `entry-${String(index).padStart(4, "0")}.ts`,
+            isDirectory: () => false,
+            isFile: () => true,
+            isSymbolicLink: () => false,
+          };
+        }
+      },
+      close: vi.fn(async () => undefined),
+    };
+    const originalOpendir = fs.opendir.bind(fs);
+    const opendirSpy = vi.spyOn(fs, "opendir").mockImplementation(async (
+      requestedPath: any,
+      ...options: any[]
+    ) => {
+      if (path.resolve(String(requestedPath)) === directoryPath) return fakeDirectory as any;
+      return originalOpendir(requestedPath, ...options);
+    });
+
+    try {
+      const result = await executeFileTool(
+        "list_directory",
+        { path: path.basename(directoryPath) },
+        "/tmp",
+        [],
+      );
+      expect(result).toContain("directory listing truncated");
+      expect(yieldedEntries).toBe(1_001);
+      expect((result.match(/^\[file\]/gm) ?? [])).toHaveLength(100);
+      expect(Buffer.byteLength(result, "utf-8")).toBeLessThan(24_000);
+      expect(fakeDirectory.close).toHaveBeenCalledTimes(1);
+    } finally {
+      opendirSpy.mockRestore();
+      await fs.rm(directoryPath, { recursive: true, force: true });
     }
   });
 
@@ -356,6 +443,48 @@ describe("executeFileTool — bounded source reads", () => {
 });
 
 describe("executeFileTool — read_file_range (SR-003)", () => {
+  it("stops scanning when a late range exceeds the source-byte budget", async () => {
+    const filePath = path.join("/tmp", `range-scan-budget-${Date.now()}.ts`);
+    await fs.writeFile(filePath, "x", "utf-8");
+    const virtualFileBytes = 2_000_000;
+    let bytesReturned = 0;
+    const read = vi.fn(async (
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number,
+    ) => {
+      const bytesRead = Math.min(length, virtualFileBytes - position);
+      buffer.fill(0x78, offset, offset + bytesRead);
+      bytesReturned += bytesRead;
+      return { bytesRead, buffer };
+    });
+    const fakeHandle = { read, close: vi.fn(async () => undefined) };
+    const originalOpen = fs.open.bind(fs);
+    const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
+      requestedPath: any,
+      ...options: any[]
+    ) => {
+      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
+      return originalOpen(requestedPath, ...options);
+    });
+
+    try {
+      const result = await executeFileTool(
+        "read_file_range",
+        { path: path.basename(filePath), startLine: "2", endLine: "2" },
+        "/tmp",
+        [],
+      );
+      expect(result).toContain("512000-byte scan budget");
+      expect(bytesReturned).toBe(512_001);
+      expect(bytesReturned).toBeLessThan(virtualFileBytes);
+    } finally {
+      openSpy.mockRestore();
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("returns only the requested 1-based inclusive window", async () => {
     const filePath = path.join("/tmp", `range-read-${Date.now()}.ts`);
     const lines = [1, 2, 3, 4, 5].map((n) => `line${n}();`);
@@ -581,6 +710,132 @@ describe("executeFileTool — safe source editing", () => {
     }
   });
 
+  it("rejects oversized full-file content and reasons using UTF-8 byte counts", async () => {
+    const pending: any[] = [];
+    const oversizedContent = await executeFileTool(
+      "write_file",
+      {
+        path: "bounded-content.ts",
+        content: "é".repeat(64_001),
+        reason: "Keep the edit bounded",
+      },
+      rootPath,
+      pending,
+    );
+    expect(oversizedContent).toContain('"content" exceeds the 128000-byte');
+    expect(pending).toHaveLength(0);
+
+    const oversizedReason = await executeFileTool(
+      "write_file",
+      {
+        path: "bounded-reason.ts",
+        content: "export const value = true;",
+        reason: "é".repeat(1_001),
+      },
+      rootPath,
+      pending,
+    );
+    expect(oversizedReason).toContain('"reason" exceeds the 2000-byte');
+    expect(pending).toHaveLength(0);
+  });
+
+  it("rejects oversized replace_text fragments before reading the source", async () => {
+    const openSpy = vi.spyOn(fs, "open");
+    try {
+      const result = await executeFileTool(
+        "replace_text",
+        {
+          path: "replace-input-cap.ts",
+          old_text: "x".repeat(128_001),
+          new_text: "y",
+          reason: "Keep fragments bounded",
+        },
+        rootPath,
+        [],
+      );
+      expect(result).toContain('"old_text" exceeds the 128000-byte');
+      expect(openSpy).not.toHaveBeenCalled();
+    } finally {
+      openSpy.mockRestore();
+    }
+  });
+
+  it("bounds replace_text source reads at 2 MB plus one detection byte", async () => {
+    const filePath = path.join(rootPath, `replace-source-cap-${Date.now()}.ts`);
+    await fs.writeFile(filePath, "x", "utf-8");
+    const virtualFileBytes = 3_000_000;
+    let bytesReturned = 0;
+    const read = vi.fn(async (
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number,
+    ) => {
+      const bytesRead = Math.min(length, virtualFileBytes - position);
+      buffer.fill(0x78, offset, offset + bytesRead);
+      bytesReturned += bytesRead;
+      return { bytesRead, buffer };
+    });
+    const fakeHandle = { read, close: vi.fn(async () => undefined) };
+    const originalOpen = fs.open.bind(fs);
+    const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
+      requestedPath: any,
+      ...options: any[]
+    ) => {
+      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
+      return originalOpen(requestedPath, ...options);
+    });
+
+    try {
+      const pending: any[] = [];
+      const result = await executeFileTool(
+        "replace_text",
+        {
+          path: path.basename(filePath),
+          old_text: "match",
+          new_text: "replacement",
+          reason: "Test source size limit",
+        },
+        rootPath,
+        pending,
+      );
+      expect(result).toContain("2000000-byte replace_text source limit");
+      expect(bytesReturned).toBe(2_000_001);
+      expect(bytesReturned).toBeLessThan(virtualFileBytes);
+      expect(pending).toHaveLength(0);
+    } finally {
+      openSpy.mockRestore();
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
+  it("does not queue a replacement that would exceed the source-size limit", async () => {
+    const filePath = path.join(rootPath, `replace-result-cap-${Date.now()}.ts`);
+    const original = `UNIQUE_TOKEN${"x".repeat(1_900_000)}`;
+    await fs.writeFile(filePath, original, "utf-8");
+    const pending: any[] = [];
+
+    try {
+      const result = await executeFileTool(
+        "replace_text",
+        {
+          path: path.basename(filePath),
+          old_text: "UNIQUE_TOKEN",
+          new_text: "y".repeat(128_000),
+          reason: "Test result size limit",
+        },
+        rootPath,
+        pending,
+      );
+      expect(result).toContain("would make");
+      expect(result).toContain("exceed the 2000000-byte replace_text result limit");
+      expect(pending).toHaveLength(0);
+      expect(await fs.readFile(filePath, "utf-8")).toBe(original);
+    } finally {
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("does not stage a write when its source read finishes after cancellation", async () => {
     const filePath = path.join(rootPath, `cancelled-write-${Date.now()}.ts`);
     const original = "export const value = true;\n";
@@ -589,16 +844,32 @@ describe("executeFileTool — safe source editing", () => {
     const controller = new AbortController();
     const pending: any[] = [];
     const originalReadFile = fs.readFile.bind(fs);
+    const originalOpen = fs.open.bind(fs);
     let releaseRead: (() => void) | undefined;
+    let notifyReadStarted: (() => void) | undefined;
     const readGate = new Promise<void>((resolve) => {
       releaseRead = resolve;
     });
-    const readFileSpy = vi.spyOn(fs, "readFile").mockImplementation(
-      async (requestedPath: any, options?: any) => {
+    const readStarted = new Promise<void>((resolve) => {
+      notifyReadStarted = resolve;
+    });
+    const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
+      requestedPath: any,
+      ...options: any[]
+    ) => {
+      const handle = await originalOpen(requestedPath, ...options);
+      if (path.resolve(String(requestedPath)) !== filePath) return handle;
+      const originalRead = handle.read.bind(handle);
+      const read = vi.fn(async (...readArgs: any[]) => {
+        notifyReadStarted?.();
         await readGate;
-        return originalReadFile(requestedPath, options);
-      },
-    );
+        return originalRead(...readArgs);
+      });
+      return {
+        read,
+        close: handle.close.bind(handle),
+      } as any;
+    });
 
     try {
       const operation = executeFileTool(
@@ -613,7 +884,7 @@ describe("executeFileTool — safe source editing", () => {
         controller.signal,
       );
 
-      await vi.waitFor(() => expect(readFileSpy).toHaveBeenCalledTimes(1));
+      await readStarted;
       controller.abort();
       releaseRead?.();
 
@@ -621,7 +892,7 @@ describe("executeFileTool — safe source editing", () => {
       expect(pending).toHaveLength(0);
       expect(await originalReadFile(filePath, "utf-8")).toBe(original);
     } finally {
-      readFileSpy.mockRestore();
+      openSpy.mockRestore();
       await fs.rm(filePath, { force: true });
     }
   });
