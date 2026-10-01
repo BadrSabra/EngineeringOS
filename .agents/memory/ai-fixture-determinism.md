@@ -26,3 +26,9 @@ Chat-history projection tests should mock the episode-ledger persistence boundar
 **Why:** Expanding a generic database mock to reproduce ledger transactions couples an unrelated projection test to persistence internals and can obscure whether lease checks still run.
 
 **How to apply:** When ledger durability is not the subject, isolate that boundary in route tests; preserve the lease-selection and ownership path, and cover ledger transactions in dedicated ledger tests.
+
+Lifecycle recovery tests that execute the production chat helper should preserve provider eligibility and budget admission, replacing only provider strategy construction and lifecycle/circuit readiness with deterministic fixtures. Budget reservations cascade with a unique project, but usage and operator-alert rows need explicit cleanup scoped to that project and owner.
+
+**Why:** Stubbing the helper hides service-to-engine forwarding; stubbing admission hides a real production boundary and can leave durable test rows behind.
+
+**How to apply:** Keep service-owned scope, tool manifests, and observation callbacks intact; activate only the fixture provider, await asynchronous observations, and clean side effects by unique fixture identity rather than shared user.

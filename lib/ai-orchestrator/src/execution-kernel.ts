@@ -228,7 +228,19 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
     const deadline = setTimeout(() => requestStop(true), spec.timeoutMs);
     const cleanup = (): void => {
       clearTimeout(deadline);
-      if (escalation) clearTimeout(escalation);
+      if (escalation) {
+        if (!child.pid) {
+          clearTimeout(escalation);
+        } else {
+          try {
+            process.kill(-child.pid, 0);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+              clearTimeout(escalation);
+            }
+          }
+        }
+      }
       spec.signal?.removeEventListener("abort", onAbort);
     };
 
@@ -236,13 +248,13 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       const result = appendBounded(stdout, chunk.toString(), remaining);
       stdout = result.value;
       truncated ||= result.truncated;
-      if (result.truncated) killChild("SIGTERM");
+      if (result.truncated) requestStop(false);
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       const result = appendBounded(stderr, chunk.toString(), remaining);
       stderr = result.value;
       truncated ||= result.truncated;
-      if (result.truncated) killChild("SIGTERM");
+      if (result.truncated) requestStop(false);
     });
     child.once("error", (error) => {
       cleanup();

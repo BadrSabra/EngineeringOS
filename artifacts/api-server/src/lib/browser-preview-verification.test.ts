@@ -201,6 +201,40 @@ describe("browser preview verification", () => {
     expect(result.summary).toContain("malformed selector");
   });
 
+  it("times out a hanging browser step and closes both browser resources", async () => {
+    const session = {
+      id: "session-timeout", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+      startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
+      status: "running" as const,
+    };
+    const browser = browserFactory();
+    const page = await browser.newPage();
+    const goto = vi.spyOn(page, "goto").mockImplementation(
+      () => new Promise<void>(() => undefined),
+    );
+    vi.spyOn(browser, "newPage").mockResolvedValue(page);
+
+    const result = await verifyBrowserPreview({
+      session,
+      operationId: "op-timeout",
+      executionId: "exec-timeout",
+      steps: [],
+      contract: {
+        revision: "rev-a",
+        permittedOrigin: "http://127.0.0.1:4312",
+        timeoutMs: 10,
+        steps: [{ type: "navigate", path: "/slow" }],
+      },
+      browser,
+    });
+
+    expect(goto).toHaveBeenCalledOnce();
+    expect(result.status).toBe("failed");
+    expect(result.summary).toContain("timed out");
+    expect(page.close).toHaveBeenCalledOnce();
+    expect(browser.close).toHaveBeenCalledOnce();
+  });
+
   it("expires within the configured lifetime and keeps sessions isolated", async () => {
     const firstChild = fakeChild();
     const secondChild = fakeChild();

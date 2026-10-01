@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,7 +10,7 @@ import {
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
-import type { AgentAction } from "@workspace/ai-orchestrator";
+import type { AgentAction, AgentStep } from "@workspace/ai-orchestrator";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -21,7 +21,9 @@ import {
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiUsageEventsTable,
   db,
+  operatorAlertsTable,
   projectsTable,
   tasksTable,
   workflowsTable,
@@ -44,13 +46,24 @@ const chatWithFallback = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => (
   },
   effectiveProvider: "groq" as const,
 })));
+const actualChatWithFallbackRef = vi.hoisted(() => ({
+  fn: undefined as ((...args: unknown[]) => Promise<unknown>) | undefined,
+}));
+const providerStrategyState = vi.hoisted(() => ({
+  callCount: 0,
+  toolCallId: "",
+}));
 const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
   status: "passed" as const,
   evidence: { artifactRef: "fixture-validation-receipt" },
 })));
+const pendingObservationMaterializations = vi.hoisted(() => [] as Promise<unknown>[]);
 
 vi.mock("./ai-route-helpers.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-route-helpers.js")>("./ai-route-helpers.js");
+  actualChatWithFallbackRef.fn = actual.chatWithFallback as unknown as (
+    ...args: unknown[]
+  ) => Promise<unknown>;
   return {
     ...actual,
     runAgentWithFallback,
@@ -64,6 +77,68 @@ vi.mock("@workspace/ai-orchestrator", async () => {
     ...actual,
     buildProjectContext: vi.fn(async () => ({ fixture: true })),
     invalidateContextCache: vi.fn(),
+    getProviderLifecycleSnapshot: vi.fn(async () => ({
+      provider: "groq" as const,
+      source: "server" as const,
+      keyIdentity: null,
+      revision: 1,
+      generation: 1,
+      checkedAt: null,
+      expiresAt: null,
+      lastKnownGoodAt: null,
+      lastKnownGoodExpiresAt: null,
+      credentialStatus: "credentials_valid" as const,
+      modelStatus: "model_not_checked" as const,
+      capabilityStatus: "capability_healthy" as const,
+      overallStatus: "ready" as const,
+      selectable: true,
+      roles: [] as const,
+      capabilities: [] as const,
+      reasonCodes: ["capability_not_checked"] as const,
+    })),
+    isCircuitOpen: vi.fn(() => false),
+  };
+});
+
+vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../../lib/ai-orchestrator/src/provider-registry.js")
+  >("../../../../lib/ai-orchestrator/src/provider-registry.js");
+  return {
+    ...actual,
+    getStrategy: vi.fn(() => ({
+      providerId: "groq",
+      supportsNativeStream: false,
+      call: async (_messages: unknown[]) => {
+        providerStrategyState.callCount += 1;
+        if (providerStrategyState.callCount === 1) {
+          return {
+            content: "",
+            toolCalls: [{
+              id: providerStrategyState.toolCallId,
+              type: "function",
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: "src/target.ts" }),
+              },
+            }],
+            model: "db-handoff-read-fixture",
+            usage: { promptTokens: 0, completionTokens: 0 },
+            finishReason: "tool_calls",
+          };
+        }
+        return {
+          content: "Read the authorized fixture file successfully.",
+          toolCalls: null,
+          model: "db-handoff-read-fixture",
+          usage: { promptTokens: 0, completionTokens: 0 },
+          finishReason: "stop",
+        };
+      },
+      stream: async function* () {
+        yield "The fixture defines the base value.";
+      },
+    })),
   };
 });
 
@@ -74,6 +149,22 @@ vi.mock("./task-progress.js", () => ({
     terminal: vi.fn(async () => undefined),
   })),
 }));
+
+vi.mock("./agent-state/observation-materializer.js", async () => {
+  const actual = await vi.importActual<typeof import("./agent-state/observation-materializer.js")>(
+    "./agent-state/observation-materializer.js",
+  );
+  return {
+    ...actual,
+    materializeServerOwnedObservations: (
+      ...args: Parameters<typeof actual.materializeServerOwnedObservations>
+    ) => {
+      const pending = actual.materializeServerOwnedObservations(...args);
+      pendingObservationMaterializations.push(pending);
+      return pending;
+    },
+  };
+});
 
 vi.mock("./ai-repair-validation.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-repair-validation.js")>("./ai-repair-validation.js");
@@ -110,6 +201,20 @@ async function waitForEpisode(executionId: string) {
 }
 
 async function cleanupProjectExecutionData(projectId: string) {
+  const materializationFailures: unknown[] = [];
+  while (pendingObservationMaterializations.length > 0) {
+    const pending = pendingObservationMaterializations.splice(0);
+    const results = await Promise.allSettled(pending);
+    materializationFailures.push(
+      ...results.flatMap((result) => result.status === "rejected" ? [result.reason] : []),
+    );
+  }
+
+  await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.projectId, projectId));
+  await db.delete(operatorAlertsTable).where(and(
+    eq(operatorAlertsTable.ownerId, "mission-effect-test-user"),
+    eq(operatorAlertsTable.projectId, projectId),
+  ));
   await db.delete(aiAgentEpisodeEventsTable).where(eq(aiAgentEpisodeEventsTable.projectId, projectId));
   await db.delete(aiAgentObservationsTable).where(eq(aiAgentObservationsTable.projectId, projectId));
   await db.delete(aiAgentEffectsTable).where(eq(aiAgentEffectsTable.projectId, projectId));
@@ -119,6 +224,12 @@ async function cleanupProjectExecutionData(projectId: string) {
   await db.delete(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.projectId, projectId));
   await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
   await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+  if (materializationFailures.length > 0) {
+    throw new AggregateError(
+      materializationFailures,
+      "Observation materialization failed before fixture cleanup.",
+    );
+  }
 }
 
 async function createMissionToolLoopFixture(input: {
@@ -685,6 +796,205 @@ describe("real durable task execution lifecycle", () => {
       await fixture.cleanup();
     }
   });
+
+  const durableToolMarkers = [
+    {
+      tool: "run_validation",
+      args: { profile: "workspace-typecheck" },
+      key: 'run_validation:{"profile":"workspace-typecheck"}',
+    },
+    {
+      tool: "read_file",
+      args: { path: "src/target.ts" },
+      key: 'read_file:{"path":"src/target.ts"}',
+    },
+  ] as const;
+  const durableToolHandoffCases = durableToolMarkers.flatMap((marker) =>
+    (["started", "completed"] as const).map((markerStatus) => ({ ...marker, markerStatus })),
+  );
+
+  it.each(durableToolHandoffCases)(
+    "reloads a durable $markerStatus $tool marker after worker handoff",
+    async ({ markerStatus, tool, args: markerArgs, key }) => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "validate",
+      approvalRequired: false,
+    });
+    let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
+    let resumedHelperResult: unknown;
+    const resumedStepKinds: string[] = [];
+    const resumedToolResults: Array<{ tool: string; outputLength: number }> = [];
+    let reloadedToolCalls: Array<{
+      key: string;
+      tool: string;
+      args: Record<string, string>;
+      status: "started" | "completed";
+    }> = [];
+
+    chatWithFallback
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        const request = args[1] as {
+          telemetryContext?: { operationId?: string };
+        };
+        const executionId = request.telemetryContext?.operationId;
+        const onStep = args[6] as ((step: AgentStep) => Promise<void>) | undefined;
+        expect(executionId).toEqual(expect.any(String));
+        expect(onStep).toBeTypeOf("function");
+        if (!executionId || !onStep) {
+          throw new Error("Missing Mission tool-loop checkpoint callback.");
+        }
+
+        await onStep({
+          kind: "tool_call",
+          tool,
+          args: markerArgs,
+          cached: false,
+        });
+        if (markerStatus === "completed") {
+          await onStep({
+            kind: "tool_result",
+            tool,
+            cached: false,
+            outputLength: 0,
+            resultKind: "ok",
+          });
+        }
+
+        const [persisted] = await db
+          .select({ checkpoint: aiExecutionsTable.checkpoint })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(persisted).toBeDefined();
+        if (!persisted) throw new Error("Started tool call checkpoint was not persisted.");
+        const parsed = parseMissionToolLoopCheckpoint(persisted.checkpoint);
+        expect(parsed?.completedToolCalls).toEqual([{
+          key,
+          tool,
+          args: markerArgs,
+          status: markerStatus,
+        }]);
+
+        await db.update(aiExecutionsTable)
+          .set({
+            status: "paused",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiExecutionsTable.id, executionId));
+        await db.update(tasksTable)
+          .set({
+            status: "verifying",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasksTable.id, fixture.taskId));
+
+        recoveredOutcome = await executeTaskLifecycle({
+          taskId: fixture.taskId,
+          userId: "mission-effect-test-user",
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision: fixture.now.toISOString(),
+        });
+        throw new Error("simulated_worker_exit_after_started_tool_checkpoint");
+      })
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        const request = args[1] as {
+          priorToolCalls?: typeof reloadedToolCalls;
+        };
+        reloadedToolCalls = request.priorToolCalls ?? [];
+        if (tool === "read_file") {
+          const actualChatWithFallback = actualChatWithFallbackRef.fn;
+          if (!actualChatWithFallback) {
+            throw new Error("The real chatWithFallback helper was not captured.");
+          }
+          providerStrategyState.callCount = 0;
+          providerStrategyState.toolCallId = `db-handoff-read-${markerStatus}`;
+          const actualArgs = [...args];
+          const onStep = actualArgs[6] as ((step: AgentStep) => Promise<void>) | undefined;
+          actualArgs[6] = async (step: AgentStep) => {
+            resumedStepKinds.push(step.kind);
+            if (step.kind === "tool_result" && step.tool === "read_file") {
+              resumedToolResults.push({
+                tool: step.tool,
+                outputLength: step.outputLength,
+              });
+            }
+            await onStep?.(step);
+          };
+          resumedHelperResult = await actualChatWithFallback(...actualArgs);
+          return resumedHelperResult as Awaited<ReturnType<typeof chatWithFallback>>;
+        }
+        return {
+          result: {
+            response: "Resumed from the durable tool-loop checkpoint.",
+            pendingChanges: [],
+            sources: [],
+          },
+          effectiveProvider: "groq" as const,
+        };
+      });
+
+    if (tool === "read_file") {
+      vi.stubEnv("OPENROUTER_API_KEY", "");
+      vi.stubEnv("GEMINI_API_KEY", "");
+      vi.stubEnv("DEEPSEEK_API_KEY", "");
+      vi.stubEnv("GROQ_API_KEY", "fixture-groq-api-key");
+    }
+
+    try {
+      await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(chatWithFallback).toHaveBeenCalledTimes(2);
+      expect(reloadedToolCalls).toContainEqual({
+        key,
+        tool,
+        args: markerArgs,
+        status: markerStatus,
+      });
+
+      if (tool === "read_file") {
+        expect(resumedHelperResult).toMatchObject({
+          effectiveProvider: "groq",
+          result: { response: expect.any(String) },
+        });
+        expect(providerStrategyState.callCount).toBeGreaterThan(0);
+        expect(resumedStepKinds).toContain("tool_call");
+        expect(resumedStepKinds).toContain("tool_result");
+        expect(resumedToolResults).toEqual(
+          expect.arrayContaining([expect.objectContaining({ tool: "read_file" })]),
+        );
+        expect(resumedToolResults.find((result) => result.tool === "read_file")?.outputLength)
+          .toBeGreaterThan(0);
+
+        while (pendingObservationMaterializations.length > 0) {
+          const pending = pendingObservationMaterializations.splice(0);
+          await Promise.all(pending);
+        }
+        const observations = await db
+          .select({ id: aiAgentObservationsTable.id })
+          .from(aiAgentObservationsTable)
+          .where(eq(aiAgentObservationsTable.projectId, fixture.projectId));
+        expect(observations.length).toBeGreaterThan(0);
+      }
+    } finally {
+      if (tool === "read_file") vi.unstubAllEnvs();
+      await fixture.cleanup();
+    }
+    },
+  );
 
   it("resumes a candidate-ready Mission repair with a new validator receipt after lease handoff", async () => {
     const fixture = await createMissionToolLoopFixture({

@@ -973,6 +973,55 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     },
   );
 
+  const runnerFailureCases = [
+    ...EXECUTION_TOOLS,
+    ...ANALYSIS_TOOL_DEFINITIONS.map((tool) => tool.function.name),
+  ];
+
+  it.each(runnerFailureCases)(
+    "$name turns a runner exception into a safe terminal failure",
+    async (name) => {
+      const privateFailure = "T8_PRIVATE_RUNNER_FAILURE";
+      const throwPrivateFailure = async () => {
+        throw new Error(privateFailure);
+      };
+      const overrides: Partial<SingleToolOpts> = {};
+      if (name === "run_validation") {
+        overrides.validationRunner = throwPrivateFailure;
+      } else if (name === "run_browser_validation") {
+        overrides.browserValidationRunner = throwPrivateFailure;
+      } else if (name === "run_command") {
+        overrides.commandRunner = throwPrivateFailure;
+      } else {
+        overrides.analysisToolRunner = throwPrivateFailure;
+      }
+      const call = makeCall(name, SAFE_ARGS[name]!, overrides);
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      try {
+        const result = await executeSingleTool(call.options);
+
+        expect(result.kind, name).toBe("failed");
+        if (result.kind === "failed") {
+          expect(result.failureKind, name).toBe("execution");
+          expect(result.diagnosticCode, name).toBe("TOOL_EXECUTION_FAILED");
+          expect(result.safeMessage, name).not.toContain(privateFailure);
+        }
+        expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+          "requested",
+          "started",
+          "failed",
+        ]);
+        expect(call.lifecycleEvents.at(-1), name).toMatchObject({
+          diagnosticCode: "TOOL_EXECUTION_FAILED",
+        });
+        expect(JSON.stringify(call.lifecycleEvents), name).not.toContain(privateFailure);
+        expect(call.pendingChanges, name).toHaveLength(0);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    },
+  );
+
   it("bounds command output and reports in-flight cancellation as incomplete", async () => {
     const outputProfile: CommandProfile = {
       name: "fixture-output-bound",
@@ -1379,6 +1428,38 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       });
 
       expect(resultSteps.at(-1)?.cached, name).toBe(true);
+    },
+  );
+
+  const contextualResumeCases = contextualReplayCases.flatMap(({ name, args }) =>
+    (["started", "completed"] as const).map((status) => ({ name, args, status })),
+  );
+
+  it.each(contextualResumeCases)(
+    "$name remains replayable after a persisted $status marker",
+    async ({ name, args, status }) => {
+      const marker = {
+        key: toolCacheKey(name, args as Record<string, string>),
+        tool: name,
+        args,
+        status,
+      } as NonNullable<ToolLoopOpts["priorToolCalls"]>[number];
+      const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+      const run = await runT8ToolLoop(name, args, {
+        priorToolCalls: [marker],
+        onToolInvocation: async (event) => {
+          lifecycleEvents.push(event);
+        },
+      });
+
+      expect(run.result.kind, name).toBe("response");
+      expect(JSON.stringify(run.messages), name).not.toContain("SERVER_REPLAY_BLOCKED");
+      expect(lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "completed",
+      ]);
+      expect(run.pendingChanges, name).toHaveLength(0);
     },
   );
 

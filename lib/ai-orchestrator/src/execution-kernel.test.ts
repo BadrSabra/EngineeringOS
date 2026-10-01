@@ -16,6 +16,20 @@ async function makeRoot() {
   return root;
 }
 
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
+}
+
 describe("bounded execution kernel", () => {
   it("runs an allowlisted command without shell interpolation", async () => {
     const root = await makeRoot();
@@ -221,6 +235,60 @@ describe("bounded execution kernel", () => {
 
     expect(result.status).toBe("cancelled");
   });
+
+  it.each([
+    { stopReason: "timeout", timeoutMs: 500, overflowOutput: false },
+    { stopReason: "output limit", timeoutMs: 5_000, overflowOutput: true },
+  ] as const)(
+    "escalates $stopReason to descendants that ignore SIGTERM after the parent exits",
+    async ({ stopReason, timeoutMs, overflowOutput }) => {
+    const root = await makeRoot();
+    let processGroupId: number | undefined;
+    let descendantPid: number | undefined;
+    const childScript = "process.on('SIGTERM', () => {}); process.stdout.write('ready'); setInterval(() => {}, 1000)";
+    const script = [
+      'const { spawn } = require("node:child_process");',
+      `const child = spawn(process.execPath, ["-e", ${JSON.stringify(childScript)}], { stdio: ["ignore", "pipe", "ignore"] });`,
+      `child.stdout.once("data", () => { process.stdout.write(String(child.pid)); ${overflowOutput ? 'process.stdout.write("x".repeat(10000));' : ""} });`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+
+    try {
+      const result = await runBoundedCommand({
+        command: "node",
+        args: ["-e", script],
+        rootPath: root,
+        allowedCommands: new Set(["node"]),
+        timeoutMs,
+        maxOutputBytes: 100,
+        onSpawn: ({ pid }) => {
+          processGroupId = pid ?? undefined;
+        },
+      });
+
+      if (stopReason === "timeout") {
+        expect(result.status).toBe("timed_out");
+        expect(result.truncated).toBe(false);
+      } else {
+        expect(result.status).not.toBe("passed");
+        expect(result.truncated).toBe(true);
+        expect(Buffer.byteLength(result.combinedOutput, "utf8")).toBeLessThanOrEqual(100);
+      }
+      descendantPid = Number(result.stdout.match(/^\d+/)?.[0]);
+      expect(Number.isInteger(descendantPid)).toBe(true);
+      expect(descendantPid).toBeGreaterThan(0);
+      expect(await waitForProcessExit(descendantPid, 3_000)).toBe(true);
+    } finally {
+      if (processGroupId) {
+        try {
+          process.kill(-processGroupId, "SIGKILL");
+        } catch {
+          // The process group is already gone.
+        }
+      }
+    }
+    },
+  );
 
   it("keeps public limits explicit", () => {
     expect(EXECUTION_LIMITS.maxTimeoutMs).toBe(600_000);

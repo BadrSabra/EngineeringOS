@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createProjectAnalysisToolRunner, classifyAnalysisFailure } from "./ai-analysis-tools.js";
 import { ScanRootUnavailableError } from "./scan-runner.js";
+
+const mockPerformScan = vi.hoisted(() => vi.fn());
+
+vi.mock("./scan-runner.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scan-runner.js")>();
+  return { ...actual, performScan: mockPerformScan };
+});
 
 describe("project analysis root failure classification", () => {
   it("reports an initially unavailable root before any tool work", async () => {
@@ -58,5 +65,57 @@ describe("project analysis root failure classification", () => {
       failureCategory: "timeout",
     });
     expect(result.output).not.toContain("revision-a");
+  });
+
+  it("returns an in-flight scan timeout before the scan settles", async () => {
+    let scanStarted!: () => void;
+    let scanAborted!: () => void;
+    let releaseScan!: () => void;
+    const scanStartedPromise = new Promise<void>((resolve) => {
+      scanStarted = resolve;
+    });
+    const scanAbortedPromise = new Promise<void>((resolve) => {
+      scanAborted = resolve;
+    });
+    const scanGate = new Promise<void>((resolve) => {
+      releaseScan = resolve;
+    });
+    mockPerformScan.mockImplementation(async (_projectId: string, signal: AbortSignal) => {
+      scanStarted();
+      if (signal.aborted) scanAborted();
+      else signal.addEventListener("abort", scanAborted, { once: true });
+      await scanGate;
+      return undefined as never;
+    });
+
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const pending = runner(
+      "refresh_project_scan",
+      {},
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision: "revision-a",
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+      Date.now() + 250,
+    );
+
+    try {
+      await scanStartedPromise;
+      await scanAbortedPromise;
+      const result = await pending;
+
+      expect(result).toMatchObject({
+        status: "unavailable",
+        failureCategory: "timeout",
+      });
+      expect(mockPerformScan).toHaveBeenCalledOnce();
+    } finally {
+      releaseScan();
+      mockPerformScan.mockReset();
+    }
   });
 });
