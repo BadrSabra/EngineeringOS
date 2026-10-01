@@ -14,6 +14,29 @@ const correlation: AnalysisCorrelation = {
 };
 
 describe("analysis tool correlation contract", () => {
+  it("rejects unsupported and non-string graph operations before invoking the runner", async () => {
+    for (const operation of ["unsupported", 3, null, false]) {
+      let runnerCalled = false;
+      const result = await executeAnalysisTool(
+        "query_knowledge_graph",
+        { operation } as unknown as Record<string, string>,
+        async () => {
+          runnerCalled = true;
+          throw new Error("invalid graph operation reached the runner");
+        },
+        undefined,
+        correlation,
+      );
+
+      expect(result).toMatchObject({
+        status: "failed",
+        output: expect.stringContaining("invalid operation"),
+      });
+      expect(result.output).not.toContain(String(operation));
+      expect(runnerCalled).toBe(false);
+    }
+  });
+
   it("preserves unavailable status without exposing the runner diagnostic", async () => {
     const result = await executeAnalysisTool(
       "query_knowledge_graph",

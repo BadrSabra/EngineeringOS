@@ -37,6 +37,15 @@ export type AnalysisToolRunner = (
   deadlineAt?: number,
 ) => Promise<AnalysisToolResult>;
 
+const QUERY_KNOWLEDGE_GRAPH_OPERATIONS = [
+  "search",
+  "impact",
+  "neighborhood",
+  "retrieve",
+] as const;
+const QUERY_KNOWLEDGE_GRAPH_OPERATION_SET: ReadonlySet<string> =
+  new Set(QUERY_KNOWLEDGE_GRAPH_OPERATIONS);
+
 export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
@@ -60,7 +69,7 @@ export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
       parameters: {
         type: "object",
         properties: {
-          operation: { type: "string", enum: ["search", "impact", "neighborhood", "retrieve"] },
+          operation: { type: "string", enum: [...QUERY_KNOWLEDGE_GRAPH_OPERATIONS] },
           entity: { type: "string", description: "Entity name or ID for impact/neighborhood." },
           query: { type: "string", description: "Question or symbols to use for hierarchical retrieval." },
           paths: { type: "string", description: "Optional comma-separated project-relative paths to prioritize." },
@@ -108,6 +117,21 @@ export async function executeAnalysisTool(
 ): Promise<AnalysisToolResult> {
   if (!ANALYSIS_TOOL_NAMES.has(name)) {
     return { status: "failed", output: `Unknown analysis tool "${name}".` };
+  }
+  if (name === "query_knowledge_graph") {
+    const operation = (args as Record<string, unknown>).operation;
+    if (
+      operation !== undefined
+      && (
+        typeof operation !== "string"
+        || !QUERY_KNOWLEDGE_GRAPH_OPERATION_SET.has(operation)
+      )
+    ) {
+      return {
+        status: "failed",
+        output: 'Analysis tool "query_knowledge_graph" received an invalid operation; the operation did not complete.',
+      };
+    }
   }
   if (!runner) {
     return {
