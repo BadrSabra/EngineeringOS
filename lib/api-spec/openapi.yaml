@@ -3007,6 +3007,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/AiChatMessage"
 
+  /api/ai/chat/fallback-diagnostic:
+    post:
+      operationId: explainAiFallback
+      summary: Explain an accepted project-query fallback using its exact persisted run
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiFallbackDiagnosticInput"
+      responses:
+        "200":
+          description: Bounded, server-verified fallback provenance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiFallbackDiagnostic"
+        "400":
+          description: Invalid request
+        "404":
+          description: Run or message is unavailable to the authenticated user
+        "409":
+          description: The referenced message has no accepted fallback diagnostic
+
   /api/ai/chat/{sessionId}/messages/{messageId}/mission-correlation-report/regenerate:
     post:
       operationId: regenerateMissionCorrelationReport
@@ -6580,6 +6605,68 @@ components:
           description: Stable retry key used to avoid creating duplicate executions
         objective:
           $ref: "#/components/schemas/ObjectiveContract"
+
+    AiFallbackDiagnosticInput:
+      type: object
+      additionalProperties: false
+      required: [projectId, sessionId, messageId, executionId]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+        sessionId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        executionId:
+          type: string
+          format: uuid
+
+    AiFallbackDiagnostic:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - messageId
+        - executionId
+        - acceptanceId
+        - attempt
+        - responseSource
+        - fallbackReason
+        - acceptanceOutcome
+        - evidenceRequired
+        - evidenceComplete
+      properties:
+        schemaVersion:
+          type: integer
+          const: 1
+        messageId:
+          type: string
+          format: uuid
+        executionId:
+          type: string
+          format: uuid
+        acceptanceId:
+          type: string
+          format: uuid
+        attempt:
+          type: integer
+          minimum: 0
+        responseSource:
+          type: string
+          enum: [deterministic_fallback]
+        fallbackReason:
+          type: string
+          enum: [synthesis_failed, provider_candidate_incomplete]
+        acceptanceOutcome:
+          type: string
+          enum: [SUCCEEDED]
+        evidenceRequired:
+          type: boolean
+        evidenceComplete:
+          type: boolean
 
     AiChatSession:
       type: object

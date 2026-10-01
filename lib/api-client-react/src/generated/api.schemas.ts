@@ -2302,6 +2302,50 @@ export interface AiChatRequest {
   objective?: ObjectiveContract;
 }
 
+export interface AiFallbackDiagnosticInput {
+  /** @minLength 1 */
+  projectId: string;
+  sessionId: string;
+  messageId: string;
+  executionId: string;
+}
+
+export type AiFallbackDiagnosticResponseSource = typeof AiFallbackDiagnosticResponseSource[keyof typeof AiFallbackDiagnosticResponseSource];
+
+
+export const AiFallbackDiagnosticResponseSource = {
+  deterministic_fallback: 'deterministic_fallback',
+} as const;
+
+export type AiFallbackDiagnosticFallbackReason = typeof AiFallbackDiagnosticFallbackReason[keyof typeof AiFallbackDiagnosticFallbackReason];
+
+
+export const AiFallbackDiagnosticFallbackReason = {
+  synthesis_failed: 'synthesis_failed',
+  provider_candidate_incomplete: 'provider_candidate_incomplete',
+} as const;
+
+export type AiFallbackDiagnosticAcceptanceOutcome = typeof AiFallbackDiagnosticAcceptanceOutcome[keyof typeof AiFallbackDiagnosticAcceptanceOutcome];
+
+
+export const AiFallbackDiagnosticAcceptanceOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+} as const;
+
+export interface AiFallbackDiagnostic {
+  schemaVersion: 1;
+  messageId: string;
+  executionId: string;
+  acceptanceId: string;
+  /** @minimum 0 */
+  attempt: number;
+  responseSource: AiFallbackDiagnosticResponseSource;
+  fallbackReason: AiFallbackDiagnosticFallbackReason;
+  acceptanceOutcome: AiFallbackDiagnosticAcceptanceOutcome;
+  evidenceRequired: boolean;
+  evidenceComplete: boolean;
+}
+
 /**
  * Derived forensic outcome for the latest assistant audit result, when available
  */

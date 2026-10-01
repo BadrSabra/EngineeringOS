@@ -14025,6 +14025,130 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
   }));
 });
 
+// ── POST /api/ai/chat/fallback-diagnostic ────────────────────────────────────
+//
+// A displayed fallback badge is linked to one exact assistant message and
+// durable execution. This read-only endpoint projects only the matching
+// accepted provenance; it never reuses the session's prior evidence scope.
+router.post("/ai/chat/fallback-diagnostic", async (req, res) => {
+  const parsed = z.object({
+    projectId: z.string().min(1),
+    sessionId: z.string().uuid(),
+    messageId: z.string().uuid(),
+    executionId: z.string().uuid(),
+  }).strict().safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid fallback diagnostic reference", code: "INVALID_DIAGNOSTIC_REFERENCE" });
+  }
+
+  const { projectId, sessionId, messageId, executionId } = parsed.data;
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+
+  const [session] = await db
+    .select({ id: aiChatSessionsTable.id, projectId: aiChatSessionsTable.projectId })
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.id, sessionId))
+    .limit(1);
+  if (!session || session.projectId !== projectId) {
+    return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
+  }
+
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      projectId: aiExecutionsTable.projectId,
+      sessionId: aiExecutionsTable.sessionId,
+      userId: aiExecutionsTable.userId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, projectId),
+      eq(aiExecutionsTable.sessionId, sessionId),
+      eq(aiExecutionsTable.userId, req.userId),
+    ))
+    .limit(1);
+  if (!execution) {
+    return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
+  }
+
+  const [message] = await db
+    .select({
+      id: aiChatMessagesTable.id,
+      sessionId: aiChatMessagesTable.sessionId,
+      executionId: aiChatMessagesTable.executionId,
+      role: aiChatMessagesTable.role,
+      turnIntent: aiChatMessagesTable.turnIntent,
+      toolTrace: aiChatMessagesTable.toolTrace,
+    })
+    .from(aiChatMessagesTable)
+    .where(and(
+      eq(aiChatMessagesTable.id, messageId),
+      eq(aiChatMessagesTable.sessionId, sessionId),
+      eq(aiChatMessagesTable.executionId, executionId),
+      eq(aiChatMessagesTable.role, "assistant"),
+    ))
+    .limit(1);
+  if (!message || message.turnIntent !== "PROJECT_QUERY") {
+    return res.status(404).json({ error: "Fallback diagnostic is unavailable", code: "DIAGNOSTIC_NOT_FOUND" });
+  }
+
+  const responseProvenance = projectQueryResponseProvenanceFromTrace(message.toolTrace);
+  if (
+    responseProvenance?.source !== "deterministic_fallback"
+    || !responseProvenance.fallbackReason
+  ) {
+    return res.status(409).json({
+      error: "This message has no accepted fallback diagnostic",
+      code: "FALLBACK_DIAGNOSTIC_NOT_ACCEPTED",
+    });
+  }
+
+  const [acceptance] = await db
+    .select({
+      id: aiExecutionAcceptancesTable.id,
+      attempt: aiExecutionAcceptancesTable.attempt,
+      terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+      evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, executionId),
+      eq(aiExecutionAcceptancesTable.projectId, projectId),
+      eq(aiExecutionAcceptancesTable.messageId, messageId),
+    ))
+    .orderBy(desc(aiExecutionAcceptancesTable.attempt))
+    .limit(1);
+  if (
+    !acceptance
+    || acceptance.terminalStatus !== "completed"
+    || acceptance.outcome !== "SUCCEEDED"
+    || acceptance.evidenceRequired !== 1
+    || acceptance.evidenceComplete !== 1
+  ) {
+    return res.status(409).json({
+      error: "This fallback is not bound to a completed evidence acceptance",
+      code: "FALLBACK_ACCEPTANCE_UNAVAILABLE",
+    });
+  }
+
+  return res.json({
+    schemaVersion: 1,
+    messageId,
+    executionId,
+    acceptanceId: acceptance.id,
+    attempt: acceptance.attempt,
+    responseSource: responseProvenance.source,
+    fallbackReason: responseProvenance.fallbackReason,
+    acceptanceOutcome: "SUCCEEDED",
+    evidenceRequired: true,
+    evidenceComplete: true,
+  });
+});
+
 // ── POST /api/ai/chat/plans/:messageId/decision ──────────────────────────────
 //
 // A plan decision is persisted on the assistant message that produced the

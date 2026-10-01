@@ -35,6 +35,8 @@ import type {
   AiDeliveryPolicyUpdate,
   AiEmpiricalQualityScorecard,
   AiExecutionRecoveryRequest,
+  AiFallbackDiagnostic,
+  AiFallbackDiagnosticInput,
   AiFileContent,
   AiMissionControl,
   AiOrchestrateRequest,
@@ -8120,6 +8122,86 @@ export function useListAiChatMessages<TData = Awaited<ReturnType<typeof listAiCh
 
 
 
+
+export const getExplainAiFallbackUrl = () => {
+
+
+
+
+  return `/api/ai/chat/fallback-diagnostic`
+}
+
+/**
+ * @summary Explain an accepted project-query fallback using its exact persisted run
+ */
+export const explainAiFallback = async (aiFallbackDiagnosticInput: AiFallbackDiagnosticInput, options?: Parameters<typeof customFetch>[1]): Promise<AiFallbackDiagnostic> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiFallbackDiagnostic>(getExplainAiFallbackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiFallbackDiagnosticInput)
+  }
+);}
+
+
+
+
+
+export const getExplainAiFallbackMutationKey = () => ['explainAiFallback'] as const;
+
+export const getExplainAiFallbackMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof explainAiFallback>>, TError,ExplainAiFallbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof explainAiFallback>>, TError,ExplainAiFallbackMutationVariables, TContext> => {
+
+const mutationKey = getExplainAiFallbackMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof explainAiFallback>>, ExplainAiFallbackMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  explainAiFallback(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExplainAiFallbackMutationResult = NonNullable<Awaited<ReturnType<typeof explainAiFallback>>>
+    export type ExplainAiFallbackMutationBody = BodyType<AiFallbackDiagnosticInput>
+    export type ExplainAiFallbackMutationError = ErrorType<void>
+    export type ExplainAiFallbackMutationVariables = {data: BodyType<AiFallbackDiagnosticInput>}
+
+    /**
+ * @summary Explain an accepted project-query fallback using its exact persisted run
+ */
+export const useExplainAiFallback = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof explainAiFallback>>, TError,ExplainAiFallbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof explainAiFallback>>,
+        TError,
+        ExplainAiFallbackMutationVariables,
+        TContext
+      > => {
+      return useMutation(getExplainAiFallbackMutationOptions(options));
+    }
 
 export const getRegenerateMissionCorrelationReportUrl = (sessionId: string,
     messageId: string,) => {

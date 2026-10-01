@@ -7422,6 +7422,37 @@ export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseIt
 
 
 /**
+ * @summary Explain an accepted project-query fallback using its exact persisted run
+ */
+
+
+
+export const ExplainAiFallbackBody = zod.object({
+  "projectId": zod.string().min(1),
+  "sessionId": zod.string().uuid(),
+  "messageId": zod.string().uuid(),
+  "executionId": zod.string().uuid()
+})
+
+export const explainAiFallbackResponseAttemptMin = 0;
+
+
+
+export const ExplainAiFallbackResponse = zod.object({
+  "schemaVersion": zod.literal(1),
+  "messageId": zod.string().uuid(),
+  "executionId": zod.string().uuid(),
+  "acceptanceId": zod.string().uuid(),
+  "attempt": zod.number().int().min(explainAiFallbackResponseAttemptMin),
+  "responseSource": zod.enum(['deterministic_fallback']),
+  "fallbackReason": zod.enum(['synthesis_failed', 'provider_candidate_incomplete']),
+  "acceptanceOutcome": zod.enum(['SUCCEEDED']),
+  "evidenceRequired": zod.boolean(),
+  "evidenceComplete": zod.boolean()
+})
+
+
+/**
  * @summary Regenerate an unavailable historical mission report
  */
 export const RegenerateMissionCorrelationReportParams = zod.object({
