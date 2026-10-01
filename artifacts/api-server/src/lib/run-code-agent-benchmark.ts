@@ -36,6 +36,8 @@ import {
 const COPY_OMIT = new Set([
   ".git",
   "node_modules",
+  ".engineeringos-delivery",
+  ".engineeringos-projects",
   "attached_assets",
   ".cache",
   ".agents",
@@ -269,6 +271,10 @@ const sourceRoot = path.resolve(
 );
 const provider = (process.env.BENCHMARK_PROVIDER ?? "openrouter") as ProviderId;
 const caseTimeoutMs = Number.parseInt(process.env.BENCHMARK_CASE_TIMEOUT_MS ?? "90000", 10);
+const providerHealthTimeoutRaw = process.env.BENCHMARK_PROVIDER_HEALTH_TIMEOUT_MS?.trim();
+const providerHealthTimeoutMs = providerHealthTimeoutRaw
+  ? Number.parseInt(providerHealthTimeoutRaw, 10)
+  : undefined;
 const replayInput = process.env.BENCHMARK_REPLAY_INPUT?.trim();
 const baselinePath = path.resolve(
   process.env.BENCHMARK_BASELINE_PATH ??
@@ -276,6 +282,15 @@ const baselinePath = path.resolve(
 );
 if (!Number.isFinite(caseTimeoutMs) || caseTimeoutMs < 1_000) {
   throw new Error("BENCHMARK_CASE_TIMEOUT_MS must be at least 1000ms.");
+}
+if (
+  providerHealthTimeoutRaw &&
+  (providerHealthTimeoutMs === undefined ||
+    !Number.isFinite(providerHealthTimeoutMs) ||
+    providerHealthTimeoutMs < 1_000 ||
+    providerHealthTimeoutMs > 120_000)
+) {
+  throw new Error("BENCHMARK_PROVIDER_HEALTH_TIMEOUT_MS must be between 1000ms and 120000ms.");
 }
 if (!(provider in PROVIDER_KEY_ENV)) {
   throw new Error(`Unsupported BENCHMARK_PROVIDER: ${provider}`);
@@ -459,6 +474,7 @@ try {
     promptForCase: defaultApiBenchmarkPrompt,
     historyForCase: defaultApiBenchmarkHistory,
     caseTimeoutMs,
+    ...(providerHealthTimeoutMs !== undefined ? { providerHealthTimeoutMs } : {}),
     generatedAt,
     sourceRevision,
   });

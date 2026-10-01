@@ -376,12 +376,17 @@ describe("Code Agent benchmark manifest", () => {
         typecheckPassed: null,
         testsPassed: null,
         providerUnavailable: true,
+        providerModelsFree: false,
+        providerCapabilityValid: false,
+        oracleStatus: "failed",
+        oracleCode: "PROVIDER_UNAVAILABLE",
       },
     );
 
     expect(unavailable.grade).toBe("U");
     expect(unavailable.providerUnavailable).toBe(true);
     expect(unavailable.falseSuccess).toBe(false);
+    expect(unavailable.oracleStatus).toBe("failed");
     expect(unavailable.diagnosis).toContain("Provider unavailable");
 
     const scorecard = buildCodeAgentBenchmarkScorecard({

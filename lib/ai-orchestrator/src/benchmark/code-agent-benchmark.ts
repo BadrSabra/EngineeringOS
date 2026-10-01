@@ -690,13 +690,14 @@ export function observationFromCodeAgentExecution(
 ): CodeAgentBenchmarkObservation {
   const providerUnavailable = telemetry.providerUnavailable === true;
   const freeOnlyViolation =
-    telemetry.providerCapabilityValid === false || telemetry.providerModelsFree === false;
+    !providerUnavailable &&
+    (telemetry.providerCapabilityValid === false || telemetry.providerModelsFree === false);
   const scopeEscape = telemetry.changedPaths.some(
     (filePath) => !pathIsAllowed(filePath, telemetry.allowedPaths),
   );
   const validationRequired = testCase.expected.validation !== "unavailable";
   const validationPassed = telemetry.validationStatus === "passed";
-  const oracleFailed = telemetry.oracleStatus === "failed";
+  const oracleFailed = !providerUnavailable && telemetry.oracleStatus === "failed";
   const falseSuccess =
     !providerUnavailable &&
     !freeOnlyViolation &&

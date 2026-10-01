@@ -93,6 +93,7 @@ describe("benchmark terminal evidence gate", () => {
   });
 });
 
+
 describe("benchmark Build handoff routing", () => {
   it("forwards the exact repair fixture prompt with server-owned approval and file scope", async () => {
     chatMock.mockReset();
@@ -130,6 +131,7 @@ describe("benchmark Build handoff routing", () => {
       projectContext: {} as ProjectContext,
       provider: "openrouter",
       apiKey: "fixture-only",
+      candidateHash: "a".repeat(64),
       validationRunner: async () => ({
         status: "passed" as const,
         profile: "workspace-typecheck",
@@ -177,5 +179,132 @@ describe("benchmark Build handoff routing", () => {
         caseId: testCase.id,
       },
     });
+  });
+});
+
+describe("benchmark case timeouts", () => {
+  it("treats a chat result returned after the deadline as unavailable", async () => {
+    chatMock.mockReset();
+    chatMock.mockImplementationOnce(({ signal }: { signal?: AbortSignal }) =>
+      new Promise<ChatResult>((resolve) => {
+        const finish = () => resolve({ pendingChanges: [] } as unknown as ChatResult);
+        if (!signal || signal.aborted) {
+          finish();
+          return;
+        }
+        signal.addEventListener("abort", finish, { once: true });
+      }),
+    );
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const oracleForCase = vi.fn(async () => ({ status: "failed" as const }));
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-timeout",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      candidateHash: "a".repeat(64),
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => ["src/example.ts"],
+      caseTimeoutMs: 30,
+      oracleForCase,
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(telemetry).toMatchObject({
+      actualTerminal: "BLOCKED",
+      validationStatus: "unavailable",
+      providerUnavailable: true,
+      candidateHash: "a".repeat(64),
+    });
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(oracleForCase).not.toHaveBeenCalled();
+  });
+
+  it("retains the candidate hash when provider health blocks case execution", async () => {
+    chatMock.mockReset();
+    const candidateHash = "b".repeat(64);
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-health-unavailable",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      candidateHash,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      providerHealth: {
+        status: "unavailable",
+        providerUnavailable: true,
+      } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => ["src/example.ts"],
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(telemetry).toMatchObject({
+      actualTerminal: "BLOCKED",
+      validationStatus: "unavailable",
+      providerUnavailable: true,
+      candidateHash,
+    });
+    expect(chatMock).not.toHaveBeenCalled();
+  });
+
+  it("does not run the contract oracle after a provider-unavailable chat result", async () => {
+    chatMock.mockReset();
+    chatMock.mockImplementationOnce(async ({ onStep }: {
+      onStep?: (step: AgentStep) => void;
+    }) => {
+      onStep?.({
+        kind: "diagnostic",
+        code: "EXECUTION_PROVIDER_FAILURE",
+      } as AgentStep);
+      return { pendingChanges: [] } as unknown as ChatResult;
+    });
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const oracleForCase = vi.fn(async () => ({
+      status: "failed" as const,
+      code: "PROVIDER_UNAVAILABLE",
+    }));
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-provider-unavailable",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => ["src/example.ts"],
+      oracleForCase,
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(telemetry.providerUnavailable).toBe(true);
+    expect(telemetry.oracleStatus).toBeUndefined();
+    expect(oracleForCase).not.toHaveBeenCalled();
   });
 });

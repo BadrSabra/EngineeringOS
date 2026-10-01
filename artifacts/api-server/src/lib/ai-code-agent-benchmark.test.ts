@@ -109,6 +109,18 @@ describe("Code Agent benchmark runtime-oracle preflight", () => {
     });
   }, 120_000);
 
+  it("limits a partial preflight to runtime oracles in the selected cases", async () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => Boolean(getCodeAgentBenchmarkFixture(candidate).runtimeOracle),
+    )!;
+    const report = await validateApiCodeAgentBenchmarkRuntimeOracles({
+      rootPath: path.resolve(process.cwd(), "../.."),
+      cases: [testCase],
+    });
+
+    expect(report.checks.map((check) => check.scenarioId)).toEqual([testCase.id]);
+  }, 120_000);
+
   it("builds an incomplete redacted run without consuming provider cases", () => {
     const runtimeOraclePreflight = {
       status: "failed" as const,

@@ -266,6 +266,7 @@ export function createChatCodeAgentBenchmarkExecutor(
     const providerHealth = await getProviderHealth();
     if (providerHealth.status !== "usable") {
       return {
+        ...(opts.candidateHash ? { candidateHash: opts.candidateHash } : {}),
         actualTerminal: "BLOCKED",
         validationStatus: "unavailable",
         changedPaths: [],
@@ -301,6 +302,9 @@ export function createChatCodeAgentBenchmarkExecutor(
     const signal = opts.signal
       ? AbortSignal.any([opts.signal, timeoutController.signal])
       : timeoutController.signal;
+    const assertCaseNotTimedOut = (): void => {
+      if (caseTimedOut) throw new Error("Benchmark case timed out.");
+    };
 
     try {
       const prompt = opts.promptForCase?.(testCase) ?? testCase.prompt;
@@ -310,6 +314,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         targetPaths,
         allowedPaths,
       });
+      assertCaseNotTimedOut();
       if (buildHandoff) {
         const plan = buildHandoff.executionPlan;
         const authorizedPaths = [...new Set(allowedPaths)];
@@ -374,6 +379,7 @@ export function createChatCodeAgentBenchmarkExecutor(
           : undefined,
         onStep: (step) => steps.push(step),
       });
+      assertCaseNotTimedOut();
 
       const validationProfile = opts.validationProfileForCase?.(testCase);
       if (
@@ -426,6 +432,7 @@ export function createChatCodeAgentBenchmarkExecutor(
           // the final server-owned validation cannot be normalized.
         }
       }
+      assertCaseNotTimedOut();
 
        let telemetry = telemetryFromChatResult(
         result,
@@ -434,6 +441,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         startedAt,
         opts.candidateHash,
       );
+      if (telemetry.providerUnavailable) return telemetry;
       if (opts.freeOnly && opts.provider === "openrouter" &&
         (telemetry.providerModelsFree !== true || telemetry.providerCapabilityValid !== true)) {
         telemetry = { ...telemetry, actualTerminal: "BLOCKED", providerCapabilityValid: false };
@@ -445,6 +453,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         pendingChanges: result.pendingChanges,
         signal,
       });
+      assertCaseNotTimedOut();
       return oracle
         ? {
             ...applyBenchmarkOracleTerminalGate(telemetry, oracle.status),
@@ -460,6 +469,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         caseTimedOut ||
         error instanceof GroqClientError;
       return {
+        ...(opts.candidateHash ? { candidateHash: opts.candidateHash } : {}),
         actualTerminal: "BLOCKED",
         validationStatus: "unavailable",
         changedPaths: [],

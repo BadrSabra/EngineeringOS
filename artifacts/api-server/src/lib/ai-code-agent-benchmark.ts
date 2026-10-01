@@ -69,6 +69,7 @@ export type ApiCodeAgentBenchmarkOptions = {
   promptForCase?: (testCase: CodeAgentBenchmarkCase) => string;
   historyForCase?: (testCase: CodeAgentBenchmarkCase) => ChatMessage[];
   caseTimeoutMs?: number;
+  providerHealthTimeoutMs?: number;
   cases?: readonly CodeAgentBenchmarkCase[];
   initialResults?: readonly CodeAgentBenchmarkObservation[];
   onTelemetryComplete?: CodeAgentBenchmarkTelemetryComplete;
@@ -302,10 +303,10 @@ export function buildApiCodeAgentBenchmarkPreflightBlockedRun(args: {
 }
 
 /**
- * Execute every maintained runtime oracle against its server-owned focused
- * candidate before a provider-backed benchmark starts. The fixture setup and
- * candidate are materialized inside the runtime runner's disposable copy, so
- * this check cannot mutate the campaign source or use provider output.
+ * Execute each selected case's runtime oracle against its server-owned focused
+ * candidate before provider-backed execution. A full run selects every case;
+ * partial runs preflight only the cases they can observe. Fixture setup and the
+ * candidate are materialized in the runtime runner's disposable copy.
  */
 export async function validateApiCodeAgentBenchmarkRuntimeOracles(opts: {
   rootPath: string;
@@ -378,6 +379,7 @@ export async function runApiCodeAgentBenchmark(
   }
   const runtimeOraclePreflight = await validateApiCodeAgentBenchmarkRuntimeOracles({
     rootPath: opts.rootPath,
+    cases: opts.cases,
     signal: opts.signal,
   });
   const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);
@@ -414,6 +416,13 @@ export async function runApiCodeAgentBenchmark(
     provider: opts.provider,
     apiKey: opts.apiKey,
     model: opts.model,
+    providerHealthProbe: () => probeProviderHealth({
+      provider: opts.provider,
+      apiKey: opts.apiKey,
+      model: opts.model,
+      timeoutMs: opts.providerHealthTimeoutMs,
+      signal: opts.signal,
+    }),
     candidateHash,
     validationRunner,
     includeTestSources: true,
@@ -522,6 +531,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   }
   const runtimeOraclePreflight = await validateApiCodeAgentBenchmarkRuntimeOracles({
     rootPath: opts.rootPath,
+    cases: opts.cases,
     signal: opts.signal,
   });
   const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);

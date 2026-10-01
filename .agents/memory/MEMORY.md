@@ -2,6 +2,7 @@
 - [Clerk release handoff](clerk-release-handoff.md) — concurrent Firefox journeys need bounded 60-second session handoff and test budgets under suite load.
 - [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
+- [Benchmark root exclusions](benchmark-root-exclusions.md) — keep benchmark copies aligned with digest exclusions; operational state can dominate runtime and expose unrelated artifacts.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.
 - [Shadow replay proof identity](shadow-replay-proof-identity.md) — source and replay Canonical Proof acceptance IDs stay separate; recovery fails closed on receipt/row mismatch.
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.

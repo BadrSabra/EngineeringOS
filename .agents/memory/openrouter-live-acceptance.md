@@ -14,3 +14,21 @@ The Code Agent benchmark's provider-health probe is cached once per executor and
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.
 
 **How to apply:** Before interpreting U totals or comparing quality, verify whether case tool calls actually started. A long first-row latency followed by near-zero rows indicates a shared preflight failure; distinguish it from later per-case timeouts and circuit-open skips. Keep all results isolated from the canonical baseline until the release gate passes.
+
+Case-level deadlines remain authoritative when the agent resolves normally after its abort signal. Check the deadline after each awaited execution, validation, and oracle stage; send expired cases through the same unavailable (U) projection as rejected timeout calls instead of scoring a late BLOCKED result as F.
+
+**Why:** OpenRouter agent loops may handle cancellation internally and return a normal BLOCKED chat result. Catch-only timeout handling then mistakes an expired case for a quality failure.
+
+**How to apply:** Preserve bounded partial telemetry, skip remaining validation/oracle work after the deadline, and classify the result as U at every asynchronous boundary.
+
+Every provider-unavailable or timed-out observation must retain the candidate hash, even though it contributes no quality evidence. Candidate identity and provider availability are separate facts.
+
+**Why:** A live case timeout returned U but omitted the already-computed candidate hash on an executor error path, creating a separate scorecard blocker and weakening run attribution.
+
+**How to apply:** Include candidate identity in health-preflight, exception, and deadline projections; test each early return independently.
+
+A case deadline must bound the full executor, not only signal the provider request. An unresolved chat call can keep the live runner active without producing a scorecard.
+
+**Why:** A same-model case remained active without a result after a configured 180-second deadline and required manual termination.
+
+**How to apply:** Test a chat promise that never settles. Any hard timeout must also fence or cancel late tool writes before the disposable candidate root is cleaned up.
