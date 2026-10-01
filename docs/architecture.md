@@ -214,6 +214,28 @@ not a pool-wide quarantine or a claim about other models' upstream routing.
 `provider_credential` limits do not create a model-specific cooldown. The
 provider circuit remains separate and unchanged.
 
+#### Resume, idempotency, and attempt identity
+
+The durable chat request stores a `turnIntent` value and bounded resume
+contracts, not a full resolved `TurnIntent` or the per-invocation
+`ExecutionPlan`. `ActiveTaskState` remains the owner of mutable task state and
+its `ActiveTaskExecutionPlan`. On explicit resume, the stored request owns the
+original messages, revision, and proof contract, while some route-derived
+planning is still recomputed. The exact boundary and source-backed findings
+are in the dated supplement to `docs/ai-layer-deep-analysis.md`.
+
+The `(userId, idempotencyKey)` constraint deduplicates durable execution rows,
+but the current reuse check does not compare a canonical hash of the complete
+request. It must not be treated as proof that a repeated key has identical
+message, intent, or objective semantics. The non-streaming chat endpoint has
+no client-selected request key.
+
+Keep `ai_executions.attempt` distinct from provider-request attempt numbers.
+Provider usage telemetry currently does not include the durable attempt in its
+stream attempt ID; duplicate IDs are ignored, and ordinary JSON chat telemetry
+does not carry an execution ID. Provider usage remains diagnostic evidence,
+not terminal acceptance.
+
 ### 4d. Task AI Execute
 
 ```

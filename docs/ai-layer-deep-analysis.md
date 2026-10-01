@@ -687,3 +687,155 @@ The final gate must distinguish:
 
 No statement in this report should be interpreted as a live-provider success
 claim.
+
+## 8. Supplemental review — 2026-10-01
+
+This supplement extends the static review above. It inspected the chat resume
+path, durable execution state transitions, acceptance finalization, provider
+attempt telemetry, and tool dispatch. Tests were not run and no live provider
+request was made. The findings below are source-backed risks or contract
+limitations, not claims of a reproduced production incident.
+
+### 8.1 Durable request identity is not a complete policy snapshot
+
+`AiExecutionRequestEnvelope` stores the resolved `turnIntent` string, original
+user/model messages, project/session/root/revision bindings, proof and objective
+contracts, and selected fields in `resumeContract`. It does not serialize the
+full `TurnIntent` object or the per-invocation `ExecutionPlan`. The stream route
+computes its current `streamTurnIntent` and `ExecutionPlan` before the explicit
+resume branch restores the durable request. Resume then treats the stored
+request as authoritative for the original messages, workspace revision, and
+proof contract; it does not restore every derived routing/prompt decision as an
+immutable snapshot. A session-state recovery without `activeTaskState` also
+classifies the persisted request message and builds a new active task state;
+that recovery path does not restore an `executionPlan` from the execution row.
+
+This distinction is intentional in the current ownership model:
+`ActiveTaskState` owns mutable task state and its `ActiveTaskExecutionPlan`,
+while `ExecutionPlan` is a per-invocation routing/context plan. Do not add a
+second copy of `ActiveTaskExecutionPlan` or task state to the durable execution
+envelope. Whether a resume must preserve every derived policy decision across a
+deployment remains an open product/contract decision; if required, strengthen
+the existing resume contract rather than introducing a parallel snapshot.
+
+**Evidence:** `AiExecutionRequestEnvelope` and its parser in
+`artifacts/api-server/src/lib/ai-execution-state.ts`; request construction and
+resume restoration in `artifacts/api-server/src/routes/ai/chat.ts`; fallback
+session-state recovery in `recoverSessionTaskStateFromExecution`.
+
+### 8.2 Idempotency guarantees one row, not equivalent request semantics
+
+The database uniqueness constraint on `(userId, idempotencyKey)` plus the
+insert-conflict reread converges concurrent creates onto one execution row.
+Reuse validation checks the parsed request, project/session, supplied
+workspace-root/revision bindings, and recipe binding. It does not compare a
+canonical hash of the complete request: message, model message, intent,
+objective, and other envelope fields can differ while those checked bindings
+still match. On the stream route's create path, the route continues with the
+current request after `createAiExecution` returns an existing row. Therefore a
+reused key is not proof that the current request payload is equivalent to the
+request persisted on that execution.
+
+The earlier F-12 described this as an underspecified possibility; this review
+confirms the incomplete payload comparison in both the existing-row and
+insert-race paths. It does not establish cross-user reuse: the unique key is
+user-scoped, and project/session bindings are checked. Non-streaming `/ai/chat`
+also has no client-supplied idempotency key, so it has no equivalent request
+deduplication contract.
+
+**Evidence:** `createAiExecution` in
+`artifacts/api-server/src/lib/ai-execution-state.ts`; stream create/resume
+branches in `artifacts/api-server/src/routes/ai/chat.ts`; the unique index in
+`lib/db/src/schema/ai_executions.ts`.
+
+### 8.3 Concurrency protections and remaining race windows
+
+Several important boundaries are already serialized: only one worker can win
+the execution claim; lease/attempt checks fence checkpoints and terminal
+acceptance; acceptance is unique per execution/attempt; and the execution row
+locks final-message reservation. Existing integration tests cover claim races,
+stale workers, retry-token rotations, and acceptance/finalization races. Static
+review nevertheless found these untested or incompletely fenced cases:
+
+1. **Manifest first-write race.** Orientation and FACT manifests are read,
+   validated, then written under the current worker/attempt/live-lease
+   predicates. The write does not compare the request version read or require
+   the manifest to remain unset. Two concurrent first writes from the same
+   active worker can both succeed, with the later write replacing the earlier
+   manifest. Sequential drift checks do not cover this compare-and-swap gap.
+2. **Recovery-token issuance race.** `requestAiExecutionRecovery` can read a
+   paused execution, then update its resume-token hash using a paused-status
+   predicate. Two concurrent callers can both receive `resume_accepted`, while
+   only the last token hash remains claimable. Worker claim fencing still
+   prevents two executions from winning; the defect is that one accepted
+   recovery response can contain an unusable token.
+3. **Crash between message persistence and acceptance.** The stream success
+   path reserves `finalMessageId` and inserts an assistant row marked
+   `SUCCEEDED` before canonical acceptance. If the process stops in that
+   interval, lease reconciliation pauses the execution but does not pass the
+   reserved message ID to finalization. Acceptance finalization only repairs
+   the message when given that ID, so history can retain a success-looking
+   message for a paused/recovery-required execution. No inspected test injects
+   a crash at this boundary.
+
+These are not failures of the existing single-claim fence. They are separate
+first-write, token-issuance, and cross-row recovery consistency boundaries.
+
+### 8.4 Provider attempts and durable execution attempts are different
+
+Provider request attempts are recorded in `ai_usage_events`, separately from
+the durable `ai_executions.attempt`, which advances on a claimed resume. The
+provider attempt number/cursor restarts for each `chatWithFallback`
+invocation. When the helper supplies an attempt ID, it is based on correlation
+and provider sequence; the route's fallback ID is based on execution/operation,
+provider operation, provider, and provider attempt number. Neither form
+includes the durable execution attempt. Repeating the same provider sequence
+after resume can therefore produce the same globally unique `attemptId` for a
+different durable attempt. Since telemetry inserts ignore a duplicate
+`attemptId`, the later provider event may be silently omitted, and the usage
+row has no separate durable-attempt column to recover that distinction.
+
+The non-streaming route also records provider usage without an execution ID, so
+those events are not joinable to execution-scoped diagnostics by execution ID.
+Usage writes are best-effort. In all routes, provider request success remains
+distinct from accepted turn success: the overall terminal classifier and
+evidence/contract gates decide whether the turn succeeds.
+
+**Evidence:** per-invocation provider attempt projection in
+`artifacts/api-server/src/lib/ai-route-helpers.ts`; stream and JSON telemetry
+contexts in `artifacts/api-server/src/routes/ai/chat.ts`; unique attempt ID and
+conflict handling in `artifacts/api-server/src/lib/ai-telemetry.ts` and
+`lib/db/src/schema/ai_usage_events.ts`.
+
+### 8.5 Tool-list enforcement is layered, with one defensive gap
+
+The ordinary provider adapters filter known tools against the manifest they
+send. The tool execution engine itself only applies `allowedToolNames` when the
+caller supplies it; phase restrictions are applied when a phase exists. A raw
+or custom caller that omits both constraints does not get an independent
+full-manifest check from this layer. This is a defense-in-depth gap, not
+evidence that the normal chat path currently allows a model to invoke an
+unadvertised tool. Keep this distinct from F-02's separate finding that
+approval-manifest constraints are optional in the authorization helper.
+
+**Evidence:** `allowedTools` derivation in
+`lib/ai-orchestrator/src/tool-execution-engine.ts` and provider tool
+normalization in the route adapters.
+
+### 8.6 Follow-up verification priorities
+
+1. Define whether an idempotency key means exact request equivalence or a
+   logical operation; then enforce the chosen binding and test changed
+   message/intent/objective requests, including the insert race.
+2. Add compare-and-swap coverage for first manifest persistence and
+   single-winner coverage for recovery-token issuance.
+3. Make message outcome reconciliation include a reserved `finalMessageId`;
+   add a crash-injection test between assistant persistence and acceptance.
+4. Include the durable execution attempt in provider-attempt identity and
+   verify resumed telemetry remains distinct without counting a provider
+   success as turn acceptance.
+5. Add an adversarial tool-dispatch test for raw/custom callers without an
+   allowlist; keep current-path reachability as a separate question.
+
+These checks remain static-review findings only. No runtime behavior was
+changed in this supplement.

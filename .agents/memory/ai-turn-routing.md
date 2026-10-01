@@ -34,3 +34,22 @@ Durable retry intent must also govern autonomous-operation creation. A retry mes
 **Why:** Gating operation creation on the raw retry classification left orientation reads complete but made acceptance fail because no operation reached the completion gate.
 
 **How to apply:** Use the restored execution intent/project-orientation state when creating or rehydrating the operation, while preserving ordinary CHAT as operation-free.
+
+The durable execution request is a partial resume contract, not a snapshot of
+the complete resolved `TurnIntent` or per-invocation `ExecutionPlan`. On
+explicit resume, keep the stored original request, revision, and proof
+requirements authoritative; do not let retry text alter those immutable
+bindings. Keep mutable `ActiveTaskState` and its `ActiveTaskExecutionPlan`
+under their existing owner, and do not add a parallel copy to the execution
+envelope. If cross-deployment equivalence becomes a requirement, extend the
+existing resume contract deliberately rather than assuming recomputation is
+identical.
+
+**Why:** Persisting only part of the decision context leaves some route-level
+planning derived at resume time, while copying mutable task state into the
+execution row would create competing authorities.
+
+**How to apply:** Preserve this boundary when changing resume or recovery
+behavior. Test immutable request/revision/proof binding separately from
+recomputed routing, and require an explicit contract decision before adding a
+new persisted policy snapshot.
