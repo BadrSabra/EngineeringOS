@@ -109,6 +109,7 @@ const mocks = vi.hoisted(() => {
     historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
+      sessionId: 'session-1',
       role: 'assistant',
       content: 'Existing response',
       toolTrace: undefined as string | undefined,
@@ -127,6 +128,7 @@ const mocks = vi.hoisted(() => {
       rejectProposal: mutation(),
       commit: mutation(),
       push: mutation(),
+      fallbackDiagnostic: mutation(),
     },
     mutationOptions: {
       saveDeepSeek: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
@@ -317,6 +319,7 @@ vi.mock('@workspace/api-client-react', () => {
     })),
     getGetAiDeliveryPolicyQueryKey: (params?: unknown) => ['ai-delivery-policy', params],
     useUpdateAiDeliveryPolicy: vi.fn(() => emptyMutation()),
+    useExplainAiFallback: vi.fn(() => mocks.mutations.fallbackDiagnostic),
     useSaveDeepSeekKey: vi.fn((options: { mutation?: typeof mocks.mutationOptions.saveDeepSeek }) => {
       mocks.mutationOptions.saveDeepSeek = options?.mutation;
       return mocks.mutations.saveDeepSeek;
@@ -655,6 +658,37 @@ describe('AiChat turn intent labels', () => {
 
     expect(await screen.findByText('Existing response')).toBeInTheDocument();
     expect(screen.queryByTestId('text-turn-intent-message-1')).not.toBeInTheDocument();
+  });
+});
+
+describe('AiChat fallback explanation', () => {
+  beforeEach(() => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      id: 'fallback-message-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      turnIntent: 'PROJECT_QUERY',
+      projectQueryResponseSource: 'deterministic_fallback',
+      projectQueryResponseFallbackReason: 'provider_candidate_incomplete',
+    };
+  });
+
+  it('requests an explanation bound to the exact fallback message and execution', async () => {
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Explain this fallback' }));
+
+    expect(mocks.mutations.fallbackDiagnostic.mutate).toHaveBeenCalledWith({
+      data: {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        messageId: 'fallback-message-1',
+        executionId: 'execution-1',
+      },
+    });
   });
 });
 

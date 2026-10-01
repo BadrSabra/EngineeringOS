@@ -153,13 +153,49 @@ vi.mock("@workspace/db", () => {
                 }
               }
               if ((table as { _tag?: string })._tag === "aiChatSessionsTable") {
-                return Promise.resolve(fixture.session ? [fixture.session] : []);
+                const requestedId = (predicate as { __value?: unknown } | undefined)?.__value;
+                return Promise.resolve(
+                  fixture.session && (!requestedId || fixture.session.id === requestedId)
+                    ? [fixture.session]
+                    : [],
+                );
               }
               if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
+                if (
+                  fields
+                  && Object.prototype.hasOwnProperty.call(fields, "turnIntent")
+                  && Object.prototype.hasOwnProperty.call(fields, "toolTrace")
+                ) {
+                  const values = (predicate as {
+                    __conditions?: Array<{ __value?: unknown }>;
+                  } | undefined)?.__conditions?.map((condition) => condition.__value) ?? [];
+                  const [messageId, sessionId, executionId, role] = values;
+                  return Promise.resolve(fixture.messages.filter((message) =>
+                    message.id === messageId
+                    && message.sessionId === sessionId
+                    && message.executionId === executionId
+                    && message.role === role,
+                  ));
+                }
                 return Promise.resolve([...fixture.messages]);
               }
               if ((table as { _tag?: string })._tag === "aiExecutionAcceptancesTable") {
                 return Promise.resolve([...acceptanceRows]);
+              }
+              if (
+                (table as { _tag?: string })._tag === "aiExecutionsTable"
+                && Object.keys(fields ?? {}).join(",") === "id,projectId,sessionId,userId"
+              ) {
+                const values = (predicate as {
+                  __conditions?: Array<{ __value?: unknown }>;
+                } | undefined)?.__conditions?.map((condition) => condition.__value) ?? [];
+                const [id, projectId, sessionId, userId] = values;
+                const executionMatches =
+                  fixture.execution.id === id
+                  && fixture.execution.projectId === projectId
+                  && fixture.execution.sessionId === sessionId
+                  && fixture.execution.userId === userId;
+                return Promise.resolve(executionMatches ? [{ ...fixture.execution }] : []);
               }
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
@@ -186,6 +222,8 @@ vi.mock("@workspace/db", () => {
                 ? (fixture.session ? [fixture.session] : [])
                 : (table as { _tag?: string })._tag === "aiChatMessagesTable"
                   ? [...fixture.messages]
+                  : (table as { _tag?: string })._tag === "aiExecutionAcceptancesTable"
+                    ? [...acceptanceRows]
                   : [];
               return Object.assign(Promise.resolve(rows), {
                 limit: () => Promise.resolve(rows),

@@ -59,6 +59,7 @@ import {
   useGitPush,
   useListBrowserValidationProfiles,
   getListBrowserValidationProfilesQueryKey,
+  useExplainAiFallback,
 } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
@@ -105,6 +106,7 @@ import type {
   EvidenceGraph,
   QuerySourceSelectionRecord,
   BrowserValidationProfile,
+  AiFallbackDiagnostic,
 } from '@workspace/api-client-react';
 type BrowserValidationProfileFreshness = Pick<
   BrowserValidationProfile,
@@ -175,6 +177,7 @@ type BenchmarkScorecard = {
 };
 type ChatMessage = {
   id: string;
+  sessionId?: string | null;
   role: 'user' | 'assistant';
   content: string;
   sources?: string;
@@ -309,12 +312,36 @@ function ProjectQueryResponseCard({
   source,
   fallbackReason,
   acceptanceDisposition,
+  messageId,
+  executionId,
+  projectId,
+  sessionId,
+  diagnostic,
+  diagnosticPending,
+  diagnosticError,
+  onExplainFallback,
 }: {
   source?: ChatMessage['projectQueryResponseSource'];
   fallbackReason?: ChatMessage['projectQueryResponseFallbackReason'];
   acceptanceDisposition?: ChatMessage['acceptanceDisposition'];
+  messageId: string;
+  executionId?: string | null;
+  projectId?: string | null;
+  sessionId?: string;
+  diagnostic?: AiFallbackDiagnostic;
+  diagnosticPending?: boolean;
+  diagnosticError?: boolean;
+  onExplainFallback?: () => void;
 }) {
   const isFallback = source === 'deterministic_fallback';
+  const canExplainFallback = Boolean(
+    isFallback
+    && messageId
+    && executionId
+    && projectId
+    && sessionId
+    && onExplainFallback,
+  );
   const hasIncompleteAcceptance = Boolean(acceptanceDisposition);
   if (!source && !hasIncompleteAcceptance) return null;
   const sourceLabel = source === 'provider_synthesis'
@@ -349,8 +376,72 @@ function ProjectQueryResponseCard({
           The answer remains fail-closed until the objective evidence is complete.
         </div>
       )}
+      {canExplainFallback && onExplainFallback && (
+        <div className="mt-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            onClick={onExplainFallback}
+            disabled={diagnosticPending}
+            data-testid={`button-explain-fallback-${messageId}`}
+          >
+            {diagnosticPending
+              ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              : <Search className="mr-1 h-3 w-3" />}
+            {diagnosticPending ? 'Checking this run…' : 'Explain this fallback'}
+          </Button>
+        </div>
+      )}
+      {diagnostic && diagnostic.messageId === messageId && diagnostic.executionId === executionId && (
+        <div
+          className="mt-2 rounded-md border border-amber-300/20 bg-background/30 p-2 text-current/90"
+          role="status"
+          aria-label="Verified fallback explanation"
+          data-testid={`fallback-explanation-${messageId}`}
+        >
+          <div className="font-medium">Why this fallback was used</div>
+          <p className="mt-1">
+            {diagnostic.fallbackReason === 'provider_candidate_incomplete'
+              ? 'The provider-generated answer did not satisfy the response contract, so the system used its deterministic evidence-based answer.'
+              : 'The provider could not produce an acceptable synthesis, so the system used its deterministic evidence-based answer.'}
+          </p>
+          {diagnostic.acceptanceOutcome === 'SUCCEEDED'
+            && diagnostic.evidenceRequired
+            && diagnostic.evidenceComplete && (
+              <p className="mt-1">
+                This reason concerns answer generation, not missing source evidence: the referenced run was accepted with its required evidence complete.
+              </p>
+            )}
+          <div className="mt-1 text-[10px] opacity-75">
+            Verified against execution attempt {diagnostic.attempt}.
+          </div>
+        </div>
+      )}
+      {diagnosticError && (
+        <p className="mt-2 text-[11px] text-amber-100/80" role="alert">
+          This run’s diagnostic could not be verified. Try again from this message.
+        </p>
+      )}
     </div>
   );
+}
+
+function isFallbackDiagnosticQuestion(value: string): boolean {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .trim();
+  if (!normalized || normalized.length > 300) return false;
+  const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 2) {
+    return /^evidence-based fallback$/i.test(lines[0] ?? '')
+      && /^fallback reason:\s*(?:provider candidate was incomplete|synthesis failed)[.!?؟]*$/i.test(lines[1] ?? '');
+  }
+  if (lines.length !== 1) return false;
+  return /^(?:explain(?: this)? fallback|why did (?:the )?fallback happen|what does fallback mean|fallback reason|اشرح (?:سبب )?(?:الـ?\s*)?(?:fallback|التراجع)|ما سبب (?:الـ?\s*)?(?:fallback|التراجع)|سبب (?:الـ?\s*)?(?:fallback|التراجع))[.!?؟]*$/i
+    .test(lines[0] ?? '');
 }
 // ── PR-011: Source Coverage Panel ─────────────────────────────────────────────
 
@@ -5910,6 +6001,10 @@ function MessageBubble({
   projectQueryRetryPending?: boolean;
   onMissionHandoff?: (message: ChatMessage) => void;
   missionHandoffPending?: boolean;
+  onExplainFallback?: (message: ChatMessage) => void;
+  fallbackDiagnostic?: AiFallbackDiagnostic;
+  fallbackDiagnosticPending?: boolean;
+  fallbackDiagnosticError?: boolean;
 }) {
   const isUser = msg.role === 'user';
   const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
@@ -6354,6 +6449,21 @@ function MessageBubble({
               source={msg.projectQueryResponseSource}
               fallbackReason={msg.projectQueryResponseFallbackReason}
               acceptanceDisposition={msg.acceptanceDisposition}
+              messageId={msg.id}
+              executionId={msg.executionId}
+              projectId={projectId}
+              sessionId={sessionId}
+              diagnostic={fallbackDiagnostic}
+              diagnosticPending={fallbackDiagnosticPending}
+              diagnosticError={fallbackDiagnosticError}
+              onExplainFallback={
+                onExplainFallback
+                && projectId
+                && sessionId
+                && msg.executionId
+                ? () => onExplainFallback(msg)
+                : undefined
+              }
             />
           )}
           {!isUser && msg.sourceSelectionRecord && (
@@ -9304,6 +9414,7 @@ function AgentExecutionProofPanel({
 export default function AiChat() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const fallbackDiagnosticMutation = useExplainAiFallback();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded, user } = useUser();
@@ -12171,7 +12282,49 @@ export default function AiChat() {
 
   function handleSend() {
     if (sessionId && messagesError) return;
-    sendMessage(input.trim());
+    const trimmedMessage = input.trim();
+    if (isFallbackDiagnosticQuestion(trimmedMessage)) {
+      const latestAssistant = [...localMessages].reverse().find((message) => message.role === 'assistant');
+      if (
+        latestAssistant
+        && latestAssistant.sessionId === sessionId
+        && latestAssistant.projectQueryResponseSource === 'deterministic_fallback'
+        && latestAssistant.projectQueryResponseFallbackReason
+        && latestAssistant.executionId
+        && selectedProjectId
+        && sessionId
+      ) {
+        setInput('');
+        fallbackDiagnosticMutation.mutate({
+          data: {
+            projectId: selectedProjectId,
+            sessionId,
+            messageId: latestAssistant.id,
+            executionId: latestAssistant.executionId,
+          },
+        });
+      } else {
+        toast({
+          title: 'Which run should I explain?',
+          description: 'Open the exact fallback message and choose “Explain this fallback.”',
+          variant: 'default',
+        });
+      }
+      return;
+    }
+    sendMessage(trimmedMessage);
+  }
+
+  function explainFallbackForMessage(message: ChatMessage) {
+    if (!selectedProjectId || !sessionId || !message.executionId) return;
+    fallbackDiagnosticMutation.mutate({
+      data: {
+        projectId: selectedProjectId,
+        sessionId,
+        messageId: message.id,
+        executionId: message.executionId,
+      },
+    });
   }
 
   async function handleMissionHandoff(message: ChatMessage) {
@@ -13443,6 +13596,20 @@ export default function AiChat() {
                   projectQueryRetryPending={projectQueryRetryMessageId === msg.id}
                    onMissionHandoff={handleMissionHandoff}
                    missionHandoffPending={missionHandoffPending === msg.id}
+                  onExplainFallback={explainFallbackForMessage}
+                  fallbackDiagnostic={
+                    fallbackDiagnosticMutation.data?.messageId === msg.id
+                      ? fallbackDiagnosticMutation.data
+                      : undefined
+                  }
+                  fallbackDiagnosticPending={
+                    fallbackDiagnosticMutation.isPending
+                    && fallbackDiagnosticMutation.variables?.data.messageId === msg.id
+                  }
+                  fallbackDiagnosticError={
+                    fallbackDiagnosticMutation.isError
+                    && fallbackDiagnosticMutation.variables?.data.messageId === msg.id
+                  }
                 />
               ))}
                {capabilityGap && <CapabilityGapNotice gap={capabilityGap} projectId={selectedProjectId} />}
