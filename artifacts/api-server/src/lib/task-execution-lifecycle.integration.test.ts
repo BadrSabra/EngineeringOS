@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -246,7 +246,7 @@ async function waitForEpisode(executionId: string) {
   throw new Error(`Episode was not materialized for execution ${executionId}`);
 }
 
-async function cleanupProjectExecutionData(projectId: string) {
+async function drainPendingObservationMaterializations(): Promise<unknown[]> {
   const materializationFailures: unknown[] = [];
   while (pendingObservationMaterializations.length > 0) {
     const pending = pendingObservationMaterializations.splice(0);
@@ -255,7 +255,11 @@ async function cleanupProjectExecutionData(projectId: string) {
       ...results.flatMap((result) => result.status === "rejected" ? [result.reason] : []),
     );
   }
+  return materializationFailures;
+}
 
+async function cleanupProjectExecutionData(projectId: string) {
+  const materializationFailures = await drainPendingObservationMaterializations();
   await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.projectId, projectId));
   await db.delete(operatorAlertsTable).where(and(
     eq(operatorAlertsTable.ownerId, "mission-effect-test-user"),
@@ -1385,6 +1389,117 @@ describe("real durable task execution lifecycle", () => {
     let firstBeforeObservationId: string | undefined;
     let recoveryBeforeObservationId: string | undefined;
     let recoveryRun = 0;
+    let diagnosticPhase = "initial_lifecycle";
+    let activeExecutionId: string | undefined;
+    let deadlockObserved = false;
+    let lockSamplerRunning = false;
+    let lockSamplerFailed = false;
+    let lockSamplerPromise: Promise<void> | undefined;
+    const lockWaitSamples: unknown[] = [];
+    const collectPostgresErrorMetadata = (error: unknown) => {
+      const metadata: Array<{
+        code?: string;
+        detail?: string;
+        hint?: string;
+        where?: string;
+        routine?: string;
+      }> = [];
+      const seen = new Set<object>();
+      let current = error;
+      const boundedText = (value: unknown): string | undefined =>
+        typeof value === "string" ? value.slice(0, 2_000) : undefined;
+      while (
+        current
+        && typeof current === "object"
+        && !seen.has(current)
+        && metadata.length < 5
+      ) {
+        seen.add(current);
+        const record = current as Record<string, unknown>;
+        metadata.push({
+          code: boundedText(record.code),
+          detail: boundedText(record.detail),
+          hint: boundedText(record.hint),
+          where: boundedText(record.where),
+          routine: boundedText(record.routine),
+        });
+        current = record.cause;
+      }
+      return metadata;
+    };
+    const logDeadlockMetadata = (phase: string, executionId: string | undefined, error: unknown) => {
+      const deadlocks = collectPostgresErrorMetadata(error).filter((entry) => entry.code === "40P01");
+      if (deadlocks.length === 0) return;
+      deadlockObserved = true;
+      console.error("[candidate-ready-recovery-postgres-deadlock]", JSON.stringify({
+        phase,
+        taskId: fixture.taskId,
+        executionId: executionId ?? null,
+        errors: deadlocks,
+      }));
+    };
+    const logOutcomeDeadlock = (
+      phase: string,
+      executionId: string | undefined,
+      outcome: unknown,
+    ) => {
+      if (outcome && typeof outcome === "object" && "error" in outcome) {
+        logDeadlockMetadata(phase, executionId, outcome.error);
+      }
+    };
+    const startLockWaitSampler = () => {
+      lockSamplerRunning = true;
+      lockSamplerPromise = (async () => {
+        while (lockSamplerRunning && lockWaitSamples.length < 100) {
+          try {
+            const result = await db.execute(sql`
+              SELECT
+                waiting.pid AS waiting_pid,
+                waiting.application_name AS waiting_application,
+                waiting.query_start AS waiting_query_start,
+                left(waiting.query, 1000) AS waiting_query,
+                waiting.wait_event_type,
+                waiting.wait_event,
+                blocker.pid AS blocking_pid,
+                blocker.application_name AS blocking_application,
+                blocker.query_start AS blocking_query_start,
+                left(blocker.query, 1000) AS blocking_query,
+                blocker.state AS blocking_state,
+                waiting.backend_xid::text AS waiting_xid,
+                blocker.backend_xid::text AS blocking_xid
+              FROM pg_stat_activity AS waiting
+              LEFT JOIN LATERAL unnest(pg_blocking_pids(waiting.pid)) AS blocker_ids(pid) ON TRUE
+              LEFT JOIN pg_stat_activity AS blocker ON blocker.pid = blocker_ids.pid
+              WHERE waiting.pid <> pg_backend_pid()
+                AND waiting.datname = current_database()
+                AND waiting.wait_event_type = 'Lock'
+                AND (
+                  waiting.query ILIKE '%ai_agent_episodes%'
+                  OR blocker.query ILIKE '%ai_agent_episodes%'
+                )
+            `);
+            const rows = (result as unknown as { rows?: unknown[] }).rows ?? [];
+            for (const row of rows) {
+              if (lockWaitSamples.length >= 100) break;
+              lockWaitSamples.push(row);
+            }
+          } catch {
+            lockSamplerFailed = true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+    };
+    const stopLockWaitSampler = async () => {
+      lockSamplerRunning = false;
+      await lockSamplerPromise;
+      if (deadlockObserved) {
+        console.error("[candidate-ready-recovery-lock-waits]", JSON.stringify({
+          samples: lockWaitSamples.slice(-20),
+          samplerFailed: lockSamplerFailed,
+        }));
+      }
+    };
     chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
       const baseParams = args[1] as {
         onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
@@ -1409,6 +1524,8 @@ describe("real durable task execution lifecycle", () => {
     runRepairValidation
       .mockImplementationOnce(async (...args: unknown[]) => {
         const evidenceContext = args[5] as { operationId: string };
+        activeExecutionId = evidenceContext.operationId;
+        diagnosticPhase = "first_validator_checkpoint_read";
         const [execution] = await db
           .select({
             checkpoint: aiExecutionsTable.checkpoint,
@@ -1425,6 +1542,7 @@ describe("real durable task execution lifecycle", () => {
         expect(detail.missionRepairRecovery.phase).toBe("candidate_ready");
         firstBeforeObservationId = detail.missionRepairRecovery.beforeObservationId;
 
+        diagnosticPhase = "handoff_execution_update";
         await db.update(aiExecutionsTable)
           .set({
             status: "paused",
@@ -1433,6 +1551,7 @@ describe("real durable task execution lifecycle", () => {
             updatedAt: new Date(),
           })
           .where(eq(aiExecutionsTable.id, evidenceContext.operationId));
+        diagnosticPhase = "handoff_task_update";
         await db.update(tasksTable)
           .set({
             status: "verifying",
@@ -1441,6 +1560,7 @@ describe("real durable task execution lifecycle", () => {
             updatedAt: new Date(),
           })
           .where(eq(tasksTable.id, fixture.taskId));
+        diagnosticPhase = "nested_recovery_lifecycle";
         recoveredOutcome = await executeTaskLifecycle({
           taskId: fixture.taskId,
           userId: "mission-effect-test-user",
@@ -1449,11 +1569,25 @@ describe("real durable task execution lifecycle", () => {
           expectedStatuses: ["verifying"],
           workspaceRevision: fixture.now.toISOString(),
         });
+        logOutcomeDeadlock("nested_recovery_result", evidenceContext.operationId, recoveredOutcome);
+        // Separate the simulated old-worker exit from the recovered run's
+        // best-effort observation transaction; recovery handoff is the subject
+        // of this test, not overlap between two lifecycle side effects.
+        const materializationFailures = await drainPendingObservationMaterializations();
+        if (materializationFailures.length > 0) {
+          throw new AggregateError(
+            materializationFailures,
+            "Observation materialization failed after candidate-ready recovery.",
+          );
+        }
+        diagnosticPhase = "simulated_worker_exit";
         throw new Error("simulated_worker_exit_after_candidate_ready");
       })
       .mockImplementationOnce(async (...args: unknown[]) => {
         recoveryRun += 1;
         const evidenceContext = args[5] as { operationId: string };
+        activeExecutionId = evidenceContext.operationId;
+        diagnosticPhase = "recovery_validator_checkpoint_read";
         const [execution] = await db
           .select({ checkpoint: aiExecutionsTable.checkpoint })
           .from(aiExecutionsTable)
@@ -1477,6 +1611,7 @@ describe("real durable task execution lifecycle", () => {
         };
       });
 
+    startLockWaitSampler();
     try {
       const initialOutcome = await executeTaskLifecycle({
         taskId: fixture.taskId,
@@ -1486,6 +1621,7 @@ describe("real durable task execution lifecycle", () => {
         expectedStatuses: ["verifying"],
         workspaceRevision: fixture.now.toISOString(),
       });
+      logOutcomeDeadlock("initial_execution_result", initialOutcome.executionId, initialOutcome);
 
       if (!recoveredOutcome) {
         throw new Error(`Candidate-ready recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
@@ -1527,12 +1663,22 @@ describe("real durable task execution lifecycle", () => {
         && String((event.payload as { actionId?: unknown } | null)?.actionId ?? "")
           .startsWith("mission-repair:")
       )).toHaveLength(1);
+    } catch (error) {
+      logDeadlockMetadata(diagnosticPhase, activeExecutionId, error);
+      throw error;
     } finally {
       runRepairValidation.mockReset().mockImplementation(async (..._args: unknown[]) => ({
         status: "passed" as const,
         evidence: { artifactRef: "fixture-validation-receipt" },
       }));
-      await fixture.cleanup();
+      try {
+        await fixture.cleanup();
+      } catch (error) {
+        logDeadlockMetadata("fixture_cleanup", activeExecutionId, error);
+        throw error;
+      } finally {
+        await stopLockWaitSampler();
+      }
     }
   });
 

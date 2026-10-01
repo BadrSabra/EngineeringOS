@@ -7,4 +7,4 @@ Automatic recovery dispatch supports an optional project scope for deterministic
 
 **Why:** A shared test database can contain failed executions from unrelated Mission and chat tests. An unscoped dispatcher can legitimately schedule those rows, and `executeTaskLifecycle` also returns before best-effort observation materialization settles. Deleting fixture episode/execution rows during that background transaction can cause PostgreSQL deadlocks.
 
-**How to apply:** Scope dispatch to the fixture project; before cleanup, await tracked `materializeServerOwnedObservations` promises, then delete dependent rows in order. Run DB-backed lifecycle and EffectObserver suites sequentially when they share the test database.
+**How to apply:** Scope dispatch to the fixture project; in nested lifecycle handoff tests, drain tracked post-acceptance materialization before simulating the prior worker's terminal path, then drain again before cleanup and delete dependent rows in order. Run DB-backed lifecycle and EffectObserver suites sequentially when they share the test database.
