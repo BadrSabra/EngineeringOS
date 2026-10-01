@@ -22,3 +22,9 @@ Keep the complete provider-response cap separate and larger than the per-argumen
 **Why:** A response envelope can contain multiple calls and metadata, so reusing the 2 MB argument cap can reject valid turns. Checking arguments only after buffering and parsing the whole envelope still permits excessive memory use.
 
 **How to apply:** Count streamed bytes before JSON parsing, cancel over-limit bodies promptly, and preserve a typed provider-response error through SDK wrappers.
+
+Command output limits are enforced by the real registered runner and bounded execution kernel, not by `executeCommandTool` around arbitrary injected `CommandRunner` results. Tool-result JSON can also duplicate stdout/stderr inside `combinedOutput`, so test the captured combined-output bytes rather than total serialized JSON size.
+
+**Why:** A deliberately unbounded fake runner can return more output than its profile limit, but that violates the trusted runner contract and does not test the subprocess boundary. Using it as a resource test produces a false failure or false assurance.
+
+**How to apply:** For command output and timeout acceptance, pass a fixed server-owned profile through `runRegisteredCommand`/`runBoundedCommand`. Keep separate tests for provider-supplied arguments and for tool-loop message caps.
