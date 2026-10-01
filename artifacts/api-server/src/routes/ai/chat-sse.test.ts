@@ -916,6 +916,30 @@ describe("accepted project-query fallback diagnostic", () => {
     });
   }
 
+  afterEach(async () => {
+    const dbModule = await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+        execution: Record<string, unknown>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+      __setFallbackDiagnosticExecution: (value: boolean) => void;
+    };
+    dbModule.__setFallbackDiagnosticExecution(false);
+    dbModule.__chatTestFixture.session = null;
+    dbModule.__chatTestFixture.messages.length = 0;
+    dbModule.__chatTestAcceptances.length = 0;
+    Object.assign(dbModule.__chatTestFixture.execution, {
+      id: "test-execution-id",
+      projectId: "test-project-id",
+      sessionId: "test-session-id",
+      userId: "test-user",
+      finalMessageId: null,
+      status: "queued",
+    });
+  });
+
   it("returns only accepted provenance bound to the referenced run", async () => {
     const dbModule = await import("@workspace/db") as unknown as {
       __chatTestAcceptances: Array<Record<string, unknown>>;
