@@ -52,6 +52,9 @@ import {
   MAX_RAW_TOOL_ARGUMENT_BYTES,
 } from "./tool-argument-limits.js";
 import {
+  createBoundedProviderFetch,
+  createProviderResponseTooLargeClientError,
+  isProviderResponseTooLargeError,
   MAX_PROVIDER_ERROR_BODY_BYTES,
   readBoundedProviderResponseJson,
   readBoundedProviderResponseText,
@@ -920,7 +923,7 @@ async function oacCompleteRawUntracked(
   let response: Response;
   try {
     assertProviderEgressEnabled();
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    response = await createBoundedProviderFetch()(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -932,6 +935,12 @@ async function oacCompleteRawUntracked(
     });
   } catch (err) {
     cleanup();
+    if (isProviderResponseTooLargeError(err)) {
+      throw createProviderResponseTooLargeClientError(
+        { providerName, model },
+        err,
+      );
+    }
     if (controller.signal.aborted) {
       throw new GroqClientError("TIMEOUT", `${providerName} request timed out`, {
         cause: err,
@@ -1155,7 +1164,7 @@ async function* oacCompleteStreamUntracked(
   let response: Response;
   try {
     assertProviderEgressEnabled();
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    response = await createBoundedProviderFetch()(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1167,6 +1176,12 @@ async function* oacCompleteStreamUntracked(
     });
   } catch (err) {
     cleanup();
+    if (isProviderResponseTooLargeError(err)) {
+      throw createProviderResponseTooLargeClientError(
+        { providerName, model },
+        err,
+      );
+    }
     if (controller.signal.aborted) {
       throw new GroqClientError("TIMEOUT", `${providerName} streaming request timed out`, { cause: err });
     }
@@ -1242,6 +1257,12 @@ async function* oacCompleteStreamUntracked(
     }
   } catch (err) {
     if (err instanceof GroqClientError) throw err;
+    if (isProviderResponseTooLargeError(err)) {
+      throw createProviderResponseTooLargeClientError(
+        { providerName, model },
+        err,
+      );
+    }
     if (controller.signal.aborted) {
       throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
         cause: err,

@@ -40,6 +40,26 @@ export function getProviderResponseTooLargeLimit(error: unknown): number | undef
   return findProviderResponseTooLargeError(error)?.maxBytes;
 }
 
+export function createProviderResponseTooLargeClientError(
+  context: { providerName: string; model?: string },
+  cause: unknown,
+): GroqClientError {
+  const maxBytes =
+    getProviderResponseTooLargeLimit(cause) ?? MAX_PROVIDER_RESPONSE_BYTES;
+  return new GroqClientError(
+    "INVALID_PROVIDER_RESPONSE",
+    `${context.providerName} response exceeded the ${maxBytes}-byte limit`,
+    {
+      cause,
+      context: {
+        providerName: context.providerName,
+        providerModel: context.model,
+        providerCode: "RESPONSE_TOO_LARGE",
+      },
+    },
+  );
+}
+
 function declaredContentLengthExceeds(response: Response, maxBytes: number): boolean {
   const rawLength = response.headers?.get?.("content-length");
   if (!rawLength || !/^\d+$/.test(rawLength.trim())) return false;
@@ -102,25 +122,14 @@ export async function readBoundedProviderResponseJson<T>(
     text = await readBoundedProviderResponseText(response, maxBytes);
   } catch (error) {
     if (!isProviderResponseTooLargeError(error)) throw error;
-    throw new GroqClientError(
-      "INVALID_PROVIDER_RESPONSE",
-      `${context.providerName} response exceeded the ${maxBytes}-byte limit`,
-      {
-        cause: error,
-        context: {
-          providerName: context.providerName,
-          providerModel: context.model,
-          providerCode: "RESPONSE_TOO_LARGE",
-        },
-      },
-    );
+    throw createProviderResponseTooLargeClientError(context, error);
   }
   return JSON.parse(text) as T;
 }
 
 /**
- * Groq's SDK owns response parsing. Count bytes in a streaming transform so
- * both JSON and SSE responses stay bounded without buffering the whole body.
+ * Count response bytes in a streaming transform. This keeps both JSON and SSE
+ * bodies bounded without buffering them before provider-specific parsing.
  */
 export function createBoundedProviderFetch(
   baseFetch: typeof fetch = globalThis.fetch,

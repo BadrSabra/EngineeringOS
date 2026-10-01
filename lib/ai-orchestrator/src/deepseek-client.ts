@@ -24,6 +24,9 @@ import {
   normalizeProviderToolCalls,
 } from "./provider-tool-calls.js";
 import {
+  createBoundedProviderFetch,
+  createProviderResponseTooLargeClientError,
+  isProviderResponseTooLargeError,
   MAX_PROVIDER_ERROR_BODY_BYTES,
   readBoundedProviderResponseJson,
   readBoundedProviderResponseText,
@@ -172,7 +175,7 @@ export async function* deepseekCompleteStream(
   let response: Response;
   try {
     assertProviderEgressEnabled();
-    response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    response = await createBoundedProviderFetch()(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  "POST",
       headers: {
         "Content-Type":  "application/json",
@@ -184,6 +187,12 @@ export async function* deepseekCompleteStream(
   } catch (err) {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+    if (isProviderResponseTooLargeError(err)) {
+      throw createProviderResponseTooLargeClientError(
+        { providerName: "DeepSeek", model },
+        err,
+      );
+    }
     if (controller.signal.aborted) {
       throw new GroqClientError("TIMEOUT", "DeepSeek streaming request timed out", { cause: err });
     }
@@ -195,9 +204,9 @@ export async function* deepseekCompleteStream(
   }
 
   if (!response.ok) {
+    const text = await response.text().catch(() => "");
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
-    const text = await response.text().catch(() => "");
     throw classifyStatus(response.status, text);
   }
 
@@ -205,6 +214,7 @@ export async function* deepseekCompleteStream(
   const reader = response.body?.getReader();
   if (!reader) {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
     throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream has no body");
   }
 
@@ -260,6 +270,21 @@ export async function* deepseekCompleteStream(
         // Ignore malformed SSE frames.
       }
     }
+  } catch (err) {
+    if (isProviderResponseTooLargeError(err)) {
+      throw createProviderResponseTooLargeClientError(
+        { providerName: "DeepSeek", model },
+        err,
+      );
+    }
+    if (controller.signal.aborted) {
+      throw new GroqClientError(
+        "TIMEOUT",
+        "DeepSeek streaming response timed out",
+        { cause: err, context: { providerName: "DeepSeek", providerModel: model } },
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);

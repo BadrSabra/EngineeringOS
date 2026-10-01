@@ -28,6 +28,7 @@ import {
 } from "./provider-tool-calls.js";
 import {
   createBoundedProviderFetch,
+  createProviderResponseTooLargeClientError,
   getProviderResponseTooLargeLimit,
 } from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
@@ -566,17 +567,9 @@ function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqC
   if (err instanceof GroqClientError) return err;
   const responseLimit = getProviderResponseTooLargeLimit(err);
   if (responseLimit !== undefined) {
-    return new GroqClientError(
-      "INVALID_PROVIDER_RESPONSE",
-      `Groq response exceeded the ${responseLimit}-byte limit`,
-      {
-        cause: err,
-        context: {
-          providerName: "Groq",
-          providerModel: model,
-          providerCode: "RESPONSE_TOO_LARGE",
-        },
-      },
+    return createProviderResponseTooLargeClientError(
+      { providerName: "Groq", model },
+      err,
     );
   }
   if (aborted) return new GroqClientError("TIMEOUT", "Groq request timed out", { cause: err });
