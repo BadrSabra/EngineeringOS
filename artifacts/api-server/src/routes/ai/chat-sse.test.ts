@@ -98,6 +98,7 @@ vi.mock("@workspace/db", () => {
   };
   const acceptanceRows: Array<Record<string, unknown>> = [];
   let exposeExecutionForCancel = false;
+  let exposeFallbackDiagnosticExecution = false;
 
   /**
    * Returns an object that is:
@@ -153,27 +154,17 @@ vi.mock("@workspace/db", () => {
                 }
               }
               if ((table as { _tag?: string })._tag === "aiChatSessionsTable") {
-                const requestedId = (predicate as { __value?: unknown } | undefined)?.__value;
-                return Promise.resolve(
-                  fixture.session && (!requestedId || fixture.session.id === requestedId)
-                    ? [fixture.session]
-                    : [],
-                );
+                return Promise.resolve(fixture.session ? [fixture.session] : []);
               }
               if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
-                if (
-                  fields
-                  && Object.prototype.hasOwnProperty.call(fields, "turnIntent")
-                  && Object.prototype.hasOwnProperty.call(fields, "toolTrace")
-                ) {
-                  return Promise.resolve([...fixture.messages]);
-                }
                 return Promise.resolve([...fixture.messages]);
               }
               if ((table as { _tag?: string })._tag === "aiExecutionAcceptancesTable") {
                 return Promise.resolve([...acceptanceRows]);
               }
               if (
+                exposeFallbackDiagnosticExecution
+                &&
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && Object.keys(fields ?? {}).join(",") === "id,projectId,sessionId,userId"
               ) {
@@ -205,7 +196,7 @@ vi.mock("@workspace/db", () => {
                 : (table as { _tag?: string })._tag === "aiChatMessagesTable"
                   ? [...fixture.messages]
                   : (table as { _tag?: string })._tag === "aiExecutionAcceptancesTable"
-                    ? [...acceptanceRows]
+                    ? (exposeFallbackDiagnosticExecution ? [...acceptanceRows] : [])
                   : [];
               return Object.assign(Promise.resolve(rows), {
                 limit: () => Promise.resolve(rows),
@@ -373,6 +364,9 @@ vi.mock("@workspace/db", () => {
     __setExposeExecutionForCancel: (value: boolean) => {
       exposeExecutionForCancel = value;
       if (!value) acceptanceRows.length = 0;
+    },
+    __setFallbackDiagnosticExecution: (value: boolean) => {
+      exposeFallbackDiagnosticExecution = value;
     },
     // Drizzle table references — used as opaque args to the mocked db methods,
     // which ignore them.  Give each a unique marker so vi's call logs are clear.
@@ -813,20 +807,18 @@ beforeEach(async () => {
        execution: Record<string, unknown>;
     };
     __setExposeExecutionForCancel: (value: boolean) => void;
+    __setFallbackDiagnosticExecution: (value: boolean) => void;
   });
   const dbFixture = dbModule.__chatTestFixture;
   dbFixture.session = null;
   dbFixture.messages.length = 0;
-  dbFixture.execution.id = "test-execution-id";
-  dbFixture.execution.projectId = "test-project-id";
-  dbFixture.execution.sessionId = "test-session-id";
-  dbFixture.execution.userId = "test-user";
   dbFixture.execution.status = "queued";
   dbFixture.execution.finalMessageId = null;
   dbFixture.execution.cancelRequestedAt = null;
   dbFixture.execution.error = null;
   dbFixture.execution.checkpoint = "{}";
   dbModule.__setExposeExecutionForCancel(false);
+  dbModule.__setFallbackDiagnosticExecution(false);
 
   // Each test owns the in-memory DB and the route-bound mocks it exercises.
   // Reset these implementations so a prior SSE scenario cannot leak callback
@@ -884,7 +876,9 @@ describe("accepted project-query fallback diagnostic", () => {
         execution: Record<string, unknown>;
       };
       __chatTestAcceptances: Array<Record<string, unknown>>;
+      __setFallbackDiagnosticExecution: (value: boolean) => void;
     };
+    dbModule.__setFallbackDiagnosticExecution(true);
     dbModule.__chatTestFixture.session = { id: sessionId, projectId, title: "Fallback diagnostic" };
     Object.assign(dbModule.__chatTestFixture.execution, {
       id: executionId,
