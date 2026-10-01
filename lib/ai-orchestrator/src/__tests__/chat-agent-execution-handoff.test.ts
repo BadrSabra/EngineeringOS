@@ -1189,6 +1189,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
                   path: fixturePath,
                   old_text: "export const enabled = true;",
                   new_text: "export const enabled = false;",
+                  reason: "Disable the fixture flag for the authorized benchmark repair.",
                 }),
               },
             }],

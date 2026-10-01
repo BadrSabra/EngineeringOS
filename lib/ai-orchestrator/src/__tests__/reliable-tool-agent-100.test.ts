@@ -5,10 +5,16 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   executeSingleTool,
+  executeToolLoop,
+  toolCacheKey,
+  type ToolLoopOpts,
   type MutationToolInvocation,
   type ReadOnlyToolInvocation,
   type SingleToolOpts,
+  type ToolInvocationLifecycleEvent,
 } from "../tool-execution-engine.js";
+import type { ProviderStrategy } from "../provider-strategy.js";
+import type { RawGroqResponse } from "../groq-client.js";
 import {
   authorizeToolInvocation,
   getFullAuthorizedToolManifest,
@@ -242,6 +248,7 @@ function makeCall(
   const pendingChanges: Parameters<typeof executeSingleTool>[0]["pendingChanges"] = [];
   const readEvents: ReadOnlyToolInvocation[] = [];
   const mutationEvents: MutationToolInvocation[] = [];
+  const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
   const options: SingleToolOpts = {
     name,
     args,
@@ -266,9 +273,12 @@ function makeCall(
     onMutationInvocation: async (event) => {
       mutationEvents.push(event);
     },
+    onToolInvocation: async (event) => {
+      lifecycleEvents.push(event);
+    },
     ...overrides,
   };
-  return { options, pendingChanges, readEvents, mutationEvents };
+  return { options, pendingChanges, readEvents, mutationEvents, lifecycleEvents };
 }
 
 function visibleOutput(result: Awaited<ReturnType<typeof executeSingleTool>>): string {
@@ -281,6 +291,90 @@ function definitionFor(name: string): ToolDefinitionContract {
   const definition = TOOL_DEFINITIONS.find((tool) => tool.function.name === name);
   if (!definition) throw new Error(`Missing T8 definition for ${name}`);
   return definition;
+}
+
+function makeLoopToolCall(
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+): NonNullable<RawGroqResponse["toolCalls"]>[number] {
+  return {
+    id,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  };
+}
+
+function makeLoopResponse(
+  content: string,
+  toolCalls: RawGroqResponse["toolCalls"] = null,
+): RawGroqResponse {
+  return {
+    content,
+    toolCalls,
+    model: "t8-fixture",
+    usage: { promptTokens: 0, completionTokens: 0 },
+  };
+}
+
+function makeLoopStrategy(toolCalls: RawGroqResponse["toolCalls"]): ProviderStrategy {
+  const responses = [
+    makeLoopResponse("", toolCalls),
+    makeLoopResponse("T8 fixture complete"),
+  ];
+  let responseIndex = 0;
+  return {
+    providerId: "t8-fixture",
+    supportsNativeStream: false,
+    call: vi.fn(async () => {
+      const response = responses[responseIndex];
+      if (!response) throw new Error(`Unexpected T8 provider call ${responseIndex}`);
+      responseIndex += 1;
+      return response;
+    }),
+    stream: async function* () {
+      yield "";
+    },
+  };
+}
+
+async function runT8ToolLoop(
+  name: string,
+  args: Record<string, unknown>,
+  overrides: Partial<ToolLoopOpts> = {},
+  toolCalls: RawGroqResponse["toolCalls"] = [makeLoopToolCall(`t8-${name}`, name, args)],
+) {
+  const tool = definitionFor(name) as unknown as NonNullable<ToolLoopOpts["tools"]>[number];
+  const messages: ToolLoopOpts["messages"] = [
+    { role: "user", content: `Run the T8 fixture for ${name}.` },
+  ];
+  const pendingChanges: ToolLoopOpts["pendingChanges"] = [];
+  const options: ToolLoopOpts = {
+    messages,
+    strategy: makeLoopStrategy(toolCalls),
+    model: "t8-fixture",
+    powerModel: "t8-fixture",
+    provider: "t8-fixture",
+    tools: [tool],
+    toolManifest: TOOL_DEFINITIONS as unknown as ToolLoopOpts["toolManifest"],
+    rootPath: fixtureRoot,
+    pendingChanges,
+    allowedToolNames: [name],
+    allowExecutionTools: true,
+    approvalState: "APPROVED",
+    approvedFilePaths: APPROVED_FILE_PATHS,
+    approvedValidationProfiles: APPROVED_PROFILES,
+    analysisCorrelation: ANALYSIS_CORRELATION,
+    analysisToolRunner,
+    validationRunner,
+    browserValidationRunner,
+    commandProfiles: [COMMAND_PROFILE],
+    commandRunner,
+    maxIterations: 4,
+    ...overrides,
+  };
+  const result = await executeToolLoop(options);
+  return { result, messages, pendingChanges, options };
 }
 
 function wrongValueFor(type: string | undefined): unknown {
@@ -796,9 +890,146 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       expect(cancelledResult.failureKind).toBe("cancelled");
       expect(cancelledResult.diagnosticCode).toBe("TOOL_CANCELLED");
     }
+    expect(cancelledCall.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "cancelled",
+    ]);
   });
 
-  it.todo("binds cache hits and misses to revision, scope, and the complete manifest for every tool");
-  it.todo("proves crash-before-start, started-operation recovery, duplicate invocation, resume, retry, and changed-revision behavior for every replay policy");
-  it.todo("closes every lifecycle terminal state (FAILED, CANCELLED, REJECTED) for every executor, in addition to REQUESTED/STARTED/COMPLETED");
+  it.each(["revision", "scope", "manifest"] as const)(
+    "misses the shared cache when %s changes",
+    async (dimension) => {
+    const changedReadManifest = TOOL_DEFINITIONS.map((tool) =>
+      tool.function.name === "read_file"
+        ? {
+            ...tool,
+            function: {
+              ...tool.function,
+              description: "T8 manifest revision with unchanged read authorization",
+            },
+          }
+        : tool,
+    ) as unknown as ToolLoopOpts["toolManifest"];
+
+    const cache = new Map<string, string>();
+    const readEvents: ReadOnlyToolInvocation[] = [];
+    const observe = async (event: ReadOnlyToolInvocation) => {
+      readEvents.push(event);
+    };
+    const base: Partial<ToolLoopOpts> = {
+      cache,
+      missionReadPathScope: ["src/index.ts"],
+      onReadOnlyInvocation: observe,
+    };
+    await runT8ToolLoop("read_file", SAFE_ARGS.read_file, base);
+
+    const changed: Partial<ToolLoopOpts> =
+      dimension === "revision"
+        ? {
+            analysisCorrelation: {
+              ...ANALYSIS_CORRELATION,
+              projectRevision: "t8-revision-after-change",
+            },
+          }
+        : dimension === "scope"
+          ? { missionReadPathScope: ["src/index.ts", "src/other.ts"] }
+          : { toolManifest: changedReadManifest };
+    await runT8ToolLoop("read_file", SAFE_ARGS.read_file, {
+      ...base,
+      ...changed,
+    });
+
+    expect(
+      readEvents.filter((event) => event.phase === "requested"),
+      `cache must miss after ${dimension} changes`,
+    ).toHaveLength(2);
+    },
+  );
+
+  it("does not return a cached read after the current Mission scope rejects its path", async () => {
+    const cache = new Map<string, string>();
+    const resultSteps: Array<{ cached: boolean }> = [];
+    await runT8ToolLoop("read_file", SAFE_ARGS.read_file, {
+      cache,
+      missionReadPathScope: ["src/index.ts"],
+    });
+
+    const second = await runT8ToolLoop("read_file", SAFE_ARGS.read_file, {
+      cache,
+      missionReadPathScope: [],
+      onStep: (step) => {
+        if (step.kind === "tool_result") {
+          resultSteps.push({ cached: step.cached === true });
+        }
+      },
+    });
+
+    expect(resultSteps.at(-1)?.cached).toBe(false);
+    expect(JSON.stringify(second.messages)).not.toContain("INVARIANT_FIXTURE");
+    expect(JSON.stringify(second.messages)).toContain("outside the server-approved Mission read scope");
+  });
+
+  it.each(
+    (["write_file", "replace_text", "run_validation", "run_command", "run_browser_validation"] as const)
+      .flatMap((name) =>
+        (["started", "completed"] as const).map((status) => ({ name, status })),
+      ),
+  )("$name does not dispatch again from a persisted $status marker", async ({ name, status }) => {
+    const args = SAFE_ARGS[name] as Record<string, string>;
+    const marker = {
+      key: toolCacheKey(name, args),
+      tool: name,
+      args,
+      status,
+    } as NonNullable<ToolLoopOpts["priorToolCalls"]>[number];
+    const validationSpy = vi.fn(validationRunner);
+    const browserSpy = vi.fn(browserValidationRunner);
+    const commandSpy = vi.fn(commandRunner);
+    const run = await runT8ToolLoop(
+      name,
+      args,
+      {
+        priorToolCalls: [marker],
+        validationRunner: validationSpy,
+        browserValidationRunner: browserSpy,
+        commandRunner: commandSpy,
+      },
+    );
+
+    expect(run.result.kind).toBe("response");
+    expect(JSON.stringify(run.messages)).toContain("SERVER_REPLAY_BLOCKED");
+    expect(run.pendingChanges).toHaveLength(0);
+    expect(validationSpy).not.toHaveBeenCalled();
+    expect(browserSpy).not.toHaveBeenCalled();
+    expect(commandSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(TOOL_CASES)(
+    "$name exposes a server-observable invocation lifecycle before success",
+    async ({ name, args }) => {
+      const call = makeCall(name, args);
+      const result = await executeSingleTool(call.options);
+
+      expect(result.kind, name).toBe("ok");
+      expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "completed",
+      ]);
+      expect(call.lifecycleEvents.every((event) => event.toolName === name), name).toBe(true);
+      expect(call.lifecycleEvents.every((event) => event.inputHash.length === 64), name).toBe(true);
+    },
+  );
+
+  it("records a distinct STARTED phase instead of jumping from request to terminal", async () => {
+    const call = makeCall("read_file", SAFE_ARGS.read_file);
+    const result = await executeSingleTool(call.options);
+    expect(result.kind).toBe("ok");
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "completed",
+    ]);
+  });
 });

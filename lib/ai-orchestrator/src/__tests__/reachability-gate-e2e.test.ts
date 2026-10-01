@@ -164,8 +164,8 @@ function nativeSseRangeReadThenAnswerStrategy(
               name: "read_file_range",
               arguments: JSON.stringify({
                 path: readPath,
-                startLine: "2",
-                endLine: "4",
+                  startLine: 2,
+                  endLine: 4,
               }),
             },
           }],
@@ -254,8 +254,8 @@ function rangeReadThenAnswerStrategy(
               name: "read_file_range",
               arguments: JSON.stringify({
                 path: readPath,
-                startLine: "2",
-                endLine: "4",
+                  startLine: 2,
+                  endLine: 4,
               }),
             },
           }],

@@ -53,13 +53,16 @@ import {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** Build a minimal fetch mock that returns a given HTTP status and body. */
-function mockFetch(status: number, body: unknown) {
-  return vi.fn().mockResolvedValue({
-    ok: status >= 200 && status < 300,
+function fetchResponse(status: number, body: unknown): Response {
+  const responseBody = typeof body === "string" ? body : JSON.stringify(body);
+  return new Response(responseBody, {
     status,
-    text: () => Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)),
-    json: () => Promise.resolve(body),
+    headers: { "content-type": "application/json" },
   });
+}
+
+function mockFetch(status: number, body: unknown) {
+  return vi.fn().mockResolvedValue(fetchResponse(status, body));
 }
 
 /** Build a successful OpenAI-compatible chat response. */
@@ -329,11 +332,7 @@ describe("dynamic catalog — runtime model refresh", () => {
   });
 
   it("keeps the static compatibility path when the first refresh fails", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      json: () => Promise.resolve({}),
-    }) as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(503, {})) as typeof fetch;
 
     await refreshDynamicCatalog("test-key");
 
@@ -345,21 +344,13 @@ describe("dynamic catalog — runtime model refresh", () => {
     vi.useFakeTimers({ now: Date.now() });
     const liveFree = FREE_MODELS[0].id;
     global.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({
+      .mockResolvedValueOnce(fetchResponse(200, {
           data: [
             { id: liveFree, pricing: { prompt: "0", completion: "0" } },
             { id: "paid/provider-model", pricing: { prompt: "0.001", completion: "0.002" } },
           ],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ data: [] }),
-      }) as typeof fetch;
+        }))
+      .mockResolvedValueOnce(fetchResponse(200, { data: [] })) as typeof fetch;
 
     await refreshDynamicCatalog("test-key");
     expect(getDynamicModelIds()).toEqual(new Set([liveFree]));
@@ -377,13 +368,9 @@ describe("dynamic catalog — runtime model refresh", () => {
 
   it("uses a loaded live catalog as a hard boundary for stale candidates", async () => {
     const liveFree = FREE_MODELS[0].id;
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
         data: [{ id: liveFree, pricing: { prompt: "0", completion: "0" } }],
-      }),
-    }) as typeof fetch;
+      })) as typeof fetch;
     await refreshDynamicCatalog();
 
     const chain = resolveFallbackChain({ capability: "chat" });
@@ -404,28 +391,20 @@ describe("dynamic catalog — runtime model refresh", () => {
       if (String(url).endsWith("/models")) {
         catalogFetches++;
         const useSecondSnapshot = catalogFetches > 1;
-        return {
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({
+        return fetchResponse(200, {
             data: [{
               id: useSecondSnapshot ? secondModel : firstModel,
               pricing: { prompt: "0", completion: "0" },
             }],
-          }),
-        } as Response;
+          });
       }
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       seenModels.push(String(body.model));
-      return {
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({
+      return fetchResponse(200, {
           choices: [{ message: { content: "ok" } }],
           model: body.model,
           usage: {},
-        }),
-      } as Response;
+        });
     }) as typeof fetch;
 
     await refreshDynamicCatalog("test-key");
@@ -478,10 +457,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
   });
 
   function catalogResponse(freeModel: string) {
-    return {
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({
+    return fetchResponse(200, {
         data: [
           {
             id: freeModel,
@@ -496,8 +472,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
             supported_parameters: ["tools", "tool_choice", "response_format"],
           },
         ],
-      }),
-    };
+      });
   }
 
   it("keeps paid candidates out of the free resolver and selects paid only after free exhaustion", async () => {
@@ -607,10 +582,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     global.fetch = vi.fn(async (url: string | URL) => {
       if (String(url).endsWith("/models")) {
-        return {
-          ok: true,
-          status: 200,
-          json: () => Promise.resolve({
+        return fetchResponse(200, {
             data: [
               { id: freeModel, pricing: { prompt: "0", completion: "0" } },
               {
@@ -619,8 +591,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
                 supported_parameters: [],
               },
             ],
-          }),
-        } as Response;
+          });
       }
       throw new Error("paid candidate should not be attempted");
     }) as typeof fetch;
@@ -669,11 +640,7 @@ describe("error classification", () => {
 
   it("preserves actual model and termination metadata from a successful response", async () => {
     const { oacCompleteRaw } = await import("../openai-compatible-client.js");
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
           choices: [{
             finish_reason: "length",
             message: {
@@ -687,8 +654,7 @@ describe("error classification", () => {
             completion_tokens: 34,
             completion_tokens_details: { reasoning_tokens: 21 },
           },
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     const result = await oacCompleteRaw(
       [{ role: "user", content: "hi" }],
@@ -708,17 +674,12 @@ describe("error classification", () => {
 
   it("accepts top-level output_text when message is absent", async () => {
     const { oacCompleteRaw } = await import("../openai-compatible-client.js");
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
           choices: [{}],
           output_text: "final text",
           model: "actual/model:free",
           usage: {},
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     const result = await oacCompleteRaw(
       [{ role: "user", content: "hi" }],
@@ -736,11 +697,7 @@ describe("error classification", () => {
 
   it("keeps reasoning blocks out of the final structured content", async () => {
     const { oacCompleteRaw } = await import("../openai-compatible-client.js");
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
           choices: [{
             finish_reason: "stop",
             message: {
@@ -752,8 +709,7 @@ describe("error classification", () => {
           }],
           model: "actual/model:free",
           usage: {},
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     const result = await oacCompleteRaw(
       [{ role: "user", content: "return JSON" }],
@@ -774,15 +730,11 @@ describe("error classification", () => {
     const chain = buildFallbackChainFromId(initialModel);
     expect(chain.length).toBeGreaterThan(1);
     const expectedNext = chain.find((model) => model !== initialModel)!;
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({
+    const fetchMock = vi.fn().mockResolvedValue(fetchResponse(200, {
         choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }],
         model: expectedNext,
         usage: {},
-      }),
-    });
+      }));
     global.fetch = fetchMock as typeof fetch;
 
     const result = await openrouterCompleteWithFallback(
@@ -804,25 +756,17 @@ describe("error classification", () => {
     const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: () => Promise.resolve(JSON.stringify({
+      .mockResolvedValueOnce(fetchResponse(400, {
           error: { code: "invalid_request", message: "response_format is not supported" },
-        })),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({
+        }))
+      .mockResolvedValueOnce(fetchResponse(200, {
           choices: [{
             finish_reason: "stop",
             message: { content: '{"response":"ok","sources":[]}' },
           }],
           model: "same/model:free",
           usage: {},
-        }),
-      });
+        }));
     global.fetch = fetchMock as typeof fetch;
 
     const result = await openrouterCompleteRaw(
@@ -1151,17 +1095,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
       if (callCount === 1) {
-        return Promise.resolve({
-          ok: false,
-          status: 404,
-          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
-        });
+        return Promise.resolve(fetchResponse(404, { error: { code: "model_not_found" } }));
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse()));
     }) as typeof fetch;
 
     const result = await openrouterCompleteWithFallback(
@@ -1181,17 +1117,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
       if (callCount === 1) {
-        return Promise.resolve({
-          ok: false,
-          status: 402,
-          text: () => Promise.resolve(JSON.stringify({ error: { message: "requires payment" } })),
-        });
+        return Promise.resolve(fetchResponse(402, { error: { message: "requires payment" } }));
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse()));
     }) as typeof fetch;
 
     const result = await openrouterCompleteWithFallback(
@@ -1212,17 +1140,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
       if (callCount === 1) {
-        return Promise.resolve({
-          ok: false,
-          status: 404,
-          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
-        });
+        return Promise.resolve(fetchResponse(404, { error: { code: "model_not_found" } }));
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse()));
     }) as typeof fetch;
 
     const result = await openrouterCompleteWithFallback(
@@ -1238,11 +1158,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
       "../openai-compatible-client.js"
     );
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
-    }) as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      fetchResponse(404, { error: { code: "model_not_found" } }),
+    ) as typeof fetch;
 
     // Use a model not in FREE_MODELS → chain = [id] → one attempt → throws
     const fetchMock = vi.fn();
@@ -1262,11 +1180,9 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     const { openrouterCompleteWithFallback } = await import(
       "../openai-compatible-client.js"
     );
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      text: () => Promise.resolve(JSON.stringify({ error: { message: "invalid key" } })),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      fetchResponse(401, { error: { message: "invalid key" } }),
+    );
     global.fetch = fetchMock as typeof fetch;
 
     await expect(
@@ -1288,16 +1204,8 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
       "../openai-compatible-client.js"
     );
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ choices: [{ message: { content: "" } }] }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      .mockResolvedValueOnce(fetchResponse(200, { choices: [{ message: { content: "" } }] }))
+      .mockResolvedValueOnce(fetchResponse(200, okResponse()));
     global.fetch = fetchMock as typeof fetch;
 
     const result = await openrouterCompleteWithFallback(
@@ -1376,12 +1284,10 @@ describe("integration (INT-001) — static catalog used before runtime catalog l
     global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
       const body = JSON.parse((init?.body as string) ?? "{}") as { model?: string };
       capturedModel = body.model ?? "";
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve(okResponse(capturedModel || "inclusionai/ling-3.0-flash:free")),
-      });
+      return Promise.resolve(fetchResponse(
+        200,
+        okResponse(capturedModel || "inclusionai/ling-3.0-flash:free"),
+      ));
     }) as typeof fetch;
 
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
@@ -1424,11 +1330,9 @@ describe("integration (INT-002) — downgrade to fast tier when powerful free mo
       .filter((m) => m.quality === "fast")
       .map((m) => ({ id: m.id, pricing: { prompt: "0", completion: "0" } }));
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ data: fastOnlyEntries }),
-    }) as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      fetchResponse(200, { data: fastOnlyEntries }),
+    ) as typeof fetch;
 
     await refreshDynamicCatalog("sk-test");
     global.fetch = globalFetch;
@@ -1472,14 +1376,9 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
   it("should fail over cleanly when no free model remains", async () => {
     // Populate the live catalog with a model ID that does not exist in FREE_MODELS.
     // This simulates all static models having moved from free → paid.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
           data: [{ id: "unknown/not-in-static-catalog:free", pricing: { prompt: "0", completion: "0" } }],
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     await refreshDynamicCatalog("sk-test");
     expect(isDynamicCatalogLoaded()).toBe(true);
@@ -1510,26 +1409,16 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
 
   it("should not issue OpenRouter requests when the resolved chain is empty", async () => {
     // Same setup — catalog contains no FREE_MODELS entries
-    global.fetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValueOnce(fetchResponse(200, {
           data: [{ id: "some/paid-model", pricing: { prompt: "0.0001", completion: "0.0002" } }],
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     // The paid model has non-zero pricing so refreshDynamicCatalog keeps previous catalog.
     // Reset so catalog shows loaded-but-empty by calling refresh with a response that
     // passes the free-model filter with an ID not in FREE_MODELS.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
           data: [{ id: "nonexistent/model:free", pricing: { prompt: "0", completion: "0" } }],
-        }),
-    }) as typeof fetch;
+        })) as typeof fetch;
 
     await refreshDynamicCatalog("sk-test");
     global.fetch = vi.fn() as typeof fetch; // reset before completion attempt
@@ -1554,11 +1443,7 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
     let callCount = 0;
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse()));
     }) as typeof fetch;
 
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
@@ -1578,17 +1463,9 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
     global.fetch = vi.fn().mockImplementation(() => {
       callCount += 1;
       if (callCount < 2) {
-        return Promise.resolve({
-          ok: false,
-          status: 404,
-          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
-        });
+        return Promise.resolve(fetchResponse(404, { error: { code: "model_not_found" } }));
       }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse()),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse()));
     }) as typeof fetch;
 
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
@@ -1621,11 +1498,7 @@ describe("integration (INT-004) — agentComplete resolves models from quality h
     global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
       capturedRequestBody = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
       const model = (capturedRequestBody["model"] as string) ?? "inclusionai/ling-3.0-flash:free";
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(okResponse(model)),
-      });
+      return Promise.resolve(fetchResponse(200, okResponse(model)));
     }) as typeof fetch;
 
     const { agentComplete } = await import("../agent-complete.js");

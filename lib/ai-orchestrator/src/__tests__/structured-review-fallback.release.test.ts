@@ -50,22 +50,17 @@ if (reviewModels.length < 3) {
   throw new Error("The structured-review release fixture requires three JSON-capable catalog models.");
 }
 
-type FixtureResponse = {
-  ok: boolean;
-  status: number;
-  headers?: Headers;
-  json: () => Promise<unknown>;
-  text: () => Promise<string>;
-};
+type FixtureResponse = Response;
 
 function jsonResponse(body: unknown, status = 200, headers?: Headers): FixtureResponse {
-  return {
-    ok: status >= 200 && status < 300,
+  const responseHeaders = new Headers(headers);
+  if (!responseHeaders.has("content-type")) {
+    responseHeaders.set("content-type", "application/json");
+  }
+  return new Response(JSON.stringify(body), {
     status,
-    headers,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  };
+    headers: responseHeaders,
+  });
 }
 
 function catalogResponse(): FixtureResponse {
@@ -244,14 +239,7 @@ describe("structured review catalog refresh release check", () => {
     },
     {
       name: "malformed response",
-      catalog: async () => ({
-        ok: true,
-        status: 200,
-        json: async () => {
-          throw new Error("fixture catalog JSON is malformed");
-        },
-        text: async () => "{ malformed",
-      }),
+      catalog: async () => new Response("{ malformed", { status: 200 }),
       expectedStatus: "failed",
     },
   ];

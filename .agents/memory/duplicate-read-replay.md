@@ -14,3 +14,9 @@ Evidence status for a path must be monotonic across retries and duplicate reads:
 **Why:** The terminal snapshot currently collapses per-path statuses to the latest value, so a harmless full-file locator read can overwrite a previously accepted bounded window and make a valid objective look incomplete.
 
 **How to apply:** Aggregate statuses by evidence strength when building retry handoffs and terminal snapshots; retain every raw read event for telemetry, but project the strongest retained window for acceptance.
+
+Shared tool-result cache entries must be bound to the project root, revision, complete authorized manifest, and effective read/execution scope. Every cache consumer that derives evidence or target paths must honor that same context; a cache hit from another context is not usable evidence.
+
+**Why:** A stale cached body can influence evidence scheduling or a repair handoff even when a fresh dispatcher call would reject the same path. Reading only cache keys without their context can therefore bypass the current scope boundary.
+
+**How to apply:** Use one canonical contextual key for cache lookup, prefetch seeding, and derived read-path projections. Migrate legacy keys only when their tool is authorized by the current manifest and their arguments can be validated.

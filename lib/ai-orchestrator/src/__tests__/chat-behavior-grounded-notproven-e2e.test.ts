@@ -452,12 +452,12 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
     ).join("\n"));
     const calls = { count: 0 };
     const ranges = [
-      ["1", "10"],
-      ["2", "9"],
-      ["3", "8"],
-      ["4", "7"],
-      ["5", "6"],
-      ["6", "7"],
+      [1, 10],
+      [2, 9],
+      [3, 8],
+      [4, 7],
+      [5, 6],
+      [6, 7],
     ];
     const strategy = {
       providerId: "openrouter",

@@ -474,14 +474,19 @@ function untrustedToolOutput(name: string, output: string, args: Record<string, 
  * differences produce the same key. Exported so speculative-prefetch seeds the
  * same cache without duplicating the keying logic.
  */
-export function toolCacheKey(name: string, args: Record<string, string>): string {
+export function toolCacheKey(
+  name: string,
+  args: Record<string, string>,
+  contextHash?: string,
+): string {
   const sorted = Object.keys(args)
     .sort()
     .reduce<Record<string, string>>((acc, k) => {
       acc[k] = args[k];
       return acc;
     }, {});
-  return `${name}:${JSON.stringify(sorted)}`;
+  const key = `${name}:${JSON.stringify(sorted)}`;
+  return contextHash ? `${key}::context:${contextHash}` : key;
 }
 
 type SearchMatch = { path: string; line: number };
@@ -590,6 +595,20 @@ export type MutationToolInvocation = {
 
 export type MutationToolInvocationCallback = (
   invocation: MutationToolInvocation,
+) => void | Promise<void>;
+
+export type ToolInvocationLifecycleEvent = {
+  phase: "requested" | "started" | "completed" | "failed" | "cancelled";
+  toolCallId?: string;
+  toolName: string;
+  inputHash: string;
+  manifestHash: string;
+  outputHash?: string;
+  diagnosticCode?: string;
+};
+
+export type ToolInvocationLifecycleCallback = (
+  event: ToolInvocationLifecycleEvent,
 ) => void | Promise<void>;
 
 export type ReadOnlyToolInvocation = {
@@ -728,6 +747,8 @@ export type SingleToolOpts = {
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission read tools. */
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
+  /** Server-observable lifecycle for every authorized executor dispatch. */
+  onToolInvocation?: ToolInvocationLifecycleCallback;
   /** Hash of the complete server-owned provider authorization manifest. */
   toolManifestHash?: string;
   /** Provider tool-call identity, used only as an input to server-owned correlation. */
@@ -1049,6 +1070,23 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     opts.completeReads && name === "read_file"
       ? { ...validatedArgs, complete: "true" }
       : validatedArgs;
+  const lifecycleInputHash = toolInputHash(effectiveArgs);
+  const lifecycleToolCallId = opts.toolCallId?.trim();
+  let lifecycleRequested = false;
+  const emitToolLifecycle = async (
+    phase: ToolInvocationLifecycleEvent["phase"],
+    details: Pick<ToolInvocationLifecycleEvent, "outputHash" | "diagnosticCode"> = {},
+  ): Promise<void> => {
+    if (!opts.onToolInvocation) return;
+    await opts.onToolInvocation({
+      phase,
+      ...(lifecycleToolCallId ? { toolCallId: lifecycleToolCallId } : {}),
+      toolName: name,
+      inputHash: lifecycleInputHash,
+      manifestHash: opts.toolManifestHash ?? "",
+      ...details,
+    });
+  };
 
   try {
     if (isExecutionTool && !opts.allowExecutionTools) {
@@ -1221,6 +1259,11 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           projectRevision: opts.analysisCorrelation.projectRevision,
         }
       : undefined;
+    if (opts.onToolInvocation) {
+      await emitToolLifecycle("requested");
+      lifecycleRequested = true;
+      await emitToolLifecycle("started");
+    }
     const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
@@ -1311,6 +1354,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         : output.startsWith('Focused change queued for "') && pendingChanges.length === mutationPendingStart + 1;
       if (!queuedSuccessfully) {
         pendingChanges.splice(mutationPendingStart);
+        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_EXECUTION_FAILED" });
         return {
           kind: "failed",
           failureKind: "execution",
@@ -1322,6 +1366,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         await mutationCallback({ ...mutationInvocationBase, phase: "committed" });
       } catch {
         pendingChanges.splice(mutationPendingStart);
+        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
           kind: "failed",
           failureKind: "unavailable",
@@ -1351,6 +1396,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       try {
         await readCallback({ ...readInvocationBase, ...recorded });
       } catch {
+        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
           kind: "failed",
           failureKind: "unavailable",
@@ -1361,6 +1407,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
 
     if (analysisFailure) {
+      await emitToolLifecycle(
+        analysisFailure.failureKind === "cancelled" ? "cancelled" : "failed",
+        { diagnosticCode: analysisFailure.diagnosticCode },
+      );
       console.error(JSON.stringify({
         scope: "tool-execution-engine",
         code: analysisFailure.diagnosticCode,
@@ -1414,6 +1464,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
+    await emitToolLifecycle("completed", {
+      outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
+    });
     return { kind: "ok", output, source };
   } catch (error) {
     if (mutationInvocationActive) {
@@ -1438,6 +1491,16 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
     const cancelled = opts.signal?.aborted === true;
+    if (lifecycleRequested) {
+      try {
+        await emitToolLifecycle(
+          cancelled ? "cancelled" : "failed",
+          { diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED" },
+        );
+      } catch {
+        // A terminal observation failure must not replace the original tool failure.
+      }
+    }
     console.error(JSON.stringify({
       scope: "tool-execution-engine",
       code: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
@@ -1951,6 +2014,8 @@ export type ToolLoopOpts = {
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission read tools. */
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
+  /** Server-observable lifecycle for every authorized executor dispatch. */
+  onToolInvocation?: ToolInvocationLifecycleCallback;
 
   /** Request-owned budget shared across every orchestration phase. */
   executionLedger?: ExecutionLedger;
@@ -1962,6 +2027,103 @@ export type ToolLoopOpts = {
    */
   assertExecutionOwned?: () => void | Promise<void>;
 };
+
+function sortedCachePaths(paths: readonly string[] | undefined): string[] | null {
+  if (paths === undefined) return null;
+  return [...new Set(paths.map((value) => value.replaceAll("\\", "/")))].sort();
+}
+
+function toolCacheContextHash(opts: ToolLoopOpts): string {
+  const correlation = opts.analysisCorrelation;
+  const projectRevision =
+    correlation?.projectRevision
+    ?? opts.commandContext?.revision
+    ?? opts.browserValidationContext?.revision
+    ?? "";
+  const manifestHash = hashProviderToolManifest(opts.toolManifest ?? opts.tools) ?? "";
+  const scope = {
+    phase: opts.phase ?? null,
+    taskType: opts.taskType ?? null,
+    allowedToolNames: opts.allowedToolNames ? [...opts.allowedToolNames].sort() : null,
+    allowedReadPaths: sortedCachePaths(opts.allowedReadPaths),
+    missionReadPathScope: sortedCachePaths(opts.missionReadPathScope),
+    approvedFilePaths: sortedCachePaths(opts.approvedFilePaths),
+    approvedValidationProfiles: opts.approvedValidationProfiles
+      ? [...opts.approvedValidationProfiles].sort()
+      : null,
+    approvalState: opts.approvalState ?? null,
+    allowExecutionTools: opts.allowExecutionTools ?? false,
+    completeReads: opts.completeReads ?? false,
+    executionMode: opts.executionMode ?? null,
+    objective: opts.objective ?? null,
+    objectiveScopePolicy: opts.objectiveScopePolicy ?? null,
+    firstEvidenceTargetPath: opts.firstEvidenceTargetPath ?? null,
+    orderedForensicRoots: opts.orderedForensicRoots ?? null,
+    executionTargetPaths: sortedCachePaths(opts.executionTargetPaths),
+    validationTargetPaths: sortedCachePaths(opts.validationTargetPaths),
+    commandProfiles: opts.commandProfiles ?? null,
+    commandContext: opts.commandContext ?? null,
+    browserValidationContext: opts.browserValidationContext ?? null,
+    analysisCorrelation: correlation
+      ? {
+          operationId: correlation.operationId ?? null,
+          projectId: correlation.projectId ?? null,
+          projectRevision: correlation.projectRevision ?? null,
+          rootAvailable: correlation.rootAvailable ?? null,
+          evidenceProvenance: correlation.evidenceProvenance ?? null,
+        }
+      : null,
+  };
+  return canonicalJsonHash({
+    rootPath: opts.rootPath,
+    projectId: correlation?.projectId ?? "",
+    projectRevision,
+    manifestHash,
+    scope,
+  } as unknown as JsonValue);
+}
+
+function migrateLegacyToolCache(
+  cache: Map<string, string>,
+  contextHash: string,
+  authorizedToolNames: ReadonlySet<string>,
+): void {
+  for (const [legacyKey, value] of [...cache.entries()]) {
+    if (legacyKey.includes("::context:")) continue;
+    const separator = legacyKey.indexOf(":");
+    if (separator <= 0) {
+      cache.delete(legacyKey);
+      continue;
+    }
+    const toolName = legacyKey.slice(0, separator);
+    const attemptOffset = legacyKey.indexOf("::attempt:", separator + 1);
+    const argsJson = legacyKey.slice(
+      separator + 1,
+      attemptOffset === -1 ? undefined : attemptOffset,
+    );
+    const attemptSuffix = attemptOffset === -1 ? "" : legacyKey.slice(attemptOffset);
+    let parsedArgs: unknown;
+    try {
+      parsedArgs = JSON.parse(argsJson) as unknown;
+    } catch {
+      cache.delete(legacyKey);
+      continue;
+    }
+    if (
+      !authorizedToolNames.has(toolName)
+      || !isRecord(parsedArgs)
+      || Object.values(parsedArgs).some((value) => typeof value !== "string")
+    ) {
+      cache.delete(legacyKey);
+      continue;
+    }
+    cache.set(
+      `${toolCacheKey(toolName, parsedArgs as Record<string, string>, contextHash)}${attemptSuffix}`,
+      value,
+    );
+    cache.delete(legacyKey);
+  }
+}
 
 export type ToolLoopResult =
   | {
@@ -2590,6 +2752,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   );
 
   const toolCallCache = opts.cache ?? new Map<string, string>();
+  const cacheContextHash = toolCacheContextHash(opts);
+  const cacheManifest = opts.toolManifest ?? opts.tools ?? [];
+  migrateLegacyToolCache(
+    toolCallCache,
+    cacheContextHash,
+    new Set(cacheManifest.map((tool) => tool.function.name)),
+  );
   if (initialPendingChanges && initialPendingChanges.length > 0) {
     pendingChanges.splice(0, pendingChanges.length, ...initialPendingChanges);
   }
@@ -2603,7 +2772,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     "replace_text",
     "run_validation",
     "run_command",
-    "browser_validation",
+    "run_browser_validation",
   ]);
   const toolSources: string[] = [];
   const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
@@ -3240,8 +3409,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const paths = new Set<string>();
     for (const key of toolCallCache.keys()) {
       if (!key.startsWith("read_file:")) continue;
+      const contextMarker = "::context:";
+      const contextOffset = key.indexOf(contextMarker, "read_file:".length);
+      if (
+        contextOffset === -1
+        || key.slice(contextOffset + contextMarker.length) !== cacheContextHash
+      ) {
+        continue;
+      }
       try {
-        const parsed = JSON.parse(key.slice("read_file:".length)) as { path?: unknown };
+        const parsed = JSON.parse(
+          key.slice("read_file:".length, contextOffset),
+        ) as { path?: unknown };
         if (typeof parsed.path === "string") paths.add(parsed.path);
       } catch {
         // Ignore malformed cache keys; the normal tool loop will handle them.
@@ -5395,9 +5574,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const pendingChangesBeforeTool = pendingChanges.length;
       // Validation is intentionally not replay-cached: after a pending patch,
       // the same profile must execute again against the new workspace state.
-      const key = isValidationCall
+      const replayKey = isValidationCall
         ? `${toolCacheKey(tc.function.name, args)}::attempt:${validationAttempt}`
         : toolCacheKey(tc.function.name, args);
+      const cacheKey = toolCacheKey(tc.function.name, args, cacheContextHash);
+      const key = isValidationCall
+        ? `${cacheKey}::attempt:${validationAttempt}`
+        : cacheKey;
       const cachedValue = providerArgsValid ? toolCallCache.get(key) : undefined;
       const cachedPath =
         (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
@@ -5424,6 +5607,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // Return a server-owned acknowledgement instead of dispatching them.
       const priorToolCall = providerArgsValid
         ? priorToolCallMap.get(key) ??
+          priorToolCallMap.get(replayKey) ??
           priorToolCallMap.get(toolCacheKey(tc.function.name, args))
         : undefined;
       if (priorToolCall && nonIdempotentTools.has(tc.function.name)) {
@@ -6464,6 +6648,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           signal,
           onMutationInvocation: opts.onMutationInvocation,
           onReadOnlyInvocation: opts.onReadOnlyInvocation,
+          onToolInvocation: opts.onToolInvocation,
           toolManifestHash: hashProviderToolManifest(toolManifest),
         });
         toolCompleted = toolResult.kind === "ok";
@@ -6552,9 +6737,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // Successful execution — consume budget, cache, record source.
       totalToolCalls++;
       toolCallCache.set(key, toolResult.output);
-      if (!completedToolCalls.some((call) => call.key === key)) {
+      if (!completedToolCalls.some((call) => call.key === replayKey)) {
         completedToolCalls.push({
-          key,
+          key: replayKey,
           tool: tc.function.name,
           args: { ...args },
           status: "completed",
