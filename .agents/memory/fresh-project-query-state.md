@@ -32,3 +32,18 @@ Project-query continuation state must not be used as the new turn's mutable targ
 **Why:** A real embedded-AI session produced 4, then 5, then 6 required claims for three different questions. The extra claims came from reusing the prior target's claims before `buildProjectQueryObjective` appended the current weakness claim; evidence and deterministic synthesis then repeated the same answer.
 
 **How to apply:** Treat a new project question as a fresh target/objective. For recognized continuations, preserve the original immutable objective; otherwise never merge prior required claims into the current target. Deduplicate by claim ID as a fail-closed invariant.
+
+Questions about a displayed execution-status badge require a bounded reference
+to its exact assistant message, execution, and attempt. Do not infer execution
+scope from role/content history or inherit the previous objective just because
+the user mentions “fallback”; if the reference is ambiguous, ask which run.
+
+**Why:** Provider history can omit structured response provenance and durable
+execution identity. A fallback follow-up can therefore resolve as generic CHAT
+even when the prior assistant message has the needed server-owned diagnostic.
+
+**How to apply:** Have status-card actions send a message/execution reference,
+validate ownership and exact acceptance binding on the server, and build a
+bounded diagnostic context from persisted trace/acceptance fields. Support
+manual phrasing only when it unambiguously targets the latest matching
+terminal message; never turn this into general session-scope inheritance.

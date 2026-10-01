@@ -254,6 +254,14 @@ budget accounting. Session-list labels and historical acceptance projections
 should derive from each message's durable outcome and exact attempt, not report
 text or the execution's latest state.
 
+Questions about a structured response-status badge need an explicit,
+server-validated binding to the assistant message and exact execution attempt
+that emitted it. Conversation history alone is not that binding: provider
+history may contain only role/content and omit the structured response
+provenance and acceptance. Keep such diagnostics separate from broad
+project-query state inheritance; if the referenced terminal record is missing
+or ambiguous, ask for clarification instead of selecting the latest execution.
+
 ### 4d. Task AI Execute
 
 ```

@@ -999,3 +999,250 @@ acceptance queries in the same route; cancellation finalization in
 
 These are follow-up verification findings from source inspection. They are not
 live incident claims and were not runtime-tested.
+
+## 10. Forensic trace — latest development chat session (2026-10-01)
+
+This review follows the latest session by the maximum of session update time,
+message time, and linked execution update time in the development database. The
+session contains three user/assistant pairs, three durable executions, three
+acceptances, one accepted evidence snapshot, five usage-event rows, and three
+consumed project-budget reservations. Production data was not queried. This is
+a read-only reconstruction; no application behavior was changed.
+
+Session ID: `3e59d5b5-92c7-4730-bddf-dcb3420ec548`.
+
+### 10.1 Ordered execution timeline
+
+| Recorded time | User turn / durable execution | Server decision and result |
+| --- | --- | --- |
+| 02:45:42.859 | User: `مرحبا`. Execution `b4308753-f360-465f-86c7-1ca2016a765b`. | `CHAT`; completed 02:45:48.128; acceptance `SUCCEEDED/ACCEPTED`; no source evidence required and no evidence snapshot. One usage event, token usage unknown. |
+| 02:46:07.875 | User: `ما تقييمك للوضع الحالي للمشروع إذا كان الهدف هو الوصول إلى مستوى الوكيل العام`. Execution `beec9422-015f-4b4b-8387-cb2baed513a3`. | `PROJECT_QUERY`; `requiresTools=true`, `requiresEvidence=true`; objective `PROJECT_QUERY_GENERIC-PROJECT`; began 02:46:08.110 and completed 02:46:36.429. Three required source paths were read completely. The project-query plan stage separately recorded an HTTP 429 and fell back to a query plan; that is not the fallback reason shown on the final answer. |
+| 02:46:36.269–02:46:36.381 | Provider usage events associated with the project query. | The durable trace records two no-tools synthesis rejections after the initial provider request: attempt 1 was `SEMANTIC` and triggered repair; attempt 2 was `CONTRACT` and selected deterministic fallback. The accepted response source is `deterministic_fallback`, with reason `provider_candidate_incomplete`. |
+| 02:46:36.429 | Acceptance for `beec9422-015f-4b4b-8387-cb2baed513a3`. | `SUCCEEDED/ACCEPTED`, objective verdict `PROVEN`, `evidenceRequired=1`, `evidenceComplete=1`, `resumable=0`, accepted claims 3, snapshot `b5078abf-f232-45d9-b592-a403d81cc855`. The fallback concerns provider-written synthesis, not missing source evidence. |
+| 02:47:22.873 | User: `Evidence-based fallback\nFallback reason: Provider candidate was incomplete؟`. Execution `381539de-37ac-4d4b-8121-225b9b481632`. | The route loaded four history messages but resolved the new request as `CHAT`, with `requiresTools=false`, `requiresEvidence=false`, generic response contract, and no prior execution binding. It completed 02:47:31.579 as `SUCCEEDED/ACCEPTED`, without source reads or an evidence snapshot. |
+
+The API log later contains 401 responses for session/history reads around
+02:49. Those requests occur after the third execution completed and are not
+part of the fallback or acceptance chain reconstructed here.
+
+### 10.2 Complete persisted transcript
+
+The six message rows in the selected session are:
+
+**1. User**
+
+```text
+مرحبا
+```
+
+**2. Assistant**
+
+```text
+أهلاً بك! أنا مستعد لمساعدتك. من فضلك أخبرني ما الذي تحتاج إليه حتى أتمكن من تقديم الدعم المناسب.
+```
+
+**3. User**
+
+```text
+ما تقييمك للوضع الحالي للمشروع إذا كان الهدف هو الوصول إلى مستوى الوكيل العام
+```
+
+**4. Assistant**
+
+```text
+## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟
+
+باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.
+
+### الدورة العملية
+أولاً، يبدأ المسار بفهم السؤال وتحديد نوع التنفيذ المطلوب.
+ثم يجمع الوكيل القراءات اللازمة ويحتفظ بها قبل صياغة الإجابة.
+وأخيراً، تُصاغ الإجابة من السلوك الذي أثبتته القراءات، مع إبقاء ما لم يُقرأ خارج نطاق الاستنتاج.
+
+### الادعاء المثبت
+النقاط التالية هي الادعاءات server-owned التي أغلقتها القراءات المكتملة:
+- The server resolves a project-query intent before selecting the read-only project execution path. — المصدر: `lib/ai-orchestrator/src/turn-intent.ts`، الأسطر 375-381
+- Project-query answers remain incomplete until the server-owned objective and retained evidence gates are satisfied. — المصدر: `lib/ai-orchestrator/src/evidence-integrity.ts`، الأسطر 1893-1899
+- Generic project analysis uses bounded read-only source tools and does not grant mutation authority. — المصدر: `lib/ai-orchestrator/src/turn-intent.ts`، الأسطر 65-71
+
+### الشرح
+أولاً، يبدأ المسار بفهم السؤال وتحديد نوع التنفيذ المطلوب.
+ثم يجمع الوكيل القراءات اللازمة ويحتفظ بها قبل صياغة الإجابة.
+وأخيراً، تُصاغ الإجابة من السلوك الذي أثبتته القراءات، مع إبقاء ما لم يُقرأ خارج نطاق الاستنتاج.
+
+### المصدر
+- `lib/ai-orchestrator/src/turn-intent.ts:375-381`
+- `lib/ai-orchestrator/src/evidence-integrity.ts:1893-1899`
+- `lib/ai-orchestrator/src/turn-intent.ts:65-71`
+
+### حدود الشرح
+يثبت هذا التحليل سلوك الكود داخل نوافذ المصدر المقروءة. لا يثبت وحده قابلية الوصول الإنتاجية أو سلوكاً لم يظهر في هذه القراءات.
+```
+
+**5. User**
+
+```text
+Evidence-based fallback
+Fallback reason: Provider candidate was incomplete؟
+```
+
+**6. Assistant**
+
+```text
+## إجابة حول آلية Fallback القائمة على الأدلة
+
+بناءً على السياق المتاح، لا يوجد ذكر صريح لآلية "Evidence-based fallback" أو حالة "Provider candidate was incomplete" في الوثائق الحالية للمشروع. المعلومات المتاحة تتعلق فقط بسلوك `lib/ai-orchestrator` فيما يتعلق بتحديد النوايا (intent) وضمان سلامة الأدلة (evidence integrity)، لكن لا توجد تفاصيل عن حالات التراجع أو المعاملات غير المكتملة.
+
+### ما يمكن تأكيده من المصادر المتاحة
+
+- **`lib/ai-orchestrator/src/turn-intent.ts`** (الأسطر 375-381): يحدد أن الوكيل يبدأ بمعرفة نية المستخدم قبل اختيار مسار التنفيذ.
+- **`lib/ai-orchestrator/src/evidence-integrity.ts`** (الأسطر 1893-1899): يؤكد أن إجابات المشروع تبقى غير مكتملة حتى يتم استيفاء نوافذ الأدلة المطلوبة.
+- **`lib/ai-orchestrator/src/turn-intent.ts`** (الأسطر 65-71): يوضح أن تحليل المشروع العام يستخدم أدوات قراءة فقط ولا يمنح صلاحيات تعديل.
+
+### الخلاصة
+
+لا يوجد في السياق المرفق وصفاً لآلية fallback تعتمد على عدم اكتمال مرشح المورد (Provider candidate incomplete). هذا يعني أنه بناءً على المعلومات المتاحة، لا يمكن تأكيد وجود مثل هذه الآلية أو وصفها. إذا كنت تبحث عن تفاصيل إضافية حول آليات التراجع أو معالجة الأخطاء، فسيحتاج الأمر إلى مراجعة كود `lib/ai-orchestrator` بشكل مباشر أو طلب توضيح من المطورين.
+
+---
+
+**المصادر:**
+- `lib/ai-orchestrator/src/turn-intent.ts`
+- `lib/ai-orchestrator/src/evidence-integrity.ts`
+- `lib/ai-orchestrator/src/turn-intent.ts`
+```
+
+### 10.3 Acceptance, evidence, and usage rows
+
+The three acceptance rows are all terminal `completed/SUCCEEDED/ACCEPTED`
+records, each bound to the matching final assistant message:
+
+| Execution | Acceptance row | Message | Evidence contract |
+| --- | --- | --- | --- |
+| `b4308753-f360-465f-86c7-1ca2016a765b` | `c37ed39a-657f-449f-98cf-c50b24068e48` | `f046325d-2b1e-43f8-b7b5-25f00c0a53b0` | `evidenceRequired=0`; no snapshot. |
+| `beec9422-015f-4b4b-8387-cb2baed513a3` | `1f235eb4-a088-4cd9-b648-2c279e8e6275` | `d4477d3a-0690-472b-84f3-3e831c8a8539` | `evidenceRequired=1`, `evidenceComplete=1`; snapshot `b5078abf-f232-45d9-b592-a403d81cc855`; verdict `PROVEN`; 3 reads, 186,111 bytes; source revision `2a3358c25915c93ad4c5e3e92064cbfd5ddc9f35f6d7242bcf44feb1baba3714`. |
+| `381539de-37ac-4d4b-8121-225b9b481632` | `ee98bc9f-ef75-4191-ad17-33e3e356aabd` | `a1b4ddba-3d75-47fc-8c9d-24a80b121b7d` | `evidenceRequired=0`; no snapshot. |
+
+All reads in the accepted project-query snapshot are source reads with no line
+span, `complete=1`, and `truncated=0`:
+
+| Path | Stored bytes | SHA-256 |
+| --- | ---: | --- |
+| `lib/ai-orchestrator/src/evidence-integrity.ts` | 104,635 | `e4b22aa3a9f00605fb1e6a1ea5dc427103ec3453f6ff98f53a74a85d264bd9f8` |
+| `lib/ai-orchestrator/src/project-query-target.ts` | 51,352 | `8b444c9c62d7b65da952875b84b8751ffef9e4f5642f2f8de5672fa5cde990aa` |
+| `lib/ai-orchestrator/src/turn-intent.ts` | 30,124 | `df4e7391d0188b5e4fc20618e4aadc526d4b4d975d4ca23de36c50d9484c4ceb` |
+
+The five usage events are one for the greeting, three for the project query
+(initial provider request plus two synthesis attempts), and one for the final
+follow-up. All five have `usage_status=unknown` and null prompt/completion
+token fields. The project-query events are successful provider calls despite
+the two synthesis-candidate rejections: provider-call success is not answer
+contract acceptance.
+
+Each execution has one consumed budget reservation. Each reservation held an
+8,192-token estimate and was charged 8,192 tokens because actual usage was
+unknown. The two synthesis attempts did not have separate project-budget
+reservation rows. The persisted usage event IDs, in chronological order, are
+`d3abfe26-e018-4a5d-9bba-089aa6b9078d`,
+`0dfc90d9-f0d0-4874-82cd-3b228016bd8d`,
+`8809a304-f34d-444b-9b53-2310f65f21c2`,
+`090e28dd-98dc-45a9-a8bd-a80648ea311c`, and
+`bc946ddc-996f-4fa9-93d6-5f7d99dfb53f`.
+
+The final assistant row for the project query stores the three evidence source
+paths and response provenance. The final row for the follow-up stores an empty
+source list. Its `tool_trace` records zero file reads, `turnIntent=CHAT`, and
+the ordinary-chat proof contract. Its internal forensic diagnostic says
+`ANALYSIS_INCOMPLETE/NO_EVIDENCE_REACHED`; the Dashboard intentionally does not
+render forensic diagnostics for CHAT turns. The acceptance's generic proof
+projection is not evidence of source verification because
+`evidenceRequired=0` and there is no evidence snapshot.
+
+### 10.4 Where the behavior diverged
+
+The **fallback badge itself is accurate at its stated level**. The project
+query read and accepted all three required source files, materialized all
+three claims, and closed the objective as `PROVEN`. Separately, the
+provider-written synthesis candidates failed their response contract: the
+first rejection was semantic and entered repair; the next was contract
+invalid and ended the candidate recovery path. The server then selected a
+deterministic answer built from the accepted evidence and recorded
+`provider_candidate_incomplete`. This does not mean the source evidence was
+incomplete, and it is not the planner's separate HTTP 429.
+
+The specific rejected candidate text is not retained in the durable trace;
+the trace stores output hashes and failure classes. Therefore the session
+proves the rejection sequence and final reason, but not which individual
+semantic check failed first or the exact malformed response from the second
+attempt.
+
+The **first user-visible divergence is the next turn's intent and reference
+binding**, not the earlier evidence verifier or acceptance transaction:
+
+1. The user asked about the structured fallback badge from the immediately
+   preceding project-query message.
+2. The raw-message classifier did not recognize that wording as a
+   project/execution diagnostic. `resolveTurnIntent` selected `CHAT`.
+3. The API loaded four previous messages, but provider history projects
+   conversational `{role, content}` rather than execution ID, acceptance,
+   response-source metadata, or the structured tool trace. History count is
+   not a binding to the fallback-producing execution.
+4. No recognized continuation or explicit handoff associated the question
+   with execution `beec9422-015f-4b4b-8387-cb2baed513a3`. The ordinary CHAT
+   path consequently disabled tools and evidence, set `proofRequired=false`,
+   and accepted the generic answer without a snapshot.
+5. The model then said the fallback mechanism was not described and suggested
+   that the code be reviewed, even though the application had persisted the
+   exact bounded fallback reason on the prior assistant message.
+
+The no-inheritance rule is deliberate: unrelated new questions must not inherit
+stale project-query scope. The missing capability is a **narrow, validated
+reference to the exact message/execution/attempt that owns a displayed
+diagnostic**. Broadly treating every use of “fallback” as a project query, or
+copying the previous objective into every new turn, would create a different
+scope-safety defect.
+
+### 10.5 Highest-priority closure plan
+
+Keep this as the implementation plan; no behavior changes are included in
+this audit.
+
+1. **Bind the diagnostic to its source.** On the existing project-query
+   fallback card in `artifacts/dashboard/src/pages/AiChat.tsx`, add a focused
+   “Explain this fallback” action that sends the exact assistant message ID
+   and execution ID. For manually typed fallback questions, support only a
+   bounded phrase match when the latest visible assistant message in that same
+   session has the matching structured fallback metadata; otherwise ask which
+   run the user means.
+2. **Validate and load server-owned context.** In
+   `artifacts/api-server/src/routes/ai/chat.ts`, verify that the referenced
+   message, execution, attempt, session, and project belong together and are
+   visible to the authenticated user. Load an allowlisted diagnostic
+   projection from the exact acceptance and trace: response source, bounded
+   fallback reason, rejection classes/recovery actions, evidence snapshot
+   identity/verdict, and the matching source revision. Do not pass raw provider
+   output or arbitrary client-supplied trace text.
+3. **Use a narrow diagnostic turn contract.** Route this bound request through
+   a read-only execution-diagnostic path (or an equally explicit server-owned
+   subintent), not generic CHAT and not unrestricted prior-scope inheritance.
+   Answer directly from the persisted diagnostic when it is sufficient. If
+   explaining implementation behavior requires code reads, bind those reads
+   to the recorded revision and accept them under the normal evidence gate.
+   If the stored record lacks the detail, state that limitation rather than
+   inventing the exact rejected response.
+4. **Preserve identity and response parity.** Carry the bound message,
+   execution, and attempt identity through JSON/SSE, terminal acceptance, and
+   history. A failed or ambiguous reference must not silently fall back to the
+   latest execution or another session.
+5. **Add a session-replay regression.** Recreate the three-turn sequence
+   above. Assert that the greeting stays CHAT; the broad project question
+   creates its own evidence contract; the fallback follow-up resolves to the
+   exact prior assistant message and explains semantic repair followed by
+   contract rejection; its sources/evidence come from the matching execution;
+   and unrelated new questions still do not inherit that execution's scope.
+   Add negative cases for a missing, stale, cross-session, or attempt-mismatched
+   reference, and assert JSON/SSE/history parity.
+
+**Done means:** the user can ask why this exact badge appeared and receive an
+answer bound to the right durable event; the answer cannot borrow evidence
+from a different execution, claim details absent from the trace, or enable
+mutation tools.
