@@ -6424,6 +6424,8 @@ export async function chat(opts: {
   authorizedToolManifestNames?: readonly string[];
   /** Server-owned Mission dispatch allowlist, rechecked after model tool selection. */
   allowedToolNames?: readonly string[];
+  /** Server-owned tool-surface mode for durable Mission execution; still narrowed by both manifests. */
+  executionMode?: "forensic" | "repair_plan";
   /** Immutable exact source-read scope for Mission file and path-filtered diff calls. */
   missionReadPathScope?: readonly string[];
   /**
@@ -7827,7 +7829,13 @@ export async function chat(opts: {
     ? buildProviderTools(
         providerId,
         rootPath,
-        repairPlanExecution
+        opts.executionMode === "repair_plan" &&
+          allowValidationTools &&
+          typeof validationRunner === "function" &&
+          opts.allowedToolNames?.includes("run_validation") &&
+          opts.authorizedToolManifestNames?.includes("run_validation")
+          ? "repair_plan"
+          : repairPlanExecution
           ? "repair_plan"
           : turnIntent.requiresEvidence
             ? "forensic"

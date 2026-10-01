@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
+import { createServer } from "node:http";
 import {
   PreviewSessionManager,
   PREVIEW_LIMITS,
@@ -201,7 +202,7 @@ describe("browser preview verification", () => {
     expect(result.summary).toContain("malformed selector");
   });
 
-  it("times out a hanging browser step and closes both browser resources", async () => {
+  it("waits for an in-flight browser step to settle after timeout cleanup", async () => {
     const session = {
       id: "session-timeout", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
       startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
@@ -209,9 +210,17 @@ describe("browser preview verification", () => {
     };
     const browser = browserFactory();
     const page = await browser.newPage();
-    const goto = vi.spyOn(page, "goto").mockImplementation(
-      () => new Promise<void>(() => undefined),
-    );
+    let rejectGoto!: (error: Error) => void;
+    let gotoSettled = false;
+    const pendingGoto = new Promise<void>((_resolve, reject) => {
+      rejectGoto = reject;
+    }).finally(() => {
+      gotoSettled = true;
+    });
+    const goto = vi.spyOn(page, "goto").mockReturnValue(pendingGoto);
+    vi.spyOn(page, "close").mockImplementation(async () => {
+      setTimeout(() => rejectGoto(new Error("Browser page closed.")), 25);
+    });
     vi.spyOn(browser, "newPage").mockResolvedValue(page);
 
     const result = await verifyBrowserPreview({
@@ -233,7 +242,122 @@ describe("browser preview verification", () => {
     expect(result.summary).toContain("timed out");
     expect(page.close).toHaveBeenCalledOnce();
     expect(browser.close).toHaveBeenCalledOnce();
+    expect(gotoSettled).toBe(true);
   });
+
+  it("settles real Chromium navigation after caller cancellation", async () => {
+    let markRequestStarted!: () => void;
+    const requestStarted = new Promise<void>((resolve) => {
+      markRequestStarted = resolve;
+    });
+    const server = createServer(() => markRequestStarted());
+    let chromiumBrowser: import("playwright").Browser | undefined;
+    let browserClosed = false;
+    let requestStartTimeout: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | undefined;
+    let verification: ReturnType<typeof verifyBrowserPreview> | undefined;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("The local browser-cancellation server did not bind a TCP port.");
+      }
+      const origin = `http://127.0.0.1:${address.port}`;
+      const { chromium } = await import("playwright");
+      chromiumBrowser = await chromium.launch({
+        headless: true,
+        args: ["--no-proxy-server"],
+      });
+      const activeBrowser = chromiumBrowser;
+      let gotoSettled = false;
+      const browser: PreviewBrowser = {
+        newPage: async () => {
+          const page = await activeBrowser.newPage();
+          return {
+            goto: async (url) => {
+              try {
+                await page.goto(url);
+              } finally {
+                gotoSettled = true;
+              }
+            },
+            url: () => page.url(),
+            locator: (selector) => page.locator(selector),
+            screenshot: (options) => page.screenshot(options),
+            close: () => page.close(),
+            onConsole: (listener) => {
+              page.on("console", (message) => listener({
+                type: () => message.type(),
+                text: () => message.text(),
+              }));
+            },
+          };
+        },
+        close: async () => {
+          if (!browserClosed) {
+            await activeBrowser.close();
+            browserClosed = true;
+          }
+        },
+      };
+      controller = new AbortController();
+      verification = verifyBrowserPreview({
+        session: {
+          id: "session-chromium-cancel",
+          projectRoot: process.cwd(),
+          revision: "rev-a",
+          port: address.port,
+          startedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 10_000).toISOString(),
+          status: "running",
+        },
+        operationId: "op-chromium-cancel",
+        executionId: "exec-chromium-cancel",
+        steps: [],
+        contract: {
+          revision: "rev-a",
+          permittedOrigin: origin,
+          timeoutMs: 5_000,
+          steps: [{ type: "navigate", path: "/slow" }],
+        },
+        browser,
+        signal: controller.signal,
+      });
+
+      await Promise.race([
+        requestStarted,
+        new Promise<never>((_resolve, reject) => {
+          requestStartTimeout = setTimeout(
+            () => reject(new Error("Chromium did not start the local navigation.")),
+            5_000,
+          );
+        }),
+      ]);
+      if (requestStartTimeout) clearTimeout(requestStartTimeout);
+      controller.abort();
+
+      const result = await verification;
+      expect(result.status).toBe("failed");
+      expect(result.summary).toContain("cancelled");
+      expect(gotoSettled).toBe(true);
+    } finally {
+      if (requestStartTimeout) clearTimeout(requestStartTimeout);
+      controller?.abort();
+      if (chromiumBrowser && !browserClosed) {
+        await chromiumBrowser.close().catch(() => undefined);
+      }
+      await verification?.catch(() => undefined);
+      if (server.listening) {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      }
+    }
+  }, 15_000);
 
   it("expires within the configured lifetime and keeps sessions isolated", async () => {
     const firstChild = fakeChild();

@@ -383,9 +383,20 @@ export async function verifyBrowserPreview(input: {
   }
   let page: PreviewPage | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let runStepsPromise: Promise<void> | undefined;
   const timeoutController = new AbortController();
-  const abortFromCaller = (): void => timeoutController.abort();
-  if (input.signal?.aborted) timeoutController.abort();
+  let rejectCallerAbort: (() => void) | undefined;
+  const callerAbortPromise = input.signal
+    ? new Promise<never>((_resolve, reject) => {
+        rejectCallerAbort = () => reject(new Error("Preview validation was cancelled."));
+      })
+    : undefined;
+  void callerAbortPromise?.catch(() => undefined);
+  const abortFromCaller = (): void => {
+    timeoutController.abort();
+    rejectCallerAbort?.();
+  };
+  if (input.signal?.aborted) abortFromCaller();
   else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     page = await input.browser.newPage();
@@ -433,15 +444,16 @@ export async function verifyBrowserPreview(input: {
     }
     };
     const timeoutMs = input.contract?.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
-    await Promise.race([
-      runSteps(),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          timeoutController.abort();
-          reject(new Error("Preview validation timed out."));
-        }, timeoutMs);
-      }),
-    ]);
+    runStepsPromise = runSteps();
+    const raceInputs: Promise<unknown>[] = [runStepsPromise];
+    if (callerAbortPromise) raceInputs.push(callerAbortPromise);
+    raceInputs.push(new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        timeoutController.abort();
+        reject(new Error("Preview validation timed out."));
+      }, timeoutMs);
+    }));
+    await Promise.race(raceInputs);
     if (timeout) clearTimeout(timeout);
     if (consoleErrors.length > 0) {
       return {
@@ -467,7 +479,20 @@ export async function verifyBrowserPreview(input: {
   } finally {
     if (timeout) clearTimeout(timeout);
     input.signal?.removeEventListener("abort", abortFromCaller);
-    await page?.close().catch(() => undefined);
-    await input.browser.close().catch(() => undefined);
+    const settleWithin = async (pending: Promise<unknown>): Promise<void> => {
+      let settlementTimeout: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        pending.then(() => undefined, () => undefined),
+        new Promise<void>((resolve) => {
+          settlementTimeout = setTimeout(resolve, 1_000);
+        }),
+      ]);
+      if (settlementTimeout) clearTimeout(settlementTimeout);
+    };
+    const closePromises: Promise<void>[] = [];
+    if (page) closePromises.push(page.close().catch(() => undefined));
+    closePromises.push(input.browser.close().catch(() => undefined));
+    await settleWithin(Promise.all(closePromises));
+    if (runStepsPromise) await settleWithin(runStepsPromise);
   }
 }

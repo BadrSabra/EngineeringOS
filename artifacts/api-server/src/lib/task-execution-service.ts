@@ -1548,7 +1548,11 @@ async function executeMissionToolLoop(params: {
     ? params.resumeState?.missionRepairRecovery
     : undefined;
   const approvalState = policy.approvalRequired ? "PENDING_APPROVAL" : "APPROVED";
-  const allowValidationTools = params.profile !== "mission_observe";
+  const approvedValidationProfiles =
+    params.profile !== "mission_observe" && policy.validationProfile
+      ? [policy.validationProfile]
+      : [];
+  const allowValidationTools = approvedValidationProfiles.length > 0;
   const objective = missionObjectiveContract({
     objective: policy.objective,
     profile: params.profile,
@@ -1916,6 +1920,7 @@ async function executeMissionToolLoop(params: {
       priorToolCalls: completedToolCalls,
       initialPendingChanges: pendingChanges,
       allowValidationTools,
+      approvedValidationProfiles,
       approvalState,
       approvedFilePaths: approvalState === "APPROVED" ? policy.targetPaths : [],
       validationTargetPaths: policy.targetPaths,

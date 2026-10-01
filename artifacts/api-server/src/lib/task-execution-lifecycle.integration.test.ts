@@ -11,6 +11,10 @@ import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
 import type { AgentAction, AgentStep } from "@workspace/ai-orchestrator";
+type ChatWithFallbackFunction = (typeof import("./ai-route-helpers.js"))["chatWithFallback"];
+type MissionValidationRunner = NonNullable<
+  Parameters<ChatWithFallbackFunction>[1]["validationRunner"]
+>;
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -29,7 +33,7 @@ import {
   workflowsTable,
 } from "@workspace/db";
 
-const runAgentWithFallback = vi.hoisted(() => vi.fn(async () => ({
+const runAgentWithFallback = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
   result: {
     summary: "Fixture execution completed.",
     confidence: "high",
@@ -52,6 +56,16 @@ const actualChatWithFallbackRef = vi.hoisted(() => ({
 const providerStrategyState = vi.hoisted(() => ({
   callCount: 0,
   toolCallId: "",
+  toolName: "read_file" as "read_file" | "run_validation",
+  toolArguments: {} as Record<string, string>,
+  requestedToolName: "",
+  callOptionsSummary: [] as Array<{
+    keys: string[];
+    toolNames: string[];
+    toolChoice: string;
+    toolsType: string;
+    toolsCount: number;
+  }>,
 }));
 const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
   status: "passed" as const,
@@ -109,20 +123,49 @@ vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async () => 
     getStrategy: vi.fn(() => ({
       providerId: "groq",
       supportsNativeStream: false,
-      call: async (_messages: unknown[]) => {
+      call: async (_messages: unknown[], options?: unknown) => {
         providerStrategyState.callCount += 1;
+        const callOptions = options && typeof options === "object"
+          ? options as {
+              tools?: unknown;
+              toolChoice?: unknown;
+              tool_choice?: unknown;
+            }
+          : {};
+        const rawTools = callOptions.tools;
+        const toolEntries = Array.isArray(rawTools) ? rawTools : [];
+        providerStrategyState.callOptionsSummary.push({
+          keys: Object.keys(callOptions).sort(),
+          toolNames: toolEntries.flatMap((tool) => {
+                if (!tool || typeof tool !== "object") return [];
+                const fn = (tool as { function?: { name?: unknown } }).function;
+                return typeof fn?.name === "string" ? [fn.name] : [];
+              }),
+          toolChoice: String(callOptions.toolChoice ?? callOptions.tool_choice ?? ""),
+          toolsType: rawTools === undefined
+            ? "undefined"
+            : Array.isArray(rawTools)
+              ? "array"
+              : typeof rawTools,
+          toolsCount: Array.isArray(rawTools)
+            ? rawTools.length
+            : rawTools && typeof rawTools === "object"
+              ? Object.keys(rawTools).length
+              : 0,
+        });
         if (providerStrategyState.callCount === 1) {
+          providerStrategyState.requestedToolName = providerStrategyState.toolName;
           return {
             content: "",
             toolCalls: [{
               id: providerStrategyState.toolCallId,
               type: "function",
               function: {
-                name: "read_file",
-                arguments: JSON.stringify({ path: "src/target.ts" }),
+                name: providerStrategyState.toolName,
+                arguments: JSON.stringify(providerStrategyState.toolArguments),
               },
             }],
-            model: "db-handoff-read-fixture",
+            model: `db-handoff-${providerStrategyState.toolName}-fixture`,
             usage: { promptTokens: 0, completionTokens: 0 },
             finishReason: "tool_calls",
           };
@@ -178,7 +221,10 @@ import {
   executeTaskLifecycle,
   parseMissionToolLoopCheckpoint,
 } from "./task-execution-service.js";
-import { checkpointAiExecution } from "./ai-execution-state.js";
+import {
+  checkpointAiExecution,
+  requestAiExecutionCancel,
+} from "./ai-execution-state.js";
 import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
 
@@ -235,12 +281,15 @@ async function cleanupProjectExecutionData(projectId: string) {
 async function createMissionToolLoopFixture(input: {
   phase: "execute" | "validate";
   approvalRequired: boolean;
+  prompt?: string;
+  targetPaths?: string[];
 }) {
   const projectId = randomUUID();
   const missionId = randomUUID();
   const goalId = randomUUID();
   const taskId = randomUUID();
   const now = new Date();
+  const targetPaths = input.targetPaths ?? ["src/target.ts"];
   const workspaceRoot = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
   const rootPath = await mkdtemp(join(workspaceRoot, "mission-tool-loop-"));
   await mkdir(join(rootPath, "src"), { recursive: true });
@@ -284,7 +333,7 @@ async function createMissionToolLoopFixture(input: {
         hash: `mission-plan-${goalId}`,
         steps: [{
           kind: input.phase,
-          files: ["src/target.ts"],
+          files: targetPaths,
           validationProfile: "workspace-typecheck",
           approvalRequired: input.approvalRequired,
         }],
@@ -300,8 +349,8 @@ async function createMissionToolLoopFixture(input: {
     goalId,
     phase: input.phase,
     title: `Mission ${input.phase} fixture`,
-    prompt: "Use only the server-authorized project scope.",
-    relatedFiles: ["src/target.ts"],
+    prompt: input.prompt ?? "Use only the server-authorized project scope.",
+    relatedFiles: targetPaths,
     status: "verifying",
     retryCount: 0,
     maxRetries: 2,
@@ -330,7 +379,7 @@ async function createMissionToolLoopFixture(input: {
 describe("real durable task execution lifecycle", () => {
   afterEach(() => {
     vi.clearAllMocks();
-    runAgentWithFallback.mockReset().mockImplementation(async () => ({
+    runAgentWithFallback.mockReset().mockImplementation(async (..._args: unknown[]) => ({
       result: {
         summary: "Fixture execution completed.",
         confidence: "high" as const,
@@ -436,6 +485,288 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
+
+  it("persists active execution cancellation and restores the task state", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-cancel-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Durable cancellation fixture",
+      prompt: "Wait for the server cancellation signal",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    let resolveProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      resolveProviderStarted = resolve;
+    });
+    let executionPromise: ReturnType<typeof executeTaskLifecycle> | undefined;
+    let executionId: string | undefined;
+    let startupTimeout: ReturnType<typeof setTimeout> | undefined;
+
+    runAgentWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const options = args[3] as { signal?: AbortSignal } | undefined;
+      const signal = options?.signal;
+      if (!signal) throw new Error("Task execution did not forward its cancellation signal.");
+      resolveProviderStarted();
+      return new Promise<never>((_resolve, reject) => {
+        const rejectAsCancelled = () => {
+          const error = new Error("Fixture execution cancelled.");
+          error.name = "AbortError";
+          reject(error);
+        };
+        if (signal.aborted) {
+          rejectAsCancelled();
+          return;
+        }
+        signal.addEventListener("abort", rejectAsCancelled, { once: true });
+      });
+    });
+
+    try {
+      executionPromise = executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+      await Promise.race([
+        providerStarted,
+        new Promise<never>((_resolve, reject) => {
+          startupTimeout = setTimeout(
+            () => reject(new Error("Provider execution did not start before cancellation fixture timeout.")),
+            10_000,
+          );
+        }),
+      ]);
+      if (startupTimeout) clearTimeout(startupTimeout);
+
+      const [executionBeforeCancel] = await db
+        .select({
+          id: aiExecutionsTable.id,
+          status: aiExecutionsTable.status,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.linkedTaskId, taskId),
+          eq(aiExecutionsTable.projectId, projectId),
+        ))
+        .limit(1);
+      expect(executionBeforeCancel).toMatchObject({ status: "running" });
+      executionId = executionBeforeCancel.id;
+
+      await requestAiExecutionCancel({ executionId, userId });
+      const outcome = await executionPromise;
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "failed",
+        executionId,
+        errorCode: "cancelled",
+      });
+
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          verificationResult: tasksTable.verificationResult,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        workerId: null,
+        verificationResult: { passed: false, decision: "cancelled" },
+      });
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toMatchObject({
+        status: "cancelled",
+        workerId: null,
+        recipeReceipt: {
+          terminalStatus: "CANCELLED",
+          terminalReason: "cancelled",
+          failureClass: "internal",
+          retryable: false,
+          stages: expect.arrayContaining(["provider_call"]),
+        },
+      });
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptance).toEqual({
+        outcome: "INTERRUPTED",
+        terminalStatus: "cancelled",
+        reasonCode: "EXECUTION_CANCELLED",
+        resumable: 0,
+      });
+    } finally {
+      if (startupTimeout) clearTimeout(startupTimeout);
+      if (executionPromise) {
+        if (!executionId) {
+          const [pendingExecution] = await db
+            .select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.linkedTaskId, taskId),
+              eq(aiExecutionsTable.projectId, projectId),
+            ))
+            .limit(1);
+          executionId = pendingExecution?.id;
+        }
+        if (executionId) {
+          const [pendingExecution] = await db
+            .select({ status: aiExecutionsTable.status })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, executionId))
+            .limit(1);
+          if (pendingExecution?.status === "running" || pendingExecution?.status === "cancelling") {
+            await requestAiExecutionCancel({ executionId, userId }).catch(() => undefined);
+          }
+        }
+        await executionPromise.catch(() => undefined);
+      }
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  }, 20_000);
+
+  it("persists provider failure as retryable terminal acceptance", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const privateProviderFailure = "T8_PRIVATE_PROVIDER_FAILURE";
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-provider-failure-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Durable provider failure fixture",
+      prompt: "Fail during the provider call",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    runAgentWithFallback.mockImplementationOnce(async (..._args: unknown[]) => {
+      throw new Error(privateProviderFailure);
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "failed",
+        errorCode: "provider_call_failed",
+      });
+      expect(outcome.executionId).toEqual(expect.any(String));
+
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          verificationResult: tasksTable.verificationResult,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        workerId: null,
+        verificationResult: { passed: false, decision: "failed" },
+      });
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, outcome.executionId!));
+      expect(execution).toMatchObject({
+        status: "failed",
+        workerId: null,
+        recipeReceipt: {
+          terminalStatus: "FAILED",
+          terminalReason: "provider_call_failed",
+          failureClass: "provider",
+          retryable: true,
+          stages: expect.arrayContaining(["provider_call"]),
+        },
+      });
+      expect(JSON.stringify(execution.recipeReceipt)).not.toContain(privateProviderFailure);
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!));
+      expect(acceptance).toEqual({
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        resumable: 1,
+      });
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  }, 20_000);
 
   it("binds workflow task episodes to the workflow scope", async () => {
     const projectId = randomUUID();
@@ -819,11 +1150,23 @@ describe("real durable task execution lifecycle", () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "validate",
       approvalRequired: false,
+      ...(tool === "run_validation" ? { targetPaths: [] } : {}),
+      ...(tool === "run_validation"
+        ? { prompt: "Run the server-authorized validation profile workspace-typecheck and report its status." }
+        : {}),
     });
     let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
     let resumedHelperResult: unknown;
     const resumedStepKinds: string[] = [];
-    const resumedToolResults: Array<{ tool: string; outputLength: number }> = [];
+    const resumedToolResults: Array<{
+      tool: string;
+      outputLength: number;
+      cached: boolean;
+      resultKind?: string;
+      resultSummary?: string;
+    }> = [];
+    const resumedToolCallNames: string[] = [];
+    let toolValidationRunnerCalls = 0;
     let reloadedToolCalls: Array<{
       key: string;
       tool: string;
@@ -907,44 +1250,60 @@ describe("real durable task execution lifecycle", () => {
           priorToolCalls?: typeof reloadedToolCalls;
         };
         reloadedToolCalls = request.priorToolCalls ?? [];
-        if (tool === "read_file") {
-          const actualChatWithFallback = actualChatWithFallbackRef.fn;
-          if (!actualChatWithFallback) {
-            throw new Error("The real chatWithFallback helper was not captured.");
-          }
-          providerStrategyState.callCount = 0;
-          providerStrategyState.toolCallId = `db-handoff-read-${markerStatus}`;
-          const actualArgs = [...args];
-          const onStep = actualArgs[6] as ((step: AgentStep) => Promise<void>) | undefined;
-          actualArgs[6] = async (step: AgentStep) => {
-            resumedStepKinds.push(step.kind);
-            if (step.kind === "tool_result" && step.tool === "read_file") {
-              resumedToolResults.push({
-                tool: step.tool,
-                outputLength: step.outputLength,
-              });
-            }
-            await onStep?.(step);
-          };
-          resumedHelperResult = await actualChatWithFallback(...actualArgs);
-          return resumedHelperResult as Awaited<ReturnType<typeof chatWithFallback>>;
+        const actualChatWithFallback = actualChatWithFallbackRef.fn;
+        if (!actualChatWithFallback) {
+          throw new Error("The real chatWithFallback helper was not captured.");
         }
-        return {
-          result: {
-            response: "Resumed from the durable tool-loop checkpoint.",
-            pendingChanges: [],
-            sources: [],
-          },
-          effectiveProvider: "groq" as const,
+        providerStrategyState.callCount = 0;
+        providerStrategyState.toolCallId = `db-handoff-${tool}-${markerStatus}`;
+        providerStrategyState.toolName = tool;
+        providerStrategyState.toolArguments = markerArgs;
+        providerStrategyState.requestedToolName = "";
+        providerStrategyState.callOptionsSummary = [];
+        const actualArgs = [...args];
+        const requestParams = actualArgs[1] as Parameters<ChatWithFallbackFunction>[1];
+        if (tool === "run_validation") {
+          expect(requestParams.allowValidationTools).toBe(true);
+          expect(requestParams.allowedToolNames).toContain("run_validation");
+          expect(requestParams.authorizedToolManifestNames).toContain("run_validation");
+          expect(requestParams.approvedValidationProfiles).toEqual(["workspace-typecheck"]);
+          const serverValidationRunner = requestParams.validationRunner;
+          expect(serverValidationRunner).toBeTypeOf("function");
+          if (!serverValidationRunner) {
+            throw new Error("The server-owned Mission validation runner was not supplied.");
+          }
+          const instrumentedValidationRunner: MissionValidationRunner = (...runnerArgs) => {
+            toolValidationRunnerCalls += 1;
+            return serverValidationRunner(...runnerArgs);
+          };
+          actualArgs[1] = {
+            ...requestParams,
+            validationRunner: instrumentedValidationRunner,
+          };
+        }
+        const onStep = actualArgs[6] as ((step: AgentStep) => Promise<void>) | undefined;
+        actualArgs[6] = async (step: AgentStep) => {
+          resumedStepKinds.push(step.kind);
+          if (step.kind === "tool_call") resumedToolCallNames.push(step.tool);
+          if (step.kind === "tool_result") {
+            resumedToolResults.push({
+              tool: step.tool,
+              outputLength: step.outputLength,
+              cached: step.cached,
+              ...(step.resultKind ? { resultKind: step.resultKind } : {}),
+              ...(step.resultSummary ? { resultSummary: step.resultSummary } : {}),
+            });
+          }
+          await onStep?.(step);
         };
+        resumedHelperResult = await actualChatWithFallback(...actualArgs);
+        return resumedHelperResult as Awaited<ReturnType<typeof chatWithFallback>>;
       });
 
-    if (tool === "read_file") {
-      vi.stubEnv("OPENROUTER_API_KEY", "");
-      vi.stubEnv("GEMINI_API_KEY", "");
-      vi.stubEnv("DEEPSEEK_API_KEY", "");
-      vi.stubEnv("GROQ_API_KEY", "fixture-groq-api-key");
-    }
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("DEEPSEEK_API_KEY", "");
+    vi.stubEnv("GROQ_API_KEY", "fixture-groq-api-key");
 
     try {
       await executeTaskLifecycle({
@@ -965,20 +1324,25 @@ describe("real durable task execution lifecycle", () => {
         status: markerStatus,
       });
 
+      expect(resumedHelperResult).toMatchObject({
+        effectiveProvider: "groq",
+        result: { response: expect.any(String) },
+      });
+      expect(providerStrategyState.callCount).toBeGreaterThan(0);
+      expect(providerStrategyState.requestedToolName).toBe(tool);
+      expect(resumedStepKinds).toContain("tool_call");
+      expect(resumedStepKinds).toContain("tool_result");
+      expect(
+        resumedToolResults,
+        JSON.stringify({
+          observedToolCalls: resumedToolCallNames,
+          providerOptions: providerStrategyState.callOptionsSummary,
+        }),
+      ).toEqual(expect.arrayContaining([expect.objectContaining({ tool })]));
+
       if (tool === "read_file") {
-        expect(resumedHelperResult).toMatchObject({
-          effectiveProvider: "groq",
-          result: { response: expect.any(String) },
-        });
-        expect(providerStrategyState.callCount).toBeGreaterThan(0);
-        expect(resumedStepKinds).toContain("tool_call");
-        expect(resumedStepKinds).toContain("tool_result");
-        expect(resumedToolResults).toEqual(
-          expect.arrayContaining([expect.objectContaining({ tool: "read_file" })]),
-        );
         expect(resumedToolResults.find((result) => result.tool === "read_file")?.outputLength)
           .toBeGreaterThan(0);
-
         while (pendingObservationMaterializations.length > 0) {
           const pending = pendingObservationMaterializations.splice(0);
           await Promise.all(pending);
@@ -988,9 +1352,24 @@ describe("real durable task execution lifecycle", () => {
           .from(aiAgentObservationsTable)
           .where(eq(aiAgentObservationsTable.projectId, fixture.projectId));
         expect(observations.length).toBeGreaterThan(0);
+      } else {
+        expect(
+          providerStrategyState.callOptionsSummary.some((call) =>
+            call.toolNames.includes("run_validation")
+          ),
+          JSON.stringify(providerStrategyState.callOptionsSummary),
+        ).toBe(true);
+        expect(resumedToolResults).toContainEqual({
+          tool: "run_validation",
+          outputLength: 0,
+          cached: true,
+          resultKind: "ok",
+          resultSummary: "replayed action skipped by durable marker",
+        });
+        expect(toolValidationRunnerCalls).toBe(0);
       }
     } finally {
-      if (tool === "read_file") vi.unstubAllEnvs();
+      vi.unstubAllEnvs();
       await fixture.cleanup();
     }
     },

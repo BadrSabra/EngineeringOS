@@ -32,3 +32,9 @@ Lifecycle recovery tests that execute the production chat helper should preserve
 **Why:** Stubbing the helper hides service-to-engine forwarding; stubbing admission hides a real production boundary and can leave durable test rows behind.
 
 **How to apply:** Keep service-owned scope, tool manifests, and observation callbacks intact; activate only the fixture provider, await asynchronous observations, and clean side effects by unique fixture identity rather than shared user.
+
+Durable Mission tool fixtures must assert the provider-visible tool list after routing, not only the service allowlist. Validation tools must carry the plan-selected profile in the server-owned approval manifest.
+
+**Why:** Natural-language routing can narrow an otherwise authorized request to forensic tools, while a fake provider can emit a tool absent from its manifest; missing profile approval correctly blocks dispatch.
+
+**How to apply:** Exercise the production chat helper, assert the requested tool appears in provider options, and keep the validation runner server-owned and limited to the Mission policy profile.
