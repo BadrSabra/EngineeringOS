@@ -19,6 +19,7 @@ import {
   authorizeToolInvocation,
   getFullAuthorizedToolManifest,
 } from "../tool-policy.js";
+import { TOOL_OPERATIONAL_METADATA } from "../tool-operational-registry.js";
 import { ANALYSIS_TOOL_DEFINITIONS, type AnalysisCorrelation, type AnalysisToolRunner } from "../tools/analysis-tools.js";
 import { BINARY_TOOL_DEFINITIONS } from "../tools/binary-tools.js";
 import { CODE_NAVIGATION_TOOL_DEFINITIONS } from "../tools/code-navigation.js";
@@ -491,6 +492,34 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       .map((entry) => entry.name)
       .sort();
     expect(manifestNames).toEqual(EXPECTED_TOOL_NAMES);
+    expect(Object.keys(TOOL_OPERATIONAL_METADATA).sort()).toEqual(EXPECTED_TOOL_NAMES);
+
+    const manifestByName = new Map(
+      getFullAuthorizedToolManifest().map((entry) => [entry.name, entry]),
+    );
+    for (const name of EXPECTED_TOOL_NAMES) {
+      const metadata = TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA];
+      expect(metadata, name).toBeDefined();
+      expect(manifestByName.get(name)?.category, name).toBe(metadata.authorizationGroup);
+      expect(metadata.scope, name).toBeTruthy();
+      expect(metadata.missionPathScope, name).toBeTruthy();
+      expect(metadata.outputBound.kind, name).toBeTruthy();
+      expect(metadata.cancellation.signal, name).toBeTruthy();
+      expect(metadata.cancellation.timeout.kind, name).toBeTruthy();
+      expect(metadata.replay.cache, name).toBeTruthy();
+      expect(metadata.replay.durableRecovery, name).toBeTruthy();
+    }
+    expect(TOOL_OPERATIONAL_METADATA.run_command.outputBound).toMatchObject({
+      kind: "profile_field",
+      profileField: "CommandProfile.maxOutputBytes",
+      hardMaxBytes: 8 * 1024 * 1024,
+    });
+    expect(TOOL_OPERATIONAL_METADATA.search_code.cancellation).toMatchObject({
+      signal: "cooperative",
+      timeout: { kind: "fixed_ms", maxMs: 10_000 },
+    });
+    expect(TOOL_OPERATIONAL_METADATA.refresh_project_scan.replay.durableRecovery)
+      .toBe("block_after_prior_marker");
 
     for (const name of EXPECTED_TOOL_NAMES) {
       const call = makeCall(name, { __unknown_t8_field__: true });
@@ -870,6 +899,33 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
         .toBeLessThanOrEqual(outputProfile.maxOutputBytes);
     }
 
+    const timeoutProfile: CommandProfile = {
+      name: "fixture-timeout",
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 1000)"],
+      timeoutMs: 50,
+      maxOutputBytes: 256,
+    };
+    const timeoutCall = makeCall(
+      "run_command",
+      { profile: timeoutProfile.name },
+      {
+        approvedValidationProfiles: [timeoutProfile.name],
+        commandProfiles: [timeoutProfile],
+        commandRunner: runRegisteredCommand,
+      },
+    );
+    const timeoutResult = await executeSingleTool(timeoutCall.options);
+    expect(timeoutResult.kind).toBe("ok");
+    if (timeoutResult.kind === "ok") {
+      const commandResult = JSON.parse(timeoutResult.output) as {
+        status?: string;
+        code?: string;
+      };
+      expect(commandResult.status).toBe("timed_out");
+      expect(commandResult.code).toBe("COMMAND_TIMED_OUT");
+    }
+
     const controller = new AbortController();
     const abortingRunner: CommandRunner = async ({ signal }) => new Promise((resolve, reject) => {
       if (signal?.aborted) {
@@ -896,6 +952,66 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       "cancelled",
     ]);
   });
+
+  const delegatedCancellationCases = TOOL_CASES.filter(({ name }) =>
+    TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA]
+      .cancellation.signal === "runner_delegated",
+  );
+
+  it.each(delegatedCancellationCases)(
+    "$name forwards AbortSignal cancellation to its registered runner",
+    async ({ name, args }) => {
+      const controller = new AbortController();
+      let enteredRunner!: () => void;
+      const runnerEntered = new Promise<void>((resolve) => {
+        enteredRunner = resolve;
+      });
+      const waitForCancellation = (signal?: AbortSignal): Promise<never> => {
+        enteredRunner();
+        return new Promise((_, reject) => {
+          if (!signal) {
+            reject(new Error("runner did not receive AbortSignal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(new Error("fixture cancelled"));
+            return;
+          }
+          signal.addEventListener("abort", () => reject(new Error("fixture cancelled")), {
+            once: true,
+          });
+        });
+      };
+      const overrides: Partial<SingleToolOpts> = { signal: controller.signal };
+      if (name === "run_validation") {
+        overrides.validationRunner = async (_profile, _paths, signal) =>
+          waitForCancellation(signal);
+      } else if (name === "run_browser_validation") {
+        overrides.browserValidationRunner = async ({ signal }) =>
+          waitForCancellation(signal);
+      } else {
+        overrides.analysisToolRunner = async (_name, _args, signal) =>
+          waitForCancellation(signal);
+      }
+
+      const call = makeCall(name, args, overrides);
+      const pending = executeSingleTool(call.options);
+      await runnerEntered;
+      controller.abort();
+      const result = await pending;
+
+      expect(result.kind, name).toBe("failed");
+      if (result.kind === "failed") {
+        expect(result.failureKind, name).toBe("cancelled");
+        expect(result.diagnosticCode, name).toBe("TOOL_CANCELLED");
+      }
+      expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "cancelled",
+      ]);
+    },
+  );
 
   it.each(["revision", "scope", "manifest"] as const)(
     "misses the shared cache when %s changes",
@@ -971,7 +1087,14 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
   });
 
   it.each(
-    (["write_file", "replace_text", "run_validation", "run_command", "run_browser_validation"] as const)
+    ([
+      "write_file",
+      "replace_text",
+      "run_validation",
+      "run_command",
+      "run_browser_validation",
+      "refresh_project_scan",
+    ] as const)
       .flatMap((name) =>
         (["started", "completed"] as const).map((status) => ({ name, status })),
       ),
@@ -986,6 +1109,7 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     const validationSpy = vi.fn(validationRunner);
     const browserSpy = vi.fn(browserValidationRunner);
     const commandSpy = vi.fn(commandRunner);
+    const analysisSpy = vi.fn(analysisToolRunner);
     const run = await runT8ToolLoop(
       name,
       args,
@@ -994,6 +1118,7 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
         validationRunner: validationSpy,
         browserValidationRunner: browserSpy,
         commandRunner: commandSpy,
+        analysisToolRunner: analysisSpy,
       },
     );
 
@@ -1003,6 +1128,7 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     expect(validationSpy).not.toHaveBeenCalled();
     expect(browserSpy).not.toHaveBeenCalled();
     expect(commandSpy).not.toHaveBeenCalled();
+    expect(analysisSpy).not.toHaveBeenCalled();
   });
 
   it.each(TOOL_CASES)(

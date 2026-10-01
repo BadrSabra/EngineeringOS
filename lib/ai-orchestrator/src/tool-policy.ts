@@ -13,6 +13,10 @@ import { CODE_NAVIGATION_TOOL_DEFINITIONS } from "./tools/code-navigation.js";
 import { PACKAGE_TOOL_DEFINITIONS } from "./tools/package-tools.js";
 import { BINARY_TOOL_DEFINITIONS } from "./tools/binary-tools.js";
 import type { AuthorizedToolManifestEntry } from "./context-contract.js";
+import {
+  getToolOperationalMetadata,
+  TOOL_OPERATIONAL_METADATA,
+} from "./tool-operational-registry.js";
 
 export type ToolMode = "workspace" | "read-only" | "project-read-only";
 
@@ -43,22 +47,6 @@ export type ToolAuthorization = {
     | "approval_required";
 };
 
-const FILE_READ_TOOL_NAMES = new Set([
-  "read_file",
-  "read_file_range",
-  "project.list_tree",
-  "list_directory",
-  "search_code",
-  "symbol_search",
-  "ast_navigation",
-  "inspect_dependencies",
-  "inspect_binary",
-]);
-const FILE_WRITE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
-const GIT_TOOL_NAMES = new Set(["git_status", "git_diff", "git_log"]);
-const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((tool) => tool.function.name));
-const ANALYSIS_TOOL_NAMES = new Set(ANALYSIS_TOOL_DEFINITIONS.map((tool) => tool.function.name));
-
 const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [
   ...FILE_TOOL_DEFINITIONS,
   ...GIT_TOOL_DEFINITIONS,
@@ -75,18 +63,19 @@ export function getFullAuthorizedToolManifest(): AuthorizedToolManifestEntry[] {
     ...ANALYSIS_TOOL_DEFINITIONS,
   ].map((tool) => {
     const name = tool.function.name;
-    const category: AuthorizedToolManifestEntry["category"] =
-      FILE_READ_TOOL_NAMES.has(name) ? "file_read"
-        : FILE_WRITE_TOOL_NAMES.has(name) ? "file_write"
-          : GIT_TOOL_NAMES.has(name) ? "git_read"
-            : ANALYSIS_TOOL_NAMES.has(name) ? "analysis"
-              : name === "run_validation" || name === "run_browser_validation" ? "validation"
-                : "execution";
+    const metadata = getToolOperationalMetadata(name);
+    if (!metadata) {
+      throw new Error(`Tool "${name}" is missing server-owned operational metadata.`);
+    }
+    const category: AuthorizedToolManifestEntry["category"] = metadata.authorizationGroup;
     return {
       name,
       category,
       authorization: "server_owned" as const,
-      approvalRequired: category === "file_write" || category === "validation" || category === "execution",
+      approvalRequired:
+        metadata.authorizationGroup === "file_write"
+        || metadata.authorizationGroup === "validation"
+        || metadata.authorizationGroup === "execution",
     };
   });
 }
@@ -167,12 +156,16 @@ export function resolveToolPolicy(opts: {
 
 export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {
   if (!policy.enabled) return false;
-  if (FILE_READ_TOOL_NAMES.has(toolName)) return policy.allowFileRead;
-  if (FILE_WRITE_TOOL_NAMES.has(toolName)) return policy.allowFileWrite;
-  if (GIT_TOOL_NAMES.has(toolName)) return policy.allowGit;
-  if (EXECUTION_TOOL_NAMES.has(toolName)) return policy.allowExecution;
-  if (ANALYSIS_TOOL_NAMES.has(toolName)) return policy.allowAnalysis;
-  return false;
+  const group = getToolOperationalMetadata(toolName)?.authorizationGroup;
+  switch (group) {
+    case "file_read": return policy.allowFileRead;
+    case "file_write": return policy.allowFileWrite;
+    case "git_read": return policy.allowGit;
+    case "validation":
+    case "execution": return policy.allowExecution;
+    case "analysis": return policy.allowAnalysis;
+    default: return false;
+  }
 }
 
 export function getAllowedToolDefinitions(policy: ToolPolicy): ToolDefinitionLike[] {
@@ -195,19 +188,20 @@ export function authorizeToolInvocation(opts: {
   /** Compound writes are proposals; they remain pending approval and never apply bytes. */
   compoundWriteMode?: boolean;
 }): ToolAuthorization {
-  const known = new Set([...FILE_READ_TOOL_NAMES, ...FILE_WRITE_TOOL_NAMES, ...GIT_TOOL_NAMES, ...EXECUTION_TOOL_NAMES, ...ANALYSIS_TOOL_NAMES]);
-  if (!known.has(opts.toolName)) return { allowed: false, reason: "unknown_tool" };
+  const metadata = getToolOperationalMetadata(opts.toolName);
+  if (!metadata || !Object.hasOwn(TOOL_OPERATIONAL_METADATA, opts.toolName)) {
+    return { allowed: false, reason: "unknown_tool" };
+  }
   if (opts.toolName === "project.list_tree" && !opts.allowedTools?.has(opts.toolName)) {
     return { allowed: false, reason: "tool_not_in_manifest" };
   }
   if (opts.allowedTools && !opts.allowedTools.has(opts.toolName)) {
     return { allowed: false, reason: "tool_not_in_manifest" };
   }
-  const isWrite = FILE_WRITE_TOOL_NAMES.has(opts.toolName);
+  const isWrite = metadata.authorizationGroup === "file_write";
   const isValidationOrExecution =
-    opts.toolName === "run_validation"
-    || opts.toolName === "run_browser_validation"
-    || opts.toolName === "run_command";
+    metadata.authorizationGroup === "validation"
+    || metadata.authorizationGroup === "execution";
   if (
     (isWrite || isValidationOrExecution) &&
     opts.approvalState !== "APPROVED" &&

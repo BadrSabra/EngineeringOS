@@ -448,6 +448,19 @@ export {
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";
 export {
+  getToolOperationalMetadata,
+  getToolNamesByAuthorizationGroup,
+  getToolNamesByExecutor,
+  TOOL_OPERATIONAL_METADATA,
+} from "./tool-operational-registry.js";
+export type {
+  ToolAuthorizationGroup,
+  ToolExecutorFamily,
+  ToolOperationalMetadata,
+  ToolOutputBound,
+  ToolTimeoutPolicy,
+} from "./tool-operational-registry.js";
+export {
   CAPABILITY_CONTRACT_VERSION,
   SUPPORTED_RECIPE_VERSIONS,
   CAPABILITY_ENVIRONMENT_CONTRACT_VERSION,

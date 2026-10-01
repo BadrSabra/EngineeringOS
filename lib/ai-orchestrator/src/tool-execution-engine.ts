@@ -35,6 +35,11 @@ import type { PendingChange } from "./schemas/chat.schema.js";
 import type { TaskType } from "./quality/task-profile.js";
 import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
 import {
+  getDurableReplayBlockedToolNames,
+  getToolNamesByExecutor,
+  getToolOperationalMetadata,
+} from "./tool-operational-registry.js";
+import {
   classifyObjectiveScopePath,
   normalizeObjectivePath,
   type ObjectiveScopePolicy,
@@ -48,17 +53,14 @@ import {
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
   CODE_NAVIGATION_TOOL_DEFINITIONS,
-  CODE_NAVIGATION_TOOL_NAMES,
   executeCodeNavigationTool,
 } from "./tools/code-navigation.js";
 import {
   PACKAGE_TOOL_DEFINITIONS,
-  PACKAGE_TOOL_NAMES,
   executePackageTool,
 } from "./tools/package-tools.js";
 import {
   BINARY_TOOL_DEFINITIONS,
-  BINARY_TOOL_NAMES,
   executeBinaryTool,
   parseBinaryEvidencePacket,
   type BinaryEvidencePacket,
@@ -75,7 +77,6 @@ import {
 } from "./tools/execution-tools.js";
 import {
   ANALYSIS_TOOL_DEFINITIONS,
-  ANALYSIS_TOOL_NAMES,
   executeAnalysisTool,
   type AnalysisToolRunner,
   type AnalysisCorrelation,
@@ -326,12 +327,13 @@ function buildRepairAttemptDiff(
 
 // Built once from the authoritative definition arrays.  Any name not in one
 // of these sets is an unknown tool and is rejected before touching the budget.
-const GIT_TOOL_NAMES = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name));
-const CODE_NAVIGATION_TOOL_NAMES_SET = new Set(CODE_NAVIGATION_TOOL_NAMES);
-const PACKAGE_TOOL_NAMES_SET = new Set(PACKAGE_TOOL_NAMES);
-const BINARY_TOOL_NAMES_SET = new Set(BINARY_TOOL_NAMES);
-const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
-const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.function.name));
+const GIT_TOOL_NAMES = new Set(getToolNamesByExecutor("git"));
+const CODE_NAVIGATION_TOOL_NAMES_SET = new Set(getToolNamesByExecutor("navigation"));
+const PACKAGE_TOOL_NAMES_SET = new Set(getToolNamesByExecutor("package"));
+const BINARY_TOOL_NAMES_SET = new Set(getToolNamesByExecutor("binary"));
+const FILE_TOOL_NAMES = new Set(getToolNamesByExecutor("file"));
+const EXECUTION_TOOL_NAMES = new Set(getToolNamesByExecutor("execution"));
+const ANALYSIS_TOOL_NAMES = new Set(getToolNamesByExecutor("analysis"));
 const TOOL_DEFINITIONS = [
   ...FILE_TOOL_DEFINITIONS,
   ...GIT_TOOL_DEFINITIONS,
@@ -2767,13 +2769,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   );
   const completedToolCalls: AgentLoopToolCall[] = [...(priorToolCalls ?? [])];
   const binaryEvidencePackets: BinaryEvidencePacket[] = [];
-  const nonIdempotentTools = new Set([
-    "write_file",
-    "replace_text",
-    "run_validation",
-    "run_command",
-    "run_browser_validation",
-  ]);
+  const nonIdempotentTools = new Set(getDurableReplayBlockedToolNames());
   const toolSources: string[] = [];
   const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
   const sourceEvidenceWindows: SourceEvidenceWindow[] = [];
@@ -5560,7 +5556,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
       const providerArgsValid = validateToolArguments(tc.function.name, rawArgs) !== undefined;
       const reportArgs = providerArgsValid ? args : {};
-      const isValidationCall = tc.function.name === "run_validation";
+      const isValidationCall =
+        getToolOperationalMetadata(tc.function.name)?.replay.cache === "validation_attempt";
       const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
       const validationAttempt = isValidationCall
         ? (validationAttempts.get(validationProfile ?? "") ?? 0) + 1
@@ -6662,7 +6659,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (assertExecutionOwned) await assertExecutionOwned();
       if (
         toolResult.kind === "ok"
-        && BINARY_TOOL_NAMES.has(tc.function.name)
+        && BINARY_TOOL_NAMES_SET.has(tc.function.name)
       ) {
         try {
           const packet = parseBinaryEvidencePacket(JSON.parse(toolResult.output), {
