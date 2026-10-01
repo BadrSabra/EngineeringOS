@@ -8,6 +8,10 @@ import type {
 } from "../validation-result.js";
 import path from "node:path";
 import { runBoundedCommand, EXECUTION_LIMITS, type BoundedCommandResult } from "../execution-kernel.js";
+import {
+  MAX_TOOL_OUTPUT_SERIALIZATION_BYTES,
+  stringifyJsonWithinByteLimit,
+} from "../tool-output-bounds.js";
 
 /** Named state of an approval-gated repair handoff. */
 export type RepairLoopState = "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | "BLOCKED";
@@ -237,7 +241,8 @@ export async function executeBrowserValidationTool(
     });
   }
   const result = await runner({ profile, rootPath, signal, pendingChanges, ...context });
-  return JSON.stringify({ tool: name, ...result });
+  signal?.throwIfAborted();
+  return stringifyJsonWithinByteLimit({ tool: name, ...result });
 }
 
 function commandResultCode(status: BoundedCommandResult["status"]): string {
@@ -307,7 +312,8 @@ export async function executeCommandTool(
     });
   }
   const result = await runner({ profile, rootPath, signal, ...context });
-  return JSON.stringify({
+  signal?.throwIfAborted();
+  return stringifyJsonWithinByteLimit({
     tool: name,
     status: result.status,
     code: commandResultCode(result.status),
@@ -319,7 +325,10 @@ export async function executeCommandTool(
     truncated: result.truncated,
     durationMs: result.durationMs,
     detail: commandResultDetail(result),
-  });
+  }, Math.min(
+    MAX_TOOL_OUTPUT_SERIALIZATION_BYTES,
+    profile.maxOutputBytes * 12 + 16_384,
+  ));
 }
 
 export async function executeValidationTool(
@@ -367,5 +376,6 @@ export async function executeValidationTool(
         ? await runner(profile, targetPaths, signal)
         : await runner(profile, targetPaths, signal, pendingChanges);
   const result = normalizeValidationResult(profile, rawResult);
-  return JSON.stringify({ tool: name, ...result });
+  signal?.throwIfAborted();
+  return stringifyJsonWithinByteLimit({ tool: name, ...result });
 }

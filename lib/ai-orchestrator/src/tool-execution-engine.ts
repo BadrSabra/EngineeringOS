@@ -97,6 +97,10 @@ import {
   isOversizedRawToolArgument,
   MAX_RAW_TOOL_ARGUMENT_BYTES,
 } from "./tool-argument-limits.js";
+import {
+  isToolOutputLimitExceeded,
+  ToolOutputLimitExceeded,
+} from "./tool-output-bounds.js";
 
 // ── Defaults ────────────────────────
 
@@ -351,16 +355,6 @@ const MAX_SERIALIZED_TOOL_OUTPUT_BYTES = 2_000_000;
 const MAX_UNSPECIFIED_TOOL_OUTPUT_BYTES = 1_000_000;
 const MAX_DYNAMIC_TOOL_OUTPUT_BYTES = 512_000;
 const TOOL_OUTPUT_PROTOCOL_OVERHEAD_BYTES = 4_096;
-
-class ToolOutputLimitExceeded extends Error {
-  constructor(
-    readonly outputBytes: number,
-    readonly maxBytes: number,
-  ) {
-    super("Tool output exceeded its server-owned byte limit.");
-    this.name = "ToolOutputLimitExceeded";
-  }
-}
 
 function getToolOutputLimitBytes(
   name: string,
@@ -1389,11 +1383,15 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               if (result.status === "complete") return result.output;
               const failureKind = opts.signal?.aborted
                 ? "cancelled"
-                : result.status === "unavailable"
-                  ? "unavailable"
-                  : "execution";
+                : result.failureCategory === "output_limit"
+                  ? "execution"
+                  : result.status === "unavailable"
+                    ? "unavailable"
+                    : "execution";
               const diagnosticCode = failureKind === "cancelled"
                 ? "TOOL_CANCELLED"
+                : result.failureCategory === "output_limit"
+                  ? "TOOL_OUTPUT_LIMIT"
                 : result.status === "unavailable"
                   ? "TOOL_UNAVAILABLE"
                   : "TOOL_EXECUTION_FAILED";
@@ -1547,7 +1545,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       pendingChanges.splice(mutationPendingStart);
     }
     const cancelled = opts.signal?.aborted === true;
-    const outputLimitError = error instanceof ToolOutputLimitExceeded ? error : undefined;
+    const outputLimitError = isToolOutputLimitExceeded(error) ? error : undefined;
     const diagnosticCode = cancelled
       ? "TOOL_CANCELLED"
       : outputLimitError

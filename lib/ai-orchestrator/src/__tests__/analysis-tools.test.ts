@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   executeAnalysisTool,
   type AnalysisCorrelation,
@@ -54,6 +54,31 @@ describe("analysis tool correlation contract", () => {
     expect(result.output).toContain("was unavailable");
     expect(result.output).not.toContain("database password");
     expect(result.failureCategory).toBeUndefined();
+  });
+
+  it("withholds oversized runner diagnostics from both tool output and logs", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const oversizedDiagnostic = "T8_PRIVATE_ANALYSIS_DIAGNOSTIC".repeat(10_000);
+    try {
+      const result = await executeAnalysisTool(
+        "query_knowledge_graph",
+        { operation: "search" },
+        async () => ({
+          status: "failed" as const,
+          output: oversizedDiagnostic,
+          failureCategory: "output_limit" as const,
+        }),
+        undefined,
+        correlation,
+      );
+
+      expect(result.failureCategory).toBe("output_limit");
+      expect(result.output).toContain("server output limit");
+      expect(result.output).not.toContain("T8_PRIVATE_ANALYSIS_DIAGNOSTIC");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("T8_PRIVATE_ANALYSIS_DIAGNOSTIC");
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("preserves typed analysis failure categories while redacting diagnostics", async () => {

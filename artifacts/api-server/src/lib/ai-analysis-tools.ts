@@ -11,7 +11,13 @@ import {
   type GraphEntity,
 } from "@workspace/knowledge-engine";
 import { SCANNER_VERSION } from "@workspace/scanner";
-import { ANALYSIS_TOOL_DEFINITIONS } from "@workspace/ai-orchestrator";
+import {
+  ANALYSIS_TOOL_DEFINITIONS,
+  MAX_ANALYSIS_TOOL_OUTPUT_BYTES,
+  assertToolTextOutputWithinByteLimit,
+  isToolOutputLimitExceeded,
+  stringifyJsonWithinByteLimit,
+} from "@workspace/ai-orchestrator";
 import type {
   AnalysisCorrelation,
   AnalysisFailureCategory,
@@ -20,7 +26,7 @@ import type {
 } from "@workspace/ai-orchestrator";
 import { performScan, ScanRootUnavailableError } from "./scan-runner.js";
 
-const MAX_OUTPUT = 24_000;
+const MAX_OUTPUT = MAX_ANALYSIS_TOOL_OUTPUT_BYTES;
 const HARD_MAX_MS = 30_000;
 const MAX_GIT_HISTORY_PATHS = 6;
 const MAX_GIT_HISTORY_ENTRIES_PER_PATH = 8;
@@ -134,8 +140,11 @@ export function wrapReadOnlyAnalysisToolRunner(
 }
 
 function bounded(value: unknown): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n[analysis output bounded]` : text;
+  if (typeof value === "string") {
+    assertToolTextOutputWithinByteLimit(value, MAX_OUTPUT);
+    return value;
+  }
+  return stringifyJsonWithinByteLimit(value, MAX_OUTPUT);
 }
 
 function check(signal?: AbortSignal, deadlineAt?: number): void {
@@ -260,6 +269,7 @@ export function classifyAnalysisFailure(
   deadlineAt?: number,
 ): AnalysisFailureCategory {
   if (parentSignal?.aborted) return "cancellation";
+  if (isToolOutputLimitExceeded(error)) return "output_limit";
   if (deadlineAt !== undefined && Date.now() >= deadlineAt) return "timeout";
   if (isRootUnavailableError(error)) return "root_unavailable";
   if (/stale/i.test(error instanceof Error ? error.message : String(error))) {
@@ -501,6 +511,8 @@ export function createProjectAnalysisToolRunner(
           ? "Analysis was cancelled before completion."
           : failureCategory === "timeout"
             ? "Analysis exceeded its execution deadline and was not completed."
+            : failureCategory === "output_limit"
+              ? "Analysis output exceeded the server limit and was not completed."
             : failureCategory === "stale_revision"
               ? "Analysis observed a workspace revision change and was rejected."
               : failureCategory === "root_unavailable"

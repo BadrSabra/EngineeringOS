@@ -226,6 +226,43 @@ describe("executeFileTool — search_code error handling", () => {
     }
   });
 
+  it("terminates the active grep process when the search runtime expires", async () => {
+    const { root, cleanup } = await createSearchProject();
+    const fakeChild = new EventEmitter() as unknown as ChildProcess;
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    Object.assign(fakeChild, { stdin, stdout, killed: false });
+    const kill = vi.fn(() => {
+      Object.defineProperty(fakeChild, "killed", {
+        value: true,
+        configurable: true,
+      });
+      setImmediate(() => fakeChild.emit("close", null, "SIGTERM"));
+      return true;
+    });
+    Object.assign(fakeChild, { kill });
+    const initialTime = 1_000_000;
+    const now = vi.spyOn(Date, "now")
+      .mockImplementationOnce(() => initialTime)
+      .mockReturnValue(initialTime + 9_990);
+
+    try {
+      await fs.writeFile(path.join(root, "source.ts"), "match\n");
+      mockSpawn.mockImplementationOnce(() => fakeChild as ReturnType<typeof spawn>);
+
+      const result = await executeFileTool("search_code", { pattern: "match" }, root, []);
+
+      expect(result).toContain("search incomplete");
+      expect(mockSpawn).toHaveBeenCalled();
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+    } finally {
+      now.mockRestore();
+      mockSpawn.mockReset();
+      mockSpawn.mockImplementation(realSpawnImplementation);
+      await cleanup();
+    }
+  });
+
   it("marks a search incomplete when a source file exceeds its byte window", async () => {
     const { root, cleanup } = await createSearchProject();
     try {

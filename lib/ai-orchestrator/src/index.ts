@@ -9,6 +9,15 @@ export {
 export {
   validateGeminiDefaultModels,
 } from "./openai-compatible-client.js";
+export {
+  MAX_ANALYSIS_TOOL_OUTPUT_BYTES,
+  MAX_ANALYSIS_TOOL_RESULT_BYTES,
+  MAX_TOOL_OUTPUT_SERIALIZATION_BYTES,
+  ToolOutputLimitExceeded,
+  assertToolTextOutputWithinByteLimit,
+  isToolOutputLimitExceeded,
+  stringifyJsonWithinByteLimit,
+} from "./tool-output-bounds.js";
 export type {
   AgentStep,
   AgentDiagnosticCode,

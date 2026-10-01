@@ -4,6 +4,7 @@ export type AnalysisToolStatus = "complete" | "unavailable" | "failed";
 export type AnalysisFailureCategory =
   | "timeout"
   | "cancellation"
+  | "output_limit"
   | "stale_revision"
   | "unavailable_dependency"
   | "root_unavailable"
@@ -105,7 +106,14 @@ export const ANALYSIS_TOOL_NAMES = new Set(
   ANALYSIS_TOOL_DEFINITIONS.map((tool) => tool.function.name),
 );
 
-function safeStatusMessage(name: string, status: Exclude<AnalysisToolStatus, "complete">): string {
+function safeStatusMessage(
+  name: string,
+  status: Exclude<AnalysisToolStatus, "complete">,
+  failureCategory?: AnalysisFailureCategory,
+): string {
+  if (failureCategory === "output_limit") {
+    return `Analysis tool "${name}" exceeded the server output limit; the operation did not complete.`;
+  }
   return status === "unavailable"
     ? `Analysis tool "${name}" was unavailable; the operation did not complete.`
     : `Analysis tool "${name}" failed; the operation did not complete.`;
@@ -166,13 +174,19 @@ export async function executeAnalysisTool(
     if (result.status !== "complete") {
       console.error(JSON.stringify({
         scope: "analysis-tools",
-        code: result.status === "unavailable" ? "ANALYSIS_UNAVAILABLE" : "ANALYSIS_FAILED",
+        code: result.failureCategory === "output_limit"
+          ? "ANALYSIS_OUTPUT_LIMIT"
+          : result.status === "unavailable"
+            ? "ANALYSIS_UNAVAILABLE"
+            : "ANALYSIS_FAILED",
         tool: name,
-        diagnostic: result.output,
+        diagnostic: result.failureCategory === "output_limit"
+          ? "Oversized analysis output withheld."
+          : result.output,
       }));
       return {
         ...result,
-        output: safeStatusMessage(name, result.status),
+        output: safeStatusMessage(name, result.status, result.failureCategory),
       };
     }
     if (

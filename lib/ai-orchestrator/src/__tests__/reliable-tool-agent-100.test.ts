@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,10 @@ import {
   authorizeToolInvocation,
   getFullAuthorizedToolManifest,
 } from "../tool-policy.js";
-import { TOOL_OPERATIONAL_METADATA } from "../tool-operational-registry.js";
+import {
+  getDurableReplayBlockedToolNames,
+  TOOL_OPERATIONAL_METADATA,
+} from "../tool-operational-registry.js";
 import { ANALYSIS_TOOL_DEFINITIONS, type AnalysisCorrelation, type AnalysisToolRunner } from "../tools/analysis-tools.js";
 import { BINARY_TOOL_DEFINITIONS } from "../tools/binary-tools.js";
 import { CODE_NAVIGATION_TOOL_DEFINITIONS } from "../tools/code-navigation.js";
@@ -288,6 +291,19 @@ function visibleOutput(result: Awaited<ReturnType<typeof executeSingleTool>>): s
   return result.errorMessage;
 }
 
+async function waitForFile(filePath: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(filePath, "utf8");
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw new Error(`Timed out waiting for cancellation fixture marker: ${path.basename(filePath)}`);
+}
+
 function definitionFor(name: string): ToolDefinitionContract {
   const definition = TOOL_DEFINITIONS.find((tool) => tool.function.name === name);
   if (!definition) throw new Error(`Missing T8 definition for ${name}`);
@@ -521,6 +537,11 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     expect(TOOL_OPERATIONAL_METADATA.search_code.cancellation).toMatchObject({
       signal: "cooperative",
       timeout: { kind: "fixed_ms", maxMs: 10_000 },
+    });
+    expect(TOOL_OPERATIONAL_METADATA.query_knowledge_graph.outputBound).toMatchObject({
+      kind: "fixed_bytes",
+      maxBytes: 24_000,
+      surface: "serialized_result",
     });
     expect(TOOL_OPERATIONAL_METADATA.refresh_project_scan.replay.durableRecovery)
       .toBe("block_after_prior_marker");
@@ -900,6 +921,58 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     ]);
   });
 
+  it.each(["run_validation", "run_browser_validation", "run_command"] as const)(
+    "$name rejects oversized runner output before JSON serialization",
+    async (name) => {
+      const oversized = "T8_RUNNER_OUTPUT_LIMIT".repeat(180_000);
+      const overrides: Partial<SingleToolOpts> = {};
+      if (name === "run_validation") {
+        overrides.validationRunner = async (profile) => ({
+          status: "passed",
+          profile,
+          stdout: oversized,
+        });
+      } else if (name === "run_browser_validation") {
+        overrides.browserValidationRunner = async ({ profile }) => ({
+          profile,
+          status: "passed",
+          scenario: "bounded runner fixture",
+          exitCode: 0,
+          command: "fixture",
+          stdout: oversized,
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            evidenceId: "t8-output-limit",
+            observedAt: "2026-01-01T00:00:00.000Z",
+            artifactRef: "t8-output-limit",
+          },
+        });
+      } else {
+        overrides.commandRunner = async () => ({
+          status: "passed",
+          exitCode: 0,
+          signal: null,
+          stdout: oversized,
+          stderr: "",
+          combinedOutput: oversized,
+          truncated: false,
+          durationMs: 1,
+        });
+      }
+
+      const call = makeCall(name, SAFE_ARGS[name], overrides);
+      const result = await executeSingleTool(call.options);
+
+      expect(result.kind, name).toBe("failed");
+      if (result.kind === "failed") {
+        expect(result.diagnosticCode, name).toBe("TOOL_OUTPUT_LIMIT");
+        expect(result.safeMessage, name).not.toContain("T8_RUNNER_OUTPUT_LIMIT");
+      }
+    },
+  );
+
   it("bounds command output and reports in-flight cancellation as incomplete", async () => {
     const outputProfile: CommandProfile = {
       name: "fixture-output-bound",
@@ -1072,6 +1145,133 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     },
   );
 
+  it("cancels built-in Git, project-tree, AST, package, and binary work after it starts", async () => {
+    const gitBin = path.join(fixtureRoot, "cancel-git-bin");
+    await mkdir(gitBin, { recursive: true });
+    const startedMarker = path.join(fixtureRoot, "cancel-git-started");
+    const stoppedMarker = path.join(fixtureRoot, "cancel-git-stopped");
+    const gitExecutable = path.join(gitBin, "git");
+    await writeFile(gitExecutable, [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STARTED, 'started');",
+      "process.on('SIGTERM', () => {",
+      "  fs.writeFileSync(process.env.RELIABLE_TOOL_GIT_STOPPED, 'stopped');",
+      "  process.exit(0);",
+      "});",
+      "setInterval(() => {}, 1000);",
+      "",
+    ].join("\n"));
+    await chmod(gitExecutable, 0o755);
+
+    const oldPath = process.env.PATH;
+    const oldStartedMarker = process.env.RELIABLE_TOOL_GIT_STARTED;
+    const oldStoppedMarker = process.env.RELIABLE_TOOL_GIT_STOPPED;
+    const gitController = new AbortController();
+    let gitPending: ReturnType<typeof executeSingleTool> | undefined;
+    try {
+      process.env.PATH = `${gitBin}${path.delimiter}${oldPath ?? ""}`;
+      process.env.RELIABLE_TOOL_GIT_STARTED = startedMarker;
+      process.env.RELIABLE_TOOL_GIT_STOPPED = stoppedMarker;
+      const gitCall = makeCall("git_status", SAFE_ARGS.git_status, {
+        signal: gitController.signal,
+      });
+      gitPending = executeSingleTool(gitCall.options);
+      await waitForFile(startedMarker);
+      gitController.abort();
+      const gitResult = await gitPending;
+      expect(gitResult.kind).toBe("failed");
+      if (gitResult.kind === "failed") {
+        expect(gitResult.diagnosticCode).toBe("TOOL_CANCELLED");
+      }
+      await waitForFile(stoppedMarker);
+    } finally {
+      gitController.abort();
+      await gitPending?.catch(() => undefined);
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      if (oldStartedMarker === undefined) delete process.env.RELIABLE_TOOL_GIT_STARTED;
+      else process.env.RELIABLE_TOOL_GIT_STARTED = oldStartedMarker;
+      if (oldStoppedMarker === undefined) delete process.env.RELIABLE_TOOL_GIT_STOPPED;
+      else process.env.RELIABLE_TOOL_GIT_STOPPED = oldStoppedMarker;
+    }
+
+    const treeRoot = path.join(fixtureRoot, "cancel-tree");
+    await mkdir(treeRoot, { recursive: true });
+    for (let start = 0; start < 2_000; start += 100) {
+      await Promise.all(Array.from({ length: 100 }, (_, offset) =>
+        writeFile(path.join(treeRoot, `entry-${start + offset}.txt`), "tree entry"),
+      ));
+    }
+
+    const sourceRoot = path.join(fixtureRoot, "cancel-sources");
+    await mkdir(sourceRoot, { recursive: true });
+    for (let start = 0; start < 600; start += 100) {
+      await Promise.all(Array.from({ length: 100 }, (_, offset) =>
+        writeFile(
+          path.join(sourceRoot, `module-${start + offset}.ts`),
+          `export const cancellationFixture${start + offset} = ${start + offset};\n`,
+        ),
+      ));
+    }
+
+    const originalPackageJson = await readFile(path.join(fixtureRoot, "package.json"), "utf8");
+    await writeFile(path.join(fixtureRoot, "package.json"), JSON.stringify({
+      name: "cancel-package-fixture",
+      dependencies: Object.fromEntries(Array.from({ length: 2_500 }, (_, index) => [
+        `dependency-${index}`,
+        "1.0.0",
+      ])),
+    }));
+    const largeBinaryPath = path.join(fixtureRoot, "fixtures", "cancel-large.pdf");
+    await writeFile(largeBinaryPath, "%PDF-1.7\n");
+    await truncate(largeBinaryPath, 16 * 1024 * 1024);
+
+    const cases = [
+      { name: "project.list_tree", args: SAFE_ARGS["project.list_tree"] },
+      {
+        name: "symbol_search",
+        args: { symbol: "cancellationFixture", path: "cancel-sources" },
+      },
+      {
+        name: "ast_navigation",
+        args: {
+          operation: "references",
+          symbol: "cancellationFixture",
+          path: "cancel-sources",
+        },
+      },
+      { name: "inspect_dependencies", args: SAFE_ARGS.inspect_dependencies },
+      { name: "inspect_binary", args: { path: "fixtures/cancel-large.pdf" } },
+    ] as const;
+
+    try {
+      for (const { name, args } of cases) {
+        const controller = new AbortController();
+        const phases: string[] = [];
+        const call = makeCall(name, args, {
+          signal: controller.signal,
+          onToolInvocation: async (event) => {
+            phases.push(event.phase);
+            if (event.phase === "started") setImmediate(() => controller.abort());
+          },
+        });
+        const result = await executeSingleTool(call.options);
+
+        expect(result.kind, name).toBe("failed");
+        if (result.kind === "failed") {
+          expect(result.diagnosticCode, name).toBe("TOOL_CANCELLED");
+        }
+        expect(phases, name).toEqual(["requested", "started", "cancelled"]);
+      }
+    } finally {
+      await writeFile(path.join(fixtureRoot, "package.json"), originalPackageJson);
+      await rm(treeRoot, { recursive: true, force: true });
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(largeBinaryPath, { force: true });
+    }
+  });
+
   it.each(["revision", "scope", "manifest"] as const)(
     "misses the shared cache when %s changes",
     async (dimension) => {
@@ -1145,22 +1345,60 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     expect(JSON.stringify(second.messages)).toContain("outside the server-approved Mission read scope");
   });
 
+  const contextualReplayCases = TOOL_CASES.filter(({ name }) => {
+    const metadata = TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA];
+    return metadata.replay.cache === "contextual_result"
+      && metadata.replay.durableRecovery === "safe_to_replay";
+  });
+
+  it("has a contextual-cache assertion for every safe-to-replay tool", () => {
+    const expectedNames = Object.entries(TOOL_OPERATIONAL_METADATA)
+      .filter(([, metadata]) =>
+        metadata.replay.cache === "contextual_result"
+        && metadata.replay.durableRecovery === "safe_to_replay",
+      )
+      .map(([name]) => name)
+      .sort();
+    expect(contextualReplayCases.map(({ name }) => name).sort()).toEqual(expectedNames);
+  });
+
+  it.each(contextualReplayCases)(
+    "$name reuses a same-context cached result",
+    async ({ name, args }) => {
+      const cache = new Map<string, string>();
+      await runT8ToolLoop(name, args, { cache });
+
+      const resultSteps: Array<{ cached: boolean }> = [];
+      await runT8ToolLoop(name, args, {
+        cache,
+        onStep: (step) => {
+          if (step.kind === "tool_result") {
+            resultSteps.push({ cached: step.cached === true });
+          }
+        },
+      });
+
+      expect(resultSteps.at(-1)?.cached, name).toBe(true);
+    },
+  );
+
+  const durableReplayBlockedNames = getDurableReplayBlockedToolNames();
+  const durableReplayBlockedCases = TOOL_CASES.filter(({ name }) =>
+    durableReplayBlockedNames.includes(name),
+  );
+
+  it("has a persisted-marker replay assertion for every registry-blocked tool", () => {
+    expect(durableReplayBlockedCases.map(({ name }) => name).sort())
+      .toEqual([...durableReplayBlockedNames].sort());
+  });
+
   it.each(
-    ([
-      "write_file",
-      "replace_text",
-      "run_validation",
-      "run_command",
-      "run_browser_validation",
-      "refresh_project_scan",
-    ] as const)
-      .flatMap((name) =>
-        (["started", "completed"] as const).map((status) => ({ name, status })),
-      ),
-  )("$name does not dispatch again from a persisted $status marker", async ({ name, status }) => {
-    const args = SAFE_ARGS[name] as Record<string, string>;
+    durableReplayBlockedCases.flatMap(({ name, args }) =>
+      (["started", "completed"] as const).map((status) => ({ name, args, status })),
+    ),
+  )("$name does not dispatch again from a persisted $status marker", async ({ name, args, status }) => {
     const marker = {
-      key: toolCacheKey(name, args),
+      key: toolCacheKey(name, args as Record<string, string>),
       tool: name,
       args,
       status,

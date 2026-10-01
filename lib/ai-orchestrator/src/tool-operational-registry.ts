@@ -5,6 +5,7 @@ import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { FILE_TOOL_DEFINITIONS } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS } from "./tools/git-tools.js";
 import { PACKAGE_TOOL_DEFINITIONS } from "./tools/package-tools.js";
+import { MAX_ANALYSIS_TOOL_RESULT_BYTES } from "./tool-output-bounds.js";
 
 export type ToolExecutorFamily =
   | "file"
@@ -366,8 +367,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "correlated_analysis",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      kind: "fixed_bytes",
+      maxBytes: MAX_ANALYSIS_TOOL_RESULT_BYTES,
+      surface: "serialized_result",
+      notes: "The analysis producer caps output at 20,000 bytes, leaving room for safe untrusted-content framing.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -381,8 +384,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "correlated_analysis",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      kind: "fixed_bytes",
+      maxBytes: MAX_ANALYSIS_TOOL_RESULT_BYTES,
+      surface: "serialized_result",
+      notes: "The analysis producer caps output at 20,000 bytes, leaving room for safe untrusted-content framing.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -396,8 +401,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "correlated_analysis",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      kind: "fixed_bytes",
+      maxBytes: MAX_ANALYSIS_TOOL_RESULT_BYTES,
+      surface: "serialized_result",
+      notes: "The analysis producer caps output at 20,000 bytes, leaving room for safe untrusted-content framing.",
     },
     cancellation: {
       signal: "runner_delegated",
