@@ -5983,6 +5983,10 @@ function MessageBubble({
   projectQueryRetryPending,
   onMissionHandoff,
   missionHandoffPending,
+  onExplainFallback,
+  fallbackDiagnostic,
+  fallbackDiagnosticPending,
+  fallbackDiagnosticError,
 }: {
   msg: ChatMessage;
   projectId?: string;

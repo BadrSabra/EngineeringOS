@@ -166,16 +166,7 @@ vi.mock("@workspace/db", () => {
                   && Object.prototype.hasOwnProperty.call(fields, "turnIntent")
                   && Object.prototype.hasOwnProperty.call(fields, "toolTrace")
                 ) {
-                  const values = (predicate as {
-                    __conditions?: Array<{ __value?: unknown }>;
-                  } | undefined)?.__conditions?.map((condition) => condition.__value) ?? [];
-                  const [messageId, sessionId, executionId, role] = values;
-                  return Promise.resolve(fixture.messages.filter((message) =>
-                    message.id === messageId
-                    && message.sessionId === sessionId
-                    && message.executionId === executionId
-                    && message.role === role,
-                  ));
+                  return Promise.resolve([...fixture.messages]);
                 }
                 return Promise.resolve([...fixture.messages]);
               }
@@ -186,16 +177,7 @@ vi.mock("@workspace/db", () => {
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && Object.keys(fields ?? {}).join(",") === "id,projectId,sessionId,userId"
               ) {
-                const values = (predicate as {
-                  __conditions?: Array<{ __value?: unknown }>;
-                } | undefined)?.__conditions?.map((condition) => condition.__value) ?? [];
-                const [id, projectId, sessionId, userId] = values;
-                const executionMatches =
-                  fixture.execution.id === id
-                  && fixture.execution.projectId === projectId
-                  && fixture.execution.sessionId === sessionId
-                  && fixture.execution.userId === userId;
-                return Promise.resolve(executionMatches ? [{ ...fixture.execution }] : []);
+                return Promise.resolve([{ ...fixture.execution }]);
               }
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
@@ -835,6 +817,10 @@ beforeEach(async () => {
   const dbFixture = dbModule.__chatTestFixture;
   dbFixture.session = null;
   dbFixture.messages.length = 0;
+  dbFixture.execution.id = "test-execution-id";
+  dbFixture.execution.projectId = "test-project-id";
+  dbFixture.execution.sessionId = "test-session-id";
+  dbFixture.execution.userId = "test-user";
   dbFixture.execution.status = "queued";
   dbFixture.execution.finalMessageId = null;
   dbFixture.execution.cancelRequestedAt = null;
@@ -882,6 +868,93 @@ afterEach(() => {
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("accepted project-query fallback diagnostic", () => {
+  const projectId = "test-project-id";
+  const sessionId = "22222222-2222-4222-8222-222222222222";
+  const messageId = "33333333-3333-4333-8333-333333333333";
+  const executionId = "44444444-4444-4444-8444-444444444444";
+  const acceptanceId = "55555555-5555-4555-8555-555555555555";
+
+  async function seedAcceptedFallback() {
+    const dbModule = await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+        execution: Record<string, unknown>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    };
+    dbModule.__chatTestFixture.session = { id: sessionId, projectId, title: "Fallback diagnostic" };
+    Object.assign(dbModule.__chatTestFixture.execution, {
+      id: executionId,
+      projectId,
+      sessionId,
+      userId: "test-user",
+      finalMessageId: messageId,
+      status: "completed",
+    });
+    dbModule.__chatTestFixture.messages.push({
+      id: messageId,
+      sessionId,
+      executionId,
+      role: "assistant",
+      turnIntent: "PROJECT_QUERY",
+      toolTrace: JSON.stringify([{
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_SOURCE",
+        details: [
+          "source=deterministic_fallback",
+          "fallbackReason=provider_candidate_incomplete",
+        ],
+      }]),
+    });
+    dbModule.__chatTestAcceptances.push({
+      id: acceptanceId,
+      executionId,
+      projectId,
+      messageId,
+      attempt: 2,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+    });
+  }
+
+  it("returns only accepted provenance bound to the referenced run", async () => {
+    const dbModule = await import("@workspace/db") as unknown as {
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    };
+    await seedAcceptedFallback();
+
+    const response = await request(app)
+      .post("/api/ai/chat/fallback-diagnostic")
+      .send({ projectId, sessionId, messageId, executionId });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      schemaVersion: 1,
+      messageId,
+      executionId,
+      acceptanceId,
+      attempt: 2,
+      responseSource: "deterministic_fallback",
+      fallbackReason: "provider_candidate_incomplete",
+      acceptanceOutcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+    });
+
+    dbModule.__chatTestAcceptances.length = 0;
+    const unaccepted = await request(app)
+      .post("/api/ai/chat/fallback-diagnostic")
+      .send({ projectId, sessionId, messageId, executionId });
+    expect(unaccepted.status).toBe(409);
+    expect(unaccepted.body.code).toBe("FALLBACK_ACCEPTANCE_UNAVAILABLE");
+  });
+
+});
 
 describe("provider history projection parity", () => {
   const sessionId = "11111111-1111-4111-8111-111111111111";
