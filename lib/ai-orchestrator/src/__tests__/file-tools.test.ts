@@ -1,85 +1,182 @@
-/**
- * Tests for the search_code error-path differentiation (PR-05).
- *
- * Strategy: vi.mock hoists the child_process mock before file-tools.ts loads,
- * so promisify(execFile) wraps the mock. Each test overrides mockImplementation
- * to simulate a specific execFile outcome, then asserts the string returned by
- * executeFileTool("search_code", ...).
- */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+/** Tests for bounded, grep-compatible source search. */
+import { describe, it, expect, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
+import { PassThrough } from "node:stream";
 
-// Hoisted mock — runs before any import is evaluated.
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
-// Import after mock is registered.
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { executeFileTool, FILE_TOOL_DEFINITIONS, isSensitiveProjectPath, stripReadFileWrapper } from "../tools/file-tools.js";
 import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
 
-const mockExecFile = vi.mocked(execFile);
+const mockSpawn = vi.mocked(spawn);
+const realSpawnImplementation = mockSpawn.getMockImplementation()!;
 
-// Helper: simulate a promisify-compatible execFile callback.
-// execFile(file, args, options, callback) — promisify resolves to {stdout, stderr} or rejects.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mockCallback(err: Error | null, stdout = ""): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (mockExecFile as any).mockImplementationOnce(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (_f: unknown, _a: unknown, _o: unknown, cb: any) => {
-      if (err) cb(err);
-      else cb(null, { stdout });
-      // Return a minimal stub — the promisify wrapper does not use the return value.
-      return { pid: 0 };
-    },
-  );
+async function createSearchProject(): Promise<{
+  root: string;
+  cleanup: () => Promise<void>;
+}> {
+  const root = await fs.mkdtemp(path.join("/tmp", "file-tools-search-"));
+  return {
+    root,
+    cleanup: () => fs.rm(root, { recursive: true, force: true }),
+  };
 }
 
 describe("executeFileTool — search_code error handling", () => {
-  beforeEach(() => {
-    mockExecFile.mockReset();
+  it("returns 'No matches found.' for a complete search with no match", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.writeFile(path.join(root, "source.ts"), "const value = 1;\n");
+      const result = await executeFileTool("search_code", { pattern: "missing" }, root, []);
+      expect(result).toBe("No matches found.");
+    } finally {
+      await cleanup();
+    }
   });
 
-  it("returns 'No matches found.' when grep exits with code 1 (no matches)", async () => {
-    mockCallback(Object.assign(new Error("exit 1"), { code: 1 }));
-    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
-    expect(result).toBe("No matches found.");
+  it("returns matching lines with project-relative paths and line numbers", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.mkdir(path.join(root, "src"));
+      await fs.writeFile(path.join(root, "src", "foo.ts"), "const value = 1;\nconst foo = 2;\n");
+      const result = await executeFileTool("search_code", { pattern: "foo" }, root, []);
+      expect(result).toBe("src/foo.ts:2:const foo = 2;");
+    } finally {
+      await cleanup();
+    }
   });
 
-  it("returns a timeout message when grep is killed", async () => {
-    mockCallback(Object.assign(new Error("killed"), { killed: true, code: "SIGTERM" }));
-    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
-    expect(result).toMatch(/timed out/i);
+  it("applies a file glob before selecting bounded search files", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.writeFile(path.join(root, "included.ts"), "match here\n");
+      await fs.writeFile(path.join(root, "excluded.md"), "match here\n");
+      const result = await executeFileTool(
+        "search_code",
+        { pattern: "match", file_glob: "*.ts" },
+        root,
+        [],
+      );
+      expect(result).toContain("included.ts:1:match here");
+      expect(result).not.toContain("excluded.md");
+    } finally {
+      await cleanup();
+    }
   });
 
-  it("returns a missing-grep message when execFile throws ENOENT", async () => {
-    mockCallback(Object.assign(new Error("not found"), { code: "ENOENT" }));
-    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
-    expect(result).toMatch(/not available/i);
+  it("never searches sensitive files or directories", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.mkdir(path.join(root, "secrets"));
+      await fs.writeFile(path.join(root, ".env"), "token=hidden-env\n");
+      await fs.writeFile(path.join(root, "secrets", "config.ts"), "token=hidden-secret\n");
+      await fs.writeFile(path.join(root, "source.ts"), "token=visible\n");
+      const result = await executeFileTool("search_code", { pattern: "token" }, root, []);
+      expect(result).toContain("source.ts:1:token=visible");
+      expect(result).not.toContain(".env");
+      expect(result).not.toContain("secrets/");
+      expect(result).not.toContain("hidden");
+    } finally {
+      await cleanup();
+    }
   });
 
-  it("returns a generic error message for other failures", async () => {
-    mockCallback(Object.assign(new Error("permission denied"), { code: "EACCES" }));
-    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
-    expect(result).toMatch(/search failed/i);
-    expect(result).toMatch(/permission denied/i);
+  it("marks results incomplete when the bounded candidate-file count is reached", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await Promise.all(Array.from({ length: 101 }, (_, index) =>
+        fs.writeFile(
+          path.join(root, `${String(index).padStart(3, "0")}.bin`),
+          Buffer.from([0]),
+        ),
+      ));
+      const result = await executeFileTool("search_code", { pattern: "match" }, root, []);
+      expect(result).toContain("No matches found within the bounded search window.");
+      expect(result).toContain("search incomplete");
+    } finally {
+      await cleanup();
+    }
   });
 
-  it("returns matched lines on success", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mockExecFile as any).mockImplementationOnce(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (_f: unknown, _a: unknown, _o: unknown, cb: any) => {
-        cb(null, { stdout: "/tmp/foo.ts:1:const foo = 1;\n" });
-        return { pid: 0 };
-      },
-    );
-    const result = await executeFileTool("search_code", { pattern: "foo" }, "/tmp", []);
-    expect(result).toContain("foo");
-    expect(result).not.toBe("No matches found.");
+  it("keeps the rendered search response within its byte cap", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      const longMatch = `match ${"x".repeat(5_000)}\n`;
+      await fs.writeFile(path.join(root, "long-lines.txt"), longMatch.repeat(6));
+      const result = await executeFileTool("search_code", { pattern: "match" }, root, []);
+      expect(result).toContain("search incomplete");
+      expect(result).toContain("long-lines.txt:1:match");
+      expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(24_000);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("terminates the active grep process when search is cancelled", async () => {
+    const { root, cleanup } = await createSearchProject();
+    const controller = new AbortController();
+    const fakeChild = new EventEmitter() as unknown as ChildProcess;
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    Object.assign(fakeChild, { stdin, stdout, killed: false });
+    const kill = vi.fn(() => {
+      Object.defineProperty(fakeChild, "killed", {
+        value: true,
+        configurable: true,
+      });
+      setImmediate(() => fakeChild.emit("close", null, "SIGTERM"));
+      return true;
+    });
+    Object.assign(fakeChild, { kill });
+    try {
+      await fs.writeFile(path.join(root, "source.ts"), "match\n");
+      mockSpawn.mockImplementationOnce(() => {
+        controller.abort();
+        return fakeChild as ReturnType<typeof spawn>;
+      });
+      await expect(
+        executeFileTool("search_code", { pattern: "match" }, root, [], controller.signal),
+      ).rejects.toThrow(/cancelled/i);
+      expect(mockSpawn).toHaveBeenCalled();
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+    } finally {
+      mockSpawn.mockReset();
+      mockSpawn.mockImplementation(realSpawnImplementation);
+      await cleanup();
+    }
+  });
+
+  it("marks a search incomplete when a source file exceeds its byte window", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.writeFile(
+        path.join(root, "large.ts"),
+        `const match = true;\n${"x".repeat(520_000)}\n`,
+      );
+      const result = await executeFileTool("search_code", { pattern: "match" }, root, []);
+      expect(result).toContain("large.ts:1:const match = true;");
+      expect(result).toContain("search incomplete");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("returns a safe search failure for an invalid grep-compatible expression", async () => {
+    const { root, cleanup } = await createSearchProject();
+    try {
+      await fs.writeFile(path.join(root, "source.ts"), "source\n");
+      const result = await executeFileTool("search_code", { pattern: "[" }, root, []);
+      expect(result).toMatch(/search failed/i);
+    } finally {
+      await cleanup();
+    }
   });
 });
 

@@ -12,8 +12,8 @@
  *   - read_file / list_directory / search_code execute immediately.
  *   - write_file / replace_text NEVER write to disk — they queue a PendingChange that the
  *     user must explicitly approve via the dashboard before anything changes.
- *   - search_code uses execFile (no shell) so the pattern and root path are
- *     passed as plain argv entries, never interpolated into a shell string.
+ *   - search_code walks a bounded project file set, passes capped file bytes to
+ *     grep over stdin, and supplies the pattern as a plain argv entry (no shell).
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -358,13 +358,6 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Escape a string for use as a literal inside a RegExp constructor.
- */
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
  * Resolve a caller-supplied path and verify it stays inside `resolvedRoot`.
  *
  * Two-phase check:
@@ -650,6 +643,333 @@ async function readBoundedFilePrefix(
   } finally {
     await handle.close().catch(() => undefined);
   }
+}
+
+type SearchCandidate = {
+  absolutePath: string;
+  relativePath: string;
+};
+
+function projectRelativePath(rootPath: string, absolutePath: string): string | null {
+  const relativePath = path.relative(rootPath, absolutePath);
+  if (
+    path.isAbsolute(relativePath)
+    || relativePath === ".."
+    || relativePath.startsWith(`..${path.sep}`)
+  ) {
+    return null;
+  }
+  return relativePath.split(path.sep).join("/");
+}
+
+function matchesSearchGlob(relativePath: string, fileGlob?: string): boolean {
+  if (!fileGlob) return true;
+  const normalizedGlob = fileGlob.replace(/\\/g, "/");
+  const candidate = normalizedGlob.includes("/")
+    ? relativePath
+    : path.posix.basename(relativePath);
+  let source = "^";
+
+  for (let index = 0; index < normalizedGlob.length; index += 1) {
+    const character = normalizedGlob[index]!;
+    if (character === "*") {
+      source += ".*";
+    } else if (character === "?") {
+      source += ".";
+    } else if (character === "[") {
+      const closingIndex = normalizedGlob.indexOf("]", index + 1);
+      if (closingIndex <= index + 1) {
+        source += "\\[";
+        continue;
+      }
+      let characterClass = normalizedGlob.slice(index + 1, closingIndex);
+      const negated = characterClass.startsWith("!");
+      if (negated) characterClass = characterClass.slice(1);
+      characterClass = characterClass
+        .replace(/\\/g, "\\\\")
+        .replace(/\]/g, "\\]")
+        .replace(/\^/g, "\\^");
+      source += `[${negated ? "^" : ""}${characterClass}]`;
+      index = closingIndex;
+    } else {
+      source += /[\\^$+?.()|{}]/.test(character) ? `\\${character}` : character;
+    }
+  }
+  source += "$";
+  return new RegExp(source).test(candidate);
+}
+
+async function collectBoundedSearchFiles(
+  rootPath: string,
+  searchPath: string,
+  fileGlob: string | undefined,
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<{ files: SearchCandidate[]; truncated: boolean }> {
+  const files: SearchCandidate[] = [];
+  let scannedEntries = 0;
+  let truncated = false;
+
+  const addFile = async (absolutePath: string, relativePath: string): Promise<void> => {
+    if (files.length >= MAX_SEARCH_FILES) {
+      truncated = true;
+      return;
+    }
+    if (isSensitiveTreePath(relativePath) || !matchesSearchGlob(relativePath, fileGlob)) {
+      return;
+    }
+    try {
+      const lexicalStat = await fs.lstat(absolutePath);
+      if (lexicalStat.isSymbolicLink() || !lexicalStat.isFile()) return;
+      const resolvedPath = await safePath(rootPath, relativePath);
+      if (!resolvedPath) {
+        truncated = true;
+        return;
+      }
+      const resolvedRelativePath = projectRelativePath(rootPath, resolvedPath);
+      if (
+        resolvedRelativePath === null
+        || isSensitiveTreePath(resolvedRelativePath)
+        || !matchesSearchGlob(resolvedRelativePath, fileGlob)
+      ) {
+        return;
+      }
+      const resolvedStat = await fs.lstat(resolvedPath);
+      if (resolvedStat.isSymbolicLink() || !resolvedStat.isFile()) {
+        truncated = true;
+        return;
+      }
+      files.push({ absolutePath: resolvedPath, relativePath: resolvedRelativePath });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+      if (code === "ENOENT" || code === "ESTALE") {
+        truncated = true;
+        return;
+      }
+      throw error;
+    }
+  };
+
+  const initialStat = await fs.lstat(searchPath);
+  const initialRelativePath = projectRelativePath(rootPath, searchPath);
+  if (initialRelativePath === null) {
+    return { files, truncated: true };
+  }
+  if (initialStat.isSymbolicLink()) {
+    return { files, truncated: true };
+  }
+  if (initialStat.isFile()) {
+    await addFile(searchPath, initialRelativePath);
+    return { files, truncated };
+  }
+  if (!initialStat.isDirectory()) return { files, truncated };
+
+  const pendingDirectories: Array<{
+    absolutePath: string;
+    relativePath: string;
+    depth: number;
+  }> = [{
+    absolutePath: searchPath,
+    relativePath: initialRelativePath,
+    depth: 0,
+  }];
+
+  while (pendingDirectories.length > 0) {
+    assertFileOperationActive(signal);
+    if (Date.now() >= deadline) {
+      truncated = true;
+      break;
+    }
+    if (files.length >= MAX_SEARCH_FILES) {
+      truncated = true;
+      break;
+    }
+    const current = pendingDirectories.pop()!;
+    const directoryStat = await fs.lstat(current.absolutePath);
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      truncated = true;
+      continue;
+    }
+    const realDirectoryPath = await fs.realpath(current.absolutePath);
+    if (
+      realDirectoryPath !== current.absolutePath
+      || projectRelativePath(rootPath, realDirectoryPath) === null
+    ) {
+      truncated = true;
+      continue;
+    }
+
+    const directory = await fs.opendir(realDirectoryPath);
+    const children: Array<{
+      absolutePath: string;
+      relativePath: string;
+      name: string;
+      kind: "directory" | "file";
+    }> = [];
+    try {
+      for await (const entry of directory) {
+        assertFileOperationActive(signal);
+        scannedEntries += 1;
+        if (scannedEntries > MAX_SEARCH_SCANNED_ENTRIES) {
+          truncated = true;
+          break;
+        }
+        if (entry.isSymbolicLink()) continue;
+        if (!entry.isDirectory() && !entry.isFile()) continue;
+
+        const relativePath = current.relativePath
+          ? `${current.relativePath}/${entry.name}`
+          : entry.name;
+        if (isSensitiveTreePath(relativePath)) continue;
+        if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+        if (entry.isDirectory() && current.depth >= MAX_SEARCH_DIRECTORY_DEPTH) {
+          truncated = true;
+          continue;
+        }
+        if (
+          entry.isFile()
+          && !matchesSearchGlob(relativePath, fileGlob)
+        ) {
+          continue;
+        }
+        children.push({
+          absolutePath: path.join(realDirectoryPath, entry.name),
+          relativePath,
+          name: entry.name,
+          kind: entry.isDirectory() ? "directory" : "file",
+        });
+      }
+    } finally {
+      await directory.close().catch(() => undefined);
+    }
+
+    children.sort((left, right) =>
+      left.name.localeCompare(right.name)
+        || (left.kind === right.kind ? 0 : left.kind === "directory" ? -1 : 1),
+    );
+    const discoveredDirectories: typeof pendingDirectories = [];
+    for (const child of children) {
+      assertFileOperationActive(signal);
+      if (Date.now() >= deadline) {
+        truncated = true;
+        break;
+      }
+      if (child.kind === "directory") {
+        discoveredDirectories.push({
+          absolutePath: child.absolutePath,
+          relativePath: child.relativePath,
+          depth: current.depth + 1,
+        });
+        continue;
+      }
+      await addFile(child.absolutePath, child.relativePath);
+      if (files.length >= MAX_SEARCH_FILES) {
+        if (
+          children.at(-1) !== child
+          || discoveredDirectories.length > 0
+          || pendingDirectories.length > 0
+        ) {
+          truncated = true;
+        }
+        break;
+      }
+    }
+    pendingDirectories.push(...discoveredDirectories.reverse());
+  }
+
+  return { files, truncated };
+}
+
+type GrepBufferResult = {
+  exitCode: number | null;
+  stdout: Buffer;
+  timedOut: boolean;
+  outputLimitReached: boolean;
+};
+
+async function grepBoundedBuffer(
+  pattern: string,
+  input: Buffer,
+  timeoutMs: number,
+  outputLimitBytes: number,
+  signal?: AbortSignal,
+): Promise<GrepBufferResult> {
+  assertFileOperationActive(signal);
+  return new Promise((resolve, reject) => {
+    const child = spawn("grep", ["-n", "-m", "6", "--", pattern], {
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const output: Buffer[] = [];
+    let outputBytes = 0;
+    let timedOut = false;
+    let outputLimitReached = false;
+    let aborted = false;
+    let spawnError: Error | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, Math.max(1, timeoutMs));
+
+    const terminate = (): void => {
+      if (!child.killed) child.kill("SIGTERM");
+      if (!killTimer) {
+        killTimer = setTimeout(() => child.kill("SIGKILL"), 100);
+        killTimer.unref();
+      }
+    };
+    const onAbort = (): void => {
+      aborted = true;
+      terminate();
+    };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const remaining = Math.max(0, outputLimitBytes - outputBytes);
+      const captured = bytes.subarray(0, remaining);
+      if (captured.length > 0) {
+        output.push(captured);
+        outputBytes += captured.length;
+      }
+      if (captured.length < bytes.length) {
+        outputLimitReached = true;
+        terminate();
+      }
+    });
+    child.on("error", (error) => {
+      spawnError = Object.assign(error, { searchSpawnError: true });
+    });
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") spawnError = error;
+    });
+    child.on("close", (code) => {
+      cleanup();
+      if (aborted) {
+        reject(new Error("File operation cancelled."));
+      } else if (spawnError) {
+        reject(spawnError);
+      } else {
+        resolve({
+          exitCode: code,
+          stdout: Buffer.concat(output, outputBytes),
+          timedOut,
+          outputLimitReached,
+        });
+      }
+    });
+
+    child.stdin.end(input);
+    if (signal?.aborted) onAbort();
+  });
 }
 
 type BoundedLineRangeResult =
@@ -956,72 +1276,160 @@ export async function executeFileTool(
       );
       if (patternError) return patternError;
       if (args.pattern.includes("\0")) return 'Error: "pattern" must not contain null bytes.';
+      if (args.file_glob?.includes("\0")) return 'Error: "file_glob" must not contain null bytes.';
       const globError = inputByteLimitError(
         "file_glob",
         args.file_glob ?? "",
         MAX_SEARCH_GLOB_BYTES,
       );
       if (globError) return globError;
-      const searchTarget = args.path?.trim() || ".";
-      const pathError = inputByteLimitError("path", searchTarget, MAX_TOOL_PATH_BYTES);
+      const rawSearchTarget = args.path ?? ".";
+      const pathError = inputByteLimitError("path", rawSearchTarget, MAX_TOOL_PATH_BYTES);
       if (pathError) return pathError;
+      if (rawSearchTarget.includes("\0")) return 'Error: "path" must not contain null bytes.';
+      const searchTarget = rawSearchTarget.trim() || ".";
       if (isSensitiveProjectPath(searchTarget)) {
         return `Error: searching "${searchTarget}" is not allowed because the path is classified as sensitive.`;
       }
       const searchAbs = await safePath(resolvedRoot, searchTarget);
       if (!searchAbs) return `Error: "${searchTarget}" resolves outside the project root.`;
-
-      // Build the argv array directly — no shell is involved so no quoting or
-      // escaping is needed. The pattern and root path are passed as opaque
-      // strings to execFile, which hands them to the OS via execve.
-      const grepArgs: string[] = [
-        "-r",   // recursive
-        "-n",   // line numbers
-        "-m", "5", // at most 5 matches per file (limits per-file output)
-        "--exclude", ".env",
-        "--exclude", ".env.*",
-        "--exclude", ".npmrc",
-        "--exclude", ".pypirc",
-        "--exclude", "*.pem",
-        "--exclude", "*.key",
-        "--exclude", "*.p12",
-        "--exclude", "*.pfx",
-        "--exclude", "*.jks",
-        "--exclude", "*.kdbx",
-      ];
-
-      if (args.file_glob) {
-        if (args.file_glob.includes("\0")) return 'Error: "file_glob" must not contain null bytes.';
-        grepArgs.push("--include", args.file_glob);
-      }
-
-      // "--" ends option parsing: prevents a pattern starting with "-" from
-      // being treated as a grep flag even though there is no shell involved.
-      grepArgs.push("--", args.pattern, searchAbs);
-
       try {
-        const { stdout } = await execFileAsync("grep", grepArgs, {
-          timeout: 10_000,
-          maxBuffer: 1_000_000, // 1 MB cap on raw output before line-slicing
-        });
-        // Strip the absolute root prefix from every output line so the model
-        // sees project-relative paths. Escape the root for literal RegExp use.
-        const relative = stdout.replace(
-          new RegExp(`^${escapeRegex(resolvedRoot)}/`, "gm"),
-          "",
+        const relativeSearchPath = projectRelativePath(resolvedRoot, searchAbs);
+        if (relativeSearchPath === null || isSensitiveTreePath(relativeSearchPath)) {
+          return `Error: searching "${searchTarget}" is not allowed because its resolved path is outside the allowed project source scope.`;
+        }
+        const deadline = Date.now() + MAX_SEARCH_RUNTIME_MS;
+        const searchPlan = await collectBoundedSearchFiles(
+          resolvedRoot,
+          searchAbs,
+          args.file_glob,
+          deadline,
+          signal,
         );
-        const lines = relative.trim().split("\n").slice(0, MAX_SEARCH_LINES).join("\n");
-        return lines || "No matches found.";
+        let truncated = searchPlan.truncated;
+        let bytesRead = 0;
+        let outputBytes = 0;
+        const outputLines: string[] = [];
+        const outputBodyLimit = MAX_SEARCH_OUTPUT_BYTES
+          - Buffer.byteLength(SEARCH_TRUNCATION_MARKER, "utf-8");
+
+        for (let candidateIndex = 0; candidateIndex < searchPlan.files.length; candidateIndex += 1) {
+          assertFileOperationActive(signal);
+          if (Date.now() >= deadline) {
+            truncated = true;
+            break;
+          }
+          const remainingReadBudget = MAX_SEARCH_TOTAL_BYTES - bytesRead;
+          if (remainingReadBudget <= 1) {
+            truncated = true;
+            break;
+          }
+          const maxFileBytes = Math.min(
+            MAX_SEARCH_FILE_BYTES,
+            remainingReadBudget - 1,
+          );
+          const safeFilePath = await safePath(resolvedRoot, searchPlan.files[candidateIndex]!.relativePath);
+          if (!safeFilePath) {
+            truncated = true;
+            continue;
+          }
+          const read = await readBoundedFilePrefix(safeFilePath, maxFileBytes, signal);
+          bytesRead += read.bytesRead;
+          if (read.truncated) truncated = true;
+          if (read.bytes.includes(0)) {
+            truncated = true;
+            continue;
+          }
+
+          const availableOutputBytes = outputBodyLimit - outputBytes;
+          const filePrefixBytes = Buffer.byteLength(
+            `${searchPlan.files[candidateIndex]!.relativePath}:`,
+            "utf-8",
+          );
+          const grepOutputLimit = Math.min(
+            MAX_SEARCH_PROCESS_OUTPUT_BYTES,
+            availableOutputBytes - filePrefixBytes,
+          );
+          if (grepOutputLimit <= 0) {
+            truncated = true;
+            break;
+          }
+          const remainingTime = deadline - Date.now();
+          if (remainingTime <= 0) {
+            truncated = true;
+            break;
+          }
+          const grepResult = await grepBoundedBuffer(
+            args.pattern,
+            read.bytes,
+            remainingTime,
+            grepOutputLimit,
+            signal,
+          );
+          if (grepResult.timedOut) {
+            truncated = true;
+            break;
+          }
+          if (
+            !grepResult.outputLimitReached
+            && grepResult.exitCode !== 0
+            && grepResult.exitCode !== 1
+          ) {
+            return "Error: search failed (invalid regular expression or grep error).";
+          }
+          if (grepResult.outputLimitReached) truncated = true;
+
+          let grepOutput = grepResult.stdout.toString("utf-8");
+          if (grepResult.outputLimitReached) {
+            const finalNewline = grepOutput.lastIndexOf("\n");
+            grepOutput = finalNewline >= 0 ? grepOutput.slice(0, finalNewline) : "";
+          } else {
+            grepOutput = grepOutput.replace(/\n$/, "");
+          }
+          const matchedLines = grepOutput ? grepOutput.split("\n") : [];
+          if (matchedLines.length > 5) {
+            matchedLines.length = 5;
+            truncated = true;
+          }
+          for (const matchedLine of matchedLines) {
+            if (outputLines.length >= MAX_SEARCH_LINES) {
+              truncated = true;
+              break;
+            }
+            const outputLine = `${searchPlan.files[candidateIndex]!.relativePath}:${matchedLine}`;
+            const separatorBytes = outputLines.length > 0 ? 1 : 0;
+            const lineBytes = Buffer.byteLength(outputLine, "utf-8");
+            if (outputBytes + separatorBytes + lineBytes > outputBodyLimit) {
+              truncated = true;
+              break;
+            }
+            outputLines.push(outputLine);
+            outputBytes += separatorBytes + lineBytes;
+          }
+          if (
+            truncated
+            && (grepResult.outputLimitReached || outputLines.length >= MAX_SEARCH_LINES)
+          ) {
+            break;
+          }
+        }
+
+        const output = outputLines.length > 0
+          ? outputLines.join("\n")
+          : truncated
+            ? "No matches found within the bounded search window."
+            : "No matches found.";
+        return `${output}${truncated ? SEARCH_TRUNCATION_MARKER : ""}`;
       } catch (err) {
-        const e = err as { code?: unknown; killed?: boolean; message?: string };
-        // grep exits 1 when no lines match — not an error.
-        if (e.code === 1) return "No matches found.";
-        // Timeout: execFile sets killed=true when the timeout fires.
-        if (e.killed) return "Error: search timed out. Try a more specific pattern or a narrower root path.";
-        // grep binary missing on this system.
-        if ((e as NodeJS.ErrnoException).code === "ENOENT") return "Error: grep is not available in this environment.";
-        // Catch-all for anything else (ENOMEM, permission denied, etc.)
-        return `Error: search failed (${(e as Error).message ?? "unknown reason"}).`;
+        if (signal?.aborted) throw err;
+        const error = err as NodeJS.ErrnoException & { searchSpawnError?: boolean };
+        if (error.searchSpawnError && error.code === "ENOENT") {
+          return "Error: grep is not available in this environment.";
+        }
+        if (error.code === "EACCES" || error.code === "EPERM") {
+          return formatFilesystemError("list", searchTarget, error);
+        }
+        return `Error: search failed (${error.code === "ENOENT" ? "the target changed during the scan" : "the project filesystem rejected the request"}).`;
       }
     }
 

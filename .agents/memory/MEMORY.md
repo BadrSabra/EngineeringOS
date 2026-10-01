@@ -21,6 +21,7 @@
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
 - [Terminal projection identity](terminal-projection-identity.md) — terminal outcomes must bind execution, attempt, message, and session consistently across DB, SSE, history, and status.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
+- [Tool input resource bounds](tool-input-resource-bounds.md) — preserve grep semantics with bounded stdin; cap raw tool JSON before parsing while allowing worst-case escaped edit payloads.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
 - [Forensic resume contract](forensic-resume-contract.md) — persist task intent, scope, revision, and identities before provider work; legacy recovery must remain proof- and revision-bound.

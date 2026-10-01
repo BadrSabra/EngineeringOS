@@ -91,6 +91,12 @@ import {
 export const DEFAULT_MAX_ITERATIONS = 128;
 export const DEFAULT_MAX_TOOL_CALLS = 480;
 export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
+const MAX_RAW_TOOL_ARGUMENT_BYTES = 2_000_000;
+
+function isOversizedToolArgument(value: unknown): value is string {
+  return typeof value === "string"
+    && Buffer.byteLength(value, "utf8") > MAX_RAW_TOOL_ARGUMENT_BYTES;
+}
 
 /**
  * Per-scope iteration and tool-call budgets (dynamic, complexity-keyed).
@@ -1994,6 +2000,7 @@ export type AgentDiagnosticCode =
   | "EXECUTION_PHASE_TOOL_REJECTED"
   | "EXECUTION_BEHAVIORAL_PROOF_FAILED"
   | "TOOL_EXECUTION_FAILED"
+  | "TOOL_ARGUMENTS_TOO_LARGE"
   | "TOOL_UNAVAILABLE"
   | "TOOL_CANCELLED"
   // First-Evidence Gate: the explicit primary evidence target is read directly
@@ -4798,8 +4805,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       ) {
         return false;
       }
+      const rawArguments: unknown = toolCall.function.arguments;
+      if (typeof rawArguments !== "string" || isOversizedToolArgument(rawArguments)) {
+        return false;
+      }
       try {
-        const parsed = JSON.parse(toolCall.function.arguments) as { path?: unknown };
+        const parsed = JSON.parse(rawArguments) as { path?: unknown };
         return isForcedTargetRead(
           toolCall.function.name,
           typeof parsed.path === "string" ? parsed.path : undefined,
@@ -4808,11 +4819,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         return false;
       }
     }) ?? false;
+    const hasOversizedToolCall = result.toolCalls?.some((toolCall) =>
+      isOversizedToolArgument(toolCall.function.arguments)
+    ) ?? false;
     if (
       (
         !result.toolCalls ||
         result.toolCalls.length === 0 ||
-        (forcedEvidenceActive && !hasForcedTargetRead)
+        (forcedEvidenceActive && !hasForcedTargetRead && !hasOversizedToolCall)
       ) &&
       !synthesisOnly &&
       requiresEvidence &&
@@ -5122,8 +5136,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // "tool arguments must be a stringified JSON object" otherwise). Clients
     // normalize at ingestion, but any path that bypasses that (native Groq,
     // future providers) is caught here before the message enters history.
+    const oversizedToolCallIds = new Set<string>();
     const safeToolCalls = result.toolCalls.map((tc) => {
       const raw: unknown = tc.function?.arguments;
+      if (isOversizedToolArgument(raw)) {
+        oversizedToolCallIds.add(tc.id);
+        return { ...tc, function: { ...tc.function, arguments: "{}" } };
+      }
       if (typeof raw === "string" && raw.trim() !== "") {
         try {
           const parsed: unknown = JSON.parse(raw);
@@ -5152,6 +5171,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const forensicBatchKeys = new Set<string>();
     loopPhase = "evidence";
     for (const tc of safeToolCalls) {
+      if (oversizedToolCallIds.has(tc.id)) {
+        const safeMessage =
+          `Tool arguments exceeded the ${MAX_RAW_TOOL_ARGUMENT_BYTES}-byte limit and were rejected before parsing. ` +
+          "Narrow the request and retry.";
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: safeMessage,
+        });
+        return failedToolResult(
+          tc.function.name,
+          "execution",
+          "TOOL_ARGUMENTS_TOO_LARGE",
+          safeMessage,
+        );
+      }
       let args: Record<string, string> = {};
       try {
         args = JSON.parse(tc.function.arguments) as Record<string, string>;

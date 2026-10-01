@@ -3596,6 +3596,47 @@ describe("executeToolLoop", () => {
     )).toBe(false);
   });
 
+  it("rejects oversized tool arguments before parsing and removes them from retained history", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const oversizedArguments = "x".repeat(2_000_001);
+    const strategy = makeStrategy([makeResponse("", [{
+      id: "oversized-call",
+      type: "function",
+      function: { name: "read_file", arguments: oversizedArguments },
+    }])]);
+    const steps: AgentStep[] = [];
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_ARGUMENTS_TOO_LARGE",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(JSON.stringify((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] ?? []))
+      .not.toContain(oversizedArguments);
+    expect(JSON.stringify(steps)).not.toContain(oversizedArguments);
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "tool_result",
+      tool: "read_file",
+      resultKind: "failed",
+      diagnosticCode: "TOOL_ARGUMENTS_TOO_LARGE",
+    }));
+  });
+
   it("recovers a truncated objective after an invalid provider tool call", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const requiredPath = "artifacts/api-server/src/routes/ai/chat.ts";
