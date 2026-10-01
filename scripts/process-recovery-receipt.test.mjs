@@ -83,14 +83,16 @@ test("process-recovery script keeps the last passing receipt on skipped runs", a
   const previous = JSON.stringify({ kind: "previous-pass", revision: "old" });
   await writeFile(receiptPath, previous, "utf8");
   try {
+    const childEnvironment = {
+      ...process.env,
+      LIVE_RECOVERY_RECEIPT_PATH: receiptPath,
+    };
+    delete childEnvironment.RUN_REAL_API_PROCESS_RECOVERY;
+    delete childEnvironment.RELEASE_PROCESS_RECOVERY_REQUIRED;
     const child = await new Promise((resolve) => {
       const childProcess = spawn(process.execPath, [scriptPath], {
         cwd: workspaceRoot,
-        env: {
-          ...process.env,
-          RUN_REAL_API_PROCESS_RECOVERY: undefined,
-          LIVE_RECOVERY_RECEIPT_PATH: receiptPath,
-        },
+        env: childEnvironment,
         stdio: ["ignore", "pipe", "pipe"],
       });
       const stderr = [];
