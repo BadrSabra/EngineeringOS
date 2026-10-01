@@ -854,7 +854,11 @@ export async function runRepairRuntimeOracle(
   );
   if (result.status === "passed") return { status: "passed" };
   const code = result.status === "blocked"
-    ? "RUNTIME_ORACLE_TIMED_OUT"
+    ? result.terminalState === "timed_out"
+      ? "RUNTIME_ORACLE_TIMED_OUT"
+      : result.failureKind === "cancelled"
+        ? "RUNTIME_ORACLE_CANCELLED"
+        : "RUNTIME_ORACLE_FAILED"
     : result.status === "unavailable"
       ? "RUNTIME_ORACLE_ERROR"
       : "RUNTIME_ORACLE_FAILED";
@@ -878,9 +882,85 @@ export async function runRepairRuntimeValidation(
   prepare?: (workspaceRootPath: string) => Promise<void>,
   evidenceContext: RuntimeValidationEvidenceContext = {},
 ): Promise<ValidationResult> {
-  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   const evidenceId = `runtime-validation:${randomUUID()}`;
   const startedAt = Date.now();
+  const controller = new AbortController();
+  const abortFromCaller = (): void => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  const operation = runRepairRuntimeValidationOperation(
+    rootPath,
+    pendingChanges,
+    command,
+    controller.signal,
+    prepare,
+    evidenceContext,
+    evidenceId,
+    startedAt,
+  );
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<ValidationResult>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      const detail = "Runtime behavioral oracle exceeded its server-owned overall attempt deadline.";
+      const elapsedMs = Date.now() - startedAt;
+      resolve(withValidationFailureKind({
+        profile: "runtime-oracle",
+        status: "blocked",
+        scenario: "Run the server-registered runtime oracle against the isolated candidate.",
+        command: [command.command, ...command.args].join(" ").slice(0, 240),
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        failedTests: [{ name: "runtime oracle", message: detail }],
+        changedFiles: pendingChanges.map((change) => change.path).slice(0, 48),
+        evidence: {
+          evidenceId,
+          observedAt: new Date().toISOString(),
+          artifactRef: "runtime-oracle:overall-timeout",
+          validatorProfile: "runtime-oracle",
+          environmentRevision: null,
+          ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
+          ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
+          ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),
+        },
+        detail,
+        terminalState: "timed_out",
+        processBudgetMs: Math.min(
+          command.timeoutMs ?? config.validationProcessTimeoutMs,
+          config.validationProcessTimeoutMs,
+        ),
+        overallBudgetMs: config.validationOverallTimeoutMs,
+        elapsedMs,
+        remainingMs: 0,
+        nextAction: "Retry the same approved runtime oracle without changing the candidate.",
+      }));
+    }, config.validationOverallTimeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
+    if (timedOut) void operation.catch(() => undefined);
+  }
+}
+
+async function runRepairRuntimeValidationOperation(
+  rootPath: string,
+  pendingChanges: readonly PendingValidationChange[],
+  command: RuntimeOracleCommand,
+  signal: AbortSignal,
+  prepare: ((workspaceRootPath: string) => Promise<void>) | undefined,
+  evidenceContext: RuntimeValidationEvidenceContext,
+  evidenceId: string,
+  startedAt: number,
+): Promise<ValidationResult> {
+  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   let environmentRevision: string | null = null;
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
@@ -958,7 +1038,7 @@ export async function runRepairRuntimeValidation(
         : timedOut
           ? "timed_out"
           : cancelled
-            ? "failed"
+            ? "blocked"
             : unavailable
               ? "unavailable"
               : "failed",

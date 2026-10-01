@@ -10,6 +10,7 @@ import {
   runRepairValidation,
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
+import { config } from "../config.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 
 describe("AI repair validation registry", () => {
@@ -280,4 +281,124 @@ describe("AI repair validation registry", () => {
       await fs.rm(path.join(rootPath, relativePath), { force: true });
     }
   }, 120_000);
+
+  it("enforces the overall runtime-oracle deadline across workspace preparation", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validation-deadline-"));
+    await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"runtime-validation-deadline"}\n');
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(config, "validationOverallTimeoutMs");
+    let releasePrepare = (): void => undefined;
+    let markPrepareStarted = (): void => undefined;
+    let workspaceRootPath: string | undefined;
+    const prepareStarted = new Promise<void>((resolve) => {
+      markPrepareStarted = resolve;
+    });
+    const prepareGate = new Promise<void>((resolve) => {
+      releasePrepare = resolve;
+    });
+    const startedAt = Date.now();
+
+    try {
+      if (!timeoutDescriptor) throw new Error("Missing runtime validation timeout setting.");
+      Object.defineProperty(config, "validationOverallTimeoutMs", {
+        ...timeoutDescriptor,
+        value: 100,
+      });
+      const validationPromise = runRepairRuntimeValidation(
+        rootPath,
+        [],
+        { command: "pnpm", args: ["--version"], timeoutMs: 5_000 },
+        undefined,
+        async (validationRootPath) => {
+          workspaceRootPath = validationRootPath;
+          markPrepareStarted();
+          await prepareGate;
+        },
+        {
+          operationId: "runtime-deadline-operation",
+          projectRevision: "runtime-deadline-revision",
+          candidateHash: "runtime-deadline-candidate",
+        },
+      );
+      await prepareStarted;
+      const result = await validationPromise;
+
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(result).toMatchObject({
+        status: "blocked",
+        terminalState: "timed_out",
+        failureKind: "timeout",
+        overallBudgetMs: 100,
+        remainingMs: 0,
+      });
+      expect(result.detail).toMatch(/overall attempt deadline/i);
+      expect(result.evidence).toMatchObject({
+        operationId: "runtime-deadline-operation",
+        projectRevision: "runtime-deadline-revision",
+        candidateHash: "runtime-deadline-candidate",
+      });
+
+      releasePrepare();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(workspaceRootPath).toBeDefined();
+      await expect(fs.access(workspaceRootPath!)).rejects.toThrow();
+    } finally {
+      releasePrepare();
+      if (timeoutDescriptor) {
+        Object.defineProperty(config, "validationOverallTimeoutMs", timeoutDescriptor);
+      }
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  it("distinguishes caller cancellation from runtime-oracle timeout", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validation-cancel-"));
+    await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"runtime-validation-cancel"}\n');
+    const command = { command: "pnpm" as const, args: ["--version"], timeoutMs: 5_000 };
+
+    try {
+      const canonicalController = new AbortController();
+      const canonical = await runRepairRuntimeValidation(
+        rootPath,
+        [],
+        command,
+        canonicalController.signal,
+        async () => canonicalController.abort(),
+      );
+      expect(canonical).toMatchObject({
+        status: "blocked",
+        terminalState: "blocked",
+        failureKind: "cancelled",
+      });
+
+      const compatibilityController = new AbortController();
+      const compatibility = await runRepairRuntimeOracle(
+        rootPath,
+        [],
+        command,
+        compatibilityController.signal,
+        async () => compatibilityController.abort(),
+      );
+      expect(compatibility).toMatchObject({
+        status: "failed",
+        code: "RUNTIME_ORACLE_CANCELLED",
+      });
+      expect(compatibility.detail).toMatch(/cancel/i);
+
+      const timedOutCompatibility = await runRepairRuntimeOracle(
+        rootPath,
+        [],
+        {
+          command: "pnpm",
+          args: ["exec", "node", "-e", "setTimeout(() => {}, 5_000)"],
+          timeoutMs: 100,
+        },
+      );
+      expect(timedOutCompatibility).toMatchObject({
+        status: "failed",
+        code: "RUNTIME_ORACLE_TIMED_OUT",
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
