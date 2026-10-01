@@ -72,6 +72,7 @@ import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js
 import { recordAiUsageAttempt } from "../lib/ai-telemetry.js";
 import {
   createDeliveryWorkspace,
+  discardDeliveryWorkspace,
   deliveryWorkspaceExists,
   DELIVERY_TREE_DIGEST_VERSION,
 } from "../lib/delivery-workspace.js";
@@ -6284,6 +6285,144 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .where(eq(aiChangeProposalsTable.id, proposalId))
       .limit(1);
     expect(proposal?.status).toBe("pending");
+  });
+
+  it("keeps an approved repair-validator change isolated when its registered candidate check fails", async () => {
+    const { id, rootPath } = await createApplyProject();
+    const fileName = "artifacts/api-server/src/lib/ai-repair-validation.ts";
+    const absolutePath = `${rootPath}/${fileName}`;
+    const originalContent = "export const repairValidatorFixture = { state: 'stable' };\n";
+    const pendingContent = "export const repairValidatorFixture = { state: 'broken' };\n";
+    await fs.mkdir(`${rootPath}/artifacts/api-server/src/lib`, { recursive: true });
+    await fs.writeFile(absolutePath, originalContent, "utf-8");
+
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      newContent: pendingContent,
+      originalContent,
+      reason: "Exercise the fixed API repair-validation scope.",
+      validationProfile: "api-repair-validation-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    let validatedCandidateRoot: string | undefined;
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockImplementationOnce(async (candidateRoot, profile, paths) => {
+        validatedCandidateRoot = candidateRoot;
+        expect(profile).toBe("api-repair-validation-tests");
+        expect(paths).toEqual([fileName]);
+        expect(await fs.readFile(`${candidateRoot}/${fileName}`, "utf-8")).toBe(pendingContent);
+        expect(await fs.readFile(absolutePath, "utf-8")).toBe(originalContent);
+        return {
+          status: "failed",
+          profile,
+          scenario: "Run the focused runtime-validation contract tests.",
+          exitCode: 1,
+          command: "pnpm",
+          stdout: "",
+          stderr: "The focused repair-validation tests rejected the candidate.",
+          failedTests: [{
+            name: "candidate repair validation",
+            message: "The pending validator change did not pass.",
+          }],
+          changedFiles: [fileName],
+          evidence: {
+            evidenceId: randomUUID(),
+            observedAt: new Date().toISOString(),
+            artifactRef: "validation:repair-validator-candidate",
+          },
+          detail: "The focused API repair-validation tests rejected the candidate.",
+        };
+      });
+
+    try {
+      const response = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(response.status).toBe(207);
+      expect(response.body).toMatchObject({
+        applyStatus: "BLOCKED",
+        promotedTreeHash: response.body.baseTreeHash,
+        lifecycle: {
+          stage: "BLOCKED",
+          operationId: response.body.correlationId,
+          validationRequired: true,
+        },
+        rollbackFailures: [],
+        results: [{
+          ok: false,
+          writeStatus: "not_written",
+          persistenceVerified: false,
+          behavioralVerification: {
+            status: "failed",
+            profile: "api-repair-validation-tests",
+          },
+        }],
+      });
+      expect(response.body.results[0].error).toContain("not promoted");
+      expect(validationSpy).toHaveBeenCalledTimes(1);
+      expect(validatedCandidateRoot).toBeTruthy();
+      expect(validatedCandidateRoot).not.toBe(rootPath);
+      expect(await fs.readFile(`${validatedCandidateRoot}/${fileName}`, "utf-8")).toBe(pendingContent);
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe(originalContent);
+
+      const [receipt] = response.body.validationEvidence;
+      expect(receipt).toMatchObject({
+        profile: "api-repair-validation-tests",
+        status: "failed",
+        evidence: {
+          operationId: response.body.correlationId,
+          projectRevision: response.body.lifecycle.revision,
+          baseTreeHash: response.body.baseTreeHash,
+          candidateHash: response.body.candidateTreeHash,
+          changeSetHash: response.body.changeSetHash,
+        },
+      });
+
+      const [proposal] = await db.select({
+        operationId: aiChangeProposalsTable.operationId,
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+        status: aiChangeProposalsTable.status,
+        baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+        candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+        promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      expect(proposal).toMatchObject({
+        operationId: response.body.correlationId,
+        workspaceRoot: validatedCandidateRoot,
+        status: "pending",
+        baseTreeHash: response.body.baseTreeHash,
+        candidateTreeHash: response.body.candidateTreeHash,
+        promotedTreeHash: response.body.baseTreeHash,
+      });
+
+      const journal = await db.select()
+        .from(aiApplyJournalTable)
+        .where(eq(aiApplyJournalTable.operationId, response.body.correlationId));
+      const blocked = journal.filter((entry) => entry.stage === "BLOCKED").at(-1);
+      expect(blocked).toMatchObject({
+        operationId: response.body.correlationId,
+        stage: "BLOCKED",
+      });
+      expect(blocked?.payload).toMatchObject({
+        baseTreeHash: response.body.baseTreeHash,
+        candidateTreeHash: response.body.candidateTreeHash,
+        changeSetHash: response.body.changeSetHash,
+      });
+    } finally {
+      const [proposal] = await db.select({
+        operationId: aiChangeProposalsTable.operationId,
+        workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .limit(1);
+      if (proposal?.operationId && proposal.workspaceRoot) {
+        await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+      }
+    }
   });
 
   it("fails closed before promotion when behavioral verification is unavailable", async () => {
