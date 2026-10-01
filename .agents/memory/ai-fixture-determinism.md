@@ -20,3 +20,9 @@ Module-level classifier mocks in route integration suites must reset to the real
 **Why:** A leaked classification can change a later request's persisted task contract, making tests pass or fail based on file order rather than the request under test.
 
 **How to apply:** Reset the mocked classifier in teardown and set explicit forensic/project-query classifications inside tests that depend on one.
+
+Chat-history projection tests should mock the episode-ledger persistence boundary instead of emulating its tables, while retaining real execution-lease ownership checks.
+
+**Why:** Expanding a generic database mock to reproduce ledger transactions couples an unrelated projection test to persistence internals and can obscure whether lease checks still run.
+
+**How to apply:** When ledger durability is not the subject, isolate that boundary in route tests; preserve the lease-selection and ownership path, and cover ledger transactions in dedicated ledger tests.

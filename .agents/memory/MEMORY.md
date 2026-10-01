@@ -16,7 +16,7 @@
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
 - [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
-- [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
+- [AI fixture determinism](ai-fixture-determinism.md) — injected AI tests fail closed; chat history tests isolate ledger persistence without weakening lease checks.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
 - [Tool input resource bounds](tool-input-resource-bounds.md) — preserve grep semantics with bounded stdin; cap raw tool JSON before parsing while allowing worst-case escaped edit payloads.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
