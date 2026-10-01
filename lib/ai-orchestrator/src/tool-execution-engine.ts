@@ -1087,7 +1087,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
-        ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
+        ? await (opts.signal
+            ? executeFileTool(name, effectiveArgs, rootPath, pendingChanges, opts.signal)
+            : executeFileTool(name, effectiveArgs, rootPath, pendingChanges))
         : isCodeNavigationTool
           ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
               operationId: opts.analysisCorrelation?.operationId,

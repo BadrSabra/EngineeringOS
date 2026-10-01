@@ -581,6 +581,51 @@ describe("executeFileTool — safe source editing", () => {
     }
   });
 
+  it("does not stage a write when its source read finishes after cancellation", async () => {
+    const filePath = path.join(rootPath, `cancelled-write-${Date.now()}.ts`);
+    const original = "export const value = true;\n";
+    await fs.writeFile(filePath, original, "utf-8");
+
+    const controller = new AbortController();
+    const pending: any[] = [];
+    const originalReadFile = fs.readFile.bind(fs);
+    let releaseRead: (() => void) | undefined;
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const readFileSpy = vi.spyOn(fs, "readFile").mockImplementation(
+      async (requestedPath: any, options?: any) => {
+        await readGate;
+        return originalReadFile(requestedPath, options);
+      },
+    );
+
+    try {
+      const operation = executeFileTool(
+        "write_file",
+        {
+          path: path.basename(filePath),
+          content: "export const value = false;\n",
+          reason: "Test late cancellation",
+        },
+        rootPath,
+        pending,
+        controller.signal,
+      );
+
+      await vi.waitFor(() => expect(readFileSpy).toHaveBeenCalledTimes(1));
+      controller.abort();
+      releaseRead?.();
+
+      await expect(operation).rejects.toThrow("File operation cancelled.");
+      expect(pending).toHaveLength(0);
+      expect(await originalReadFile(filePath, "utf-8")).toBe(original);
+    } finally {
+      readFileSpy.mockRestore();
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("rejects a replacement when old_text is not unique", async () => {
     const filePath = path.join(rootPath, `replace-duplicate-${Date.now()}.ts`);
     await fs.writeFile(filePath, "const value = true;\nconst value = true;\n", "utf-8");

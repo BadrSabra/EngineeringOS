@@ -554,6 +554,12 @@ export function stripReadFileWrapper(body: string): string {
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
 
+function assertFileOperationActive(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error("File operation cancelled.");
+  }
+}
+
 /**
  * Execute one tool call from the model. Returns a string that gets added as
  * the tool-result message. For write_file and replace_text the actual write is deferred —
@@ -564,6 +570,7 @@ export async function executeFileTool(
   args: Record<string, string>,
   rootPath: string,
   pendingChanges: PendingChange[],
+  signal?: AbortSignal,
 ): Promise<string> {
   // Resolve the root once with realpath so every safePath call in this
   // invocation uses the same canonical base. This also catches a rootPath
@@ -575,6 +582,7 @@ export async function executeFileTool(
   } catch {
     return "Error: project root path does not exist or is not accessible.";
   }
+  assertFileOperationActive(signal);
 
   switch (toolName) {
     case "project.list_tree": {
@@ -797,6 +805,7 @@ export async function executeFileTool(
       }
 
       const abs = await safePath(resolvedRoot, args.path);
+      assertFileOperationActive(signal);
       if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
 
       // Reject a write targeting the project root directory itself.
@@ -836,6 +845,7 @@ export async function executeFileTool(
       } catch {
         // File doesn't exist yet — that's fine for new files.
       }
+      assertFileOperationActive(signal);
 
       if (
         originalContent !== null &&
@@ -878,6 +888,7 @@ export async function executeFileTool(
       }
 
       const abs = await safePath(resolvedRoot, args.path);
+      assertFileOperationActive(signal);
       if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
       if (abs === resolvedRoot) return 'Error: "path" must be a file path, not the project root directory.';
 
@@ -899,6 +910,7 @@ export async function executeFileTool(
       } catch (e) {
         return `Error reading "${args.path}": ${e instanceof Error ? e.message : String(e)}`;
       }
+      assertFileOperationActive(signal);
       if (!args.old_text) return 'Error: "old_text" must not be empty.';
 
       const firstIndex = originalContent.indexOf(args.old_text);

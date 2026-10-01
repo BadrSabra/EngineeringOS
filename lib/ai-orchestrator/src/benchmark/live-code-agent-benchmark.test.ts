@@ -227,6 +227,55 @@ describe("benchmark case timeouts", () => {
       candidateHash: "a".repeat(64),
     });
     expect(chatMock).toHaveBeenCalledTimes(1);
+    const chatArgs = chatMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(typeof chatArgs.assertExecutionOwned).toBe("function");
+    expect(() => (chatArgs.assertExecutionOwned as () => void)()).toThrow(
+      "Benchmark case timed out.",
+    );
+    expect(oracleForCase).not.toHaveBeenCalled();
+  });
+
+  it("returns unavailable when chat never settles after the case deadline", async () => {
+    chatMock.mockReset();
+    let chatSignal: AbortSignal | undefined;
+    chatMock.mockImplementationOnce(({ signal }: { signal?: AbortSignal }) => {
+      chatSignal = signal;
+      return new Promise<ChatResult>(() => {});
+    });
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const oracleForCase = vi.fn(async () => ({ status: "failed" as const }));
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-never-settles",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      candidateHash: "c".repeat(64),
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => ["src/example.ts"],
+      caseTimeoutMs: 30,
+      oracleForCase,
+    });
+    const startedAt = performance.now();
+
+    const telemetry = await executeCase(testCase);
+
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+    expect(telemetry).toMatchObject({
+      actualTerminal: "BLOCKED",
+      validationStatus: "unavailable",
+      providerUnavailable: true,
+      candidateHash: "c".repeat(64),
+    });
+    expect(chatSignal?.aborted).toBe(true);
     expect(oracleForCase).not.toHaveBeenCalled();
   });
 

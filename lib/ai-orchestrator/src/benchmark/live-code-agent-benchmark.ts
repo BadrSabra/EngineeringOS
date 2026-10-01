@@ -293,27 +293,48 @@ export function createChatCodeAgentBenchmarkExecutor(
     const allowedPaths = [...(opts.allowedPathsForCase?.(testCase) ?? targetPaths)];
     const timeoutController = new AbortController();
     let caseTimedOut = false;
+    let rejectCaseDeadline: (reason?: unknown) => void = () => {};
+    const caseDeadline = new Promise<never>((_resolve, reject) => {
+      rejectCaseDeadline = reject;
+    });
+    const deadlineAt = opts.caseTimeoutMs && opts.caseTimeoutMs > 0
+      ? performance.now() + opts.caseTimeoutMs
+      : undefined;
     const timeoutHandle = opts.caseTimeoutMs && opts.caseTimeoutMs > 0
       ? setTimeout(() => {
           caseTimedOut = true;
+          rejectCaseDeadline(new Error("Benchmark case timed out."));
           timeoutController.abort();
         }, opts.caseTimeoutMs)
       : undefined;
     const signal = opts.signal
       ? AbortSignal.any([opts.signal, timeoutController.signal])
       : timeoutController.signal;
+    const awaitWithinCaseDeadline = <T>(operation: PromiseLike<T> | T): Promise<T> =>
+      deadlineAt === undefined
+        ? Promise.resolve(operation)
+        : Promise.race([Promise.resolve(operation), caseDeadline]);
     const assertCaseNotTimedOut = (): void => {
-      if (caseTimedOut) throw new Error("Benchmark case timed out.");
+      if (
+        caseTimedOut ||
+        (deadlineAt !== undefined && performance.now() >= deadlineAt)
+      ) {
+        caseTimedOut = true;
+        if (!timeoutController.signal.aborted) timeoutController.abort();
+        throw new Error("Benchmark case timed out.");
+      }
     };
 
     try {
       const prompt = opts.promptForCase?.(testCase) ?? testCase.prompt;
-      const buildHandoff = await opts.buildHandoffForCase?.({
-        testCase,
-        prompt,
-        targetPaths,
-        allowedPaths,
-      });
+      const buildHandoff = await awaitWithinCaseDeadline(
+        opts.buildHandoffForCase?.({
+          testCase,
+          prompt,
+          targetPaths,
+          allowedPaths,
+        }),
+      );
       assertCaseNotTimedOut();
       if (buildHandoff) {
         const plan = buildHandoff.executionPlan;
@@ -336,7 +357,7 @@ export function createChatCodeAgentBenchmarkExecutor(
           throw new Error("Benchmark Build handoff does not match the isolated case scope.");
         }
       }
-      const result = await chat({
+      const result = await awaitWithinCaseDeadline(chat({
         message: buildHandoff?.message ?? prompt,
         history: opts.historyForCase?.(testCase) ?? [],
         projectContext: opts.projectContext,
@@ -359,6 +380,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         model: opts.model,
         includeTestSourcesOverride: opts.includeTestSources,
         signal,
+        assertExecutionOwned: assertCaseNotTimedOut,
         allowValidationTools: true,
         validationRunner: opts.validationRunner,
         validationTargetPaths: buildHandoff ? allowedPaths : targetPaths,
@@ -378,7 +400,7 @@ export function createChatCodeAgentBenchmarkExecutor(
             }) satisfies ExecutionProofRunner
           : undefined,
         onStep: (step) => steps.push(step),
-      });
+      }));
       assertCaseNotTimedOut();
 
       const validationProfile = opts.validationProfileForCase?.(testCase);
@@ -388,14 +410,14 @@ export function createChatCodeAgentBenchmarkExecutor(
         latestValidation(steps)?.result.status !== "passed"
       ) {
         try {
-          const output = await executeValidationTool(
+          const output = await awaitWithinCaseDeadline(executeValidationTool(
             "run_validation",
             { profile: validationProfile },
             targetPaths,
             opts.validationRunner,
             signal,
             result.pendingChanges,
-          );
+          ));
           const parsed = JSON.parse(output) as Partial<ValidationResult>;
           if (
             parsed &&
@@ -446,13 +468,13 @@ export function createChatCodeAgentBenchmarkExecutor(
         (telemetry.providerModelsFree !== true || telemetry.providerCapabilityValid !== true)) {
         telemetry = { ...telemetry, actualTerminal: "BLOCKED", providerCapabilityValid: false };
       }
-      const oracle = await opts.oracleForCase?.({
+      const oracle = await awaitWithinCaseDeadline(opts.oracleForCase?.({
         rootPath: opts.rootPath,
         testCase,
         telemetry,
         pendingChanges: result.pendingChanges,
         signal,
-      });
+      }));
       assertCaseNotTimedOut();
       return oracle
         ? {

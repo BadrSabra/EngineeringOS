@@ -27,8 +27,8 @@ Every provider-unavailable or timed-out observation must retain the candidate ha
 
 **How to apply:** Include candidate identity in health-preflight, exception, and deadline projections; test each early return independently.
 
-A case deadline must bound the full executor, not only signal the provider request. An unresolved chat call can keep the live runner active without producing a scorecard.
+A case deadline must race all awaited post-setup stages (handoff, chat, final validation, and oracle), not only abort the provider signal. Pass the deadline signal and an ownership check into chat; deferred file mutations must recheck cancellation after awaited path/source reads and before staging. Provider health and fixture setup retain their separate bounded lifecycles.
 
-**Why:** A same-model case remained active without a result after a configured 180-second deadline and required manual termination.
+**Why:** A timer that only aborts can still leave the runner waiting on a chat promise that never settles. Returning U promptly is safe only when late provider/tool work cannot stage changes after the disposable candidate root is cleaned up.
 
-**How to apply:** Test a chat promise that never settles. Any hard timeout must also fence or cancel late tool writes before the disposable candidate root is cleaned up.
+**How to apply:** Test both a never-settling chat and a source read that completes after cancellation. Keep candidate identity on timeout U rows, and distinguish provider-level timeouts that occur before the case deadline from deadline expirations themselves.
