@@ -172,6 +172,21 @@ vi.mock("@workspace/db", () => {
               }
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
+                && Object.keys(fields ?? {}).length === 4
+                && Object.prototype.hasOwnProperty.call(fields, "status")
+                && Object.prototype.hasOwnProperty.call(fields, "workerId")
+                && Object.prototype.hasOwnProperty.call(fields, "leaseUntil")
+                && Object.prototype.hasOwnProperty.call(fields, "cancelRequestedAt")
+              ) {
+                return Promise.resolve([{
+                  status: fixture.execution.status,
+                  workerId: fixture.execution.workerId,
+                  leaseUntil: fixture.execution.leaseUntil,
+                  cancelRequestedAt: fixture.execution.cancelRequestedAt,
+                }]);
+              }
+              if (
+                (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && (
                   (
                     Object.keys(fields ?? {}).length === 1
@@ -373,6 +388,19 @@ vi.mock("@workspace/db", () => {
     aiChatSessionsTable:   { _tag: "aiChatSessionsTable" },
     aiChatMessagesTable:   { _tag: "aiChatMessagesTable" },
     aiChangeProposalsTable: { _tag: "aiChangeProposalsTable" },
+    aiGoalsTable:          { _tag: "aiGoalsTable" },
+    aiMissionsTable:       { _tag: "aiMissionsTable" },
+    aiDeliveryPoliciesTable: { _tag: "aiDeliveryPoliciesTable" },
+    aiAgentEpisodesTable:  { _tag: "aiAgentEpisodesTable" },
+    aiAgentEpisodeEventsTable: { _tag: "aiAgentEpisodeEventsTable" },
+    aiAgentEffectBundlesTable: { _tag: "aiAgentEffectBundlesTable" },
+    aiAgentObservationsTable: { _tag: "aiAgentObservationsTable" },
+    aiShadowReplaysTable:  { _tag: "aiShadowReplaysTable" },
+    aiWorldTransitionsTable: { _tag: "aiWorldTransitionsTable" },
+    aiApplyJournalTable:   { _tag: "aiApplyJournalTable" },
+    browserValidationProfilesTable: { _tag: "browserValidationProfilesTable" },
+    projectsTable:         { _tag: "projectsTable" },
+    scanJobsTable:         { _tag: "scanJobsTable" },
     auditLogsTable:        { _tag: "auditLogsTable" },
     eventsTable:           { _tag: "eventsTable" },
     tasksTable:            { _tag: "tasksTable" },
@@ -386,6 +414,36 @@ vi.mock("@workspace/db", () => {
     desc:    () => ({}),
     and:     (...conditions: Array<{ __value?: unknown }>) => ({ __conditions: conditions }),
     inArray: () => ({}),
+  };
+});
+
+vi.mock("../../lib/agent-state/agent-episode-ledger.js", () => {
+  let eventSequence = 0;
+  return {
+    startEpisode: vi.fn(async (input: {
+      projectId: string;
+      executionId: string;
+      attempt: number;
+      projectRevision?: string | null;
+      scope: unknown;
+      intentKind: string;
+    }) => ({
+      episodeId: `test-episode-${input.executionId}-${input.attempt}`,
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      projectRevision: input.projectRevision ?? undefined,
+      scope: input.scope,
+      intentKind: input.intentKind,
+      state: "running",
+    })),
+    appendEpisodeEvent: vi.fn(async (input: { episodeId: string }) => ({
+      eventId: `test-episode-event-${++eventSequence}`,
+      episodeId: input.episodeId,
+    })),
+    closeEpisode: vi.fn(async () => undefined),
+    // Stream shadow persistence is outside this history-projection contract.
+    startEpisodeShadowWithEpisode: vi.fn(async () => undefined),
   };
 });
 

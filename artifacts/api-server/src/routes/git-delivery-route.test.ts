@@ -74,9 +74,11 @@ async function createCommittedDeliveryFixture() {
   await git(rootPath, ["add", "verified.ts"]);
   await git(rootPath, [
     "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
-    "commit", "-qm", "verified change",
+    "commit", "-qm", `EngineeringOS: main\n\nEngineeringOS-Operation: ${operationId}`,
   ]);
   const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+  const parentHash = (await git(rootPath, ["rev-parse", `${commitHash}^`])).stdout.trim();
+  const gitTreeHash = (await git(rootPath, ["rev-parse", `${commitHash}^{tree}`])).stdout.trim();
 
   await db.insert(projectsTable).values({
     id: projectId,
@@ -142,7 +144,16 @@ async function createCommittedDeliveryFixture() {
   });
 
   projectIds.push(projectId);
-  return { projectId, proposalId, operationId, rootPath, commitHash, committedTreeHash };
+  return {
+    projectId,
+    proposalId,
+    operationId,
+    rootPath,
+    commitHash,
+    parentHash,
+    gitTreeHash,
+    committedTreeHash,
+  };
 }
 
 afterEach(async () => {
@@ -175,8 +186,14 @@ describe("GitHub-shaped Git push route", () => {
   it("uses the verified service, records one receipt, and replays idempotently", async () => {
     const fixture = await createCommittedDeliveryFixture();
     pushed.mockResolvedValue({
-      remoteCommitHash: "remote-commit-1",
+      remoteCommitHash: fixture.commitHash,
       changedPaths: ["verified.ts"],
+    });
+    branchState.mockResolvedValue({
+      commitHash: fixture.commitHash,
+      treeHash: fixture.gitTreeHash,
+      message: `EngineeringOS: main\n\nEngineeringOS-Operation: ${fixture.operationId}`,
+      parentHashes: [fixture.parentHash],
     });
 
     const first = await request(app)
@@ -188,9 +205,10 @@ describe("GitHub-shaped Git push route", () => {
       ok: true,
       correlationId: fixture.operationId,
       commitHash: fixture.commitHash,
-      remoteCommitHash: "remote-commit-1",
+      remoteCommitHash: fixture.commitHash,
     });
     expect(pushed).toHaveBeenCalledTimes(1);
+    expect(branchState).toHaveBeenCalledTimes(1);
     expect(pushed.mock.calls[0]?.[0]).toMatchObject({
       branch: "main",
       commitHash: fixture.commitHash,
@@ -207,7 +225,7 @@ describe("GitHub-shaped Git push route", () => {
       idempotent: true,
       correlationId: fixture.operationId,
       commitHash: fixture.commitHash,
-      remoteCommitHash: "remote-commit-1",
+      remoteCommitHash: fixture.commitHash,
     });
     expect(pushed).toHaveBeenCalledTimes(1);
 
@@ -224,7 +242,7 @@ describe("GitHub-shaped Git push route", () => {
       proposalId: fixture.proposalId,
       operationId: fixture.operationId,
       commitHash: fixture.commitHash,
-      remoteCommitHash: "remote-commit-1",
+      remoteCommitHash: fixture.commitHash,
       baseTreeHash: expect.any(String),
       candidateTreeHash: fixture.committedTreeHash,
       promotedTreeHash: fixture.committedTreeHash,
