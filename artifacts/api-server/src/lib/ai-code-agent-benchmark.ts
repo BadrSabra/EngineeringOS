@@ -6,11 +6,15 @@ import {
   buildCodeAgentBenchmarkScorecard,
   getBenchmarkRecoveryCaseIds,
   buildAutonomousDeliveryAcceptanceSummary,
+  buildActiveTaskExecutionPlan,
+  resolveTurnIntent,
   ValidationProfileSchema,
   type CodeAgentBenchmarkCase,
   type CodeAgentBenchmarkScorecard,
   type ChatMessage,
   type ProjectContext,
+  type ActiveTaskExecutionPlan,
+  type TurnIntent,
   type ProviderId,
   getCodeAgentBenchmarkFixture,
   getCodeAgentBenchmarkCases,
@@ -31,6 +35,10 @@ import {
 } from "./ai-repair-validation.js";
 import { evaluateCodeAgentBenchmarkContract } from "@workspace/ai-orchestrator";
 import { hashDeliveryWorkspace } from "./delivery-workspace.js";
+import {
+  createBenchmarkFixtureRepairAuthorization,
+  type BenchmarkDisposableRootLease,
+} from "./benchmark-fixture-authorization.js";
 
 const RUNTIME_ORACLE_REPORT_LIMIT = 64;
 const RUNTIME_ORACLE_IDENTIFIER_LIMIT = 160;
@@ -69,7 +77,106 @@ export type ApiCodeAgentBenchmarkOptions = {
   generatedAt?: string;
   /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
   sourceRevision?: string;
+  /** Issued by the isolated campaign runner and revoked when its root is removed. */
+  benchmarkRootLease: BenchmarkDisposableRootLease;
 };
+
+/**
+ * Create a benchmark-only approved handoff from server-owned fixture metadata.
+ * It is limited to the disposable candidate root; fixture prompts and provider
+ * output never grant this authority.
+ */
+export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
+  rootPath: string;
+  projectId: string;
+  testCase: CodeAgentBenchmarkCase;
+  prompt: string;
+  allowedPaths: readonly string[];
+  validationProfile: string | undefined;
+  benchmarkRootLease: BenchmarkDisposableRootLease;
+}): Promise<{
+  executionPlan: ActiveTaskExecutionPlan;
+  turnIntent: TurnIntent;
+  approvedValidationProfiles: readonly string[];
+  message: string;
+  benchmarkFixtureRepairAuthorization: import("@workspace/ai-orchestrator").BenchmarkFixtureRepairAuthorization;
+} | undefined> {
+  if (args.testCase.expected.terminal !== "READY_FOR_REVIEW") return undefined;
+
+  const fixture = getCodeAgentBenchmarkFixture(args.testCase);
+  const allowedPaths = [...new Set(args.allowedPaths)];
+  const fixtureAllowedPaths = [...new Set(fixture.allowedPaths)].sort();
+  if (
+    allowedPaths.length === 0 ||
+    allowedPaths.length !== args.allowedPaths.length ||
+    allowedPaths.length > 8 ||
+    [...allowedPaths].sort().join("\n") !== fixtureAllowedPaths.join("\n") ||
+    args.validationProfile !== fixture.validationProfile
+  ) {
+    throw new Error("Positive benchmark handoff requires the fixture's exact bounded scope and validation profile.");
+  }
+  const profile = ValidationProfileSchema.safeParse(args.validationProfile);
+  if (!profile.success) {
+    throw new Error("Positive benchmark handoff requires a registered validation profile.");
+  }
+
+  const executionPlan = buildActiveTaskExecutionPlan({
+    repairPlan: [{
+      findingId: "F-1",
+      files: allowedPaths,
+      steps: ["Apply the requested repair only within the isolated benchmark fixture."],
+      validationProfile: profile.data,
+      verdictScope: "FIXTURE_LOCAL",
+      scopedFindingStatus: "FIXTURE_PROVEN",
+    }],
+    projectId: args.projectId,
+    rootPath: args.rootPath,
+  });
+  if (
+    !executionPlan ||
+    executionPlan.readiness !== "READY" ||
+    executionPlan.nodes.length === 0 ||
+    executionPlan.boundaries.rootPath !== args.rootPath ||
+    executionPlan.boundaries.allowedWriteFiles.length !== allowedPaths.length ||
+    allowedPaths.some((file) => !executionPlan.boundaries.allowedWriteFiles.includes(file))
+  ) {
+    throw new Error("Server-generated benchmark execution plan failed its scope check.");
+  }
+
+  const turnIntent = resolveTurnIntent(args.prompt, {
+    authoritativeKind: "DELIVERY",
+    buildHandoff: true,
+  });
+  const benchmarkFixtureRepairAuthorization = await createBenchmarkFixtureRepairAuthorization({
+    lease: args.benchmarkRootLease,
+    rootPath: args.rootPath,
+    projectId: args.projectId,
+    caseId: args.testCase.id,
+    allowedPaths,
+    validationProfiles: [profile.data],
+  });
+  const message = [
+    args.prompt,
+    "",
+    "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
+    `Approved files: ${allowedPaths.join(", ")}`,
+    "Use scoped reads and deferred changes. Prepare pending changes only; do not apply files, commit, or publish.",
+    `Approved plan JSON: ${JSON.stringify({
+      objective: args.testCase.id,
+      files: allowedPaths,
+      phases: executionPlan.phases,
+      validationProfile: profile.data,
+    })}`,
+  ].join("\n");
+
+  return {
+    executionPlan,
+    turnIntent,
+    approvedValidationProfiles: [profile.data],
+    message,
+    benchmarkFixtureRepairAuthorization,
+  };
+}
 
 function runtimeOracleCommandLabel(command: {
   command: string;
@@ -276,6 +383,7 @@ export async function runApiCodeAgentBenchmark(
   const preflightError = runtimeOraclePreflightError(runtimeOraclePreflight);
   if (preflightError) throw preflightError;
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
+  const benchmarkProjectId = opts.projectContext.projectId ?? "code-agent-benchmark";
   const validationRunner = async (
     profile: string,
     targetPaths: string[],
@@ -328,6 +436,16 @@ export async function runApiCodeAgentBenchmark(
     allowedPathsForCase: opts.allowedPathsForCase,
     promptForCase: opts.promptForCase,
     historyForCase: opts.historyForCase,
+    buildHandoffForCase: ({ testCase, prompt, allowedPaths }) =>
+      buildApiCodeAgentBenchmarkBuildHandoff({
+        rootPath: opts.rootPath,
+        projectId: benchmarkProjectId,
+        testCase,
+        prompt,
+        allowedPaths,
+        validationProfile: getCodeAgentBenchmarkFixture(testCase).validationProfile,
+        benchmarkRootLease: opts.benchmarkRootLease,
+      }),
     caseTimeoutMs: opts.caseTimeoutMs,
     signal: opts.signal,
     prepareCase: async (testCase) => {
@@ -385,6 +503,8 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   generatedAt?: string;
   /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
   sourceRevision?: string;
+  /** Issued by the isolated campaign runner and revoked when its root is removed. */
+  benchmarkRootLease: BenchmarkDisposableRootLease;
   runId: string;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -410,6 +530,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     throw preflightError;
   }
   const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
+  const benchmarkProjectId = opts.projectContext.projectId ?? "code-agent-benchmark";
   const validationRunner = async (
     profile: string,
     targetPaths: string[],
@@ -471,6 +592,16 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       allowedPathsForCase: opts.allowedPathsForCase,
       promptForCase: opts.promptForCase,
       historyForCase: opts.historyForCase,
+      buildHandoffForCase: ({ testCase, prompt, allowedPaths }) =>
+        buildApiCodeAgentBenchmarkBuildHandoff({
+          rootPath: opts.rootPath,
+          projectId: benchmarkProjectId,
+          testCase,
+          prompt,
+          allowedPaths,
+          validationProfile: getCodeAgentBenchmarkFixture(testCase).validationProfile,
+          benchmarkRootLease: opts.benchmarkRootLease,
+        }),
       caseTimeoutMs: opts.caseTimeoutMs,
       signal: opts.signal,
       prepareCase: async (testCase) => {
@@ -597,8 +728,8 @@ export function defaultApiBenchmarkHistory(testCase: CodeAgentBenchmarkCase): Ch
       files: [...fixture.targetPaths],
       steps: [testCase.prompt],
       validationProfile: fixture.validationProfile ?? "workspace-typecheck",
-      verdictScope: "PRODUCTION",
-      scopedFindingStatus: "PRODUCTION_PROVEN",
+      verdictScope: "FIXTURE_LOCAL",
+      scopedFindingStatus: "FIXTURE_PROVEN",
     }],
   }];
 }

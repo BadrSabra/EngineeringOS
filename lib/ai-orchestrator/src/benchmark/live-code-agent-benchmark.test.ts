@@ -1,11 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+const { chatMock } = vi.hoisted(() => ({ chatMock: vi.fn() }));
+vi.mock("../agents/chat-agent.js", () => ({ chat: chatMock }));
+
 import {
   applyBenchmarkOracleTerminalGate,
+  createChatCodeAgentBenchmarkExecutor,
   terminalFromChatResult,
 } from "./live-code-agent-benchmark.js";
 import type { CodeAgentExecutionTelemetry } from "./code-agent-benchmark.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { ChatResult } from "../agents/chat-agent.js";
+import type { ProjectContext } from "../context-builder.js";
+import type { ProviderHealthProbeResult } from "./provider-health-probe.js";
+import { buildActiveTaskExecutionPlan } from "../task-session-state.js";
+import { resolveTurnIntent } from "../turn-intent.js";
+import { getCodeAgentBenchmarkCases } from "./code-agent-benchmark.js";
+import { getCodeAgentBenchmarkFixture } from "./code-agent-benchmark-fixtures.js";
 
 const pendingResult = {
   pendingChanges: [{ path: "src/example.ts", newContent: "updated" }],
@@ -80,5 +90,92 @@ describe("benchmark terminal evidence gate", () => {
     expect(applyBenchmarkOracleTerminalGate(telemetry, "passed").actualTerminal).toBe(
       "READY_FOR_REVIEW",
     );
+  });
+});
+
+describe("benchmark Build handoff routing", () => {
+  it("forwards the exact repair fixture prompt with server-owned approval and file scope", async () => {
+    chatMock.mockReset();
+    chatMock.mockRejectedValueOnce(new Error("stop after capturing the handoff"));
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const fixture = getCodeAgentBenchmarkFixture(testCase);
+    const prompt = fixture.prompt;
+    const rootPath = "/tmp/isolated-code-agent-benchmark";
+    const projectId = "benchmark-project";
+    const allowedPaths = [...fixture.allowedPaths];
+    const executionPlan = buildActiveTaskExecutionPlan({
+      repairPlan: [{
+        findingId: "F-1",
+        files: allowedPaths,
+        steps: ["Apply the requested repair inside the isolated benchmark fixture."],
+        validationProfile: "workspace-typecheck",
+        verdictScope: "FIXTURE_LOCAL",
+        scopedFindingStatus: "FIXTURE_PROVEN",
+      }],
+      projectId,
+      rootPath,
+    });
+    expect(executionPlan).not.toBeNull();
+    const turnIntent = resolveTurnIntent(prompt, {
+      authoritativeKind: "DELIVERY",
+      buildHandoff: true,
+    });
+    const handoffMessage = `${prompt}\n\nBUILD HANDOFF test-only`;
+
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath,
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "workspace-typecheck",
+        command: "pnpm typecheck",
+        exitCode: 0,
+      }),
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => [...fixture.targetPaths],
+      allowedPathsForCase: () => allowedPaths,
+      promptForCase: () => prompt,
+      buildHandoffForCase: (args) => {
+        expect(args.prompt).toBe(prompt);
+        expect(args.allowedPaths).toEqual(allowedPaths);
+        return {
+          executionPlan: executionPlan!,
+          turnIntent,
+          approvedValidationProfiles: ["workspace-typecheck"],
+          message: handoffMessage,
+          benchmarkFixtureRepairAuthorization: {
+            caseId: testCase.id,
+            authorize: vi.fn().mockResolvedValue(true),
+          },
+        };
+      },
+    });
+
+    await executeCase(testCase);
+
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    const chatArgs = chatMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(chatArgs).toMatchObject({
+      message: handoffMessage,
+      projectId,
+      buildHandoff: true,
+      approvalState: "APPROVED",
+      approvedFilePaths: allowedPaths,
+      approvedValidationProfiles: ["workspace-typecheck"],
+      validationTargetPaths: allowedPaths,
+      executionPlanOverride: {
+        readiness: "READY",
+        boundaries: { projectId, rootPath, allowedWriteFiles: allowedPaths },
+      },
+      turnIntent: { kind: "DELIVERY", operationMode: "DELIVERY" },
+      benchmarkFixtureRepairAuthorization: {
+        caseId: testCase.id,
+      },
+    });
   });
 });

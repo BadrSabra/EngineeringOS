@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectContext } from "../context-builder.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
+import { buildActiveTaskExecutionPlan } from "../task-session-state.js";
 import { resolveTurnIntent } from "../turn-intent.js";
 
 function makeContext(): ProjectContext {
@@ -1146,6 +1147,123 @@ describe("chat agent — recovered Repair Plan execution", () => {
       expect(result.response).toContain("REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION");
       expect(result.response).toContain("بوابة نطاق الإصلاح");
       expect(result.response).toContain("لم تُشغّل أدوات");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a fixture repair only with a server-owned exact-scope benchmark capability", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-benchmark-fixture-handoff-"));
+    const fixturePath = "src/target.ts";
+    const absolutePath = path.join(rootPath, fixturePath);
+    const originalContent = "export const enabled = true;\n";
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, originalContent, "utf8");
+    const projectId = "benchmark-project";
+    const executionPlan = buildActiveTaskExecutionPlan({
+      repairPlan: [{
+        findingId: "F-01",
+        files: [fixturePath],
+        steps: ["Apply the requested repair only within the isolated benchmark fixture."],
+        validationProfile: "workspace-typecheck",
+        verdictScope: "FIXTURE_LOCAL",
+        scopedFindingStatus: "FIXTURE_PROVEN",
+      }],
+      projectId,
+      rootPath,
+    });
+    expect(executionPlan?.readiness).toBe("READY");
+
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: "",
+            tool_calls: [{
+              id: "benchmark-fixture-replace",
+              type: "function",
+              function: {
+                name: "replace_text",
+                arguments: JSON.stringify({
+                  path: fixturePath,
+                  old_text: "export const enabled = true;",
+                  new_text: "export const enabled = false;",
+                }),
+              },
+            }],
+          },
+        }],
+        model: "handoff-model",
+        usage: {},
+      })
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              response: "Pending fixture change prepared for server validation.",
+              sources: [fixturePath],
+            }),
+          },
+        }],
+        model: "handoff-model",
+        usage: {},
+      });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const message = [
+        "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
+        `Approved files: ${fixturePath}`,
+      ].join("\n");
+      const authorize = vi.fn().mockResolvedValue(true);
+      const steps: string[] = [];
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        projectId,
+        buildHandoff: true,
+        approvalState: "APPROVED",
+        approvedFilePaths: [fixturePath],
+        approvedValidationProfiles: ["workspace-typecheck"],
+        validationTargetPaths: [fixturePath],
+        executionPlanOverride: executionPlan!,
+        turnIntent: resolveTurnIntent(message, {
+          authoritativeKind: "DELIVERY",
+          buildHandoff: true,
+        }),
+        benchmarkFixtureRepairAuthorization: {
+          caseId: "single-file-001",
+          authorize,
+        },
+        onStep: (step) => {
+          if (step.kind === "tool_call") steps.push(step.tool);
+        },
+      });
+
+      expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
+        rootPath,
+        projectId,
+        caseId: "single-file-001",
+        scopedFindingStatus: "FIXTURE_PROVEN",
+        planRootPath: rootPath,
+        planPaths: [fixturePath],
+        approvedPaths: [fixturePath],
+        executionPaths: [fixturePath],
+        approvedValidationProfiles: ["workspace-typecheck"],
+      }));
+      expect(steps).toContain("replace_text");
+      expect(result.pendingChanges).toHaveLength(1);
+      expect(result.pendingChanges[0]?.path).toBe(fixturePath);
+      expect(result.pendingChanges[0]?.newContent).toContain("enabled = false");
+      expect(await fs.readFile(absolutePath, "utf8")).toBe(originalContent);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

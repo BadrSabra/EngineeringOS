@@ -43,6 +43,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
+import type { BenchmarkFixtureRepairAuthorization } from "../benchmark/fixture-repair-authorization.js";
 import {
   hashProjectQueryFactManifest,
   normalizeProjectQueryFactPath,
@@ -6456,6 +6457,11 @@ export async function chat(opts: {
   /** Server-owned execution plan for an approved Build handoff. */
   executionPlanOverride?: ActiveTaskExecutionPlan;
   /**
+   * In-process capability for one isolated benchmark fixture. Production
+   * routes never provide this; ordinary fixture-only plans remain blocked.
+   */
+  benchmarkFixtureRepairAuthorization?: BenchmarkFixtureRepairAuthorization;
+  /**
    * Server-authorized source inclusion for controlled benchmark fixtures.
    * Ordinary forensic classification remains the source of truth.
    */
@@ -6586,6 +6592,7 @@ export async function chat(opts: {
     executionProofRunner,
     validationTargetPaths = [],
     executionPlanOverride,
+    benchmarkFixtureRepairAuthorization,
     includeTestSourcesOverride,
     buildHandoff = false,
     onExecutionNodes,
@@ -6862,15 +6869,20 @@ export async function chat(opts: {
           : "This step changes project state. Stop before any write/delete/configure tool and ask for one explicit approval naming the step and allowed files.",
       ].join("\n")
     : "";
-  const priorRepairPlanMetadata = immediateIntent
+  const planExecutionHandoff = immediateIntent || buildHandoff;
+  const priorRepairPlanMetadata = planExecutionHandoff
     ? storedExecutionPlan?.phases?.length
       ? storedExecutionPlan.phases
-      : extractPriorRepairPlanMetadata(history)
+      : immediateIntent
+        ? extractPriorRepairPlanMetadata(history)
+        : null
     : null;
-  const priorRepairPlan = immediateIntent
+  const priorRepairPlan = planExecutionHandoff
     ? storedExecutionPlan
       ? buildStoredExecutionPlanContext(storedExecutionPlan)
-      : extractPriorRepairPlan(history)
+      : immediateIntent
+        ? extractPriorRepairPlan(history)
+        : null
     : null;
   const executionFilePaths = storedExecutionPlan?.boundaries.allowedWriteFiles?.length
     ? [...new Set(storedExecutionPlan.boundaries.allowedWriteFiles)]
@@ -7138,12 +7150,11 @@ export async function chat(opts: {
     };
   }
 
-  // EI-036 (task #42): the Repair Scope Gate must BLOCK execution, not just
-  // report a repairBlockReason on the forensic_status step. Derive the scoped
-  // finding status from the plan's OWN target files (the exact paths the write
-  // surface would edit) and refuse the handoff when the gate rejects that scope.
-  // A fixture/test-only plan is a local proof and must never reach the tool
-  // loop, even when executionFilePaths is non-empty.
+  // EI-036: the Repair Scope Gate must BLOCK execution, not just report a
+  // repairBlockReason on the forensic_status step. Derive scope from the plan's
+  // own target files. Fixture/test-only plans remain blocked except for a
+  // server-created capability bound to one disposable benchmark root and its
+  // exact case, approval paths, and validation profile.
   //
   // Task #46: when the recovered plan carries a persisted verdict scope (from a
   // prior audit that stamped runtime-ledger scope onto repairPlanMetadata),
@@ -7157,11 +7168,38 @@ export async function chat(opts: {
   const executionRepairGate: ScopedRepairGate | undefined = gateScopedFindingStatus
     ? scopedRepairGate(gateScopedFindingStatus)
     : undefined;
+  let benchmarkFixtureRepairAuthorized = false;
+  if (
+    repairPlanExecution &&
+    buildHandoff &&
+    executionRepairGate &&
+    !executionRepairGate.allowed &&
+    gateScopedFindingStatus === "FIXTURE_PROVEN" &&
+    benchmarkFixtureRepairAuthorization
+  ) {
+    try {
+      benchmarkFixtureRepairAuthorized =
+        await benchmarkFixtureRepairAuthorization.authorize({
+          rootPath,
+          projectId,
+          caseId: benchmarkFixtureRepairAuthorization.caseId,
+          scopedFindingStatus: gateScopedFindingStatus,
+          planRootPath: storedExecutionPlan?.boundaries.rootPath ?? undefined,
+          planPaths: storedExecutionPlan?.boundaries.allowedWriteFiles ?? [],
+          approvedPaths: approvedFilePaths ?? [],
+          executionPaths: executionFilePaths,
+          approvedValidationProfiles: approvedValidationProfiles ?? [],
+        });
+    } catch {
+      benchmarkFixtureRepairAuthorized = false;
+    }
+  }
   if (
     repairPlanExecution &&
     executionRepairGate &&
     !executionRepairGate.allowed &&
-    executionFilePaths.length > 0
+    executionFilePaths.length > 0 &&
+    !benchmarkFixtureRepairAuthorized
   ) {
     const isArabic = /[\u0600-\u06FF]/.test(message);
     console.warn(
@@ -7206,8 +7244,12 @@ export async function chat(opts: {
     structuredPlanPhaseCount: priorRepairPlanMetadata?.length ?? 0,
     executionFilePaths,
     blockedRepairPlan,
+    benchmarkFixtureRepairAuthorized,
     ...(executionRepairGate && !executionRepairGate.allowed
-      ? { repairScopeGateBlocked: true, repairScopeGateReason: executionRepairGate.reason }
+      ? {
+          repairScopeGateBlocked: !benchmarkFixtureRepairAuthorized,
+          repairScopeGateReason: executionRepairGate.reason,
+        }
       : {}),
   }));
 

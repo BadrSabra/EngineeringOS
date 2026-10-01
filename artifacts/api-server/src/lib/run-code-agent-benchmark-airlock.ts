@@ -42,6 +42,11 @@ import {
 } from "./ai-code-agent-benchmark.js";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 import {
+  createBenchmarkDisposableRootLease,
+  revokeBenchmarkDisposableRootLease,
+  type BenchmarkDisposableRootLease,
+} from "./benchmark-fixture-authorization.js";
+import {
   isApprovedBenchmarkSourceRevision,
   isValidBenchmarkSourceRevision,
 } from "./benchmark-source-policy.js";
@@ -266,7 +271,11 @@ server-owned preflight report is retained in the JSON run record.
   }
 }
 
-async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
+async function createIsolatedBenchmarkRoot(): Promise<{
+  rootPath: string;
+  benchmarkRootLease: BenchmarkDisposableRootLease;
+  cleanup: () => Promise<void>;
+}> {
   const resolvedSource = await fs.realpath(sourceRoot);
   await fs.access(path.join(resolvedSource, "package.json"));
   const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-airlock-");
@@ -277,7 +286,15 @@ async function createIsolatedBenchmarkRoot(): Promise<{ rootPath: string; cleanu
       filter: (source) => !path.relative(resolvedSource, source).split(path.sep).some((segment) => COPY_OMIT.has(segment)),
     });
     await fs.symlink(path.join(resolvedSource, "node_modules"), path.join(rootPath, "node_modules"), "dir");
-    return { rootPath, cleanup: () => fs.rm(rootPath, { recursive: true, force: true }) };
+    const benchmarkRootLease = await createBenchmarkDisposableRootLease(rootPath);
+    return {
+      rootPath,
+      benchmarkRootLease,
+      cleanup: async () => {
+        revokeBenchmarkDisposableRootLease(benchmarkRootLease);
+        await fs.rm(rootPath, { recursive: true, force: true });
+      },
+    };
   } catch (error) {
     await fs.rm(rootPath, { recursive: true, force: true });
     throw error;
@@ -551,6 +568,7 @@ try {
   }
   const run = await runApiCodeAgentBenchmarkAirlock({
     rootPath: isolated.rootPath,
+    benchmarkRootLease: isolated.benchmarkRootLease,
     projectContext: {
       project: "EngineeringOS isolated Code Agent benchmark workspace",
       recentTasks: "No benchmark task history is injected.",

@@ -21,6 +21,11 @@ import {
 } from "@workspace/ai-orchestrator";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
 import {
+  createBenchmarkDisposableRootLease,
+  revokeBenchmarkDisposableRootLease,
+  type BenchmarkDisposableRootLease,
+} from "./benchmark-fixture-authorization.js";
+import {
   defaultApiBenchmarkAllowedPaths,
   defaultApiBenchmarkHistory,
   defaultApiBenchmarkPrompt,
@@ -59,6 +64,7 @@ const BENCHMARK_CONTEXT: ProjectContext = {
 
 async function createIsolatedBenchmarkRoot(sourceRoot: string): Promise<{
   rootPath: string;
+  benchmarkRootLease: BenchmarkDisposableRootLease;
   cleanup: () => Promise<void>;
 }> {
   const resolvedSource = await fs.realpath(sourceRoot);
@@ -76,9 +82,14 @@ async function createIsolatedBenchmarkRoot(sourceRoot: string): Promise<{
       },
     });
     await fs.symlink(path.join(resolvedSource, "node_modules"), path.join(rootPath, "node_modules"), "dir");
+    const benchmarkRootLease = await createBenchmarkDisposableRootLease(rootPath);
     return {
       rootPath,
-      cleanup: async () => fs.rm(rootPath, { recursive: true, force: true }),
+      benchmarkRootLease,
+      cleanup: async () => {
+        revokeBenchmarkDisposableRootLease(benchmarkRootLease);
+        await fs.rm(rootPath, { recursive: true, force: true });
+      },
     };
   } catch (error) {
     await fs.rm(rootPath, { recursive: true, force: true });
@@ -434,6 +445,7 @@ try {
 
   const rawScorecard = await runApiCodeAgentBenchmark({
     rootPath: isolated.rootPath,
+    benchmarkRootLease: isolated.benchmarkRootLease,
     projectContext: BENCHMARK_CONTEXT,
     provider,
     apiKey,

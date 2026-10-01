@@ -7,6 +7,9 @@ import {
 import { GroqClientError } from "../errors.js";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import type { ActiveTaskExecutionPlan } from "../task-session-state.js";
+import type { TurnIntent } from "../turn-intent.js";
+import type { BenchmarkFixtureRepairAuthorization } from "./fixture-repair-authorization.js";
 import {
   executeValidationTool,
   type ValidationRunner,
@@ -69,6 +72,28 @@ export type ChatCodeAgentBenchmarkExecutorOptions = {
   includeTestSources?: boolean;
   /** Require every OpenRouter attempt to remain free and tool-capable. */
   freeOnly?: boolean;
+  /**
+   * Server-owned, isolated Build handoff for positive benchmark fixtures.
+   * Ordinary fixture text and provider output never grant this authority.
+   */
+  buildHandoffForCase?: (args: {
+    testCase: CodeAgentBenchmarkCase;
+    prompt: string;
+    targetPaths: readonly string[];
+    allowedPaths: readonly string[];
+  }) => {
+    executionPlan: ActiveTaskExecutionPlan;
+    turnIntent: TurnIntent;
+    approvedValidationProfiles: readonly string[];
+    message: string;
+    benchmarkFixtureRepairAuthorization: BenchmarkFixtureRepairAuthorization;
+  } | undefined | Promise<{
+    executionPlan: ActiveTaskExecutionPlan;
+    turnIntent: TurnIntent;
+    approvedValidationProfiles: readonly string[];
+    message: string;
+    benchmarkFixtureRepairAuthorization: BenchmarkFixtureRepairAuthorization;
+  } | undefined>;
 };
 
 function latestValidation(steps: readonly AgentStep[]): Extract<AgentStep, { kind: "validation" }> | undefined {
@@ -278,11 +303,52 @@ export function createChatCodeAgentBenchmarkExecutor(
       : timeoutController.signal;
 
     try {
+      const prompt = opts.promptForCase?.(testCase) ?? testCase.prompt;
+      const buildHandoff = await opts.buildHandoffForCase?.({
+        testCase,
+        prompt,
+        targetPaths,
+        allowedPaths,
+      });
+      if (buildHandoff) {
+        const plan = buildHandoff.executionPlan;
+        const authorizedPaths = [...new Set(allowedPaths)];
+        const plannedPaths = [...new Set(plan.boundaries.allowedWriteFiles)];
+        if (
+          testCase.expected.terminal !== "READY_FOR_REVIEW" ||
+          plan.readiness !== "READY" ||
+          plan.nodes.length === 0 ||
+          plan.boundaries.rootPath !== opts.rootPath ||
+          authorizedPaths.length === 0 ||
+          plannedPaths.length !== plan.boundaries.allowedWriteFiles.length ||
+          authorizedPaths.length !== plannedPaths.length ||
+          authorizedPaths.some((path) => !plannedPaths.includes(path)) ||
+          buildHandoff.turnIntent.kind !== "DELIVERY" ||
+          buildHandoff.approvedValidationProfiles.length === 0 ||
+          buildHandoff.benchmarkFixtureRepairAuthorization.caseId !== testCase.id ||
+          typeof buildHandoff.benchmarkFixtureRepairAuthorization.authorize !== "function"
+        ) {
+          throw new Error("Benchmark Build handoff does not match the isolated case scope.");
+        }
+      }
       const result = await chat({
-        message: opts.promptForCase?.(testCase) ?? testCase.prompt,
+        message: buildHandoff?.message ?? prompt,
         history: opts.historyForCase?.(testCase) ?? [],
         projectContext: opts.projectContext,
         rootPath: opts.rootPath,
+        ...(buildHandoff
+          ? {
+              projectId: buildHandoff.executionPlan.boundaries.projectId,
+              buildHandoff: true,
+              approvalState: "APPROVED" as const,
+              approvedFilePaths: allowedPaths,
+              approvedValidationProfiles: [...buildHandoff.approvedValidationProfiles],
+              executionPlanOverride: buildHandoff.executionPlan,
+              turnIntent: buildHandoff.turnIntent,
+              benchmarkFixtureRepairAuthorization:
+                buildHandoff.benchmarkFixtureRepairAuthorization,
+            }
+          : {}),
         provider: opts.provider,
         apiKey: opts.apiKey,
         model: opts.model,
@@ -290,7 +356,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         signal,
         allowValidationTools: true,
         validationRunner: opts.validationRunner,
-        validationTargetPaths: targetPaths,
+        validationTargetPaths: buildHandoff ? allowedPaths : targetPaths,
         executionProofRunner: opts.behavioralProofForCase
           ? (async ({ nodeId, validation, pendingChanges, signal: proofSignal }) => {
               const proof = await opts.behavioralProofForCase!({

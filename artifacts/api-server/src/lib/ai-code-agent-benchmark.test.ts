@@ -1,13 +1,106 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  buildApiCodeAgentBenchmarkBuildHandoff,
   buildApiCodeAgentBenchmarkPreflightBlockedRun,
+  defaultApiBenchmarkHistory,
+  defaultApiBenchmarkPrompt,
   validateApiCodeAgentBenchmarkRuntimeOracles,
 } from "./ai-code-agent-benchmark.js";
+import { createHostDisposableTempDirectory } from "./disposable-temp.js";
+import {
+  createBenchmarkDisposableRootLease,
+  revokeBenchmarkDisposableRootLease,
+} from "./benchmark-fixture-authorization.js";
 import {
   CODE_AGENT_BENCHMARK_VERSION,
+  getCodeAgentBenchmarkFixture,
   getCodeAgentBenchmarkCases,
 } from "@workspace/ai-orchestrator";
+
+describe("Code Agent benchmark Build handoff", () => {
+  it("routes the exact repair fixture prompt through a server-owned scoped handoff", async () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const fixture = getCodeAgentBenchmarkFixture(testCase);
+    const prompt = defaultApiBenchmarkPrompt(testCase);
+    const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-test-");
+    const lease = await createBenchmarkDisposableRootLease(rootPath);
+    try {
+      const handoff = await buildApiCodeAgentBenchmarkBuildHandoff({
+        rootPath,
+        projectId: "benchmark-project",
+        testCase,
+        prompt,
+        allowedPaths: fixture.allowedPaths,
+        validationProfile: fixture.validationProfile,
+        benchmarkRootLease: lease,
+      });
+
+      expect(prompt).toBe(fixture.prompt);
+      expect(handoff).toBeDefined();
+      expect(handoff?.message.startsWith(`${prompt}\n\nBUILD HANDOFF`)).toBe(true);
+      expect(handoff?.turnIntent).toMatchObject({
+        kind: "DELIVERY",
+        operationMode: "DELIVERY",
+        allowsBuildHandoff: true,
+      });
+      expect(handoff?.executionPlan).toMatchObject({
+        readiness: "READY",
+        boundaries: {
+          projectId: "benchmark-project",
+          rootPath,
+          allowedWriteFiles: [...fixture.allowedPaths],
+        },
+        phases: [{
+          verdictScope: "FIXTURE_LOCAL",
+          scopedFindingStatus: "FIXTURE_PROVEN",
+        }],
+      });
+      expect(handoff?.approvedValidationProfiles).toEqual([fixture.validationProfile]);
+      expect(handoff?.benchmarkFixtureRepairAuthorization.caseId).toBe(testCase.id);
+    } finally {
+      revokeBenchmarkDisposableRootLease(lease);
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not grant a Build handoff to blocked safety fixtures", async () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const fixture = getCodeAgentBenchmarkFixture(testCase);
+    const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-test-");
+    const lease = await createBenchmarkDisposableRootLease(rootPath);
+
+    try {
+      expect(await buildApiCodeAgentBenchmarkBuildHandoff({
+        rootPath,
+        projectId: "benchmark-project",
+        testCase,
+        prompt: defaultApiBenchmarkPrompt(testCase),
+        allowedPaths: fixture.allowedPaths,
+        validationProfile: fixture.validationProfile,
+        benchmarkRootLease: lease,
+      })).toBeUndefined();
+    } finally {
+      revokeBenchmarkDisposableRootLease(lease);
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps fixture history explicitly fixture-local", () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    expect(defaultApiBenchmarkHistory(testCase)[0]?.repairPlan?.[0]).toMatchObject({
+      verdictScope: "FIXTURE_LOCAL",
+      scopedFindingStatus: "FIXTURE_PROVEN",
+    });
+  });
+});
 
 describe("Code Agent benchmark runtime-oracle preflight", () => {
   it("runs every maintained runtime oracle against its focused candidate", async () => {

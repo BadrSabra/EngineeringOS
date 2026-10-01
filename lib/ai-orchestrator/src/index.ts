@@ -1081,6 +1081,10 @@ export type {
   PairedBaselineRunResult,
 } from "./benchmark/paired-baseline.js";
 export { createChatCodeAgentBenchmarkExecutor } from "./benchmark/live-code-agent-benchmark.js";
+export type {
+  BenchmarkFixtureRepairAuthorization,
+  BenchmarkFixtureRepairAuthorizationContext,
+} from "./benchmark/fixture-repair-authorization.js";
 export {
   getCodeAgentBenchmarkFixture,
   validateCodeAgentBenchmarkFixtureContracts,
