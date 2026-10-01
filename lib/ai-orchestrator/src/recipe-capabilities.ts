@@ -70,6 +70,7 @@ const VALIDATION_PROFILES: readonly ValidationProfile[] = [
   "ai-orchestrator-tests",
   "knowledge-engine-tests",
   "api-ai-tests",
+  "api-repair-validation-tests",
   "workspace-typecheck",
 ];
 

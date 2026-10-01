@@ -3,6 +3,7 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 import { buildProjectQueryObjective } from "../project-query-target.js";
 import { resolveTurnIntent } from "../turn-intent.js";
+import { TaskSessionValidationProfileSchema } from "../schemas/chat.schema.js";
 import {
   buildActiveTaskExecutionPlan,
   buildActiveTaskState,
@@ -24,6 +25,13 @@ import {
 
 describe("active task session state", () => {
   const auditClassification = classifyRequest("ابحث عن الفجوات في طبقة الذكاء الاصطناعي");
+
+  it("keeps repair-only validation profiles out of task-session profiles", () => {
+    expect(
+      TaskSessionValidationProfileSchema.safeParse("api-repair-validation-tests").success,
+    ).toBe(false);
+    expect(TaskSessionValidationProfileSchema.safeParse("api-ai-tests").success).toBe(true);
+  });
 
   it("persists a capability probe contract without making ordinary behavior queries resumable", () => {
     const probeClassification = classifyRequest(CAPABILITY_PROBE_MESSAGE);

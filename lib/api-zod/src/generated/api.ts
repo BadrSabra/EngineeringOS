@@ -4160,7 +4160,7 @@ export const AiChatResponse = zod.object({
 })).max(aiChatResponsePendingChangesItemHunksItemEvidenceMax).optional()
 })).max(aiChatResponsePendingChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
   "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),
@@ -6491,7 +6491,7 @@ export const AiApplyChangesBody = zod.object({
 })).max(aiApplyChangesBodyChangesItemHunksItemEvidenceMax).optional()
 })).max(aiApplyChangesBodyChangesItemHunksMax).optional(),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).describe('Registered behavioral validation profile; arbitrary commands are not accepted'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).describe('Registered behavioral validation profile; arbitrary commands are not accepted'),
   "risk": zod.enum(['low', 'medium', 'high']).optional(),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),
@@ -6636,7 +6636,7 @@ export const AiRebaseChangesBody = zod.object({
 })).max(aiRebaseChangesBodyChangesItemHunksItemEvidenceMax).optional()
 })).max(aiRebaseChangesBodyChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
   "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),
@@ -6696,7 +6696,7 @@ export const AiRebaseChangesResponse = zod.object({
 })).max(aiRebaseChangesResponseChangesItemHunksItemEvidenceMax).optional()
 })).max(aiRebaseChangesResponseChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
   "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),
@@ -6824,7 +6824,7 @@ export const GetAiPendingProposalResponse = zod.object({
 })).max(getAiPendingProposalResponseChangesItemHunksItemEvidenceMax).optional()
 })).max(getAiPendingProposalResponseChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
   "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),
@@ -6865,7 +6865,7 @@ export const GetAiPendingProposalResponse = zod.object({
 })).max(getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceMax).optional()
 })).max(getAiPendingProposalResponseAppliedChangesItemHunksMax).optional().describe('Line-scoped expected and replacement text used for Patch Lab conflict detection'),
   "reason": zod.string().describe('One-sentence explanation of why this change is proposed'),
-  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
+  "validationProfile": zod.enum(['ai-orchestrator-tests', 'knowledge-engine-tests', 'api-ai-tests', 'api-repair-validation-tests', 'workspace-typecheck']).optional().describe('Registered behavioral validation profile when the change is eligible for approval'),
   "risk": zod.enum(['low', 'medium', 'high']).optional().describe('Server-derived change risk shown in Patch Lab'),
   "evidence": zod.array(zod.object({
   "kind": zod.enum(['finding', 'source', 'validation']),

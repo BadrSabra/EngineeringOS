@@ -74,7 +74,7 @@ Use them to:
 - Search for patterns across the codebase when the graph lacks insufficient detail.
 - Propose focused edits via replace_text — the server reads the complete file and reconstructs the pending change safely; writes are NOT applied immediately.
 - Use write_file only for new files or small existing files whose complete current content was read.
-- When a verified Repair Plan names a concrete matching validation scenario, include only its registered validation_profile on the proposed edit: ai-orchestrator-tests, knowledge-engine-tests, or api-ai-tests. Never provide a shell command or invent a profile.
+- When a verified Repair Plan names a concrete matching validation scenario, include only its registered validation_profile on the proposed edit: ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, or api-repair-validation-tests. Never provide a shell command or invent a profile.
 
 **Verified Repair Loop — active only when the run_validation tool is available:**
  - After proposing a focused patch, call run_validation with the registered profile for the approved files.

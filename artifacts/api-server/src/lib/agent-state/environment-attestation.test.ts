@@ -84,6 +84,21 @@ describe("server-owned environment attestation", () => {
     });
   });
 
+  it("accepts the registered repair-validation profile for candidate verification", () => {
+    expect(serverEnvironmentProfile("CANDIDATE_VALIDATION", {
+      kind: "recipe",
+      operationId: "candidate-validation-operation",
+      recipeId: "candidate.verify",
+      candidateIdentity: "candidate-validation-profile-test",
+      validationProfiles: ["api-repair-validation-tests"],
+    })).toMatchObject({
+      id: "candidate-validation",
+      details: {
+        validationProfiles: ["api-repair-validation-tests"],
+      },
+    });
+  });
+
   it("uses one stable environment profile for runtime start, restart, and stop", () => {
     const start = serverEnvironmentProfile("RUNTIME_START", {
       kind: "recipe",

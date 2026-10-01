@@ -123,6 +123,26 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
+  "api-repair-validation-tests": {
+    scenario: "Run the focused runtime-validation contract tests.",
+    allowedPath: (file) =>
+      file === "artifacts/api-server/src/lib/ai-repair-validation.ts" ||
+      file === "artifacts/api-server/src/lib/ai-repair-validation.test.ts",
+    command: "pnpm",
+    args: [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/ai-repair-validation.test.ts",
+      "-t",
+      "API repair validation profile|runtime[- ]oracle|runtime-validator",
+    ],
+    requiredFiles: ["package.json"],
+    timeoutMs: config.validationProcessTimeoutMs,
+    maxBuffer: 2_000_000,
+  },
   "workspace-typecheck": {
     scenario: "Run the workspace TypeScript typecheck.",
     allowedPath: (file) => file.length > 0 && !file.startsWith("../"),

@@ -611,7 +611,7 @@ async function insertChangeProposal(
       reason: string;
     }>;
     reason?: string;
-    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "api-repair-validation-tests" | "workspace-typecheck";
   }>,
 ): Promise<string> {
   const sessionId = randomUUID();

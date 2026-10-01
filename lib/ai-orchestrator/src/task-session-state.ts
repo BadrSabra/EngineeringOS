@@ -10,7 +10,7 @@ import type { ClassifiedRequest } from "./prompts/profile-classifier.js";
 import { isEmbeddedAiWeaknessRequest } from "./project-query-target.js";
 import {
   RepairPlanMetadataSchema,
-  ValidationProfileSchema,
+  TaskSessionValidationProfileSchema,
   type ObjectiveContract,
   type RepairPlanMetadata,
 } from "./schemas/chat.schema.js";
@@ -98,7 +98,7 @@ export const ExecutionNodeSchema = z.object({
   status: z.enum(["queued", "running", "passed", "failed", "blocked"]),
   allowedFiles: z.array(z.string().min(1).max(500)).max(48),
   dependencies: z.array(z.string().min(1).max(160)).max(12),
-  validationProfile: ValidationProfileSchema,
+  validationProfile: TaskSessionValidationProfileSchema,
   attempts: z.number().int().min(0).max(3),
   validationAttempts: z.number().int().min(0).max(3).default(0),
   /** Present only on compiler-produced capability nodes. */

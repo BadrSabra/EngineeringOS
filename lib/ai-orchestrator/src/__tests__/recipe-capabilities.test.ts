@@ -24,6 +24,7 @@ describe("recipe capability adapters", () => {
       "project.read_file",
       "validation.run.ai-orchestrator-tests",
       "validation.run.api-ai-tests",
+      "validation.run.api-repair-validation-tests",
       "validation.run.knowledge-engine-tests",
       "validation.run.workspace-typecheck",
     ]);

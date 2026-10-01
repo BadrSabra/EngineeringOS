@@ -330,6 +330,13 @@ function canonicalPath(value: string): string {
 function validationProfileForFiles(
   files: readonly string[],
 ): ValidationProfile | null {
+  if (
+    files.some((file) =>
+      /(?:^|\/)artifacts\/api-server\/src\/lib\/ai-repair-validation(?:\.test)?\.ts$/.test(file),
+    )
+  ) {
+    return "api-repair-validation-tests";
+  }
   if (files.some((file) => /(?:^|\/)lib\/ai-orchestrator(?:\/|$)/.test(file))) {
     return "ai-orchestrator-tests";
   }
@@ -388,6 +395,7 @@ function validationChecklistViolations(
     "ai-orchestrator-tests": /\b(?:ai|orchestrator|forensic|chat|agent|security|regression|eval)\b/i,
     "knowledge-engine-tests": /\b(?:knowledge|graph|path|centrality|cluster|query|neighbourhood|neighborhood)\b/i,
     "api-ai-tests": /\b(?:api|route|endpoint|chat|stream|request|response|auth)\b/i,
+    "api-repair-validation-tests": /\b(?:api|repair|validation|validator|runtime|timeout|deadline|cancellation|isolation|cleanup)\b/i,
     "workspace-typecheck": /\b(?:typecheck|typescript|compile|compilation|tsc|type error)\b/i,
     "go-tests": /\b(?:go|golang|package|module|goroutine|struct|interface|import|test|regression)\b/i,
   };

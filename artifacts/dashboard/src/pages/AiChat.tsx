@@ -1138,7 +1138,7 @@ type PendingChange = {
     }>;
   }>;
   reason: string;
-  validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'workspace-typecheck';
+  validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'api-repair-validation-tests' | 'workspace-typecheck';
   risk?: 'low' | 'medium' | 'high';
   evidence?: Array<{
     kind: 'finding' | 'source' | 'validation';
@@ -1166,6 +1166,8 @@ function validationProfileLabel(profile: PendingChange['validationProfile']): st
       return 'Knowledge engine tests (failed changes are rolled back)';
     case 'api-ai-tests':
       return 'AI API tests (failed changes are rolled back)';
+    case 'api-repair-validation-tests':
+      return 'AI repair validation tests (failed changes are rolled back)';
     default:
       return 'No registered validation';
   }

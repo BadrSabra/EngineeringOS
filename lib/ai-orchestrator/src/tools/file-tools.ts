@@ -309,7 +309,12 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           validation_profile: {
             type: "string",
-            enum: ["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"],
+            enum: [
+              "ai-orchestrator-tests",
+              "knowledge-engine-tests",
+              "api-ai-tests",
+              "api-repair-validation-tests",
+            ],
             description:
               "Optional registered behavioral validation profile. Provide a profile only when the Repair Plan names a concrete matching test scenario. Never provide a shell command.",
           },
@@ -344,7 +349,12 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           validation_profile: {
             type: "string",
-            enum: ["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"],
+            enum: [
+              "ai-orchestrator-tests",
+              "knowledge-engine-tests",
+              "api-ai-tests",
+              "api-repair-validation-tests",
+            ],
             description:
               "Optional registered behavioral validation profile. Provide a profile only when the Repair Plan names a concrete matching test scenario. Never provide a shell command.",
           },
@@ -597,6 +607,7 @@ const ALLOWED_VALIDATION_PROFILES = new Set([
   "ai-orchestrator-tests",
   "knowledge-engine-tests",
   "api-ai-tests",
+  "api-repair-validation-tests",
 ]);
 
 function validateChangeMetadata(args: Record<string, string>): string | null {

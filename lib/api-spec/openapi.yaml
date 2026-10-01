@@ -7642,7 +7642,7 @@ components:
           description: One-sentence explanation of why this change is proposed
         validationProfile:
           type: string
-          enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+          enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, api-repair-validation-tests, workspace-typecheck]
           description: Registered behavioral validation profile when the change is eligible for approval
         risk:
           type: string
@@ -7698,7 +7698,7 @@ components:
                 description: One-sentence explanation of why this change is proposed
               validationProfile:
                 type: string
-                enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+                enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, api-repair-validation-tests, workspace-typecheck]
                 description: Registered behavioral validation profile; arbitrary commands are not accepted
               risk:
                 type: string

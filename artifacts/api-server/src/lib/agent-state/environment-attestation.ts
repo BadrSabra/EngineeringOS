@@ -40,6 +40,7 @@ const ENVIRONMENT_MANIFESTS = [
 const VALIDATION_PROFILES = new Set([
   "workspace-typecheck",
   "ai-orchestrator-tests",
+  "api-repair-validation-tests",
 ]);
 
 export type ServerEnvironmentProfile = {

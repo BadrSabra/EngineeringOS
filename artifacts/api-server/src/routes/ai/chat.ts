@@ -10384,6 +10384,7 @@ export async function handleChatStream(req: Request, res: Response) {
                   "ai-orchestrator-tests",
                   "knowledge-engine-tests",
                   "api-ai-tests",
+                  "api-repair-validation-tests",
                   ...(browserValidationProfileName ? [browserValidationProfileName] : []),
                 ]
             : browserValidationProfileName
@@ -14834,7 +14835,7 @@ router.post("/ai/chat/rebase-changes", async (req, res) => {
       }).strict()).max(4).optional(),
     }).strict()).max(100).optional(),
     reason: z.string().min(1),
-    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "api-repair-validation-tests", "workspace-typecheck"]).optional(),
     risk: z.enum(["low", "medium", "high"]).optional(),
     evidence: z.array(z.object({
       kind: z.enum(["finding", "source", "validation"]),
@@ -15249,7 +15250,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       }).strict()).max(4).optional(),
     }).strict()).max(100).optional(),
     reason: z.string().min(1, "each change must have a non-empty reason"),
-    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]),
+    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "api-repair-validation-tests", "workspace-typecheck"]),
     risk: z.enum(["low", "medium", "high"]).optional(),
     evidence: z.array(z.object({
       kind: z.enum(["finding", "source", "validation"]),

@@ -15,12 +15,23 @@ import { ServerConfidenceSchema } from "../confidence-projection.js";
 import { EvidenceGraphSchema } from "../evidence-graph.js";
 import { ImplementationPlanSchema } from "./implementation-plan.schema.js";
 
-export const ValidationProfileSchema = z.enum([
+const TASK_SESSION_VALIDATION_PROFILES = [
   "ai-orchestrator-tests",
   "knowledge-engine-tests",
   "api-ai-tests",
   "workspace-typecheck",
   "go-tests",
+] as const;
+
+/**
+ * Task execution keeps its established profile set. Repair-only validation
+ * profiles are intentionally not valid task-session execution nodes.
+ */
+export const TaskSessionValidationProfileSchema = z.enum(TASK_SESSION_VALIDATION_PROFILES);
+
+export const ValidationProfileSchema = z.enum([
+  ...TASK_SESSION_VALIDATION_PROFILES,
+  "api-repair-validation-tests",
 ]);
 
 export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;

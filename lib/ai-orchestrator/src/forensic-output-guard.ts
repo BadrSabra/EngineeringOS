@@ -930,7 +930,7 @@ function repairPlanContractViolations(response: string): string[] {
       violations.push(`Repair Plan phase ${findingId} must use project-relative files`);
     }
     if (
-      !/Validation profile:\s*(?:ai-orchestrator-tests|knowledge-engine-tests|api-ai-tests|go-tests)\b/i.test(
+      !/Validation profile:\s*(?:ai-orchestrator-tests|knowledge-engine-tests|api-ai-tests|api-repair-validation-tests|go-tests)\b/i.test(
         phaseBlock,
       )
     ) {
@@ -1162,6 +1162,11 @@ export const buildForensicEvidenceMap = fallbackEvidenceMap;
  * contract in charge.
  */
 function registeredValidationProfileForPath(file: string): string | null {
+  if (
+    /(?:^|\/)artifacts\/api-server\/src\/lib\/ai-repair-validation(?:\.test)?\.ts$/.test(file)
+  ) {
+    return "api-repair-validation-tests";
+  }
   if (/(?:^|\/)lib\/ai-orchestrator(?:\/|$)/.test(file)) {
     return "ai-orchestrator-tests";
   }

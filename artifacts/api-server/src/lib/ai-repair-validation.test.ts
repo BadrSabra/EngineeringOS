@@ -69,6 +69,34 @@ describe("AI repair validation registry", () => {
     expect(profile.timeoutMs).toBeLessThanOrEqual(120_000);
   });
 
+  it("registers the bounded API repair validation profile for only its implementation and tests", () => {
+    const profile = getRepairValidationProfile("api-repair-validation-tests");
+    expect(profile.command).toBe("pnpm");
+    expect(profile.args).toEqual([
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/ai-repair-validation.test.ts",
+      "-t",
+      "API repair validation profile|runtime[- ]oracle|runtime-validator",
+    ]);
+    expect(profile.timeoutMs).toBeLessThanOrEqual(config.validationProcessTimeoutMs);
+    expect(profile.maxBuffer).toBe(2_000_000);
+    expect(
+      validateRepairValidationScope("api-repair-validation-tests", [
+        "artifacts/api-server/src/lib/ai-repair-validation.ts",
+        "artifacts/api-server/src/lib/ai-repair-validation.test.ts",
+      ]),
+    ).toBeNull();
+    expect(
+      validateRepairValidationScope("api-repair-validation-tests", [
+        "artifacts/api-server/src/lib/ai-repair-validation.helpers.ts",
+      ]),
+    ).toMatch(/does not cover changed file/i);
+  });
+
   it("accepts a changed file inside the selected profile scope", () => {
     expect(
       validateRepairValidationScope("ai-orchestrator-tests", [

@@ -16,5 +16,6 @@ export const AiPendingChangeValidationProfile = {
   'ai-orchestrator-tests': 'ai-orchestrator-tests',
   'knowledge-engine-tests': 'knowledge-engine-tests',
   'api-ai-tests': 'api-ai-tests',
+  'api-repair-validation-tests': 'api-repair-validation-tests',
   'workspace-typecheck': 'workspace-typecheck',
 } as const;
