@@ -4,7 +4,7 @@
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
 - [Benchmark root exclusions](benchmark-root-exclusions.md) — keep benchmark copies aligned with digest exclusions; operational state can dominate runtime and expose unrelated artifacts.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.
-- [Shadow replay proof identity](shadow-replay-proof-identity.md) — source and replay Canonical Proof acceptance IDs stay separate; recovery fails closed on receipt/row mismatch.
+- [Shadow replay proof identity](shadow-replay-proof-identity.md) — recovery, registration, and promotion reload current-attempt proof and match receipt ID and trajectory.
 - [Shadow replay attempt ownership](shadow-replay-attempt-ownership.md) — direct starts and reconciliation share one lease; only its live owner can write receipts or delete the replay workspace.
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
 - [Discovery lease ownership](discovery-lease-ownership.md) — every discovery progress and terminal write must remain fenced by the current worker lease.
@@ -93,7 +93,7 @@
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
-- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows drive status; completion-gate tests must exercise the loader, not fabricated proof projections.
+- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
@@ -129,11 +129,11 @@
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
 - [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.
 - [Shadow replay validator contract](shadow-replay-validator-contract.md) — replay profiles and receipts stay server-owned and must pass through normal acceptance before proof.
-- [Skill registry Gate 4](skill-registry-gate4.md) — registry accepts only persisted paired-baseline passes; a validator-passed replay may still be incomplete.
+- [Skill registry Gate 4](skill-registry-gate4.md) — registration and approval require current-attempt source/replay proof and a passing paired baseline.
 - [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
-- [Strategy replay acceptance](strategy-replay-acceptance.md) — use normal recipe acceptance, then validate a distinct replay Canonical Proof and unchanged workspace hash.
+- [Strategy replay acceptance](strategy-replay-acceptance.md) — candidate admission binds current-attempt Canonical Proof; replay then requires a distinct proof and unchanged tree.
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable lifecycle proof-bound; live World Delta needs separate post-promotion scope, revision, and Mission-read contracts.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Separate environment identity/freshness from project freshness and keep it outside effect or acceptance authority.

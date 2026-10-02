@@ -41,3 +41,9 @@ Completion and promotion consumers must be tested through durable Canonical Proo
 **Why:** Projection-only tests can pass while production acceptance rows point at incomplete, missing, or wrong-attempt evidence; helper coverage alone does not prove a route or completion gate reloads the durable source of truth.
 
 **How to apply:** For each completion/promotion boundary, seed durable execution, acceptance, and evidence rows, mutate one identity or evidence binding, then assert the consumer refuses completion and preserves transactional rollback.
+
+An audit/export response may include a checkpoint-derived `execution.proof` and loader-derived `operationEvidence.proof` plus `proofSpine`; the latter two must remain bound to the current-attempt Canonical Proof.
+
+**Why:** A checkpoint can retain `PROVEN` while its only durable acceptance and snapshot belong to an earlier attempt. Neither the nested operation-evidence proof nor its spine may inherit that status.
+
+**How to apply:** In public export tests, assert the checkpoint projection and both nested canonical projections separately: checkpoint-derived status may remain visible as history, while proof and spine stay nonaccepted unless the current attempt has matching acceptance and evidence rows. Respect public redaction when asserting identities.

@@ -1156,6 +1156,52 @@ describe("AI missions and goals", () => {
       })],
     });
 
+    const [replayProofBinding] = await db
+      .select({
+        acceptanceId: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        executionAttempt: aiExecutionsTable.attempt,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+      .where(eq(aiExecutionAcceptancesTable.id, replay.body.receipt.proof.receiptId))
+      .limit(1);
+    expect(replayProofBinding).toBeDefined();
+    expect(replayProofBinding?.attempt).toBe(replayProofBinding?.executionAttempt);
+    expect(replayProofBinding?.evidenceSnapshotId).toBeTruthy();
+    const [replayProofEvidence] = await db
+      .select({
+        id: aiExecutionEvidenceSnapshotsTable.id,
+        attempt: aiExecutionEvidenceSnapshotsTable.attempt,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(
+        aiExecutionEvidenceSnapshotsTable.id,
+        replayProofBinding!.evidenceSnapshotId!,
+      ))
+      .limit(1);
+    expect(replayProofEvidence?.attempt).toBe(replayProofBinding?.executionAttempt);
+    const replayExecutionAttempt = replayProofBinding!.executionAttempt;
+    const inconsistentAttempt = replayExecutionAttempt + 1;
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ attempt: inconsistentAttempt })
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ attempt: inconsistentAttempt })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+    const staleReplayRegistration = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+      .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+    expect(staleReplayRegistration.status).toBe(409);
+    expect(staleReplayRegistration.body.code).toBe("SKILL_REGISTRY_CANONICAL_PROOF_REQUIRED");
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ attempt: replayExecutionAttempt })
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ attempt: replayExecutionAttempt })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+
     const registered = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-registry`)
       .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
@@ -1177,6 +1223,25 @@ describe("AI missions and goals", () => {
       },
     });
     const registryId = registered.body.registry.id as string;
+
+    const stalePromotionAttempt = replayExecutionAttempt + 1;
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ attempt: stalePromotionAttempt })
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ attempt: stalePromotionAttempt })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+    const staleApproval = await request(app)
+      .post(`/api/ai/skill-registry/${registryId}/approve`)
+      .send({});
+    expect(staleApproval.status).toBe(409);
+    expect(staleApproval.body.code).toBe("SKILL_REGISTRY_CANONICAL_PROOF_REQUIRED");
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ attempt: replayExecutionAttempt })
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ attempt: replayExecutionAttempt })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
 
     const approved = await request(app)
       .post(`/api/ai/skill-registry/${registryId}/approve`)
@@ -1333,6 +1398,167 @@ describe("AI missions and goals", () => {
         sideEffects: { apply: false, push: false, browser: false, commands: false },
       },
     });
+
+    const recoveryMismatchAttempt = replayExecutionAttempt + 1;
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ attempt: recoveryMismatchAttempt })
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    await db.update(aiExecutionEvidenceSnapshotsTable)
+      .set({ attempt: recoveryMismatchAttempt })
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+    await db.update(aiShadowReplaysTable)
+      .set({
+        status: "running",
+        workerId: "expired-shadow-replay-worker",
+        leaseUntil: new Date(Date.now() - 60_000),
+        error: null,
+        completedAt: null,
+      })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+
+    const recoveredReplay = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+      .send({});
+    expect(recoveredReplay.status).toBe(409);
+    const [persistedRecovery] = await db
+      .select({
+        status: aiShadowReplaysTable.status,
+        error: aiShadowReplaysTable.error,
+      })
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    expect(persistedRecovery).toMatchObject({
+      status: "failed",
+      error: "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED",
+    });
+  });
+
+  it("does not admit a candidate from a PROVEN acceptance for another execution attempt", async () => {
+    const projectId = await insertProject();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const sourceRevision = "e".repeat(40);
+    const candidateTreeHash = "b".repeat(64);
+    const changeSetHash = "c".repeat(64);
+    const baseTreeHash = "d".repeat(64);
+    const now = new Date();
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Candidate proof attempt fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Candidate proof attempt fixture",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: "src/index.ts", newContent: "export const candidate = true;\n" }]),
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      baseRevision: sourceRevision,
+      candidateTreeHash,
+      changeSetHash,
+      baseTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      workspaceRoot: `/tmp/unmaterialized-skill-candidate-${proposalId}`,
+      createdAt: now,
+    });
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      sessionId,
+      proposalId,
+      attempt: 1,
+      correlationId: operationId,
+      idempotencyKey: `skill-candidate-proof-${proposalId}`,
+      request: {
+        projectId,
+        operationId,
+        message: "Admit the validated candidate",
+        modelMessage: "Admit the validated candidate",
+        workspaceRevision: sourceRevision,
+        validationTargetPaths: ["src/index.ts"],
+        proofRequired: true,
+      },
+    });
+    expect(created.execution.attempt).toBe(1);
+    await db.update(aiExecutionsTable).set({
+      status: "completed",
+      operationId,
+      baseRevision: sourceRevision,
+      completedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const priorAttemptSnapshotId = randomUUID();
+    const priorAttemptProof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: priorAttemptSnapshotId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+    });
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: priorAttemptSnapshotId,
+      executionId: created.execution.id,
+      projectId,
+      attempt: 0,
+      operationId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: 0,
+      finalizationKey: `skill-candidate-proof-${created.execution.id}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof: priorAttemptProof },
+      evidenceSnapshotId: priorAttemptSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      createdAt: now,
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate`)
+      .send({});
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("SKILL_CANDIDATE_PROOF_NOT_AVAILABLE");
+    const [persistedProposal] = await db.select({
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    expect(JSON.stringify(persistedProposal?.validationEvidence ?? null))
+      .not.toContain("skillCandidate");
   });
 
   it("resumes a shadow replay whose recipe execution was interrupted by a crash", async () => {

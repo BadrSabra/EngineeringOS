@@ -2416,6 +2416,7 @@ router.post("/ai/proposals/:proposalId/skill-registry", async (req, res) => {
       operationId: aiChangeProposalsTable.operationId,
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
       validationEvidence: aiChangeProposalsTable.validationEvidence,
       baseTreeHash: aiChangeProposalsTable.baseTreeHash,
     })
@@ -2480,6 +2481,118 @@ router.post("/ai/proposals/:proposalId/skill-registry", async (req, res) => {
     return res.status(409).json({
       error: "The shadow replay receipt is not bound to the candidate and proof identities.",
       code: "SKILL_REGISTRY_SHADOW_REPLAY_IDENTITY_MISMATCH",
+    });
+  }
+
+  const [candidateAcceptance] = await db
+    .select({
+      executionId: aiExecutionAcceptancesTable.executionId,
+      goalId: aiExecutionsTable.goalId,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+    .where(and(
+      eq(aiExecutionAcceptancesTable.id, skillCandidate.proof.receiptId),
+      eq(aiExecutionAcceptancesTable.projectId, project.id),
+    ))
+    .limit(1);
+  const [replayScope] = candidateAcceptance?.goalId
+    ? await db
+      .select({
+        goalId: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+        goalStatus: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      })
+      .from(aiGoalsTable)
+      .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+      .where(and(
+        eq(aiGoalsTable.id, candidateAcceptance.goalId),
+        eq(aiGoalsTable.projectId, project.id),
+        eq(aiMissionsTable.projectId, project.id),
+      ))
+      .limit(1)
+    : [];
+  const planRevision = replayScope
+    ? readPlanRevision(replayScope.outcomeContract)
+    : undefined;
+  const activePlanRevision = replayScope
+    ? readActivePlanRevision(replayScope.autonomyPolicy)
+    : undefined;
+  if (
+    !candidateAcceptance?.goalId
+    || !replayScope
+    || replayScope.goalStatus !== "completed"
+    || !planRevision
+    || !activePlanRevision
+    || planRevision !== activePlanRevision
+  ) {
+    return res.status(409).json({
+      error: "The candidate and replay must remain bound to a completed active Mission plan.",
+      code: "SKILL_REGISTRY_CANONICAL_PROOF_REQUIRED",
+    });
+  }
+
+  const { candidateProof, replayProof } = await db.transaction(async (tx) => {
+    const candidateProof = await loadCanonicalProof({
+      tx,
+      executionId: candidateAcceptance.executionId,
+      scope: {
+        projectId: project.id,
+        missionId: replayScope.missionId,
+        goalId: replayScope.goalId,
+        executionId: candidateAcceptance.executionId,
+        operationId: proposal.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision: proposal.baseRevision,
+        candidateIdentity: proposal.candidateTreeHash,
+      },
+      goalStatus: replayScope.goalStatus,
+    });
+    const replayProof = await loadCanonicalProof({
+      tx,
+      executionId: replay.executionId,
+      scope: {
+        projectId: project.id,
+        missionId: replayScope.missionId,
+        goalId: replayScope.goalId,
+        executionId: replay.executionId,
+        operationId: replay.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision: proposal.baseRevision,
+        candidateIdentity: proposal.candidateTreeHash,
+      },
+      goalStatus: replayScope.goalStatus,
+    });
+    return { candidateProof, replayProof };
+  });
+  const candidateDecision = validateSkillCandidateAgainstCanonicalProof(skillCandidate, candidateProof, {
+    projectId: project.id,
+    sourceRevision: proposal.baseRevision,
+    candidateTreeHash: proposal.candidateTreeHash,
+    changeSetHash: proposal.changeSetHash,
+  });
+  if (
+    !candidateProof.accepted
+    || candidateProof.verdict !== "PROVEN"
+    || candidateProof.acceptanceId !== skillCandidate.proof.receiptId
+    || !candidateDecision.allowed
+    || !replayProof.accepted
+    || replayProof.verdict !== "PROVEN"
+    || replayProof.acceptanceId !== replay.replayCanonicalAcceptanceId
+    || replayProof.acceptanceId !== receipt.proof.receiptId
+    || replayProof.trajectoryDigest?.digest !== receipt.proof.trajectoryDigest
+  ) {
+    return res.status(409).json({
+      error: "The candidate or replay has no matching current Canonical Proof.",
+      code: "SKILL_REGISTRY_CANONICAL_PROOF_REQUIRED",
     });
   }
 
@@ -2588,7 +2701,7 @@ router.post("/ai/skill-registry/:registryId/approve", async (req, res) => {
   const project = await loadProjectByIdForUser(current.projectId, req.userId, res);
   if (!project) return;
   const now = new Date();
-  const promoted = await db.transaction(async (tx) => {
+  const promotion = await db.transaction(async (tx) => {
     const [locked] = await tx
       .select()
       .from(aiSkillRegistryTable)
@@ -2597,9 +2710,201 @@ router.post("/ai/skill-registry/:registryId/approve", async (req, res) => {
         eq(aiSkillRegistryTable.projectId, project.id),
       ))
       .for("update");
-    if (!locked || locked.revocationStatus === "revoked") return null;
-    if (locked.promotionStatus === "promoted") return locked;
-    if (locked.promotionStatus !== "pending") return null;
+    if (!locked || locked.revocationStatus === "revoked") {
+      return { kind: "rejected" as const };
+    }
+    if (locked.promotionStatus === "promoted") {
+      return { kind: "promoted" as const, row: locked };
+    }
+    if (locked.promotionStatus !== "pending") {
+      return { kind: "rejected" as const };
+    }
+
+    const [replay] = await tx
+      .select()
+      .from(aiShadowReplaysTable)
+      .where(and(
+        eq(aiShadowReplaysTable.id, locked.shadowReplayId),
+        eq(aiShadowReplaysTable.projectId, project.id),
+        eq(aiShadowReplaysTable.candidateId, locked.candidateId),
+        eq(aiShadowReplaysTable.status, "completed"),
+        eq(aiShadowReplaysTable.replayCanonicalAcceptanceId, locked.proofReceiptId),
+      ))
+      .for("update")
+      .limit(1);
+    const receipt = replay ? parseShadowReplayRegistryReceipt(replay.receipt) : null;
+    if (
+      !replay
+      || !receipt
+      || replay.proposalId !== locked.proposalId
+      || replay.sourceRevision !== locked.sourceRevision
+      || replay.candidateTreeHash !== locked.candidateTreeHash
+      || receipt.replayId !== replay.id
+      || receipt.replayExecutionId !== replay.executionId
+      || receipt.candidateId !== locked.candidateId
+      || receipt.projectId !== project.id
+      || receipt.sourceRevision !== locked.sourceRevision
+      || receipt.candidateTreeHash !== locked.candidateTreeHash
+      || receipt.proof.receiptId !== locked.proofReceiptId
+      || receipt.postTreeHash !== locked.candidateTreeHash
+    ) {
+      return { kind: "canonical-proof-rejected" as const };
+    }
+
+    const [proposal] = await tx
+      .select({
+        id: aiChangeProposalsTable.id,
+        operationId: aiChangeProposalsTable.operationId,
+        baseRevision: aiChangeProposalsTable.baseRevision,
+        candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+        changeSetHash: aiChangeProposalsTable.changeSetHash,
+        baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+        validationEvidence: aiChangeProposalsTable.validationEvidence,
+      })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, locked.proposalId),
+        eq(aiChangeProposalsTable.projectId, project.id),
+      ))
+      .for("update")
+      .limit(1);
+    const skillCandidate = proposal
+      ? parseStoredProposalEvidence(parseStoredEvidenceText(proposal.validationEvidence)).skillCandidate
+      : null;
+    const shadowScore = buildSkillShadowScore({
+      comparison: receipt.pairedBaseline,
+      replayId: replay.id,
+      candidateId: replay.candidateId,
+      candidateTreeHash: receipt.postTreeHash,
+      baselineTreeHash: proposal?.baseTreeHash,
+    });
+    if (!shadowScore) return { kind: "paired-baseline-rejected" as const };
+    if (
+      !proposal
+      || !proposal.operationId
+      || !proposal.baseRevision
+      || proposal.baseRevision !== locked.sourceRevision
+      || proposal.candidateTreeHash !== locked.candidateTreeHash
+      || !skillCandidate
+      || skillCandidate.candidateId !== locked.candidateId
+    ) {
+      return { kind: "canonical-proof-rejected" as const };
+    }
+
+    const [replayExecution] = await tx
+      .select({ goalId: aiExecutionsTable.goalId })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, replay.executionId),
+        eq(aiExecutionsTable.projectId, project.id),
+      ))
+      .limit(1);
+    const [candidateAcceptance] = replay.canonicalAcceptanceId
+      ? await tx
+        .select({
+          executionId: aiExecutionAcceptancesTable.executionId,
+          goalId: aiExecutionsTable.goalId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+        .where(and(
+          eq(aiExecutionAcceptancesTable.id, replay.canonicalAcceptanceId),
+          eq(aiExecutionAcceptancesTable.projectId, project.id),
+        ))
+        .limit(1)
+      : [];
+    const [replayScope] = replayExecution?.goalId
+      && candidateAcceptance?.goalId === replayExecution.goalId
+      ? await tx
+        .select({
+          goalId: aiGoalsTable.id,
+          missionId: aiGoalsTable.missionId,
+          goalStatus: aiGoalsTable.status,
+          outcomeContract: aiGoalsTable.outcomeContract,
+          autonomyPolicy: aiMissionsTable.autonomyPolicy,
+        })
+        .from(aiGoalsTable)
+        .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+        .where(and(
+          eq(aiGoalsTable.id, replayExecution.goalId),
+          eq(aiGoalsTable.projectId, project.id),
+          eq(aiMissionsTable.projectId, project.id),
+        ))
+        .limit(1)
+      : [];
+    const planRevision = replayScope
+      ? readPlanRevision(replayScope.outcomeContract)
+      : undefined;
+    const activePlanRevision = replayScope
+      ? readActivePlanRevision(replayScope.autonomyPolicy)
+      : undefined;
+    if (
+      !candidateAcceptance
+      || !replayScope
+      || replayScope.goalStatus !== "completed"
+      || !planRevision
+      || !activePlanRevision
+      || planRevision !== activePlanRevision
+    ) {
+      return { kind: "canonical-proof-rejected" as const };
+    }
+
+    const sourceProof = await loadCanonicalProof({
+      tx,
+      executionId: candidateAcceptance.executionId,
+      scope: {
+        projectId: project.id,
+        missionId: replayScope.missionId,
+        goalId: replayScope.goalId,
+        executionId: candidateAcceptance.executionId,
+        operationId: proposal.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision: proposal.baseRevision,
+        candidateIdentity: proposal.candidateTreeHash,
+      },
+      goalStatus: replayScope.goalStatus,
+    });
+    const replayProof = await loadCanonicalProof({
+      tx,
+      executionId: replay.executionId,
+      scope: {
+        projectId: project.id,
+        missionId: replayScope.missionId,
+        goalId: replayScope.goalId,
+        executionId: replay.executionId,
+        operationId: replay.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision: replay.sourceRevision,
+        candidateIdentity: replay.candidateTreeHash,
+      },
+      goalStatus: replayScope.goalStatus,
+    });
+    const candidateDecision = validateSkillCandidateAgainstCanonicalProof(skillCandidate, sourceProof, {
+      projectId: project.id,
+      sourceRevision: proposal.baseRevision,
+      candidateTreeHash: proposal.candidateTreeHash,
+      changeSetHash: proposal.changeSetHash,
+    });
+    if (
+      !sourceProof.accepted
+      || sourceProof.verdict !== "PROVEN"
+      || sourceProof.acceptanceId !== replay.canonicalAcceptanceId
+      || sourceProof.acceptanceId !== skillCandidate.proof.receiptId
+      || !candidateDecision.allowed
+      || !replayProof.accepted
+      || replayProof.verdict !== "PROVEN"
+      || replayProof.acceptanceId !== locked.proofReceiptId
+      || replayProof.acceptanceId !== receipt.proof.receiptId
+      || replayProof.trajectoryDigest?.digest !== receipt.proof.trajectoryDigest
+    ) {
+      return { kind: "canonical-proof-rejected" as const };
+    }
 
     await tx.update(aiSkillRegistryTable)
       .set({
@@ -2621,7 +2926,7 @@ router.post("/ai/skill-registry/:registryId/approve", async (req, res) => {
       })
       .where(eq(aiSkillRegistryTable.id, locked.id))
       .returning();
-    if (!row) return null;
+    if (!row) return { kind: "rejected" as const };
     await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiSkillRegistryApproved",
@@ -2635,15 +2940,27 @@ router.post("/ai/skill-registry/:registryId/approve", async (req, res) => {
         candidateId: row.candidateId,
       },
     });
-    return row;
+    return { kind: "promoted" as const, row };
   });
-  if (!promoted) {
+  if (promotion.kind === "canonical-proof-rejected") {
+    return res.status(409).json({
+      error: "The candidate or replay no longer has matching current Canonical Proof.",
+      code: "SKILL_REGISTRY_CANONICAL_PROOF_REQUIRED",
+    });
+  }
+  if (promotion.kind === "paired-baseline-rejected") {
+    return res.status(409).json({
+      error: "A passing Gate 3 paired baseline is required before promotion.",
+      code: "SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED",
+    });
+  }
+  if (promotion.kind !== "promoted") {
     return res.status(409).json({
       error: "Only an active pending skill registry entry can be approved.",
       code: "SKILL_REGISTRY_APPROVAL_REJECTED",
     });
   }
-  return res.json({ registry: publicSkillRegistryRow(promoted) });
+  return res.json({ registry: publicSkillRegistryRow(promotion.row) });
 });
 
 router.post("/ai/skill-registry/:registryId/revoke", async (req, res) => {

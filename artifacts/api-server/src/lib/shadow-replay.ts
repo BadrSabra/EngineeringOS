@@ -753,6 +753,75 @@ export async function runShadowReplayAttempt(
       });
       return false;
     }
+    const [replayScope] = await db
+      .select({
+        goalId: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+        goalStatus: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      })
+      .from(aiGoalsTable)
+      .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+      .where(and(
+        eq(aiGoalsTable.id, execution.goalId ?? ""),
+        eq(aiGoalsTable.projectId, replay.projectId),
+        eq(aiMissionsTable.projectId, replay.projectId),
+      ))
+      .limit(1);
+    const planRevision = replayScope
+      ? planRevisionFromGoal(replayScope.outcomeContract)
+      : undefined;
+    const activePlanRevision = replayScope
+      ? activePlanRevisionFromMission(replayScope.autonomyPolicy)
+      : undefined;
+    let recoveryProofError: string | null = "SHADOW_REPLAY_SCOPE_UNAVAILABLE";
+    if (
+      replayScope
+      && replayScope.goalId === execution.goalId
+      && replayScope.goalStatus === "completed"
+      && planRevision
+      && activePlanRevision
+      && planRevision === activePlanRevision
+    ) {
+      const replayProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: replay.executionId,
+        scope: {
+          projectId: replay.projectId,
+          missionId: replayScope.missionId,
+          goalId: replayScope.goalId,
+          executionId: replay.executionId,
+          operationId: replay.operationId,
+          planRevision,
+          activePlanRevision,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: "required",
+          sourceRevision: replay.sourceRevision,
+          candidateIdentity: replay.candidateTreeHash,
+        },
+        goalStatus: replayScope.goalStatus,
+      }));
+      const receiptProof = recordValue(durableReceipt?.proof);
+      recoveryProofError = replayProof.accepted
+        && replayProof.verdict === "PROVEN"
+        && replayProof.acceptanceId === replay.replayCanonicalAcceptanceId
+        && replayProof.acceptanceId === receiptProof?.receiptId
+        && replayProof.trajectoryDigest?.digest === receiptProof?.trajectoryDigest
+        ? null
+        : "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED";
+    }
+    if (recoveryProofError) {
+      const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
+      await updateReplayOwned(replay.id, owner, {
+        status: "failed",
+        error: workspaceCleaned ? recoveryProofError : "SHADOW_REPLAY_CLEANUP_FAILED",
+        completedAt: execution.completedAt ?? new Date(),
+        workerId: null,
+        leaseUntil: null,
+      });
+      return false;
+    }
     const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
     if (!workspaceCleaned) {
       await updateReplayOwned(replay.id, owner, {

@@ -68,6 +68,7 @@ import {
   requestAiExecutionCancel,
 } from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
+import { buildExecutionProofProjection } from "../lib/execution-proof.js";
 import { loadCanonicalProof } from "../lib/proof-foundation.js";
 import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js";
 import { recordAiUsageAttempt } from "../lib/ai-telemetry.js";
@@ -3650,7 +3651,7 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
     expect(terminalProjection).not.toContain("/home/runner/workspace");
   });
 
-  it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
+  it("redacts owner-scoped export and refuses prior-attempt Canonical Proof", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const operationId = randomUUID();
@@ -3661,11 +3662,13 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       projectId,
       correlationId: operationId,
       idempotencyKey: randomUUID(),
+      attempt: 1,
       request: {
         projectId,
         message: "Apply the approved fix",
         modelMessage: "Apply the approved fix",
         workspaceRevision: "revision-abc123",
+        proofRequired: true,
         validationTargetPaths: [
           "src/feature.ts",
           "/home/runner/workspace/private.ts",
@@ -3717,6 +3720,51 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       })
       .where(eq(aiExecutionsTable.id, created.execution.id));
 
+    expect(created.execution.attempt).toBe(1);
+    const priorAttemptSnapshotId = randomUUID();
+    const priorAttemptProof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: priorAttemptSnapshotId,
+      sourceRevision: "revision-abc123",
+      candidateIdentity: null,
+    });
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: priorAttemptSnapshotId,
+      executionId: created.execution.id,
+      projectId,
+      attempt: 0,
+      operationId,
+      sourceRevision: "revision-abc123",
+      candidateIdentity: null,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: 0,
+      finalizationKey: `audit-export-prior-attempt-${created.execution.id}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof: priorAttemptProof },
+      evidenceSnapshotId: priorAttemptSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision: "revision-abc123",
+      candidateIdentity: null,
+      createdAt,
+    });
+
     await db.insert(eventsTable).values({
       id: randomUUID(),
       type: "ValidationCompleted",
@@ -3753,6 +3801,10 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
           verdict: "PROVEN",
         },
       },
+      operationEvidence: {
+        verified: false,
+        proof: { accepted: false },
+      },
       validations: [{
         status: "passed",
         profile: "release-safe",
@@ -3761,6 +3813,16 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       }],
       affectedFiles: ["src/feature.ts"],
     });
+    expect(response.body.operationEvidence.proof.verdict).not.toBe("PROVEN");
+    expect(response.body.operationEvidence.proof.failureReasons).not.toHaveLength(0);
+    expect(response.body.operationEvidence.proofSpine).toMatchObject({
+      accepted: false,
+      identity: {
+        attempt: 1,
+      },
+    });
+    expect(response.body.operationEvidence.proofSpine.verdict).not.toBe("PROVEN");
+    expect(response.body.operationEvidence.proofSpine.failureReasons).not.toHaveLength(0);
 
     const exported = JSON.stringify(response.body);
     expect(exported).not.toContain("sk-live-do-not-export");
