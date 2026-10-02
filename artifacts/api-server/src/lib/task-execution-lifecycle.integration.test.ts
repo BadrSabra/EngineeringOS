@@ -2812,7 +2812,7 @@ describe("real durable task execution lifecycle", () => {
         .from(aiMissionsTable)
         .where(eq(aiMissionsTable.id, missionId));
       const [task] = await db
-        .select({ status: tasksTable.status })
+        .select({ status: tasksTable.status, phase: tasksTable.phase })
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId));
       const [durableAcceptance] = await db
@@ -2823,11 +2823,12 @@ describe("real durable task execution lifecycle", () => {
         })
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!));
-      expect(task?.status).toBe("completed");
+      expect(task).toMatchObject({ status: "completed", phase: null });
       expect(durableAcceptance).toMatchObject({
         outcome: "SUCCEEDED",
         terminalStatus: "completed",
       });
+      expect(durableAcceptance?.disposition).not.toHaveProperty("taskObjective");
       expect(goal).toMatchObject({
         status: "verifying",
         outcomeContract: {
