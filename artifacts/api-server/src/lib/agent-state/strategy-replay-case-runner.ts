@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   canonicalJsonHash,
   StrategyCandidateSchema,
@@ -36,19 +36,23 @@ import {
 import { createInMemoryWorkspaceRuntimeStore } from "../workspace-runtime-store.js";
 import { WorkspaceRuntimeManager } from "../workspace-runtime.js";
 import {
-  createStrategyReplayCaseRunLease,
-  decideStrategyReplayCaseLeaseClaim,
-  STRATEGY_REPLAY_CASE_LEASE_KIND,
-  STRATEGY_REPLAY_CASE_LEASE_MS,
   STRATEGY_REPLAY_CASE_LEASE_RENEW_INTERVAL_MS,
 } from "./strategy-replay-case-lease.js";
+import {
+  claimStrategyReplayCaseRunLease,
+  createStrategyReplayCaseRunAttempt,
+  persistStrategyReplayCaseTerminalReceipt,
+  renewStrategyReplayCaseRunLease,
+  strategyReplayCaseAttemptRunId,
+  strategyReplayCaseRetryOperationId,
+} from "./strategy-replay-case-run-storage.js";
 
 const execFileAsync = promisify(execFile);
 const HASH = /^[a-f0-9]{64}$/;
 const SOURCE_REVISION = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
 const ReplayCaseRunReceiptSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   runId: z.string().min(1).max(200),
   operationId: z.string().min(1).max(200),
   status: z.enum(["proven", "incomplete"]),
@@ -72,6 +76,7 @@ const ReplayCaseRunReceiptSchema = z.object({
   sourceAcceptanceId: z.string().min(1).max(200),
   sourceEffectBundleId: z.string().min(1).max(200),
   sourceCanonicalProofHash: z.string().regex(HASH),
+  attemptNumber: z.number().int().positive().optional(),
   replayExecutionId: z.string().min(1).max(200).nullable(),
   replayAttempt: z.number().int().nonnegative().nullable(),
   replayEpisodeId: z.string().min(1).max(200).nullable(),
@@ -97,6 +102,9 @@ const ReplayCaseRunReceiptSchema = z.object({
   }
   if (receipt.status === "incomplete" && !receipt.incompleteReason) {
     context.addIssue({ code: "custom", message: "Incomplete replay receipt requires a bounded reason." });
+  }
+  if (receipt.schemaVersion === 2 && receipt.attemptNumber === undefined) {
+    context.addIssue({ code: "custom", message: "Current replay receipts require a case-attempt identity." });
   }
 });
 
@@ -127,6 +135,13 @@ export class StrategyReplayCaseBusyError extends Error {
   }
 }
 
+export class StrategyReplayCaseRetryNotEligibleError extends Error {
+  constructor() {
+    super("A new Strategy Replay attempt requires a verified incomplete attempt.");
+    this.name = "StrategyReplayCaseRetryNotEligibleError";
+  }
+}
+
 class StrategyReplayCaseLeaseLostError extends Error {
   constructor() {
     super("Strategy Replay case runner no longer owns its durable lease.");
@@ -143,6 +158,7 @@ type StoredReplayReceiptSnapshot = {
     | "id"
     | "projectId"
     | "caseRegistrationId"
+    | "attemptNumber"
     | "candidateId"
     | "sourceEpisodeId"
     | "operationId"
@@ -166,6 +182,7 @@ export function matchesStoredReplayReceiptIdentity(
   return receipt.status === replayRun.status
     && receipt.runId === snapshot.runId
     && receipt.operationId === snapshot.operationId
+    && (receipt.attemptNumber ?? 1) === replayRun.attemptNumber
     && receipt.projectId === definition.projectId
     && replayRun.projectId === definition.projectId
     && receipt.caseRegistrationId === replayRun.caseRegistrationId
@@ -199,8 +216,23 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function deterministicIdentity(prefix: string, value: string): string {
-  return `${prefix}:${createHash("sha256").update(value).digest("hex")}`;
+function matchesReplayCaseAttemptScope(
+  scope: unknown,
+  snapshot: ReplayCaseSnapshot,
+  allowLegacyFirstAttempt: boolean,
+): boolean {
+  const replayCaseScope = asRecord(scope);
+  if (!replayCaseScope) return false;
+  if (
+    allowLegacyFirstAttempt
+    && snapshot.replayRun.attemptNumber === 1
+    && replayCaseScope.caseRunId === undefined
+    && replayCaseScope.caseAttemptNumber === undefined
+  ) {
+    return true;
+  }
+  return replayCaseScope.caseRunId === snapshot.replayRun.id
+    && replayCaseScope.caseAttemptNumber === snapshot.replayRun.attemptNumber;
 }
 
 function sourceProofBinding(definition: RegisteredStrategyReplayCaseDefinition) {
@@ -240,9 +272,91 @@ function validateCandidate(input: {
   return candidate;
 }
 
+async function retryableIncompleteRunId(input: {
+  projectId: string;
+  caseRegistrationId: string;
+  retryRequestId: string;
+}): Promise<string | undefined> {
+  const operationId = strategyReplayCaseRetryOperationId(
+    input.caseRegistrationId,
+    input.retryRequestId,
+  );
+  const [existingRequestedRun] = await db.select({ id: aiStrategyReplayCaseRunsTable.id })
+    .from(aiStrategyReplayCaseRunsTable)
+    .where(and(
+      eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, input.caseRegistrationId),
+      eq(aiStrategyReplayCaseRunsTable.operationId, operationId),
+    ))
+    .limit(1);
+  if (existingRequestedRun) return undefined;
+
+  const [caseRow] = await db.select().from(aiStrategyReplayCasesTable).where(and(
+    eq(aiStrategyReplayCasesTable.id, input.caseRegistrationId),
+    eq(aiStrategyReplayCasesTable.projectId, input.projectId),
+  )).limit(1);
+  const parsedDefinition = RegisteredStrategyReplayCaseDefinitionSchema.safeParse(caseRow?.caseDefinition);
+  if (
+    !caseRow
+    || !parsedDefinition.success
+    || parsedDefinition.data.projectId !== caseRow.projectId
+    || parsedDefinition.data.candidateId !== caseRow.candidateId
+    || parsedDefinition.data.sourceEpisodeId !== caseRow.sourceEpisodeId
+  ) {
+    throw new StrategyReplayCaseRetryNotEligibleError();
+  }
+  const definition = parsedDefinition.data;
+  const [latestRun] = await db.select().from(aiStrategyReplayCaseRunsTable)
+    .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
+    .orderBy(desc(aiStrategyReplayCaseRunsTable.attemptNumber))
+    .limit(1);
+  if (!latestRun || latestRun.status !== "incomplete") {
+    throw new StrategyReplayCaseRetryNotEligibleError();
+  }
+  const [project] = await db.select({
+    rootPath: projectsTable.rootPath,
+    strategyReplayOptIn: projectsTable.strategyReplayOptIn,
+  }).from(projectsTable).where(eq(projectsTable.id, input.projectId)).limit(1);
+  if (!project?.strategyReplayOptIn) throw new StrategyReplayCaseRetryNotEligibleError();
+  if (!project.rootPath) throw new StrategyReplayCaseRetryNotEligibleError();
+  const establishedRoot = await establishProjectRoot(project.rootPath);
+  if (!establishedRoot.ok) throw new StrategyReplayCaseRetryNotEligibleError();
+  try {
+    await assertCleanRevision(establishedRoot.canonicalPath, definition.sourceRevision);
+  } catch {
+    throw new StrategyReplayCaseRetryNotEligibleError();
+  }
+  const [candidateRow] = await db.select().from(aiStrategyCandidatesTable).where(and(
+    eq(aiStrategyCandidatesTable.id, definition.candidateId),
+    eq(aiStrategyCandidatesTable.projectId, input.projectId),
+  )).limit(1);
+  const candidate = candidateRow
+    ? validateCandidate({ candidateRow, definition })
+    : undefined;
+  if (!candidate) throw new StrategyReplayCaseRetryNotEligibleError();
+
+  const snapshot: ReplayCaseSnapshot = {
+    definition,
+    projectRootPath: project.rootPath,
+    consented: true,
+    candidate,
+    runId: latestRun.id,
+    operationId: latestRun.operationId,
+    replayRun: latestRun,
+    leaseToken: null,
+    reclaimed: false,
+  };
+  const receipt = await verifyStoredReceipt(snapshot);
+  if (!receipt || receipt.status !== "incomplete") {
+    throw new StrategyReplayCaseRetryNotEligibleError();
+  }
+  return latestRun.id;
+}
+
 async function loadOrReserveReplayRun(input: {
   projectId: string;
   caseRegistrationId: string;
+  retryRequestId?: string;
+  retryBaseRunId?: string;
 }): Promise<ReplayCaseSnapshot | undefined> {
   return db.transaction(async (tx) => {
     const [caseRow] = await tx.select().from(aiStrategyReplayCasesTable).where(and(
@@ -284,49 +398,82 @@ async function loadOrReserveReplayRun(input: {
     const candidate = validateCandidate({ candidateRow, definition });
     if (!candidate) return undefined;
 
-    const runId = deterministicIdentity("strategy-replay-run", caseRow.id);
-    const operationId = deterministicIdentity("strategy-replay-operation", caseRow.id);
-    let [replayRun] = await tx.select().from(aiStrategyReplayCaseRunsTable)
-      .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
-      .for("update");
+    const requestedOperationId = input.retryRequestId
+      ? strategyReplayCaseRetryOperationId(caseRow.id, input.retryRequestId)
+      : undefined;
+    let replayRun: typeof aiStrategyReplayCaseRunsTable.$inferSelect | undefined;
+    let requestedRunFound = false;
+    if (requestedOperationId) {
+      const [requestedRun] = await tx.select().from(aiStrategyReplayCaseRunsTable).where(and(
+          eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id),
+          eq(aiStrategyReplayCaseRunsTable.operationId, requestedOperationId),
+        )).for("update");
+      replayRun = requestedRun;
+      requestedRunFound = Boolean(requestedRun);
+    }
+    if (!replayRun) {
+      [replayRun] = await tx.select().from(aiStrategyReplayCaseRunsTable)
+        .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
+        .orderBy(desc(aiStrategyReplayCaseRunsTable.attemptNumber))
+        .limit(1)
+        .for("update");
+    }
     let leaseToken: string | null = null;
     let reclaimed = false;
     let createdRun = false;
-    if (!replayRun) {
-      if (!project.strategyReplayOptIn) return undefined;
+    const shouldCreateInitial = !replayRun;
+    const shouldCreateRetry = Boolean(
+      replayRun
+      && input.retryRequestId
+      && replayRun.status === "incomplete"
+      && input.retryBaseRunId === replayRun.id,
+    );
+    if (input.retryRequestId && !replayRun) {
+      throw new StrategyReplayCaseRetryNotEligibleError();
+    }
+    if (
+      input.retryRequestId
+      && !requestedRunFound
+      && replayRun?.status === "incomplete"
+      && !shouldCreateRetry
+    ) {
+      throw new StrategyReplayCaseRetryNotEligibleError();
+    }
+    if (input.retryRequestId && replayRun?.status === "running" && !requestedRunFound) {
+      throw new StrategyReplayCaseBusyError();
+    }
+    if (shouldCreateInitial || shouldCreateRetry) {
+      if (!project.strategyReplayOptIn) {
+        if (input.retryRequestId) throw new StrategyReplayCaseRetryNotEligibleError();
+        return undefined;
+      }
+      const attemptNumber = shouldCreateInitial
+        ? 1
+        : replayRun!.attemptNumber + 1;
+      if (attemptNumber > 1 && !input.retryRequestId) return undefined;
       const now = new Date();
-      const ownerToken = randomUUID();
-      [replayRun] = await tx.insert(aiStrategyReplayCaseRunsTable).values({
-        id: runId,
+      const created = await createStrategyReplayCaseRunAttempt(tx, {
         projectId: input.projectId,
         caseRegistrationId: caseRow.id,
         candidateId: definition.candidateId,
         sourceEpisodeId: definition.sourceEpisodeId,
-        operationId,
         candidateHash: definition.candidateHash,
         sourceCanonicalProofHash: definition.sourceCanonicalProofHash,
-        status: "running",
-        receipt: createStrategyReplayCaseRunLease({
-          ownerToken,
-          expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
-        }),
-        updatedAt: now,
-      }).onConflictDoNothing().returning();
-      if (replayRun) {
-        leaseToken = ownerToken;
+        attemptNumber,
+        ...(input.retryRequestId ? { retryRequestId: input.retryRequestId } : {}),
+        now,
+      });
+      if (!created) return undefined;
+      replayRun = created.replayRun;
+      if (created) {
+        leaseToken = created.ownerToken;
         createdRun = true;
-      }
-      if (!replayRun) {
-        [replayRun] = await tx.select().from(aiStrategyReplayCaseRunsTable)
-          .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
-          .for("update");
       }
     }
     if (!replayRun) return undefined;
     if (!project.strategyReplayOptIn && replayRun.status === "running") return undefined;
     if (
-      replayRun.id !== runId
-      || replayRun.operationId !== operationId
+      replayRun.id !== strategyReplayCaseAttemptRunId(caseRow.id, replayRun.attemptNumber)
       || replayRun.candidateHash !== definition.candidateHash
       || replayRun.sourceCanonicalProofHash !== definition.sourceCanonicalProofHash
     ) {
@@ -334,30 +481,13 @@ async function loadOrReserveReplayRun(input: {
     }
     if (replayRun.status === "running" && !createdRun) {
       const now = new Date();
-      const claimDecision = decideStrategyReplayCaseLeaseClaim({
-        status: replayRun.status,
-        receipt: replayRun.receipt,
-        updatedAt: replayRun.updatedAt,
-        now,
-      });
-      if (claimDecision === "busy") throw new StrategyReplayCaseBusyError();
-      if (claimDecision !== "reclaim") {
+      const claim = await claimStrategyReplayCaseRunLease(tx, replayRun, now);
+      if (claim.decision === "busy") throw new StrategyReplayCaseBusyError();
+      if (claim.decision !== "reclaim") {
         throw new Error("Stored Strategy Replay run lease cannot be safely reclaimed.");
       }
-      const ownerToken = randomUUID();
-      const [claimedRun] = await tx.update(aiStrategyReplayCaseRunsTable).set({
-        receipt: createStrategyReplayCaseRunLease({
-          ownerToken,
-          expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
-        }),
-        updatedAt: now,
-      }).where(and(
-        eq(aiStrategyReplayCaseRunsTable.id, replayRun.id),
-        eq(aiStrategyReplayCaseRunsTable.status, "running"),
-      )).returning();
-      if (!claimedRun) throw new StrategyReplayCaseBusyError();
-      replayRun = claimedRun;
-      leaseToken = ownerToken;
+      replayRun = claim.replayRun;
+      leaseToken = claim.ownerToken;
       reclaimed = true;
     }
     if (replayRun.status === "running" && !leaseToken) {
@@ -369,8 +499,8 @@ async function loadOrReserveReplayRun(input: {
       projectRootPath: project.rootPath,
       consented: Boolean(project.strategyReplayOptIn),
       candidate,
-      runId,
-      operationId,
+      runId: replayRun.id,
+      operationId: replayRun.operationId,
       replayRun,
       leaseToken,
       reclaimed,
@@ -393,9 +523,10 @@ function makeReceipt(
   },
 ): StrategyReplayCaseRunReceipt {
   return ReplayCaseRunReceiptSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: snapshot.runId,
     operationId: snapshot.operationId,
+    attemptNumber: snapshot.replayRun.attemptNumber,
     status: input.status,
     incompleteReason: input.status === "incomplete" ? input.incompleteReason ?? "replay_proof_not_proven" : null,
     partition: "held_out",
@@ -421,34 +552,15 @@ function makeReceipt(
   });
 }
 
-function replayRunLeaseOwnerCondition(ownerToken: string, now?: Date) {
-  const receipt = aiStrategyReplayCaseRunsTable.receipt;
-  if (now) {
-    return sql`(${receipt} ->> 'kind') = ${STRATEGY_REPLAY_CASE_LEASE_KIND}
-      AND (${receipt} ->> 'ownerToken') = ${ownerToken}
-      AND (${receipt} ->> 'expiresAt')::timestamptz > ${now.toISOString()}::timestamptz`;
-  }
-  return sql`(${receipt} ->> 'kind') = ${STRATEGY_REPLAY_CASE_LEASE_KIND}
-    AND (${receipt} ->> 'ownerToken') = ${ownerToken}`;
-}
-
 async function renewReplayCaseRunLease(
   snapshot: ReplayCaseSnapshot,
   ownerToken: string,
 ): Promise<boolean> {
-  const now = new Date();
-  const [updated] = await db.update(aiStrategyReplayCaseRunsTable).set({
-    receipt: createStrategyReplayCaseRunLease({
-      ownerToken,
-      expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
-    }),
-    updatedAt: now,
-  }).where(and(
-    eq(aiStrategyReplayCaseRunsTable.id, snapshot.runId),
-    eq(aiStrategyReplayCaseRunsTable.status, "running"),
-    replayRunLeaseOwnerCondition(ownerToken, now),
-  )).returning({ id: aiStrategyReplayCaseRunsTable.id });
-  return Boolean(updated);
+  return renewStrategyReplayCaseRunLease({
+    runId: snapshot.runId,
+    ownerToken,
+    now: new Date(),
+  });
 }
 
 type ReplayCaseRunLeaseGuard = {
@@ -521,21 +633,12 @@ async function persistReceipt(
 ): Promise<void> {
   await lease.assertOwned();
   const now = new Date();
-  const [updated] = await db.update(aiStrategyReplayCaseRunsTable).set({
-    status: receipt.status,
-    replayExecutionId: receipt.replayExecutionId,
-    replayEpisodeId: receipt.replayEpisodeId,
-    replayAttempt: receipt.replayAttempt,
-    replayEffectBundleId: receipt.replayEffectBundleId,
-    replayCanonicalProofHash: receipt.replayCanonicalProofHash,
-    workspaceTreeHash: receipt.workspaceTreeHash,
-    receipt: receipt as unknown as JsonValue,
-    updatedAt: now,
-  }).where(and(
-    eq(aiStrategyReplayCaseRunsTable.id, snapshot.runId),
-    eq(aiStrategyReplayCaseRunsTable.status, "running"),
-    replayRunLeaseOwnerCondition(lease.ownerToken, now),
-  )).returning({ id: aiStrategyReplayCaseRunsTable.id });
+  const updated = await persistStrategyReplayCaseTerminalReceipt({
+    runId: snapshot.runId,
+    ownerToken: lease.ownerToken,
+    receipt,
+    now,
+  });
   if (!updated) throw new StrategyReplayCaseLeaseLostError();
   lease.markFinished();
 }
@@ -595,6 +698,11 @@ async function verifyStoredReceipt(
     || episode.projectRevision !== snapshot.definition.sourceRevision
     || replayCaseScope?.caseRegistrationId !== snapshot.replayRun.caseRegistrationId
     || replayCaseScope.caseId !== snapshot.definition.caseId
+    || !matchesReplayCaseAttemptScope(
+      replayCaseScope,
+      snapshot,
+      receipt.schemaVersion === 1 && receipt.attemptNumber === undefined,
+    )
     || replayCaseScope.candidateId !== snapshot.definition.candidateId
     || replayCaseScope.candidateHash !== snapshot.definition.candidateHash
     || replayCaseScope.sourceEpisodeId !== snapshot.definition.sourceEpisodeId
@@ -630,8 +738,25 @@ export async function runRegisteredStrategyReplayCase(input: {
   projectId: string;
   caseRegistrationId: string;
   userId: string;
+  newAttemptRequestId?: string;
 }): Promise<StrategyReplayCaseRunResult> {
-  const snapshot = await loadOrReserveReplayRun(input);
+  const retryBaseRunId = input.newAttemptRequestId
+    ? await retryableIncompleteRunId({
+        projectId: input.projectId,
+        caseRegistrationId: input.caseRegistrationId,
+        retryRequestId: input.newAttemptRequestId,
+      })
+    : undefined;
+  const snapshot = await loadOrReserveReplayRun({
+    projectId: input.projectId,
+    caseRegistrationId: input.caseRegistrationId,
+    ...(input.newAttemptRequestId
+      ? {
+          retryRequestId: input.newAttemptRequestId,
+          ...(retryBaseRunId ? { retryBaseRunId } : {}),
+        }
+      : {}),
+  });
   if (!snapshot) {
     throw new Error("Registered Strategy Replay case is not eligible.");
   }
@@ -705,11 +830,15 @@ export async function runRegisteredStrategyReplayCase(input: {
       candidateIdentity: workspaceTreeHash,
       candidateWorkspace: workspace.rootPath,
       userId: input.userId,
-      idempotencyKey: `strategy-replay-case:${createHash("sha256").update(snapshot.replayRun.caseRegistrationId).digest("hex")}`,
+      idempotencyKey: snapshot.replayRun.attemptNumber === 1
+        ? `strategy-replay-case:${createHash("sha256").update(snapshot.replayRun.caseRegistrationId).digest("hex")}`
+        : `strategy-replay-case:${createHash("sha256").update(snapshot.replayRun.caseRegistrationId).digest("hex")}:attempt:${snapshot.replayRun.attemptNumber}:${createHash("sha256").update(snapshot.operationId).digest("hex")}`,
       runtimeStartRunner: createRuntimeStartRunner(runtimeManager),
       strategyReplayContext: {
         caseRegistrationId: snapshot.replayRun.caseRegistrationId,
         caseId: snapshot.definition.caseId,
+        caseRunId: snapshot.replayRun.id,
+        caseAttemptNumber: snapshot.replayRun.attemptNumber,
         candidateId: snapshot.definition.candidateId,
         candidateHash: snapshot.definition.candidateHash,
         sourceEpisodeId: snapshot.definition.sourceEpisodeId,
@@ -743,6 +872,7 @@ export async function runRegisteredStrategyReplayCase(input: {
       || replayEpisode.projectRevision !== snapshot.definition.sourceRevision
       || replayCaseScope?.caseRegistrationId !== snapshot.replayRun.caseRegistrationId
       || replayCaseScope.caseId !== snapshot.definition.caseId
+      || !matchesReplayCaseAttemptScope(replayCaseScope, snapshot, false)
       || replayCaseScope.candidateId !== snapshot.definition.candidateId
       || replayCaseScope.candidateHash !== snapshot.definition.candidateHash
       || replayCaseScope.sourceEpisodeId !== snapshot.definition.sourceEpisodeId

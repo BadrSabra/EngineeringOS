@@ -1128,6 +1128,8 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   strategyReplayContext?: {
     caseRegistrationId: string;
     caseId: string;
+    caseRunId: string;
+    caseAttemptNumber: number;
     candidateId: string;
     candidateHash: string;
     sourceEpisodeId: string;
@@ -1865,6 +1867,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 strategyReplayCase: {
                   caseRegistrationId: params.strategyReplayContext.caseRegistrationId,
                   caseId: params.strategyReplayContext.caseId,
+                  caseRunId: params.strategyReplayContext.caseRunId,
+                  caseAttemptNumber: params.strategyReplayContext.caseAttemptNumber,
                   candidateId: params.strategyReplayContext.candidateId,
                   candidateHash: params.strategyReplayContext.candidateHash,
                   sourceEpisodeId: params.strategyReplayContext.sourceEpisodeId,

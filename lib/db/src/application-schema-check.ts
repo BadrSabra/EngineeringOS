@@ -376,6 +376,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       { name: "project_id", dataType: "text", udtName: "text", nullable: false },
       { name: "case_registration_id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "attempt_number",
+        dataType: "integer",
+        udtName: "int4",
+        nullable: false,
+        defaultExpression: /^1$/,
+      },
       { name: "candidate_id", dataType: "text", udtName: "text", nullable: false },
       { name: "source_episode_id", dataType: "text", udtName: "text", nullable: false },
       { name: "operation_id", dataType: "text", udtName: "text", nullable: false },
@@ -1003,9 +1010,9 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["project_id", "candidate_id"],
     },
     {
-      name: "uq_ai_strategy_replay_case_runs_case",
+      name: "uq_ai_strategy_replay_case_runs_case_attempt",
       tableName: "ai_strategy_replay_case_runs",
-      columns: ["case_registration_id"],
+      columns: ["case_registration_id", "attempt_number"],
     },
     {
       name: "uq_ai_strategy_replay_case_runs_operation",

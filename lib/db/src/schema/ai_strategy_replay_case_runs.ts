@@ -13,15 +13,16 @@ import { aiStrategyReplayCasesTable } from "./ai_strategy_replay_cases.js";
 import { projectsTable } from "./projects.js";
 
 /**
- * One immutable replay attempt per registered held-out case. While running,
- * receipt stores a short-lived internal lease marker; terminal rows store only
- * bounded identities, hashes, and the proof-status receipt.
+ * Append-only immutable replay attempts per registered held-out case. While
+ * running, receipt stores a short-lived internal lease marker; terminal rows
+ * store only bounded identities, hashes, and the proof-status receipt.
  */
 export const aiStrategyReplayCaseRunsTable = pgTable("ai_strategy_replay_case_runs", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
   caseRegistrationId: text("case_registration_id").notNull()
     .references(() => aiStrategyReplayCasesTable.id, { onDelete: "cascade" }),
+  attemptNumber: integer("attempt_number").notNull().default(1),
   candidateId: text("candidate_id").notNull()
     .references(() => aiStrategyCandidatesTable.id, { onDelete: "cascade" }),
   sourceEpisodeId: text("source_episode_id").notNull()
@@ -40,8 +41,8 @@ export const aiStrategyReplayCaseRunsTable = pgTable("ai_strategy_replay_case_ru
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("uq_ai_strategy_replay_case_runs_case")
-    .on(t.caseRegistrationId),
+  uniqueIndex("uq_ai_strategy_replay_case_runs_case_attempt")
+    .on(t.caseRegistrationId, t.attemptNumber),
   uniqueIndex("uq_ai_strategy_replay_case_runs_operation")
     .on(t.operationId),
   index("idx_ai_strategy_replay_case_runs_project_candidate_status")

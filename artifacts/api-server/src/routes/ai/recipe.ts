@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { RecipeRequestSchema, toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod/v4";
 import { aiChangeProposalsTable, db } from "@workspace/db";
 import {
   requireProjectAccess,
@@ -15,10 +16,15 @@ import {
 import {
   runRegisteredStrategyReplayCase,
   StrategyReplayCaseBusyError,
+  StrategyReplayCaseRetryNotEligibleError,
 } from "../../lib/agent-state/strategy-replay-case-runner.js";
 import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service.js";
 
 const router = Router();
+const StrategyReplayRunRequestSchema = z.object({
+  // Reuse a stable UUID to make a distinct retry idempotent; omit it to read or recover the current attempt.
+  newAttemptRequestId: z.string().uuid().optional(),
+});
 
 function requireRecipeAccess(req: Parameters<typeof requireProjectAccess>[0], res: Parameters<typeof requireProjectAccess>[1], next: Parameters<typeof requireProjectAccess>[2]) {
   const access = req.body?.recipeId === "runtime.start"
@@ -168,6 +174,13 @@ router.post(
     if (!project || !req.userId) {
       return res.status(500).json({ error: "Project context unavailable" });
     }
+    const request = StrategyReplayRunRequestSchema.safeParse(req.body ?? {});
+    if (!request.success) {
+      return res.status(400).json({
+        error: "Invalid Strategy Replay run request.",
+        code: "INVALID_STRATEGY_REPLAY_REQUEST",
+      });
+    }
     try {
       const result = await runRegisteredStrategyReplayCase({
         projectId: project.id,
@@ -175,10 +188,14 @@ router.post(
           ? req.params.caseRegistrationId
           : "",
         userId: req.userId,
+        ...(request.data.newAttemptRequestId
+          ? { newAttemptRequestId: request.data.newAttemptRequestId }
+          : {}),
       });
       return res.status(result.status === "proven" ? 200 : 409).json({
         status: result.status,
         recovered: result.recovered,
+        attemptNumber: result.receipt.attemptNumber ?? 1,
         receipt: result.receipt,
       });
     } catch (error) {
@@ -187,6 +204,13 @@ router.post(
           error: "Strategy Replay case is already running.",
           code: "STRATEGY_REPLAY_IN_PROGRESS",
           retryable: true,
+        });
+      }
+      if (error instanceof StrategyReplayCaseRetryNotEligibleError) {
+        return res.status(409).json({
+          error: "A new attempt requires a current, verified incomplete replay receipt.",
+          code: "STRATEGY_REPLAY_RETRY_NOT_ELIGIBLE",
+          retryable: false,
         });
       }
       return res.status(409).json({

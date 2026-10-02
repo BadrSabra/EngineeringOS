@@ -38,6 +38,7 @@ describe("stored Strategy Replay receipt identity", () => {
     id: runId,
     projectId: definition.projectId,
     caseRegistrationId,
+    attemptNumber: 1,
     candidateId: definition.candidateId,
     sourceEpisodeId: definition.sourceEpisodeId,
     operationId,
@@ -56,6 +57,7 @@ describe("stored Strategy Replay receipt identity", () => {
     schemaVersion: 1,
     runId,
     operationId,
+    attemptNumber: 1,
     status: "proven",
     incompleteReason: null,
     partition: "held_out",
@@ -84,8 +86,14 @@ describe("stored Strategy Replay receipt identity", () => {
     expect(matchesStoredReplayReceiptIdentity(receipt, snapshot)).toBe(true);
   });
 
+  it("keeps legacy first-attempt receipts readable without rewriting them", () => {
+    const { attemptNumber: _attemptNumber, ...legacyReceipt } = receipt;
+    expect(matchesStoredReplayReceiptIdentity(legacyReceipt, snapshot)).toBe(true);
+  });
+
   it("rejects receipts with mismatched source or case identity fields", () => {
     const mismatchedReceipts: StrategyReplayCaseRunReceipt[] = [
+      { ...receipt, attemptNumber: 2 },
       { ...receipt, projectId: "project:other" },
       { ...receipt, caseRegistrationId: "registration:other" },
       { ...receipt, caseId: "case:other" },
@@ -102,6 +110,13 @@ describe("stored Strategy Replay receipt identity", () => {
     for (const mismatchedReceipt of mismatchedReceipts) {
       expect(matchesStoredReplayReceiptIdentity(mismatchedReceipt, snapshot)).toBe(false);
     }
+  });
+
+  it("rejects a receipt whose case-attempt identity differs from its durable row", () => {
+    expect(matchesStoredReplayReceiptIdentity(receipt, {
+      ...snapshot,
+      replayRun: { ...replayRun, attemptNumber: 2 },
+    })).toBe(false);
   });
 
   it("rejects a replay row whose durable project or candidate identity drifted", () => {

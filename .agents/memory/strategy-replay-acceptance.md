@@ -14,3 +14,9 @@ Candidate admission is also a Canonical Proof boundary: a matching proposal/oper
 **Why:** The candidate route can find a valid-looking acceptance and snapshot from an earlier attempt even when the execution has advanced; that older projection must not materialize a proof-carrying candidate.
 
 **How to apply:** Keep the canonical loader and acceptance-ID comparison before candidate creation. Test wrong-attempt acceptance/snapshot rows and assert the route rejects admission without mutating proposal evidence.
+
+A terminal `incomplete` Strategy Replay receipt is immutable. A new attempt requires a caller-supplied UUID and is admitted only after revalidating the stored incomplete receipt, current source Canonical Proof, clean source revision, project opt-in, and candidate identity/status. Proven attempts and live attempts cannot be retried; repeating the same UUID resolves to the same attempt.
+
+**Why:** Reusing or overwriting a terminal receipt would erase failure history, while retrying against stale proof, changed source, revoked consent, or a stale candidate could misattribute a result.
+
+**How to apply:** Append a distinct case-attempt row, bind the request UUID to its operation identity, and bind the new run ID and attempt number into schema-v2 receipts and replay scope. Keep legacy schema-v1 first-attempt receipts readable. Isolated storage tests can prove lease fencing and append-only retry persistence, but they do not replace positive runner coverage while the recipe proof producer remains unavailable.

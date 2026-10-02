@@ -4021,6 +4021,28 @@ G9 Revocation Safety
 - **remaining/blocker:** الصف `running` التاريخي لم يُعالج فعليًا بعد، والبيئة لا تملك اختبار قاعدة بيانات معزولًا مثبتًا. التشغيلات الأربع `incomplete` تبقى نهائية حتى يظهر تصميم محاولة جديدة مستقل يحفظ السجل السابق.
 - **next step:** بعد توفير قاعدة اختبار معزولة، اختبر claim/heartbeat/terminal fencing على صفوف مولدة؛ ثم قرر إن كان يلزم مسار محاولة جديدة صريحة للـreceipts النهائية.
 
+### 2026-10-03 — محاولات جديدة صريحة ومثبتة لـStrategy Replay
+
+- **phase/step:** Strategy Replay — اختبار lease ثم إضافة إعادة محاولة append-only لـreceipt نهائي `incomplete`.
+- **status:** `implemented; lease and persistence verified in isolation; positive proof-producing runner path remains unverified`
+- **what changed:** أُضيف `attempt_number` افتراضيًا إلى 1 وفهرس فريد على (case, attempt). يتطلب إنشاء محاولة جديدة UUID صريحًا يعيد الهوية نفسها عند التكرار، ولا ينشئها إلا بعد التحقق من receipt `incomplete` الحالي، وCanonical Proof المصدر، ونظافة revision، وموافقة المشروع، وهوية candidate وحالته. تحمل receipts الجديدة schema v2 وهوية المحاولة في receipt ونطاق replay؛ وتظل receipts v1 للمحاولة الأولى قابلة للقراءة دون تعديل.
+- **files/schema/contracts touched:** مخطط وجدول Strategy Replay runs، تخزين lease/attempt، runner، route، اختبارات التخزين والهوية، وسجل التقدم وذاكرة قبول replay. لا تغيير لصفوف التطوير أو الإنتاج.
+- **validation:** API typecheck؛ اختبارات DB schema 18/18؛ اختبارات receipt identity 5/5؛ اختبار PostgreSQL معزول 4/4 بعد فحص قاعدة البيانات والعنوان والمنفذ؛ و`schema:apply` على قاعدة محلية فارغة نجح؛ `git diff --check`. لم يُشغّل تدفق recipe الإيجابي لأن `runtime.start` الحالي لا ينتج Canonical Proof صالحًا، وتبقى تلك الاختبارات خلف بوابة المصدر. تجربة ترقية محلية بصف اصطناعي غير مرتبط فشلت عند إعادة إنشاء FK؛ لم تُكتب إلى قاعدة مشتركة ولم تثبت ترقية قاعدة قديمة.
+- **authority/safety impact:** لا retry تلقائي ولا إعادة كتابة لأي receipt نهائي. يلزم UUID جديد لكل محاولة؛ لا تُعاد محاولة `proven` أو تشغيل حي؛ ويبقى كل تشغيل محكومًا بـCanonical Proof الحالي وبصلاحية كتابة المشروع.
+- **remaining/blocker:** إثبات runner الإيجابي end-to-end يظل محجوبًا بغياب producer صالح لـCanonical Proof على `runtime.start`. لم تُطبّق schema على قاعدة التطوير؛ تمر تغييراتها عبر dev-side schema flow المعتمد عند دمج المهمة، ولا كتابة مباشرة إلى الإنتاج.
+- **next step:** بعد توفير producer صالح، اختبر إنشاء المحاولة وإعادة الطلب/recovery كاملة على قاعدة مؤقتة؛ واترك تحديث schema المشتركة لمسار الدمج/النشر المعتمد.
+
+### 2026-10-03 — تصحيح: تطبيق مخطط التطوير عبر المسار المعتمد
+
+- **phase/step:** استكمال dev-side schema setup بعد كشف بوابة startup عن المخطط القديم.
+- **status:** `done — configured post-merge setup succeeded`
+- **what changed:** شُغّل `scripts/post-merge.sh` عبر مسار post-merge المهيأ؛ طبّق Drizzle تغييرات schema في قاعدة التطوير، ثم أُعيدت مصالحة workflows. لم تُجرَ كتابة DDL مباشرة.
+- **files/schema/contracts touched:** مخطط `ai_strategy_replay_case_runs` في التطوير؛ أُضيف `attempt_number` و`uq_ai_strategy_replay_case_runs_case_attempt`. لا تغيير في الإنتاج.
+- **validation:** نجح post-merge setup خلال 8.8 ثانية؛ سجل API لا يعرض `DATABASE SCHEMA CHECK FAILED` ويؤكد `Server listening` على 8080؛ API وdashboard وmockup workflows تعمل.
+- **authority/safety impact:** التغيير dev-only وإضافي؛ لا retry أو proof تلقائي، ولم تُشغّل اختبارات كتابة على قاعدة التطوير. تُترك schema الإنتاج لمسار Publish.
+- **remaining/blocker:** مسار replay الإيجابي end-to-end ما زال ينتظر Canonical Proof producer صالحًا لـ`runtime.start`.
+- **next step:** لا تنفيذ نشر هنا؛ استخدم Publish لتطبيق schema الإنتاج عند اعتماد الإصدار، وأعد اختبار runner كاملًا بعد إصلاح proof producer.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

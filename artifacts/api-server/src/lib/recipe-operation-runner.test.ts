@@ -2526,6 +2526,54 @@ describe("recipe operation preparation", () => {
         .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id)))
         .toHaveLength(1);
 
+      const retryRequestId = crypto.randomUUID();
+      const retryResult = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: registeredReplayCase!.id,
+        userId,
+        newAttemptRequestId: retryRequestId,
+      });
+      expect(retryResult.receipt.attemptNumber).toBe(2);
+      const attemptsAfterRetry = await db.select().from(aiStrategyReplayCaseRunsTable)
+        .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id));
+      const orderedAttempts = [...attemptsAfterRetry]
+        .sort((left, right) => left.attemptNumber - right.attemptNumber);
+      expect(orderedAttempts).toHaveLength(2);
+      expect(orderedAttempts[0]?.receipt).toEqual(replayResult.receipt === orderedAttempts[0]?.receipt
+        ? replayResult.receipt
+        : runsAfterReplay[0]?.receipt);
+      expect(orderedAttempts[0]?.status).toBe("incomplete");
+      expect(orderedAttempts[1]).toMatchObject({
+        attemptNumber: 2,
+        status: retryResult.status,
+        operationId: retryResult.receipt.operationId,
+      });
+      expect(orderedAttempts[1]?.id).not.toBe(orderedAttempts[0]?.id);
+      const retryEpisodesBeforeReplay = await db.select({ id: aiAgentEpisodesTable.id })
+        .from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
+      const retryExecutionsBeforeReplay = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      const duplicateRetry = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: registeredReplayCase!.id,
+        userId,
+        newAttemptRequestId: retryRequestId,
+      });
+      expect(duplicateRetry).toEqual({
+        status: retryResult.status,
+        receipt: retryResult.receipt,
+        recovered: true,
+      });
+      expect(await db.select().from(aiStrategyReplayCaseRunsTable)
+        .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id)))
+        .toHaveLength(2);
+      expect(await db.select({ id: aiAgentEpisodesTable.id }).from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, projectId)))
+        .toHaveLength(retryEpisodesBeforeReplay.length);
+      expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId)))
+        .toHaveLength(retryExecutionsBeforeReplay.length);
+
       await expect(runRegisteredStrategyReplayCase({
         projectId: crypto.randomUUID(),
         caseRegistrationId: registeredReplayCase!.id,

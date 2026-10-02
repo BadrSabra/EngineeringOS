@@ -89,6 +89,9 @@ function completeSnapshot() {
     if (tableName === "projects" && columnName === "strategy_replay_opt_in") {
       return "false";
     }
+    if (tableName === "ai_strategy_replay_case_runs" && columnName === "attempt_number") {
+      return "1";
+    }
     if (tableName === "ai_strategy_replay_case_runs" && columnName === "status") {
       return null;
     }
