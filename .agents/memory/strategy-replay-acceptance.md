@@ -3,11 +3,11 @@ name: Strategy replay acceptance boundary
 description: Keep replay acceptance and replay Canonical Proof as separate, ordered checks.
 ---
 
-Registered strategy replay should complete through the existing server-owned recipe acceptance path, then materialize and revalidate a distinct Canonical Proof for the replay. Stop the isolated runtime before confirming the accepted workspace tree is unchanged.
+Registered Strategy Replay admission requires Canonical Proof bound to the current source or replay execution and attempt. `runtime.start` can complete Gate C operationally—direct observations, an `OBSERVED` effect bundle, a materialized transition, and `SUCCEEDED` acceptance—while acceptance still has `evidenceRequired=0`, `evidenceComplete=1`, and no evidence snapshot. The episode remains `verifying`; this is not Canonical Proof and must not admit the episode as a replay source.
 
-**Why:** Enabling the generic proof-required request flag on a recipe without a task objective routes completion through objective validation and can reject a successful observed effect. The replay still needs a Canonical Proof, but it can be built after normal recipe acceptance.
+**Why:** The generic proof-required completion path expects an `AutonomousOperationContract`, which a recipe-bound checkpoint does not carry. Forcing `proofRequired` on `runtime.start` blocks the operation rather than producing valid proof. Operational success, receipts, observations, effects, and transitions cannot substitute for the missing acceptance contract.
 
-**How to apply:** Preserve the runtime recipe's normal acceptance contract. Bind the replay's separate proof to its own execution, attempt, episode, acceptance, effect bundle, and workspace hash; do not treat provider or source-case proof as replay proof.
+**How to apply:** Preserve Gate C's existing operational acceptance. Before using `runtime.start` as a replay source or replay, design a distinct server-owned recipe proof contract that validates durable Gate C evidence and binds it to the current execution, attempt, episode, acceptance, effect bundle, and workspace identity. Until then, keep proof materialization fail-closed. Recovery of a stored `proven` receipt remains unverified without a genuine proof-producing fixture. Stop the isolated runtime before confirming the accepted workspace tree is unchanged.
 
 Candidate admission is also a Canonical Proof boundary: a matching proposal/operation acceptance selected by a broad query must still match the execution's current attempt through `loadCanonicalProof`.
 

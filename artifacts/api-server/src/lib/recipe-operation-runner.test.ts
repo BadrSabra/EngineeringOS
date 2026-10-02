@@ -1549,7 +1549,7 @@ describe("recipe operation preparation", () => {
     },
   );
 
-  it("classifies a verified runtime after-state before successful acceptance", async () => {
+  it("does not promote a verified runtime transition to Canonical Proof", async () => {
     const projectId = crypto.randomUUID();
     const operationId = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
@@ -1668,12 +1668,25 @@ describe("recipe operation preparation", () => {
         status: "observed",
       });
       const [acceptance] = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
         effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
       }).from(aiExecutionAcceptancesTable).where(and(
         eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.attempt, 0),
         eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
       )).limit(1);
-      expect(acceptance?.effectBundleId).toBe(bundle?.id);
+      expect(acceptance).toMatchObject({
+        effectBundleId: bundle?.id,
+        sourceRevision,
+        operationId,
+      });
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));
       const directObservations = observations.filter((row) => row.provenance === "DIRECT_OBSERVATION");
@@ -1784,14 +1797,55 @@ describe("recipe operation preparation", () => {
       const [episode] = await db.select().from(aiAgentEpisodesTable)
         .where(eq(aiAgentEpisodesTable.executionId, executionId))
         .limit(1);
+      const proofBinding = await materializeStrategyReplayCaseProofBinding({
+        projectId,
+        episodeId: episode!.id,
+      });
+      const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: result.executionId,
+        goalStatus: "completed",
+        scope: {
+          projectId,
+          executionId: result.executionId,
+          operationId,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: acceptance?.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
+          sourceRevision,
+          candidateIdentity: acceptance?.candidateIdentity ?? null,
+        },
+        attempt: acceptance?.attempt ?? 0,
+      }));
+      if (proofBinding.status !== "verified") {
+        expect(acceptance).toMatchObject({
+          evidenceRequired: 0,
+          evidenceComplete: 1,
+          evidenceSnapshotId: null,
+        });
+        expect(episode).toMatchObject({
+          state: "verifying",
+          verdict: null,
+          reasonCode: null,
+        });
+        expect(proofBinding).toEqual({
+          status: "not_eligible",
+          reason: "episode_not_accepted",
+        });
+        expect(canonicalProof.accepted).toBe(false);
+        return;
+      }
+      expect(acceptance).toMatchObject({
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+      });
+      expect(canonicalProof.accepted).toBe(true);
       expect(episode).toMatchObject({
         state: "completed",
         verdict: "achieved",
         reasonCode: "CANONICAL_PROOF_PROVEN",
-      });
-      const proofBinding = await materializeStrategyReplayCaseProofBinding({
-        projectId,
-        episodeId: episode!.id,
       });
       expect(proofBinding.status).toBe("verified");
       if (proofBinding.status === "verified") {
