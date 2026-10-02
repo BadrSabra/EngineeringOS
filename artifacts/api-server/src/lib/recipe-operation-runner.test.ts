@@ -27,6 +27,7 @@ import {
   checkpointAiExecution,
   claimAiExecution,
   createAiExecution,
+  parseAiExecutionCheckpoint,
   reconcileAiExecutions,
   requestAiExecutionCancel,
   type AiExecutionNodeCheckpoint,
@@ -159,6 +160,7 @@ vi.mock("./ai-repair-validation.js", async () => {
 
 async function createReclaimedRecipeFixture(options: {
   includePassedEvidence?: boolean;
+  proofRequired?: boolean;
   mutateCheckpointNode?: (
     nodeId: string,
     index: number,
@@ -186,6 +188,7 @@ async function createReclaimedRecipeFixture(options: {
     approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
     candidateIdentity: "recovery-candidate",
     candidateWorkspace,
+    ...(options.proofRequired ? { proofRequired: true } : {}),
   } as const;
   const prepared = prepareRecipeOperation(params);
   let executionId: string | undefined;
@@ -229,6 +232,7 @@ async function createReclaimedRecipeFixture(options: {
         modelMessage: `recipe:${operationId}`,
         workspaceRevision: sourceRevision,
         validationTargetPaths: [...params.approvedPaths],
+        ...(params.proofRequired ? { proofRequired: true } : {}),
       },
       idempotencyKey: params.idempotencyKey,
       projectId,
@@ -236,6 +240,12 @@ async function createReclaimedRecipeFixture(options: {
       recipeBinding: prepared.binding,
     });
     executionId = created.execution.id;
+    const checkpointOperation = options.proofRequired
+      ? parseAiExecutionCheckpoint(created.execution.checkpoint)?.operation
+      : undefined;
+    if (options.proofRequired && !checkpointOperation) {
+      throw new Error("proof-required recipe fixture has no durable operation contract");
+    }
     const workerA = "recipe-runner-recovery-worker-a";
     const firstClaim = await claimAiExecution({
       executionId,
@@ -273,6 +283,7 @@ async function createReclaimedRecipeFixture(options: {
       checkpoint: {
         stage: "tool_loop",
         sequence: 2,
+        ...(checkpointOperation ? { operation: checkpointOperation } : {}),
         nodeStates: checkpointNodes,
         completedNodes: [prepared.plan.nodes[0]!.id],
         recipeBinding: firstBinding,
@@ -1513,6 +1524,66 @@ describe("recipe operation preparation", () => {
         ))
         .limit(1);
       expect(acceptance?.effectBundleId).toBe(bundle?.id);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("fails closed when candidate validation evidence uses execution ID instead of operation ID", async () => {
+    validationCalls.length = 0;
+    validationEvidenceContexts.length = 0;
+    const fixture = await createReclaimedRecipeFixture({ proofRequired: true });
+    try {
+      const result = await runRecipeOperation(fixture.params);
+      expect(result.status).toBe("blocked");
+      expect(result.executionId).toBe(fixture.executionId);
+      expect(result.receipt.status).toBe("cancelled");
+      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+      expect(validationEvidenceContexts[0]).toMatchObject({
+        operationId: fixture.executionId,
+        projectRevision: fixture.params.sourceRevision,
+        candidateHash: fixture.params.candidateIdentity,
+        environmentProfile: { id: "candidate-validation" },
+      });
+      expect(fixture.executionId).not.toBe(fixture.params.operationId);
+
+      const [execution] = await db.select({
+        attempt: aiExecutionsTable.attempt,
+        request: aiExecutionsTable.request,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      if (!execution) throw new Error("candidate validation execution was not persisted");
+      expect(JSON.parse(execution.request).proofRequired).toBe(true);
+      expect(JSON.parse(execution.request).operationId).toBe(fixture.params.operationId);
+
+      const successfulAcceptances = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+      })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ));
+      expect(successfulAcceptances).toHaveLength(0);
+
+      const proof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: fixture.executionId,
+        scope: {
+          projectId: fixture.params.projectId,
+          executionId: fixture.executionId,
+          operationId: fixture.params.operationId,
+          sourceRevisionBinding: "execution",
+          sourceRevision: fixture.params.sourceRevision,
+          candidateIdentityBinding: "required",
+          candidateIdentity: fixture.params.candidateIdentity,
+        },
+        goalStatus: "completed",
+      }));
+      expect(proof.accepted).toBe(false);
+      expect(proof.verdict).not.toBe("PROVEN");
     } finally {
       await fixture.cleanup();
     }
