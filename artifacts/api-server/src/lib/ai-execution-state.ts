@@ -3094,15 +3094,12 @@ export async function completeAiExecution(params: {
       .filter((read) => read.complete && !read.truncated)
       .map((read) => `source-read:${read.path}`),
   ];
+  // Retained reads show which source bytes were observed; they do not establish
+  // that the requested objective was accepted. Only a verdict from the
+  // server-owned acceptance path may mark this execution PROVEN.
   const effectiveEvidenceVerdict = factInvestigationExecution
     ? "NOT_RECORDED" as const
-    : (
-    params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
-      ? params.evidenceVerdict
-      : !forensicExecution && params.evidenceReads?.some((read) => read.complete && !read.truncated)
-        ? "PROVEN" as const
-        : params.evidenceVerdict
-    );
+    : params.evidenceVerdict;
   let acceptedClaimRefs: string[] = [];
   if (requiresProof) {
     if (taskObjective && !pendingProposal) {

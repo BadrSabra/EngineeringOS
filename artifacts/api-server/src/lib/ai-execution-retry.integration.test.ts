@@ -17,6 +17,7 @@ import {
   checkpointAiExecution,
   completeAiExecution,
   createAiExecution,
+  createAutonomousOperationContract,
   createRecipeOperationBinding,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
@@ -662,6 +663,131 @@ describe("durable conversational retry authorization", () => {
       })).resolves.toBe(false);
     } finally {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+});
+
+describe("canonical completion evidence", () => {
+  it("does not accept a proof-required operation from complete reads alone", async () => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const userId = "read-only-proof-user";
+    const workerId = "read-only-proof-worker";
+    const workspaceRevision = new Date().toISOString();
+    const workspaceRoot = `/tmp/read-only-proof-${projectId}`;
+    let executionId: string | undefined;
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `read-only-proof-${projectId.slice(0, 8)}`,
+      rootPath: workspaceRoot,
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Read-only proof boundary test",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    try {
+      const created = await createAiExecution({
+        userId,
+        request: {
+          projectId,
+          sessionId,
+          message: "Inspect the source file",
+          modelMessage: "Inspect the source file",
+          workspaceRevision,
+          workspaceRoot,
+          proofRequired: true,
+          validationTargetPaths: ["src/example.ts"],
+        },
+        idempotencyKey: `${projectId}:read-only-proof`,
+        projectId,
+        sessionId,
+        workspaceRoot,
+      });
+      executionId = created.execution.id;
+
+      const claimed = await claimAiExecution({
+        executionId,
+        userId,
+        workerId,
+      });
+      expect(claimed).toMatchObject({ id: executionId, status: "running", workerId });
+
+      const operation = createAutonomousOperationContract({
+        operationId: created.execution.operationId ?? executionId,
+        objective: "Inspect the requested source file",
+        revisionManifest: workspaceRevision,
+        targetPaths: ["src/example.ts"],
+        expectedBehavior: "Return an accepted, revision-bound result.",
+        nodes: [{
+          id: "inspect-source",
+          kind: "inspect",
+          dependencies: [],
+          status: "passed",
+          attempts: 1,
+          validationAttempts: 0,
+          allowedFiles: ["src/example.ts"],
+          validationProfile: "read-only",
+          evidenceRefs: [],
+        }],
+      });
+      expect(await checkpointAiExecution({
+        executionId,
+        expectedAttempt: claimed!.attempt,
+        workerId,
+        checkpoint: {
+          stage: "finalizing",
+          sequence: 1,
+          operation,
+          updatedAt: new Date().toISOString(),
+        },
+      })).toBe(true);
+
+      const completed = await completeAiExecution({
+        executionId,
+        workerId,
+        operation,
+        evidenceReads: [{
+          path: "src/example.ts",
+          readType: "source",
+          body: "export const answer = 42;",
+          complete: true,
+          truncated: false,
+        }],
+      });
+
+      expect(completed).toBe(false);
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(execution?.status).toBe("running");
+      expect(JSON.parse(execution!.checkpoint).evidenceVerdict).not.toBe("PROVEN");
+
+      const acceptances = await db
+        .select({ outcome: aiExecutionAcceptancesTable.outcome })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptances).toEqual([]);
+    } finally {
+      if (executionId) {
+        await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      }
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
