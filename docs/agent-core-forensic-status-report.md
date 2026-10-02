@@ -16,7 +16,11 @@
   - `cd artifacts/api-server && pnpm exec vitest run src/routes/ai/missions.test.ts -t 'persists a server-owned skill candidate and performs read-only shadow replay'` — 1 ناجح و28 skipped؛ يتضمن استعادة receipt الإيجابية ورفض mismatch.
   - `cd artifacts/api-server && pnpm exec vitest run src/lib/task-execution-lifecycle.integration.test.ts -t 'records local task completion without completing the delivery Goal or Mission'` — 1 ناجح و16 skipped؛ يثبت فصل task/acceptance عن Goal/Mission.
   - `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` — نجاح.
-- لم تُشغّل اختبارات الحزم الأخرى أثناء هذا التدقيق، ولم يُشغّل مزود حي أو تحقق release/process-recovery؛ لا توجد هنا مطالبة بـ`PRODUCTION-PATH-VERIFIED`.
+- التحقق الحالي المعاد من جذر الحزم الصحيح: `cd lib/ai-orchestrator && pnpm exec vitest run src/__tests__/reliable-tool-agent-100.test.ts src/__tests__/tool-execution-engine.test.ts` — ملفان، **447/447** ناجحة.
+- التحقق الحالي: `cd artifacts/api-server && pnpm exec vitest run src/lib/ai-execution-acceptance.test.ts src/lib/proof-foundation.test.ts src/lib/agent-state/runtime-start-transition.test.ts src/lib/agent-state/world-state.test.ts src/lib/mission-world-state-planning-read.test.ts src/lib/mission-auto-replan.test.ts src/lib/mission-runtime-recipe.test.ts src/routes/ai/missions.test.ts --maxWorkers=1` — 8 ملفات، **109 ناجحة و4 فاشلة من 113**. الإخفاقات الأربعة في `mission-runtime-recipe.test.ts`: بقاء Goal على `verifying` بدل `completed` بعد رفض Canonical Proof بسبب `evidence_not_required_for_canonical_proof` و`acceptance_proof_not_proven`. لم تُعدّل runtime أو الاختبارات.
+- استدعاء Vitest أول من جذر monorepo التقط نسخًا مستوردة وتعارض fixtures؛ استُبعد من النتائج أعلاه ولم يُستخدم كتحقق صالح.
+- لقطة قاعدة **التطوير فقط** أثناء التدقيق: 156 execution، 246 acceptance، 6 Missions، 11 Goals، 202 Episode، 11 EffectBundle، 126 World Fact، و3 World Transition. حالات execution: 65 completed، 76 failed، 10 cancelled، 5 paused؛ حالات Mission: 1 active، 3 blocked، 1 completed، 1 waiting؛ حالات Goal: 1 cancelled، 2 completed، 3 needs_replan، 3 queued، 1 running، 1 verifying. انتقالان `materialized/fresh` وواحد `terminal_failed/unknown`؛ لا ينقصها EffectBundle، والانتقال الفاشل وحده له refs فارغة ونتيجة revision مفقودة. هذه أعداد صفوف لا تثبت صحة ربطها أو دلالة كل سجل.
+- لم يُشغّل مزود حي أو تحقق release/process-recovery، ولم تُستعلم قاعدة الإنتاج؛ لا توجد هنا مطالبة بـ`PRODUCTION-PATH-VERIFIED`.
 
 ## 2. Executive Verdict
 
@@ -48,6 +52,19 @@
 - بعض metadata يصرح بحدود `unspecified` أو runner-defined/delegated في `tool-operational-registry.ts:181-203,308-379`. وجود metadata لا يثبت أن runner مفوضًا يفرض timeout/cancellation/limits.
 - ربط كل استدعاء بـEpisode/execution/revision وتسجيل audit دائم لكل executor لم يثبت على جميع الأدوات: `PARTIAL / UNKNOWN`.
 
+#### Tool/path control matrix
+
+| Tool/path | Entry point + authorization | Bounds / cancellation | Audit + Episode | Scope semantics | Status |
+|---|---|---|---|---|---|
+| File read/write/replace | `executeSingleTool`; membership, arguments, mode, approval, and scope checks | Read/write sizes bounded by tool contracts; `safePath` performs lexical and realpath checks, including nearest existing ancestor for new files | dispatcher callbacks exist, but durable audit/Episode binding is not universal | writes stage pending candidate changes; they are not an immediate live-tree commit | `TESTED` dispatcher; end-to-end audit and race closure `PARTIAL` |
+| Git status/diff/log | same dispatcher and policy path | Git reads use `execFile`, 10-second timeout, 512 KiB output cap; per-call cancellation coverage is not established here | no universal durable audit/Episode proof | `git_diff` uses lexical containment; the reviewed path does not establish equivalent symlink canonicalization to `safePath` | `PARTIAL`; narrower path guarantee |
+| Bounded command / registered validation | dispatcher requires authorized execution mode and approved profile; server validation uses a fixed allowlist | `shell:false`, root/cwd containment, timeout, output cap, abort/process-group cleanup in the bounded kernel | callbacks can attach invocation records, but every executor is not proven to persist an Episode/audit row | chat command profile is server-derived from an approved implementation plan; `workspace-typecheck` is fixed in the inspected validation path | `TESTED` for bounded kernel/current callers; root-replacement/TOCTOU atomicity `UNKNOWN` |
+| Package/binary/delegated runner | dispatcher authorization remains in force | registry explicitly marks some limits `unspecified`, `runner_defined`, or `runner_delegated` | universal audit/Episode binding not proven | runner-specific scope and resource enforcement not established by metadata alone | `PARTIAL / UNKNOWN` |
+| Analysis/project-navigation tools | dispatcher and request intent; analysis runner receives request deadline | deadline enforcement is delegated to runner; not a common executor-level timeout proof | read-only invocation telemetry is allowlist-based; durable Episode linkage is not universal | source/evidence selection is request-scoped, but not every consumer binds the same revision | `PARTIAL` |
+| Server-internal repair validation | not a model-tool entry point; trusted API caller | bounded command kernel plus fixed `allowedCommands` | server validation records its own result; not a model Episode | fixed validation commands and profile allowlist | separate server-owned path, not a dispatcher bypass |
+
+`tool-operational-registry.ts` is operational metadata; `tool-policy.ts` and `authorizeToolInvocation` supply the authorization decision. They are two registries with different jobs, not evidence of two independent grants. The file path check is check-then-use rather than an atomic filesystem capability; git path handling is weaker on symlinks, and root replacement races are not closed by the current source audit.
+
 ### 4.3 Bypasses
 
 | المسار | الدليل | ما يتجاوزه | الحالة |
@@ -59,7 +76,7 @@
 
 ### 4.4 Tests
 
-ملفات تغطي policy، engine، file/Git، kernel، package/binary، analysis، وtool surface موجودة. شُغّل `reliable-tool-agent-100.test.ts -t 'canonical executor dispatcher boundary'`: **4/4** اختبارات ناجحة؛ وتشمل فحص الاستدعاءات الخام، غياب raw functions من package root، وحصر مستهلكي server-internal subpath في API callers المعتمدين. شُغّل كذلك `ai-repair-validation.test.ts`: **15/15**، مع Orchestrator وAPI typechecks ناجحين. هذا يغلق سطح الاستيراد الحالي في workspace، ولا يثبت الضمانات التشغيلية لكل executor.
+ملفات تغطي policy، engine، file/Git، kernel، package/binary، analysis، وtool surface موجودة. في التحقق الحالي شُغّل `reliable-tool-agent-100.test.ts` و`tool-execution-engine.test.ts` من `lib/ai-orchestrator`: **447/447** ناجحة. وتوجد نتائج مسجلة سابقًا: اختبار dispatcher boundary **4/4** و`ai-repair-validation.test.ts` **15/15**، مع Orchestrator وAPI typechecks. هذا يغطي المصدر/الاستيراد الحالي ولا يثبت الضمانات التشغيلية لكل executor.
 
 ### 4.5 100% Gate
 
@@ -85,6 +102,21 @@
 | workflow/recipe | `routes/workflows.ts`, `lib/workflow-phase-execution.ts`, `lib/recipe-operation-runner.ts` | إثبات مراحل محدود؛ ليس دليلًا على جميع mutation paths |
 | Mission/repair | `lib/mission-runtime.ts`, `lib/agent-state/mission-repair-effect.ts`, `mission-repair-tool-action-ledger.ts` | fences وAction/Episode موجودة لمسارات محددة؛ التقارب العام `PARTIAL` |
 | runtime/apply changes | `routes/runtime.ts`, `runtime-start-transition.ts`, `apply-change-reconciliation.ts`, `apply-change-effect.ts`, `routes/ai/chat.ts` | مسارات انتقال محددة قابلة للتتبع؛ لا تثبت universal lifecycle |
+| Git commit/push | `routes/git.ts` وGit delivery helpers | project write access؛ AI scoped commit يتطلب Apply proof/tree match على المسار المفحوص؛ ربط كل remote push بWorldTransition غير مثبت |
+
+#### Surface lifecycle and side-effect matrix
+
+| Surface | Durable identity / ownership | Side effect and observation | Acceptance / terminal boundary | Recovery and coverage |
+|---|---|---|---|---|
+| Chat read/project query | request/execution context exists on selected paths | retained source reads and claim validation; not a project mutation | some chat observation executions can be terminal `completed` without acceptance; projection reports `UNKNOWN` rather than success | chat lifecycle is not a common mutation lifecycle |
+| Task / structured task | task IDs and execution acceptance on covered paths | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | task verification does not itself accept Goal/Mission; structured path parity `UNKNOWN` |
+| Workflow phase | phase/lease state on covered paths | phase node statuses and operation state; substantive execution of every declared node is not established | final Goal completion uses Canonical Proof; phase-local `PROVEN` is not acceptance | prior integration evidence shows missing required evidence can fail acceptance; broad resume/crash parity `UNKNOWN` |
+| Recipe / Mission | durable execution, attempt, Episode, lease, plan revision on covered paths | recipe-specific runner may perform local or external action; runtime.start has direct process attestation | final Goal/Mission gates reload Canonical Proof; current recipe integration run has four completion failures and remains `verifying` | proof producer/recipe contract mismatch remains unresolved; no runtime repair in this audit |
+| `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; transition materializes World State | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding | implemented/tested on this route; source `Canonical Proof` production and all crash windows are not closed |
+| `apply-changes` | proposal, Goal/Mission, active plan revision, execution/attempt/Episode | candidate promotion plus fresh direct before/after tree observations and EffectBundle | acceptance and transition are separately gated; transition currently writes `changedFactRefs: []` | route/transition tests cover selected paths; changed-fact attribution and full response-loss recovery remain open |
+| Git commit/push | project write permission; AI commit additionally checks applied proposal/operation and promoted-tree identity | local commit and remote push are separate effects | inspected AI commit path blocks missing/stale Apply proof and unrelated tree changes; every push/receipt/transition relation was not established | external push reconciliation and World State linkage `UNKNOWN` |
+
+This is the known-surface matrix from the bounded source audit, not a claim that every mutation-capable entry point in every package has been found.
 
 ### 5.3 Crash Windows
 
@@ -128,14 +160,19 @@
 
 ### 6.2 All PROVEN Producers
 
-| Producer/المعنى | المصدر | الحكم |
-|---|---|---|
-| Execution proof projection | `execution-proof.ts:119-152` | يخرج `PROVEN` للنجاح المطلوب مع اكتمال evidence فقط؛ projection منفذ وليس سلطة إثبات مستقلة |
-| Canonical proof | `proof-foundation.ts:163-170,183-346,378-408`؛ loader عند `:450-545` | verifier خادمي يفحص durable execution/acceptance/evidence/plan/revision/scope/delivery للـpath المؤهل |
-| Workflow phase | `workflow-phase-execution.ts:34-71,155-196` | يمرر `evidenceVerdict:"PROVEN"` و`proofRequired:true` كإثبات مرحلة server-owned؛ لا يساوي وحده إكمال Goal/Mission. الإكمال النهائي يمر عبر `loadCanonicalProof` في `ai-execution-acceptance.ts:780-844` |
-| Task/recipe/Mission/apply/replay projections | `task-execution-service.ts`, `recipe-operation-runner.ts`, `mission-runtime.ts`, `routes/ai/chat.ts`, `shadow-replay.ts` | تظهر statuses باسم `PROVEN` بعقود محلية مختلفة؛ equivalence أو canonicality عبر كل consumers `UNKNOWN` |
+| Producer/المعنى | المصدر | الدلالة والحد | الاختبارات |
+|---|---|---|---|
+| Execution proof projection | `execution-proof.ts:119-152` | يبني projection من parameters؛ لا يعيد التحقق من provenance | acceptance tests شُغّلت حاليًا ونجحت؛ لم تُشغّل كل projection consumers |
+| Canonical proof | `proof-foundation.ts:163-170,183-346,378-408`؛ loader عند `:450-545` | مسار verifier canonical واحد يعيد تحميل ويربط durable execution/acceptance/evidence/plan/revision/scope/delivery للـpath المؤهل | `proof-foundation.test.ts` شُغّل حاليًا ونجح؛ cross-surface closure غير مثبت |
+| Workflow phase | `workflow-phase-execution.ts:34-71,155-196` | verdict محلي باسم `PROVEN` إلى انتقال phase/objective؛ لا يثبت proofRequired أو قبولًا durable. final Goal completion يمر عبر `loadCanonicalProof` | اختبار integration مسجل سابقًا فشل عند غياب required evidence؛ لم يُعد تشغيله الآن |
+| Objective/claim planning | `objective-claim-plan.ts`, `tool-execution-engine.ts:4440-4491`, chat claim/evidence reducers | قد تعني `PROVEN` اكتمال مسارات evidence المطلوبة في projection؛ لا تثبت وحدها الدلالة semantic للـclaim | توجد اختبارات objective/source revision؛ جرى فحص المصدر، ولم تُشغّل suite مخصصة الآن |
+| Evidence integrity / semantic trace / forensic finding | `evidence-integrity.ts`, `semantic-trace.ts`, `forensic-diagnostics.ts`, `chat-agent.ts` | claim, trace edge, production reachability, أو forensic finding verdict محلي؛ ليست كلها نتائج acceptance واحدة | اختبارات هذه المكونات لم تُشغّل في جولة التحقق الحالية |
+| Task Objective / task acceptance | `task-execution-service.ts`, `task-objective-contract.ts`, `ai-execution-acceptance.ts` | `PROVEN` أو `passed` محلي لعقد validator/task؛ لا يتحول إلى Goal/Mission Canonical Proof من دون loader وربط صريح | acceptance tests الحالية ناجحة؛ task-specific cross-surface coverage غير مثبت هنا |
+| Recipe/Mission/apply | `recipe-operation-runner.ts`, `mission-runtime.ts`, `routes/ai/chat.ts` | statuses محلية بعقود مختلفة؛ لا equivalence أو canonicality عالمية | recipe suite الحالية فيها 4 إخفاقات؛ ملفات API السبعة الأخرى في الأمر نفسه نجحت |
+| Shadow/strategy replay and candidate receipts | `shadow-replay.ts`, `strategy-replay-case-proof.ts`, `strategy-candidate-extractor.ts` | receipt/status لا يمنح proof؛ المستهلك يعيد تحميل Canonical Proof ويربط المحاولة/الهوية | `missions.test.ts` و`proof-foundation.test.ts` شُغّلا حاليًا ونجحا؛ جميع recovery variants لم تُغط |
+| Benchmark / quality projection | `benchmark/live-response-quality.ts`, `confidence-projection.ts` | جودة نموذج/حالة اختبار أو confidence projection؛ لا تمنح قبول تنفيذ | لم تُشغّل suites الخاصة بها في هذه الجولة |
 
-**عدد المنتجين العالمي الكلي:** `UNKNOWN`؛ لم يثبت اكتمال جرد كل assignments/defaults/serialization في الحزم والمسارات كلها. لا يجوز عد كل سلسلة `PROVEN` كإثبات من النوع نفسه.
+**العدد المثبت:** مسار إنتاجي واحد لـCanonical Proof الفردي (`composeCanonicalProof` مع `loadCanonicalProof`). `loadCanonicalDelegationProof` helper-only ولا يظهر له caller إنتاجي؛ لا أعدّه authority عاملة ثانية. **إجمالي كل مصادر/إسقاطات اللفظ `PROVEN`: `UNKNOWN`**؛ لم يثبت اكتمال جرد كل assignments/defaults/serialization في الحزم والمسارات كلها. لا يجوز عد كل سلسلة `PROVEN` كإثبات من النوع نفسه.
 
 ### 6.3 Canonical Authority
 
@@ -145,7 +182,7 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:274-2
 
 ### 6.4 Claim Closure
 
-`acceptedClaimRefs` لا يُحفظ إلا مع نجاح evidence المكتمل و`PROVEN` (`ai-execution-acceptance.ts:1926-1936`). توجد اختبارات objective/claim/source revision في `ai-execution-state.test.ts:236+`، لكن هذا لا يثبت إغلاق جميع claims في جميع APIs/reports/recipes. هل يمكن لـclaim واحد من N أن يرفع النتيجة العامة في كل الأسطح؟ `UNKNOWN` من الأدلة التي جرى تتبعها.
+`acceptedClaimRefs` لا يُحفظ إلا مع نجاح evidence المكتمل و`PROVEN` (`ai-execution-acceptance.ts:1926-1936`). في المقابل، `objective-claim-plan.ts` يستطيع إسقاط claim محليًا كـ`PROVEN` عندما تكون كل مساراته المطلوبة موجودة في retained-read map؛ هذا coverage signal، لا تحقق دلالي مستقل من محتوى claim. توجد اختبارات objective/claim/source revision في `ai-execution-state.test.ts:236+`، لكن لا يثبت ذلك إغلاق جميع claims في كل API/report/recipe. هل يستطيع claim واحد من N رفع النتيجة العامة خارج الـverifier؟ `UNKNOWN`.
 
 ### 6.5 False PROVEN Paths / Recheck of Prior Claims
 
@@ -154,8 +191,9 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:274-2
 | `chat-agent.ts` يستدعي file/Git executor مباشرة | `FALSE / OUTDATED` | يدخل عبر tool loop/scoped-read ثم dispatcher؛ exports منخفضة المستوى في مواضع أخرى تظل سطحًا منفصلًا |
 | complete read → `PROVEN` | `FALSE / OUTDATED` للمسار المفحوص | verdict المفقود يبقى `NOT_RECORDED`; اختبار acceptance يمنع الاستدلال من القراءة وحدها. لا تعميم على كل status غير canonical |
 | `execution-proof.ts` هو verifier | `FALSE / OUTDATED` | projection builder/parser؛ canonical verifier في `proof-foundation.ts` |
-| workflow phase يمرر `PROVEN` | `CONFIRMED` كـphase-local verdict | helper يمرر القيمة، لكن goal completion النهائي gated بالـCanonical Proof؛ لا يوجد test مخصص للتمييز في helper |
+| workflow phase يمرر `PROVEN` | `CONFIRMED` كـphase-local verdict فقط | القيمة لا تساوي `proofRequired=true` أو acceptance؛ integration evidence المسجل يبين فشل acceptance عند غياب required evidence، والـfinal Goal completion gated بالـCanonical Proof |
 | اختياري evidence يمكن أن يصبح canonical proof من legacy projection | `FALSE / OUTDATED` في المسار المفحوص | durable flag يحول legacy `PROVEN` إلى `NOT_REQUIRED`، canonical verifier وإغلاق Episode يرفضان flag=0 |
+| Mission recipe delivery يثبت إكمال Goal/Mission بنجاح | `NOT CONFIRMED في التحقق الحالي` | أربعة اختبارات تكامل في `mission-runtime-recipe.test.ts` توقفت عند Goal=`verifying`؛ loader رفض `evidenceRequired=0` وغياب proof. هل fixture قديم أم recipe producer ناقص غير محسوم |
 
 ### 6.6 100% Gate
 
@@ -165,7 +203,7 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:274-2
 
 ### 7.1 World State
 
-`world-state.ts:73-115,432-492` يوفر materialization وrevision وscoping facts. هذا يثبت storage/projection على المسارات المدروسة، لا أن World State هو مصدر القرار authoritative في كل planner.
+`world-state.ts:73-115,432-492` يوفر materialization وrevision وscoping facts؛ والـmaterializer ينشئ/يحدّث facts من observations موثوقة ويستعمل حالات مثل `believed` و`contradicted` و`superseded`. مسار القراءة التخطيطي يقيّد facts إلى project/episode/task scope ومراجعة المشروع والبيئة ومصادر observations كاملة وحديثة، ثم يحدّ النتيجة إلى ثمانية facts. لقطة التطوير احتوت 126 World Fact. هذا يثبت belief-like storage قائمًا على الملاحظة في حدود المسار، لا أن World State هو مصدر قرار authoritative عام أو نظام belief/learning مكتمل.
 
 ### 7.2 World Transitions
 
@@ -177,6 +215,7 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:274-2
 
 - `runtime-start-transition.ts:599-630` يستنتج `changedFactRefs` من materialized facts ذات `sourceObservationIds` المطابقة للـobservations المختارة.
 - `finalizeApplyChangesTransition` في الملف نفسه `:967-990` يmaterialize observations/revision ثم يكتب `changedFactRefs: []` عند `:975`. test `runtime-start-transition.test.ts:547-606` يثبت نجاح materialization ولا يفحص صحة `changedFactRefs`؛ لا يوجد إثبات أن empty مقصود أو صحيح. النتيجة `PARTIAL / UNKNOWN semantic intent`.
+- لقطة قاعدة التطوير: انتقالان `materialized/fresh` لم تكن refs فيهما فارغة، وانتقال واحد `terminal_failed/unknown` كانت refs فيه فارغة و`resultingWorldRevision` مفقودة. لا تسمح هذه العينة وحدها بتحديد نوع العملية أو تفسير سبب الفشل.
 
 ### 7.4 Accepted Effect → World State
 
@@ -191,9 +230,11 @@ runtime.start يربط effect bundle وملاحظات مستقلة بالtransit
 
 الحكم على الادعاء القديم أن planner integration advisory: `PARTIALLY CONFIRMED`؛ بعض السياق advisory، لكن توجد revision/effect gates وsuccessor gates أقوى على runtime.start/apply. **التغيير الفعلي للقرار/action عمومًا `UNKNOWN`.**
 
+في auto-replan، `buildMissionPlanPreview` يبني intent/plan أولًا من الرسالة والهدف، ثم يsanitize ويضيف `worldStatePlanningRead` إلى `replanContext`. بصمة القراءة تدخل هوية/revision الخطة في مسار replan، لكن لا يظهر في هذا المسار أن facts تُمرر إلى `buildGeneralTaskPlan` كمدخل يغيّر اختيار العقدة أو action؛ لذا freshness/revision binding موجود جزئيًا، وcausal decision change غير مثبت.
+
 ### 7.6 Belief Update
 
-لم يثبت وجود server-owned belief state عامة تحدّثها observations المقبولة وتستهلكها قرارات planner. hypothesis experiment/diagnosis/replan context موجودة كشرائح أو metadata؛ لا تساوي belief authority. الحكم: `UNKNOWN / ADVISORY`.
+يوجد server-owned World Fact store observation-backed، لكنه ليس belief updater عامًا: في الجرد المحدود لم يظهر writer مستقل لحالات `confirmed` أو `retracted` خارج materialization، وحقول hypothesis/replan تصف بعض النتائج صراحةً بأنها `unresolved_unvalidated_forecast`. لا يوجد دليل أن planner يستهلك تحديث belief عامًّا أو يحدّث درجة ثقة سببية. الحكم: primitive محدود `IMPLEMENTED`؛ belief authority العامة `UNKNOWN / ADVISORY`.
 
 ### 7.7 Replan vs Retry
 
@@ -237,6 +278,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | observation-only execution terminalization | `agent-episode-ledger.ts:1284-1318` | `finalizeExecutionAcceptance` / acceptance row | استثناء محدد وfenced؛ ليس acceptance، لكنه writer منفصل لحالة `completed` |
 | phase-local `PROVEN` | `workflow-phase-execution.ts:179-196` | لا يتجاوز final Goal verifier، لكنه يشارك القيمة اللفظية | assignment مؤكد؛ التمييز لا يملك test مخصصًا ظاهرًا |
 | apply delta refs الفارغة | `runtime-start-transition.ts:967-990` | اشتقاق changed-fact attribution | الكتابة `[]` مؤكدة؛ هل المقصود صحيح `UNKNOWN` |
+| Git path symlink handling | `git-tools.ts` مقارنة بـ`file-tools.ts:safePath` | يضعف realpath symlink containment المتاح في أدوات الملفات | لا يثبت تجاوز dispatcher؛ scope guarantee أضعف وrace behavior `UNKNOWN` |
 | استعادة الأثر الخارجي بعد W2–W4 | أسطح mutation المختلفة | observation/reconciliation المستقل | فجوة عامة confirmed؛ كل مسار بعينه `UNKNOWN` ما لم يثبت خلافه |
 
 ## 10. Authority Inventory
@@ -247,6 +289,9 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | execution acceptance | `finalizeExecutionAcceptance` للمسار المركزي | writer observation-only fenced خارجها؛ تقارب كل السطوح غير مثبت |
 | Canonical Proof | `composeCanonicalProof` / `loadCanonicalProof` في `proof-foundation.ts` | ليست كل status باسم `PROVEN` Canonical Proof |
 | World State | materializer وtransition-specific finalizers | apply delta attribution ناقص/غير محسوم، planner authority العامة غير مثبتة |
+| execution terminal status | `finalizeExecutionAcceptance` للمسار المقبول؛ `terminalizeP75MeasurementContinuationEpisode` يكتب `completed` observation-only | status terminal لا يساوي acceptance؛ terminal writers لكل السطوح غير مكتملين |
+| Goal/Mission completion | Goal writers المكتشفة تفحص Canonical Proof عند إنشاء completion؛ Mission PATCH يعيد فحص كل active Goal | auto-status sync وبعض dependency scheduling تستهلك statuses المخزنة؛ freshness/proof التاريخي للـdependency غير محسوم |
+| World Fact status | materialization من observations هو writer المثبت في الجرد المحدود | وجود enum لحالات أخرى لا يثبت وجود writer أو مسار تأكيد يدوي |
 
 ## 11. Test Coverage Matrix
 
@@ -254,11 +299,12 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | invariant | Unit | Integration/API | Cross-surface | Crash/race | E2E | الوضع |
 |---|---|---|---|---|---|---|
-| dispatcher policy/bounds | boundary test يشمل file/Git/command/package/binary؛ شُغّل 4/4 | ai-repair-validation 15/15؛ API/Orchestrator typechecks ناجحة | AST allowlist للـserver-internal callers ناجح | لا coverage لكل timeout/replay/runtime executor | غير مثبت هنا | `E1 IMPORT BOUNDARY PASS`; operational closure ما زالت جزئية |
+| dispatcher policy/bounds | boundary + engine suites شُغّلت من الحزمة: 447/447؛ سجل سابق 4/4 boundary | ai-repair-validation 15/15 سابقًا؛ typechecks مسجلة | AST allowlist للـserver-internal callers ناجح | لا coverage لكل timeout/replay/runtime executor أو root race | غير مثبت هنا | `E1 IMPORT BOUNDARY PASS`; operational closure ما زالت جزئية |
 | durable execution/acceptance | موجودة | `ai-execution-retry.integration.test.ts`, acceptance suites؛ 39 اختبارًا شُغّلت | مجموعة surfaces كاملة غير مثبتة | بعض lease/recovery tests موجودة؛ W0-W9 جميعها غير مغطاة | لا إثبات شامل | `INTEGRATION-TESTED` لمسارات محددة |
 | optional evidence/Canonical Proof | `ai-execution-acceptance.test.ts`, `proof-foundation.test.ts`؛ شُغّلت ضمن 39 | D2 duplicate legacy test ناجح | global producer/consumer map غير مكتمل | resume tests موجودة؛ لا تعميم | لا | `TESTED / INTEGRATION-TESTED` محدود |
-| runtime World transition | unit/integration test code موجود | runtime-start transition suites | apply/runtime غير موحدين في decision proof | بعض stale/retry/rollback | لا planner-decision E2E مثبت | `TESTED` coverage؛ لم تشغل هذه suites في التدقيق |
-| apply World Delta/planner change | tests تثبت materialization لا changed refs | Mission D2 route موجود | لا تغيير قرار مثبت | لا crash delta proof | لا | `PARTIAL / UNKNOWN` |
+| runtime World transition | suite الحالية شُغّلت ضمن API: transition/materialization tests ناجحة | runtime-start transition tests موجودة | apply/runtime غير موحدين في decision proof | بعض stale/retry/rollback؛ لا كل W0-W9 | لا planner-decision E2E مثبت | `TESTED` لمسارات محددة |
+| recipe/Mission canonical completion | recipe suite الحالية: 4 failed، Goal بقي verifying | 7/8 ملفات API الأخرى ناجحة؛ 109/113 إجمالًا | لا positive completion proof لسيناريوهات الإخفاق الحالية | crash/recovery variants لا تُغلق عبر هذه الجولة | لا | `FAIL / CONTRACT OR FIXTURE MISMATCH UNKNOWN` |
+| apply World Delta/planner change | tests تثبت materialization لا معنى changed refs | Mission D2 route موجود | لا تغيير قرار مثبت | لا crash delta proof | لا | `PARTIAL / UNKNOWN` |
 | provider/live/release | — | لم يشغل | — | full process recovery لم يشغل | dashboard journey لم يشغل | `UNKNOWN` |
 
 ## 12. False Confidence Risks
@@ -270,6 +316,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 - `runtime.start` transition صحيح على مساره لا يغلق World Agent؛ apply transition يكتب changed refs فارغة ولا يوجد planner decision-change proof.
 - وجود retry/replan/replay primitive لا يثبت recovery للأثر الفيزيائي أو learning.
 - test موجود لا يساوي اختبارًا ناجحًا حاليًا ولا cross-surface closure.
+- نجاح أداة/receipt لا يكفي لإكمال Recipe/Mission: في الاختبارات الحالية loader رفض proof غير المطلوب/الغائب، وبقيت Goal في `verifying`.
 - سجل تقدم أو plan سابق ليس دليلًا على code behavior؛ وصف phase لا يعلو على التنفيذ الحالي.
 
 ## 13. Critical Blockers
@@ -281,6 +328,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | P1 | apply `changedFactRefs: []` مع intent/semantic test غير مثبت | World Delta وسبب التغيير غير موثقين على مسار apply |
 | P2 | أثر خارجي أثناء/بعد التنفيذ وقبل durable observation يبقى uncertain؛ لا crash test شامل لكل نافذة | فُرض fail-closed على marker `started` للأدوات المحظور replay لها في Mission tool-loop فقط؛ بقية الأسطح لا تزال بلا reconciliation شامل، وretry/recovery لا يستطيع إثبات الحالة الفيزيائية من DB وحدها |
 | P2 | لا إثبات أن World State الجديدة تغيّر قرار planner أو action عمومًا، ولا belief/evaluation عام | حلقة Action→World→Decision غير مغلقة |
+| P2 | أربعة اختبارات recipe integration حالية لا تصل إلى Goal completion | loader يرفض acceptance بلا evidenceRequired/snapshot صحيح؛ لا يُعرف بعد هل العقد أو fixtures هي الناقصة، لكن الإغلاق الإيجابي غير مثبت |
 | P3 | تحقق release/process-recovery غير منفذ في بيئة ثبت أنها disposable | لا يجوز تحويل التحقق التاريخي أو غيابه إلى نجاح حالي |
 
 لم يثبت هذا التدقيق blocker مصنفًا P0 على مسار محدد؛ هذا ليس إثباتًا لغياب مخاطر أخرى.
@@ -302,7 +350,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 **E3 Goal acceptance / Task Objective boundary (2026-10-02):** الإسقاط الأولي لـGoal acceptance يحسب `verdict` من `evidenceComplete`، لكن مسار linked-task يعيد تحميل Canonical Proof من execution/acceptance/evidence الحالية ثم يستبدل verdict وقرار حالة Goal بنتيجة ذلك الفحص؛ ومسار Mission completion المباشر يطبق gate Canonical Proof أيضًا قبل `completed`. لذلك `evidenceRequired=0` أو Task Objective receipt وحدهما لا يرفعان Goal إلى Canonical `PROVEN`. لم يظهر استهلاك Task Objective داخل `loadCanonicalProof`؛ status والـvalidator receipts بوابة مستقلة. مرّرا المساران الحاليان اللذان يحملان Task Objective status صريحًا، وجُعل غياب status في finalizer ينتج `INCOMPLETE` بدل استنتاج `PROVEN` من نجاح التنفيذ. هذا hardening لحد محلي، وليس إغلاقًا لـE3.
 
-**E3 Mission terminal-status consumer boundary (2026-10-02):** `syncRecipeObjectiveState` لا يقبل completion جديدًا بلا execution: عند غيابه يحول Goal إلى `verifying` مع `canonical_proof_missing_execution`، وعند رفض loader يفعل الشيء نفسه؛ و`syncLinkedObjectiveState` يحمّل Proof للـGoal الحالي قبل جعله `completed`، كما أن final workflow phase يفعل ذلك، بينما المرحلة الوسيطة لا تغيّر Goal status. لكن مزامنة Recipe وTask وworkflow تحسب `Mission.status` تلقائيًا من statuses للـGoals الفعّالة فقط (`mission-runtime.ts:916-943`; `ai-execution-acceptance.ts:704-739,928-960`) ولا تستدعي `evaluateMissionCompletion`. هذا gate يُستدعى من Mission PATCH فقط في call sites الحالية، ويعيد تحميل Proof لكل active Goal (`missions.ts:1889-1896`; `mission-completion-gate.ts:199-260`). إذن الـGoal الذي أكمل للتو مُثبت، لكن الـGoals الفعّالة الأخرى تُستهلك كـstatuses مخزنة من دون aggregate Proof recheck. لا يوجد دليل على مسار عادي يكتب Goal جديدًا `completed` بلا Proof: كل writers المكتشفة لـGoal completion (Task، Recipe، apply-changes، final workflow، وGoal PATCH) تفحص Proof. لذلك هذه فجوة عقد/تغطية في freshness عند الإغلاق التلقائي للـMission، لا bypass مثبتًا. اختبار Recipe يثبت مسار الإغلاق الإيجابي مع proof للـGoal الذي اختُبر (`mission-runtime-recipe.test.ts:412-467`)، واختبار `deriveMissionStatusFromGoals` يختبر statuses فقط (`ai-execution-acceptance.test.ts:346-352`)، لا تعطل Proof لGoal فعّال آخر لحظة الإغلاق. كذلك `runMissionGoal` يعيد `status=completed` للـMission/Goal المخزن مسبقًا بعد فحوص ownership وplan revision وdelegation، من دون إعادة تحميل Proof الحالي؛ هذا إقرار بحالة terminal موجودة لا إنشاء Proof، لكنه قد يعرض صفًا تاريخيًا غير مثبت كنجاح عند إعادة الدخول. لم يظهر اختبار يعيد دخول هذه الحالة مع acceptance مفقود أو محاولة/مراجعة قديمة. تبقى E3 `PARTIAL`، ولا تغيير runtime قبل تحديد هل status المشتق يكفي أم يجب إعادة فحص Proof لكل Goal عند الإغلاق.
+**E3 Mission terminal-status consumer boundary (2026-10-02):** `syncRecipeObjectiveState` لا يقبل completion جديدًا بلا execution: عند غيابه يحول Goal إلى `verifying` مع `canonical_proof_missing_execution`، وعند رفض loader يفعل الشيء نفسه؛ و`syncLinkedObjectiveState` يحمّل Proof للـGoal الحالي قبل جعله `completed`، كما أن final workflow phase يفعل ذلك، بينما المرحلة الوسيطة لا تغيّر Goal status. لكن مزامنة Recipe وTask وworkflow تحسب `Mission.status` تلقائيًا من statuses للـGoals الفعّالة فقط (`mission-runtime.ts:916-943`; `ai-execution-acceptance.ts:704-739,928-960`) ولا تستدعي `evaluateMissionCompletion`. هذا gate يُستدعى من Mission PATCH فقط في call sites الحالية، ويعيد تحميل Proof لكل active Goal (`missions.ts:1889-1896`; `mission-completion-gate.ts:199-260`). إذن الـGoal الذي أكمل للتو مُثبت، لكن الـGoals الفعّالة الأخرى تُستهلك كـstatuses مخزنة من دون aggregate Proof recheck. لا يوجد دليل على مسار عادي يكتب Goal جديدًا `completed` بلا Proof: كل writers المكتشفة لـGoal completion (Task، Recipe، apply-changes، final workflow، وGoal PATCH) تفحص Proof. لذلك هذه فجوة عقد/تغطية في freshness عند الإغلاق التلقائي للـMission، لا bypass مثبتًا. **تصحيح نتيجة الاختبار:** إعادة تشغيل `mission-runtime-recipe.test.ts` ضمن suite الحالية أخفقت في 4 اختبارات من أصل 6، ومنها المسار السابق عند `:412-467`: Goal بقي `verifying` بعد رفض loader بسبب `evidence_not_required_for_canonical_proof` و`acceptance_proof_not_proven`. لذا لم يعد ذلك الاختبار دليلًا على إغلاق إيجابي حالي؛ هل الخلل في fixture/التوقع أم producer recipe غير مكتمل `UNKNOWN`. اختبار `deriveMissionStatusFromGoals` يختبر statuses فقط (`ai-execution-acceptance.test.ts:346-352`)، لا Proof لGoal فعّال آخر لحظة الإغلاق. كذلك `runMissionGoal` يعيد `status=completed` للـMission/Goal المخزن مسبقًا بعد فحوص ownership وplan revision وdelegation، من دون إعادة تحميل Proof الحالي؛ هذا إقرار بحالة terminal موجودة لا إنشاء Proof، لكنه قد يعرض صفًا تاريخيًا غير مثبت كنجاح عند إعادة الدخول. لم يظهر اختبار يعيد دخول هذه الحالة مع acceptance مفقود أو محاولة/مراجعة قديمة. تبقى E3 `PARTIAL`، ولا تغيير runtime قبل تحديد هل status المشتق يكفي أم يجب إعادة فحص Proof لكل Goal عند الإغلاق.
 
 **E3 Mission dependency Proof consumption (2026-10-02):** `loadGoalDependencyState` يقرأ dependency goal IDs/statuses فقط (`mission-runtime.ts:127-147`)، و`runMissionGoal` يرجع مبكرًا للـGoal المخزن `completed` قبل إعادة فحص Proof (`:1294-1302`) ويفك اعتماد Goal تابع حين تكون كل dependency statuses `completed` (`:1304-1343`). الوصولية مدعومة بمسار PATCH: `UpdateGoalBody` يقبل `dependsOnGoalIds` و`planRevision` (`missions.ts:449-463`)، والـhandler يمرر revision المقدمة إلى `setGoalDependencies` (`:3233-3240`)، التي تتحقق من وجود Goals في Mission/Project نفسيهما ومن self-edge والدورات ثم تحفظ الحافة على revision المقدمة (`:541-616`)، لكنها لا تفحص revision أو Proof للـdependency Goal. بوابة completion لا تعمل إذا ظل الـGoal الهدف غير مكتمل؛ فهي لا تُستدعى إلا عندما تكون حالته الناتجة `completed` (`:3221-3249`). وبما أن replan يحتفظ بالـGoals المكتملة من revision قديم كسجل تاريخي (`:782-795,852-872`)، يمكن ربط Goal مكتمل قديم بحافة revision أحدث ثم يفكه scheduler اعتمادًا على status وحده. يظل غير محسوم هل Proof التاريخي يفي بعقد dependency الجديدة؛ لا يُحمّل scheduler Proof ولا يثبت ارتباطه بالـrevision/attempt المطلوبة. هذا فجوة freshness في مستهلك Canonical Proof، وليس دليلًا على أن مسارات الكتابة العادية تستطيع إنشاء completion جديد بلا Proof: `syncRecipeObjectiveState` (`:817-861,891-900`) وapply-changes (`:1546-1590,1637-1645`) ما زالا proof-gated، وPATCH completion يعيد تقييم Proof، كما أن Mission completion gate يعيد تحميل Proof لكل Goal (`mission-completion-gate.ts:121-163,199+`). اختبار `missions.test.ts:663-698` يغطي إنشاء الحافة وفحص الدورة لا revision mismatch؛ والاختبار `:591-629` يهيئ predecessor مكتملًا بإسقاط acceptance اصطناعي لا بـCanonical Proof، بينما `:631-660` يثبت بقاء Goals القديمة بعد replan؛ هذه تختبر أجزاء من السلوك ولا تغطي تسلسل PATCH الكامل. اختبار apply success يثبت المسار الصحيح بقبول Proof (`mission-runtime-apply-changes.test.ts:437-495`)، وحالات invalid proof/stale plan تبقى waiting (`:497-603`). لا يوجد اختبار يجمع dependency من revision قديم مع edge جديدة وProof غير مطابق، ولا اختبار للـearly return على Goal مكتمل. لا تغيّر runtime قبل حسم عقد صلاحية proof التاريخي عند dependency release؛ E3 تظل `PARTIAL`.
 
