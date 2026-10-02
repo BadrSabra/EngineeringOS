@@ -14,6 +14,7 @@ import {
   executeTask,
   invalidateContextCache,
   PROVIDER_REGISTRY,
+  getDurableReplayBlockedToolNames,
   type AgentStep,
   type AgentLoopClaimState,
   type AgentLoopToolCall,
@@ -317,6 +318,7 @@ function failureReceipt(params: {
 export function classifyTaskExecutionFailure(params: {
   stage: string;
   cancelled: boolean;
+  error?: unknown;
 }): {
   code: string;
   failureClass: AiTaskFailureClass;
@@ -328,6 +330,14 @@ export function classifyTaskExecutionFailure(params: {
       code: "cancelled",
       failureClass: "internal",
       reasonCode: "EXECUTION_CANCELLED",
+      retryable: false,
+    };
+  }
+  if (params.error instanceof MissionToolOutcomeUncertainError) {
+    return {
+      code: "mission_tool_outcome_uncertain",
+      failureClass: "tool",
+      reasonCode: "MISSION_TOOL_OUTCOME_UNCERTAIN",
       retryable: false,
     };
   }
@@ -361,6 +371,13 @@ export function classifyTaskExecutionFailure(params: {
     reasonCode: "EXECUTION_FAILED",
     retryable: true,
   };
+}
+
+export class MissionToolOutcomeUncertainError extends Error {
+  constructor() {
+    super("mission_tool_outcome_uncertain");
+    this.name = "MissionToolOutcomeUncertainError";
+  }
 }
 
 function taskVerificationResult(params: {
@@ -1611,7 +1628,17 @@ async function executeMissionToolLoop(params: {
   const recoveryObservationGeneration = recoveryManifest
     ? `recovery-${randomUUID()}`
     : undefined;
-  let completedToolCalls = (params.resumeState?.completedToolCalls ?? []).filter((call) => {
+  const resumedToolCallMarkers = params.resumeState?.completedToolCalls ?? [];
+  if (params.isRecovery) {
+    const replayBlockedToolNames = new Set(getDurableReplayBlockedToolNames());
+    const uncertainStartedTool = resumedToolCallMarkers.some(
+      (call) => call.status === "started" && replayBlockedToolNames.has(call.tool),
+    );
+    if (uncertainStartedTool) {
+      throw new MissionToolOutcomeUncertainError();
+    }
+  }
+  let completedToolCalls = resumedToolCallMarkers.filter((call) => {
     if (call.tool !== "write_file" && call.tool !== "replace_text") return true;
     if (params.profile !== "mission_repair" || !resumedChanges.valid) return false;
     const path = normalizeMissionRelativePath(call.args.path);
@@ -3258,7 +3285,7 @@ export async function executeTaskLifecycle(params: {
   } catch (error) {
     const cancelled = executionAbortController.signal.aborted
       || (error instanceof Error && error.name === "AbortError");
-    const classification = classifyTaskExecutionFailure({ stage, cancelled });
+    const classification = classifyTaskExecutionFailure({ stage, cancelled, error });
     const failure = failureReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
       provider: executionProvider, attempt: executionAttempt,

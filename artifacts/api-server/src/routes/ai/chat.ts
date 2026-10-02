@@ -1071,11 +1071,11 @@ async function loadTerminalProjection(params: {
     || acceptance?.outcome === "FAILED"
     || acceptance?.outcome === "INTERRUPTED"
     ? acceptance.outcome
-    : status === "completed"
-      ? "SUCCEEDED"
-      : status === "cancelled"
-        ? "INTERRUPTED"
-        : "FAILED";
+    : status === "cancelled"
+      ? "INTERRUPTED"
+      : status === "failed"
+        ? "FAILED"
+        : "UNKNOWN";
   const disposition = acceptance?.disposition && typeof acceptance.disposition === "object"
     ? acceptance.disposition as Record<string, unknown>
     : undefined;
@@ -1109,9 +1109,11 @@ async function loadTerminalProjection(params: {
     reasonCode: acceptance?.reasonCode ?? (
       status === "cancelled"
         ? "EXECUTION_CANCELLED"
-        : status === "completed"
-          ? "ACCEPTED"
-          : "EXECUTION_FAILED"
+        : status === "failed"
+          ? "EXECUTION_FAILED"
+          : acceptance
+            ? null
+            : "ACCEPTANCE_MISSING"
     ),
     nextActionCode: acceptance?.nextActionCode ?? null,
     resumable: Boolean(acceptance?.resumable) || status === "paused",

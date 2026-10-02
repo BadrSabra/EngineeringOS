@@ -972,6 +972,56 @@ describe('AiChat authenticated generated mutations', () => {
     assertSafeRecovery();
   });
 
+  it('retains proof-required execution context for an unknown terminal outcome', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'BLOCKED',
+      evidenceReason: 'The execution has no recorded acceptance.',
+    } as never;
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: 'Execution ended without a recorded acceptance.',
+      outcome: null,
+      terminalProjection: {
+        executionId: 'unknown-terminal-execution',
+        sessionId: 'session-1',
+        attempt: 0,
+        messageId: null,
+        acceptanceId: null,
+        operationId: null,
+        correlationId: 'unknown-terminal-execution',
+        status: 'completed',
+        outcome: 'UNKNOWN',
+        reasonCode: 'ACCEPTANCE_MISSING',
+        nextActionCode: null,
+        resumable: false,
+      },
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'unknown-terminal-execution',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      operationMode: 'CHAT',
+      message: 'Inspect required source evidence',
+    }));
+
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const proofPanel = await screen.findByRole('region', { name: 'Agent execution proof' });
+    expect(screen.getByTestId('current-work-summary'))
+      .toHaveTextContent('Execution ended — proof not accepted');
+    expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
+
+    firstRender.unmount();
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    expect(await screen.findByRole('region', { name: 'Agent execution proof' }))
+      .toHaveTextContent('Proof verdict: BLOCKED');
+  });
+
   it('keeps a provider failure category and safe guidance from live SSE through reload', async () => {
     const unsafeDiagnostic = [
       'provider returned https://provider.example/v1/models',

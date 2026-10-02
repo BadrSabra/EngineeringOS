@@ -26,7 +26,7 @@
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.
-- [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
+- [Workflow phase ledger](workflow-phase-ledger.md) — phase-local status is bookkeeping, not Canonical Proof; real workflow work needs substantive bound evidence.
 - [Release pipeline hardening](release-pipeline-hardening.md) — nested checks reuse parent locks; stale locks are verified before waiting or reclamation.
 - [Controlled release validation](controlled-release-validation.md) — run real process recovery only against a disposable DB with isolated receipt output and explicit opt-in.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.

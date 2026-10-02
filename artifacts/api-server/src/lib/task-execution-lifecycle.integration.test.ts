@@ -1171,6 +1171,7 @@ describe("real durable task execution lifecycle", () => {
     }> = [];
     const resumedToolCallNames: string[] = [];
     let toolValidationRunnerCalls = 0;
+    let checkpointedExecutionId: string | undefined;
     let reloadedToolCalls: Array<{
       key: string;
       tool: string;
@@ -1184,6 +1185,7 @@ describe("real durable task execution lifecycle", () => {
           telemetryContext?: { operationId?: string };
         };
         const executionId = request.telemetryContext?.operationId;
+        checkpointedExecutionId = executionId;
         const onStep = args[6] as ((step: AgentStep) => Promise<void>) | undefined;
         expect(executionId).toEqual(expect.any(String));
         expect(onStep).toBeTypeOf("function");
@@ -1319,58 +1321,94 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
-      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
-      expect(chatWithFallback).toHaveBeenCalledTimes(2);
-      expect(reloadedToolCalls).toContainEqual({
-        key,
-        tool,
-        args: markerArgs,
-        status: markerStatus,
-      });
-
-      expect(resumedHelperResult).toMatchObject({
-        effectiveProvider: "groq",
-        result: { response: expect.any(String) },
-      });
-      expect(providerStrategyState.callCount).toBeGreaterThan(0);
-      expect(providerStrategyState.requestedToolName).toBe(tool);
-      expect(resumedStepKinds).toContain("tool_call");
-      expect(resumedStepKinds).toContain("tool_result");
-      expect(
-        resumedToolResults,
-        JSON.stringify({
-          observedToolCalls: resumedToolCallNames,
-          providerOptions: providerStrategyState.callOptionsSummary,
-        }),
-      ).toEqual(expect.arrayContaining([expect.objectContaining({ tool })]));
-
-      if (tool === "read_file") {
-        expect(resumedToolResults.find((result) => result.tool === "read_file")?.outputLength)
-          .toBeGreaterThan(0);
-        while (pendingObservationMaterializations.length > 0) {
-          const pending = pendingObservationMaterializations.splice(0);
-          await Promise.all(pending);
-        }
-        const observations = await db
-          .select({ id: aiAgentObservationsTable.id })
-          .from(aiAgentObservationsTable)
-          .where(eq(aiAgentObservationsTable.projectId, fixture.projectId));
-        expect(observations.length).toBeGreaterThan(0);
-      } else {
-        expect(
-          providerStrategyState.callOptionsSummary.some((call) =>
-            call.toolNames.includes("run_validation")
-          ),
-          JSON.stringify(providerStrategyState.callOptionsSummary),
-        ).toBe(true);
-        expect(resumedToolResults).toContainEqual({
-          tool: "run_validation",
-          outputLength: 0,
-          cached: true,
-          resultKind: "ok",
-          resultSummary: "replayed action skipped by durable marker",
+      if (markerStatus === "started" && tool === "run_validation") {
+        expect(recoveredOutcome).toMatchObject({
+          ok: false,
+          status: "failed",
+          errorCode: "mission_tool_outcome_uncertain",
         });
+        expect(chatWithFallback).toHaveBeenCalledTimes(1);
+        expect(reloadedToolCalls).toEqual([]);
+        expect(resumedHelperResult).toBeUndefined();
         expect(toolValidationRunnerCalls).toBe(0);
+        if (!checkpointedExecutionId) {
+          throw new Error("Mission execution identity was not checkpointed.");
+        }
+        const [execution] = await db
+          .select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, checkpointedExecutionId))
+          .limit(1);
+        expect(execution?.status).toBe("failed");
+        const acceptances = await db
+          .select({
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+            resumable: aiExecutionAcceptancesTable.resumable,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, checkpointedExecutionId));
+        expect(acceptances).toEqual([{
+          outcome: "FAILED",
+          terminalStatus: "failed",
+          reasonCode: "MISSION_TOOL_OUTCOME_UNCERTAIN",
+          resumable: 0,
+        }]);
+      } else {
+        expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+        expect(chatWithFallback).toHaveBeenCalledTimes(2);
+        expect(reloadedToolCalls).toContainEqual({
+          key,
+          tool,
+          args: markerArgs,
+          status: markerStatus,
+        });
+
+        expect(resumedHelperResult).toMatchObject({
+          effectiveProvider: "groq",
+          result: { response: expect.any(String) },
+        });
+        expect(providerStrategyState.callCount).toBeGreaterThan(0);
+        expect(providerStrategyState.requestedToolName).toBe(tool);
+        expect(resumedStepKinds).toContain("tool_call");
+        expect(resumedStepKinds).toContain("tool_result");
+        expect(
+          resumedToolResults,
+          JSON.stringify({
+            observedToolCalls: resumedToolCallNames,
+            providerOptions: providerStrategyState.callOptionsSummary,
+          }),
+        ).toEqual(expect.arrayContaining([expect.objectContaining({ tool })]));
+
+        if (tool === "read_file") {
+          expect(resumedToolResults.find((result) => result.tool === "read_file")?.outputLength)
+            .toBeGreaterThan(0);
+          while (pendingObservationMaterializations.length > 0) {
+            const pending = pendingObservationMaterializations.splice(0);
+            await Promise.all(pending);
+          }
+          const observations = await db
+            .select({ id: aiAgentObservationsTable.id })
+            .from(aiAgentObservationsTable)
+            .where(eq(aiAgentObservationsTable.projectId, fixture.projectId));
+          expect(observations.length).toBeGreaterThan(0);
+        } else {
+          expect(
+            providerStrategyState.callOptionsSummary.some((call) =>
+              call.toolNames.includes("run_validation")
+            ),
+            JSON.stringify(providerStrategyState.callOptionsSummary),
+          ).toBe(true);
+          expect(resumedToolResults).toContainEqual({
+            tool: "run_validation",
+            outputLength: 0,
+            cached: true,
+            resultKind: "ok",
+            resultSummary: "replayed action skipped by durable marker",
+          });
+          expect(toolValidationRunnerCalls).toBe(0);
+        }
       }
     } finally {
       vi.unstubAllEnvs();

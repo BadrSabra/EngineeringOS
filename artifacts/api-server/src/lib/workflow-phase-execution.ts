@@ -47,7 +47,6 @@ export async function executeWorkflowPhase(params: {
 }): Promise<WorkflowPhaseExecutionResult> {
   const phaseKey = `workflow-phase:${params.workflowExecutionId}:${params.phaseName}`;
   const objective = `Execute workflow "${params.workflowName}" phase "${params.phaseName}"`;
-  const evidenceRef = `workflow:${params.workflowId}:execution:${params.workflowExecutionId}:phase:${params.phaseName}`;
   const nodeId = `workflow-phase:${params.phaseName}`;
   const operationRequest = {
     projectId: params.projectId,
@@ -58,7 +57,9 @@ export async function executeWorkflowPhase(params: {
     workspaceRoot: params.rootPath ?? undefined,
     objective,
     validationTargetPaths: [],
-    proofRequired: true,
+    // This execution records a phase-local boundary only. The root inspection
+    // is not substantive evidence that the declared phase work was performed.
+    proofRequired: false,
   };
 
   const durable = await createAiExecution({
@@ -88,22 +89,18 @@ export async function executeWorkflowPhase(params: {
   }
 
   const workerId = `workflow-phase:${randomUUID()}`;
-  const declaredSteps = params.phaseSteps
-    .map((step) => step.trim())
-    .filter(Boolean)
-    .slice(0, 24);
-  const nodes = (declaredSteps.length > 0 ? declaredSteps : [params.phaseName]).map((step, index) => ({
-    id: `${nodeId}:step:${index}`,
-    title: step.slice(0, 240),
+  const nodes = [{
+    id: `${nodeId}:boundary`,
+    title: "Record workflow phase boundary",
     kind: "inspect" as const,
-    dependencies: index === 0 ? [] : [`${nodeId}:step:${index - 1}`],
-    status: declaredSteps.length > 0 ? "queued" as const : "blocked" as const,
+    dependencies: [],
+    status: "queued" as const,
     attempts: 0,
     validationAttempts: 0,
     allowedFiles: [],
     validationProfile: "api-ai-tests" as const,
-    evidenceRefs: [evidenceRef],
-  }));
+    evidenceRefs: [],
+  }];
   let operation: AutonomousOperationContract = existingCheckpoint?.operation
     ? {
         ...existingCheckpoint.operation,
@@ -117,7 +114,6 @@ export async function executeWorkflowPhase(params: {
         revisionManifest: params.revision,
         policyRevision: "server-policy-v1",
         nodes,
-        candidateIdentity: phaseKey,
       });
 
   const claimed = await claimAiExecution({
@@ -152,11 +148,9 @@ export async function executeWorkflowPhase(params: {
       },
     });
     if (!checkpointed) throw new Error("Workflow phase lease was lost before checkpoint");
-    // A workflow step is not successful merely because it was declared. The
-    // phase executor performs a bounded, server-owned inspection: the
-    // configured project root must still exist. An empty phase is a valid
-    // server-owned no-op boundary for legacy workflow definitions; it still
-    // records the phase acceptance rather than inventing provider work.
+    // An empty phase is a valid no-op boundary. For non-empty phase definitions,
+    // this routine does not execute the declared work; it only records the
+    // boundary and verifies that the configured project root remains available.
     if (params.rootPath) {
       const rootStat = await stat(params.rootPath);
       if (!rootStat.isDirectory()) throw new Error("Workflow project root is not a directory");
@@ -167,7 +161,6 @@ export async function executeWorkflowPhase(params: {
       status: "passed" as const,
       attempts: 1,
       validationAttempts: 1,
-      evidenceRefs: [evidenceRef],
     }));
     operation = {
       ...operation,
@@ -175,13 +168,10 @@ export async function executeWorkflowPhase(params: {
       updatedAt: new Date().toISOString(),
     };
     operation = transitionAutonomousOperation(operation, "validating");
-    operation = transitionAutonomousOperation(operation, "succeeded", [evidenceRef]);
+    operation = transitionAutonomousOperation(operation, "succeeded");
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
-      evidenceVerdict: "PROVEN",
-      evidenceReason: `Server-owned workflow phase boundary recorded at revision ${params.revision}.`,
-      proofRequired: true,
       operation,
       nodeStates: completedNodes,
       goalProjection: params.goalId

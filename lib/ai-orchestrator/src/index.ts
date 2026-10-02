@@ -458,6 +458,7 @@ export {
   getToolOperationalMetadata,
   getToolNamesByAuthorizationGroup,
   getToolNamesByExecutor,
+  getDurableReplayBlockedToolNames,
   TOOL_OPERATIONAL_METADATA,
 } from "./tool-operational-registry.js";
 export type {

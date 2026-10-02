@@ -3930,7 +3930,7 @@ export const AiChatResponse = zod.object({
   "operationId": zod.string().nullable(),
   "correlationId": zod.string(),
   "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']),
   "reasonCode": zod.string().nullable(),
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
@@ -3986,7 +3986,7 @@ export const AiChatResponse = zod.object({
 }),
   "stopped": zod.object({
   "reason": zod.string().nullable(),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']).nullable()
 }),
   "timeline": zod.array(zod.object({
   "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
@@ -4446,7 +4446,7 @@ export const GetAiExecutionResponse = zod.object({
   "operationId": zod.string().nullable(),
   "correlationId": zod.string(),
   "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']),
   "reasonCode": zod.string().nullable(),
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
@@ -4570,7 +4570,7 @@ export const GetAiExecutionResponse = zod.object({
 }),
   "stopped": zod.object({
   "reason": zod.string().nullable(),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']).nullable()
 }),
   "timeline": zod.array(zod.object({
   "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
@@ -4825,7 +4825,7 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "operationId": zod.string().nullable(),
   "correlationId": zod.string(),
   "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']),
   "reasonCode": zod.string().nullable(),
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
@@ -4881,7 +4881,7 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
 }),
   "stopped": zod.object({
   "reason": zod.string().nullable(),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']).nullable()
 }),
   "timeline": zod.array(zod.object({
   "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),
@@ -7211,7 +7211,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "operationId": zod.string().nullable(),
   "correlationId": zod.string(),
   "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']),
   "reasonCode": zod.string().nullable(),
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
@@ -7267,7 +7267,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
 }),
   "stopped": zod.object({
   "reason": zod.string().nullable(),
-  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED', 'UNKNOWN']).nullable()
 }),
   "timeline": zod.array(zod.object({
   "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'apply', 'commit', 'push', 'deliver']),

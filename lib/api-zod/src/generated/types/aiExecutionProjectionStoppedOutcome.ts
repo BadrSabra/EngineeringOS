@@ -13,4 +13,5 @@ export const AiExecutionProjectionStoppedOutcome = {
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
   INTERRUPTED: 'INTERRUPTED',
+  UNKNOWN: 'UNKNOWN',
 } as const;

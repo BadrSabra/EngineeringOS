@@ -11961,7 +11961,8 @@ export default function AiChat() {
           const terminalFailure = data.message.outcome === 'FAILED'
             || data.message.outcome === 'INTERRUPTED'
             || terminalProjection?.outcome === 'FAILED'
-            || terminalProjection?.outcome === 'INTERRUPTED';
+            || terminalProjection?.outcome === 'INTERRUPTED'
+            || terminalProjection?.outcome === 'UNKNOWN';
           const currentExecution = activeExecutionRef.current;
           const retainTerminalExecution = Boolean(
             terminalFailure

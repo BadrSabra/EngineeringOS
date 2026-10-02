@@ -104,6 +104,46 @@ describe("buildAiExecutionProjection", () => {
     expect(blocked.timeline.find((item) => item.id === "deliver")?.status).toBe("not_applicable");
   });
 
+  it.each(["completed", "paused"] as const)(
+    "does not infer a successful terminal outcome for a %s execution without acceptance",
+    (status) => {
+      const projection = buildAiExecutionProjection({
+        execution: { id: `exec-unknown-${status}`, status },
+        request: { message: "Inspect the project" },
+        checkpoint: { stage: "review" },
+        evidenceVerdict: "BLOCKED",
+        proofRequired: true,
+        terminalReason: null,
+        hasAppliedChanges: false,
+        hasCommittedChanges: false,
+        hasPushedChanges: false,
+      });
+
+      expect(projection.stopped.outcome).toBe("UNKNOWN");
+    },
+  );
+
+  it("uses an explicit failed acceptance even when the lifecycle status is completed", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-completed-failed-acceptance", status: "completed" },
+      request: { message: "Inspect the project" },
+      checkpoint: { stage: "review" },
+      acceptance: {
+        outcome: "FAILED",
+        nextActionCode: null,
+        resumable: false,
+      },
+      evidenceVerdict: "BLOCKED",
+      proofRequired: true,
+      terminalReason: null,
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection.stopped.outcome).toBe("FAILED");
+  });
+
   it("projects orientation coverage without using behavioral evidence counters", () => {
     const projection = buildAiExecutionProjection({
       execution: { id: "exec-orientation", status: "completed" },

@@ -3988,6 +3988,17 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يغلق E1 على واجهة الحزمة ومصادر workspace الحالية، لا Reliable Tool Agent بالكامل؛ تبقى حدود الموارد المخصصة قبل الإرجاع، وتغطية timeout/cancellation/replay لكل executor، وE2 lifecycle/recovery، وE3 Canonical Proof.
 - **next step:** E2 — حصر terminal-status writers ونوافذ crash وإثبات reconciliation لكل mutation surface.
 
+### 2026-10-02 — E2 fail-closed للنتائج غير المحسومة
+
+- **phase/step:** E2 — فصل lifecycle completion عن accepted success، ومنع إعادة تشغيل الأثر غير المحسوم.
+- **status:** `partial — targeted recovery and projection defects fixed; cross-surface E2 remains open`
+- **what changed:** في Mission tool-loop، marker `started` لأداة يصنفها registry كـ`block_after_prior_marker` ينهي recovery كـ`mission_tool_outcome_uncertain` غير قابل لإعادة المحاولة قبل أي استدعاء provider؛ بقي replay لقراءات `safe_to_replay` وسلوك marker المكتمل كما هو. إسقاط chat/detail وexecution progress صار يعرض `UNKNOWN` عند غياب acceptance المطابقة بدل استنتاج `SUCCEEDED` من `status=completed`، والسبب `ACCEPTANCE_MISSING`. لم يتغير writer أو fences لمسار P7.5 observation-only.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/index.ts`; `lib/api-spec/openapi.yaml` وملفات codegen؛ `artifacts/api-server/src/lib/task-execution-service.ts`; `artifacts/api-server/src/lib/ai-terminal-outcome.ts`; `artifacts/api-server/src/lib/ai-execution-projection.ts`; `artifacts/api-server/src/routes/ai/chat.ts`; اختبارات task/API/dashboard؛ هذا التقرير وسجل التنفيذ.
+- **validation:** `pnpm --filter @workspace/api-spec run codegen` ونجاح `typecheck:libs`؛ API وDashboard typecheck؛ task failure classifier 9/9؛ Mission handoff markers 4/4؛ execution projection 8/8؛ API completed-without-acceptance 1/1؛ dashboard unknown-outcome 1/1؛ `git diff --check` ناجح. أُعيد تشغيل API وDashboard بنجاح؛ API وصل إلى `Server listening` وVite أصبح `ready`.
+- **authority/safety impact:** لم تُمنح صلاحية كتابة جديدة ولم يُصنع acceptance؛ unknown action يبقى فشلًا غير قابل لإعادة المحاولة، و`completed` لا يصبح قبولًا دون acceptance. P7.5 يبقى non-acceptance و`needs_replan`.
+- **remaining/blocker:** لم يكتمل جرد terminal writers والقراء ولا crash reconciliation عند W2–W8 لكل runtime/apply/repair/workflow/task؛ E2 جزئية، ولا يبدأ E3 أو Learning/Transfer/Generalization بناءً على هذا التغيير.
+- **next step:** إكمال جرد E2 عبر بقية mutation surfaces وإضافة fault injection للآثار/الملاحظات/القبول، ثم الانتقال إلى E3 فقط بعد إغلاق البوابات السابقة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

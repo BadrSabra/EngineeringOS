@@ -2849,6 +2849,7 @@ export const AiTerminalProjectionOutcome = {
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
   INTERRUPTED: 'INTERRUPTED',
+  UNKNOWN: 'UNKNOWN',
 } as const;
 
 export interface AiTerminalProjection {
@@ -2950,6 +2951,7 @@ export const AiExecutionProjectionStoppedOutcome = {
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
   INTERRUPTED: 'INTERRUPTED',
+  UNKNOWN: 'UNKNOWN',
 } as const;
 
 export type AiExecutionProjectionTimelineItemId = typeof AiExecutionProjectionTimelineItemId[keyof typeof AiExecutionProjectionTimelineItemId];

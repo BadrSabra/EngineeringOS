@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
+  MissionToolOutcomeUncertainError,
   missionPlanRevisionHash,
 } from "./task-execution-service.js";
 
@@ -93,6 +94,30 @@ describe("AI task execution failure classification", () => {
     expect(classifyTaskExecutionFailure({
       stage: "provider_call",
       cancelled: true,
+    })).toEqual({
+      code: "cancelled",
+      failureClass: "internal",
+      reasonCode: "EXECUTION_CANCELLED",
+      retryable: false,
+    });
+  });
+
+  it("fails closed on uncertain started-tool outcomes without treating them as cancellation", () => {
+    const error = new MissionToolOutcomeUncertainError();
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: false,
+      error,
+    })).toEqual({
+      code: "mission_tool_outcome_uncertain",
+      failureClass: "tool",
+      reasonCode: "MISSION_TOOL_OUTCOME_UNCERTAIN",
+      retryable: false,
+    });
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: true,
+      error,
     })).toEqual({
       code: "cancelled",
       failureClass: "internal",

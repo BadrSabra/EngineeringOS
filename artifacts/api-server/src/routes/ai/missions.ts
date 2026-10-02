@@ -342,6 +342,8 @@ async function resolveAcceptedChatFinding(
       projectId: input.projectId,
       executionId: execution.id,
       operationId: execution.operationId,
+      sourceRevisionBinding: execution.baseRevision == null ? "execution" : "scope",
+      candidateIdentityBinding: "not_applicable",
       sourceRevision: execution.baseRevision,
     },
     goalStatus: "completed",
@@ -1173,6 +1175,10 @@ async function buildMissionProjection(
               projectId: mission.projectId,
               executionId: candidateAcceptance.executionId,
               operationId: proposal.operationId,
+              sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
+              candidateIdentityBinding: proposal.candidateTreeHash == null
+                ? "not_applicable"
+                : "required",
               sourceRevision: proposal.baseRevision,
               candidateIdentity: proposal.candidateTreeHash,
             },
@@ -2011,6 +2017,10 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
           projectId: project.id,
           executionId: accepted.executionId,
           operationId: proposal.operationId,
+          sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
+          candidateIdentityBinding: proposal.candidateTreeHash == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: proposal.baseRevision,
           candidateIdentity: proposal.candidateTreeHash,
         },
@@ -2224,6 +2234,10 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
           operationId: proposal.operationId,
           planRevision,
           activePlanRevision,
+          sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
+          candidateIdentityBinding: proposal.candidateTreeHash == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: proposal.baseRevision,
           candidateIdentity: proposal.candidateTreeHash,
         },

@@ -92,7 +92,7 @@
 |---|---|---|
 | W0 قبل action | queued request/attempt إذا اكتمل `createAiExecution`؛ لا أثر يفترض من ذلك | سجل الطلب لا يثبت أن كل executor لم يبدأ؛ retry آمن فقط إذا كان عدم dispatch معلومًا |
 | W1 بعد intent | checkpoint أو Episode action intent إذا سجّله السطح | intent لا يثبت وقوع الأثر؛ دوام intent قبل كل executor `UNKNOWN` |
-| W2 أثناء الأثر | lease وآخر checkpoint وربما action marker | الأثر الخارجي قد يكون غائبًا/جزئيًا/مكتملًا؛ إعادة التنفيذ قد تكرر الأثر ما لم يوجد idempotency/reconciliation خاص |
+| W2 أثناء الأثر | lease وآخر checkpoint وربما action marker | الأثر الخارجي قد يكون غائبًا/جزئيًا/مكتملًا؛ إعادة التنفيذ قد تكرر الأثر ما لم يوجد idempotency/reconciliation خاص. أُغلق الآن مسار Mission tool-loop الذي كان يحول marker `started` لأداة replay-blocked إلى نتيجة نجاح اصطناعية؛ بقية الأسطح ما زالت غير محصورة |
 | W3 بعد الأثر وقبل اكتمال الملاحظة | لا يمكن إثبات الأثر الخارجي من DB إن لم تُحفظ ملاحظة/effect | الحالة uncertain؛ reconstruction من DB وحدها غير كافٍ |
 | W4 قبل after-observation | نفس غموض W3 | لا يوجد إثبات crash-injection شامل عند هذه النقطة |
 | W5 بعد observation | observation الدائمة، provenance، freshness، scope قابلة للقراءة إن تم commit | observation تثبت predicate المرصود فقط، لا acceptance أو اكتمال objective |
@@ -105,11 +105,11 @@
 
 ### 5.4 Recovery
 
-الإلغاء والـlease expiry/recovery موصولان في `ai-execution-state.ts:3500-3667`. checkpoints تساعد على الاستئناف ولا تمنح acceptance. المصالحة المادية لأثر وقع ثم تعطل قبل observation ليست عامة؛ عند غياب الدليل يجب أن تظل النتيجة uncertain بدل افتراض success أو retry غير idempotent.
+الإلغاء والـlease expiry/recovery موصولان في `ai-execution-state.ts:3500-3667`. checkpoints تساعد على الاستئناف ولا تمنح acceptance. في Mission tool-loop، marker حالته `started` لأداة مصنفة `block_after_prior_marker` يفشل الآن كـ`mission_tool_outcome_uncertain` غير قابل لإعادة المحاولة قبل استدعاء provider؛ تظل إعادة قراءة الأدوات المصنفة `safe_to_replay` وسلوك markers المكتملة كما كانا. كما أن إسقاط chat/detail لا يستنتج `SUCCEEDED` من `execution.status=completed` عند غياب acceptance المطابقة للمحاولة؛ يعرض `UNKNOWN` و`ACCEPTANCE_MISSING`، وتبقى P7.5 observation-only دون acceptance أو تغيير في lease/cancellation/scope/replan fences. هذه تحسينات محددة وليست مصالحة مادية عامة: الأثر الخارجي الذي وقع ثم تعطل قبل observation يظل uncertain على بقية الأسطح، وعند غياب الدليل لا يجوز افتراض success أو retry غير idempotent.
 
 ### 5.5 Acceptance
 
-`finalizeExecutionAcceptance` هو authority للمسار المركزي للقبول، لكنه ليس الكاتب الوحيد لحالة execution terminal بسبب terminalization observation-only أعلاه، ولا تثبت الأدلة الحالية تقارب كل surface إليه. يجب التمييز بين `execution.status=completed` ووجود acceptance canonical.
+`finalizeExecutionAcceptance` هو authority للمسار المركزي للقبول، لكنه ليس الكاتب الوحيد لحالة execution terminal بسبب terminalization observation-only أعلاه، ولا تثبت الأدلة الحالية تقارب كل surface إليه. إسقاطات chat/detail وexecution progress تميز الآن `completed` عن قبول النتيجة: لا تعلن `SUCCEEDED` دون acceptance مطابق، ويظل الجرد والتحقق عبر كل المستهلكين غير مكتمل.
 
 ### 5.6 100% Gate
 
@@ -274,10 +274,10 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | الأولوية | blocker | لماذا يمنع الإغلاق |
 |---|---|---|
-| P1 | lifecycle/status writers متعددة، ومنها `completed` observation-only بلا acceptance | لا يمكن تفسير status وحده كنجاح موحد أو إثبات terminal authority عالمية |
+| P1 | lifecycle/status writers متعددة، ومنها `completed` observation-only بلا acceptance | أُصلح استنتاج النجاح في إسقاطات chat/detail وexecution progress؛ لا يمكن تفسير status وحده كنجاح موحد أو إثبات terminal authority عالمية |
 | P1 | دلالات `PROVEN` متعددة، مع جرد global غير مكتمل | false acceptance محتمل عند consumer يخلط phase-local/projection/canonical status |
 | P1 | apply `changedFactRefs: []` مع intent/semantic test غير مثبت | World Delta وسبب التغيير غير موثقين على مسار apply |
-| P2 | أثر خارجي أثناء/بعد التنفيذ وقبل durable observation يبقى uncertain؛ لا crash test شامل لكل نافذة | retry/recovery لا يستطيع إثبات الحالة الفيزيائية من DB وحدها |
+| P2 | أثر خارجي أثناء/بعد التنفيذ وقبل durable observation يبقى uncertain؛ لا crash test شامل لكل نافذة | فُرض fail-closed على marker `started` للأدوات المحظور replay لها في Mission tool-loop فقط؛ بقية الأسطح لا تزال بلا reconciliation شامل، وretry/recovery لا يستطيع إثبات الحالة الفيزيائية من DB وحدها |
 | P2 | لا إثبات أن World State الجديدة تغيّر قرار planner أو action عمومًا، ولا belief/evaluation عام | حلقة Action→World→Decision غير مغلقة |
 | P3 | تحقق release/process-recovery غير منفذ في بيئة ثبت أنها disposable | لا يجوز تحويل التحقق التاريخي أو غيابه إلى نجاح حالي |
 
@@ -286,12 +286,13 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 ## 14. Exact File-by-File Implementation Plan
 
 1. **E1 — DONE (2026-10-02):** أزيلت raw executor functions من `lib/ai-orchestrator/src/index.ts`; حُفظت `runBoundedCommand` و`runRegisteredCommand` في `server-internal/execution` لاستخدام الخادم الموثوق فقط؛ ويمنع اختبار المصدر إضافات غير معتمدة. لا يغيّر هذا إغلاق بقية Reliable Tool Agent.
-2. **E2 — توحيد معنى terminal state:** جرد writers في `ai-execution-state.ts`, `ai-execution-acceptance.ts`, `agent-episode-ledger.ts` وكل mutation surface. حافظ على observation-only terminalization كحالة typed صريحة أو اجعل كل consumer يميزها عن accepted success؛ لا تحذف السجل ولا تجعلها acceptance.
-3. **E2 — crash reconciliation:** لكل executor في runtime/apply/repair/workflow/task، وثق idempotency والـexternal observation. أضف fault injection عند W2–W8 واختبر duplicate side effect وunknown outcome وresponse loss؛ لا يستنتج recovery success من checkpoint.
-4. **E3 — حصر سلطات PROVEN:** اعمل producer/consumer inventory شاملًا للحزم وserialization/API، وافصل phase-local status عن Canonical Proof بعقد واضح. احصر كل route يكتب `evidenceRequired`، واجعل candidate/revision requirements صريحة لكل scope بدل الاعتماد على optional fields.
-5. **E4 — إغلاق apply delta:** في `runtime-start-transition.ts:967-990`، اشتق refs من facts/observations مثل runtime.start أو وثّق/اختبر لماذا لا يوجد changed fact؛ أضف assertion في `runtime-start-transition.test.ts` لا يكتفي بحالة `materialized`.
-6. **E5 — planner binding:** اربط planner input/plan identity بـWorld/environment revision وfreshness/scope، ثم اختبر world delta ذا صلة ينتج قرارًا مختلفًا وdelta غير ذي صلة لا يغير الخطة.
-7. **E6–E8 — بعد الإغلاق السابق فقط:** عرّف belief state server-owned ومصدره/تراجعه، افصل retry/repair/replan، ثم أضف held-out replay/evaluation عبر أكثر من mutation surface قبل أي promotion أو transfer.
+2. **E2 — PARTIAL (2026-10-02):** إسقاط chat/detail وexecution progress يعرض `UNKNOWN` عند غياب acceptance بدل استنتاج `SUCCEEDED` من `completed`؛ P7.5 observation-only بقي بلا acceptance وبلا تغيير لحدود replan. Mission tool-loop يمنع استئناف marker `started` لأداة `block_after_prior_marker` ويُنهي المحاولة كـuncertain وغير قابلة لإعادة المحاولة؛ safe reads وmarkers المكتملة محفوظة. لم يُغلق جرد writers/consumers ولا كل أسطح mutation.
+3. **E2 — العمل المتبقي:** جرد writers في `ai-execution-state.ts`, `ai-execution-acceptance.ts`, `agent-episode-ledger.ts` وكل mutation surface. لكل executor في runtime/apply/repair/workflow/task، وثق idempotency والـexternal observation. أضف fault injection عند W2–W8 واختبر duplicate side effect وunknown outcome وresponse loss؛ لا يستنتج recovery success من checkpoint.
+4. **E3 — PARTIAL (2026-10-02):** صار ربط source revision وcandidate identity سياسة scope صريحة في Canonical Proof، مع رفض غياب الهوية المتوقعة أو تعارضها. فصل workflow phase-local completion عن Canonical Proof؛ فحص مجلد المشروع لا ينشئ `PROVEN` أو evidence refs ولا يكمل Goal. أضيفت regressions مركزة، واجتاز API typecheck والاختبارات المحددة.
+5. **E3 — العمل المتبقي:** أكمل جرد كل producers/consumers عبر الحزم وserialization/API، وكل مواضع كتابة `evidenceRequired`، وراجع صحة تصنيف required/not-applicable في كل scope (خصوصًا delegated children وrecipe/delivery). أضف اختبارات تكامل لمسارات terminal الأخرى قبل اعتبار E3 مغلقًا.
+6. **E4 — إغلاق apply delta:** في `runtime-start-transition.ts:967-990`، اشتق refs من facts/observations مثل runtime.start أو وثّق/اختبر لماذا لا يوجد changed fact؛ أضف assertion في `runtime-start-transition.test.ts` لا يكتفي بحالة `materialized`.
+7. **E5 — planner binding:** اربط planner input/plan identity بـWorld/environment revision وfreshness/scope، ثم اختبر world delta ذا صلة ينتج قرارًا مختلفًا وdelta غير ذي صلة لا يغير الخطة.
+8. **E6–E8 — بعد الإغلاق السابق فقط:** عرّف belief state server-owned ومصدره/تراجعه، افصل retry/repair/replan، ثم أضف held-out replay/evaluation عبر أكثر من mutation surface قبل أي promotion أو transfer.
 
 ## 15. Dependency-Ordered Roadmap
 
@@ -310,7 +311,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 ## 17. Final Gate
 
 - `[✓]` E1: package root لا يصدّر raw tool executors، وmodel-call executors داخل orchestrator تمر عبر dispatcher؛ يبقى Reliable Tool Agent تشغيليًا جزئيًا.
-- `[~]` Durable execution/checkpoint/acceptance/recovery موجود؛ لا universal lifecycle ولا crash reconstruction للأثر الخارجي.
+- `[~]` Durable execution/checkpoint/acceptance/recovery موجود؛ completed بلا acceptance يظهر `UNKNOWN` في الإسقاطات المغطاة، وMission started-marker المحظور يفشل مغلقًا؛ لا universal lifecycle ولا crash reconstruction عام للأثر الخارجي.
 - `[~]` Canonical Proof يرفض evidence-optional acceptance؛ global `PROVEN` producers/semantics غير موحدة بالكامل.
 - `[~]` runtime.start وapply-changes لديهما transitions محددة؛ apply delta refs فارغة والplanner decision-change غير مثبت.
 - `[✗]` لا يوجد دليل أن World State changes تفرض خطة/Action مختلفة على نحو عام.

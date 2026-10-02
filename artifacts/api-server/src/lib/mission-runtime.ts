@@ -830,6 +830,12 @@ async function syncRecipeObjectiveState(params: {
           activePlanRevision: typeof policy.activePlanRevision === "string"
             ? policy.activePlanRevision
             : null,
+          sourceRevisionBinding: params.sourceRevision == null ? "execution" : "scope",
+          candidateIdentityBinding: (
+            params.candidateIdentity ?? goalCandidateIdentity(goal)
+          ) == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: params.sourceRevision ?? null,
           candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
         },
@@ -1548,6 +1554,10 @@ export async function runMissionGoal(params: {
           operationId: d2.operationId,
           planRevision: d2.planRevision,
           activePlanRevision,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: d2.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: d2.requirement.baseRevision,
           candidateIdentity: d2.candidateIdentity,
         },

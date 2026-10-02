@@ -20,6 +20,8 @@ function provenProof() {
       goalId: "goal-1",
       planRevision: "plan-1",
       activePlanRevision: "plan-1",
+      sourceRevisionBinding: "scope",
+      candidateIdentityBinding: "required",
       sourceRevision: "revision-1",
       candidateIdentity: "candidate-1",
     },

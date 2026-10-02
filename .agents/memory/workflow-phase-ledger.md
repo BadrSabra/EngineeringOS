@@ -3,8 +3,8 @@ name: Workflow phase ledger
 description: Durable workflow phases use the shared AI execution ledger rather than a parallel worker state.
 ---
 
-Each workflow execution/phase pair has one idempotent operation identity. The server owns its checkpoint, lease, dependency/attempt record, retained evidence, and terminal state; repeated requests must reuse that identity.
+Each workflow execution/phase pair has one idempotent operation identity. The ledger records phase-local boundary completion; it does not prove that declared phase work ran, and it must not create synthetic evidence or Canonical Proof.
 
-**Why:** Workflow rows alone cannot prove resumability or give Mission Control the same receipt as other autonomous entry points; the acceptance gate also rejects a phase whose durable execution has no workspace root because provenance cannot be verified.
+**Why:** A root-directory check and server-authored node status are not substantive evidence that workflow work was performed. Treating them as `PROVEN` could complete a linked Goal without Canonical Proof.
 
-**How to apply:** Bind phase transitions to ai_executions and let startup reconciliation resume paused work conservatively; never treat a model decision or HTTP response as phase proof. Proof-required phases must persist both the managed workspace root and revision in the execution request before terminal acceptance.
+**How to apply:** Bind phase transitions to `ai_executions` and keep their local completion idempotent. A phase that performs real work needs its own substantive, revision-bound evidence path before it can contribute to Goal/Mission completion; preserve managed-root and revision checks for those proof-required executions.

@@ -394,6 +394,8 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
       operationId: typeof acceptanceScope.operationId === "string"
         ? acceptanceScope.operationId
         : execution.operationId,
+      sourceRevisionBinding: sourceRevision == null ? "execution" : "scope",
+      candidateIdentityBinding: candidateIdentity == null ? "not_applicable" : "required",
       sourceRevision,
       candidateIdentity,
       activePlanRevision: typeof missionPolicy.activePlanRevision === "string"

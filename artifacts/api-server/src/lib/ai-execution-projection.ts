@@ -62,7 +62,7 @@ export type AiExecutionProjection = {
   };
   stopped: {
     reason: string | null;
-    outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null;
+    outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED" | "UNKNOWN" | null;
   };
   timeline: Array<{
     id: "understand" | "investigate" | "plan" | "approval" | "build" | "validate" | "review" | "apply" | "commit" | "push" | "deliver";
@@ -497,6 +497,17 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
   } else if (input.execution.proposalId) {
     allowedActions.push("REVIEW_DIFF");
   }
+  const stoppedOutcome = !stopped
+    ? null
+    : input.acceptance?.outcome === "SUCCEEDED"
+      || input.acceptance?.outcome === "FAILED"
+      || input.acceptance?.outcome === "INTERRUPTED"
+      ? input.acceptance.outcome
+      : input.execution.status === "cancelled"
+        ? "INTERRUPTED"
+        : input.execution.status === "failed"
+          ? "FAILED"
+          : "UNKNOWN";
 
   return {
     schemaVersion: AI_EXECUTION_PROJECTION_SCHEMA_VERSION,
@@ -547,19 +558,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
     },
     stopped: {
       reason: stopped ? boundedText(input.terminalReason, "Execution stopped", 240) : null,
-      outcome: stopped
-        ? input.acceptance?.outcome === "SUCCEEDED"
-          ? "SUCCEEDED"
-          : input.execution.status === "cancelled"
-            ? "INTERRUPTED"
-            : input.execution.status === "completed"
-              ? "SUCCEEDED"
-              : input.acceptance?.outcome === "INTERRUPTED"
-                ? "INTERRUPTED"
-                : input.execution.status === "failed" || input.execution.status === "paused"
-                  ? "FAILED"
-                  : null
-        : null,
+      outcome: stoppedOutcome,
     },
     timeline,
     allowedActions: [...new Set(allowedActions)],

@@ -106,6 +106,8 @@ function fixture(overrides: {
       planRevision: "plan-1",
       activePlanRevision: "plan-1",
       candidateIdentity: "candidate-1",
+      sourceRevisionBinding: "execution",
+      candidateIdentityBinding: "required",
       ...overrides.scope,
     },
     goalStatus: overrides.goalStatus ?? "completed",
@@ -186,7 +188,9 @@ describe("composeCanonicalProof", () => {
       scope: {
         operationId: "operation-1",
         sourceRevision: "revision-1",
+        sourceRevisionBinding: "scope",
         candidateIdentity: "candidate-1",
+        candidateIdentityBinding: "required",
       },
     });
 
@@ -200,6 +204,40 @@ describe("composeCanonicalProof", () => {
       "source_revision_mismatch",
       "candidate_identity_mismatch",
     ]));
+  });
+
+  it("rejects evidence snapshots missing the expected source or candidate binding", () => {
+    const missingSourceRevision = fixture({
+      evidence: { sourceRevision: null },
+    });
+    expect(missingSourceRevision.accepted).toBe(false);
+    expect(missingSourceRevision.failureReasons).toContain("missing_evidence_source_revision");
+
+    const missingCandidateIdentity = fixture({
+      evidence: { candidateIdentity: null },
+    });
+    expect(missingCandidateIdentity.accepted).toBe(false);
+    expect(missingCandidateIdentity.failureReasons).toContain("missing_evidence_candidate_identity");
+  });
+
+  it("requires callers to name the source and candidate identity policies explicitly", () => {
+    const missingScopeRevision = fixture({
+      scope: {
+        sourceRevisionBinding: "scope",
+        sourceRevision: null,
+      },
+    });
+    expect(missingScopeRevision.accepted).toBe(false);
+    expect(missingScopeRevision.failureReasons).toContain("missing_source_revision");
+
+    const missingExpectedCandidate = fixture({
+      scope: {
+        candidateIdentityBinding: "required",
+        candidateIdentity: null,
+      },
+    });
+    expect(missingExpectedCandidate.accepted).toBe(false);
+    expect(missingExpectedCandidate.failureReasons).toContain("missing_candidate_identity");
   });
 
   it("keeps incomplete evidence incomplete even when the provider projection says proven", () => {
@@ -309,7 +347,9 @@ describe("composeCanonicalProof", () => {
         executionId: "execution-1",
         operationId: "operation-1",
         sourceRevision: "revision-1",
+        sourceRevisionBinding: "scope",
         candidateIdentity: "candidate-1",
+        candidateIdentityBinding: "required",
       },
       goalStatus: "completed",
     });
@@ -383,6 +423,8 @@ describe("composeCanonicalProof", () => {
         projectId: "project-1",
         executionId: "execution-1",
         operationId: "operation-1",
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
         sourceRevision: "revision-1",
         candidateIdentity: "candidate-1",
       },

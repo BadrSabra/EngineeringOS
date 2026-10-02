@@ -222,6 +222,10 @@ export async function materializeStrategyReplayCaseProofBinding(input: {
         projectId: input.projectId,
         executionId: execution.id,
         operationId: execution.operationId,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: acceptance.candidateIdentity == null
+          ? "not_applicable"
+          : "required",
         sourceRevision: episode.projectRevision,
         candidateIdentity: acceptance.candidateIdentity,
       },

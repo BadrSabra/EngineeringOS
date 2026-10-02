@@ -346,7 +346,7 @@ export type AiTerminalProjection = {
   operationId: string | null;
   correlationId: string;
   status: 'completed' | 'failed' | 'cancelled' | 'paused';
-  outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
+  outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | 'UNKNOWN';
   reasonCode: string | null;
   nextActionCode: string | null;
   resumable: boolean;

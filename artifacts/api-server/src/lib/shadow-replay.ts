@@ -898,6 +898,8 @@ export async function runShadowReplayAttempt(
         operationId: replay.operationId,
         planRevision,
         activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
         sourceRevision: replay.sourceRevision,
         candidateIdentity: replay.candidateTreeHash,
       },

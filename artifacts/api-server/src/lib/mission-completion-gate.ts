@@ -148,6 +148,12 @@ async function composeGoalProofs(
         operationId: typeof scope.operationId === "string" ? scope.operationId : null,
         planRevision: planRevisionFromGoal(goal),
         activePlanRevision: activePlanRevision(mission),
+        sourceRevisionBinding: projected?.sourceRevision == null ? "execution" : "scope",
+        candidateIdentityBinding: (
+          projected?.candidateIdentity ?? candidateIdentityFromGoal(goal)
+        ) == null
+          ? "not_applicable"
+          : "required",
         sourceRevision: projected?.sourceRevision ?? null,
         candidateIdentity: projected?.candidateIdentity ?? candidateIdentityFromGoal(goal),
       },

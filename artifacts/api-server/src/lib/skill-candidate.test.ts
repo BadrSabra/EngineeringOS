@@ -48,6 +48,8 @@ describe("skill candidate shadow contract", () => {
       scope: {
         projectId: "project",
         executionId: "execution-1",
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
         sourceRevision: "revision",
         candidateIdentity: "a".repeat(64),
       },

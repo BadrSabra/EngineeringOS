@@ -577,6 +577,12 @@ async function syncLinkedObjectiveState(
           operationId: params.operationId,
           planRevision: goalPlanRevisionForProof(goal),
           activePlanRevision: activeMissionPlanRevision(mission),
+          sourceRevisionBinding: params.acceptanceProjection.sourceRevision == null
+            ? "execution"
+            : "scope",
+          candidateIdentityBinding: params.acceptanceProjection.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: params.acceptanceProjection.sourceRevision ?? null,
           candidateIdentity: params.acceptanceProjection.candidateIdentity ?? null,
         },
@@ -791,6 +797,12 @@ async function syncWorkflowGoalProjection(
           operationId: params.acceptance.operationId,
           planRevision: goalPlanRevisionForProof(goal),
           activePlanRevision: activeMissionPlanRevision(missionForProof),
+          sourceRevisionBinding: params.acceptance.sourceRevision == null
+            ? "execution"
+            : "scope",
+          candidateIdentityBinding: params.acceptance.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
           sourceRevision: params.acceptance.sourceRevision,
           candidateIdentity: params.acceptance.candidateIdentity,
         },

@@ -7259,7 +7259,7 @@ components:
           required: [reason, outcome]
           properties:
             reason: { type: string, nullable: true }
-            outcome: { type: string, enum: [SUCCEEDED, FAILED, INTERRUPTED], nullable: true }
+            outcome: { type: string, enum: [SUCCEEDED, FAILED, INTERRUPTED, UNKNOWN], nullable: true }
         timeline:
           type: array
           maxItems: 11
@@ -7296,7 +7296,7 @@ components:
           enum: [completed, failed, cancelled, paused]
         outcome:
           type: string
-          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+          enum: [SUCCEEDED, FAILED, INTERRUPTED, UNKNOWN]
         reasonCode: { type: string, nullable: true }
         nextActionCode: { type: string, nullable: true }
         resumable: { type: boolean }

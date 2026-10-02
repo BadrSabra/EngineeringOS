@@ -35,6 +35,8 @@ export type CanonicalProofFailureReason =
   | "source_revision_mismatch"
   | "missing_candidate_identity"
   | "candidate_identity_mismatch"
+  | "missing_evidence_source_revision"
+  | "missing_evidence_candidate_identity"
   | "missing_evidence_snapshot"
   | "evidence_snapshot_mismatch"
   | "evidence_incomplete"
@@ -58,6 +60,8 @@ export type CanonicalProofScope = {
   operationId?: string | null;
   planRevision?: string | null;
   activePlanRevision?: string | null;
+  sourceRevisionBinding: "execution" | "scope";
+  candidateIdentityBinding: "required" | "not_applicable";
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
 };
@@ -174,10 +178,15 @@ export function composeCanonicalProof(
   const evidence = input.evidence ?? null;
   const projection = projectedProof(acceptance);
   const executionSourceRevision = nonEmpty(execution?.baseRevision);
-  const expectedSourceRevision = executionSourceRevision
-    ?? nonEmpty(input.scope.sourceRevision);
+  const expectedSourceRevision = input.scope.sourceRevisionBinding === "scope"
+    ? nonEmpty(input.scope.sourceRevision)
+    : input.scope.sourceRevisionBinding === "execution"
+      ? executionSourceRevision
+      : null;
   const acceptedSourceRevision = nonEmpty(acceptance?.sourceRevision);
-  const expectedCandidateIdentity = nonEmpty(input.scope.candidateIdentity);
+  const expectedCandidateIdentity = input.scope.candidateIdentityBinding === "required"
+    ? nonEmpty(input.scope.candidateIdentity)
+    : null;
   const acceptedCandidateIdentity = nonEmpty(acceptance?.candidateIdentity);
 
   if (input.goalStatus !== "completed") addReason(reasons, "goal_not_completed");
@@ -256,17 +265,28 @@ export function composeCanonicalProof(
   ) {
     addReason(reasons, "source_revision_mismatch");
   }
+  if (
+    input.scope.sourceRevisionBinding === "scope"
+    && !nonEmpty(input.scope.sourceRevision)
+  ) {
+    addReason(reasons, "missing_source_revision");
+  }
   if (!expectedSourceRevision || !acceptedSourceRevision) {
     addReason(reasons, "missing_source_revision");
   } else if (acceptedSourceRevision !== expectedSourceRevision) {
     addReason(reasons, "source_revision_mismatch");
   }
 
-  if (expectedCandidateIdentity && !acceptedCandidateIdentity) {
-    addReason(reasons, "missing_candidate_identity");
+  if (input.scope.candidateIdentityBinding === "required") {
+    if (!expectedCandidateIdentity || !acceptedCandidateIdentity) {
+      addReason(reasons, "missing_candidate_identity");
+    } else if (acceptedCandidateIdentity !== expectedCandidateIdentity) {
+      addReason(reasons, "candidate_identity_mismatch");
+    }
   } else if (
-    expectedCandidateIdentity
-    && acceptedCandidateIdentity !== expectedCandidateIdentity
+    input.scope.candidateIdentityBinding !== "not_applicable"
+    || nonEmpty(input.scope.candidateIdentity)
+    || acceptedCandidateIdentity
   ) {
     addReason(reasons, "candidate_identity_mismatch");
   }
@@ -294,17 +314,28 @@ export function composeCanonicalProof(
       if (evidence.verdict === "UNAVAILABLE") {
         addReason(reasons, "evidence_unavailable");
       }
-      if (
-        acceptedSourceRevision
-        && nonEmpty(evidence.sourceRevision)
-        && evidence.sourceRevision !== acceptedSourceRevision
+      const evidenceSourceRevision = nonEmpty(evidence.sourceRevision);
+      if (!evidenceSourceRevision) {
+        addReason(reasons, "missing_evidence_source_revision");
+      } else if (
+        (expectedSourceRevision && evidenceSourceRevision !== expectedSourceRevision)
+        || (acceptedSourceRevision && evidenceSourceRevision !== acceptedSourceRevision)
       ) {
         addReason(reasons, "source_revision_mismatch");
       }
+      const evidenceCandidateIdentity = nonEmpty(evidence.candidateIdentity);
       if (
-        acceptedCandidateIdentity
-        && nonEmpty(evidence.candidateIdentity)
-        && evidence.candidateIdentity !== acceptedCandidateIdentity
+        input.scope.candidateIdentityBinding === "required"
+        && expectedCandidateIdentity
+        && !evidenceCandidateIdentity
+      ) {
+        addReason(reasons, "missing_evidence_candidate_identity");
+      } else if (
+        evidenceCandidateIdentity
+        && (
+          input.scope.candidateIdentityBinding !== "required"
+          || evidenceCandidateIdentity !== expectedCandidateIdentity
+        )
       ) {
         addReason(reasons, "candidate_identity_mismatch");
       }
@@ -655,7 +686,10 @@ export async function loadCanonicalDelegationProof(input: {
         executionId: child.id,
         goalId: child.goalId,
         operationId: child.operationId,
+        sourceRevisionBinding: "execution",
+        candidateIdentityBinding: "not_applicable",
         sourceRevision: child.baseRevision,
+        candidateIdentity: null,
       },
       goalStatus: child.status,
     });

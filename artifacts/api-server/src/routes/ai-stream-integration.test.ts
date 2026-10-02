@@ -992,6 +992,46 @@ describe("AI execution resume-capability recovery", () => {
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
   });
 
+  it("projects a completed lifecycle row without same-attempt acceptance as unknown", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Completed without acceptance");
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "Inspect the project",
+        modelMessage: "Inspect the project",
+        validationTargetPaths: [],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({ status: "completed", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const acceptances = await db
+      .select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    expect(acceptances).toHaveLength(0);
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}`)
+      .expect(200);
+    expect(detail.body.terminalProjection).toMatchObject({
+      executionId: created.execution.id,
+      status: "completed",
+      outcome: "UNKNOWN",
+      reasonCode: "ACCEPTANCE_MISSING",
+      acceptanceId: null,
+    });
+    expect(detail.body.projection.stopped.outcome).toBe("UNKNOWN");
+  });
+
   it("linearizes concurrent capability refreshes and reconnect streams into one identity-preserving resume", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
