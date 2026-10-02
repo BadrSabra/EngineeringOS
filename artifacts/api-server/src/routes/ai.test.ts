@@ -7391,11 +7391,21 @@ describe("POST /api/ai/chat/apply-changes", () => {
         eq(aiAgentEpisodesTable.attempt, execution!.attempt),
       )).limit(1);
       expect(episodeBeforeReplay).toMatchObject({
-        state: "verifying",
-        closedAt: null,
+        state: "completed",
+        closedAt: expect.any(Date),
         projectRevision: acceptance!.sourceRevision,
       });
 
+      // Recreate the pre-finalization episode state to exercise the duplicate
+      // acceptance path with a legacy optional-evidence PROVEN projection.
+      await db.delete(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, episodeBeforeReplay!.id),
+        eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+      ));
+      await db.update(aiAgentEpisodesTable).set({
+        state: "verifying",
+        closedAt: null,
+      }).where(eq(aiAgentEpisodesTable.id, episodeBeforeReplay!.id));
       await db.update(aiExecutionAcceptancesTable).set({ evidenceRequired: 0 })
         .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
       try {
