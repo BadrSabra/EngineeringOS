@@ -85,7 +85,7 @@
 - [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
-- [Recipe delivery contracts](recipe-delivery-contracts.md) — delivery recipes use `none` scope, project integration outputs need strict projection, and terminal bindings must survive replay.
+- [Recipe delivery contracts](recipe-delivery-contracts.md) — capability receipts are not retained source evidence; recipes need an explicit evidence mode before producing Canonical Proof.
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [Read-only invocation telemetry](recipe-read-only-classification.md) — use explicit allowlists, full-manifest hashes, and durable Episode bindings; never infer read-only safety from a mutation flag.
@@ -93,7 +93,7 @@
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
-- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
+- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows drive status; completion-gate tests must exercise the loader, not fabricated proof projections.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
@@ -124,7 +124,7 @@
 - [Mission tool-loop profile boundary](mission-tool-loop-profile.md) — server-owned plan steps select profiles; legacy tasks retain TaskAgent behavior.
 - [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
 - [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
-- [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — bind Mission dispatch to owner/revision identities; keep candidate replay strict, proof-bound, isolated, and non-production.
+- [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — lineage is not proof authority; parent aggregation needs an explicit required-child contract.
 - [Capability environment identity](capability-environment-identity.md) — derive compatibility identity from canonical registry IDs and versions; never treat it as permission or infer it for legacy records.
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
 - [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.

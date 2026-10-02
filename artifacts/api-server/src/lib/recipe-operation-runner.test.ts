@@ -64,6 +64,7 @@ import {
   registerProspectiveStrategyReplayCase,
 } from "./agent-state/strategy-replay-case-registry.js";
 import { runRegisteredStrategyReplayCase } from "./agent-state/strategy-replay-case-runner.js";
+import { loadCanonicalProof } from "./proof-foundation.js";
 
 const validationCalls: string[] = [];
 const validationEvidenceContexts: unknown[] = [];
@@ -491,6 +492,43 @@ describe("read-only recipe invocation events", () => {
         },
       });
       expect(result.status).toBe("completed");
+
+      const [execution] = await db.select({
+        attempt: aiExecutionsTable.attempt,
+        request: aiExecutionsTable.request,
+        baseRevision: aiExecutionsTable.baseRevision,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, result.executionId))
+        .limit(1);
+      if (!execution) throw new Error("completed recipe execution was not persisted");
+      const [acceptance] = await db.select()
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, result.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+        ))
+        .limit(1);
+      expect(JSON.parse(execution.request).proofRequired).not.toBe(true);
+      expect(acceptance).toMatchObject({
+        evidenceRequired: 0,
+        evidenceSnapshotId: null,
+        disposition: expect.objectContaining({
+          proof: expect.objectContaining({ verdict: "NOT_REQUIRED" }),
+        }),
+      });
+      const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: result.executionId,
+        scope: {
+          projectId: fixture.params.projectId,
+          executionId: result.executionId,
+          sourceRevisionBinding: "execution",
+          candidateIdentityBinding: "not_applicable",
+        },
+        goalStatus: "completed",
+      }));
+      expect(canonicalProof.accepted).toBe(false);
+      expect(canonicalProof.verdict).not.toBe("PROVEN");
 
       const events = await db.select({
         episodeId: aiAgentEpisodeEventsTable.episodeId,

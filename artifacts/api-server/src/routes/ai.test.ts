@@ -68,6 +68,7 @@ import {
   requestAiExecutionCancel,
 } from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
+import { loadCanonicalProof } from "../lib/proof-foundation.js";
 import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js";
 import { recordAiUsageAttempt } from "../lib/ai-telemetry.js";
 import {
@@ -8626,6 +8627,20 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
   });
 });
 
+async function loadCurrentExecutionProofForTest(projectId: string, executionId: string) {
+  return db.transaction((tx) => loadCanonicalProof({
+    tx,
+    executionId,
+    scope: {
+      projectId,
+      executionId,
+      sourceRevisionBinding: "execution",
+      candidateIdentityBinding: "not_applicable",
+    },
+    goalStatus: "completed",
+  }));
+}
+
 describe("POST /api/ai/tasks/:taskId/resume", () => {
   beforeAll(() => {
     process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
@@ -8709,8 +8724,9 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
       status: "failed",
       updatedAt: new Date(),
     }).where(eq(aiExecutionsTable.id, created.execution.id));
+    const previousAcceptanceId = randomUUID();
     await db.insert(aiExecutionAcceptancesTable).values({
-      id: randomUUID(),
+      id: previousAcceptanceId,
       executionId: created.execution.id,
       projectId,
       attempt: created.execution.attempt,
@@ -8752,6 +8768,10 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
       attempt: execution!.attempt,
       outcome: "SUCCEEDED",
     });
+    const proof = await loadCurrentExecutionProofForTest(projectId, created.execution.id);
+    expect(proof.attempt).toBe(execution!.attempt);
+    expect(proof.acceptanceId).toBe(acceptance?.id ?? null);
+    expect(proof.acceptanceId).not.toBe(previousAcceptanceId);
   });
 });
 
@@ -8924,7 +8944,7 @@ describe("autonomous task acceptance finalization races", () => {
   it("records cancellation as one interrupted acceptance without replaying task side effects", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
-    const fixture = await insertRunningTaskExecution(projectId);
+    const fixture = await insertRunningTaskExecution(projectId, { proofRequired: true });
 
     await db.update(aiExecutionsTable).set({
       status: "cancelling",
@@ -9024,12 +9044,17 @@ describe("autonomous task acceptance finalization races", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "TaskExecutionCancelled" });
     expect(acceptances).toHaveLength(1);
+    const proof = await loadCurrentExecutionProofForTest(projectId, fixture.executionId);
+    expect(proof.accepted).toBe(false);
+    expect(proof.verdict).not.toBe("PROVEN");
+    expect(proof.failureReasons).toContain("acceptance_not_succeeded");
+    expect(proof.failureReasons).toContain("acceptance_not_completed");
   });
 
   it("creates one recovery acceptance for an expired execution lease and preserves its attempt", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
-    const fixture = await insertRunningTaskExecution(projectId);
+    const fixture = await insertRunningTaskExecution(projectId, { proofRequired: true });
     const expiredAt = new Date(Date.now() - 60_000);
 
     await db.update(aiExecutionsTable).set({
@@ -9069,6 +9094,11 @@ describe("autonomous task acceptance finalization races", () => {
       resumable: 1,
       disposition: expect.objectContaining({ recoveryState: "REQUIRED" }),
     });
+    const proof = await loadCurrentExecutionProofForTest(projectId, fixture.executionId);
+    expect(proof.accepted).toBe(false);
+    expect(proof.verdict).not.toBe("PROVEN");
+    expect(proof.failureReasons).toContain("acceptance_not_succeeded");
+    expect(proof.failureReasons).toContain("acceptance_not_completed");
   });
 
   it("keeps an expired ordinary CHAT execution non-resumable", async () => {
@@ -9167,6 +9197,11 @@ describe("autonomous task acceptance finalization races", () => {
       complete: 0,
       readCount: 0,
     });
+    const proof = await loadCurrentExecutionProofForTest(projectId, fixture.executionId);
+    expect(proof.accepted).toBe(false);
+    expect(proof.verdict).not.toBe("PROVEN");
+    expect(proof.failureReasons).toContain("acceptance_not_succeeded");
+    expect(proof.failureReasons).toContain("acceptance_not_completed");
   });
 
   it("does not let a stale worker overwrite the recovery winner", async () => {
@@ -9223,6 +9258,11 @@ describe("autonomous task acceptance finalization races", () => {
       outcome: "FAILED",
       reasonCode: "EXECUTION_LEASE_EXPIRED",
     });
+    const proof = await loadCurrentExecutionProofForTest(projectId, fixture.executionId);
+    expect(proof.accepted).toBe(false);
+    expect(proof.verdict).not.toBe("PROVEN");
+    expect(proof.failureReasons).toContain("acceptance_not_succeeded");
+    expect(proof.failureReasons).toContain("acceptance_not_completed");
   });
 });
 

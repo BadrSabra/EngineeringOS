@@ -25,6 +25,7 @@ import {
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
 import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
+import { loadCanonicalProof } from "../../lib/proof-foundation.js";
 import {
   createDeliveryWorkspace,
   DELIVERY_TREE_DIGEST_VERSION,
@@ -1921,6 +1922,137 @@ describe("AI missions and goals", () => {
     expect(persisted?.status).not.toBe("completed");
     expect(persisted?.outcomeContract).not.toMatchObject({
       planRevision: { hash: "unproven-revision" },
+    });
+  });
+
+  it("rejects a PROVEN Goal projection backed only by evidence from another attempt", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Goal attempt proof",
+      intent: "Require current-attempt evidence for Goal completion",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Attempt-bound goal",
+    });
+    const operationId = randomUUID();
+    const sourceRevision = "goal-proof-revision";
+    const now = new Date();
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      goalId: goal.body.id,
+      attempt: 0,
+      correlationId: operationId,
+      idempotencyKey: `goal-attempt-proof-${randomUUID()}`,
+      request: {
+        projectId,
+        operationId,
+        message: "Verify the current Goal proof",
+        modelMessage: "Verify the current Goal proof",
+        workspaceRevision: sourceRevision,
+        validationTargetPaths: [],
+        proofRequired: true,
+      },
+    });
+    const executionId = created.execution.id;
+    const attempt = created.execution.attempt;
+    const evidenceSnapshotId = randomUUID();
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId,
+      sourceRevision,
+      candidateIdentity: null,
+    });
+
+    await db.update(aiExecutionsTable).set({
+      status: "completed",
+      baseRevision: sourceRevision,
+      completedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, executionId));
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: evidenceSnapshotId,
+      executionId,
+      projectId,
+      attempt: attempt + 1,
+      operationId,
+      sourceRevision,
+      candidateIdentity: null,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt,
+      finalizationKey: `goal-attempt-proof-${executionId}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof },
+      evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      candidateIdentity: null,
+      createdAt: now,
+    });
+
+    const goalAcceptance = {
+      executionId,
+      attempt,
+      sourceRevision,
+      evidenceSnapshotId,
+      evidenceRequired: true,
+      evidenceComplete: true,
+      scope: { operationId },
+      disposition: { proof },
+    };
+    await db.update(aiGoalsTable).set({
+      outcomeContract: { acceptance: goalAcceptance },
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+
+    const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+      tx,
+      executionId,
+      attempt,
+      scope: {
+        projectId,
+        goalId: goal.body.id,
+        executionId,
+        operationId,
+        sourceRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "not_applicable",
+      },
+      goalStatus: "completed",
+    }));
+    expect(canonicalProof.accepted).toBe(false);
+    expect(canonicalProof.verdict).not.toBe("PROVEN");
+    expect(canonicalProof.failureReasons).toContain("missing_evidence_snapshot");
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({ title: "Should roll back", status: "completed" });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("GOAL_COMPLETION_REQUIRES_PROOF");
+    const [persisted] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persisted?.title).toBe("Attempt-bound goal");
+    expect(persisted?.status).not.toBe("completed");
+    expect(persisted?.outcomeContract).toMatchObject({
+      acceptance: { executionId, evidenceSnapshotId, disposition: { proof: { verdict: "PROVEN" } } },
     });
   });
 

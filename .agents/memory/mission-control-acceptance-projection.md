@@ -35,3 +35,9 @@ adapters invent incompatible acceptance shapes.
 **How to apply:** Project only allowlisted acceptance metadata after durable
 finalization; never copy provider diagnostics or evidence bodies into the Goal
 contract.
+
+Completion and promotion consumers must be tested through durable Canonical Proof loading, not only with fabricated `PROVEN` projections or pure helper inputs. A valid-looking acceptance projection cannot replace the execution/attempt/snapshot identity checks.
+
+**Why:** Projection-only tests can pass while production acceptance rows point at incomplete, missing, or wrong-attempt evidence; helper coverage alone does not prove a route or completion gate reloads the durable source of truth.
+
+**How to apply:** For each completion/promotion boundary, seed durable execution, acceptance, and evidence rows, mutate one identity or evidence binding, then assert the consumer refuses completion and preserves transactional rollback.

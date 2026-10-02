@@ -20,3 +20,9 @@ Replay recovery must revalidate the server-owned completed receipt and finish di
 **Why:** A process interruption can leave the execution terminal before the replay row or cleanup projection is written, and raw durable rows can disclose internal workspace topology.
 
 **How to apply:** Treat a completed execution without a matching replay receipt as failed/incomplete, retry cleanup fail-closed, and serialize GET responses through the same public projection used by POST.
+
+Execution lineage alone does not make a child Canonical Proof-required. Parent proof aggregation must use an explicit server-owned required-child contract; it must not treat every `parentExecutionId` link as a proof requirement.
+
+**Why:** Optional child executions exist, while the current delegation proof loader selects every direct child and no durable field declares which children are required. The loader has no production call site, so its current behavior is not evidence of an active completion gate.
+
+**How to apply:** Before wiring a parent aggregation into acceptance, persist and validate required-child identities/policy, then load proof only for that declared set. Do not infer requiredness from lineage, task type, or provider output.
