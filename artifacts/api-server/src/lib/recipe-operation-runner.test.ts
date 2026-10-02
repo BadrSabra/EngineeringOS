@@ -48,9 +48,12 @@ import {
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import {
   createRuntimeStartRunner,
+  collectTrustedRecipeValidationEvidence,
+  buildRecipeTaskObjectiveValidatorReceipts,
   prepareRecipeOperation,
   runRecipeOperation,
 } from "./recipe-operation-runner.js";
+import { buildTaskObjectiveContract } from "./task-objective-contract.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 import { readWorldStateForDecision } from "./agent-state/runtime-start-transition.js";
@@ -77,6 +80,162 @@ let validationAttestationMode:
   | "stale"
   | "old_timestamp" = "known";
 const execFileAsync = promisify(execFile);
+
+describe("recipe task-objective validator receipts", () => {
+  it("binds generic validation evidence only to the registered-validation objective", () => {
+    const completionEvidence = [{
+      evidenceId: "validation-evidence-1",
+      artifactRef: "validation-result:workspace-typecheck",
+      projectRevision: "revision-1",
+      operationId: "execution-1",
+      validatorProfile: "workspace-typecheck",
+      environmentRevision: null,
+    }];
+    const trustedValidationEvidence = [{
+      evidenceId: "validation-evidence-1",
+      artifactRef: "validation-result:workspace-typecheck",
+      projectRevision: "revision-1",
+      operationId: "execution-1",
+      validatorProfile: "workspace-typecheck",
+    }];
+    const common = {
+      completionEvidence,
+      trustedValidationEvidence,
+      operationId: "operation-1",
+      projectId: "project-1",
+    };
+    const bugFixObjective = buildTaskObjectiveContract({
+      message: "Fix the bug in checkout",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      proofRequired: true,
+    })!;
+    const browserObjective = buildTaskObjectiveContract({
+      message: "Run the browser workflow and verify checkout",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      proofRequired: true,
+    })!;
+
+    expect(buildRecipeTaskObjectiveValidatorReceipts({
+      ...common,
+      taskObjective: bugFixObjective,
+    })).toEqual([{
+      validatorId: "registered-validation.v1",
+      status: "PROVEN",
+      operationId: "operation-1",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      artifactRef: "validation-result:workspace-typecheck",
+      validatorProfile: "workspace-typecheck",
+      environmentRevision: null,
+    }]);
+    expect(buildRecipeTaskObjectiveValidatorReceipts({
+      ...common,
+      trustedValidationEvidence: [],
+      taskObjective: bugFixObjective,
+    })).toEqual([]);
+    expect(buildRecipeTaskObjectiveValidatorReceipts({
+      ...common,
+      taskObjective: browserObjective,
+    })).toEqual([]);
+  });
+
+  it("does not issue a registered-validation receipt for an unknown profile", () => {
+    const taskObjective = buildTaskObjectiveContract({
+      message: "Fix the bug in checkout",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      proofRequired: true,
+    })!;
+
+    expect(buildRecipeTaskObjectiveValidatorReceipts({
+      taskObjective,
+      operationId: "operation-1",
+      projectId: "project-1",
+      completionEvidence: [{
+        evidenceId: "validation-evidence-unknown",
+        artifactRef: "validation-result:unregistered",
+        projectRevision: "revision-1",
+        operationId: "execution-1",
+        validatorProfile: "browser-preview",
+      }],
+      trustedValidationEvidence: [{
+        evidenceId: "validation-evidence-unknown",
+        artifactRef: "validation-result:unregistered",
+        projectRevision: "revision-1",
+        operationId: "execution-1",
+        validatorProfile: "browser-preview",
+      }],
+    })).toEqual([]);
+  });
+
+  it("trusts profile evidence only from a matching server validation capability output", () => {
+    const evidence = {
+      evidenceId: "validation-evidence-1",
+      artifactRef: "validation-result:workspace-typecheck",
+      operationId: "execution-1",
+      projectRevision: "revision-1",
+      candidateHash: "candidate-1",
+      validatorProfile: "workspace-typecheck",
+    };
+    const nodes = [
+      {
+        id: "registered-validation",
+        capabilityId: "validation.run.workspace-typecheck",
+        status: "passed",
+      },
+      {
+        id: "arbitrary-task-output",
+        capabilityId: "project.read_file",
+        status: "passed",
+      },
+      {
+        id: "wrong-profile",
+        capabilityId: "validation.run.ai-orchestrator-tests",
+        status: "passed",
+      },
+    ] as const;
+    const outputs = new Map<string, Record<string, unknown>>([
+      ["registered-validation", {
+        status: "passed",
+        profile: "workspace-typecheck",
+        evidence,
+      }],
+      ["arbitrary-task-output", {
+        status: "passed",
+        profile: "workspace-typecheck",
+        evidence,
+      }],
+      ["wrong-profile", {
+        status: "passed",
+        profile: "ai-orchestrator-tests",
+        evidence,
+      }],
+    ]);
+
+    expect(collectTrustedRecipeValidationEvidence({
+      nodes,
+      outputs,
+      executionId: "execution-1",
+      projectRevision: "revision-1",
+      candidateHash: "candidate-1",
+    })).toEqual([{
+      evidenceId: "validation-evidence-1",
+      artifactRef: "validation-result:workspace-typecheck",
+      operationId: "execution-1",
+      projectRevision: "revision-1",
+      validatorProfile: "workspace-typecheck",
+    }]);
+    expect(collectTrustedRecipeValidationEvidence({
+      nodes,
+      outputs,
+      executionId: "another-execution",
+      projectRevision: "revision-1",
+      candidateHash: "candidate-1",
+    })).toEqual([]);
+  });
+});
 
 vi.mock("./ai-repair-validation.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-repair-validation.js")>(

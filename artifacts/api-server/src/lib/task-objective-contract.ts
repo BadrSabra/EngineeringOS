@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ValidationProfileSchema } from "@workspace/ai-orchestrator";
 
 export const TASK_OBJECTIVE_CONTRACT_VERSION = 1 as const;
 
@@ -78,6 +79,7 @@ export type TaskObjectiveValidatorReceipt = {
   projectId: string;
   workspaceRevision: string;
   artifactRef: string;
+  validatorProfile?: string;
   environmentRevision?: string | null;
 };
 
@@ -94,6 +96,10 @@ export function parseTaskObjectiveValidatorReceipt(
     || typeof candidate.workspaceRevision !== "string"
     || typeof candidate.artifactRef !== "string"
     || (
+      candidate.validatorProfile !== undefined
+      && typeof candidate.validatorProfile !== "string"
+    )
+    || (
       candidate.environmentRevision !== undefined
       && candidate.environmentRevision !== null
       && typeof candidate.environmentRevision !== "string"
@@ -106,6 +112,9 @@ export function parseTaskObjectiveValidatorReceipt(
     projectId: candidate.projectId.slice(0, 160),
     workspaceRevision: candidate.workspaceRevision.slice(0, 2_000),
     artifactRef: candidate.artifactRef.slice(0, 500),
+    ...(typeof candidate.validatorProfile === "string"
+      ? { validatorProfile: candidate.validatorProfile.slice(0, 120) }
+      : {}),
     environmentRevision: typeof candidate.environmentRevision === "string"
       ? candidate.environmentRevision.slice(0, 2_000)
       : null,
@@ -427,6 +436,22 @@ export function validateTaskObjectiveContract(
     }
     if (!receipt.artifactRef.trim()) {
       add("validation_failed", `${validatorId} receipt has no server-owned artifact reference`);
+    }
+    if (validatorId === "registered-validation.v1") {
+      if (
+        !receipt.validatorProfile
+        || !ValidationProfileSchema.safeParse(receipt.validatorProfile).success
+      ) {
+        add(
+          "validator_unavailable",
+          `${validatorId} receipt is not bound to a registered validation profile`,
+        );
+      }
+    } else if (receipt.validatorProfile !== undefined) {
+      add(
+        "validation_failed",
+        `${validatorId} cannot be proven by a generic registered-validation profile`,
+      );
     }
   }
   if (input.evidenceComplete === false) {

@@ -156,6 +156,84 @@ describe("task objective contracts", () => {
     expect(result.allowed).toBe(true);
   });
 
+  it("does not let a registered code-validation profile prove a browser validator", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Run the browser workflow and verify checkout",
+    })!;
+
+    const result = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      operationId: "operation-browser",
+      validatorReceipts: [{
+        validatorId: "browser-preview.v1",
+        status: "PROVEN",
+        operationId: "operation-browser",
+        projectId: base.projectId,
+        workspaceRevision: base.workspaceRevision,
+        artifactRef: "validation-result:generic-typecheck",
+        validatorProfile: "workspace-typecheck",
+      }],
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.codes).toContain("validation_failed");
+  });
+
+  it("requires registered-validation receipts to name a real registered profile", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Fix the bug in checkout",
+    })!;
+    const receipt = {
+      validatorId: "registered-validation.v1",
+      status: "PROVEN" as const,
+      operationId: "operation-fix",
+      projectId: base.projectId,
+      workspaceRevision: base.workspaceRevision,
+      artifactRef: "validation-result:fix",
+    };
+
+    const missingProfile = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      operationId: "operation-fix",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [receipt],
+    });
+    expect(missingProfile.allowed).toBe(false);
+    expect(missingProfile.codes).toContain("validator_unavailable");
+
+    const registeredProfile = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      operationId: "operation-fix",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [{ ...receipt, validatorProfile: "workspace-typecheck" }],
+    });
+    expect(registeredProfile).toEqual({ allowed: true, codes: [], reasons: [] });
+
+    const unregisteredProfile = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      operationId: "operation-fix",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [{ ...receipt, validatorProfile: "browser-preview" }],
+    });
+    expect(unregisteredProfile.allowed).toBe(false);
+    expect(unregisteredProfile.codes).toContain("validator_unavailable");
+  });
+
   it("keeps deployment and integration tasks incomplete until receipts exist", () => {
     for (const message of [
       "Deploy the application",

@@ -12474,6 +12474,10 @@ export async function handleChatStream(req: Request, res: Response) {
                 projectId,
                 workspaceRevision,
                 artifactRef: finalValidation.result.evidence.artifactRef,
+                ...(validatorId === "registered-validation.v1"
+                  && typeof finalValidation.result.evidence.validatorProfile === "string"
+                  ? { validatorProfile: finalValidation.result.evidence.validatorProfile }
+                  : {}),
               }];
             }
             if (

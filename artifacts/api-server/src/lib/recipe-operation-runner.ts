@@ -24,6 +24,7 @@ import {
   type EffectContract,
   type EpisodeVerdict,
   type JsonValue,
+  ValidationProfileSchema,
 } from "@workspace/ai-orchestrator";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -62,6 +63,7 @@ import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import { logger } from "./logger.js";
 import {
   parseTaskObjectiveContract,
+  type TaskObjectiveContract,
   type TaskObjectiveValidatorReceipt,
 } from "./task-objective-contract.js";
 import {
@@ -573,6 +575,104 @@ export type PreparedRecipeOperation = {
   binding: RecipeOperationBinding;
   proofEvidenceMode: "artifact_only" | "source_required" | "operational_only";
 };
+
+type RecipeTaskObjectiveEvidence = {
+  evidenceId: string;
+  artifactRef: string;
+  projectRevision: string;
+  operationId: string;
+  validatorProfile?: string;
+  environmentRevision?: string | null;
+};
+
+type TrustedRecipeValidationEvidence = {
+  evidenceId: string;
+  artifactRef: string;
+  operationId: string;
+  projectRevision: string;
+  validatorProfile: string;
+};
+
+export function collectTrustedRecipeValidationEvidence(input: {
+  nodes: readonly Pick<ExecutionNode, "id" | "capabilityId" | "status">[];
+  outputs: ReadonlyMap<string, Record<string, unknown>>;
+  executionId: string;
+  projectRevision: string;
+  candidateHash?: string;
+}): TrustedRecipeValidationEvidence[] {
+  const trusted: TrustedRecipeValidationEvidence[] = [];
+  for (const node of input.nodes) {
+    if (node.status !== "passed" || typeof node.capabilityId !== "string") continue;
+    const profileMatch = /^validation\.run\.(.+)$/.exec(node.capabilityId);
+    const parsedProfile = ValidationProfileSchema.safeParse(profileMatch?.[1]);
+    if (!parsedProfile.success) continue;
+
+    const output = input.outputs.get(node.id);
+    if (
+      !output
+      || output.status !== "passed"
+      || output.profile !== parsedProfile.data
+    ) continue;
+    const evidence = output.evidence;
+    if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) continue;
+    const record = evidence as Record<string, unknown>;
+    if (
+      typeof record.evidenceId !== "string"
+      || !record.evidenceId.trim()
+      || typeof record.artifactRef !== "string"
+      || !record.artifactRef.trim()
+      || record.validatorProfile !== parsedProfile.data
+      || record.operationId !== input.executionId
+      || record.projectRevision !== input.projectRevision
+      || (input.candidateHash && record.candidateHash !== input.candidateHash)
+    ) continue;
+
+    trusted.push({
+      evidenceId: record.evidenceId,
+      artifactRef: record.artifactRef,
+      operationId: input.executionId,
+      projectRevision: input.projectRevision,
+      validatorProfile: parsedProfile.data,
+    });
+  }
+  return trusted;
+}
+
+export function buildRecipeTaskObjectiveValidatorReceipts(input: {
+  taskObjective?: TaskObjectiveContract;
+  completionEvidence: readonly RecipeTaskObjectiveEvidence[];
+  trustedValidationEvidence: readonly TrustedRecipeValidationEvidence[];
+  operationId: string;
+  projectId: string;
+}): TaskObjectiveValidatorReceipt[] {
+  if (!input.taskObjective?.validatorIds.includes("registered-validation.v1")) return [];
+
+  const evidence = input.completionEvidence.find((item) =>
+    typeof item.validatorProfile === "string"
+    && ValidationProfileSchema.safeParse(item.validatorProfile).success
+    && input.trustedValidationEvidence.some((trusted) =>
+      trusted.evidenceId === item.evidenceId
+      && trusted.artifactRef === item.artifactRef
+      && trusted.operationId === item.operationId
+      && trusted.projectRevision === item.projectRevision
+      && trusted.validatorProfile === item.validatorProfile,
+    )
+    && item.artifactRef.trim().length > 0
+    && item.projectRevision.trim().length > 0,
+  );
+  if (!evidence?.validatorProfile) return [];
+
+  return [{
+    validatorId: "registered-validation.v1",
+    status: "PROVEN",
+    operationId: input.operationId,
+    projectId: input.projectId,
+    workspaceRevision: evidence.projectRevision,
+    artifactRef: evidence.artifactRef,
+    validatorProfile: evidence.validatorProfile,
+    environmentRevision: evidence.environmentRevision ?? null,
+  }];
+}
 
 export function createRuntimeStartRunner(
   manager = workspaceRuntime,
@@ -3285,25 +3385,20 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     } catch {
       taskObjective = undefined;
     }
-    const validatorEvidence = completionEvidence.find(
-      (item) => typeof item.validatorProfile === "string",
-    );
-    const validatorReceipts: TaskObjectiveValidatorReceipt[] = taskObjective && validatorEvidence
-      ? taskObjective.validatorIds.map((validatorId) => {
-          const evidence = validatorEvidence;
-          return {
-            validatorId,
-            status: "PROVEN" as const,
-            operationId: params.operationId,
-            projectId: params.projectId,
-            workspaceRevision: evidence.projectRevision,
-            artifactRef: evidence.artifactRef,
-            environmentRevision: typeof evidence.environmentRevision === "string"
-              ? evidence.environmentRevision
-              : null,
-          };
-        })
-      : [];
+    const trustedValidationEvidence = collectTrustedRecipeValidationEvidence({
+      nodes: result.nodes,
+      outputs,
+      executionId: claimed.id,
+      projectRevision: params.sourceRevision,
+      ...(params.candidateIdentity ? { candidateHash: params.candidateIdentity } : {}),
+    });
+    const validatorReceipts = buildRecipeTaskObjectiveValidatorReceipts({
+      taskObjective,
+      completionEvidence,
+      trustedValidationEvidence,
+      operationId: params.operationId,
+      projectId: params.projectId,
+    });
     let candidateEffectBundleId: string | undefined;
     if (
       candidateValidation

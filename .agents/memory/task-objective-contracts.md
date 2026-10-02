@@ -26,3 +26,9 @@ Review-ready proposals are a distinct terminal state: validate their operation, 
 **Why:** Requiring final proof before creating a proposal blocks the Plan → Approve → Build handoff, while applying the orientation evidence gate to lightweight status questions turns valid read-only responses into false incomplete executions.
 
 **How to apply:** Keep proposal completion checks identity-bound and receipt-backed with `requireProven: false`; gate orientation coverage/evidence only when the persisted execution explicitly requires proof.
+
+Recipe validation receipts may satisfy only `registered-validation.v1`. The profile must be taken from a successful server-owned `validation.run.<profile>` node output, bound to the exact evidence ID, artifact, execution, revision, and candidate when present; a profile string on arbitrary task output is not proof.
+
+**Why:** A generic task artifact can copy a valid profile name without the registered validator ever running, or can be reused for an unrelated validator.
+
+**How to apply:** Preserve capability provenance when adding recipe evidence adapters. If the validator node and its evidence bindings do not match, leave the receipt incomplete.
