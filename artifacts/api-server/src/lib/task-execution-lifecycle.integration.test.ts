@@ -2580,7 +2580,7 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("does not complete a delivery Goal or Mission without a server-owned receipt", async () => {
+  it("records local task completion without completing the delivery Goal or Mission", async () => {
     const projectId = randomUUID();
     const missionId = randomUUID();
     const goalId = randomUUID();
@@ -2672,6 +2672,23 @@ describe("real durable task execution lifecycle", () => {
         .select({ status: aiMissionsTable.status })
         .from(aiMissionsTable)
         .where(eq(aiMissionsTable.id, missionId));
+      const [task] = await db
+        .select({ status: tasksTable.status })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      const [durableAcceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!));
+      expect(task?.status).toBe("completed");
+      expect(durableAcceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+      });
       expect(goal).toMatchObject({
         status: "verifying",
         outcomeContract: {
