@@ -35,6 +35,7 @@ async function buildValidationEnv() {
 }
 
 const validationEnv = await buildValidationEnv();
+delete validationEnv.RELEASE_VALIDATION_LOCK_HELD;
 
 if (!process.env.DATABASE_URL) {
   const child = spawn("pnpm", ["run", "validate:release"], {
@@ -58,7 +59,10 @@ if (!process.env.DATABASE_URL) {
 
   const child = spawn("pnpm", ["run", "validate:release"], {
     cwd: workspaceRoot,
-    env: validationEnv,
+    env: {
+      ...validationEnv,
+      RELEASE_VALIDATION_LOCK_HELD: "1",
+    },
     stdio: "inherit",
   });
   const exitCode = await new Promise((resolve) => {

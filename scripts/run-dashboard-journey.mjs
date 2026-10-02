@@ -686,7 +686,9 @@ async function readOriginDiagnostics() {
 
 async function startReleaseServices() {
   if (process.env.DATABASE_URL) {
-    validationLockCleanup = await acquireReleaseLock(validationLockPath);
+    if (process.env.RELEASE_VALIDATION_LOCK_HELD !== "1") {
+      validationLockCleanup = await acquireReleaseLock(validationLockPath);
+    }
     releaseLockCleanup = await acquireReleaseRunnerLock();
   }
   await mkdir(outputDir, { recursive: true });

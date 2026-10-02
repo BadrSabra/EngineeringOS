@@ -114,6 +114,7 @@ describe("AI release quality gate", () => {
     const baseEnv = {
       DATABASE_URL: "provider-free-fixture",
       OPENROUTER_API_KEY: "should-not-be-used",
+      RELEASE_VALIDATION_LOCK_HELD: "1",
       RUN_CONTROLLED_RELEASE_VALIDATION: "stale",
     };
     for (const id of ["ai-long-run-ownership", "ai-stream-release-smoke"]) {
@@ -134,6 +135,7 @@ describe("AI release quality gate", () => {
       (candidate) => candidate.id === "dashboard-preview-contract",
     )!;
     expect(buildAiReleaseCheckEnvironment(previewCheck, baseEnv)).toMatchObject({
+      RELEASE_VALIDATION_LOCK_HELD: "1",
       RELEASE_AI_STREAM_LOCK_HELD: "1",
       RUN_CONTROLLED_RELEASE_VALIDATION: "1",
       AI_PROVIDER_EGRESS_DISABLED: "1",

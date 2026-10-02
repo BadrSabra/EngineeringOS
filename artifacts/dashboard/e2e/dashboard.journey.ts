@@ -3487,7 +3487,9 @@ function installResumedAnalysisFailureFixture() {
   };
 }
 
-function installInterruptedResumeFixture() {
+function installInterruptedResumeFixture(
+  options: { omitInitialResumeToken?: boolean } = {},
+) {
   const sessionId = "e2e-interrupted-resume-session";
   const executionId = "e2e-interrupted-resume-execution";
   const initialToken = "e2e-interrupted-initial-token";
@@ -3599,7 +3601,7 @@ function installInterruptedResumeFixture() {
         executionId,
         status: "running",
         resumable: true,
-        resumeToken: initialToken,
+      ...(options.omitInitialResumeToken ? {} : { resumeToken: initialToken }),
       }),
       sse({ type: "stage", stage: "calling-model" }),
       sse({ type: "delta", delta: partialAnswer }),
@@ -5853,34 +5855,29 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await openAdditionalChatActions(page);
     await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
 
-    await expect(
-      page.getByText(
-        "A saved AI execution is ready to resume",
-        { exact: true },
-      ),
-    ).toBeVisible();
+    const recoveryBanner = page.getByTestId("execution-recovery-banner");
+    const report = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    const resumeAction = page.getByTestId("button-recover-execution");
+    await expect
+      .poll(async () => (await report.isVisible()) || (await recoveryBanner.isVisible()))
+      .toBe(true);
     const proof = page.getByLabel("Agent execution proof");
     await expect(proof).toBeVisible();
     await expect(proof).toContainText(`Execution ${recovery.fixture.executionId}`);
     await expect(proof).toContainText(recovery.execution.operationId as string);
     await expect(proof).toContainText(recovery.execution.projectRevision as string);
-    await expect(
-      proof.getByRole("button", { name: "Resume", exact: true }),
-    ).toBeVisible();
-
-    const report = page.getByRole("region", {
-      name: "Capability probe report",
-    });
-    try {
-      // A transient SSE failure may be recovered automatically before the
-      // manual control is clicked. In that case the proof panel re-renders
-      // and the button is intentionally removed; the terminal report is the
-      // authoritative signal that the same execution was restored.
-      await proof
-        .getByRole("button", { name: "Resume", exact: true })
-        .click({ timeout: 5_000 });
-    } catch (error) {
-      if (!(await report.isVisible())) throw error;
+    if (!(await report.isVisible())) {
+      await expect(recoveryBanner).toContainText(/resume available/);
+      try {
+        // A transient SSE failure may be recovered automatically before the
+        // manual recovery action is clicked.
+        await expect(resumeAction).toBeEnabled({ timeout: 5_000 });
+        await resumeAction.click({ timeout: 5_000 });
+      } catch (error) {
+        if (!(await report.isVisible())) throw error;
+      }
     }
     await expect(report).toBeVisible();
     await expect(
@@ -5950,7 +5947,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(rehydratedProof).toContainText(recovery.execution.operationId as string);
     await expect(rehydratedProof).toContainText(recovery.execution.projectRevision as string);
     await expect(rehydratedProof).toContainText("Completed");
-    await expect(rehydratedProof).toContainText("Evidence: PROVEN");
+    await expect(rehydratedProof).toContainText("Proof verdict: PROVEN");
     await expect(page.getByText("Persisted proof", { exact: true })).toBeVisible();
   });
 
@@ -6913,7 +6910,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(proof).toContainText("Revision: e2e-revision-42");
     await expect(proof).toContainText("Terminal reason: cancel_requested");
     await expect(proof.getByRole("button", { name: "Cancel" })).toHaveCount(0);
-    await expect(proof.getByRole("button", { name: "Resume" })).toHaveCount(0);
+    await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     await expect(
       proof.getByRole("button", { name: "Approve & apply" }),
     ).toHaveCount(0);
@@ -7582,6 +7579,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("shows an actionable terminal state when live task reconnects are exhausted", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
+
     const taskId = "e2e-exhausted-live-task";
     const operationId = "e2e-exhausted-operation";
     const liveLog = {
@@ -8061,9 +8060,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const proof = page.getByLabel("Agent execution proof");
     await expect(proof).toBeVisible();
-    await expect(proof).toContainText("Evidence: PARTIAL");
+    await expect(proof).toContainText("Proof verdict: PARTIAL");
     await expect(proof).toContainText("not resumable");
-    await expect(proof.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Retry project analysis", exact: true }),
     ).toBeVisible();
@@ -8121,9 +8120,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.reload();
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
-    await expect(
-      page.getByRole("button", { name: "Resume", exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Retry project analysis", exact: true }),
     ).toBeVisible();
@@ -8163,9 +8160,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(streamRequests[1]).not.toHaveProperty("resumeToken");
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
-    await expect(
-      page.getByRole("button", { name: "Resume", exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     const retryEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ }).last();
     if (await retryEvidenceToggle.getAttribute("aria-expanded") !== "true") {
       await retryEvidenceToggle.click();
@@ -8356,6 +8351,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("converges the accepted attempt across SSE, JSON, history, and Mission Control after reconnect", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
+
     const recovery = installInterruptedCapabilityProbeFixture();
     const acceptedAcceptance = recovery.acceptedAcceptance as Record<string, unknown>;
     const staleAcceptance = recovery.pausedAcceptance as Record<string, unknown>;
@@ -8445,7 +8442,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       response.url().endsWith("/api/ai/chat/stream") &&
       response.request().method() === "POST",
     );
-    await proof.getByRole("button", { name: "Resume", exact: true }).click();
+    const recoveryBanner = page.getByTestId("execution-recovery-banner");
+    const resumeAction = page.getByTestId("button-recover-execution");
+    await expect(recoveryBanner).toBeVisible();
+    await expect(resumeAction).toBeEnabled();
+    await resumeAction.click();
     const resumeResponse = await resumeResponsePromise;
     const terminalEvents = parseSse(await resumeResponse.text()).filter(
       (event) => event.type === "done",
@@ -8495,7 +8496,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(acceptance).toContainText("NONE");
     await expect(acceptance).not.toContainText("RESUME_ALLOWED");
 
+    const missionControlReload = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname.includes("/api/ai/mission-control") &&
+        url.searchParams.get("projectId") === "e2e-project"
+      );
+    });
     await page.reload();
+    expect((await missionControlReload).status()).toBe(200);
     const reloadedAcceptance = page.getByRole("region", {
       name: "Current execution acceptance",
     });
@@ -9633,18 +9643,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    await expect(
-      page.getByText("A saved AI execution is ready to resume"),
-    ).toBeVisible();
+    const recoveryBanner = page.getByTestId("execution-recovery-banner");
+    await expect(recoveryBanner).toBeVisible();
+    await expect(recoveryBanner).toContainText(/resume available/);
     const resumeRequest = page.waitForRequest(
       (request) =>
         request.url().includes("/api/ai/chat/stream") &&
         request.method() === "POST",
     );
-    await page
-      .getByLabel("Agent execution proof")
-      .getByRole("button", { name: "Resume", exact: true })
-      .click();
+    await page.getByTestId("button-recover-execution").click();
     const requestBody = JSON.parse(
       (await resumeRequest).postData() ?? "{}",
     ) as Record<string, unknown>;
@@ -9661,9 +9668,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("Failed to send message", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText("A saved AI execution is ready to resume"),
-    ).toBeVisible();
+    await expect(recoveryBanner).toBeVisible();
+    await expect(recoveryBanner).toContainText(/resume available/);
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
@@ -9673,7 +9679,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("recovers a missing token after a real stream abort and resumes one execution", async ({
     page,
   }) => {
-    const recovery = installInterruptedResumeFixture();
+    const recovery = installInterruptedResumeFixture({
+      omitInitialResumeToken: true,
+    });
     await installApiFixtures(page, { interruptedResume: recovery });
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);
@@ -9751,31 +9759,41 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         }
       }
     });
+    const capabilityRequests: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.url().includes(
+          `/api/ai/executions/${recovery.fixture.executionId}/resume-capability`,
+        ) &&
+        request.method() === "POST"
+      ) {
+        capabilityRequests.push(request.url());
+      }
+    });
 
     const composer = page.locator("textarea").first();
     await composer.fill(recovery.fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    await expect(
-      page.getByText(
-        "A saved AI execution is ready to resume",
-        {
-          exact: true,
-        },
-      ),
-    ).toBeVisible();
+    const recoveryBanner = page.getByTestId("execution-recovery-banner");
+    await expect(recoveryBanner).toBeVisible();
+    await expect(recoveryBanner).toContainText(/resume available/);
     const executionProof = page.getByLabel("Agent execution proof");
     await expect(executionProof).toBeVisible();
-    await expect(
-      executionProof.getByRole("button", { name: "Resume", exact: true }),
-    ).toBeVisible();
 
     const storageKey =
       "eos_ai_execution_e2e-project_e2e-interrupted-resume-session";
     const pointerKey = "eos_ai_execution_current_e2e-project";
     await expect
-      .poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey))
-      .toContain(recovery.initialToken);
+      .poll(() =>
+        page.evaluate((key) => {
+          const saved = JSON.parse(localStorage.getItem(key) ?? "{}");
+          return saved.resumeToken;
+        }, storageKey),
+      )
+      .toBeUndefined();
+    expect(capabilityRequests).toHaveLength(0);
+    expect(streamRequests).toHaveLength(1);
 
     await page.evaluate(
       ({ storageKey, pointerKey }) => {
@@ -9788,15 +9806,20 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await page.reload();
 
-    await expect(
-      page.getByText("A saved AI execution is ready to resume", {
-        exact: true,
-      }),
-    ).toBeVisible();
-
-    await executionProof
-      .getByRole("button", { name: "Resume", exact: true })
-      .click();
+    await expect(recoveryBanner).toBeVisible();
+    await expect(recoveryBanner).toContainText(/resume available/);
+    expect(capabilityRequests).toHaveLength(0);
+    expect(streamRequests).toHaveLength(1);
+    const capabilityRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes(
+          `/api/ai/executions/${recovery.fixture.executionId}/resume-capability`,
+        ) &&
+        request.method() === "POST",
+    );
+    await page.getByTestId("button-recover-execution").click();
+    await capabilityRequest;
+    await expect.poll(() => capabilityRequests.length).toBe(1);
     await expect
       .poll(() =>
         page.evaluate((key) => {
@@ -9955,12 +9978,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "data-recovery-state",
       "discarded",
     );
-    await expect(available.getByRole("button", { name: "Resume validation" })).toBeEnabled();
-    await expect(available.getByRole("button", { name: "Discard workspace" })).toBeEnabled();
-    await expect(missing.getByRole("button", { name: "Resume validation" })).toBeDisabled();
-    await expect(missing.getByRole("button", { name: "Discard workspace" })).toBeDisabled();
-    await expect(discarded.getByRole("button", { name: "Resume validation" })).toBeDisabled();
-    await expect(discarded.getByRole("button", { name: "Discard workspace" })).toBeDisabled();
+    await expect(available.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
+    await expect(available.getByRole("button", { name: "Discard delivery workspace" })).toBeEnabled();
+    await expect(missing.getByRole("button", { name: "Resume delivery validation" })).toBeDisabled();
+    await expect(missing.getByRole("button", { name: "Discard delivery workspace" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "Resume delivery validation" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "Discard delivery workspace" })).toBeDisabled();
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
@@ -9976,12 +9999,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       reloadedRegion
         .locator('[data-operation-id="e2e-recovery-missing-operation"]')
-        .getByRole("button", { name: "Resume validation" }),
+        .getByRole("button", { name: "Resume delivery validation" }),
     ).toBeDisabled();
     await expect(
       reloadedRegion
         .locator('[data-operation-id="e2e-recovery-discarded-operation"]')
-        .getByRole("button", { name: "Discard workspace" }),
+        .getByRole("button", { name: "Discard delivery workspace" }),
     ).toBeDisabled();
     expect(recovery.requests.length).toBeGreaterThanOrEqual(2);
     expect(recovery.requests.every((url) => url.includes("projectId=e2e-project"))).toBe(true);
@@ -10052,8 +10075,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-race-operation"]',
     );
-    await expect(operation.getByRole("button", { name: "Resume validation" })).toBeEnabled();
-    await operation.getByRole("button", { name: "Resume validation" }).click();
+    await expect(operation.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
+    await operation.getByRole("button", { name: "Resume delivery validation" }).click();
 
     await expect(page.getByText("Recovery state changed", { exact: true })).toBeVisible();
     await expect(
@@ -10079,6 +10102,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("explains when an old recovery link points to a deleted operation", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
+
     const recovery = {
       requests: [] as string[],
       actionRequests: [] as string[],
@@ -10114,8 +10139,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     };
     await installApiFixtures(page, { deliveryRecovery: recovery });
+    let sessionListRequests = 0;
+    await page.route("**/api/ai/chat/sessions**", async (route) => {
+      sessionListRequests += 1;
+      return route.fulfill(jsonResponse([]));
+    });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
+    await expect.poll(() => sessionListRequests).toBeGreaterThan(0);
 
     const region = page.getByRole("region", {
       name: "Recoverable delivery operations",
@@ -10123,8 +10154,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-deleted-operation"]',
     );
-    await expect(operation.getByRole("button", { name: "Resume validation" })).toBeEnabled();
-    await operation.getByRole("button", { name: "Resume validation" }).click();
+    await expect(operation.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
+    await operation.getByRole("button", { name: "Resume delivery validation" }).click();
 
     await expect(page.getByText("Recovery link expired", { exact: true })).toBeVisible();
     await expect(

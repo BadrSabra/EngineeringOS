@@ -9890,7 +9890,9 @@ export default function AiChat() {
   function scheduleAutoReconnect(execution: ActiveExecution): boolean {
     const current = autoReconnectRef.current;
     const attempts = current.executionId === execution.id ? current.attempts : 0;
-    if (attempts >= 3 || (execution.resumable === false && !execution.resumeToken)) {
+    // Automatic reconnects may reuse a token already received from the stream.
+    // Fetching a missing capability is reserved for an explicit user action.
+    if (attempts >= 3 || !execution.resumeToken) {
       return false;
     }
     if (current.timer !== null) {

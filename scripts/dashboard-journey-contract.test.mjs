@@ -10,6 +10,10 @@ const journeyPath = resolve(
   "artifacts/dashboard/e2e/dashboard.journey.ts",
 );
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+const releaseValidationRunnerPath = resolve(
+  root,
+  "scripts/run-release-validation.mjs",
+);
 const workflowPath = resolve(root, ".github/workflows/ci.yml");
 const healthPath = resolve(root, "artifacts/api-server/src/routes/health.ts");
 const playwrightConfigPath = resolve(
@@ -20,12 +24,14 @@ const playwrightConfigPath = resolve(
 const [
   journeySource,
   runnerSource,
+  releaseValidationRunnerSource,
   workflowSource,
   healthSource,
   playwrightConfigSource,
 ] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
+  readFile(releaseValidationRunnerPath, "utf8"),
   readFile(workflowPath, "utf8"),
   readFile(healthPath, "utf8"),
   readFile(playwrightConfigPath, "utf8"),
@@ -1012,5 +1018,37 @@ test("origin failures preserve only sanitized phase and CORS diagnostics", () =>
     journeySource,
     /headers\[["'](?:cookie|set-cookie|authorization)["']\]/i,
     "Origin diagnostics must not read cookie or credential headers.",
+  );
+});
+
+test("nested dashboard journeys reuse only the explicitly held validation lock", () => {
+  assert.match(
+    releaseValidationRunnerSource,
+    /delete validationEnv\.RELEASE_VALIDATION_LOCK_HELD/,
+    "A caller-provided marker must not bypass validation-lock ownership.",
+  );
+  assert.match(
+    releaseValidationRunnerSource,
+    /cleanup = await acquireReleaseLock\(validationLockPath\);[\s\S]*?env:\s*\{\s*\.\.\.validationEnv,\s*RELEASE_VALIDATION_LOCK_HELD:\s*"1"/,
+    "The release wrapper must pass ownership only after acquiring its lock.",
+  );
+  const databaseLessBranch = releaseValidationRunnerSource.match(
+    /if \(!process\.env\.DATABASE_URL\) \{([\s\S]*?)\n\} else \{/,
+  );
+  assert.ok(databaseLessBranch, "Expected distinct database and no-database release paths.");
+  assert.doesNotMatch(
+    databaseLessBranch[1],
+    /RELEASE_VALIDATION_LOCK_HELD/,
+    "A release run without a database must not claim validation-lock ownership.",
+  );
+  assert.match(
+    runnerSource,
+    /process\.env\.RELEASE_VALIDATION_LOCK_HELD !== "1"[\s\S]*?acquireReleaseLock\(validationLockPath\)/,
+    "A nested journey must reuse the parent's validation lock instead of waiting on it.",
+  );
+  assert.match(
+    runnerSource,
+    /releaseLockCleanup = await acquireReleaseRunnerLock\(\)/,
+    "Validation-lock reuse must keep the separate API-stream runner lock contract.",
   );
 });
