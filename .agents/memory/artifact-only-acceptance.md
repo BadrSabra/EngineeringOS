@@ -7,4 +7,4 @@ The acceptance contract and the source-read requirement are separate signals. A 
 
 **Why:** Requiring source reads for every proof-required execution rejected valid Plan → Build handoffs even when node state and validation evidence were server-owned, operation-bound, and revision-bound.
 
-**How to apply:** Preserve `required` for the durable proof contract, and set source-evidence requirements independently when finalizing acceptance. Never weaken the autonomous operation identity, node, revision, or validation-evidence checks.
+**How to apply:** Preserve `required` for the durable proof contract, and set source-evidence requirements independently when finalizing acceptance. Never weaken the autonomous operation identity, node, revision, or validation-evidence checks. `sourceEvidenceRequired=false` does not make proof optional: artifact-only acceptance still needs an explicit `PROVEN` verdict. Successful executions with `evidenceRequired=false` are `NOT_REQUIRED` and cannot serve as canonical proof.
