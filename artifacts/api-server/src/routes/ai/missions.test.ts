@@ -1399,6 +1399,42 @@ describe("AI missions and goals", () => {
       },
     });
 
+    const [preRecoveryReplay] = await db
+      .select()
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    expect(preRecoveryReplay).toMatchObject({
+      status: "completed",
+      replayWorkspaceCleaned: true,
+      replayCanonicalAcceptanceId: replay.body.receipt.proof.receiptId,
+    });
+    await db.update(aiShadowReplaysTable)
+      .set({
+        status: "running",
+        workerId: "expired-shadow-replay-worker",
+        leaseUntil: new Date(Date.now() - 60_000),
+        error: null,
+        completedAt: null,
+      })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+
+    await runShadowReplayAttempt(replay.body.replay.id, "test-user");
+    const [positiveReplayRecovery] = await db
+      .select({
+        status: aiShadowReplaysTable.status,
+        receipt: aiShadowReplaysTable.receipt,
+        replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
+        replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
+      })
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    expect(positiveReplayRecovery).toMatchObject({
+      status: "completed",
+      receipt: replay.body.receipt,
+      replayCanonicalAcceptanceId: replay.body.receipt.proof.receiptId,
+      replayWorkspaceCleaned: true,
+    });
+
     const recoveryMismatchAttempt = replayExecutionAttempt + 1;
     await db.update(aiExecutionAcceptancesTable)
       .set({ attempt: recoveryMismatchAttempt })
@@ -1413,6 +1449,7 @@ describe("AI missions and goals", () => {
         leaseUntil: new Date(Date.now() - 60_000),
         error: null,
         completedAt: null,
+        attempt: preRecoveryReplay!.attempt,
       })
       .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
 

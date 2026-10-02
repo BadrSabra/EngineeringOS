@@ -43,6 +43,12 @@ export const ACCEPTANCE_NEXT_ACTION_CODES = [
 ] as const;
 export type AcceptanceNextActionCode = (typeof ACCEPTANCE_NEXT_ACTION_CODES)[number];
 
+export function resolveTaskObjectiveStatus(
+  status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" | undefined,
+): "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" {
+  return status ?? "INCOMPLETE";
+}
+
 export type ExecutionAcceptanceDisposition = {
   reasonCodes: string[];
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
@@ -1976,8 +1982,7 @@ export async function finalizeExecutionAcceptance(
             taskObjective: {
               kind: taskObjective.kind,
               validatorIds: taskObjective.validatorIds,
-              status: params.taskObjectiveStatus
-                ?? (params.outcome === "SUCCEEDED" ? "PROVEN" : "INCOMPLETE"),
+              status: resolveTaskObjectiveStatus(params.taskObjectiveStatus),
             },
           }
         : {}),

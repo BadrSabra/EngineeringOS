@@ -5,6 +5,7 @@ import {
   deriveMissionStatusFromGoals,
   normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
+  resolveTaskObjectiveStatus,
 } from "./ai-execution-acceptance.js";
 import {
   buildExecutionProofProjection,
@@ -392,6 +393,12 @@ describe("server-owned execution acceptance", () => {
       validatorIds: ["deployment-receipt.v1"],
       status: "UNAVAILABLE",
     });
+  });
+
+  it("does not infer a proven task objective when its validation status is omitted", () => {
+    expect(resolveTaskObjectiveStatus(undefined)).toBe("INCOMPLETE");
+    expect(resolveTaskObjectiveStatus("PROVEN")).toBe("PROVEN");
+    expect(resolveTaskObjectiveStatus("UNAVAILABLE")).toBe("UNAVAILABLE");
   });
 
   it("projects bounded proof and trajectory metadata without raw execution details", () => {

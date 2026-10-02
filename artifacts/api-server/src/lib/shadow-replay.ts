@@ -838,7 +838,7 @@ export async function runShadowReplayAttempt(
       preTreeHash: typeof durableReceipt?.preTreeHash === "string" ? durableReceipt.preTreeHash : replay.preTreeHash,
       postTreeHash: typeof durableReceipt?.postTreeHash === "string" ? durableReceipt.postTreeHash : replay.postTreeHash,
       validatorResult: durableReceipt?.validator ?? replay.validatorResult,
-      receipt,
+      receipt: durableReceipt,
       completedAt: execution.completedAt ?? new Date(),
       replayWorkspaceRoot: null,
       replayWorkspaceCleaned: true,
