@@ -397,14 +397,14 @@ export type {
   OpenRouterFailureDisposition,
 } from "./openai-compatible-client.js";
 
-export { EXECUTION_LIMITS, runBoundedCommand } from "./execution-kernel.js";
+export { EXECUTION_LIMITS } from "./execution-kernel.js";
 export type {
   BoundedCommandSpec,
   BoundedCommandStatus,
   BoundedCommandResult,
 } from "./execution-kernel.js";
 export type { RepairLoopState, ValidationRunner, ValidationToolResult, BrowserValidationRunner } from "./tools/execution-tools.js";
-export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
+export { COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
 export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
 export {
   classifyValidationFailure,
@@ -447,9 +447,7 @@ export type {
   ToolSurfaceFamily,
   ToolSurfaceMutation,
 } from "./tool-surface.js";
-export { executePackageTool } from "./tools/package-tools.js";
 export {
-  executeBinaryTool,
   parseBinaryEvidencePacket,
   type BinaryEvidencePacket,
 } from "./tools/binary-tools.js";

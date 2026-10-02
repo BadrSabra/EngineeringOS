@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { runBoundedCommand } from "@workspace/ai-orchestrator/server-internal/execution";
 import {
-  runBoundedCommand,
   type ValidationProfile,
   type ValidationFailure as SharedValidationFailure,
   type ValidationResult,

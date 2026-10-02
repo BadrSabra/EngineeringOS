@@ -18,7 +18,7 @@
 
 ## 2. Executive Verdict
 
-الموضع الحالي هو **C — execution/evidence-capable agent core على مسارات محددة**، وليس D (closed-loop engineering agent core) أو E (general-agent-ready core). توجد بنية تنفيذ دائمة وقبول Canonical Proof مفيد، لكن سلطة الأدوات ليست موحدة على كل واجهات الاستدعاء، ودورة التنفيذ ليست مثبتة عبر كل أسطح التغيير، و`PROVEN` ما زالت قيمة مشتركة بين دلالات مختلفة، كما أن تغيّر World State لا يثبت عمومًا تغيّر قرار المخطط.
+الموضع الحالي هو **C — execution/evidence-capable agent core على مسارات محددة**، وليس D (closed-loop engineering agent core) أو E (general-agent-ready core). قُيّدت واجهة الحزمة العامة في E1 وأُبقيت واجهتان خادميتان داخليتان لمستدعيات محددة؛ لكن دورة التنفيذ ليست مثبتة عبر كل أسطح التغيير، و`PROVEN` ما زالت قيمة مشتركة بين دلالات مختلفة، كما أن تغيّر World State لا يثبت عمومًا تغيّر قرار المخطط.
 
 **الحكم:** `NOT READY`. لا يبدأ Learning / Transfer / Capability Composition قبل إغلاق الاعتماديات الدنيا المبينة في الأقسام 13–17.
 
@@ -26,7 +26,7 @@
 
 | القدرة | الحالة الحالية | ما تثبته الأدلة | ما لا تثبته |
 |---|---|---|---|
-| Reliable Tool Agent | `PARTIAL` | dispatcher مركزي وسياسات ونطاقات وحدود عملية على مساراته | أن كل المستدعين يمرون به؛ توجد exports منخفضة المستوى قد تتجاوز سياسة dispatcher |
+| Reliable Tool Agent | `PARTIAL` | dispatcher مركزي؛ أزيلت raw executor functions من package root، وحُصر server-internal subpath في مستدعيين خادميين معروفين | ضمانات الوقت/الإلغاء/replay/حدود الذاكرة لكل executor لا تزال غير مكتملة |
 | Reliable Execution Agent | `PARTIAL` | executions دائمة، attempts وleases وcheckpoints وacceptance/recovery في المسار المركزي | lifecycle موحد لكل mutation surface أو إعادة بناء نتيجة الأثر الخارجي بعد crash |
 | Evidence-Grounded Agent | `PARTIAL` | `proof-foundation.ts` يتحقق من سجل Canonical Proof؛ الاختياري لا يصبح Canonical Proof | أن كل قيمة `PROVEN` في النظام تمر بهذا verifier أو أن كل claim مقفول عبر كل المسارات |
 | Closed-Loop World Agent | `PARTIAL` | مساران محددان لـ`runtime.start` و`apply-changes` يmaterializeان World State/transition بشروط | delta مكتملًا لكل mutation أو planner عامًّا يتغير قراره بسبب facts جديدة |
@@ -38,7 +38,8 @@
 - `lib/ai-orchestrator/src/tool-operational-registry.ts:99-105,417-438` يحتوي metadata تشغيليًا وفحوص duplicate/missing definitions؛ و`tool-policy.ts:50-80,157-175` يبني التعريفات والسياسة.
 - `tool-execution-engine.ts:1093-1273` يطبق membership/argument/mode/approval/scope checks في `executeSingleTool`. مسار المحادثة يستدعي `executeToolLoop` و`executeScopedReadTool` من `agents/chat-agent.ts:179-183,7914-7949,9231-9257,9631-9653`; ويصل المسار scoped-read إلى `executeSingleTool` في `tool-execution-engine.ts:1991-2006`.
 - `execution-kernel.ts:52-121,140-173,190-245` يطبق احتواء cwd، timeout، حدود خرج، `shell:false`، وإيقاف مجموعة العملية في مسار الأمر المحدود.
-- الحالة: `IMPLEMENTED` للمسارات المذكورة؛ شمول كل ingress وcaller `UNKNOWN`.
+- أزيلت `runBoundedCommand`, `executeCommandTool`, `runRegisteredCommand`, `executePackageTool`, `executeBinaryTool` من barrel العام `src/index.ts`. بقيت primitive الخادمية في `@workspace/ai-orchestrator/server-internal/execution`، ولا يستهلكها حاليًا إلا `routes/ai/chat.ts` لحقن runner موثوق في dispatcher و`ai-repair-validation.ts` لمسارات تحقق خادمية ذات allowlist ثابتة. يحدد `package.json` subpath صراحةً، واختبار AST يثبت عدم عودة الأدوات الخام إلى barrel أو إضافة مستدعٍ خادمي ثالث.
+- الحالة: central dispatch وpackage import boundary `TESTED` لمصادر TypeScript الحالية؛ أي ingress غير TypeScript/runtime خارج هذا الفحص يبقى `UNKNOWN`.
 
 ### 4.2 Partial
 
@@ -49,18 +50,18 @@
 
 | المسار | الدليل | ما يتجاوزه | الحالة |
 |---|---|---|---|
-| APIs منخفضة المستوى للأوامر | `lib/ai-orchestrator/src/index.ts:400-407` يصدر `runBoundedCommand`, `executeCommandTool`, `runRegisteredCommand`; `execution-kernel.ts:140-147` يترك allowlist/profile لمسؤولية caller | سياسة dispatcher/approval/manifest الموحدة | سطح تجاوز محتمل `CONFIRMED`؛ مستهلك production يمر عبره `UNKNOWN` |
-| package/binary | `lib/ai-orchestrator/src/index.ts:450-455` يصدر `executePackageTool` و`executeBinaryTool` مباشرة | بعض فحوص dispatcher وcorrelation envelope | سطح تجاوز محتمل `CONFIRMED`؛ الوصول الفعلي `UNKNOWN` |
+| raw execution functions من package root | كانت exports في النسخة المدققة أوليًا؛ أزيلت الآن من `index.ts`. `package.json` يتيح فقط `server-internal/execution` بمحتوى صريح | لا يملك المستهلك العام مدخلًا مباشرًا إلى raw tool executors | `FIXED + TESTED` لواجهة الحزمة الحالية |
+| server-internal command helpers | `chat.ts` يمرر `runRegisteredCommand` إلى dispatcher؛ `ai-repair-validation.ts` يستعمل `runBoundedCommand` مع `allowedCommands` ثابتة | لا تتجاوز manifest/approval في مسار أداة المحادثة؛ تحقق الخادم مستقل عن tool-call من النموذج | مستدعيات حاليّة محصورة واختبار allowlist؛ لا تُعامل كـmodel-call ingress |
 | raw file/Git في `chat-agent.ts` | الادعاء السابق قديم: لا استدعاء فعلي لـ`executeFileTool`/`executeGitTool`؛ الموجود تعليقات فقط. dispatch المحادثة يمر عبر `executeToolLoop` أو `executeScopedReadTool` ثم `executeSingleTool` | لا يوجد bypass مثبت في هذا الملف الحالي | الادعاء `FALSE / OUTDATED` |
-| raw file/Git عمومًا | `tool-execution-engine.ts:1380-1387` يستدعي executors داخل dispatcher؛ `reliable-tool-agent-100.test.ts:45-157` يفحص direct calls ضمن ملفات TS/TSX المشمولة | الفحص لا يغطي كل package/لغة/runtime أو public low-level API | `TESTED` بحدود الاختبار، وليس ضمانًا عالميًا |
+| raw file/Git/command/package/binary داخل orchestrator | `tool-execution-engine.ts:1380-1405` يستدعيها داخل dispatcher؛ الاختبار الساكن يفحص هذه الأسماء في ملفات orchestrator الإنتاجية | لا يشمل كل لغات/مخرجات runtime خارج ملفات TS | `TESTED` لشجرة المصدر الحالية |
 
 ### 4.4 Tests
 
-ملفات تغطي policy، engine، file/Git، kernel، package/binary، analysis، وtool surface موجودة. `reliable-tool-agent-100.test.ts` يحتوي فحصًا ساكنًا للمسارات الخام، لكن لم تُشغّل هذه المصفوفة ضمن هذا التدقيق. الاختبارات الموجودة لا تثبت أن كل consumer يصل إلى executor عبر boundary واحدة.
+ملفات تغطي policy، engine، file/Git، kernel، package/binary، analysis، وtool surface موجودة. شُغّل `reliable-tool-agent-100.test.ts -t 'canonical executor dispatcher boundary'`: **4/4** اختبارات ناجحة؛ وتشمل فحص الاستدعاءات الخام، غياب raw functions من package root، وحصر مستهلكي server-internal subpath في API callers المعتمدين. شُغّل كذلك `ai-repair-validation.test.ts`: **15/15**، مع Orchestrator وAPI typechecks ناجحين. هذا يغلق سطح الاستيراد الحالي في workspace، ولا يثبت الضمانات التشغيلية لكل executor.
 
 ### 4.5 100% Gate
 
-لا يُغلق E1 حتى تُحصر كل call sites وواجهات package، ويصبح كل استدعاء model-reachable أو server-owned خاضعًا لـauthorization/approval/scope/limits/cancellation/audit/identity نفسها، أو تُمنع exports منخفضة المستوى من تجاوزها. يجب أن يغطي الاختبار static scan جميع الحزم والواجهات المدعومة، لا file/Git فقط.
+**E1 package-boundary gate: `DONE` للمصادر الحالية.** لا raw command/package/binary executor من barrel العام؛ كل model tool call داخل orchestrator يخضع لاختبار dispatcher؛ والـserver-internal imports محدودة إلى runner injection في chat ومسارات validation الخادمية الثابتة. يبقى Reliable Tool Agent ككل `PARTIAL`: ضمانات الذاكرة/timeout/cancellation/replay وrunner delegation ليست ضمن إغلاق E1.
 
 ## 5. Reliable Execution Agent
 
@@ -229,7 +230,8 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | Bypass / gap | المصدر | ما يتجاوزه أو يتركه | التأكيد |
 |---|---|---|---|
-| exports منخفضة المستوى للأوامر والحزم والثنائيات | `lib/ai-orchestrator/src/index.ts:400-407,450-455` | central dispatcher authorization/approval/manifest | سطح محتمل مؤكد؛ caller production `UNKNOWN` |
+| raw exports من package root | `index.ts` قبل E1؛ أزيلت، واختبار dispatcher boundary يمنع رجوعها | central dispatcher authorization/approval/manifest | `FIXED + TESTED` على سطح package الحالي |
+| server-internal import additions | `@workspace/ai-orchestrator/server-internal/execution` | قد تنشئ مستدعيًا جديدًا خارج الحدود الحالية | اختبار AST يسمح بمستدعيي API الحاليين فقط؛ حالات خارج سورس API لم تظهر في المسح الحالي |
 | observation-only execution terminalization | `agent-episode-ledger.ts:1284-1318` | `finalizeExecutionAcceptance` / acceptance row | استثناء محدد وfenced؛ ليس acceptance، لكنه writer منفصل لحالة `completed` |
 | phase-local `PROVEN` | `workflow-phase-execution.ts:179-196` | لا يتجاوز final Goal verifier، لكنه يشارك القيمة اللفظية | assignment مؤكد؛ التمييز لا يملك test مخصصًا ظاهرًا |
 | apply delta refs الفارغة | `runtime-start-transition.ts:967-990` | اشتقاق changed-fact attribution | الكتابة `[]` مؤكدة؛ هل المقصود صحيح `UNKNOWN` |
@@ -239,7 +241,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | المجال | authority المثبتة | الحد |
 |---|---|---|
-| tool dispatch | `executeSingleTool` داخل engine | ليست authority وحيدة على public low-level exports |
+| tool dispatch | `executeSingleTool` داخل engine؛ package root لا يصدر raw executors، والـinternal subpath محصور في callers خادميين | authority على model-call ingress مثبتة في workspace الحالي؛ لا يعني ذلك إغلاق timeout/replay/resource guarantees لكل executor |
 | execution acceptance | `finalizeExecutionAcceptance` للمسار المركزي | writer observation-only fenced خارجها؛ تقارب كل السطوح غير مثبت |
 | Canonical Proof | `composeCanonicalProof` / `loadCanonicalProof` في `proof-foundation.ts` | ليست كل status باسم `PROVEN` Canonical Proof |
 | World State | materializer وtransition-specific finalizers | apply delta attribution ناقص/غير محسوم، planner authority العامة غير مثبتة |
@@ -250,7 +252,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | invariant | Unit | Integration/API | Cross-surface | Crash/race | E2E | الوضع |
 |---|---|---|---|---|---|---|
-| dispatcher policy/bounds | موجودة في policy/engine/kernel suites | بعض مسارات الاختبار موجودة | direct raw file/Git static scan محدود | لا coverage لكل executor | غير مثبت هنا | `TESTED` coverage، لم تشغل في هذا التدقيق |
+| dispatcher policy/bounds | boundary test يشمل file/Git/command/package/binary؛ شُغّل 4/4 | ai-repair-validation 15/15؛ API/Orchestrator typechecks ناجحة | AST allowlist للـserver-internal callers ناجح | لا coverage لكل timeout/replay/runtime executor | غير مثبت هنا | `E1 IMPORT BOUNDARY PASS`; operational closure ما زالت جزئية |
 | durable execution/acceptance | موجودة | `ai-execution-retry.integration.test.ts`, acceptance suites؛ 39 اختبارًا شُغّلت | مجموعة surfaces كاملة غير مثبتة | بعض lease/recovery tests موجودة؛ W0-W9 جميعها غير مغطاة | لا إثبات شامل | `INTEGRATION-TESTED` لمسارات محددة |
 | optional evidence/Canonical Proof | `ai-execution-acceptance.test.ts`, `proof-foundation.test.ts`؛ شُغّلت ضمن 39 | D2 duplicate legacy test ناجح | global producer/consumer map غير مكتمل | resume tests موجودة؛ لا تعميم | لا | `TESTED / INTEGRATION-TESTED` محدود |
 | runtime World transition | unit/integration test code موجود | runtime-start transition suites | apply/runtime غير موحدين في decision proof | بعض stale/retry/rollback | لا planner-decision E2E مثبت | `TESTED` coverage؛ لم تشغل هذه suites في التدقيق |
@@ -259,7 +261,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 ## 12. False Confidence Risks
 
-- `executeSingleTool` مركزي في مسار المحادثة، لكن exports أخرى قد تتجاوز dispatcher؛ وجود central engine لا يثبت universal authority.
+- أُزيلت raw tool functions من package root؛ server-internal subpath ليس authorization بديلًا، ويجب إبقاء مستهلكيه خادميين ومحدودين بالاختبار.
 - `PROVEN` في phase/task/recipe/replay ليس بالضرورة Canonical Proof؛ و`execution-proof.ts` يسقط status ولا يتحقق وحده من provenance.
 - وجود execution `completed` لا يثبت acceptance؛ المسار observation-only يصرّح `createsAcceptance:false`.
 - schema/default `evidenceRequired=0` أو وجود `PROVEN` في legacy JSON ليسا دليل proof؛ العلم الدائم/verifier هما الحاكمان في المسار المفحوص.
@@ -272,7 +274,6 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 | الأولوية | blocker | لماذا يمنع الإغلاق |
 |---|---|---|
-| P1 | واجهات منخفضة المستوى يمكنها تجاوز dispatcher؛ الاستهلاك الفعلي غير محسوم | لا يمكن إثبات authorization/approval/scope موحد لكل tool call |
 | P1 | lifecycle/status writers متعددة، ومنها `completed` observation-only بلا acceptance | لا يمكن تفسير status وحده كنجاح موحد أو إثبات terminal authority عالمية |
 | P1 | دلالات `PROVEN` متعددة، مع جرد global غير مكتمل | false acceptance محتمل عند consumer يخلط phase-local/projection/canonical status |
 | P1 | apply `changedFactRefs: []` مع intent/semantic test غير مثبت | World Delta وسبب التغيير غير موثقين على مسار apply |
@@ -284,7 +285,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 ## 14. Exact File-by-File Implementation Plan
 
-1. **E1 — ضبط حدود الأدوات:** افحص مستهلكي exports في `lib/ai-orchestrator/src/index.ts`؛ امنع caller غير موثوق من استدعاء low-level command/package/binary دون policy manifest، أو وجّهها إلى adapter مركزي. أضف اختبار package-wide يمنع أي مسار model-reachable خارج dispatcher.
+1. **E1 — DONE (2026-10-02):** أزيلت raw executor functions من `lib/ai-orchestrator/src/index.ts`; حُفظت `runBoundedCommand` و`runRegisteredCommand` في `server-internal/execution` لاستخدام الخادم الموثوق فقط؛ ويمنع اختبار المصدر إضافات غير معتمدة. لا يغيّر هذا إغلاق بقية Reliable Tool Agent.
 2. **E2 — توحيد معنى terminal state:** جرد writers في `ai-execution-state.ts`, `ai-execution-acceptance.ts`, `agent-episode-ledger.ts` وكل mutation surface. حافظ على observation-only terminalization كحالة typed صريحة أو اجعل كل consumer يميزها عن accepted success؛ لا تحذف السجل ولا تجعلها acceptance.
 3. **E2 — crash reconciliation:** لكل executor في runtime/apply/repair/workflow/task، وثق idempotency والـexternal observation. أضف fault injection عند W2–W8 واختبر duplicate side effect وunknown outcome وresponse loss؛ لا يستنتج recovery success من checkpoint.
 4. **E3 — حصر سلطات PROVEN:** اعمل producer/consumer inventory شاملًا للحزم وserialization/API، وافصل phase-local status عن Canonical Proof بعقد واضح. احصر كل route يكتب `evidenceRequired`، واجعل candidate/revision requirements صريحة لكل scope بدل الاعتماد على optional fields.
@@ -301,14 +302,14 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 ## 16. What Must NOT Start Yet
 
 - لا يبدأ P7.5 data collection، Learning، Transfer، Capability Composition أو Strategy Promotion.
-- Learning يحتاج execution identity وtool authority قابلة لإعادة البناء؛ E1/E2 ما زالتا جزئيتين.
+- Learning يحتاج execution identity وtool authority قابلة لإعادة البناء؛ package-boundary الخاص بـE1 أُغلق للمصادر الحالية، لكن E2 ما زالت جزئية ولا يكفي ذلك لإغلاق نواة الأدوات التشغيلية كاملة.
 - Learning/evaluation يحتاجان evidence authority موحدة قابلة للتتبع عبر producers/consumers؛ E3 عالميًا غير مغلق.
 - Transfer يحتاج تغيرًا موثوقًا في World State وتقييمًا يثبت قرار planner؛ E4/E5 غير مكتملتين، وE6–E8 غير مثبتة.
 - حالة P7.5 الحالية في سجل الخطة `NO-GO`; هذا التقرير لا يعيد اعتماد جمع أو cohort.
 
 ## 17. Final Gate
 
-- `[~]` Tool policy/dispatcher موجود على مسارات محددة؛ public low-level bypass surface لم يُحسم استهلاكه.
+- `[✓]` E1: package root لا يصدّر raw tool executors، وmodel-call executors داخل orchestrator تمر عبر dispatcher؛ يبقى Reliable Tool Agent تشغيليًا جزئيًا.
 - `[~]` Durable execution/checkpoint/acceptance/recovery موجود؛ لا universal lifecycle ولا crash reconstruction للأثر الخارجي.
 - `[~]` Canonical Proof يرفض evidence-optional acceptance؛ global `PROVEN` producers/semantics غير موحدة بالكامل.
 - `[~]` runtime.start وapply-changes لديهما transitions محددة؛ apply delta refs فارغة والplanner decision-change غير مثبت.
@@ -318,4 +319,4 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 ## 18. Final Verdict
 
-**NOT READY.** أقل invariants الحاجبة هي: (1) تثبيت سلطة tool execution الواحدة وإثبات reachability لكل public executor؛ (2) إغلاق lifecycle/terminal state عبر mutation surfaces مع reconciliation صريح للأثر بعد crash؛ (3) جعل Canonical Proof وحده صاحب قبول `PROVEN` أو فصل statuses المحلية بحيث لا يمكن خلطها؛ (4) اشتقاق World Delta وربط planner بالrevision/freshness وإثبات قرار يتغير عند تغير fact ذي صلة؛ (5) belief/replay/evaluation عام قبل أي transfer. لا يُدّعى اكتمال Agent Core معماريًا أو وصول أي طبقة إلى 100%.
+**NOT READY.** أُغلق E1 package-boundary على مصادر workspace الحالية، لكن ذلك لا يغلق Agent Core. الحواجز المتبقية: (1) E2 lifecycle/terminal state عبر mutation surfaces مع reconciliation صريح للأثر بعد crash؛ (2) E3 جعل Canonical Proof وحده صاحب قبول `PROVEN` أو فصل statuses المحلية؛ (3) اشتقاق World Delta وربط planner بالrevision/freshness وإثبات قرار يتغير عند تغير fact ذي صلة؛ (4) belief/replay/evaluation عام قبل أي transfer. لا يُدّعى اكتمال Agent Core معماريًا أو وصول أي طبقة إلى 100%.

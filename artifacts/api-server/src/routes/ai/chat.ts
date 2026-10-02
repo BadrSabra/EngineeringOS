@@ -91,7 +91,6 @@ import {
   isProvenValidation,
   toPublicValidationResult,
   decideMutationRepair,
-  runRegisteredCommand,
   createServerCapabilityRegistry,
   CAPABILITY_PROBE_CLAIM_IDS,
   CAPABILITY_PROBE_SOURCE_FILES,
@@ -107,6 +106,7 @@ import {
   isUnsupportedJsonLookingChatResponse,
   MODEL_OUTPUT_INVALID_MESSAGE,
 } from "@workspace/ai-orchestrator";
+import { runRegisteredCommand } from "@workspace/ai-orchestrator/server-internal/execution";
 import type {
   AgentStep,
   ActiveTaskExecutionPlan,

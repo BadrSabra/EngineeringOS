@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./server-internal/execution": "./src/server-internal/execution.ts",
     "./capability-probe": "./src/prompts/capability-probe.ts",
     "./scan-command": "./src/scan-command.ts"
   },

@@ -47,7 +47,13 @@ describe("canonical executor dispatcher boundary", () => {
     const testDirectory = path.dirname(fileURLToPath(import.meta.url));
     const sourceRoot = path.resolve(testDirectory, "..");
     const canonicalDispatcherFile = path.join(sourceRoot, "tool-execution-engine.ts");
-    const rawExecutorNames = new Set(["executeFileTool", "executeGitTool"]);
+    const rawExecutorNames = new Set([
+      "executeFileTool",
+      "executeGitTool",
+      "executeCommandTool",
+      "executePackageTool",
+      "executeBinaryTool",
+    ]);
     const productionFiles: string[] = [];
 
     const visitDirectory = async (directory: string): Promise<void> => {
@@ -154,6 +160,132 @@ describe("canonical executor dispatcher boundary", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it("keeps direct execution helpers off the public package root", async () => {
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+    const sourceRoot = path.resolve(testDirectory, "..");
+    const packageRoot = path.resolve(sourceRoot, "..");
+    const publicEntry = ts.createSourceFile(
+      path.join(sourceRoot, "index.ts"),
+      await readFile(path.join(sourceRoot, "index.ts"), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const exportedNames = new Set<string>();
+    const blockedReexports: string[] = [];
+    const protectedExecutorNames = new Set([
+      "runBoundedCommand",
+      "executeCommandTool",
+      "runRegisteredCommand",
+      "executePackageTool",
+      "executeBinaryTool",
+    ]);
+    const protectedExecutorModules = new Set([
+      "./execution-kernel.js",
+      "./tools/execution-tools.js",
+      "./tools/package-tools.js",
+      "./tools/binary-tools.js",
+    ]);
+    for (const statement of publicEntry.statements) {
+      if (!ts.isExportDeclaration(statement)) continue;
+      const moduleName = statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+        ? statement.moduleSpecifier.text
+        : undefined;
+      if (!statement.exportClause) {
+        if (moduleName && protectedExecutorModules.has(moduleName)) {
+          blockedReexports.push(`${moduleName}:*`);
+        }
+        continue;
+      }
+      if (!ts.isNamedExports(statement.exportClause)) {
+        if (moduleName && protectedExecutorModules.has(moduleName)) {
+          blockedReexports.push(`${moduleName}:namespace`);
+        }
+        continue;
+      }
+      for (const specifier of statement.exportClause.elements) {
+        exportedNames.add(specifier.name.text);
+        const sourceName = specifier.propertyName?.text ?? specifier.name.text;
+        if (protectedExecutorNames.has(sourceName)) {
+          blockedReexports.push(`${moduleName ?? "local"}:${sourceName}`);
+        }
+      }
+    }
+
+    expect([...protectedExecutorNames].filter((name) => exportedNames.has(name))).toEqual([]);
+    expect(blockedReexports).toEqual([]);
+
+    const packageJson = JSON.parse(
+      await readFile(path.join(packageRoot, "package.json"), "utf8"),
+    ) as { exports?: Record<string, string> };
+    expect(packageJson.exports?.["./server-internal/execution"])
+      .toBe("./src/server-internal/execution.ts");
+  });
+
+  it("limits server-internal execution imports to trusted server call sites", async () => {
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+    const sourceRoot = path.resolve(testDirectory, "..");
+    const workspaceRoot = path.resolve(sourceRoot, "../../..");
+    const apiSourceRoot = path.join(workspaceRoot, "artifacts", "api-server", "src");
+    const internalSpecifier = "@workspace/ai-orchestrator/server-internal/execution";
+    const callers: string[] = [];
+
+    const visitDirectory = async (directory: string): Promise<void> => {
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== "__tests__") await visitDirectory(absolutePath);
+          continue;
+        }
+        if (
+          !entry.isFile()
+          || !/\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
+          || /\.(?:test|spec)\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
+          || entry.name.endsWith(".d.ts")
+        ) {
+          continue;
+        }
+        const sourceText = await readFile(absolutePath, "utf8");
+        const sourceFile = ts.createSourceFile(
+          absolutePath,
+          sourceText,
+          ts.ScriptTarget.Latest,
+          true,
+          entry.name.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+        );
+        const inspectImports = (node: ts.Node): void => {
+          let specifier: string | undefined;
+          if (
+            (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+            && node.moduleSpecifier
+            && ts.isStringLiteral(node.moduleSpecifier)
+          ) {
+            specifier = node.moduleSpecifier.text;
+          } else if (
+            ts.isCallExpression(node)
+            && node.expression.kind === ts.SyntaxKind.ImportKeyword
+            && node.arguments[0]
+            && ts.isStringLiteral(node.arguments[0])
+          ) {
+            specifier = node.arguments[0].text;
+          }
+          if (specifier === internalSpecifier) {
+            callers.push(path.relative(workspaceRoot, absolutePath).replaceAll(path.sep, "/"));
+          }
+          ts.forEachChild(node, inspectImports);
+        };
+        inspectImports(sourceFile);
+      }
+    };
+    await visitDirectory(apiSourceRoot);
+
+    expect(callers.sort()).toEqual([
+      "artifacts/api-server/src/lib/ai-repair-validation.ts",
+      "artifacts/api-server/src/routes/ai/chat.ts",
+    ]);
   });
 
   it("requires an exact scope and records a valid server-initiated read", async () => {

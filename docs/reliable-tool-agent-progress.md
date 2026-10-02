@@ -89,3 +89,9 @@
 - توجد exports منخفضة المستوى مثل `runBoundedCommand` و`executeCommandTool` و`runRegisteredCommand` و`executePackageTool` و`executeBinaryTool` من مدخل orchestrator العام. هذا يثبت سطحًا يمكنه تجاوز dispatcher إذا استُدعي مباشرة، لكنه لا يثبت وجود caller production يسلكه؛ reachability الفعلية `UNKNOWN`.
 - فحص `reliable-tool-agent-100.test.ts` للـraw file/Git calls محدود بنطاقه ولا يحسم المستهلكين الآخرين أو واجهات package. لا تُعتبره برهانًا على وجود bypass production أو على إغلاقه.
 - لم تُشغّل مجموعة Reliable Tool Agent في هذا التدقيق الساكن. تبقى حالة الإغلاق `PARTIAL / UNDER VERIFICATION`، ولا توجد نسبة اكتمال عامة مثبتة. التفاصيل في `docs/agent-core-forensic-status-report.md` §4 و§9.
+
+### تصحيح E1: حصر واجهة منفذات الأدوات (2026-10-02)
+
+- أزيلت `runBoundedCommand`, `executeCommandTool`, `runRegisteredCommand`, `executePackageTool`, `executeBinaryTool` من barrel العام لـ`@workspace/ai-orchestrator`. بقيت واجهة `server-internal/execution` صريحة لمستدعيين خادميين حاليين: حقن `runRegisteredCommand` في مسار chat الذي يظل داخل dispatcher، و`runBoundedCommand` لمسارات validation ذات command allowlist خادمي.
+- امتد فحص AST في `reliable-tool-agent-100.test.ts` ليشمل raw file/Git/command/package/binary calls، ويثبت استعمال executors داخل `executeSingleTool` فقط ضمن ملفات orchestrator الإنتاجية. فحص آخر يسمح باستيراد server-internal subpath من `ai-repair-validation.ts` و`routes/ai/chat.ts` فقط في API source.
+- التحقق: boundary suite **4/4**؛ `ai-repair-validation.test.ts` **15/15**؛ Orchestrator وAPI typechecks ناجحان. أُعيد بناء وتشغيل API workflow وظهر `Server listening` على 8080. هذا يغلق E1 على حدود الاستيراد الحالية فقط؛ لا يغلق حدود الموارد والمهلة والإلغاء وreplay لكل أداة، ولا Reliable Tool Agent ككل.
