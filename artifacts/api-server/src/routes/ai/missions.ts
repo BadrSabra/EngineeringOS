@@ -1131,7 +1131,7 @@ async function buildMissionProjection(
       proof: {
         receiptId: string;
         trajectoryDigest: string;
-        verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+        verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" | "NOT_REQUIRED";
         projection: unknown;
       };
       canonicalProof: ReturnType<typeof projectCanonicalProof>;

@@ -33,7 +33,7 @@ export const SkillCandidateEnvelopeSchema = z.object({
   proof: z.object({
     receiptId: z.string().min(1).max(240),
     trajectoryDigest: Sha256Schema,
-    verdict: z.enum(["PROVEN", "INCOMPLETE", "UNAVAILABLE"]),
+    verdict: z.enum(["PROVEN", "INCOMPLETE", "UNAVAILABLE", "NOT_REQUIRED"]),
     projection: z.unknown(),
   }).strict(),
   shadow: z.object({
@@ -77,7 +77,7 @@ export type ShadowReplayReceipt = {
   proof: {
     receiptId: string;
     trajectoryDigest: string;
-    verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+    verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" | "NOT_REQUIRED";
   };
   productionExecution: false;
 };
@@ -174,7 +174,10 @@ function validateSkillCandidateStructure(
   if (proof && (proof.verdict !== envelope.proof.verdict || proof.verdict !== "PROVEN")) {
     reasons.push("skill_candidate_proof_not_proven");
   }
-  if (proof && (!proof.evidenceComplete || !proof.sourceBound || !proof.candidateBound)) {
+  if (
+    proof
+    && (!proof.evidenceRequired || !proof.evidenceComplete || !proof.sourceBound || !proof.candidateBound)
+  ) {
     reasons.push("skill_candidate_proof_not_bound");
   }
   if (expected?.projectId && envelope.projectId !== expected.projectId) {

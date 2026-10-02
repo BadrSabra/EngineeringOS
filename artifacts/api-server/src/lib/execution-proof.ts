@@ -3,7 +3,7 @@ import { RecipeReceiptSchema, type RecipeReceipt } from "@workspace/ai-orchestra
 
 export const EXECUTION_PROOF_CONTRACT_VERSION = 1 as const;
 
-export type ExecutionProofVerdict = "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+export type ExecutionProofVerdict = "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" | "NOT_REQUIRED";
 
 export type ExecutionTrajectoryDigest = {
   contractVersion: typeof EXECUTION_PROOF_CONTRACT_VERSION;
@@ -126,7 +126,9 @@ export function buildExecutionProofProjection(params: {
   recipeReceipt?: unknown;
 }): ExecutionProofProjection {
   const verdict: ExecutionProofVerdict = params.outcome === "SUCCEEDED"
-    ? params.evidenceRequired && !params.evidenceComplete ? "INCOMPLETE" : "PROVEN"
+    ? !params.evidenceRequired
+      ? "NOT_REQUIRED"
+      : params.evidenceComplete ? "PROVEN" : "INCOMPLETE"
     : params.evidenceRequired && !params.evidenceComplete ? "INCOMPLETE" : "UNAVAILABLE";
   const acceptedRefs = params.evidenceSnapshotId ? [params.evidenceSnapshotId] : [];
   const receipt = parseRecipeReceipt(params.recipeReceipt);
@@ -155,7 +157,7 @@ export function parseExecutionProofProjection(value: unknown): ExecutionProofPro
   const digest = candidate.trajectoryDigest;
   if (
     candidate.contractVersion !== EXECUTION_PROOF_CONTRACT_VERSION
-    || !["PROVEN", "INCOMPLETE", "UNAVAILABLE"].includes(candidate.verdict ?? "")
+    || !["PROVEN", "INCOMPLETE", "UNAVAILABLE", "NOT_REQUIRED"].includes(candidate.verdict ?? "")
     || typeof candidate.evidenceRequired !== "boolean"
     || typeof candidate.evidenceComplete !== "boolean"
     || (candidate.evidenceSnapshotId !== null && typeof candidate.evidenceSnapshotId !== "string")

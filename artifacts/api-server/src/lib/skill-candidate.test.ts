@@ -124,4 +124,44 @@ describe("skill candidate shadow contract", () => {
       reasons: ["invalid_skill_candidate_envelope"],
     });
   });
+
+  it("parses NOT_REQUIRED but rejects it and legacy optional PROVEN for shadow replay", () => {
+    const projection = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: false,
+      evidenceComplete: true,
+      evidenceSnapshotId: "receipt-evidence",
+      sourceRevision: "revision",
+      candidateIdentity: "a".repeat(64),
+    });
+    const notRequired = candidate({
+      proof: {
+        receiptId: "receipt-1",
+        trajectoryDigest: projection.trajectoryDigest.digest,
+        verdict: "NOT_REQUIRED",
+        projection,
+      },
+    });
+    expect(validateSkillCandidateForShadow(notRequired, null)).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["skill_candidate_proof_not_proven"]),
+    });
+
+    const legacyOptionalProof = {
+      ...projection,
+      verdict: "PROVEN" as const,
+    };
+    const legacyOptional = candidate({
+      proof: {
+        receiptId: "receipt-1",
+        trajectoryDigest: legacyOptionalProof.trajectoryDigest.digest,
+        verdict: "PROVEN",
+        projection: legacyOptionalProof,
+      },
+    });
+    expect(validateSkillCandidateForShadow(legacyOptional, null)).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["skill_candidate_proof_not_bound"]),
+    });
+  });
 });

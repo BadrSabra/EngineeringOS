@@ -7197,6 +7197,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
       const [execution] = await db.select({
         id: aiExecutionsTable.id,
         attempt: aiExecutionsTable.attempt,
+        proposalId: aiExecutionsTable.proposalId,
         request: aiExecutionsTable.request,
       }).from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.proposalId, proposalId)).limit(1);
@@ -7212,6 +7213,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
         evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
         effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
         disposition: aiExecutionAcceptancesTable.disposition,
       }).from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id)).limit(1);
@@ -7378,6 +7380,53 @@ describe("POST /api/ai/chat/apply-changes", () => {
         effectBundle: { verdict: "OBSERVED" },
       });
       expect(JSON.stringify(detail.body.worldTransitions)).not.toContain(deliveryWorkspace.candidateTreeHash);
+
+      const [episodeBeforeReplay] = await db.select({
+        id: aiAgentEpisodesTable.id,
+        state: aiAgentEpisodesTable.state,
+        closedAt: aiAgentEpisodesTable.closedAt,
+        projectRevision: aiAgentEpisodesTable.projectRevision,
+      }).from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.executionId, execution!.id),
+        eq(aiAgentEpisodesTable.attempt, execution!.attempt),
+      )).limit(1);
+      expect(episodeBeforeReplay).toMatchObject({
+        state: "verifying",
+        closedAt: null,
+        projectRevision: acceptance!.sourceRevision,
+      });
+
+      await db.update(aiExecutionAcceptancesTable).set({ evidenceRequired: 0 })
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      try {
+        const duplicate = await finalizeExecutionAcceptance({
+          executionId: execution!.id,
+          expectedAttempt: execution!.attempt,
+          finalizationKey: `execution:${execution!.id}:attempt:${execution!.attempt}:legacy-optional-proof:${randomUUID()}`,
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+          reasonCode: "ACCEPTED",
+          recoveryState: "NONE",
+          proposalId: execution!.proposalId ?? undefined,
+        });
+        expect(duplicate).toMatchObject({ accepted: true, duplicate: true });
+
+        const [episodeAfterReplay] = await db.select({
+          state: aiAgentEpisodesTable.state,
+          closedAt: aiAgentEpisodesTable.closedAt,
+        }).from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.id, episodeBeforeReplay!.id)).limit(1);
+        const terminalEvents = await db.select({ id: aiAgentEpisodeEventsTable.id })
+          .from(aiAgentEpisodeEventsTable).where(and(
+            eq(aiAgentEpisodeEventsTable.episodeId, episodeBeforeReplay!.id),
+            eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+          ));
+        expect(episodeAfterReplay).toMatchObject({ state: "verifying", closedAt: null });
+        expect(terminalEvents).toEqual([]);
+      } finally {
+        await db.update(aiExecutionAcceptancesTable).set({ evidenceRequired: 1 })
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      }
 
       // A later attempt cannot borrow the prior attempt's proof or transition.
       await db.update(aiExecutionsTable).set({ attempt: execution!.attempt + 1 })

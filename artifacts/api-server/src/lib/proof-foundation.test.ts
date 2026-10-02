@@ -135,6 +135,33 @@ describe("composeCanonicalProof", () => {
     expect(result.trajectoryDigest).toEqual(result.projection?.trajectoryDigest);
   });
 
+  it("rejects optional-evidence success as canonical proof, including legacy PROVEN projections", () => {
+    const legacyProjection = {
+      ...buildExecutionProofProjection({
+        outcome: "SUCCEEDED",
+        evidenceRequired: false,
+        evidenceComplete: true,
+        sourceRevision: "revision-1",
+        candidateIdentity: "candidate-1",
+      }),
+      verdict: "PROVEN" as const,
+    };
+    const result = fixture({
+      evidence: null,
+      acceptance: {
+        evidenceRequired: false,
+        evidenceSnapshotId: null,
+        disposition: { proof: legacyProjection },
+      },
+    });
+
+    expect(result).toMatchObject({
+      accepted: false,
+      verdict: "INCOMPLETE",
+    });
+    expect(result.failureReasons).toContain("evidence_not_required_for_canonical_proof");
+  });
+
   it("rejects mismatched execution, acceptance, source, and candidate identities", () => {
     const result = fixture({
       execution: {

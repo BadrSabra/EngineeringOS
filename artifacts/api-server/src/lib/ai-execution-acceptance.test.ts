@@ -460,6 +460,57 @@ describe("server-owned execution acceptance", () => {
     expect(JSON.stringify(projected)).not.toContain("providerPayload");
   });
 
+  it("does not expose optional-evidence success as proven, including legacy projections", () => {
+    const project = (evidenceRequired: number, proof: unknown) => projectExecutionAcceptance({
+      id: "acceptance",
+      executionId: "execution",
+      projectId: "project",
+      attempt: 1,
+      finalizationKey: "key",
+      operationId: "operation",
+      workerId: "worker",
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "NONE",
+      nextActionCode: "NONE",
+      disposition: {
+        reasonCodes: ["ACCEPTED"],
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+        operatorAction: "NONE",
+        proof: proof as Record<string, unknown>,
+      },
+      evidenceSnapshotId: null,
+      evidenceRequired,
+      evidenceComplete: evidenceRequired,
+      resumable: 0,
+      messageId: "message",
+      sourceRevision: "revision",
+      candidateIdentity: null,
+      createdAt: new Date(),
+    });
+    const legacyOptionalProof = {
+      ...buildExecutionProofProjection({
+        outcome: "SUCCEEDED",
+        evidenceRequired: false,
+        evidenceComplete: true,
+        sourceRevision: "revision",
+      }),
+      verdict: "PROVEN" as const,
+    };
+
+    expect(project(0, legacyOptionalProof)?.disposition?.proof).toMatchObject({
+      verdict: "NOT_REQUIRED",
+      evidenceRequired: false,
+    });
+    expect(project(1, legacyOptionalProof)?.disposition?.proof).toMatchObject({
+      verdict: "INCOMPLETE",
+      evidenceRequired: true,
+      evidenceComplete: false,
+    });
+  });
+
   it("keeps accepted objective claim refs stable through acceptance replay", () => {
     const row = {
       id: "acceptance",
@@ -576,5 +627,17 @@ describe("server-owned execution acceptance", () => {
       verdict: "INCOMPLETE",
       trajectoryDigest: { source: "acceptance" },
     });
+  });
+
+  it("marks successful executions with no proof requirement as NOT_REQUIRED", () => {
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: false,
+      evidenceComplete: true,
+      sourceRevision: "revision",
+    });
+
+    expect(proof.verdict).toBe("NOT_REQUIRED");
+    expect(parseExecutionProofProjection(proof)).toEqual(proof);
   });
 });

@@ -39,6 +39,7 @@ export type CanonicalProofFailureReason =
   | "evidence_snapshot_mismatch"
   | "evidence_incomplete"
   | "evidence_unavailable"
+  | "evidence_not_required_for_canonical_proof"
   | "acceptance_not_succeeded"
   | "acceptance_not_completed"
   | "acceptance_proof_missing"
@@ -270,6 +271,9 @@ export function composeCanonicalProof(
     addReason(reasons, "candidate_identity_mismatch");
   }
 
+  if (acceptance && !acceptance.evidenceRequired) {
+    addReason(reasons, "evidence_not_required_for_canonical_proof");
+  }
   if (acceptance?.evidenceRequired) {
     if (!acceptance.evidenceSnapshotId) {
       addReason(reasons, "missing_evidence_snapshot");

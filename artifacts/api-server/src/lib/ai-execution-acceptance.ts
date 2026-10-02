@@ -957,6 +957,7 @@ async function closeEpisodeAfterCanonicalProof(input: {
   if (
     acceptance.outcome !== "SUCCEEDED"
     || acceptance.terminalStatus !== "completed"
+    || acceptance.evidenceRequired !== 1
     || !acceptance.effectBundleId
     || proof?.verdict !== "PROVEN"
   ) {
@@ -1059,7 +1060,10 @@ export type PublicExecutionAcceptance = {
   disposition?: ExecutionAcceptanceDisposition;
 };
 
-function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDisposition | undefined {
+function projectAcceptanceDisposition(
+  value: unknown,
+  evidenceRequired: boolean,
+): ExecutionAcceptanceDisposition | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<ExecutionAcceptanceDisposition>;
   const reasonCodes = Array.isArray(raw.reasonCodes)
@@ -1097,6 +1101,23 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
     || taskObjective?.status === "UNAVAILABLE"
     ? taskObjective.status
     : undefined;
+  const parsedProof = parseExecutionProofProjection(raw.proof);
+  const proof = parsedProof
+    ? !evidenceRequired
+      ? {
+          ...parsedProof,
+          verdict: parsedProof.verdict === "PROVEN" ? "NOT_REQUIRED" as const : parsedProof.verdict,
+          evidenceRequired: false,
+        }
+      : parsedProof.evidenceRequired && parsedProof.verdict !== "NOT_REQUIRED"
+        ? parsedProof
+        : {
+            ...parsedProof,
+            verdict: "INCOMPLETE" as const,
+            evidenceRequired: true,
+            evidenceComplete: false,
+          }
+    : undefined;
   return {
     reasonCodes,
     outcome,
@@ -1130,9 +1151,7 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
             .slice(0, 12),
         }
       : {}),
-    ...(parseExecutionProofProjection(raw.proof)
-      ? { proof: parseExecutionProofProjection(raw.proof) }
-      : {}),
+    ...(proof ? { proof } : {}),
   };
 }
 
@@ -1144,7 +1163,8 @@ export function projectExecutionAcceptance(
   row: AcceptanceProjectionRow | undefined,
 ): PublicExecutionAcceptance | undefined {
   if (!row) return undefined;
-  const disposition = projectAcceptanceDisposition(row.disposition);
+  const evidenceRequired = row.evidenceRequired === 1;
+  const disposition = projectAcceptanceDisposition(row.disposition, evidenceRequired);
   return {
     attempt: row.attempt,
     terminalStatus: row.terminalStatus,
@@ -1154,7 +1174,7 @@ export function projectExecutionAcceptance(
       row.nextActionCode as AcceptanceNextActionCode,
     ) ? row.nextActionCode as AcceptanceNextActionCode : "ABANDON_EXECUTION",
     evidenceComplete: row.evidenceComplete === 1,
-    evidenceRequired: row.evidenceRequired === 1,
+    evidenceRequired,
     resumable: row.resumable === 1,
     ...(disposition ? { disposition } : {}),
   };
@@ -1328,8 +1348,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       : [{ kind: "pdf" as const, ...common, pageCount: artifact.pageCount }];
     },
   ).slice(0, 16);
-  const artifactsComplete = artifacts.length > 0;
-  const required = input?.sourceEvidenceRequired ?? input?.required === true;
+  const required = input?.required === true;
   const sourceEvidenceRequired = input?.sourceEvidenceRequired ?? required;
   const readsComplete = (
     reads.length > 0
