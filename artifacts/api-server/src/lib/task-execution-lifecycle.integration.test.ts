@@ -30,6 +30,7 @@ import {
   operatorAlertsTable,
   projectsTable,
   tasksTable,
+  workflowExecutionsTable,
   workflowsTable,
 } from "@workspace/db";
 
@@ -221,6 +222,7 @@ import {
   executeTaskLifecycle,
   parseMissionToolLoopCheckpoint,
 } from "./task-execution-service.js";
+import { executeWorkflowPhase } from "./workflow-phase-execution.js";
 import {
   checkpointAiExecution,
   requestAiExecutionCancel,
@@ -838,6 +840,143 @@ describe("real durable task execution lifecycle", () => {
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("fails closed for a non-final workflow phase without acceptance evidence", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const workflowId = randomUUID();
+    const workflowExecutionId = randomUUID();
+    const now = new Date();
+    const userId = "workflow-phase-proof-test-user";
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `workflow-phase-proof-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/workflow-phase-proof-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId,
+      title: "Workflow phase proof fixture",
+      intent: "Record a phase-local workflow boundary",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {},
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Complete the workflow",
+      description: "Only a later final phase may complete this Goal.",
+      status: "running",
+      priority: "p1",
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: {},
+      nextAction: { kind: "workflow", workflowId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workflowsTable).values({
+      id: workflowId,
+      projectId,
+      goalId,
+      name: "Workflow phase proof fixture",
+      status: "running",
+      phases: [
+        { name: "prepare", steps: ["Inspect the workflow boundary"] },
+        { name: "deliver", steps: ["Complete the Goal"] },
+      ],
+      currentPhase: "prepare",
+      executionCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workflowExecutionsTable).values({
+      id: workflowExecutionId,
+      workflowId,
+      status: "running",
+      currentPhase: "prepare",
+      completedPhases: [],
+      startedAt: now,
+    });
+
+    try {
+      const result = await executeWorkflowPhase({
+        userId,
+        projectId,
+        workflowId,
+        workflowExecutionId,
+        workflowName: "Workflow phase proof fixture",
+        phaseName: "prepare",
+        phaseSteps: ["Inspect the workflow boundary"],
+        revision: now.toISOString(),
+        completedPhaseNames: [],
+        goalId,
+        isFinalPhase: false,
+      });
+      expect(result.status).toBe("failed");
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, result.executionId));
+      const [goal] = await db
+        .select({ status: aiGoalsTable.status, outcomeContract: aiGoalsTable.outcomeContract })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId));
+      const [mission] = await db
+        .select({ status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId));
+      const [acceptance] = await db
+        .select({
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+          evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, result.executionId));
+      const projection = (goal?.outcomeContract as Record<string, unknown>).acceptance as Record<string, unknown>;
+
+      expect(execution?.status).toBe("failed");
+      expect(execution?.checkpoint).toContain("required acceptance evidence is missing");
+      expect(acceptance).toMatchObject({
+        terminalStatus: "failed",
+        outcome: "FAILED",
+      });
+      expect(projection).toMatchObject({
+        executionId: result.executionId,
+        outcome: "FAILED",
+        verdict: "FAILED",
+      });
+      expect(goal?.status).toBe("running");
+      expect(mission?.status).toBe("active");
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.id, workflowExecutionId));
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });

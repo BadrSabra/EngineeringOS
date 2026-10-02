@@ -1190,6 +1190,20 @@ describe("AI missions and goals", () => {
     await db.update(aiExecutionEvidenceSnapshotsTable)
       .set({ attempt: inconsistentAttempt })
       .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+    const staleReplayRead = await request(app)
+      .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+    expect(staleReplayRead.status).toBe(200);
+    expect(staleReplayRead.body.receipt).toMatchObject({
+      proof: { receiptId: replay.body.receipt.proof.receiptId },
+    });
+    const staleReplayRetry = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+      .send({});
+    expect(staleReplayRetry.status).toBe(200);
+    expect(staleReplayRetry.body.replay.status).toBe("completed");
+    expect(staleReplayRetry.body.receipt).toMatchObject({
+      proof: { receiptId: replay.body.receipt.proof.receiptId },
+    });
     const staleReplayRegistration = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-registry`)
       .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
