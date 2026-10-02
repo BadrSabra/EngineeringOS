@@ -538,15 +538,42 @@ async function syncLinkedObjectiveState(
 ) {
   if (!params.task.goalId) return;
 
-  const [goal] = await tx
-    .select()
+  const [goalIdentity] = await tx
+    .select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+    })
     .from(aiGoalsTable)
     .where(and(
       eq(aiGoalsTable.id, params.task.goalId),
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
+    .limit(1);
+  if (!goalIdentity) return;
+
+  // Terminal projection shares the Mission-before-Goal lock order used by
+  // direct completion and Mission/Goal proof gates.
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goalIdentity.missionId),
+      eq(aiMissionsTable.projectId, params.task.projectId),
+    ))
+    .for("update");
+  if (!mission) return;
+
+  const [goal] = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, goalIdentity.id),
+      eq(aiGoalsTable.missionId, mission.id),
+      eq(aiGoalsTable.projectId, params.task.projectId),
+    ))
     .for("update");
   if (!goal) return;
+
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
     .from(tasksTable)
@@ -554,15 +581,6 @@ async function syncLinkedObjectiveState(
       eq(tasksTable.goalId, goal.id),
       eq(tasksTable.projectId, params.task.projectId),
     ));
-  const [mission] = await tx
-    .select()
-    .from(aiMissionsTable)
-    .where(and(
-      eq(aiMissionsTable.id, goal.missionId),
-      eq(aiMissionsTable.projectId, params.task.projectId),
-    ))
-    .for("update");
-  if (!mission) return;
 
   const deliveryRequired = goalRequiresDelivery(goal.outcomeContract, goal.nextAction);
   const canonicalProof = params.outcome === "SUCCEEDED" && params.acceptanceProjection
@@ -743,11 +761,35 @@ async function syncWorkflowGoalProjection(
     now: Date;
   },
 ): Promise<void> {
+  const [goalIdentity] = await tx
+    .select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, params.projection.goalId),
+      eq(aiGoalsTable.projectId, params.projectId),
+    ))
+    .limit(1);
+  if (!goalIdentity) return;
+
+  const [missionForProof] = params.projection.finalPhase
+    ? await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, goalIdentity.missionId),
+        eq(aiMissionsTable.projectId, params.projectId),
+      ))
+      .for("update")
+    : [];
   const [goal] = await tx
     .select()
     .from(aiGoalsTable)
     .where(and(
-      eq(aiGoalsTable.id, params.projection.goalId),
+      eq(aiGoalsTable.id, goalIdentity.id),
+      eq(aiGoalsTable.missionId, goalIdentity.missionId),
       eq(aiGoalsTable.projectId, params.projectId),
     ))
     .for("update");
@@ -773,16 +815,6 @@ async function syncWorkflowGoalProjection(
   if (!workflowExecution) return;
 
   const evidenceComplete = params.acceptance.evidenceComplete === 1;
-  const [missionForProof] = params.projection.finalPhase
-    ? await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, goal.missionId),
-        eq(aiMissionsTable.projectId, params.projectId),
-      ))
-      .for("update")
-    : [];
   const canonicalProof = missionForProof
     && params.projection.finalPhase
     && params.acceptance.outcome === "SUCCEEDED"
@@ -900,14 +932,7 @@ async function syncWorkflowGoalProjection(
       eq(aiGoalsTable.projectId, params.projectId),
     ))
     .for("update");
-  const [mission] = await tx
-    .select()
-    .from(aiMissionsTable)
-    .where(and(
-      eq(aiMissionsTable.id, goal.missionId),
-      eq(aiMissionsTable.projectId, params.projectId),
-    ))
-    .for("update");
+  const mission = missionForProof;
   if (!mission) return;
   const missionOperatorOwned =
     mission.status === "blocked"

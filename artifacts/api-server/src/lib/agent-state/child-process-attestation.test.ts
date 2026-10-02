@@ -8,6 +8,7 @@ import {
   attestValidatorProcessTreeEnvironment,
   childProcessBindingDigest,
   CHILD_ATTESTATION_ENV_NAME,
+  matchesValidatorProcessPath,
   type ChildProcessAttestationBinding,
 } from "./child-process-attestation.js";
 
@@ -195,6 +196,33 @@ describe("child process environment attestation", () => {
     });
     expect(attestation.status).toBe("mismatch");
     expect(attestation.reasonCode).toBe("child_environment_mismatch");
+  });
+
+  it("allows only local package-bin PATH prefixes that preserve the exact baseline", async () => {
+    const root = await makeRoot();
+    const baseline = ["/usr/bin", "/bin"].join(path.delimiter);
+    const localBin = path.join(root, "pkg", "node_modules", ".bin");
+    const outsideRootBin = path.join(`${root}-outside`, "node_modules", ".bin");
+
+    expect(matchesValidatorProcessPath(baseline, baseline, root)).toBe(true);
+    expect(matchesValidatorProcessPath(`${localBin}${path.delimiter}${baseline}`, baseline, root)).toBe(true);
+    const approvedProcessDirectory = path.join(root, "trusted-runtime", "bin");
+    expect(matchesValidatorProcessPath(
+      `${localBin}${path.delimiter}${approvedProcessDirectory}${path.delimiter}${baseline}`,
+      baseline,
+      root,
+      [approvedProcessDirectory],
+    )).toBe(true);
+    expect(matchesValidatorProcessPath(
+      `${localBin}${path.delimiter}/tmp/trusted-runtime-bin${path.delimiter}${baseline}`,
+      baseline,
+      root,
+      [approvedProcessDirectory],
+    )).toBe(false);
+    expect(matchesValidatorProcessPath(`${localBin}${path.delimiter}/tmp/arbitrary${path.delimiter}${baseline}`, baseline, root)).toBe(false);
+    expect(matchesValidatorProcessPath(`/tmp/arbitrary${path.delimiter}${baseline}`, baseline, root)).toBe(false);
+    expect(matchesValidatorProcessPath(`${outsideRootBin}${path.delimiter}${baseline}`, baseline, root)).toBe(false);
+    expect(matchesValidatorProcessPath(`${localBin}${path.delimiter}/usr/local/bin`, baseline, root)).toBe(false);
   });
 
   it("keeps a missing process and a process without descendants unknown", async () => {

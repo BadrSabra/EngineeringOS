@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { runBoundedCommand } from "@workspace/ai-orchestrator/server-internal/execution";
@@ -410,10 +410,101 @@ type ValidatorProcessProbe = {
   observeTree: () => Promise<ValidationProcessTreeAttestation>;
 };
 
+const REGISTERED_VALIDATOR_COMMANDS = new Set(["pnpm", "go"]);
+
+async function resolvePnpmNodeGypDirectory(commandPath: string): Promise<string | null> {
+  let packageRoot = path.dirname(commandPath);
+  for (let depth = 0; depth < 8; depth += 1) {
+    try {
+      const metadata = JSON.parse(
+        await fs.readFile(path.join(packageRoot, "package.json"), "utf8"),
+      ) as { name?: unknown };
+      if (metadata.name === "pnpm") {
+        const helperPath = path.join(packageRoot, "dist", "node-gyp-bin");
+        const [helperStats, canonicalHelperPath] = await Promise.all([
+          fs.lstat(helperPath),
+          fs.realpath(helperPath),
+        ]);
+        if (
+          !helperStats.isDirectory()
+          || helperStats.isSymbolicLink()
+          || path.relative(packageRoot, canonicalHelperPath) !== path.join("dist", "node-gyp-bin")
+        ) {
+          return null;
+        }
+        return canonicalHelperPath;
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code && code !== "ENOENT" && code !== "ENOTDIR") return null;
+    }
+    const parent = path.dirname(packageRoot);
+    if (parent === packageRoot) break;
+    packageRoot = parent;
+  }
+  return null;
+}
+
+async function resolveRegisteredValidatorCommand(
+  command: string,
+  environment: NodeJS.ProcessEnv,
+  allowedCommands: ReadonlySet<string>,
+): Promise<{ commandPath: string; approvedProcessPathDirectories: string[] }> {
+  if (
+    command !== path.basename(command)
+    || !allowedCommands.has(command.toLowerCase())
+  ) {
+    throw new Error("Registered validator command is not an allowed executable name.");
+  }
+  const searchPath = environment.PATH;
+  if (!searchPath || searchPath.length > 32_768) {
+    throw new Error("Registered validator command could not be resolved from the server PATH.");
+  }
+  const directories = searchPath.split(path.delimiter);
+  if (directories.length > 512) {
+    throw new Error("Registered validator server PATH exceeds its resolution limit.");
+  }
+  for (const directory of directories) {
+    // Do not let an empty or relative PATH entry resolve a server-owned
+    // validator from the candidate working directory. The selected absolute
+    // executable is still taken from this exact PATH snapshot and is spawned
+    // by its canonical path.
+    if (!directory || !path.isAbsolute(directory)) continue;
+    const candidate = path.resolve(directory, command);
+    try {
+      await fs.access(candidate, fsConstants.X_OK);
+      const metadata = await fs.stat(candidate);
+      if (!metadata.isFile()) continue;
+      const commandPath = await fs.realpath(candidate);
+      const nodeExecutablePath = await fs.realpath(process.execPath);
+      const approvedProcessPathDirectories = new Set([
+        path.dirname(commandPath),
+        path.dirname(process.execPath),
+        path.dirname(nodeExecutablePath),
+      ]);
+      if (command.toLowerCase() === "pnpm") {
+        const nodeGypDirectory = await resolvePnpmNodeGypDirectory(commandPath);
+        if (nodeGypDirectory) approvedProcessPathDirectories.add(nodeGypDirectory);
+      }
+      return {
+        commandPath,
+        approvedProcessPathDirectories: [...approvedProcessPathDirectories],
+      };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR" || code === "EACCES" || code === "EPERM") continue;
+      throw error;
+    }
+  }
+  throw new Error("Registered validator executable is unavailable in the server PATH.");
+}
+
 function createValidatorProcessProbe(input: {
   rootPath: string;
   profile: string;
   evidenceId: string;
+  baseEnvironment: NodeJS.ProcessEnv;
+  approvedProcessPathDirectories: readonly string[];
   identity?: ValidationProcessIdentity;
 }): ValidatorProcessProbe | undefined {
   const identity = input.identity;
@@ -442,7 +533,7 @@ function createValidatorProcessProbe(input: {
   };
   const marker = randomUUID();
   const environment: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...input.baseEnvironment,
     [CHILD_ATTESTATION_ENV_NAME]: marker,
   };
   let observation: Promise<ChildProcessEnvironmentAttestation> | undefined;
@@ -495,6 +586,7 @@ function createValidatorProcessProbe(input: {
         binding: treeBinding,
         expectedEnvironment: childProcessExpectedEnvironment(environment),
         observedAt: sampleObservedAt,
+        approvedProcessPathDirectories: input.approvedProcessPathDirectories,
       }).then((sample) => {
         treeObservation = sample;
         if (
@@ -638,23 +730,34 @@ async function runRepairValidationCore(
   try {
     const validationRootPath = validationWorkspace.rootPath;
     let environmentRevision: string | null = null;
+    const validatorEnvironment = { ...process.env };
+    const resolvedCommand = await resolveRegisteredValidatorCommand(
+      definition.command,
+      validatorEnvironment,
+      REGISTERED_VALIDATOR_COMMANDS,
+    );
     const processProbe = createValidatorProcessProbe({
       rootPath: validationRootPath,
       profile,
       evidenceId,
+      baseEnvironment: validatorEnvironment,
+      approvedProcessPathDirectories: resolvedCommand.approvedProcessPathDirectories,
       identity: childProcessIdentity,
     });
     const execution = await runBoundedCommand({
-      command: definition.command,
+      command: resolvedCommand.commandPath,
       args: definition.args,
       rootPath: validationRootPath,
       cwd: validationRootPath,
       timeoutMs: definition.timeoutMs,
       maxOutputBytes: definition.maxBuffer,
-      allowedCommands: new Set(["pnpm", "go"]),
+      allowedCommands: new Set([
+        ...REGISTERED_VALIDATOR_COMMANDS,
+        path.basename(resolvedCommand.commandPath).toLowerCase(),
+      ]),
       signal,
+      env: processProbe?.environment ?? validatorEnvironment,
       ...(processProbe ? {
-        env: processProbe.environment,
         redactValues: processProbe.redactValues,
         onSpawn: processProbe.onSpawn,
       } : {}),
@@ -984,14 +1087,22 @@ async function runRepairRuntimeValidationOperation(
   let environmentRevision: string | null = null;
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
+    const validatorEnvironment = { ...process.env };
+    const resolvedCommand = await resolveRegisteredValidatorCommand(
+      command.command,
+      validatorEnvironment,
+      new Set(["pnpm"]),
+    );
     const processProbe = createValidatorProcessProbe({
       rootPath: validationWorkspace.rootPath,
       profile: "runtime-oracle",
       evidenceId,
+      baseEnvironment: validatorEnvironment,
+      approvedProcessPathDirectories: resolvedCommand.approvedProcessPathDirectories,
       identity: evidenceContext.childProcessIdentity,
     });
     const execution = await runBoundedCommand({
-      command: command.command,
+      command: resolvedCommand.commandPath,
       args: [...command.args],
       rootPath: validationWorkspace.rootPath,
       cwd: validationWorkspace.rootPath,
@@ -1000,10 +1111,13 @@ async function runRepairRuntimeValidationOperation(
         config.validationProcessTimeoutMs,
       ),
       maxOutputBytes: 1_000_000,
-      allowedCommands: new Set(["pnpm"]),
+      allowedCommands: new Set([
+        "pnpm",
+        path.basename(resolvedCommand.commandPath).toLowerCase(),
+      ]),
       signal,
+      env: processProbe?.environment ?? validatorEnvironment,
       ...(processProbe ? {
-        env: processProbe.environment,
         redactValues: processProbe.redactValues,
         onSpawn: processProbe.onSpawn,
       } : {}),

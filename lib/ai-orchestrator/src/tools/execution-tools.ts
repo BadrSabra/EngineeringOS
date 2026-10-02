@@ -93,6 +93,17 @@ type LegacyValidationRunnerResult = {
   detail?: string;
 };
 
+export type ServerOwnedValidationContext = {
+  childProcessIdentity?: {
+    projectId: string;
+    executionId: string;
+    executionAttempt: number;
+    episodeId: string;
+    operationId: string;
+    revision: string;
+  };
+};
+
 export type ValidationRunner = (
   profile: string,
   targetPaths: string[],
@@ -103,6 +114,7 @@ export type ValidationRunner = (
     projectRevision?: string;
     candidateHash?: string;
   },
+  serverOwnedContext?: ServerOwnedValidationContext,
 ) => Promise<ValidationResult | LegacyValidationRunnerResult>;
 
 function unavailableValidation(profile: string, detail: string): ValidationResult {

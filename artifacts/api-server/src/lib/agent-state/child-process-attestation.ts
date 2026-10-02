@@ -20,6 +20,70 @@ const ENVIRONMENT_DIGEST_NAMES = new Set([
   "TMPDIR",
   "USER",
 ]);
+const MAX_VALIDATOR_PATH_PREFIX_COMPONENTS = 64;
+const MAX_VALIDATOR_PATH_CHARACTERS = 32_768;
+
+export function matchesValidatorProcessPath(
+  actualPath: string,
+  expectedPath: string,
+  validationRoot: string,
+  approvedProcessPathDirectories: readonly string[] = [],
+): boolean {
+  return inspectValidatorProcessPath(
+    actualPath,
+    expectedPath,
+    validationRoot,
+    approvedProcessPathDirectories,
+  );
+}
+
+function inspectValidatorProcessPath(
+  actualPath: string,
+  expectedPath: string,
+  validationRoot: string,
+  approvedProcessPathDirectories: readonly string[],
+): boolean {
+  const exact = actualPath === expectedPath;
+  if (exact) return true;
+  const actualComponents = actualPath.split(path.delimiter);
+  const expectedComponents = expectedPath.split(path.delimiter);
+  const prefixCount = actualComponents.length - expectedComponents.length;
+  const suffixMatches = prefixCount >= 0
+    && actualComponents.slice(prefixCount).every((component, index) => component === expectedComponents[index]);
+  const prefixCountWithinLimit = prefixCount >= 1
+    && prefixCount <= MAX_VALIDATOR_PATH_PREFIX_COMPONENTS
+    && actualPath.length <= MAX_VALIDATOR_PATH_CHARACTERS
+    && expectedPath.length <= MAX_VALIDATOR_PATH_CHARACTERS;
+  const prefixes = prefixCount > 0 ? actualComponents.slice(0, prefixCount) : [];
+  const prefixesAbsolute = prefixCountWithinLimit && prefixes.length > 0 && prefixes.every((component) => (
+    Boolean(component) && path.isAbsolute(component) && !component.includes("\0")
+  ));
+  const prefixesNormalized = prefixesAbsolute && prefixes.every((component) => {
+    const segments = component.split(path.sep).filter(Boolean);
+    return !segments.some((segment) => segment === "." || segment === "..");
+  });
+  const canonicalRoot = path.resolve(validationRoot);
+  const approvedDirectories = new Set(approvedProcessPathDirectories.map((directory) => path.resolve(directory)));
+  const prefixesAllowed = prefixesNormalized && prefixes.every((component) => {
+    const absoluteComponent = path.resolve(component);
+    const relative = path.relative(canonicalRoot, absoluteComponent);
+    const withinValidationRoot = Boolean(relative)
+      && !path.isAbsolute(relative)
+      && relative !== ".."
+      && !relative.startsWith(`..${path.sep}`);
+    const segments = relative.split(path.sep);
+    const isNodeModulesBin = segments.length >= 2
+        && segments[segments.length - 2] === "node_modules"
+        && segments[segments.length - 1] === ".bin";
+    return (withinValidationRoot && isNodeModulesBin)
+      || approvedDirectories.has(absoluteComponent);
+  });
+  return prefixCountWithinLimit
+    && suffixMatches
+    && prefixesAbsolute
+    && prefixesNormalized
+    && prefixesAllowed;
+}
 
 export type ChildProcessAttestationBinding = {
   projectId: string;
@@ -241,6 +305,8 @@ export async function attestChildProcessEnvironment(input: {
   binding?: ChildProcessAttestationBinding;
   expectedEnvironment?: Readonly<Record<string, string>>;
   observedAt?: string;
+  allowLocalNodeModulesBinPathRoot?: string;
+  approvedProcessPathDirectories?: readonly string[];
 }): Promise<ChildProcessEnvironmentAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding) return unknown("binding_missing", observedAt);
@@ -283,7 +349,21 @@ export async function attestChildProcessEnvironment(input: {
     let expectedEnvironmentMatched = true;
     for (const [name, expectedValue] of Object.entries(input.expectedEnvironment ?? {})) {
       const value = oneValue(values, name);
-      if (!value || !value.equals(Buffer.from(expectedValue))) {
+      const actualValue = value?.toString("utf8");
+      let matches: boolean;
+      if (name === "PATH" && input.allowLocalNodeModulesBinPathRoot && value) {
+        const validUtf8 = Buffer.from(actualValue!, "utf8").equals(value);
+        const pathMatched = inspectValidatorProcessPath(
+          actualValue!,
+          expectedValue,
+          input.allowLocalNodeModulesBinPathRoot,
+          input.approvedProcessPathDirectories ?? [],
+        );
+        matches = validUtf8 && pathMatched;
+      } else {
+        matches = Boolean(value) && value!.equals(Buffer.from(expectedValue));
+      }
+      if (!matches) {
         expectedEnvironmentMatched = false;
       }
     }
@@ -389,6 +469,7 @@ export async function attestValidatorProcessTreeEnvironment(input: {
   binding?: ChildProcessAttestationBinding;
   expectedEnvironment?: Readonly<Record<string, string>>;
   observedAt?: string;
+  approvedProcessPathDirectories?: readonly string[];
 }): Promise<ValidationProcessTreeAttestation> {
   const observedAt = input.observedAt ?? new Date().toISOString();
   if (!input.binding || input.binding.processRole !== "validator_tree") {
@@ -460,6 +541,8 @@ export async function attestValidatorProcessTreeEnvironment(input: {
       binding: input.binding,
       expectedEnvironment: input.expectedEnvironment,
       observedAt,
+      allowLocalNodeModulesBinPathRoot: input.projectRoot,
+      approvedProcessPathDirectories: input.approvedProcessPathDirectories,
     });
     if (result.status === "mismatch") {
       return {

@@ -2062,8 +2062,29 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     outputs.set(node.id, { evidence: { evidenceId } });
   }
 
+  const serverOwnedValidationContext = {
+    childProcessIdentity: episode ? {
+      projectId: params.projectId,
+      executionId: claimed.id,
+      executionAttempt: claimed.attempt,
+      episodeId: episode.episodeId,
+      operationId: params.operationId,
+      revision: params.sourceRevision,
+    } : undefined,
+  };
+  const customValidationRunner: ValidationRunner | undefined = params.validationRunner
+    ? (profile, targetPaths, signal, pendingChanges, evidenceContext) =>
+        params.validationRunner!(
+          profile,
+          targetPaths,
+          signal,
+          pendingChanges,
+          evidenceContext,
+          serverOwnedValidationContext,
+        )
+    : undefined;
   const registry = createServerCapabilityRegistry({
-    validationRunner: params.validationRunner ?? (async (profile, targetPaths, signal) =>
+    validationRunner: customValidationRunner ?? (async (profile, targetPaths, signal) =>
       runRepairValidation(
         executionRoot,
         profile as Parameters<typeof runRepairValidation>[1],
@@ -2075,14 +2096,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           projectRevision: params.sourceRevision,
           candidateHash: params.candidateIdentity ?? undefined,
           environmentProfile: validationEnvironmentProfile,
-          childProcessIdentity: episode ? {
-            projectId: params.projectId,
-            executionId: claimed.id,
-            executionAttempt: claimed.attempt,
-            episodeId: episode.episodeId,
-            operationId: params.operationId,
-            revision: params.sourceRevision,
-          } : undefined,
+          childProcessIdentity: serverOwnedValidationContext.childProcessIdentity,
         },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),

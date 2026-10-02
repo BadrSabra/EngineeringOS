@@ -1263,6 +1263,7 @@ describe("AI missions and goals", () => {
         operationId: aiExecutionAcceptancesTable.operationId,
         sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
         candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
       })
@@ -1287,6 +1288,7 @@ describe("AI missions and goals", () => {
     expect(JSON.parse(replayExecution?.request ?? "{}")).toMatchObject({
       executionProfile: "shadow-replay",
       operationId: expect.stringContaining("shadow-replay:"),
+      proofRequired: true,
     });
     expect(replayExecution?.recipeReceipt).toMatchObject({
       recipeId: "candidate.verify",
@@ -1301,6 +1303,7 @@ describe("AI missions and goals", () => {
       operationId: expect.stringContaining("shadow-replay:"),
       sourceRevision,
       candidateIdentity: candidateTreeHash,
+      evidenceRequired: 1,
       evidenceComplete: 1,
     });
     expect(replayEvidence).toMatchObject({
@@ -1515,7 +1518,10 @@ describe("AI missions and goals", () => {
       .where(eq(aiExecutionsTable.id, created.execution.id));
     expect(pausedExecution?.status).toBe("paused");
 
-    const resumed = await runShadowReplayAttempt(replayId, userId);
+    const resumeResults = await Promise.all([
+      runShadowReplayAttempt(replayId, userId),
+      runShadowReplayAttempt(replayId, userId),
+    ]);
     const [recoveredReplay] = await db
       .select({
         status: aiShadowReplaysTable.status,
@@ -1524,7 +1530,7 @@ describe("AI missions and goals", () => {
       })
       .from(aiShadowReplaysTable)
       .where(eq(aiShadowReplaysTable.id, replayId));
-    expect(resumed, JSON.stringify(recoveredReplay)).toBe(true);
+    expect(resumeResults.some(Boolean), JSON.stringify(recoveredReplay)).toBe(true);
     const [recoveredExecution] = await db
       .select({ status: aiExecutionsTable.status })
       .from(aiExecutionsTable)
@@ -1856,6 +1862,86 @@ describe("AI missions and goals", () => {
     });
     expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
       .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
+  });
+
+  it("keeps the server-owned active plan revision unchanged through Mission PATCH", async () => {
+    const projectId = await insertProject();
+    const created = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Server-owned plan revision",
+      intent: "Keep the active plan binding server-owned",
+    });
+    expect(created.status).toBe(201);
+    const missionId = created.body.id as string;
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: "server-plan-v1" } })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    const patched = await request(app)
+      .patch(`/api/ai/missions/${missionId}`)
+      .send({
+        status: "completed",
+        autonomyPolicy: { activePlanRevision: "client-plan-v2" },
+      });
+
+    expect(patched.status).toBe(400);
+    expect(patched.body.code).toBe("MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED");
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("draft");
+    expect(mission?.autonomyPolicy).toMatchObject({
+      activePlanRevision: "server-plan-v1",
+    });
+  });
+
+  it("rolls back Goal edits when the resulting completed Goal has no Canonical Proof", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Goal completion proof",
+      intent: "Keep failed completion edits atomic",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Unproven goal",
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({
+        title: "Should roll back",
+        status: "completed",
+        outcomeContract: { planRevision: { hash: "unproven-revision" } },
+      });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("GOAL_COMPLETION_REQUIRES_PROOF");
+    const [persisted] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persisted?.title).toBe("Unproven goal");
+    expect(persisted?.status).not.toBe("completed");
+    expect(persisted?.outcomeContract).not.toMatchObject({
+      planRevision: { hash: "unproven-revision" },
+    });
+  });
+
+  it("rolls back Mission edits when completion is still unproven", async () => {
+    const projectId = await insertProject();
+    const created = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Unproven mission",
+      intent: "Keep failed completion edits atomic",
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/missions/${created.body.id}`)
+      .send({ title: "Should roll back", status: "completed" });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("MISSION_COMPLETION_REQUIRES_PROOF");
+    const [persisted] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, created.body.id));
+    expect(persisted?.title).toBe("Unproven mission");
+    expect(persisted?.status).toBe("draft");
   });
 
   it("rejects invalid goal parent updates and empty patches", async () => {

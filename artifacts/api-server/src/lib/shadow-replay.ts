@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiExecutionsTable,
@@ -421,30 +421,80 @@ export class ShadowReplayError extends Error {
   }
 }
 
-async function updateReplay(
+type ShadowReplayLeaseOwner = {
+  userId: string;
+  workerId: string;
+  attempt: number;
+};
+
+function replayOwnerWhere(
   replayId: string,
-  values: Partial<typeof aiShadowReplaysTable.$inferInsert>,
-): Promise<ShadowReplayRow | undefined> {
-  const [updated] = await db
-    .update(aiShadowReplaysTable)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(aiShadowReplaysTable.id, replayId))
-    .returning();
-  return updated;
+  owner: ShadowReplayLeaseOwner,
+  now: Date,
+) {
+  return and(
+    eq(aiShadowReplaysTable.id, replayId),
+    eq(aiShadowReplaysTable.userId, owner.userId),
+    eq(aiShadowReplaysTable.workerId, owner.workerId),
+    eq(aiShadowReplaysTable.attempt, owner.attempt),
+    eq(aiShadowReplaysTable.status, "running"),
+    gt(aiShadowReplaysTable.leaseUntil, now),
+  );
 }
 
-async function cleanupReplayWorkspace(replay: ShadowReplayRow): Promise<boolean> {
+async function updateReplayOwned(
+  replayId: string,
+  owner: ShadowReplayLeaseOwner,
+  values: Partial<typeof aiShadowReplaysTable.$inferInsert>,
+): Promise<boolean> {
+  const now = new Date();
+  const [updated] = await db
+    .update(aiShadowReplaysTable)
+    .set({ ...values, updatedAt: now })
+    .where(replayOwnerWhere(replayId, owner, now))
+    .returning({ id: aiShadowReplaysTable.id });
+  return Boolean(updated);
+}
+
+async function cleanupReplayWorkspace(
+  replay: ShadowReplayRow,
+  owner: ShadowReplayLeaseOwner,
+): Promise<boolean> {
   if (!replay.replayWorkspaceRoot) return replay.replayWorkspaceCleaned;
+  const replayWorkspaceRoot = replay.replayWorkspaceRoot;
+  const now = new Date();
+  const [renewed] = await db
+    .update(aiShadowReplaysTable)
+    .set({
+      leaseUntil: new Date(now.getTime() + SHADOW_REPLAY_LEASE_MS),
+      updatedAt: now,
+    })
+    .where(and(
+      replayOwnerWhere(replay.id, owner, now),
+      eq(aiShadowReplaysTable.replayWorkspaceRoot, replayWorkspaceRoot),
+    ))
+    .returning({ id: aiShadowReplaysTable.id });
+  if (!renewed) return false;
   try {
-    await fs.rm(replay.replayWorkspaceRoot, { recursive: true, force: true });
+    await fs.rm(replayWorkspaceRoot, { recursive: true, force: true });
   } catch {
     return false;
   }
-  await updateReplay(replay.id, {
-    replayWorkspaceRoot: null,
-    replayWorkspaceCleaned: true,
-  });
-  return true;
+  const cleanedAt = new Date();
+  const [cleaned] = await db
+    .update(aiShadowReplaysTable)
+    .set({
+      replayWorkspaceRoot: null,
+      replayWorkspaceCleaned: true,
+      leaseUntil: new Date(cleanedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
+      updatedAt: cleanedAt,
+    })
+    .where(and(
+      replayOwnerWhere(replay.id, owner, cleanedAt),
+      eq(aiShadowReplaysTable.replayWorkspaceRoot, replayWorkspaceRoot),
+    ))
+    .returning({ id: aiShadowReplaysTable.id });
+  return Boolean(cleaned);
 }
 
 export async function getShadowReplayForUser(
@@ -534,7 +584,6 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     executionProfile: SHADOW_REPLAY_PROFILE,
     userId: input.userId,
     idempotencyKey: key,
-    proofRequired: true,
     goalId: input.goalId,
   } as const;
   const prepared = prepareRecipeOperation(recipeParams);
@@ -549,9 +598,9 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     workspaceRoot: replayWorkspace.rootPath,
     validationTargetPaths: [...behaviorContract.approvedPaths],
     validationProfiles: behaviorContract.validationProfiles,
+    proofRequired: true,
     objective: behaviorContract.objective.objective,
     taskObjective: behaviorContract.objective,
-    proofRequired: true,
   };
   const execution = await createAiExecution({
     userId: input.userId,
@@ -633,6 +682,46 @@ export async function runShadowReplayAttempt(
     .where(eq(aiExecutionsTable.id, replay.executionId))
     .limit(1);
   if (!execution) return false;
+  if (
+    execution.status !== "queued"
+    && execution.status !== "paused"
+    && execution.status !== "completed"
+  ) return false;
+
+  const startedAt = new Date();
+  const owner: ShadowReplayLeaseOwner = {
+    userId,
+    workerId: `shadow-replay:${replay.id}:${randomUUID()}`,
+    attempt: execution.attempt,
+  };
+  const [claimedReplay] = await db
+    .update(aiShadowReplaysTable)
+    .set({
+      status: "running",
+      attempt: owner.attempt,
+      workerId: owner.workerId,
+      leaseUntil: new Date(startedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
+      startedAt: replay.startedAt ?? startedAt,
+      updatedAt: startedAt,
+    })
+    .where(and(
+      eq(aiShadowReplaysTable.id, replay.id),
+      eq(aiShadowReplaysTable.userId, userId),
+      eq(aiShadowReplaysTable.attempt, replay.attempt),
+      or(
+        eq(aiShadowReplaysTable.status, "queued"),
+        and(
+          eq(aiShadowReplaysTable.status, "running"),
+          or(
+            isNull(aiShadowReplaysTable.leaseUntil),
+            lte(aiShadowReplaysTable.leaseUntil, startedAt),
+          ),
+        ),
+      ),
+    ))
+    .returning();
+  if (!claimedReplay) return false;
+
   if (execution.status === "completed") {
     const receipt = execution.recipeReceipt;
     const receiptRecord = receipt && typeof receipt === "object" && !Array.isArray(receipt)
@@ -654,24 +743,28 @@ export async function runShadowReplayAttempt(
       && recordValue(durableReceipt.proof)?.receiptId === replay.replayCanonicalAcceptanceId
       && recordValue(durableReceipt.proof)?.verdict === "PROVEN";
     if (!receiptMatchesReplay) {
-      await cleanupReplayWorkspace(replay);
-      await updateReplay(replay.id, {
+      await cleanupReplayWorkspace(claimedReplay, owner);
+      await updateReplayOwned(replay.id, owner, {
         status: "failed",
         error: "SHADOW_REPLAY_RECEIPT_MISSING",
         completedAt: execution.completedAt ?? new Date(),
+        workerId: null,
+        leaseUntil: null,
       });
       return false;
     }
-    const workspaceCleaned = await cleanupReplayWorkspace(replay);
+    const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
     if (!workspaceCleaned) {
-      await updateReplay(replay.id, {
+      await updateReplayOwned(replay.id, owner, {
         status: "failed",
         error: "SHADOW_REPLAY_CLEANUP_FAILED",
         completedAt: new Date(),
+        workerId: null,
+        leaseUntil: null,
       });
       return false;
     }
-    await updateReplay(replay.id, {
+    return updateReplayOwned(replay.id, owner, {
       status: "completed",
       preTreeHash: typeof durableReceipt?.preTreeHash === "string" ? durableReceipt.preTreeHash : replay.preTreeHash,
       postTreeHash: typeof durableReceipt?.postTreeHash === "string" ? durableReceipt.postTreeHash : replay.postTreeHash,
@@ -681,32 +774,15 @@ export async function runShadowReplayAttempt(
       replayWorkspaceRoot: null,
       replayWorkspaceCleaned: true,
       error: null,
+      workerId: null,
+      leaseUntil: null,
     });
-    return true;
   }
 
   // Startup reconciliation pauses an execution that was running when the
   // process died. The replay row remains running, so the durable execution
   // state is the recovery authority: queued starts normally, paused resumes
   // from its recipe checkpoint, and an active running execution is left alone.
-  if (execution.status !== "queued" && execution.status !== "paused") return false;
-  const startedAt = new Date();
-  const [claimedReplay] = await db
-    .update(aiShadowReplaysTable)
-    .set({
-      status: "running",
-      attempt: execution.attempt,
-      workerId: `shadow-replay:${replay.id}`,
-      leaseUntil: new Date(startedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
-      startedAt: replay.startedAt ?? startedAt,
-      updatedAt: startedAt,
-    })
-    .where(and(
-      eq(aiShadowReplaysTable.id, replay.id),
-      inArray(aiShadowReplaysTable.status, ["queued", "running"]),
-    ))
-    .returning();
-  if (!claimedReplay) return false;
 
   const request = JSON.parse(execution.request) as AiExecutionRequestEnvelope & {
     validationTargetPaths?: string[];
@@ -714,8 +790,16 @@ export async function runShadowReplayAttempt(
   };
   const approvedPaths = [...(request.validationTargetPaths ?? [])];
   const validationProfiles = request.validationProfiles ?? [];
+  let ownershipLost = false;
+  const renewReplayLease = async (): Promise<boolean> => {
+    const renewed = await updateReplayOwned(replay.id, owner, {
+      leaseUntil: new Date(Date.now() + SHADOW_REPLAY_LEASE_MS),
+    });
+    if (!renewed) ownershipLost = true;
+    return renewed;
+  };
   if (validationProfiles.length === 0) {
-    await updateReplay(replay.id, {
+    await updateReplayOwned(replay.id, owner, {
       status: "failed",
       error: "SHADOW_REPLAY_OBJECTIVE_MISSING",
       workerId: null,
@@ -726,7 +810,7 @@ export async function runShadowReplayAttempt(
   }
   const replayRoot = claimedReplay.replayWorkspaceRoot;
   if (!replayRoot) {
-    await updateReplay(replay.id, {
+    await updateReplayOwned(replay.id, owner, {
       status: "failed",
       error: "SHADOW_REPLAY_WORKSPACE_MISSING",
       workerId: null,
@@ -742,7 +826,20 @@ export async function runShadowReplayAttempt(
     totalBytes: number;
     behavioralCheckedFileCount: number;
   } | undefined;
-  const validationRunner: ValidationRunner = async (profile, targetPaths, signal) => {
+  const validationRunner: ValidationRunner = async (
+    profile,
+    targetPaths,
+    signal,
+    _pendingChanges,
+    _evidenceContext,
+    serverOwnedContext,
+  ) => {
+    if (ownershipLost || !await renewReplayLease()) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_LEASE_LOST",
+        "The replay worker no longer owns the active lease.",
+      );
+    }
     if (!validationProfiles.includes(profile as "workspace-typecheck" | "ai-orchestrator-tests")) {
       return {
         profile,
@@ -786,8 +883,15 @@ export async function runShadowReplayAttempt(
         operationId: replay.operationId,
         projectRevision: replay.sourceRevision,
         candidateHash: replay.candidateTreeHash,
+        childProcessIdentity: serverOwnedContext?.childProcessIdentity,
       },
     );
+    if (ownershipLost || !await renewReplayLease()) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_LEASE_LOST",
+        "The replay worker no longer owns the active lease.",
+      );
+    }
     const postTreeHash = await hashDeliveryTree(replayRoot);
     if (postTreeHash !== preTreeHash) {
       throw new ShadowReplayError(
@@ -814,8 +918,8 @@ export async function runShadowReplayAttempt(
     return result;
   };
   const replayLeaseTimer = setInterval(() => {
-    void updateReplay(replay.id, {
-      leaseUntil: new Date(Date.now() + SHADOW_REPLAY_LEASE_MS),
+    void renewReplayLease().catch(() => {
+      ownershipLost = true;
     });
   }, Math.floor(SHADOW_REPLAY_LEASE_MS / 3));
   try {
@@ -838,6 +942,7 @@ export async function runShadowReplayAttempt(
       proofRequired: true,
       validationRunner,
     });
+    if (ownershipLost || !await renewReplayLease()) return false;
     if (result.status !== "completed" || !replayStats) {
       throw new ShadowReplayError(
         "SHADOW_REPLAY_RECIPE_BLOCKED",
@@ -938,6 +1043,7 @@ export async function runShadowReplayAttempt(
         "The persisted source workspace is unavailable for the paired baseline.",
       );
     }
+    if (ownershipLost || !await renewReplayLease()) return false;
     const paired = await runDeliveryPairedBaseline({
       replayId: replay.id,
       candidateId: replay.candidateId,
@@ -956,11 +1062,19 @@ export async function runShadowReplayAttempt(
       maxTotalBytes: SHADOW_REPLAY_MAX_TOTAL_BYTES,
       expectedBaselineWorkspaceHash: proposal.baseTreeHash,
     });
-    const workspaceCleaned = await cleanupReplayWorkspace({
-      ...claimedReplay,
-      replayWorkspaceRoot: replayRoot,
-    });
-    await paired.cleanup();
+    if (ownershipLost || !await renewReplayLease()) {
+      await paired.cleanup();
+      return false;
+    }
+    let workspaceCleaned = false;
+    try {
+      workspaceCleaned = await cleanupReplayWorkspace({
+        ...claimedReplay,
+        replayWorkspaceRoot: replayRoot,
+      }, owner);
+    } finally {
+      await paired.cleanup();
+    }
     if (!workspaceCleaned) {
       throw new ShadowReplayError(
         "SHADOW_REPLAY_CLEANUP_FAILED",
@@ -1007,7 +1121,7 @@ export async function runShadowReplayAttempt(
       },
       pairedBaseline: paired.result.comparison,
     };
-    await updateReplay(replay.id, {
+    return updateReplayOwned(replay.id, owner, {
       status: "completed",
       replayCanonicalAcceptanceId: replayProof.acceptanceId,
       preTreeHash: replayStats.preTreeHash,
@@ -1021,19 +1135,24 @@ export async function runShadowReplayAttempt(
       replayWorkspaceRoot: null,
       replayWorkspaceCleaned: true,
     });
-    return true;
   } catch (error) {
     const reason = error instanceof ShadowReplayError
       ? `${error.code}: ${error.message}`
       : "SHADOW_REPLAY_FAILED";
-    await updateReplay(replay.id, {
-      status: "failed",
-      error: reason.slice(0, 1_000),
-      workerId: null,
-      leaseUntil: null,
-      completedAt: new Date(),
-    });
-    await cleanupReplayWorkspace({ ...claimedReplay, replayWorkspaceRoot: claimedReplay.replayWorkspaceRoot });
+    if (ownershipLost) return false;
+    try {
+      if (!await renewReplayLease()) return false;
+      await cleanupReplayWorkspace(claimedReplay, owner);
+      await updateReplayOwned(replay.id, owner, {
+        status: "failed",
+        error: reason.slice(0, 1_000),
+        workerId: null,
+        leaseUntil: null,
+        completedAt: new Date(),
+      });
+    } catch {
+      return false;
+    }
     return false;
   } finally {
     clearInterval(replayLeaseTimer);

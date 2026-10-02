@@ -87,6 +87,7 @@ import {
 } from "../lib/ai-execution-state.js";
 import { loadReusableEvidenceReads } from "../lib/ai-execution-acceptance.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
+import { loadCanonicalProof } from "../lib/proof-foundation.js";
 import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
 
@@ -2528,6 +2529,111 @@ describe("Durable AI completion identity", () => {
       .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
     expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+  });
+
+  it("rejects incomplete review-ready proposal evidence from Canonical Proof", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Incomplete review-ready proof");
+    const operationId = `review-incomplete-proof-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+    });
+    const proposalId = randomUUID();
+    const messageId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      executionId: fixture.created.execution.id,
+      role: "assistant",
+      content: "Proposal ready for review.",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "pending",
+      operationId,
+      createdAt: now,
+    });
+    const [execution] = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      status: "running",
+      workerId: fixture.workerId,
+    });
+
+    const finalized = await finalizeExecutionAcceptance({
+      executionId: fixture.created.execution.id,
+      expectedAttempt: execution!.attempt,
+      workerId: fixture.workerId,
+      finalMessageId: messageId,
+      finalMessageContent: "Proposal ready for review.",
+      finalizationKey: `review-incomplete-proof:${randomUUID()}`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "PROPOSAL_REVIEW_READY",
+      recoveryState: "NONE",
+      resumable: false,
+      proposalId,
+      workspaceRoot: fixture.workspaceRoot,
+      sourceRevision: fixture.request.workspaceRevision,
+      candidateIdentity: fixture.operation.candidateIdentity,
+      evidence: {
+        required: true,
+        sourceEvidenceRequired: true,
+        workspaceRoot: fixture.workspaceRoot,
+        sourceRevision: fixture.request.workspaceRevision,
+        candidateIdentity: fixture.operation.candidateIdentity,
+        operationId,
+        verdict: "PARTIAL",
+        reads: [],
+        artifacts: [],
+      },
+    });
+    expect(finalized.accepted).toBe(true);
+    const acceptance = finalized.acceptance;
+    if (!finalized.accepted || !acceptance) {
+      throw new Error("Expected the pending proposal acceptance to be review-ready.");
+    }
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+    });
+
+    const proof = await db.transaction((tx) => loadCanonicalProof({
+      tx,
+      executionId: fixture.created.execution.id,
+      attempt: acceptance.attempt,
+      scope: {
+        projectId,
+        executionId: fixture.created.execution.id,
+        operationId,
+        sourceRevisionBinding: "scope",
+        sourceRevision: fixture.request.workspaceRevision,
+        candidateIdentityBinding: "required",
+        candidateIdentity: fixture.operation.candidateIdentity,
+      },
+      goalStatus: "completed",
+    }));
+    expect(proof.accepted).toBe(false);
+    expect(proof.failureReasons).toContain("evidence_incomplete");
   });
 });
 

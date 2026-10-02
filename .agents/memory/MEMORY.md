@@ -5,6 +5,7 @@
 - [Benchmark root exclusions](benchmark-root-exclusions.md) — keep benchmark copies aligned with digest exclusions; operational state can dominate runtime and expose unrelated artifacts.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.
 - [Shadow replay proof identity](shadow-replay-proof-identity.md) — source and replay Canonical Proof acceptance IDs stay separate; recovery fails closed on receipt/row mismatch.
+- [Shadow replay attempt ownership](shadow-replay-attempt-ownership.md) — direct starts and reconciliation share one lease; only its live owner can write receipts or delete the replay workspace.
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
 - [Discovery lease ownership](discovery-lease-ownership.md) — every discovery progress and terminal write must remain fenced by the current worker lease.
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.

@@ -3057,7 +3057,7 @@ export async function completeAiExecution(params: {
         || source.executionId !== params.executionId
         || source.attempt !== current.attempt
         || source.workspaceRevision !== factInvestigationContract.workspaceRevision
-      ) return false;
+     ) return false;
       const expectedObservationId = createHash("sha256")
         .update(JSON.stringify({
           investigationId: factInvestigationContract.investigationId,

@@ -75,6 +75,20 @@ import {
 const router = Router();
 router.use(requireAuth);
 
+class MissionCompletionProofRejected extends Error {
+  constructor(
+    readonly completion: Awaited<ReturnType<typeof evaluateMissionCompletion>>,
+  ) {
+    super("Mission completion requires Canonical Proof.");
+  }
+}
+
+class GoalCompletionProofRejected extends Error {
+  constructor() {
+    super("Goal completion requires Canonical Proof.");
+  }
+}
+
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const ACTIVATION_PLAN_KIND = "mission_activation_plan";
 
@@ -1176,9 +1190,7 @@ async function buildMissionProjection(
               executionId: candidateAcceptance.executionId,
               operationId: proposal.operationId,
               sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
-              candidateIdentityBinding: proposal.candidateTreeHash == null
-                ? "not_applicable"
-                : "required",
+              candidateIdentityBinding: "required",
               sourceRevision: proposal.baseRevision,
               candidateIdentity: proposal.candidateTreeHash,
             },
@@ -1789,94 +1801,141 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   if (Object.keys(body).length === 0) return res.status(400).json({ error: "At least one mission field is required" });
 
   const before = owned.mission;
-  const existingAutonomyPolicy = readRecord(before.autonomyPolicy);
-  const hasServerOwnedHandoffSource = Boolean(
-    existingAutonomyPolicy
-    && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "handoffSource"),
-  );
-  if (
-    body.autonomyPolicy
-    && Object.prototype.hasOwnProperty.call(body.autonomyPolicy, "handoffSource")
-    && !hasServerOwnedHandoffSource
-  ) {
-    res.status(400).json({
-      error: "handoffSource is server-owned",
-      code: "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
-    });
-    return;
-  }
   const now = new Date();
-  if (body.status === "completed") {
-    const completion = await db.transaction(async (tx) =>
-      evaluateMissionCompletion(tx, {
-        missionId: before.id,
-        projectId: before.projectId,
-      }),
-    );
-    if (!completion.allowed) {
-      return res.status(409).json({
-        error: "mission_completion_requires_proof",
-        code: "MISSION_COMPLETION_REQUIRES_PROOF",
-        reason: completion.reason,
-        missingGoalIds: completion.missingGoalIds,
-      });
-    }
-  }
   // Keep activation idempotent so missions that were already marked active
   // before activation plans existed can be repaired by saving "active" again.
   const shouldActivate = body.status === "active";
   const { deadline, autonomyPolicy, ...rest } = body;
-  const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
-    ...rest,
-    updatedAt: now,
-    ...(autonomyPolicy !== undefined
-      ? {
-          autonomyPolicy: {
-            ...autonomyPolicy,
-            ...(hasServerOwnedHandoffSource
-              ? { handoffSource: existingAutonomyPolicy!.handoffSource }
-              : {}),
-          },
-        }
-      : {}),
-    ...(Object.prototype.hasOwnProperty.call(body, "deadline")
-      ? { deadline: deadline ? new Date(deadline) : null }
-      : {}),
-  };
-  if (body.status === "completed") {
-    updateValues.completedAt = before.completedAt ?? now;
-  } else if (body.status) {
-    updateValues.completedAt = null;
-  }
 
   const correlationId = randomUUID();
-  const result = await db.transaction(async (tx) => {
-    const rows = await tx.update(aiMissionsTable)
-      .set(updateValues)
-      .where(eq(aiMissionsTable.id, before.id))
-      .returning();
-    let activationPlan: MissionPlanMaterialization | undefined;
-    if (rows[0]) {
+  let result: {
+    updated?: typeof aiMissionsTable.$inferSelect;
+    activationPlan?: MissionPlanMaterialization;
+    policyError?: "handoffSource" | "activePlanRevision";
+  };
+  try {
+    result = await db.transaction(async (tx) => {
+      const [current] = await tx.select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, before.id),
+          eq(aiMissionsTable.projectId, before.projectId),
+        ))
+        .for("update");
+      if (!current) return { updated: undefined, activationPlan: undefined };
+
+      const existingAutonomyPolicy = readRecord(current.autonomyPolicy);
+      const hasServerOwnedHandoffSource = Boolean(
+        existingAutonomyPolicy
+        && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "handoffSource"),
+      );
+      const hasServerOwnedActivePlanRevision = Boolean(
+        existingAutonomyPolicy
+        && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "activePlanRevision"),
+      );
+      if (
+        autonomyPolicy
+        && Object.prototype.hasOwnProperty.call(autonomyPolicy, "handoffSource")
+        && !hasServerOwnedHandoffSource
+      ) {
+        return { policyError: "handoffSource" as const };
+      }
+      if (
+        autonomyPolicy
+        && Object.prototype.hasOwnProperty.call(autonomyPolicy, "activePlanRevision")
+        && (
+          !hasServerOwnedActivePlanRevision
+          || autonomyPolicy.activePlanRevision !== existingAutonomyPolicy!.activePlanRevision
+        )
+      ) {
+        return { policyError: "activePlanRevision" as const };
+      }
+
+      const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
+        ...rest,
+        updatedAt: now,
+        ...(autonomyPolicy !== undefined
+          ? {
+              autonomyPolicy: {
+                ...autonomyPolicy,
+                ...(hasServerOwnedHandoffSource
+                  ? { handoffSource: existingAutonomyPolicy!.handoffSource }
+                  : {}),
+                ...(hasServerOwnedActivePlanRevision
+                  ? { activePlanRevision: existingAutonomyPolicy!.activePlanRevision }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(body, "deadline")
+          ? { deadline: deadline ? new Date(deadline) : null }
+          : {}),
+      };
+      const nextStatus = body.status ?? current.status;
+      if (body.status === "completed") {
+        updateValues.completedAt = current.completedAt ?? now;
+      } else if (body.status) {
+        updateValues.completedAt = null;
+      }
+
+      const [updated] = await tx.update(aiMissionsTable)
+        .set(updateValues)
+        .where(eq(aiMissionsTable.id, current.id))
+        .returning();
+      if (!updated) return { updated: undefined, activationPlan: undefined };
+
+      // Re-evaluate after applying the proposed fields and keep the proof locks
+      // through the status write. A failed proof rolls back the whole patch.
+      if (nextStatus === "completed") {
+        const completion = await evaluateMissionCompletion(tx, {
+          missionId: current.id,
+          projectId: current.projectId,
+        });
+        if (!completion.allowed) throw new MissionCompletionProofRejected(completion);
+      }
+
+      let activationPlan: MissionPlanMaterialization | undefined;
       await tx.insert(eventsTable).values({
         id: randomUUID(),
         type: "AiMissionUpdated",
         projectId: before.projectId,
         severity: "info",
-        message: `AI mission "${rows[0].title}" updated`,
+        message: `AI mission "${updated.title}" updated`,
         correlationId,
         payload: { missionId: before.id, changedFields: Object.keys(body) },
       });
       if (shouldActivate) {
         activationPlan = await ensureMissionActivationPlan(
           tx,
-          rows[0],
+          updated,
           now,
-          buildMissionPlanPreview({ message: rows[0].intent, objective: rows[0].intent }),
+          buildMissionPlanPreview({ message: updated.intent, objective: updated.intent }),
         );
       }
+      return { updated, activationPlan };
+    });
+  } catch (error) {
+    if (error instanceof MissionCompletionProofRejected) {
+      return res.status(409).json({
+        error: "mission_completion_requires_proof",
+        code: "MISSION_COMPLETION_REQUIRES_PROOF",
+        reason: error.completion.reason,
+        missingGoalIds: error.completion.missingGoalIds,
+      });
     }
-    return { updated: rows[0], activationPlan };
-  });
+    throw error;
+  }
+  if ("policyError" in result) {
+    const isActivePlanRevision = result.policyError === "activePlanRevision";
+    return res.status(400).json({
+      error: isActivePlanRevision
+        ? "activePlanRevision is server-owned"
+        : "handoffSource is server-owned",
+      code: isActivePlanRevision
+        ? "MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED"
+        : "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
+    });
+  }
   if (!result.updated) return res.status(404).json({ error: "Mission not found" });
   if (result.activationPlan) {
     await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
@@ -2018,9 +2077,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
           executionId: accepted.executionId,
           operationId: proposal.operationId,
           sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
-          candidateIdentityBinding: proposal.candidateTreeHash == null
-            ? "not_applicable"
-            : "required",
+          candidateIdentityBinding: "required",
           sourceRevision: proposal.baseRevision,
           candidateIdentity: proposal.candidateTreeHash,
         },
@@ -2235,9 +2292,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
           planRevision,
           activePlanRevision,
           sourceRevisionBinding: proposal.baseRevision == null ? "execution" : "scope",
-          candidateIdentityBinding: proposal.candidateTreeHash == null
-            ? "not_applicable"
-            : "required",
+          candidateIdentityBinding: "required",
           sourceRevision: proposal.baseRevision,
           candidateIdentity: proposal.candidateTreeHash,
         },
@@ -2803,52 +2858,62 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
     outcomeContract,
     ...rest
   } = body;
-  const nextOutcomeContract =
-    outcomeContract !== undefined
-      ? outcomeContract
-      : goal.outcomeContract;
-  const updateValues: Partial<typeof aiGoalsTable.$inferInsert> = {
-    ...rest,
-    ...(outcomeContract !== undefined || planRevision
-      ? {
-          outcomeContract: {
-            ...(nextOutcomeContract ?? {}),
-            ...(planRevision ? { planRevision: { hash: planRevision } } : {}),
-          },
-        }
-      : {}),
-    updatedAt: now,
-    ...(Object.prototype.hasOwnProperty.call(body, "nextWakeAt")
-      ? { nextWakeAt: nextWakeAt ? new Date(nextWakeAt) : null }
-      : {}),
-  };
-  if (body.status === "completed") {
-    const proven = await db.transaction(async (tx) =>
-      evaluateGoalCompletion(tx, {
-        goalId: goal.id,
-        missionId: goal.missionId,
-        projectId: goal.projectId,
-      }),
-    );
-    if (!proven) {
-      return res.status(409).json({
-        error: "goal_completion_requires_proof",
-        code: "GOAL_COMPLETION_REQUIRES_PROOF",
-      });
-    }
-    updateValues.completedAt = goal.completedAt ?? now;
-  } else if (body.status) {
-    updateValues.completedAt = null;
-  }
 
   const correlationId = randomUUID();
   try {
-    const [updated] = await db.transaction(async (tx) => {
-      const rows = await tx.update(aiGoalsTable)
-      .set(updateValues)
-      .where(eq(aiGoalsTable.id, goal.id))
-      .returning();
-      if (rows[0] && Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
+    const result = await db.transaction(async (tx) => {
+      // Keep the documented Mission-before-Goal lock order for all direct
+      // completion checks, including patches to already-completed records.
+      const [lockedMission] = await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, owned.mission.id),
+          eq(aiMissionsTable.projectId, owned.project.id),
+        ))
+        .for("update");
+      if (!lockedMission) return { updated: undefined };
+      const [currentGoal] = await tx.select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, goal.id),
+          eq(aiGoalsTable.missionId, owned.mission.id),
+          eq(aiGoalsTable.projectId, owned.project.id),
+        ))
+        .for("update");
+      if (!currentGoal) return { updated: undefined };
+
+      const nextOutcomeContract =
+        outcomeContract !== undefined
+          ? outcomeContract
+          : currentGoal.outcomeContract;
+      const updateValues: Partial<typeof aiGoalsTable.$inferInsert> = {
+        ...rest,
+        ...(outcomeContract !== undefined || planRevision
+          ? {
+              outcomeContract: {
+                ...(nextOutcomeContract ?? {}),
+                ...(planRevision ? { planRevision: { hash: planRevision } } : {}),
+              },
+            }
+          : {}),
+        updatedAt: now,
+        ...(Object.prototype.hasOwnProperty.call(body, "nextWakeAt")
+          ? { nextWakeAt: nextWakeAt ? new Date(nextWakeAt) : null }
+          : {}),
+      };
+      const nextStatus = body.status ?? currentGoal.status;
+      if (body.status === "completed") {
+        updateValues.completedAt = currentGoal.completedAt ?? now;
+      } else if (body.status) {
+        updateValues.completedAt = null;
+      }
+      const [updated] = await tx.update(aiGoalsTable)
+        .set(updateValues)
+        .where(eq(aiGoalsTable.id, currentGoal.id))
+        .returning();
+      if (!updated) return { updated: undefined };
+
+      if (Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
         await setGoalDependencies(tx, {
           missionId: goal.missionId,
           projectId: goal.projectId,
@@ -2857,27 +2922,39 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           planRevision,
         });
       }
-      if (rows[0]) {
-        await tx.insert(eventsTable).values({
-          id: randomUUID(),
-          type: "AiGoalUpdated",
-          projectId: goal.projectId,
+      if (nextStatus === "completed") {
+        const proven = await evaluateGoalCompletion(tx, {
           goalId: goal.id,
-          severity: "info",
-          message: `AI goal "${rows[0].title}" updated`,
-          correlationId,
-          payload: {
-            missionId: goal.missionId,
-            changedFields: Object.keys(body),
-            dependencyRevision: planRevision ?? null,
-          },
+          missionId: goal.missionId,
+          projectId: goal.projectId,
         });
+        if (!proven) throw new GoalCompletionProofRejected();
       }
-      return rows;
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalUpdated",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "info",
+        message: `AI goal "${updated.title}" updated`,
+        correlationId,
+        payload: {
+          missionId: goal.missionId,
+          changedFields: Object.keys(body),
+          dependencyRevision: planRevision ?? null,
+        },
+      });
+      return { updated };
     });
-    if (!updated) return res.status(404).json({ error: "Goal not found" });
-    return res.json(updated);
+    if (!result.updated) return res.status(404).json({ error: "Goal not found" });
+    return res.json(result.updated);
   } catch (error) {
+    if (error instanceof GoalCompletionProofRejected) {
+      return res.status(409).json({
+        error: "goal_completion_requires_proof",
+        code: "GOAL_COMPLETION_REQUIRES_PROOF",
+      });
+    }
     if (error instanceof GoalDependencyValidationError) {
       return res.status(400).json({ error: error.message, code: "INVALID_GOAL_DEPENDENCIES" });
     }
