@@ -1,6 +1,7 @@
 # EngineeringOS — Agent Core Forensic Status Report
 
-- **تاريخ التدقيق:** 2026-10-02
+- **تاريخ التدقيق الأساسي:** 2026-10-02
+- **آخر تحديث للحالة الديناميكية:** 2026-10-03؛ التفاصيل في الملحق 19.
 - **المنهج:** مراجعة الكود ومسارات التنفيذ والاختبارات الحالية؛ الوثائق السابقة سياق للنية فقط، وليست دليل تنفيذ.
 - **النطاق:** E1–E8، مع فصل الأدلة الساكنة عن الاختبارات التي شُغّلت وعن المسارات غير المثبتة.
 - **النتيجة المختصرة:** `NOT READY` للانتقال إلى Learning / Transfer / Generalization.
@@ -20,8 +21,10 @@
 - خط الأساس قبل إصلاح Mission recipe: تشغيل الملفات الثمانية أعلاه أعطى **109 ناجحة و4 فاشلة من 113**؛ فشلت أربعة اختبارات في `mission-runtime-recipe.test.ts` لأن Canonical Proof رُفض وبقي Goal على `verifying`. هذه نتيجة ما قبل الإصلاح وليست تحققًا للحالة الحالية.
 - التحقق بعد إصلاحات Mission وShadow Replay (2026-10-02): اجتازت `mission-runtime-recipe.test.ts` (6/6)، و`ai-execution-acceptance.test.ts` (24/24)، ومجموعة التدقيق الأوسع ذات الملفات الثمانية (114/114)، بما فيها نجاح replay والاستعادة بعد crash. وفي التحقق الحالي، نجح API typecheck؛ واجتاز `recipe-operation-runner.test.ts` (29/29)، و`routes/ai/missions.test.ts` (29/29)، واختبار registry (7/7)، وكذلك `git diff --check`. شملت تغطية runner اختبارات Canonical Proof للقراءة والمتصفح والتسليم ورفض runtime lifecycle قبل التنفيذ.
 - استدعاء Vitest أول من جذر monorepo التقط نسخًا مستوردة وتعارض fixtures؛ استُبعد من النتائج أعلاه ولم يُستخدم كتحقق صالح.
-- لقطة قاعدة **التطوير فقط** أثناء التدقيق: 156 execution، 246 acceptance، 6 Missions، 11 Goals، 202 Episode، 11 EffectBundle، 126 World Fact، و3 World Transition. حالات execution: 65 completed، 76 failed، 10 cancelled، 5 paused؛ حالات Mission: 1 active، 3 blocked، 1 completed، 1 waiting؛ حالات Goal: 1 cancelled، 2 completed، 3 needs_replan، 3 queued، 1 running، 1 verifying. انتقالان `materialized/fresh` وواحد `terminal_failed/unknown`؛ لا ينقصها EffectBundle، والانتقال الفاشل وحده له refs فارغة ونتيجة revision مفقودة. هذه أعداد صفوف لا تثبت صحة ربطها أو دلالة كل سجل.
-- لم يُشغّل مزود حي أو تحقق release/process-recovery، ولم تُستعلم قاعدة الإنتاج؛ لا توجد هنا مطالبة بـ`PRODUCTION-PATH-VERIFIED`.
+- لقطة قاعدة **التطوير فقط** أثناء تدقيق 2026-10-02: 156 execution، 246 acceptance، 6 Missions، 11 Goals، 202 Episode، 11 EffectBundle، 126 World Fact، و3 World Transition. حالات execution: 65 completed، 76 failed، 10 cancelled، 5 paused؛ حالات Mission: 1 active، 3 blocked، 1 completed، 1 waiting؛ حالات Goal: 1 cancelled، 2 completed، 3 needs_replan، 3 queued، 1 running، 1 verifying. انتقالان `materialized/fresh` وواحد `terminal_failed/unknown`؛ لا ينقصها EffectBundle، والانتقال الفاشل وحده له refs فارغة ونتيجة revision مفقودة. هذه لقطة تاريخية؛ أعداد 2026-10-03 الأحدث في الملحق 19.
+- تحقق اختبارات نقي محدد في 2026-10-03: مجموعة P7.5 اجتازت 53/53، ومجموعتا Skill Registry وStrategy Replay اجتازتا 11/11. هذه نتائج لاختبارات الكود، وليست إثباتًا لمسار إنتاجي أو لسجلات إنتاجية.
+- لم يُشغّل اختبار `p75-process-recovery.integration.test.ts` لأنه يكتب إلى قاعدة البيانات ويطلق runtime دون ضمان قاعدة اختبار معزولة. لا يُشغّل تحقق release/process-recovery الحي قبل توفير هذا العزل.
+- أُعيدت قراءة قاعدة التطوير في 2026-10-03 عبر `executeSql` وعبر `@workspace/db` الخاص بالتطبيق؛ تطابقت أعداد الجداول المستهدفة. محاولة قراءة production كانت read-only، لكنها أعادت أن المشروع لا يملك قاعدة إنتاج بعد؛ لم يحدث نشر، ولا توجد مطالبة بـ`PRODUCTION-PATH-VERIFIED`.
 
 ## 2. Executive Verdict
 
@@ -408,3 +411,42 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 ## 18. Final Verdict
 
 **NOT READY.** أُغلق E1 package-boundary على مصادر workspace الحالية، لكن ذلك لا يغلق Agent Core. الحواجز المتبقية: (1) E2 lifecycle/terminal state عبر mutation surfaces مع reconciliation صريح للأثر بعد crash؛ (2) E3 جعل Canonical Proof وحده صاحب قبول `PROVEN` أو فصل statuses المحلية؛ (3) اشتقاق World Delta وربط planner بالrevision/freshness وإثبات قرار يتغير عند تغير fact ذي صلة؛ (4) belief/replay/evaluation عام قبل أي transfer. لا يُدّعى اكتمال Agent Core معماريًا أو وصول أي طبقة إلى 100%.
+
+## 19. Latest Dynamic-State Addendum (2026-10-03)
+
+هذا الملحق يحدّث الحالة الديناميكية ولا يعيد كتابة الأدلة التاريخية في الأقسام 1–18. جميع الأعداد التالية من قاعدة **التطوير**، وأُعيد التحقق من الأعداد الأساسية عبر اتصال التطبيق. لا توجد قاعدة إنتاج في هذا المشروع، لذلك حالة الإنتاج `UNKNOWN` وليست صفرًا.
+
+### 19.1 Current development snapshot
+
+- 163 executions، 259 acceptances، 9 Missions، 14 Goals، 211 Episodes، 11 EffectBundles، 128 World Facts، و3 World Transitions.
+- حالات execution: 69 `completed`، 78 `failed`، 10 `cancelled`، 6 `paused`.
+- حالات Mission: 1 `active`، 1 `waiting`، 4 `blocked`، 3 `completed`.
+- حالات Goal: 3 `queued`، 1 `running`، 1 `verifying`، 4 `needs_replan`، 4 `completed`، 1 `cancelled`.
+- أعداد الجداول محل الفحص: 0 أحداث `P75_HYPOTHESIS_*`، و0 `ai_shadow_replays`، و0 `ai_skill_registry`، و2 `ai_strategy_candidates`، و5 `ai_strategy_replay_cases`، و5 `ai_strategy_replay_case_runs`. هذه أعداد صفوف؛ لا تثبت وحدها سلامة أو دلالة كل سجل.
+
+### 19.2 P7.5 and Learning / Transfer
+
+- **الحالة: `NO-GO` مؤكدة في الكود والتطوير.** يظل `RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED=false` (`runtime-start-hypothesis-collection-policy.ts:9`)، ومسارا التسجيل والاستمرار محروسين بالسياسة (`recipe-operation-runner.ts:1548–1559, 2257–2267`). لم تُسجل أحداث تجارب P7.5 في قاعدة التطوير.
+- حتى استيفاء العتبات العددية لا يغيّر حالة الاعتماد إلى قبول للنطاق؛ المقيم ينتج `thresholds_met_unverified`، مع بقاء مصادر الموافقة وإثبات reset وسلالة cohort/holdout غير مثبتة (`runtime-start-hypothesis-calibration.ts:327–353`; `runtime-start-hypothesis-trust-boundary.ts:80–167`).
+- **النتيجة:** لا يبدأ جمع P7.5 أو Learning أو Transfer أو Strategy Promotion بناءً على الحالة الحالية.
+
+### 19.3 Strategy Replay, Shadow Replay, and Registry
+
+- المرشحان كلاهما `pending_replay`. من التشغيلات الخمسة: اثنان `incomplete/runner_blocked` ومرتبطان بتنفيذ فاشل؛ اثنان `incomplete/source_revision_mismatch` بلا execution مرتبط؛ وواحد `running` بلا receipt أو execution أو lease، وآخر تحديث له منذ نحو 53 ساعة. موافقة المشروع على Strategy Replay مفعّلة.
+- تحقق `assertCleanRevision` من تطابق HEAD ونظافة مجلد المصدر؛ receipt الحالي لا يميّز أي الشرطين سبّب `source_revision_mismatch` (`strategy-replay-case-runner.ts:374–390`).
+- لم يظهر عامل مصالحة خلفي لهذه التشغيلات؛ نقطة الدخول الظاهرة هي POST المحمي بصلاحية كتابة (`routes/ai/recipe.ts:160–188`). يعيد المسار receipt المخزن للتشغيل غير `running` بدل إعادة تنفيذه (`strategy-replay-case-runner.ts:478–481`). لذلك التشغيلات `incomplete` لا تتعافى تلقائيًا عبر إعادة الطلب نفسها، بينما صف `running` بلا execution يبقى غير محسوم ويحتاج استدعاءً صريحًا واجتياز شروط الأهلية.
+- **الحالة:** لا يوجد تشغيل `proven`، ولا صفوف Shadow Replay أو Skill Registry في التطوير؛ لا يوجد دليل على اجتياز بوابة الترقية.
+
+### 19.4 Mission and Goal plan-revision bindings
+
+- Goal المكتمل الوحيد تحت Mission `blocked` يطابق `activePlanRevision`؛ لا يصح وصفه بأنه قديم استنادًا إلى مراجعة الخطة وحدها.
+- ثلاثة Goals مكتملة تحت Missions `completed` لا تحتوي Mission التابعة لها على `activePlanRevision` محفوظ. كذلك يوجد Goal `verifying` تحت Mission `waiting` وGoal واحد `needs_replan` تحت Mission `blocked` بلا هذه المراجعة. **لا يمكن حسم** إن كانت هذه سجلات تاريخية متوقعة أم نقصًا في ربط الخطة.
+- Goals الحالة `queued` و`running` و3 من 4 `needs_replan` تحت Missions `blocked` تطابق المراجعة النشطة. صفوف اعتماد الخطة الأربعة جميعها تطابق المراجعة النشطة.
+- تُقرأ مراجعة Mission من `autonomyPolicy.activePlanRevision` ومرجع Goal من `outcomeContract.planRevision.hash` (`routes/ai/missions.ts:95–106`).
+
+### 19.5 Production and runtime boundary
+
+- محاولة `executeSql(environment: "production")` أعادت: لا توجد قاعدة إنتاج لهذا المشروع، ويلزم نشر التطبيق لإنشائها. لم يُنشر التطبيق ضمن هذا التدقيق؛ لذلك لم تُقرأ أي بيانات إنتاج.
+- أثناء التحقق، أُعيد تشغيل `artifacts/dashboard: web` بعد ظهورها متوقفة؛ أصبحت `RUNNING` وأظهر سجل Vite أنها جاهزة. هذا يؤكد بدء خدمة الواجهة فقط، ولا يثبت سلوكًا وظيفيًا أو إغلاقًا في Agent Core.
+
+**الحكم المحدث:** `NOT READY` كما في الأقسام 16–18. أضافت لقطة 2026-10-03 دليلًا مباشرًا على أن P7.5 وStrategy Replay/Registry لم تتقدم إلى حالة إثبات في قاعدة التطوير؛ ولا تسمح بترقية الحكم إلى الجاهزية.
