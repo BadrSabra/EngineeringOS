@@ -82,3 +82,10 @@
 - أضيف اختبار deadline أثناء `refresh_project_scan`: ينتظر إشارة abort ثم يثبت أن runner يعيد timeout قبل تحرير scan المعلّق؛ لا يثبت توقف كل عمل scan داخلي غير متعاون.
 - التحقق الحالي: T8 **267/267**؛ مجموعة Orchestrator الكاملة **164 ملفاً و2,670/2,670**؛ execution-kernel **14/14**؛ API lifecycle integration **14/14**؛ ai-repair-validation **15/15**؛ browser preview verification **9/9**؛ API analysis **5/5**؛ Orchestrator وAPI typechecks ناجحان؛ و`git diff --check` ناجح. اختبارات timeout المركزة السابقة **2/2**.
 - ما زال Reliable Tool Agent **قيد التحقق**: استعادة قاعدة البيانات تغطي ممثلين لسياسة block-after-marker وsafe-to-replay، لا كل executor وسياسة replay؛ مسار الخدمة→helper→`chat()`→المحرك الحقيقي مثبت لـ`read_file` فقط، بينما `run_validation` لا يزال مستخدمًا كحالة marker عبر helper stub. كما لا تثبت اختبارات timeout انتهاء جميع runners المفوضة أو إيقاف كل عمليات Playwright الداخلية غير المتعاونة. اختبار in-flight deadline يغطي `refresh_project_scan` لا بقية فروع التحليل. لم تكتمل مصفوفة failure/cancellation/timeout لكل executor، كما أن سقف dispatcher لا يمنع runner من تخصيص نص ضخم قبل إرجاعه. لا توجد نسبة اكتمال عامة مثبتة.
+
+### تدقيق حدود سلطة الأدوات والتجاوز (2026-10-02)
+
+- مسار `chat-agent.ts` الحالي يستعمل `executeToolLoop` و`executeScopedReadTool`؛ لم يُثبت استدعاء raw لـ`executeFileTool` أو`executeGitTool` منه. الادعاء السابق عن تجاوز هذا الملف للـdispatcher أصبح `FALSE / OUTDATED`.
+- توجد exports منخفضة المستوى مثل `runBoundedCommand` و`executeCommandTool` و`runRegisteredCommand` و`executePackageTool` و`executeBinaryTool` من مدخل orchestrator العام. هذا يثبت سطحًا يمكنه تجاوز dispatcher إذا استُدعي مباشرة، لكنه لا يثبت وجود caller production يسلكه؛ reachability الفعلية `UNKNOWN`.
+- فحص `reliable-tool-agent-100.test.ts` للـraw file/Git calls محدود بنطاقه ولا يحسم المستهلكين الآخرين أو واجهات package. لا تُعتبره برهانًا على وجود bypass production أو على إغلاقه.
+- لم تُشغّل مجموعة Reliable Tool Agent في هذا التدقيق الساكن. تبقى حالة الإغلاق `PARTIAL / UNDER VERIFICATION`، ولا توجد نسبة اكتمال عامة مثبتة. التفاصيل في `docs/agent-core-forensic-status-report.md` §4 و§9.

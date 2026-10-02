@@ -6,7 +6,8 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-09-30
+**آخر تحديث:** 2026-10-02
+**مراجعة Agent Core code-first:** تقرير `docs/agent-core-forensic-status-report.md` هو أحدث تقييم للحالة الجنائية من الكود. يظل ملخص المراحل التالي ملخصًا سابقًا للحالة المسجلة في 2026-09-30، ولا يحوّل اختبارًا محدودًا أو وصفًا سابقًا إلى إغلاق شامل.
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
@@ -3964,6 +3965,17 @@ G9 Revocation Safety
 - **next step:** مراجعة المالك والمراجع المنهجي للمستندات القائمة وحسم
   وحدة الاستقلال ومصادر الدليل والادعاء والنتائج؛ لا إعادة فتح البوابة
   أو أي تشغيل قبل قرار وتفويض منفصلين.
+
+### 2026-10-02 — تدقيق code-first للحالة الجنائية لـAgent Core
+
+- **phase/step:** E1–E8 audit overlay؛ لا تغيير لترتيب P0–P14 ولا انتقال إلى مرحلة تعلم.
+- **status:** `done — audit and evidence-based documentation update; layer closure remains partial/unknown`
+- **what changed:** أُنشئ `docs/agent-core-forensic-status-report.md` بعد فحص مسارات الأدوات والتنفيذ والقبول وCanonical Proof وWorld State والتخطيط. الحكم C يعني قدرة تنفيذ/أدلة لمسارات محددة، لا إغلاقًا هندسيًا أو نسبة اكتمال عامة. صحح التقرير الادعاء القديم عن raw file/Git dispatch في `chat-agent.ts` إلى `FALSE / OUTDATED`، وسجل exports منخفضة المستوى كسطح تجاوز محتمل مع بقاء وصول production `UNKNOWN`. وثّق terminalization الـobservation-only، وفصل projection عن verifier، وترك `PROVEN` العالمي متعدد الدلالات غير محسوم، وسجل `changedFactRefs: []` في apply-changes وفجوة إثبات تغيّر قرار planner.
+- **files/schema/contracts touched:** تقرير التدقيق؛ هذا السجل؛ `docs/agent-generalization-execution-plan.md`؛ `docs/reliable-tool-agent-progress.md`. لم تتغير الشيفرة أو schema أو الصلاحيات.
+- **validation:** تحقق ديناميكي مسجل على شجرة العمل في 2026-10-02: 4 ملفات acceptance/retry/proof/candidate، 39/39؛ اختبار D2 المستهدف 1/1؛ API typecheck؛ `git diff --check`. التدقيق الحالي للطبقات E1–E8 ساكن ولا يعيد ادعاء تشغيل بقية المصفوفة. لم يُشغّل release/process-recovery لأن عزل DB ومخرج الإيصال لم يثبتا.
+- **authority/safety impact:** لا تغيير للـdispatcher أو acceptance أو verifier أو planner، ولا توسيع للسلطة. يظل optional evidence `NOT_REQUIRED` لا proof، وCanonical Proof مسارًا محددًا؛ لا يُعامل phase-local `PROVEN` كإغلاق Goal.
+- **remaining/blocker:** E1 exports والوصول الفعلي؛ جرد lifecycle/crash windows E2؛ جرد producers/consumers لـ`PROVEN` في E3؛ دلالة apply delta؛ إثبات قرار World-State-aware planner؛ belief/replay/evaluation العام، جميعها جزئية أو `UNKNOWN` كما فصلها التقرير.
+- **next step:** إغلاق E1 call-site/authority inventory ثم E2 lifecycle وcrash reconciliation ثم E3 producer/consumer gate. بعد ذلك فقط يبدأ E4–E8 حسب dependency order؛ لا Learning أو Transfer أو Generalization الآن.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
