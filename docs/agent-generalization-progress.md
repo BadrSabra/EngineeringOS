@@ -3999,6 +3999,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يكتمل جرد terminal writers والقراء ولا crash reconciliation عند W2–W8 لكل runtime/apply/repair/workflow/task؛ E2 جزئية، ولا يبدأ E3 أو Learning/Transfer/Generalization بناءً على هذا التغيير.
 - **next step:** إكمال جرد E2 عبر بقية mutation surfaces وإضافة fault injection للآثار/الملاحظات/القبول، ثم الانتقال إلى E3 فقط بعد إغلاق البوابات السابقة.
 
+### 2026-10-03 — إعادة تحقق ديناميكية للحالة الجنائية لـAgent Core
+
+- **phase/step:** تحديث الحالة الراهنة لـP7.5 وLearning/Transfer وStrategy Replay؛ توثيق فقط، دون تنفيذ طبقة جديدة.
+- **status:** `done — development state rechecked; production state unavailable`
+- **what changed:** أُضيف الملحق 19 إلى `docs/agent-core-forensic-status-report.md` مع لقطة تطوير أحدث. أظهرت القراءة 0 أحداث P7.5، و0 Shadow Replay، و0 Skill Registry؛ مرشحين اثنين `pending_replay` وخمس حالات/تشغيلات Strategy Replay: أربع `incomplete` (اثنتان `runner_blocked` واثنتان `source_revision_mismatch`) وواحدة `running` بلا execution أو receipt أو lease. كما سُجلت حالات Mission/Goal وربط مراجعات الخطة؛ بقيت ثلاث Goals مكتملة تحت Missions مكتملة بلا `activePlanRevision`، وهو نقص إثبات لا حكم بأنها سجلات خاطئة. لم يتغير الحكم `NOT READY`.
+- **files/schema/contracts touched:** `docs/agent-core-forensic-status-report.md` وهذا السجل فقط؛ لا كود أو schema أو policy أو runtime data.
+- **validation:** قراءات تطوير فقط عبر `executeSql` واتصال `@workspace/db`، وأعداد الجداول المستهدفة متطابقة؛ `git diff --check` ناجح. طلب القراءة الإنتاجية أفاد بعدم وجود قاعدة production. أُعيد تشغيل Dashboard workflow، وأصبح Vite جاهزًا. لا تُعامل نتائج الاختبارات النقية المسجلة في الملحق كتحقق إنتاجي.
+- **authority/safety impact:** لا جمع P7.5 أو replay جديد، ولا تعديل لقاعدة التطوير أو الإنتاج، ولا نشر. بقي `RUNTIME_START_HYPOTHESIS_COLLECTION_AUTHORIZED=false` وP7.5 `NO-GO`.
+- **remaining/blocker:** غياب مصادر الموافقة/reset/cohort اللازمة لـP7.5؛ تشغيلات Strategy Replay غير مثبتة ولا توجد مصالحة خلفية ظاهرة؛ لا Shadow Replay أو Registry؛ ولا قاعدة إنتاج لفحص حالتها.
+- **next step:** لا يبدأ Learning أو Transfer. أي إصلاح لـStrategy Replay يحتاج سياسة استعادة ومحاولات جديدة مثبتة بالـproof والـlease؛ إعادة فتح P7.5 تحتاج بروتوكولًا وموافقة جمع صريحة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
