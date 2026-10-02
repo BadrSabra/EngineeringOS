@@ -12,7 +12,10 @@ import {
   createRuntimeStartRunner,
   runRecipeOperation,
 } from "../../lib/recipe-operation-runner.js";
-import { runRegisteredStrategyReplayCase } from "../../lib/agent-state/strategy-replay-case-runner.js";
+import {
+  runRegisteredStrategyReplayCase,
+  StrategyReplayCaseBusyError,
+} from "../../lib/agent-state/strategy-replay-case-runner.js";
 import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service.js";
 
 const router = Router();
@@ -178,7 +181,14 @@ router.post(
         recovered: result.recovered,
         receipt: result.receipt,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof StrategyReplayCaseBusyError) {
+        return res.status(409).json({
+          error: "Strategy Replay case is already running.",
+          code: "STRATEGY_REPLAY_IN_PROGRESS",
+          retryable: true,
+        });
+      }
       return res.status(409).json({
         error: "Strategy Replay could not prove this case.",
         code: "STRATEGY_REPLAY_INCOMPLETE",

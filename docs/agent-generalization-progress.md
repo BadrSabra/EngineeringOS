@@ -4010,6 +4010,17 @@ G9 Revocation Safety
 - **remaining/blocker:** غياب مصادر الموافقة/reset/cohort اللازمة لـP7.5؛ تشغيلات Strategy Replay غير مثبتة ولا توجد مصالحة خلفية ظاهرة؛ لا Shadow Replay أو Registry؛ ولا قاعدة إنتاج لفحص حالتها.
 - **next step:** لا يبدأ Learning أو Transfer. أي إصلاح لـStrategy Replay يحتاج سياسة استعادة ومحاولات جديدة مثبتة بالـproof والـlease؛ إعادة فتح P7.5 تحتاج بروتوكولًا وموافقة جمع صريحة.
 
+### 2026-10-03 — استعادة Strategy Replay المتروكة بحدود lease
+
+- **phase/step:** إصلاح تعافي التشغيلات ذات الحالة `running` بعد انقطاع العامل، مع إبقاء قبول Canonical Proof كما هو.
+- **status:** `done — lease fencing implemented; database recovery not exercised`
+- **what changed:** تستخدم التشغيلات الجديدة lease داخليًا في حقل `receipt` الموجود: صلاحية 120 ثانية وتجديد كل 30 ثانية. يحمي claim transaction التشغيل المتزامن؛ صفوف `running` القديمة ذات receipt فارغ تصبح قابلة للاستعادة بعد 15 دقيقة من الخمول، والـlease المنتهي بعد grace window. heartbeat والكتابة النهائية مشروطان بمالك lease الحالي وحالته غير المنتهية. يعيد POST المحمي خطأ `STRATEGY_REPLAY_IN_PROGRESS` عند وجود مالك حي، ويعلن `recovered` عند استعادة تشغيل قديم. يظل Canonical Proof والتحقق من source/candidate/revision كما هما.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/agent-state/strategy-replay-case-runner.ts`، helper واختبارات lease، `artifacts/api-server/src/routes/ai/recipe.ts`، وتعليق schema في `lib/db/src/schema/ai_strategy_replay_case_runs.ts`. لا migration ولا تغيير schema فعلي.
+- **validation:** lease policy 5/5، واختبار receipt identity معها 8/8؛ API typecheck وbuild و`git diff --check` ناجحة. أُعيد تشغيل `artifacts/api-server: API Server` وبدأ بلا أخطاء. لم يُشغّل اختبار قاعدة البيانات الذي يكتب صفوفًا لأن عزل قاعدة الاختبار غير مؤكد؛ لم يُستدعَ POST على الصف القديم، ولم تُعد قراءة قاعدة التطوير أو الإنتاج، ولم يحدث نشر.
+- **authority/safety impact:** لا proof جديد ولا promotion أو authority إضافية. تظل `incomplete` receipts نهائية؛ `runner_blocked` و`source_revision_mismatch` لا يعاد تشغيلهما تلقائيًا. لا توجد مصالحة خلفية؛ الاستعادة تحتاج استدعاء POST مصرحًا به، ثم إثبات المصدر الحالي.
+- **remaining/blocker:** الصف `running` التاريخي لم يُعالج فعليًا بعد، والبيئة لا تملك اختبار قاعدة بيانات معزولًا مثبتًا. التشغيلات الأربع `incomplete` تبقى نهائية حتى يظهر تصميم محاولة جديدة مستقل يحفظ السجل السابق.
+- **next step:** بعد توفير قاعدة اختبار معزولة، اختبر claim/heartbeat/terminal fencing على صفوف مولدة؛ ثم قرر إن كان يلزم مسار محاولة جديدة صريحة للـreceipts النهائية.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

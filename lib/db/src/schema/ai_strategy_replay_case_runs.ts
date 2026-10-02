@@ -13,8 +13,9 @@ import { aiStrategyReplayCasesTable } from "./ai_strategy_replay_cases.js";
 import { projectsTable } from "./projects.js";
 
 /**
- * One immutable replay attempt per registered held-out case. The row records
- * only bounded identities, hashes, and a proof-status receipt.
+ * One immutable replay attempt per registered held-out case. While running,
+ * receipt stores a short-lived internal lease marker; terminal rows store only
+ * bounded identities, hashes, and the proof-status receipt.
  */
 export const aiStrategyReplayCaseRunsTable = pgTable("ai_strategy_replay_case_runs", {
   id: text("id").primaryKey(),

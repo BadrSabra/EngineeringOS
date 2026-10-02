@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   canonicalJsonHash,
   StrategyCandidateSchema,
@@ -35,6 +35,13 @@ import {
 } from "./strategy-replay-case-registry.js";
 import { createInMemoryWorkspaceRuntimeStore } from "../workspace-runtime-store.js";
 import { WorkspaceRuntimeManager } from "../workspace-runtime.js";
+import {
+  createStrategyReplayCaseRunLease,
+  decideStrategyReplayCaseLeaseClaim,
+  STRATEGY_REPLAY_CASE_LEASE_KIND,
+  STRATEGY_REPLAY_CASE_LEASE_MS,
+  STRATEGY_REPLAY_CASE_LEASE_RENEW_INTERVAL_MS,
+} from "./strategy-replay-case-lease.js";
 
 const execFileAsync = promisify(execFile);
 const HASH = /^[a-f0-9]{64}$/;
@@ -109,7 +116,23 @@ type ReplayCaseSnapshot = {
   runId: string;
   operationId: string;
   replayRun: typeof aiStrategyReplayCaseRunsTable.$inferSelect;
+  leaseToken: string | null;
+  reclaimed: boolean;
 };
+
+export class StrategyReplayCaseBusyError extends Error {
+  constructor() {
+    super("Strategy Replay case already has an active runner.");
+    this.name = "StrategyReplayCaseBusyError";
+  }
+}
+
+class StrategyReplayCaseLeaseLostError extends Error {
+  constructor() {
+    super("Strategy Replay case runner no longer owns its durable lease.");
+    this.name = "StrategyReplayCaseLeaseLostError";
+  }
+}
 
 type StoredReplayReceiptSnapshot = {
   definition: RegisteredStrategyReplayCaseDefinition;
@@ -266,8 +289,13 @@ async function loadOrReserveReplayRun(input: {
     let [replayRun] = await tx.select().from(aiStrategyReplayCaseRunsTable)
       .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
       .for("update");
+    let leaseToken: string | null = null;
+    let reclaimed = false;
+    let createdRun = false;
     if (!replayRun) {
       if (!project.strategyReplayOptIn) return undefined;
+      const now = new Date();
+      const ownerToken = randomUUID();
       [replayRun] = await tx.insert(aiStrategyReplayCaseRunsTable).values({
         id: runId,
         projectId: input.projectId,
@@ -278,7 +306,16 @@ async function loadOrReserveReplayRun(input: {
         candidateHash: definition.candidateHash,
         sourceCanonicalProofHash: definition.sourceCanonicalProofHash,
         status: "running",
+        receipt: createStrategyReplayCaseRunLease({
+          ownerToken,
+          expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
+        }),
+        updatedAt: now,
       }).onConflictDoNothing().returning();
+      if (replayRun) {
+        leaseToken = ownerToken;
+        createdRun = true;
+      }
       if (!replayRun) {
         [replayRun] = await tx.select().from(aiStrategyReplayCaseRunsTable)
           .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, caseRow.id))
@@ -295,6 +332,37 @@ async function loadOrReserveReplayRun(input: {
     ) {
       return undefined;
     }
+    if (replayRun.status === "running" && !createdRun) {
+      const now = new Date();
+      const claimDecision = decideStrategyReplayCaseLeaseClaim({
+        status: replayRun.status,
+        receipt: replayRun.receipt,
+        updatedAt: replayRun.updatedAt,
+        now,
+      });
+      if (claimDecision === "busy") throw new StrategyReplayCaseBusyError();
+      if (claimDecision !== "reclaim") {
+        throw new Error("Stored Strategy Replay run lease cannot be safely reclaimed.");
+      }
+      const ownerToken = randomUUID();
+      const [claimedRun] = await tx.update(aiStrategyReplayCaseRunsTable).set({
+        receipt: createStrategyReplayCaseRunLease({
+          ownerToken,
+          expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
+        }),
+        updatedAt: now,
+      }).where(and(
+        eq(aiStrategyReplayCaseRunsTable.id, replayRun.id),
+        eq(aiStrategyReplayCaseRunsTable.status, "running"),
+      )).returning();
+      if (!claimedRun) throw new StrategyReplayCaseBusyError();
+      replayRun = claimedRun;
+      leaseToken = ownerToken;
+      reclaimed = true;
+    }
+    if (replayRun.status === "running" && !leaseToken) {
+      throw new Error("Strategy Replay run is missing its lease owner.");
+    }
 
     return {
       definition,
@@ -304,6 +372,8 @@ async function loadOrReserveReplayRun(input: {
       runId,
       operationId,
       replayRun,
+      leaseToken,
+      reclaimed,
     };
   });
 }
@@ -351,11 +421,107 @@ function makeReceipt(
   });
 }
 
+function replayRunLeaseOwnerCondition(ownerToken: string, now?: Date) {
+  const receipt = aiStrategyReplayCaseRunsTable.receipt;
+  if (now) {
+    return sql`(${receipt} ->> 'kind') = ${STRATEGY_REPLAY_CASE_LEASE_KIND}
+      AND (${receipt} ->> 'ownerToken') = ${ownerToken}
+      AND (${receipt} ->> 'expiresAt')::timestamptz > ${now.toISOString()}::timestamptz`;
+  }
+  return sql`(${receipt} ->> 'kind') = ${STRATEGY_REPLAY_CASE_LEASE_KIND}
+    AND (${receipt} ->> 'ownerToken') = ${ownerToken}`;
+}
+
+async function renewReplayCaseRunLease(
+  snapshot: ReplayCaseSnapshot,
+  ownerToken: string,
+): Promise<boolean> {
+  const now = new Date();
+  const [updated] = await db.update(aiStrategyReplayCaseRunsTable).set({
+    receipt: createStrategyReplayCaseRunLease({
+      ownerToken,
+      expiresAt: new Date(now.getTime() + STRATEGY_REPLAY_CASE_LEASE_MS),
+    }),
+    updatedAt: now,
+  }).where(and(
+    eq(aiStrategyReplayCaseRunsTable.id, snapshot.runId),
+    eq(aiStrategyReplayCaseRunsTable.status, "running"),
+    replayRunLeaseOwnerCondition(ownerToken, now),
+  )).returning({ id: aiStrategyReplayCaseRunsTable.id });
+  return Boolean(updated);
+}
+
+type ReplayCaseRunLeaseGuard = {
+  ownerToken: string;
+  assertOwned(): Promise<void>;
+  markFinished(): void;
+  release(): Promise<void>;
+};
+
+function startReplayCaseRunLeaseGuard(
+  snapshot: ReplayCaseSnapshot,
+  ownerToken: string,
+): ReplayCaseRunLeaseGuard {
+  let stopped = false;
+  let finished = false;
+  let lost = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let renewal: Promise<boolean> | undefined;
+
+  const renew = async (): Promise<boolean> => {
+    if (stopped || finished || lost) return false;
+    if (!renewal) {
+      renewal = renewReplayCaseRunLease(snapshot, ownerToken)
+        .catch(() => false)
+        .finally(() => {
+          renewal = undefined;
+        });
+    }
+    const renewed = await renewal;
+    if (!renewed) lost = true;
+    return renewed;
+  };
+
+  const schedule = (): void => {
+    if (stopped || finished || lost) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void renew().then(() => schedule());
+    }, STRATEGY_REPLAY_CASE_LEASE_RENEW_INTERVAL_MS);
+    timer.unref?.();
+  };
+  schedule();
+
+  return {
+    ownerToken,
+    async assertOwned() {
+      if (stopped || finished || lost || !(await renew())) {
+        throw new StrategyReplayCaseLeaseLostError();
+      }
+    },
+    markFinished() {
+      finished = true;
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+    },
+    async release() {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (finished) return;
+    },
+  };
+}
+
 async function persistReceipt(
   snapshot: ReplayCaseSnapshot,
+  lease: ReplayCaseRunLeaseGuard,
   receipt: StrategyReplayCaseRunReceipt,
 ): Promise<void> {
-  await db.update(aiStrategyReplayCaseRunsTable).set({
+  await lease.assertOwned();
+  const now = new Date();
+  const [updated] = await db.update(aiStrategyReplayCaseRunsTable).set({
     status: receipt.status,
     replayExecutionId: receipt.replayExecutionId,
     replayEpisodeId: receipt.replayEpisodeId,
@@ -364,11 +530,14 @@ async function persistReceipt(
     replayCanonicalProofHash: receipt.replayCanonicalProofHash,
     workspaceTreeHash: receipt.workspaceTreeHash,
     receipt: receipt as unknown as JsonValue,
-    updatedAt: new Date(),
+    updatedAt: now,
   }).where(and(
     eq(aiStrategyReplayCaseRunsTable.id, snapshot.runId),
     eq(aiStrategyReplayCaseRunsTable.status, "running"),
-  ));
+    replayRunLeaseOwnerCondition(lease.ownerToken, now),
+  )).returning({ id: aiStrategyReplayCaseRunsTable.id });
+  if (!updated) throw new StrategyReplayCaseLeaseLostError();
+  lease.markFinished();
 }
 
 async function assertCleanRevision(rootPath: string, sourceRevision: string): Promise<void> {
@@ -466,33 +635,46 @@ export async function runRegisteredStrategyReplayCase(input: {
   if (!snapshot) {
     throw new Error("Registered Strategy Replay case is not eligible.");
   }
-  const parsedSourceBinding = sourceProofBinding(snapshot.definition);
-  if (!parsedSourceBinding.success) {
-    throw new Error("Registered Strategy Replay source binding is invalid.");
-  }
-  const sourceProof = await verifyStrategyReplayCaseProofBinding(parsedSourceBinding.data);
-  if (sourceProof.status !== "verified") {
-    throw new Error("Registered Strategy Replay source proof is no longer valid.");
-  }
-
   if (snapshot.replayRun.status !== "running") {
+    const parsedSourceBinding = sourceProofBinding(snapshot.definition);
+    if (!parsedSourceBinding.success) {
+      throw new Error("Registered Strategy Replay source binding is invalid.");
+    }
+    const sourceProof = await verifyStrategyReplayCaseProofBinding(parsedSourceBinding.data);
+    if (sourceProof.status !== "verified") {
+      throw new Error("Registered Strategy Replay source proof is no longer valid.");
+    }
     const receipt = await verifyStoredReceipt(snapshot);
     if (!receipt) throw new Error("Stored Strategy Replay receipt failed revalidation.");
     return { status: receipt.status, receipt, recovered: true };
   }
 
+  if (!snapshot.leaseToken) {
+    throw new Error("Strategy Replay run is missing its lease owner.");
+  }
+  const lease = startReplayCaseRunLeaseGuard(snapshot, snapshot.leaseToken);
   let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
-  const runtimeManager = new WorkspaceRuntimeManager({
-    store: createInMemoryWorkspaceRuntimeStore(),
-  });
+  let runtimeManager: WorkspaceRuntimeManager | undefined;
   try {
+    runtimeManager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+    });
+    await lease.assertOwned();
+    const parsedSourceBinding = sourceProofBinding(snapshot.definition);
+    if (!parsedSourceBinding.success) {
+      throw new Error("Registered Strategy Replay source binding is invalid.");
+    }
+    const sourceProof = await verifyStrategyReplayCaseProofBinding(parsedSourceBinding.data);
+    if (sourceProof.status !== "verified") {
+      throw new Error("Registered Strategy Replay source proof is no longer valid.");
+    }
     if (!snapshot.projectRootPath) {
       const receipt = makeReceipt(snapshot, {
         status: "incomplete",
         incompleteReason: "source_workspace_unavailable",
       });
-      await persistReceipt(snapshot, receipt);
-      return { status: receipt.status, receipt, recovered: false };
+      await persistReceipt(snapshot, lease, receipt);
+      return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
     }
     const establishedRoot = await establishProjectRoot(snapshot.projectRootPath);
     if (!establishedRoot.ok) {
@@ -500,8 +682,8 @@ export async function runRegisteredStrategyReplayCase(input: {
         status: "incomplete",
         incompleteReason: "source_workspace_unavailable",
       });
-      await persistReceipt(snapshot, receipt);
-      return { status: receipt.status, receipt, recovered: false };
+      await persistReceipt(snapshot, lease, receipt);
+      return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
     }
 
     await assertCleanRevision(establishedRoot.canonicalPath, snapshot.definition.sourceRevision);
@@ -585,8 +767,8 @@ export async function runRegisteredStrategyReplayCase(input: {
         replayEpisodeId: replayEpisode?.id ?? null,
         workspaceTreeHash,
       });
-      await persistReceipt(snapshot, receipt);
-      return { status: receipt.status, receipt, recovered: false };
+      await persistReceipt(snapshot, lease, receipt);
+      return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
     }
 
     const [acceptance] = await db.select().from(aiExecutionAcceptancesTable).where(and(
@@ -603,8 +785,8 @@ export async function runRegisteredStrategyReplayCase(input: {
         replayEpisodeId: replayEpisode.id,
         workspaceTreeHash,
       });
-      await persistReceipt(snapshot, receipt);
-      return { status: receipt.status, receipt, recovered: false };
+      await persistReceipt(snapshot, lease, receipt);
+      return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
     }
 
     const receipt = makeReceipt(snapshot, {
@@ -617,20 +799,26 @@ export async function runRegisteredStrategyReplayCase(input: {
       replayCanonicalProofHash: replayProof.binding.sourceCanonicalProofHash,
       workspaceTreeHash,
     });
-    await persistReceipt(snapshot, receipt);
-    return { status: receipt.status, receipt, recovered: false };
+    await persistReceipt(snapshot, lease, receipt);
+    return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
   } catch (error) {
+    if (error instanceof Error && error.message === "Recipe operation could not acquire its durable lease.") {
+      throw new StrategyReplayCaseBusyError();
+    }
     if (error instanceof Error && error.message === "source_revision_mismatch") {
       const receipt = makeReceipt(snapshot, {
         status: "incomplete",
         incompleteReason: "source_revision_mismatch",
       });
-      await persistReceipt(snapshot, receipt);
-      return { status: receipt.status, receipt, recovered: false };
+      await persistReceipt(snapshot, lease, receipt);
+      return { status: receipt.status, receipt, recovered: snapshot.reclaimed };
     }
     throw error;
   } finally {
     if (workspace) await workspace.cleanup().catch(() => undefined);
-    await runtimeManager.stop(snapshot.definition.projectId).catch(() => undefined);
+    if (runtimeManager) {
+      await runtimeManager.stop(snapshot.definition.projectId).catch(() => undefined);
+    }
+    await lease.release().catch(() => undefined);
   }
 }
