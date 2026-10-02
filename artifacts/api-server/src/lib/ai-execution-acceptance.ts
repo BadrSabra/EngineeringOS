@@ -99,6 +99,17 @@ export type EvidenceArtifactInput = {
   sha256: string;
   sizeBytes: number;
   pageCount: number;
+} | {
+  kind: "recipe_evidence";
+  recipeId: string;
+  recipeVersion: number;
+  nodeId: string;
+  evidenceId: string;
+  artifactRef: string;
+  executionId: string;
+  operationId: string;
+  workspaceRevision: string;
+  candidateHash: string;
 };
 
 export type EvidenceSnapshotInput = {
@@ -1354,6 +1365,40 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
   const artifacts: EvidenceArtifactInput[] = (input?.artifacts ?? []).flatMap(
     (artifact): EvidenceArtifactInput[] => {
+    if (artifact.kind === "recipe_evidence") {
+      if (
+        !Number.isSafeInteger(artifact.recipeVersion)
+        || artifact.recipeVersion < 1
+        || !artifact.recipeId.trim()
+        || artifact.recipeId.length > 160
+        || !artifact.nodeId.trim()
+        || artifact.nodeId.length > 160
+        || !artifact.evidenceId.trim()
+        || artifact.evidenceId.length > 200
+        || !artifact.artifactRef.trim()
+        || artifact.artifactRef.length > 500
+        || !artifact.executionId.trim()
+        || artifact.executionId.length > 160
+        || !artifact.operationId.trim()
+        || artifact.operationId.length > 160
+        || !artifact.workspaceRevision.trim()
+        || artifact.workspaceRevision.length > 500
+        || !artifact.candidateHash.trim()
+        || artifact.candidateHash.length > 500
+      ) return [];
+      return [{
+        kind: "recipe_evidence",
+        recipeId: artifact.recipeId.slice(0, 160),
+        recipeVersion: artifact.recipeVersion,
+        nodeId: artifact.nodeId.slice(0, 160),
+        evidenceId: artifact.evidenceId.slice(0, 200),
+        artifactRef: artifact.artifactRef.slice(0, 500),
+        executionId: artifact.executionId.slice(0, 160),
+        operationId: artifact.operationId.slice(0, 160),
+        workspaceRevision: artifact.workspaceRevision.slice(0, 500),
+        candidateHash: artifact.candidateHash.slice(0, 500),
+      }];
+    }
     if (
       (artifact.kind !== "png" && artifact.kind !== "pdf")
       || !/^binary-evidence:[a-f0-9]{64}$/i.test(artifact.evidenceId)
@@ -1406,10 +1451,11 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const verdict = suppliedVerdict ?? "NOT_RECORDED";
   const verdictBlocksCompletion =
     verdict === "UNAVAILABLE"
+    || (required && verdict !== "PROVEN")
     || (sourceEvidenceRequired && verdict !== "PROVEN");
   const complete = Boolean(!verdictBlocksCompletion && (!required || (
     !sourceEvidenceRequired
-      ? verdict !== "NOT_RECORDED"
+      ? artifacts.length > 0 && verdict === "PROVEN"
       : readsComplete && verdict !== "NOT_RECORDED" && verdict !== "UNAVAILABLE"
   )));
   return {
@@ -1618,8 +1664,9 @@ export async function finalizeExecutionAcceptance(
         reason: "EXECUTION_PROVENANCE_MISMATCH: evidence root or revision does not match the durable execution.",
       };
     }
-    const sourceEvidenceRequired = params.evidence?.sourceEvidenceRequired
-      ?? evidenceRequired;
+    const sourceEvidenceRequired = storedProofRequired
+      ? storedRequest?.proofEvidenceMode !== "artifact_only"
+      : params.evidence?.sourceEvidenceRequired ?? evidenceRequired;
     const effectiveEvidence = evidenceRequired
       ? {
           ...(params.evidence ?? {}),
@@ -1633,6 +1680,71 @@ export async function finalizeExecutionAcceptance(
         } satisfies EvidenceSnapshotInput
       : params.evidence;
     const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
+    if (
+      params.outcome === "SUCCEEDED"
+      && storedProofRequired
+      && storedRequest?.proofEvidenceMode === "artifact_only"
+    ) {
+      const receipt = params.recipeReceipt
+        && typeof params.recipeReceipt === "object"
+        && !Array.isArray(params.recipeReceipt)
+        ? params.recipeReceipt as Record<string, unknown>
+        : undefined;
+      const rawNodes = Array.isArray(receipt?.nodes) ? receipt.nodes : [];
+      const receiptNodes = rawNodes.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const node = value as Record<string, unknown>;
+        return typeof node.nodeId === "string"
+          && typeof node.evidenceId === "string"
+          ? [{ nodeId: node.nodeId, evidenceId: node.evidenceId, status: node.status }]
+          : [];
+      });
+      const recipeArtifacts = evidence.artifacts.filter(
+        (artifact): artifact is Extract<EvidenceArtifactInput, { kind: "recipe_evidence" }> =>
+          artifact.kind === "recipe_evidence",
+      );
+      const expectedOperationId = execution.operationId ?? storedRequest.operationId ?? null;
+      const recipeId = typeof receipt?.recipeId === "string" ? receipt.recipeId : null;
+      const recipeVersionValue = receipt?.recipeVersion;
+      const recipeVersion = typeof recipeVersionValue === "number"
+        && Number.isSafeInteger(recipeVersionValue)
+        ? recipeVersionValue
+        : null;
+      const allRecipeEvidenceBound =
+        receipt?.status === "completed"
+        && receipt?.executionId === execution.id
+        && receipt?.attempt === execution.attempt
+        && receipt?.operationId === expectedOperationId
+        && receipt?.sourceRevision === expectedRevision
+        && recipeId !== null
+        && recipeVersion !== null
+        && rawNodes.length > 0
+        && receiptNodes.length === rawNodes.length
+        && receiptNodes.every((node) => node.status === "passed")
+        && recipeArtifacts.length === receiptNodes.length
+        && new Set(recipeArtifacts.map((artifact) => artifact.nodeId)).size === receiptNodes.length
+        && new Set(recipeArtifacts.map((artifact) => artifact.evidenceId)).size === receiptNodes.length
+        && receiptNodes.every((node) => recipeArtifacts.some((artifact) => (
+          artifact.recipeId === recipeId
+          && artifact.recipeVersion === recipeVersion
+          && artifact.nodeId === node.nodeId
+          && artifact.evidenceId === node.evidenceId
+          && artifact.executionId === execution.id
+          && artifact.operationId === expectedOperationId
+          && artifact.workspaceRevision === expectedRevision
+          && (
+            canonicalCandidateIdentity === null
+            || artifact.candidateHash === canonicalCandidateIdentity
+          )
+        )));
+      if (!allRecipeEvidenceBound) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "Recipe evidence is missing or is not bound to the current execution, operation, revision, and receipt.",
+        };
+      }
+    }
     if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete && !reviewReadyProposal) {
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
     }

@@ -25,8 +25,8 @@ Mission delivery binding is an explicit server-owned handoff: the UI may submit 
 
 **How to apply:** Expose a dedicated binding action in Mission UI instead of asking users to edit `nextAction` JSON; refresh the Mission projection after the server accepts the binding.
 
-Recipe capability predicates, validation outputs, artifacts, and receipts are separate from retained source evidence; none can create Canonical Proof implicitly. A recipe intended to require source evidence needs an explicit server-owned evidence mode in its registry/Mission contract.
+Recipe capability predicates, validation outputs, artifacts, and receipts do not create Canonical Proof implicitly. The server registry must declare the evidence mode. Artifact-only proof requires a persisted non-empty snapshot covering every passed receipt node, with matching recipe/version, execution attempt, durable operation, revision, and candidate identity when present. Source-required recipes still need retained source reads.
 
-**Why:** The current recipe registry has no evidence-mode field, and the runner passes capability completion evidence separately from retained source reads. Inferring proof from recipe names or receipt fields would conflate different acceptance contracts.
+**Why:** Capability output and a completed receipt previously had no durable evidence snapshot for Canonical Proof; accepting them directly would also allow missing or stale node evidence to pass.
 
-**How to apply:** Keep receipt-only recipes out of Canonical Proof. For a source-required recipe, declare the mode server-side, persist a complete revision-bound evidence snapshot, and test the durable acceptance through `loadCanonicalProof`.
+**How to apply:** Declare the mode server-side, persist and validate the corresponding evidence snapshot in finalization, and test both a current-attempt success and a missing/stale-evidence rejection through `loadCanonicalProof`. Keep receipt-only recipes out of Canonical Proof.

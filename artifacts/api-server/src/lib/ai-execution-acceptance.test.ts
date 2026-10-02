@@ -89,6 +89,16 @@ describe("server-owned execution acceptance", () => {
     });
   });
 
+  it("does not accept a proven artifact-only snapshot with no artifact refs", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+    });
+    expect(snapshot.complete).toBe(false);
+    expect(snapshot.artifacts).toHaveLength(0);
+  });
+
   it("accepts an artifact-only validation snapshot without source reads", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,

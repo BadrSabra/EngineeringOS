@@ -9,6 +9,7 @@ import request from "supertest";
 import app from "../app.js";
 import {
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiChangeProposalsTable,
   aiChatMessagesTable,
@@ -74,6 +75,12 @@ async function seedSuccessfulRecipeProof(
   const sourceRevision = typeof params.sourceRevision === "string"
     ? params.sourceRevision
     : "recipe-test-source-revision";
+  const workspaceRoot = typeof params.rootPath === "string" ? params.rootPath : null;
+  const candidateIdentity = typeof params.candidateIdentity === "string"
+    ? params.candidateIdentity
+    : null;
+  const recipeId = typeof params.recipeId === "string" ? params.recipeId : "delivery.push.github";
+  const recipeVersion = typeof params.recipeVersion === "number" ? params.recipeVersion : 1;
   const now = new Date();
   const [execution] = await db
     .select({ id: aiExecutionsTable.id, attempt: aiExecutionsTable.attempt })
@@ -92,8 +99,8 @@ async function seedSuccessfulRecipeProof(
     sourceRevision,
     candidateTreeHash: "a".repeat(64),
     treeHash: "b".repeat(64),
-    recipeId: "delivery.push.github",
-    recipeVersion: 1,
+    recipeId,
+    recipeVersion,
     status: "completed",
     completedNodeIds: ["push"],
     nodes: [{
@@ -113,6 +120,17 @@ async function seedSuccessfulRecipeProof(
       .set({
         status: "completed",
         recipeReceipt,
+        request: JSON.stringify({
+          projectId,
+          operationId,
+          message: "recipe proof fixture",
+          modelMessage: "recipe proof fixture",
+          workspaceRevision: sourceRevision,
+          workspaceRoot,
+          proofRequired: true,
+          proofEvidenceMode: "artifact_only",
+        }),
+        workspaceRoot,
         baseRevision: sourceRevision,
         completedAt: now,
         updatedAt: now,
@@ -133,7 +151,11 @@ async function seedSuccessfulRecipeProof(
         message: "recipe proof fixture",
         modelMessage: "recipe proof fixture",
         workspaceRevision: sourceRevision,
+        workspaceRoot,
+        proofRequired: true,
+        proofEvidenceMode: "artifact_only",
       }),
+      workspaceRoot,
       checkpoint: "{}",
       status: "completed",
       recipeReceipt,
@@ -151,13 +173,41 @@ async function seedSuccessfulRecipeProof(
     .limit(1);
   if (acceptance) return executionId;
 
+  const evidenceSnapshotId = `recipe-evidence:${executionId}`;
+  const artifactRefs = [{
+    kind: "recipe_evidence",
+    recipeId,
+    recipeVersion,
+    nodeId: "push",
+    evidenceId: "recipe-proof-evidence",
+    artifactRef: "recipe-proof-artifact",
+    executionId,
+    operationId,
+    workspaceRevision: sourceRevision,
+    candidateHash: candidateIdentity ?? "fixture-candidate-hash",
+  }];
+  await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+    id: evidenceSnapshotId,
+    executionId,
+    projectId,
+    attempt: execution?.attempt ?? 0,
+    operationId,
+    sourceRevision,
+    candidateIdentity,
+    verdict: "PROVEN",
+    complete: 1,
+    readCount: 0,
+    totalBytes: 0,
+    artifactRefs,
+    createdAt: now,
+  });
   const proof = buildExecutionProofProjection({
     outcome: "SUCCEEDED",
-    evidenceRequired: false,
+    evidenceRequired: true,
     evidenceComplete: true,
-    evidenceSnapshotId: null,
+    evidenceSnapshotId,
     sourceRevision,
-    candidateIdentity: null,
+    candidateIdentity,
   });
   const attempt = execution?.attempt ?? 0;
   await db.insert(aiExecutionAcceptancesTable).values({
@@ -167,18 +217,19 @@ async function seedSuccessfulRecipeProof(
     attempt,
     finalizationKey: `recipe-proof-finalization:${executionId}`,
     operationId,
+    workerId: "recipe-proof-worker",
     terminalStatus: "completed",
     outcome: "SUCCEEDED",
-    reasonCode: "NONE",
-    nextActionCode: "NONE",
+    reasonCode: "CANONICAL_PROOF_PROVEN",
+    nextActionCode: "none",
     disposition: { proof },
-    evidenceSnapshotId: null,
-    evidenceRequired: 0,
+    evidenceSnapshotId,
+    evidenceRequired: 1,
     evidenceComplete: 1,
     resumable: 0,
     messageId: null,
     sourceRevision,
-    candidateIdentity: null,
+    candidateIdentity,
     createdAt: now,
   });
   return executionId;
@@ -606,6 +657,7 @@ describe("Mission recipe dispatch", () => {
       goalId,
     });
     await vi.waitFor(() => expect(recipeRunner).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(githubDeliveryRunner).toHaveBeenCalledOnce());
     expect(recipeRunner).toHaveBeenCalledWith(expect.objectContaining({
       operationId: proposalOperationId,
       recipeId: "delivery.push.github",
@@ -617,6 +669,12 @@ describe("Mission recipe dispatch", () => {
       remoteUrl: "https://github.com/example/project.git",
       branch: "main",
     }));
+    await vi.waitFor(async () => {
+      const [goal] = await db.select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId));
+      expect(goal?.status).toBe("completed");
+    });
   });
 
   it("blocks a Mission delivery when the committed proposal is absent", async () => {

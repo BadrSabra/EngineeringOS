@@ -571,6 +571,7 @@ export type PrepareRecipeOperationParams = {
 export type PreparedRecipeOperation = {
   plan: ActiveTaskExecutionPlan;
   binding: RecipeOperationBinding;
+  proofEvidenceMode: "artifact_only";
 };
 
 export function createRuntimeStartRunner(
@@ -1006,7 +1007,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
     throw new Error("Recipe plan does not fit its durable mission budget.");
   }
   for (const node of compiled.plan.nodes) assertRecipeNodeBinding(binding, node);
-  return { plan: compiled.plan, binding };
+  return { plan: compiled.plan, binding, proofEvidenceMode: definition.proofEvidenceMode };
 }
 
 export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
@@ -1649,7 +1650,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     workspaceRevision: params.sourceRevision,
     validationTargetPaths: normalizedPaths(params.approvedPaths),
     ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
-    ...(params.proofRequired ? { proofRequired: true } : {}),
+    ...(params.proofRequired
+      ? {
+          proofRequired: true,
+          proofEvidenceMode: prepared.proofEvidenceMode,
+        }
+      : {}),
     ...(params.skillBinding
       ? {
           skillRegistryBinding: {
@@ -3247,7 +3253,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           return {
             validatorId,
             status: "PROVEN" as const,
-            operationId: evidence.operationId,
+            operationId: params.operationId,
             projectId: params.projectId,
             workspaceRevision: evidence.projectRevision,
             artifactRef: evidence.artifactRef,

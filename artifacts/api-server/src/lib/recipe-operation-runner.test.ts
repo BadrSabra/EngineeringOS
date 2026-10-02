@@ -231,8 +231,14 @@ async function createReclaimedRecipeFixture(options: {
         message: `recipe:${operationId}`,
         modelMessage: `recipe:${operationId}`,
         workspaceRevision: sourceRevision,
+        workspaceRoot: params.rootPath,
         validationTargetPaths: [...params.approvedPaths],
-        ...(params.proofRequired ? { proofRequired: true } : {}),
+        ...(params.proofRequired
+          ? {
+              proofRequired: true,
+              proofEvidenceMode: prepared.proofEvidenceMode,
+            }
+          : {}),
       },
       idempotencyKey: params.idempotencyKey,
       projectId,
@@ -285,7 +291,9 @@ async function createReclaimedRecipeFixture(options: {
         sequence: 2,
         ...(checkpointOperation ? { operation: checkpointOperation } : {}),
         nodeStates: checkpointNodes,
-        completedNodes: [prepared.plan.nodes[0]!.id],
+        completedNodes: checkpointNodes
+          .filter((node) => node.status === "passed")
+          .map((node) => node.id),
         recipeBinding: firstBinding,
         updatedAt: new Date().toISOString(),
       },
@@ -1529,16 +1537,22 @@ describe("recipe operation preparation", () => {
     }
   });
 
-  it("fails closed when candidate validation evidence uses execution ID instead of operation ID", async () => {
+  it("accepts current-attempt validation evidence bound to the execution and operation", async () => {
     validationCalls.length = 0;
     validationEvidenceContexts.length = 0;
-    const fixture = await createReclaimedRecipeFixture({ proofRequired: true });
+    const fixture = await createReclaimedRecipeFixture({
+      proofRequired: true,
+      mutateCheckpointNode: (_nodeId, index) => index === 0
+        ? { status: "queued", attempts: 0, validationAttempts: 0, evidenceRefs: [] }
+        : undefined,
+    });
     try {
       const result = await runRecipeOperation(fixture.params);
-      expect(result.status).toBe("blocked");
+      expect(result.status).toBe("completed");
       expect(result.executionId).toBe(fixture.executionId);
-      expect(result.receipt.status).toBe("cancelled");
-      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+      expect(result.receipt.status).toBe("completed");
+      expect(validationCalls).toEqual(["workspace-typecheck", "ai-orchestrator-tests"]);
+      expect(validationEvidenceContexts).toHaveLength(2);
       expect(validationEvidenceContexts[0]).toMatchObject({
         operationId: fixture.executionId,
         projectRevision: fixture.params.sourceRevision,
@@ -1555,10 +1569,14 @@ describe("recipe operation preparation", () => {
         .limit(1);
       if (!execution) throw new Error("candidate validation execution was not persisted");
       expect(JSON.parse(execution.request).proofRequired).toBe(true);
+      expect(JSON.parse(execution.request).proofEvidenceMode).toBe("artifact_only");
       expect(JSON.parse(execution.request).operationId).toBe(fixture.params.operationId);
 
       const successfulAcceptances = await db.select({
         id: aiExecutionAcceptancesTable.id,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
       })
         .from(aiExecutionAcceptancesTable)
         .where(and(
@@ -1566,7 +1584,12 @@ describe("recipe operation preparation", () => {
           eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
           eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
         ));
-      expect(successfulAcceptances).toHaveLength(0);
+      expect(successfulAcceptances).toHaveLength(1);
+      expect(successfulAcceptances[0]).toMatchObject({
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+      });
 
       const proof = await db.transaction((tx) => loadCanonicalProof({
         tx,
@@ -1582,8 +1605,8 @@ describe("recipe operation preparation", () => {
         },
         goalStatus: "completed",
       }));
-      expect(proof.accepted).toBe(false);
-      expect(proof.verdict).not.toBe("PROVEN");
+      expect(proof.accepted).toBe(true);
+      expect(proof.verdict).toBe("PROVEN");
     } finally {
       await fixture.cleanup();
     }
@@ -1619,6 +1642,45 @@ describe("recipe operation preparation", () => {
       }
     },
   );
+
+  it("rejects prior-attempt node evidence when a proof-required recipe resumes", async () => {
+    validationCalls.length = 0;
+    validationEvidenceContexts.length = 0;
+    const fixture = await createReclaimedRecipeFixture({ proofRequired: true });
+    try {
+      const result = await runRecipeOperation(fixture.params);
+      expect(result.status).toBe("blocked");
+      expect(result.receipt.status).toBe("cancelled");
+      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+
+      const accepted = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 1),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ));
+      expect(accepted).toHaveLength(0);
+
+      const interrupted = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 1),
+        ));
+      expect(interrupted).toMatchObject([{
+        outcome: "INTERRUPTED",
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+      }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 
   it("does not promote a verified runtime transition to Canonical Proof", async () => {
     const projectId = crypto.randomUUID();

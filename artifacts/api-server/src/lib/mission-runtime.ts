@@ -1058,6 +1058,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       runtimeStartRunner: createRuntimeStartRunner(),
       ...(skillBinding ? { skillBinding } : {}),
       parentExecutionId: dispatch.delegation.parentExecutionId,
+      proofRequired: true,
       ...(delivery && project.gitRemoteUrl
         ? {
             githubDeliveryRunner: async ({

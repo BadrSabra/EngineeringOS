@@ -544,6 +544,7 @@ export function validateAutonomousOperationCompletion(
     workspaceRevision?: string;
     candidateIdentity?: string | null;
     operationId?: string;
+    executionId?: string;
     checkpointOperationId?: string;
     validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
     nodeStates?: readonly Pick<AutonomousOperationNode, "status" | "evidenceRefs">[];
@@ -633,7 +634,10 @@ export function validateAutonomousOperationCompletion(
     addReason("verdict_not_proven", `evidence verdict is ${params.evidenceVerdict ?? "NOT_RECORDED"}`);
   }
   for (const evidence of params.evidence ?? []) {
-    if (evidence.operationId !== operation.operationId) {
+    if (
+      evidence.operationId !== operation.operationId
+      && (params.executionId === undefined || evidence.operationId !== params.executionId)
+    ) {
       addReason("evidence_operation_mismatch", "validation evidence is not bound to the completion operation");
     }
     if (evidence.projectRevision !== operation.revisionManifest) {
@@ -877,6 +881,7 @@ export type AiExecutionRequestEnvelope = {
   /** Server-owned validator profiles selected by the immutable task contract. */
   validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   proofRequired?: boolean;
+  proofEvidenceMode?: "artifact_only";
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
   effectRequired?: boolean;
 };
@@ -1105,7 +1110,9 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       typeof value.message !== "string" ||
       typeof value.modelMessage !== "string" ||
       !Array.isArray(value.validationTargetPaths) ||
-      (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean")
+      (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean") ||
+      (value.proofEvidenceMode !== undefined && value.proofEvidenceMode !== "artifact_only") ||
+      (value.proofEvidenceMode !== undefined && value.proofRequired !== true)
     ) {
       return undefined;
     }
@@ -3150,6 +3157,7 @@ export async function completeAiExecution(params: {
             workspaceRevision: request.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
             operationId: params.operationId ?? durableOperationId,
+            executionId: params.executionId,
             checkpointOperationId: checkpoint?.operation?.operationId ?? "",
             nodeStates: params.nodeStates?.map((node) => ({
               status: node.status,
@@ -3174,11 +3182,65 @@ export async function completeAiExecution(params: {
     return false;
   }
   const sourceEvidenceRequired = !factInvestigationExecution && (
-    projectOrientationAcceptance
+    (request?.proofRequired === true && request.proofEvidenceMode !== "artifact_only")
+    || projectOrientationAcceptance
     || forensicExecution
     || Boolean(params.analysisEvidence)
     || Boolean(params.evidenceReads && params.evidenceReads.length > 0)
   );
+  const recipeReceiptRecord = params.recipeReceipt
+    && typeof params.recipeReceipt === "object"
+    && !Array.isArray(params.recipeReceipt)
+    ? params.recipeReceipt as Record<string, unknown>
+    : undefined;
+  const recipeReceiptNodes = Array.isArray(recipeReceiptRecord?.nodes)
+    ? recipeReceiptRecord.nodes.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const node = value as Record<string, unknown>;
+        return typeof node.nodeId === "string"
+          && typeof node.evidenceId === "string"
+          && node.status === "passed"
+          ? [{ nodeId: node.nodeId, evidenceId: node.evidenceId }]
+          : [];
+      })
+    : [];
+  const recipeEvidenceCandidates = request?.proofRequired === true
+    && request.proofEvidenceMode === "artifact_only"
+    && typeof recipeReceiptRecord?.recipeId === "string"
+    && Number.isSafeInteger(recipeReceiptRecord.recipeVersion)
+    ? recipeReceiptNodes.flatMap((node) => {
+        const source = params.evidence?.find((item) => item.evidenceId === node.evidenceId);
+        if (
+          !source
+          || typeof source.projectRevision !== "string"
+          || typeof source.candidateHash !== "string"
+          || typeof source.artifactRef !== "string"
+          || source.operationId !== params.executionId
+          || source.projectRevision !== request.workspaceRevision
+          || (params.candidateIdentity
+            && source.candidateHash !== params.candidateIdentity)
+        ) return [];
+        return [{
+          kind: "recipe_evidence" as const,
+          recipeId: recipeReceiptRecord.recipeId as string,
+          recipeVersion: recipeReceiptRecord.recipeVersion as number,
+          nodeId: node.nodeId,
+          evidenceId: source.evidenceId,
+          artifactRef: source.artifactRef,
+          executionId: params.executionId,
+          operationId: current?.operationId ?? request.operationId ?? params.executionId,
+          workspaceRevision: source.projectRevision,
+          candidateHash: source.candidateHash,
+        }];
+      })
+    : [];
+  const recipeEvidenceArtifacts =
+    recipeReceiptNodes.length > 0
+    && recipeEvidenceCandidates.length === recipeReceiptNodes.length
+    && new Set(recipeEvidenceCandidates.map((artifact) => artifact.nodeId)).size === recipeReceiptNodes.length
+    && new Set(recipeEvidenceCandidates.map((artifact) => artifact.evidenceId)).size === recipeReceiptNodes.length
+      ? recipeEvidenceCandidates
+      : [];
   const now = new Date();
   const terminalOperation =
     params.objectiveValidated === true
@@ -3254,6 +3316,7 @@ export async function completeAiExecution(params: {
             required: true,
             sourceEvidenceRequired,
             reads: params.evidenceReads,
+            artifacts: recipeEvidenceArtifacts,
           } satisfies EvidenceSnapshotInput,
         }
       : {}),

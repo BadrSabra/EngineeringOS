@@ -14,6 +14,7 @@ export type RecipeDefinition = {
   contractVersion: typeof RECIPE_CONTRACT_VERSION;
   recipeId: string;
   recipeVersion: number;
+  proofEvidenceMode: "artifact_only";
   nodes: readonly CapabilityRecipe["nodes"][number][];
   transitions: readonly CapabilityRecipe["transitions"][number][];
   outcome: CapabilityRecipe["outcome"];
@@ -59,6 +60,7 @@ function definition(
     contractVersion: RECIPE_CONTRACT_VERSION,
     recipeId,
     recipeVersion: 1,
+    proofEvidenceMode: "artifact_only",
     nodes: sample.nodes,
     transitions: sample.transitions,
     outcome: sample.outcome,
