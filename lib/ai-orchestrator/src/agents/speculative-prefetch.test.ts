@@ -5,6 +5,16 @@ import { prefetchFileList, prefetchForensicRoots } from "./speculative-prefetch.
 
 const tempRoots: string[] = [];
 
+function readRootFile(root: string) {
+  return async (filePath: string): Promise<string | null> => {
+    try {
+      return await fs.readFile(path.join(root, filePath), "utf8");
+    } catch {
+      return null;
+    }
+  };
+}
+
 afterEach(async () => {
   await Promise.all(
     tempRoots.splice(0).map(async (root) => {
@@ -25,8 +35,7 @@ describe("prefetchFileList", () => {
 
     const result = await prefetchFileList({
       files: ["queries.js", "queries.ts"],
-      rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       complete: true,
     });
@@ -46,8 +55,7 @@ describe("prefetchFileList", () => {
 
     const result = await prefetchFileList({
       files: ["empty.ts"],
-      rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       complete: true,
     });
@@ -73,8 +81,7 @@ describe("prefetchFileList", () => {
 
     const result = await prefetchFileList({
       files: ["one.ts", "two.ts", "three.ts"],
-      rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       complete: true,
       maxFiles: 1,
@@ -109,8 +116,7 @@ describe("prefetchFileList", () => {
         "src/queries.ts",
         "src/queries.ts",
       ],
-      rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       complete: true,
       maxFiles: 2,
@@ -145,7 +151,7 @@ describe("prefetchForensicRoots", () => {
     const result = await prefetchForensicRoots({
       roots: ["first", "second"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
     });
@@ -180,7 +186,7 @@ describe("prefetchForensicRoots", () => {
     const result = await prefetchForensicRoots({
       roots: ["first", "second"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 2,
     });
@@ -221,7 +227,7 @@ describe("prefetchForensicRoots", () => {
     const result = await prefetchForensicRoots({
       roots: ["first", "second"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 1,
     });
@@ -265,7 +271,7 @@ describe("prefetchForensicRoots", () => {
     const result = await prefetchForensicRoots({
       roots: ["openapi", "runtime"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
     });
 
@@ -291,7 +297,7 @@ describe("prefetchForensicRoots", () => {
     const result = await prefetchForensicRoots({
       roots: ["scope"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
     });
@@ -320,14 +326,14 @@ describe("prefetchForensicRoots", () => {
     const production = await prefetchForensicRoots({
       roots: ["src"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
     });
     const capability = await prefetchForensicRoots({
       roots: ["src"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
       includeTestSources: true,
@@ -354,14 +360,14 @@ describe("prefetchForensicRoots", () => {
     const production = await prefetchForensicRoots({
       roots: ["src"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
     });
     const explicit = await prefetchForensicRoots({
       roots: ["src/benchmark-results"],
       rootPath: root,
-      pendingChanges: [],
+      readFile: readRootFile(root),
       toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
       maxFiles: 10,
     });

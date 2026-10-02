@@ -160,6 +160,7 @@ import {
   prefetchFileList,
   prefetchForensicRoots,
   MAX_FORENSIC_DISCOVERY_FILES,
+  type PrefetchReadFile,
 } from "./speculative-prefetch.js";
 import {
   buildMentionedFileGraphGuidance,
@@ -178,6 +179,8 @@ import {
 import {
   toolCacheKey,
   executeToolLoop,
+  executeScopedReadTool,
+  hashProviderToolManifest,
   objectiveEvidenceManifestCompleteForPaths,
   _compactSynthesisMessages,
   BUDGET_BY_SCOPE,
@@ -188,6 +191,8 @@ import {
   type MutationToolInvocationCallback,
   type ReadOnlyToolInvocationCallback,
   type ReadOnlyInvocationReceipt,
+  type ScopedReadToolName,
+  type ToolInvocationLifecycleCallback,
   type ReadStatus,
   mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
@@ -228,7 +233,7 @@ import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-e
 import { scheduleSubQueries } from "../subquery-scheduler.js";
 import { buildEvidenceGraph } from "../evidence-graph.js";
 import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
-import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
+import { stripReadFileWrapper } from "../tools/file-tools.js";
 import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
 import { classifyForensicTerminal, classifyObjectiveVerdict } from "../audit-telemetry.js";
 import type { RecoveryFailureKind, ObjectiveVerdictKind } from "../audit-telemetry.js";
@@ -6135,12 +6140,27 @@ export function buildProjectQueryEvidenceSynthesis(
  * run always performs one search per probe kind and directly reads a small
  * number of matching files before its verdict is materialized.
  */
+type ServerScopedReadRequest = {
+  name: ScopedReadToolName;
+  args: unknown;
+  allowedReadPaths?: readonly string[];
+  objectiveScopePolicy?: Parameters<typeof executeScopedReadTool>[0]["objectiveScopePolicy"] | null;
+  strictAllowedReadPaths?: boolean;
+  surface: string;
+  toolCallId?: string;
+  completeReads?: boolean;
+};
+
+type ServerScopedReadDispatcher = (
+  request: ServerScopedReadRequest,
+) => Promise<Awaited<ReturnType<typeof executeScopedReadTool>>>;
+
 async function collectServerFalsificationEvidence(input: {
   objective: ObjectiveContract;
   rootPath: string;
   fileContents: Map<string, string>;
   toolSources: string[];
-  pendingChanges: PendingChange[];
+  dispatchRead: ServerScopedReadDispatcher;
   onStep?: (step: AgentStep) => void;
 }): Promise<void> {
   const plan = buildGapFalsificationPlan({
@@ -6152,8 +6172,8 @@ async function collectServerFalsificationEvidence(input: {
     input.objective.scopePolicy?.allowedExpansionPaths?.find(Boolean)
     ?? plan
       .flatMap((probe) => probe.allowedRoots)
-      .find((root) => root && !/\.[^/]+$/u.test(root))
-    ?? ".";
+      .find((root) => Boolean(root));
+  if (!firstAllowedRoot) return;
   const readPaths = new Set<string>();
   for (const probe of probesByKind.values()) {
     const pattern = probe.searchTerms[0];
@@ -6164,12 +6184,15 @@ async function collectServerFalsificationEvidence(input: {
       continue;
     }
     try {
-      searchOutput = await executeFileTool(
-        "search_code",
-        { pattern, path: firstAllowedRoot },
-        input.rootPath,
-        input.pendingChanges,
-      );
+      const searchResult = await input.dispatchRead({
+        name: "search_code",
+        args: { pattern, path: firstAllowedRoot },
+        allowedReadPaths: [firstAllowedRoot],
+        objectiveScopePolicy: input.objective.scopePolicy,
+        surface: "gap-falsification-search",
+      });
+      if (searchResult.kind !== "ok") continue;
+      searchOutput = searchResult.output;
     } catch {
       searchOutput = "";
     }
@@ -6188,12 +6211,16 @@ async function collectServerFalsificationEvidence(input: {
       readPaths.add(path);
       let sourceOutput: string;
       try {
-        sourceOutput = await executeFileTool(
-          "read_file",
-          { path, complete: "true" },
-          input.rootPath,
-          input.pendingChanges,
-        );
+        const sourceResult = await input.dispatchRead({
+          name: "read_file",
+          args: { path, complete: "true" },
+          allowedReadPaths: [path],
+          objectiveScopePolicy: input.objective.scopePolicy,
+          surface: "gap-falsification-source",
+          completeReads: true,
+        });
+        if (sourceResult.kind !== "ok") continue;
+        sourceOutput = sourceResult.output;
       } catch {
         continue;
       }
@@ -7855,6 +7882,83 @@ export async function chat(opts: {
     sourceEvidenceRequired || opts.onReadOnlyInvocation
       ? toolManifest
       : undefined;
+  const fullManifestToolNames = new Set(
+    (toolManifest ?? []).map((tool) => tool.function.name),
+  );
+  const effectiveServerReadToolNames = new Set(
+    (tools ?? [])
+      .map((tool) => tool.function.name)
+      .filter(
+        (name) =>
+          fullManifestToolNames.has(name)
+          && (!opts.allowedToolNames || opts.allowedToolNames.includes(name)),
+      ),
+  );
+  const serverReadManifestHash = hashProviderToolManifest(
+    executionToolManifest ?? toolManifest,
+  );
+  let serverReadCallSequence = 0;
+  const serverReadLifecycle: ToolInvocationLifecycleCallback = async (event) => {
+    console.info(JSON.stringify({
+      scope: "chat-agent",
+      code: "SERVER_READ_TOOL_LIFECYCLE",
+      executionId: executionLedger.id,
+      phase: event.phase,
+      toolName: event.toolName,
+      inputHash: event.inputHash,
+      manifestHash: event.manifestHash,
+      ...(event.outputHash ? { outputHash: event.outputHash } : {}),
+      ...(event.diagnosticCode ? { diagnosticCode: event.diagnosticCode } : {}),
+    }));
+  };
+  const dispatchServerRead: ServerScopedReadDispatcher = async (request) => {
+    if (!rootPath || !serverReadManifestHash || !opts.onReadOnlyInvocation) {
+      return {
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        safeMessage: "The server could not establish the required read receipt and manifest; no read was performed.",
+      };
+    }
+    const invocationId =
+      request.toolCallId
+      ?? createHash("sha256")
+        .update(`${executionLedger.id}\u0000${request.surface}\u0000${serverReadCallSequence++}`)
+        .digest("hex");
+    return executeScopedReadTool({
+      name: request.name,
+      args: request.args,
+      rootPath,
+      pendingChanges,
+      allowedToolNames: effectiveServerReadToolNames,
+      allowedReadPaths: request.allowedReadPaths,
+      strictAllowedReadPaths: request.strictAllowedReadPaths,
+      objectiveScopePolicy:
+        request.objectiveScopePolicy === null
+          ? undefined
+          : request.objectiveScopePolicy ?? objective?.scopePolicy,
+      missionReadPathScope: opts.missionReadPathScope,
+      signal: executionLedger.signal,
+      toolCallId: invocationId,
+      toolManifestHash: serverReadManifestHash,
+      onReadOnlyInvocation: opts.onReadOnlyInvocation,
+      onToolInvocation: serverReadLifecycle,
+      executionLedger,
+      provider: providerId,
+      model: opts.model ?? "server-read",
+      completeReads: request.completeReads,
+    });
+  };
+  const prefetchReadFile: PrefetchReadFile = async (filePath, complete) => {
+    const result = await dispatchServerRead({
+      name: "read_file",
+      args: { path: filePath },
+      allowedReadPaths: [filePath],
+      surface: "prefetch",
+      completeReads: complete,
+    });
+    return result.kind === "ok" ? result.output : null;
+  };
   const manifestRequiresSourceReadSurface =
     !opts.authorizedToolManifestNames
     || (
@@ -8084,8 +8188,7 @@ export async function chat(opts: {
   ) {
     const objectivePrefetch = await prefetchFileList({
       files: [...objectiveSourcePaths],
-      rootPath,
-      pendingChanges,
+      readFile: prefetchReadFile,
       toolCacheKeyFn: toolCacheKey,
       complete: true,
       maxFiles: remainingForensicPrefetchSlots(),
@@ -8136,7 +8239,7 @@ export async function chat(opts: {
     const discovery = await prefetchForensicRoots({
       roots: orderedForensicRoots,
       rootPath,
-      pendingChanges,
+      readFile: prefetchReadFile,
       toolCacheKeyFn: toolCacheKey,
       maxFiles: remainingForensicPrefetchSlots() ?? 24,
       excludeFiles: prefetchExcludeFiles(),
@@ -8199,8 +8302,7 @@ export async function chat(opts: {
   ) {
     const graphPrefetch = await prefetchFileList({
       files: graphGuidance.prefetchFiles,
-      rootPath,
-      pendingChanges,
+      readFile: prefetchReadFile,
       toolCacheKeyFn: toolCacheKey,
       complete: completeReadEvidence,
       maxFiles: remainingForensicPrefetchSlots(),
@@ -8252,8 +8354,7 @@ export async function chat(opts: {
   ) {
     const prefetch = await speculativePrefetch({
       message,
-      rootPath,
-      pendingChanges,
+      readFile: prefetchReadFile,
       toolCacheKeyFn: toolCacheKey,
       profileDepth: contextProfile,
       complete: completeReadEvidence,
@@ -8315,8 +8416,7 @@ export async function chat(opts: {
     if (memoryPaths.length > 0) {
       const memPrefetch = await prefetchFileList({
         files: memoryPaths,
-        rootPath,
-        pendingChanges,
+        readFile: prefetchReadFile,
         toolCacheKeyFn: toolCacheKey,
         complete: completeReadEvidence,
         maxFiles: remainingForensicPrefetchSlots(),
@@ -8586,8 +8686,7 @@ export async function chat(opts: {
     if (shouldPrefetchPlan && queryPlan?.targetFiles.length) {
       const planPrefetch = await prefetchFileList({
         files: queryPlan.targetFiles,
-        rootPath,
-        pendingChanges,
+        readFile: prefetchReadFile,
         toolCacheKeyFn: toolCacheKey,
         complete: completeReadEvidence,
         maxFiles: projectQueryInvestigation
@@ -8749,8 +8848,7 @@ export async function chat(opts: {
   if (tools != null && rootPath && immediateIntent && priorRepairPlan && executionFilePaths.length > 0) {
     const executionPrefetch = await prefetchFileList({
       files: executionFilePaths,
-      rootPath,
-      pendingChanges,
+      readFile: prefetchReadFile,
       toolCacheKeyFn: toolCacheKey,
       maxFiles: remainingForensicPrefetchSlots(),
       excludeFiles: prefetchExcludeFiles(),
@@ -10109,7 +10207,7 @@ export async function chat(opts: {
                 rootPath,
                 fileContents: forensicFileContents,
                 toolSources,
-                pendingChanges,
+                dispatchRead: dispatchServerRead,
                 onStep: relayAgentStep,
               })
             : undefined,
@@ -13296,7 +13394,7 @@ export async function chat(opts: {
           // Recovery is a read-only verification pass. Pass only the read tools
           // (never write_file / replace_text) so the recovery model can re-read
           // the actual source to ground a disputed claim, and bind the whole
-          // round to a bounded MAX_RECOVERY_TOOL_ROUNDS loop via executeFileTool.
+          // round to a bounded MAX_RECOVERY_TOOL_ROUNDS loop via the canonical dispatcher.
           if (recoveryReadTools.length > 0) {
             recoveryOptions.tools = recoveryReadTools;
             recoveryOptions.toolChoice = "auto";
@@ -13376,6 +13474,7 @@ export async function chat(opts: {
                   tool_calls: recovery.toolCalls,
                 };
                 const toolResults: RawMessage[] = [];
+                let recoveryReadDispatchFailed = false;
                 for (const call of executableCalls) {
                   let args: Record<string, string> = {};
                   try {
@@ -13391,17 +13490,25 @@ export async function chat(opts: {
                     // Malformed arguments — leave args empty; handler returns an error string.
                   }
                   let resultText: string;
-                  try {
-                    resultText = await executeFileTool(
-                      call.function.name,
-                      args,
-                      rootPath ?? "",
-                      [],
-                    );
-                  } catch (toolErr) {
-                    resultText = `Error executing ${call.function.name}: ${
-                      toolErr instanceof Error ? toolErr.message : String(toolErr)
-                    }`;
+                  const readResult = await dispatchServerRead({
+                    name: call.function.name as ScopedReadToolName,
+                    args,
+                    // Recovery may only re-read files in this immutable packet.
+                    // Retained status alone does not expand the packet scope.
+                    allowedReadPaths: recoveryPacket.files,
+                    objectiveScopePolicy: objective?.scopePolicy,
+                    strictAllowedReadPaths: true,
+                    surface: `forensic-recovery-${packetIndex}-${recoveryToolRound}`,
+                    completeReads: call.function.name === "read_file",
+                  });
+                  if (readResult.kind === "ok") {
+                    resultText = readResult.output;
+                  } else {
+                    recoveryReadDispatchFailed = true;
+                    resultText =
+                      readResult.kind === "failed"
+                        ? readResult.safeMessage
+                        : "The authorized recovery read did not complete.";
                   }
                   toolResults.push({
                     role: "tool",
@@ -13409,6 +13516,7 @@ export async function chat(opts: {
                     content: resultText.slice(0, MAX_RECOVERY_TOOL_RESULT_CHARS),
                   });
                 }
+                if (recoveryReadDispatchFailed) providerReturnedToolCalls = false;
                 onStep?.({
                   kind: "diagnostic",
                   code: "FORENSIC_TARGETED_READ_ISSUED",
@@ -13711,8 +13819,12 @@ export async function chat(opts: {
                     });
                     const recoveryPlan = planEvidenceRecovery(syntheticClaim);
                     for (const findingFile of finding.files.slice(0, 2)) {
-                      // Only target files already retained in the evidence pool.
-                      if (!forensicEvidence.fileContents.has(findingFile)) continue;
+                      // The target must be in both the retained evidence pool
+                      // and this immutable recovery packet's approved scope.
+                      if (
+                        !forensicEvidence.fileContents.has(findingFile)
+                        || !recoveryPacket.files.includes(findingFile)
+                      ) continue;
                       try {
                         // Step 1: find the symbol's line number by scanning the
                         // already-retained file content directly. Using search_code
@@ -13735,16 +13847,20 @@ export async function chat(opts: {
                         const startLine = Math.max(1, anchorLine - 5);
                         const endLine = anchorLine + 50;
                         // Step 2: targeted ranged read around the confirmed anchor.
-                        const rangeOut = await executeFileTool(
-                          "read_file_range",
-                          {
+                        const rangeResult = await dispatchServerRead({
+                          name: "read_file_range",
+                          args: {
                             path: findingFile,
                             startLine: String(startLine),
                             endLine: String(endLine),
                           },
-                          rootPath,
-                          [],
-                        );
+                          allowedReadPaths: recoveryPacket.files,
+                          objectiveScopePolicy: objective?.scopePolicy,
+                          strictAllowedReadPaths: true,
+                          surface: `forensic-targeted-range-${packetIndex}-${recoveryAttempt + 1}`,
+                        });
+                        if (rangeResult.kind !== "ok") continue;
+                        const rangeOut = rangeResult.output;
                         if (rangeOut.startsWith("Error") || rangeOut.startsWith("No content")) {
                           continue;
                         }

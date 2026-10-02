@@ -1,11 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   executeSingleTool,
   executeToolLoop,
+  executeScopedReadTool,
+  hashProviderToolManifest,
   toolCacheKey,
   type ToolLoopOpts,
   type MutationToolInvocation,
@@ -37,6 +41,199 @@ import {
 import { FILE_TOOL_DEFINITIONS } from "../tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS } from "../tools/git-tools.js";
 import { PACKAGE_TOOL_DEFINITIONS } from "../tools/package-tools.js";
+
+describe("canonical executor dispatcher boundary", () => {
+  it("allows raw file and Git executors only inside executeSingleTool", async () => {
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+    const sourceRoot = path.resolve(testDirectory, "..");
+    const canonicalDispatcherFile = path.join(sourceRoot, "tool-execution-engine.ts");
+    const rawExecutorNames = new Set(["executeFileTool", "executeGitTool"]);
+    const productionFiles: string[] = [];
+
+    const visitDirectory = async (directory: string): Promise<void> => {
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries) {
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== "__tests__") await visitDirectory(absolutePath);
+          continue;
+        }
+        if (
+          entry.isFile()
+          && /\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
+          && !/\.(?:test|spec)\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
+          && !entry.name.endsWith(".d.ts")
+        ) {
+          productionFiles.push(absolutePath);
+        }
+      }
+    };
+    await visitDirectory(sourceRoot);
+
+    const violations: string[] = [];
+    for (const filePath of productionFiles) {
+      const sourceText = await readFile(filePath, "utf8");
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true,
+        filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      const importedRawNames = new Set<string>(rawExecutorNames);
+      const rawNamespaceImports = new Set<string>();
+
+      for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings) continue;
+        const bindings = statement.importClause.namedBindings;
+        if (ts.isNamespaceImport(bindings)) {
+          rawNamespaceImports.add(bindings.name.text);
+        } else if (ts.isNamedImports(bindings)) {
+          for (const specifier of bindings.elements) {
+            const importedName = specifier.propertyName?.text ?? specifier.name.text;
+            if (rawExecutorNames.has(importedName)) importedRawNames.add(specifier.name.text);
+          }
+        }
+      }
+
+      const isRawExecutorExpression = (expression: ts.Expression): boolean => {
+        if (ts.isIdentifier(expression)) return importedRawNames.has(expression.text);
+        if (ts.isPropertyAccessExpression(expression)) {
+          return rawExecutorNames.has(expression.name.text)
+            || (
+              ts.isIdentifier(expression.expression)
+              && rawNamespaceImports.has(expression.expression.text)
+              && rawExecutorNames.has(expression.name.text)
+            );
+        }
+        return false;
+      };
+
+      // Track straightforward local aliases as well as import aliases.
+      for (const statement of sourceFile.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        for (const declaration of statement.declarationList.declarations) {
+          if (
+            ts.isIdentifier(declaration.name)
+            && declaration.initializer
+            && isRawExecutorExpression(declaration.initializer)
+          ) {
+            importedRawNames.add(declaration.name.text);
+          }
+        }
+      }
+
+      const insideCanonicalDispatcher = (node: ts.Node): boolean => {
+        let current: ts.Node | undefined = node.parent;
+        while (current) {
+          if (
+            ts.isFunctionDeclaration(current)
+            && current.name?.text === "executeSingleTool"
+            && current.parent === sourceFile
+          ) {
+            return true;
+          }
+          current = current.parent;
+        }
+        return false;
+      };
+
+      const inspect = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && isRawExecutorExpression(node.expression)) {
+          const allowed =
+            path.resolve(filePath) === path.resolve(canonicalDispatcherFile)
+            && insideCanonicalDispatcher(node);
+          if (!allowed) {
+            const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+            violations.push(`${path.relative(sourceRoot, filePath)}:${line}`);
+          }
+        }
+        ts.forEachChild(node, inspect);
+      };
+      inspect(sourceFile);
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it("requires an exact scope and records a valid server-initiated read", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tool-agent-scoped-read-"));
+    try {
+      await mkdir(path.join(root, "src"), { recursive: true });
+      await writeFile(path.join(root, "src", "index.ts"), "export const answer = 42;\n", "utf8");
+      const controller = new AbortController();
+      const admit = vi.fn(() => true);
+      const complete = vi.fn();
+      const executionLedger = {
+        id: "scoped-read-test",
+        signal: controller.signal,
+        admit,
+        complete,
+      } as unknown as Parameters<typeof executeScopedReadTool>[0]["executionLedger"];
+      const readPhases: string[] = [];
+      const lifecyclePhases: string[] = [];
+      const manifestHash = hashProviderToolManifest(FILE_TOOL_DEFINITIONS);
+      expect(manifestHash).toMatch(/^[a-f0-9]{64}$/u);
+      const common = {
+        name: "read_file" as const,
+        args: { path: "src/index.ts" },
+        rootPath: root,
+        pendingChanges: [],
+        allowedToolNames: new Set(["read_file"]),
+        signal: controller.signal,
+        toolManifestHash: manifestHash!,
+        onReadOnlyInvocation: async (event: ReadOnlyToolInvocation) => {
+          readPhases.push(event.phase);
+        },
+        onToolInvocation: async (event: ToolInvocationLifecycleEvent) => {
+          lifecyclePhases.push(event.phase);
+        },
+        executionLedger,
+        provider: "test",
+        model: "test-model",
+      };
+
+      const denied = await executeScopedReadTool({
+        ...common,
+        toolCallId: "1".repeat(64),
+        allowedReadPaths: ["src/other.ts"],
+      });
+      expect(denied.kind).toBe("failed");
+      expect(admit).not.toHaveBeenCalled();
+      expect(readPhases).toEqual([]);
+
+      const missingScope = await executeScopedReadTool({
+        ...common,
+        toolCallId: "3".repeat(64),
+      });
+      expect(missingScope.kind).toBe("failed");
+      expect(admit).not.toHaveBeenCalled();
+
+      const missionDenied = await executeScopedReadTool({
+        ...common,
+        toolCallId: "4".repeat(64),
+        allowedReadPaths: ["src/index.ts"],
+        missionReadPathScope: ["src/other.ts"],
+      });
+      expect(missionDenied.kind).toBe("failed");
+      expect(readPhases).toEqual([]);
+
+      const result = await executeScopedReadTool({
+        ...common,
+        toolCallId: "2".repeat(64),
+        allowedReadPaths: ["src/index.ts"],
+      });
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") expect(result.output).toContain("answer = 42");
+      expect(admit).toHaveBeenCalledTimes(2);
+      expect(complete).toHaveBeenCalledTimes(2);
+      expect(readPhases).toEqual(["requested", "recorded"]);
+      expect(lifecyclePhases).toEqual(["requested", "started", "completed"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 type SchemaProperty = {
   type?: string;

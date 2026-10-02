@@ -23,10 +23,9 @@
  *     the model never wastes a real tool call re-reading the same file
  */
 
- import { promises as fs } from "node:fs";
- import path from "node:path";
-import { executeFileTool, stripReadFileWrapper } from "../tools/file-tools.js";
-import type { PendingChange } from "../schemas/chat.schema.js";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { RawMessage } from "../groq-client.js";
 import { isForensicTestSourcePath } from "../forensic-source-policy.js";
 import type { ForensicRootCoverage } from "../forensic-output-guard.js";
@@ -142,19 +141,19 @@ export interface ForensicDiscoveryResult extends PrefetchResult {
   budgetExhausted: boolean;
 }
 
+export type PrefetchReadFile = (
+  filePath: string,
+  complete: boolean,
+) => Promise<string | null>;
+
 async function readPrefetchFile(
   filePath: string,
-  rootPath: string,
-  pendingChanges: PendingChange[],
   complete: boolean,
+  readFile: PrefetchReadFile,
 ): Promise<string | null> {
   try {
-    const raw = await executeFileTool(
-      "read_file",
-      complete ? { path: filePath, complete: "true" } : { path: filePath },
-      rootPath,
-      pendingChanges,
-    );
+    const raw = await readFile(filePath, complete);
+    if (typeof raw !== "string") return null;
     const trimmed = raw.trim();
     const unwrapped = stripReadFileWrapper(raw).trim();
     if (
@@ -199,15 +198,13 @@ export function extractMentionedFiles(message: string): string[] {
  * Pre-fetch files mentioned in the message before the tool loop.
  *
  * @param opts.message        The user's raw message
- * @param opts.rootPath       Absolute path to the project root
- * @param opts.pendingChanges Accumulated pending changes (passed through to executeFileTool)
+ * @param opts.readFile       Server-owned scoped read dispatcher
  * @param opts.toolCacheKeyFn The same key function used by the tool loop cache
  * @param opts.profileDepth   Optional context profile — "chat-lite" skips prefetch entirely
  */
 export async function speculativePrefetch(opts: {
   message: string;
-  rootPath: string;
-  pendingChanges: PendingChange[];
+  readFile: PrefetchReadFile;
   toolCacheKeyFn: (name: string, args: Record<string, string>) => string;
   profileDepth?: "chat-lite" | "chat-normal" | "chat-deep" | "chat";
   complete?: boolean;
@@ -217,8 +214,7 @@ export async function speculativePrefetch(opts: {
 }): Promise<PrefetchResult> {
   const {
     message,
-    rootPath,
-    pendingChanges,
+    readFile,
     toolCacheKeyFn,
     profileDepth,
     complete = false,
@@ -246,7 +242,7 @@ export async function speculativePrefetch(opts: {
   // Attempt all reads in parallel — errors are caught per-file
   const readResults = await Promise.all(
     mentionedFiles.map(async (filePath) => {
-      const raw = await readPrefetchFile(filePath, rootPath, pendingChanges, complete);
+      const raw = await readPrefetchFile(filePath, complete, readFile);
       if (raw === null) return { filePath, content: null };
       try {
         // Truncate to budget
@@ -339,8 +335,7 @@ export async function speculativePrefetch(opts: {
  */
 export async function prefetchFileList(opts: {
   files: string[];
-  rootPath: string;
-  pendingChanges: PendingChange[];
+  readFile: PrefetchReadFile;
   toolCacheKeyFn: (name: string, args: Record<string, string>) => string;
   complete?: boolean;
   maxFiles?: number;
@@ -349,8 +344,7 @@ export async function prefetchFileList(opts: {
 }): Promise<PrefetchResult> {
   const {
     files,
-    rootPath,
-    pendingChanges,
+    readFile,
     toolCacheKeyFn,
     complete = false,
     maxFiles = MAX_PLAN_PREFETCH_FILES,
@@ -373,7 +367,7 @@ export async function prefetchFileList(opts: {
 
   const readResults = await Promise.all(
     candidates.map(async (filePath) => {
-      const raw = await readPrefetchFile(filePath, rootPath, pendingChanges, complete);
+      const raw = await readPrefetchFile(filePath, complete, readFile);
       if (raw === null) return { filePath, content: null };
       try {
         const content =
@@ -476,9 +470,9 @@ async function discoverSourceFiles(
 
     for (const entry of entries) {
       if (files.length >= maxFiles) break;
-      // Symlink traversal is deliberately excluded. executeFileTool performs
-      // the final realpath containment check, but discovery must not expand a
-      // link outside the requested project tree.
+      // Symlink traversal is deliberately excluded. The injected canonical
+      // dispatcher performs final path containment, but discovery must not
+      // expand a link outside the requested project tree.
       if (entry.isSymbolicLink()) continue;
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) {
@@ -515,7 +509,7 @@ async function discoverSourceFiles(
 export async function prefetchForensicRoots(opts: {
   roots: string[];
   rootPath: string;
-  pendingChanges: PendingChange[];
+  readFile: PrefetchReadFile;
   toolCacheKeyFn: (name: string, args: Record<string, string>) => string;
   maxFiles?: number;
   excludeFiles?: Iterable<string>;
@@ -524,7 +518,7 @@ export async function prefetchForensicRoots(opts: {
   const {
     roots,
     rootPath,
-    pendingChanges,
+    readFile,
     toolCacheKeyFn,
     maxFiles = MAX_FORENSIC_DISCOVERY_FILES,
     excludeFiles,
@@ -568,8 +562,7 @@ export async function prefetchForensicRoots(opts: {
     if (candidates.length > 0) {
       const result = await prefetchFileList({
         files: candidates,
-        rootPath,
-        pendingChanges,
+        readFile,
         toolCacheKeyFn,
         complete: true,
         maxFiles: remaining,

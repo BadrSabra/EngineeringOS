@@ -795,6 +795,10 @@ export type SingleToolOpts = {
   approvedValidationProfiles?: readonly string[];
   /** Server-owned effective tool manifest, checked again at dispatch. */
   allowedToolNames?: ReadonlySet<string>;
+  /** Exact read paths allowed for this dispatch, when the turn uses a path allowlist. */
+  allowedReadPaths?: readonly string[];
+  /** Server-owned objective scope, rechecked at the canonical dispatcher boundary. */
+  objectiveScopePolicy?: ObjectiveScopePolicy;
   /** Exact file paths authorized for Mission source reads; undefined means non-Mission. */
   missionReadPathScope?: readonly string[];
   /** Cancellation signal owned by the durable execution controller. */
@@ -1213,6 +1217,59 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             safeMessage: "The requested diff path is outside the server-approved Mission read scope.",
           };
         }
+      }
+    }
+    if (
+      opts.objectiveScopePolicy
+      && (name === "read_file"
+        || name === "read_file_range"
+        || name === "list_directory"
+        || name === "search_code")
+    ) {
+      if (name === "search_code" && (typeof effectiveArgs.path !== "string" || !effectiveArgs.path.trim())) {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "Evidence-scoped search requires an explicit path inside the server-approved objective scope.",
+        };
+      }
+      const requestedPath =
+        typeof effectiveArgs.path === "string" && effectiveArgs.path.trim()
+          ? effectiveArgs.path
+          : ".";
+      const expansion = classifyObjectiveScopePath(requestedPath, opts.objectiveScopePolicy);
+      if (expansion?.kind === "UNJUSTIFIED_SCOPE_EXPANSION") {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The requested source path is outside the server-approved objective scope.",
+        };
+      }
+    }
+    if (
+      opts.allowedReadPaths !== undefined
+      && (name === "read_file" || name === "read_file_range")
+    ) {
+      const approvedPaths = new Set(
+        opts.allowedReadPaths
+          .map(normalizeMissionScopedReadPath)
+          .filter((value): value is string => Boolean(value)),
+      );
+      const requestedPath = normalizeMissionScopedReadPath(effectiveArgs.path);
+      const justifiedExpansion =
+        typeof effectiveArgs.path === "string"
+        && opts.objectiveScopePolicy
+        && classifyObjectiveScopePath(effectiveArgs.path, opts.objectiveScopePolicy)?.kind
+          === "JUSTIFIED_SCOPE_EXPANSION";
+      if (!requestedPath || (!approvedPaths.has(requestedPath) && !justifiedExpansion)) {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The requested source path is outside the server-approved read manifest.",
+        };
       }
     }
     const observableReadOnlyToolNames = opts.missionReadPathScope !== undefined
@@ -1809,6 +1866,160 @@ export type SourceEvidenceWindow = {
   startLine: number;
   endLine: number;
 };
+
+export type ScopedReadToolName = "read_file" | "read_file_range" | "search_code";
+
+export type ScopedReadToolOpts = {
+  name: ScopedReadToolName;
+  args: unknown;
+  rootPath: string;
+  pendingChanges: PendingChange[];
+  allowedToolNames: ReadonlySet<string>;
+  /** Exact path allowlist; objective-scoped reads may rely on the policy instead. */
+  allowedReadPaths?: readonly string[];
+  /** Disallow objective-scope expansion beyond an immutable packet path list. */
+  strictAllowedReadPaths?: boolean;
+  objectiveScopePolicy?: ObjectiveScopePolicy;
+  missionReadPathScope?: readonly string[];
+  signal: AbortSignal;
+  toolCallId: string;
+  toolManifestHash: string;
+  onReadOnlyInvocation: ReadOnlyToolInvocationCallback;
+  onToolInvocation: ToolInvocationLifecycleCallback;
+  executionLedger: ExecutionLedger;
+  provider: string;
+  model: string;
+  completeReads?: boolean;
+};
+
+/**
+ * Dispatch one server-initiated read through the same authorization, scope,
+ * lifecycle, receipt, cancellation, and output-boundary path as model tools.
+ * Callers must supply a server-owned manifest and a path scope; user text and
+ * retained evidence do not grant scope by themselves.
+ */
+export async function executeScopedReadTool(
+  opts: ScopedReadToolOpts,
+): Promise<SingleToolResult> {
+  const failClosed = (safeMessage: string): SingleToolResult => ({
+    kind: "failed",
+    failureKind: "unavailable",
+    diagnosticCode: "TOOL_UNAVAILABLE",
+    safeMessage,
+  });
+  const hasScope =
+    (opts.allowedReadPaths?.length ?? 0) > 0
+    || opts.objectiveScopePolicy !== undefined
+    || opts.missionReadPathScope !== undefined;
+  const manifestHash = opts.toolManifestHash.trim();
+  const invocationId = opts.toolCallId.trim();
+  if (
+    !hasScope
+    || !opts.rootPath.trim()
+    || !opts.allowedToolNames.has(opts.name)
+    || !invocationId
+    || invocationId.length > 160
+    || !/^[a-f0-9]{64}$/u.test(manifestHash)
+    || !opts.onReadOnlyInvocation
+    || !opts.onToolInvocation
+  ) {
+    return failClosed(
+      "The server could not establish this read's authorized manifest, exact scope, or invocation lifecycle; no read was performed.",
+    );
+  }
+  if (opts.signal.aborted) {
+    return failClosed("The read was cancelled before execution.");
+  }
+
+  const validatedArgs = validateToolArguments(opts.name, opts.args);
+  const requestedPath =
+    validatedArgs && normalizeMissionScopedReadPath(validatedArgs.path);
+  if (!validatedArgs || !requestedPath) {
+    return failClosed("The server read request did not contain a valid project-relative path.");
+  }
+  const exactScope = new Set(
+    (opts.allowedReadPaths ?? [])
+      .map(normalizeMissionScopedReadPath)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const objectiveExpansion = opts.objectiveScopePolicy
+    ? classifyObjectiveScopePath(validatedArgs.path, opts.objectiveScopePolicy)
+    : undefined;
+  if (objectiveExpansion?.kind === "UNJUSTIFIED_SCOPE_EXPANSION") {
+    return failClosed("The requested source path is outside the server-approved objective scope.");
+  }
+  if (
+    opts.allowedReadPaths !== undefined
+    && !exactScope.has(requestedPath)
+    && opts.strictAllowedReadPaths
+  ) {
+    return failClosed("The requested source path is outside the immutable server-approved read packet.");
+  }
+  if (
+    opts.allowedReadPaths !== undefined
+    && !exactScope.has(requestedPath)
+    && objectiveExpansion?.kind !== "JUSTIFIED_SCOPE_EXPANSION"
+  ) {
+    return failClosed("The requested source path is outside the server-approved read manifest.");
+  }
+  if (
+    opts.name === "search_code"
+    && requestedPath === "."
+    && !opts.objectiveScopePolicy
+    && !exactScope.has(".")
+  ) {
+    return failClosed("Project-wide search requires an explicit server-approved objective scope.");
+  }
+
+  let admitted = false;
+  try {
+    admitted = await opts.executionLedger.admit("tool", {
+      provider: opts.provider,
+      model: opts.model,
+    });
+  } catch {
+    return failClosed("The request budget could not admit this read; no read was performed.");
+  }
+  if (!admitted) {
+    return failClosed("The request budget does not permit another read.");
+  }
+
+  const startedAt = Date.now();
+  let result: SingleToolResult = failClosed("The read did not complete.");
+  let status: "completed" | "failed" = "failed";
+  try {
+    result = await executeSingleTool({
+      name: opts.name,
+      args: validatedArgs,
+      rootPath: opts.rootPath,
+      pendingChanges: opts.pendingChanges,
+      allowedToolNames: opts.allowedToolNames,
+      allowedReadPaths: opts.allowedReadPaths,
+      objectiveScopePolicy: opts.objectiveScopePolicy,
+      missionReadPathScope: opts.missionReadPathScope,
+      signal: opts.signal,
+      toolCallId: invocationId,
+      toolManifestHash: manifestHash,
+      onReadOnlyInvocation: opts.onReadOnlyInvocation,
+      onToolInvocation: opts.onToolInvocation,
+      completeReads: opts.completeReads,
+    });
+    status = result.kind === "ok" ? "completed" : "failed";
+  } catch {
+    result = failClosed("The server read failed; no evidence was accepted.");
+  }
+
+  try {
+    await opts.executionLedger.complete("tool", {
+      operation: opts.name,
+      startedAt,
+      status,
+    });
+  } catch {
+    return failClosed("The server could not record read completion; its output was discarded.");
+  }
+  return result;
+}
 
 export type ToolLoopOpts = {
   /**
@@ -6722,6 +6933,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           approvedFilePaths,
           approvedValidationProfiles,
           allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+          allowedReadPaths,
+          objectiveScopePolicy,
           missionReadPathScope: opts.missionReadPathScope,
           analysisToolRunner: opts.analysisToolRunner,
           analysisCorrelation: opts.analysisCorrelation,
