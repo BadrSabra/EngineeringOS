@@ -25,6 +25,25 @@ describe("server recipe definition registry", () => {
     });
   });
 
+  it("declares Canonical Proof eligibility for every registered recipe", () => {
+    const registry = createServerRecipeDefinitionRegistry();
+    expect(Object.fromEntries(
+      registry.listIds().map((recipeId) => [
+        recipeId,
+        registry.resolve(recipeId, 1)?.proofEvidenceMode,
+      ]),
+    )).toEqual({
+      "browser.verify": "artifact_only",
+      "candidate.verify": "artifact_only",
+      "database.inspect.project": "artifact_only",
+      "delivery.push.github": "artifact_only",
+      "runtime.restart": "operational_only",
+      "runtime.start": "operational_only",
+      "runtime.stop": "operational_only",
+      "validation.recover": "artifact_only",
+    });
+  });
+
   it("builds runtime startup from a fixed server-owned recipe node", () => {
     const registry = createServerRecipeDefinitionRegistry();
     const recipe = registry.build({

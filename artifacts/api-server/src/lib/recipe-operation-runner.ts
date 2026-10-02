@@ -571,7 +571,7 @@ export type PrepareRecipeOperationParams = {
 export type PreparedRecipeOperation = {
   plan: ActiveTaskExecutionPlan;
   binding: RecipeOperationBinding;
-  proofEvidenceMode: "artifact_only";
+  proofEvidenceMode: "artifact_only" | "source_required" | "operational_only";
 };
 
 export function createRuntimeStartRunner(
@@ -1151,6 +1151,7 @@ const DEFAULT_DATABASE_READ_RUNNER: NonNullable<RecipeCapabilityRuntime["databas
       evidence: {
         evidenceId: `database:${operationId}:${resultHash}`,
         resultHash,
+        artifactRef: `database-read:${operationId}:${resource}:${resultHash}`,
       },
     };
   } catch {
@@ -1625,6 +1626,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     ...params,
     ...(runtimeStartRunner ? { runtimeStartRunner } : {}),
   });
+  if (params.proofRequired && prepared.proofEvidenceMode !== "artifact_only") {
+    throw new Error(prepared.proofEvidenceMode === "operational_only"
+      ? `Recipe "${params.recipeId}" is operational-only and cannot satisfy Canonical Proof.`
+      : `Recipe "${params.recipeId}" requires retained source evidence that recipe execution does not currently provide.`);
+  }
   if (params.skillBinding) {
     await requireActiveSkillRegistry({
       projectId: params.projectId,
@@ -1648,12 +1654,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     message: `recipe:${params.operationId}`,
     modelMessage: `recipe:${params.operationId}`,
     workspaceRevision: params.sourceRevision,
+    workspaceRoot: executionRoot,
     validationTargetPaths: normalizedPaths(params.approvedPaths),
     ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
     ...(params.proofRequired
       ? {
           proofRequired: true,
-          proofEvidenceMode: prepared.proofEvidenceMode,
+          proofEvidenceMode: "artifact_only" as const,
         }
       : {}),
     ...(params.skillBinding
@@ -1676,6 +1683,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     request: executionRequest,
     idempotencyKey: params.idempotencyKey,
     projectId: params.projectId,
+    workspaceRoot: executionRoot,
     ...(params.goalId ? { goalId: params.goalId } : {}),
     sessionId: params.sessionId,
     recipeBinding: prepared.binding,
@@ -3131,8 +3139,32 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     const evidenceRefs = Object.values(evidence)
       .map(receiptIdForEvidence)
       .filter((id): id is string => typeof id === "string");
+    const noCandidateHash = createHash("sha256")
+      .update("engineeringos:recipe-evidence:no-candidate:v1")
+      .digest("hex");
     const completionEvidence = Object.values(evidence)
-      .map((entry) => entry.outputs?.evidence)
+      .map((entry) => {
+        const value = entry.outputs?.evidence;
+        if (
+          prepared.proofEvidenceMode !== "artifact_only"
+          || !value
+          || typeof value !== "object"
+          || Array.isArray(value)
+        ) return undefined;
+        const artifact = value as Record<string, unknown>;
+        if (
+          typeof artifact.evidenceId !== "string"
+          || !artifact.evidenceId.trim()
+          || typeof artifact.artifactRef !== "string"
+          || !artifact.artifactRef.trim()
+        ) return undefined;
+        return {
+          ...artifact,
+          operationId: claimed.id,
+          projectRevision: params.sourceRevision,
+          candidateHash: params.candidateIdentity ?? noCandidateHash,
+        };
+      })
       .filter((value): value is {
         evidenceId: string;
         artifactRef: string;
@@ -3253,7 +3285,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     } catch {
       taskObjective = undefined;
     }
-    const validatorEvidence = completionEvidence[0];
+    const validatorEvidence = completionEvidence.find(
+      (item) => typeof item.validatorProfile === "string",
+    );
     const validatorReceipts: TaskObjectiveValidatorReceipt[] = taskObjective && validatorEvidence
       ? taskObjective.validatorIds.map((validatorId) => {
           const evidence = validatorEvidence;

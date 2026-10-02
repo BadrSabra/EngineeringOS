@@ -10,11 +10,16 @@ import {
 } from "./recipe-compiler.js";
 import type { RecipeExecutionPolicy } from "./recipe-contract.js";
 
+export type RecipeProofEvidenceMode =
+  | "artifact_only"
+  | "source_required"
+  | "operational_only";
+
 export type RecipeDefinition = {
   contractVersion: typeof RECIPE_CONTRACT_VERSION;
   recipeId: string;
   recipeVersion: number;
-  proofEvidenceMode: "artifact_only";
+  proofEvidenceMode: RecipeProofEvidenceMode;
   nodes: readonly CapabilityRecipe["nodes"][number][];
   transitions: readonly CapabilityRecipe["transitions"][number][];
   outcome: CapabilityRecipe["outcome"];
@@ -36,6 +41,7 @@ function validationProfiles(request: RecipeRequest): Array<"workspace-typecheck"
 
 function definition(
   recipeId: string,
+  proofEvidenceMode: RecipeProofEvidenceMode,
   nodes: (request: RecipeRequest) => CapabilityRecipe["nodes"],
   outcome: CapabilityRecipe["outcome"] | ((request: RecipeRequest) => CapabilityRecipe["outcome"]),
   executionPolicy: RecipeExecutionPolicy,
@@ -60,7 +66,7 @@ function definition(
     contractVersion: RECIPE_CONTRACT_VERSION,
     recipeId,
     recipeVersion: 1,
-    proofEvidenceMode: "artifact_only",
+    proofEvidenceMode,
     nodes: sample.nodes,
     transitions: sample.transitions,
     outcome: sample.outcome,
@@ -153,6 +159,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
   return new RecipeDefinitionRegistry([
     definition(
       "candidate.verify",
+      "artifact_only",
       (request) => [
         ...validationProfiles(request).map((profile, index) => ({
           id: profile === "workspace-typecheck" ? "workspace-typecheck" : "focused-validation",
@@ -194,6 +201,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     definition(
       "validation.recover",
+      "artifact_only",
       (request) => [{
         id: "recover-validation",
         title: "Rerun the registered validation profile",
@@ -215,6 +223,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     definition(
       "browser.verify",
+      "artifact_only",
       (request) => [{
         id: "browser-verification",
         title: "Verify the approved browser profile",
@@ -236,6 +245,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     definition(
       "runtime.start",
+      "operational_only",
       () => [{
         id: "runtime-start",
         title: "Start and verify the server-owned workspace runtime",
@@ -259,6 +269,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     ...(["restart", "stop"] as const).map((mode) => definition(
       `runtime.${mode}`,
+      "operational_only",
       () => [{
         id: `runtime-${mode}`,
         title: `${mode === "restart" ? "Restart" : "Stop"} and verify the server-owned workspace runtime`,
@@ -282,6 +293,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     )),
     definition(
       "database.inspect.project",
+      "artifact_only",
       () => [{
         id: "read-project-data",
         title: "Read the approved project data view",
@@ -308,6 +320,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     definition(
       "delivery.push.github",
+      "artifact_only",
       (request) => [{
         id: "github-delivery",
         title: "Push the server-approved verified delivery to GitHub",

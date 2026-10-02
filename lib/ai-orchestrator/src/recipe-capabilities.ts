@@ -122,6 +122,7 @@ export type DatabaseReadRunner = (args: {
   evidence?: {
     evidenceId: string;
     resultHash?: string;
+    artifactRef?: string;
   };
   detail?: string;
 }>;
@@ -642,6 +643,7 @@ function databaseReadCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
       evidence: z.object({
         evidenceId: z.string().min(1).max(240),
         resultHash: z.string().max(128).optional(),
+        artifactRef: z.string().min(1).max(240).optional(),
       }).optional(),
       detail: z.string().max(4_000).optional(),
     }).strict(),

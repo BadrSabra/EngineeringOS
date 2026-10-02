@@ -171,6 +171,7 @@ async function createReclaimedRecipeFixture(options: {
   const sessionId = crypto.randomUUID();
   const userId = "recipe-runner-recovery-user";
   const sourceRevision = "recipe-runner-recovery-revision";
+  const projectRoot = await mkdtemp(path.join(process.cwd(), ".recipe-runner-project-"));
   const candidateWorkspace = await mkdtemp(path.join(HOST_DISPOSABLE_TEMP_ROOT, "recipe-runner-recovery-"));
   const approvedFile = path.join(candidateWorkspace, "lib/ai-orchestrator/src/index.ts");
   await mkdir(path.dirname(approvedFile), { recursive: true });
@@ -181,7 +182,7 @@ async function createReclaimedRecipeFixture(options: {
     sessionId,
     userId,
     idempotencyKey: `${operationId}:recovery`,
-    rootPath: process.cwd(),
+    rootPath: projectRoot,
     sourceRevision,
     recipeId: "candidate.verify",
     recipeVersion: 1,
@@ -219,6 +220,7 @@ async function createReclaimedRecipeFixture(options: {
     await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     await rm(candidateWorkspace, { recursive: true, force: true });
+    await rm(projectRoot, { recursive: true, force: true });
   };
 
   try {
@@ -231,17 +233,20 @@ async function createReclaimedRecipeFixture(options: {
         message: `recipe:${operationId}`,
         modelMessage: `recipe:${operationId}`,
         workspaceRevision: sourceRevision,
-        workspaceRoot: params.rootPath,
+        workspaceRoot: params.candidateWorkspace,
         validationTargetPaths: [...params.approvedPaths],
         ...(params.proofRequired
           ? {
               proofRequired: true,
-              proofEvidenceMode: prepared.proofEvidenceMode,
+              ...(prepared.proofEvidenceMode === "artifact_only"
+                ? { proofEvidenceMode: "artifact_only" as const }
+                : {}),
             }
           : {}),
       },
       idempotencyKey: params.idempotencyKey,
       projectId,
+      workspaceRoot: params.candidateWorkspace,
       sessionId,
       recipeBinding: prepared.binding,
     });
@@ -313,7 +318,7 @@ async function createReclaimedRecipeFixture(options: {
 }
 
 async function createGateCRecipeFixture(
-  recipeId: "browser.verify" | "delivery.push.github",
+  recipeId: "browser.verify" | "delivery.push.github" | "runtime.start",
   approvedPaths: readonly string[] = [],
 ) {
   const projectId = crypto.randomUUID();
@@ -321,12 +326,18 @@ async function createGateCRecipeFixture(
   const sessionId = crypto.randomUUID();
   const userId = `gate-c-recipe-user:${projectId}`;
   const sourceRevision = `gate-c-recipe-revision:${projectId}`;
+  const rootPath = await mkdtemp(path.join(process.cwd(), ".gate-c-recipe-root-"));
+  await writeFile(
+    path.join(rootPath, "package.json"),
+    JSON.stringify({ name: "gate-c-recipe-fixture", version: "1.0.0" }),
+    "utf8",
+  );
   const now = new Date();
   await db.insert(projectsTable).values({
     id: projectId,
     ownerId: userId,
     name: `gate-c-recipe-${projectId.slice(0, 8)}`,
-    rootPath: process.cwd(),
+    rootPath,
     language: "typescript",
     status: "active",
     createdAt: now,
@@ -345,7 +356,7 @@ async function createGateCRecipeFixture(
     sessionId,
     userId,
     idempotencyKey: `${operationId}:gate-c-reconnect`,
-    rootPath: process.cwd(),
+    rootPath,
     sourceRevision,
     recipeId,
     recipeVersion: 1,
@@ -364,6 +375,7 @@ async function createGateCRecipeFixture(
       }
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
     },
   };
 }
@@ -374,12 +386,13 @@ async function createDatabaseReadRecipeFixture() {
   const sessionId = crypto.randomUUID();
   const userId = `recipe-database-read-user:${projectId}`;
   const sourceRevision = `recipe-database-read-revision:${projectId}`;
+  const rootPath = await mkdtemp(path.join(process.cwd(), ".database-read-recipe-root-"));
   const now = new Date();
   await db.insert(projectsTable).values({
     id: projectId,
     ownerId: userId,
     name: `recipe-database-read-${projectId.slice(0, 8)}`,
-    rootPath: process.cwd(),
+    rootPath,
     language: "typescript",
     status: "active",
     createdAt: now,
@@ -399,7 +412,7 @@ async function createDatabaseReadRecipeFixture() {
       sessionId,
       userId,
       idempotencyKey: `${operationId}:database-read`,
-      rootPath: process.cwd(),
+      rootPath,
       sourceRevision,
       recipeId: "database.inspect.project",
       recipeVersion: 1,
@@ -421,6 +434,7 @@ async function createDatabaseReadRecipeFixture() {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
     },
   };
 }
@@ -480,7 +494,64 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
   return bundle?.id;
 }
 
+async function assertCanonicalRecipeProof(
+  params: {
+    projectId: string;
+    operationId: string;
+    sourceRevision: string;
+    candidateIdentity?: string | null;
+  },
+  executionId: string,
+) {
+  const proof = await db.transaction((tx) => loadCanonicalProof({
+    tx,
+    executionId,
+    scope: {
+      projectId: params.projectId,
+      executionId,
+      operationId: params.operationId,
+      sourceRevisionBinding: "execution",
+      sourceRevision: params.sourceRevision,
+      candidateIdentityBinding: params.candidateIdentity ? "required" : "not_applicable",
+      ...(params.candidateIdentity ? { candidateIdentity: params.candidateIdentity } : {}),
+    },
+    goalStatus: "completed",
+  }));
+  expect(proof.accepted).toBe(true);
+  expect(proof.verdict).toBe("PROVEN");
+}
+
 describe("read-only recipe invocation events", () => {
+  it("produces Canonical Proof from a persisted, bound project-read artifact", async () => {
+    const fixture = await createDatabaseReadRecipeFixture();
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        proofRequired: true,
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("completed");
+      await assertCanonicalRecipeProof(fixture.params, executionId);
+
+      const [acceptance] = await db.select({
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      expect(acceptance).toMatchObject({
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("records a database read invocation before exposing data on its canonical Episode", async () => {
     const fixture = await createDatabaseReadRecipeFixture();
     try {
@@ -1071,10 +1142,12 @@ describe("recipe operation preparation", () => {
           message: `recipe:${params.operationId}`,
           modelMessage: `recipe:${params.operationId}`,
           workspaceRevision: params.sourceRevision,
+          workspaceRoot: params.rootPath,
           validationTargetPaths: [...params.approvedPaths],
         },
         idempotencyKey: params.idempotencyKey,
         projectId: params.projectId,
+        workspaceRoot: params.rootPath,
         goalId,
         sessionId: params.sessionId,
         recipeBinding: prepared.binding,
@@ -2423,6 +2496,28 @@ describe("recipe operation preparation", () => {
     }
   });
 
+  it("rejects proof-required runtime recipes before execution", async () => {
+    const fixture = await createGateCRecipeFixture("runtime.start");
+    let runtimeCalled = false;
+    try {
+      await expect(runRecipeOperation({
+        ...fixture.params,
+        proofRequired: true,
+        runtimeStartRunner: async () => {
+          runtimeCalled = true;
+          return { status: "passed" as const };
+        },
+      })).rejects.toThrow("is operational-only and cannot satisfy Canonical Proof");
+      expect(runtimeCalled).toBe(false);
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, fixture.params.projectId));
+      expect(executions).toHaveLength(0);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("replays browser verification without losing its accepted effect bundle", async () => {
     const fixture = await createGateCRecipeFixture("browser.verify", ["package.json"]);
     let executionId: string | undefined;
@@ -2436,6 +2531,7 @@ describe("recipe operation preparation", () => {
     }> = [];
     const params = {
       ...fixture.params,
+      proofRequired: true,
       browserValidationRunner: async ({
         profile,
         projectId,
@@ -2497,6 +2593,7 @@ describe("recipe operation preparation", () => {
       const completed = await runRecipeOperation(params);
       executionId = completed.executionId;
       expect(completed.status).toBe("completed");
+      await assertCanonicalRecipeProof(fixture.params, executionId);
       const bundleId = await assertSuccessfulGateCEffect(executionId, "browser.verify.default");
       expect(browserCalls).toEqual([{
         profile: "default",
@@ -2526,6 +2623,7 @@ describe("recipe operation preparation", () => {
     const deliveryCalls: string[] = [];
     const params = {
       ...fixture.params,
+      proofRequired: true,
       githubDeliveryRunner: async ({
         projectId,
         operationId,
@@ -2584,6 +2682,7 @@ describe("recipe operation preparation", () => {
       const completed = await runRecipeOperation(params);
       executionId = completed.executionId;
       expect(completed.status).toBe("completed");
+      await assertCanonicalRecipeProof(fixture.params, executionId);
       const bundleId = await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit");
       expect(deliveryCalls).toEqual([
         `${fixture.params.projectId}:${fixture.params.operationId}:Deliver the verified proposal`,

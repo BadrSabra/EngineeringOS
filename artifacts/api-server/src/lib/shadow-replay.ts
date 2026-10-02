@@ -587,6 +587,9 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     goalId: input.goalId,
   } as const;
   const prepared = prepareRecipeOperation(recipeParams);
+  if (prepared.proofEvidenceMode !== "artifact_only") {
+    throw new Error("Shadow Replay requires an artifact-only candidate verification recipe.");
+  }
   const replayExecutionRequest: AiExecutionRequestEnvelope = {
     projectId: input.projectId,
     executionProfile: "shadow-replay",
@@ -599,7 +602,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     validationTargetPaths: [...behaviorContract.approvedPaths],
     validationProfiles: behaviorContract.validationProfiles,
     proofRequired: true,
-    proofEvidenceMode: prepared.proofEvidenceMode,
+    proofEvidenceMode: "artifact_only",
     objective: behaviorContract.objective.objective,
     taskObjective: behaviorContract.objective,
   };

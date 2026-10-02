@@ -1749,7 +1749,9 @@ describe("AI missions and goals", () => {
         validationProfiles: ["workspace-typecheck"],
         taskObjective,
         proofRequired: true,
-        proofEvidenceMode: prepared.proofEvidenceMode,
+        ...(prepared.proofEvidenceMode === "artifact_only"
+          ? { proofEvidenceMode: "artifact_only" as const }
+          : {}),
       },
       idempotencyKey: executionIdempotencyKey,
       correlationId: operationId,
