@@ -1834,6 +1834,8 @@ describe("recipe operation preparation", () => {
           reason: "episode_not_accepted",
         });
         expect(canonicalProof.accepted).toBe(false);
+        // The replay and stored-receipt assertions below require a genuine
+        // Canonical Proof producer; do not fabricate a proven source receipt.
         return;
       }
       expect(acceptance).toMatchObject({

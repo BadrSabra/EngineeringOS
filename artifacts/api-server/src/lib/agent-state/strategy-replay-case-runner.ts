@@ -111,6 +111,65 @@ type ReplayCaseSnapshot = {
   replayRun: typeof aiStrategyReplayCaseRunsTable.$inferSelect;
 };
 
+type StoredReplayReceiptSnapshot = {
+  definition: RegisteredStrategyReplayCaseDefinition;
+  runId: string;
+  operationId: string;
+  replayRun: Pick<
+    typeof aiStrategyReplayCaseRunsTable.$inferSelect,
+    | "id"
+    | "projectId"
+    | "caseRegistrationId"
+    | "candidateId"
+    | "sourceEpisodeId"
+    | "operationId"
+    | "candidateHash"
+    | "sourceCanonicalProofHash"
+    | "status"
+    | "replayExecutionId"
+    | "replayEpisodeId"
+    | "replayAttempt"
+    | "replayEffectBundleId"
+    | "replayCanonicalProofHash"
+    | "workspaceTreeHash"
+  >;
+};
+
+export function matchesStoredReplayReceiptIdentity(
+  receipt: StrategyReplayCaseRunReceipt,
+  snapshot: StoredReplayReceiptSnapshot,
+): boolean {
+  const { definition, replayRun } = snapshot;
+  return receipt.status === replayRun.status
+    && receipt.runId === snapshot.runId
+    && receipt.operationId === snapshot.operationId
+    && receipt.projectId === definition.projectId
+    && replayRun.projectId === definition.projectId
+    && receipt.caseRegistrationId === replayRun.caseRegistrationId
+    && receipt.caseId === definition.caseId
+    && receipt.candidateId === definition.candidateId
+    && replayRun.candidateId === definition.candidateId
+    && receipt.candidateHash === definition.candidateHash
+    && replayRun.candidateHash === definition.candidateHash
+    && receipt.sourceRevision === definition.sourceRevision
+    && receipt.sourceEpisodeId === definition.sourceEpisodeId
+    && replayRun.sourceEpisodeId === definition.sourceEpisodeId
+    && receipt.sourceExecutionId === definition.sourceExecutionId
+    && receipt.sourceAttempt === definition.sourceAttempt
+    && receipt.sourceAcceptanceId === definition.acceptanceId
+    && receipt.sourceEffectBundleId === definition.effectBundleId
+    && receipt.sourceCanonicalProofHash === definition.sourceCanonicalProofHash
+    && replayRun.sourceCanonicalProofHash === definition.sourceCanonicalProofHash
+    && replayRun.id === snapshot.runId
+    && replayRun.operationId === snapshot.operationId
+    && receipt.replayExecutionId === replayRun.replayExecutionId
+    && receipt.replayEpisodeId === replayRun.replayEpisodeId
+    && receipt.replayAttempt === replayRun.replayAttempt
+    && receipt.replayEffectBundleId === replayRun.replayEffectBundleId
+    && receipt.replayCanonicalProofHash === replayRun.replayCanonicalProofHash
+    && receipt.workspaceTreeHash === replayRun.workspaceTreeHash;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -339,22 +398,7 @@ async function verifyStoredReceipt(
   const parsedSourceBinding = sourceProofBinding(snapshot.definition);
   if (!parsedReceipt.success || !parsedSourceBinding.success) return undefined;
   const receipt = parsedReceipt.data;
-  if (
-    receipt.status !== snapshot.replayRun.status
-    || receipt.runId !== snapshot.runId
-    || receipt.operationId !== snapshot.operationId
-    || receipt.candidateHash !== snapshot.definition.candidateHash
-    || receipt.sourceCanonicalProofHash !== snapshot.definition.sourceCanonicalProofHash
-    || receipt.sourceEpisodeId !== snapshot.definition.sourceEpisodeId
-    || receipt.replayExecutionId !== snapshot.replayRun.replayExecutionId
-    || receipt.replayEpisodeId !== snapshot.replayRun.replayEpisodeId
-    || receipt.replayAttempt !== snapshot.replayRun.replayAttempt
-    || receipt.replayEffectBundleId !== snapshot.replayRun.replayEffectBundleId
-    || receipt.replayCanonicalProofHash !== snapshot.replayRun.replayCanonicalProofHash
-    || receipt.workspaceTreeHash !== snapshot.replayRun.workspaceTreeHash
-  ) {
-    return undefined;
-  }
+  if (!matchesStoredReplayReceiptIdentity(receipt, snapshot)) return undefined;
   const sourceProof = await verifyStrategyReplayCaseProofBinding(parsedSourceBinding.data);
   if (sourceProof.status !== "verified") return undefined;
   if (receipt.status === "incomplete") return receipt;

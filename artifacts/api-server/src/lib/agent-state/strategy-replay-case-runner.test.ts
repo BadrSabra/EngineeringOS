@@ -1,0 +1,121 @@
+import { describe, expect, it } from "vitest";
+import type { RegisteredStrategyReplayCaseDefinition } from "./strategy-replay-case-registry.js";
+import {
+  matchesStoredReplayReceiptIdentity,
+  type StrategyReplayCaseRunReceipt,
+} from "./strategy-replay-case-runner.js";
+
+const hash = (character: string) => character.repeat(64);
+
+describe("stored Strategy Replay receipt identity", () => {
+  const definition = {
+    schemaVersion: 1,
+    caseId: "strategy-case:test",
+    projectId: "project:test",
+    candidateId: "candidate:test",
+    candidateHash: hash("a"),
+    sourceRevision: "b".repeat(40),
+    sourceEpisodeId: "source-episode:test",
+    sourceExecutionId: "source-execution:test",
+    sourceAttempt: 3,
+    acceptanceId: "source-acceptance:test",
+    effectBundleId: "source-effect:test",
+    sourceCanonicalProofHash: hash("c"),
+    actionId: "action:test",
+    capabilityId: "runtime.start",
+    actionContractHash: hash("d"),
+    recipeId: "runtime.start",
+  } satisfies RegisteredStrategyReplayCaseDefinition;
+  const runId = "strategy-replay-run:test";
+  const operationId = "strategy-replay-operation:test";
+  const caseRegistrationId = "strategy-replay-registration:test";
+  const replayExecutionId = "replay-execution:test";
+  const replayEpisodeId = "replay-episode:test";
+  const replayEffectBundleId = "replay-effect:test";
+  const replayCanonicalProofHash = hash("e");
+  const workspaceTreeHash = hash("f");
+  const replayRun = {
+    id: runId,
+    projectId: definition.projectId,
+    caseRegistrationId,
+    candidateId: definition.candidateId,
+    sourceEpisodeId: definition.sourceEpisodeId,
+    operationId,
+    candidateHash: definition.candidateHash,
+    sourceCanonicalProofHash: definition.sourceCanonicalProofHash,
+    status: "proven" as const,
+    replayExecutionId,
+    replayEpisodeId,
+    replayAttempt: 0,
+    replayEffectBundleId,
+    replayCanonicalProofHash,
+    workspaceTreeHash,
+  };
+  const snapshot = { definition, runId, operationId, replayRun };
+  const receipt: StrategyReplayCaseRunReceipt = {
+    schemaVersion: 1,
+    runId,
+    operationId,
+    status: "proven",
+    incompleteReason: null,
+    partition: "held_out",
+    projectId: definition.projectId,
+    caseRegistrationId,
+    caseId: definition.caseId,
+    candidateId: definition.candidateId,
+    candidateHash: definition.candidateHash,
+    sourceRevision: definition.sourceRevision,
+    sourceEpisodeId: definition.sourceEpisodeId,
+    sourceExecutionId: definition.sourceExecutionId,
+    sourceAttempt: definition.sourceAttempt,
+    sourceAcceptanceId: definition.acceptanceId,
+    sourceEffectBundleId: definition.effectBundleId,
+    sourceCanonicalProofHash: definition.sourceCanonicalProofHash,
+    replayExecutionId,
+    replayAttempt: 0,
+    replayEpisodeId,
+    replayAcceptanceId: "replay-acceptance:test",
+    replayEffectBundleId,
+    replayCanonicalProofHash,
+    workspaceTreeHash,
+  };
+
+  it("accepts a receipt whose full source and replay identity matches", () => {
+    expect(matchesStoredReplayReceiptIdentity(receipt, snapshot)).toBe(true);
+  });
+
+  it("rejects receipts with mismatched source or case identity fields", () => {
+    const mismatchedReceipts: StrategyReplayCaseRunReceipt[] = [
+      { ...receipt, projectId: "project:other" },
+      { ...receipt, caseRegistrationId: "registration:other" },
+      { ...receipt, caseId: "case:other" },
+      { ...receipt, candidateId: "candidate:other" },
+      { ...receipt, sourceRevision: "1".repeat(40) },
+      { ...receipt, sourceEpisodeId: "episode:other" },
+      { ...receipt, sourceExecutionId: "execution:other" },
+      { ...receipt, sourceAttempt: receipt.sourceAttempt + 1 },
+      { ...receipt, sourceAcceptanceId: "acceptance:other" },
+      { ...receipt, sourceEffectBundleId: "effect:other" },
+      { ...receipt, sourceCanonicalProofHash: hash("9") },
+    ];
+
+    for (const mismatchedReceipt of mismatchedReceipts) {
+      expect(matchesStoredReplayReceiptIdentity(mismatchedReceipt, snapshot)).toBe(false);
+    }
+  });
+
+  it("rejects a replay row whose durable project or candidate identity drifted", () => {
+    expect(matchesStoredReplayReceiptIdentity(receipt, {
+      ...snapshot,
+      replayRun: { ...replayRun, projectId: "project:other" },
+    })).toBe(false);
+    expect(matchesStoredReplayReceiptIdentity(receipt, {
+      ...snapshot,
+      replayRun: { ...replayRun, candidateId: "candidate:other" },
+    })).toBe(false);
+    expect(matchesStoredReplayReceiptIdentity(receipt, {
+      ...snapshot,
+      replayRun: { ...replayRun, sourceEpisodeId: "episode:other" },
+    })).toBe(false);
+  });
+});

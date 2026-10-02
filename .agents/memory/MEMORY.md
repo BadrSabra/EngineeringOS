@@ -4,7 +4,7 @@
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
 - [Benchmark root exclusions](benchmark-root-exclusions.md) — keep benchmark copies aligned with digest exclusions; operational state can dominate runtime and expose unrelated artifacts.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.
-- [Shadow replay proof identity](shadow-replay-proof-identity.md) — recovery, registration, and promotion reload current-attempt proof and match receipt ID and trajectory.
+- [Shadow replay proof identity](shadow-replay-proof-identity.md) — revalidate current-attempt proof and bind every source, case, and replay identity in durable receipts.
 - [Shadow replay attempt ownership](shadow-replay-attempt-ownership.md) — direct starts and reconciliation share one lease; only its live owner can write receipts or delete the replay workspace.
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
 - [Discovery lease ownership](discovery-lease-ownership.md) — every discovery progress and terminal write must remain fenced by the current worker lease.
