@@ -657,7 +657,7 @@ async function insertChangeProposal(
 async function makeRecoverableProposal(
   projectId: string,
   lifecycle: "isolated" | "abandoned" | "blocked" | "conflicted" = "blocked",
-  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+  options: { withWorkspace?: boolean; conflictReason?: string; changePath?: string } = {},
 ): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
   path: string;
   absolutePath: string;
@@ -665,7 +665,7 @@ async function makeRecoverableProposal(
   validationProfile: "api-ai-tests";
 } }> {
   const operationId = randomUUID();
-  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+  const fileName = options.changePath ?? `recovery-${operationId.slice(0, 8)}.ts`;
   const change = {
     path: fileName,
     absolutePath: `/tmp/${fileName}`,
@@ -709,6 +709,7 @@ async function makeRecoverableProposal(
 async function insertMismatchedCompletedShadowReplay(
   projectId: string,
   operation: Awaited<ReturnType<typeof makeRecoverableProposal>>,
+  options: { matchingContractCandidate?: boolean } = {},
 ): Promise<void> {
   const [proposal] = await db.select({
     candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
@@ -745,6 +746,7 @@ async function insertMismatchedCompletedShadowReplay(
     operationId: operation.operationId,
     candidateId: "stored-candidate",
     canonicalAcceptanceId: "test-source-acceptance",
+    replayCanonicalAcceptanceId: "forged-replay-acceptance",
     trajectoryDigest: "test-source-trajectory",
     sourceRevision: proposal.baseRevision ?? "base-revision",
     candidateTreeHash: proposal.candidateTreeHash,
@@ -762,8 +764,14 @@ async function insertMismatchedCompletedShadowReplay(
         promotionAllowed: true,
         candidateRunId,
         candidateWorkspaceHash: proposal.candidateTreeHash,
+        proof: {
+          verdict: "PROVEN",
+          receiptId: "forged-replay-acceptance",
+        },
         contract: {
-          candidateId: "different-candidate",
+          candidateId: options.matchingContractCandidate
+            ? "stored-candidate"
+            : "different-candidate",
           candidateRunId,
           candidateWorkspaceHash: proposal.candidateTreeHash,
         },
@@ -5896,19 +5904,43 @@ describe("delivery recovery routes", () => {
   });
 
   it.each([
-    { name: "missing", insertReplay: false },
-    { name: "candidate-mismatched", insertReplay: true },
-  ])("blocks automatic promotion when the Gate 3 receipt is $name", async ({ insertReplay }) => {
+    {
+      name: "missing",
+      insertReplay: false,
+      matchingContractCandidate: false,
+      changePath: undefined,
+    },
+    {
+      name: "candidate-mismatched",
+      insertReplay: true,
+      matchingContractCandidate: false,
+      changePath: undefined,
+    },
+    {
+      name: "an unverified PROVEN claim",
+      insertReplay: true,
+      matchingContractCandidate: true,
+      changePath: "README.md",
+    },
+  ])("blocks automatic promotion when the Gate 3 receipt is $name", async ({
+    insertReplay,
+    matchingContractCandidate,
+    changePath,
+  }) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
-    const operation = await makeRecoverableProposal(projectId, "isolated");
+    const operation = await makeRecoverableProposal(projectId, "isolated", {
+      ...(changePath ? { changePath } : {}),
+    });
     await db.insert(aiDeliveryPoliciesTable).values({
       projectId,
       mode: "eligible_auto_promote",
       approvedBy: "test-user",
     });
     if (insertReplay) {
-      await insertMismatchedCompletedShadowReplay(projectId, operation);
+      await insertMismatchedCompletedShadowReplay(projectId, operation, {
+        matchingContractCandidate,
+      });
     }
     const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
       .mockResolvedValue({
@@ -5944,6 +5976,188 @@ describe("delivery recovery routes", () => {
     expect(await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
     await expect(fs.access(operation.change.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("allows Gate 3 eligibility only when the replay receipt matches its durable Canonical Proof", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated", {
+      changePath: "README.md",
+    });
+    const [proposal] = await db.select({
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId))
+      .limit(1);
+    if (!proposal?.baseRevision || !proposal.candidateTreeHash) {
+      throw new Error("Test proposal is missing its revision or candidate identity.");
+    }
+
+    const now = new Date();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const planHash = "e".repeat(64);
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Replay proof test",
+      intent: "Verify a replay candidate",
+      status: "waiting",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planHash },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Verify replay candidate",
+      status: "completed",
+      blockedReason: null,
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      successCriteria: { planRevision: { hash: planHash } },
+      outcomeContract: { planRevision: { hash: planHash } },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const replayId = randomUUID();
+    const candidateRunId = `${replayId}:candidate`;
+    const replayExecution = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: `test-shadow-replay:${replayId}`,
+      correlationId: operation.operationId,
+      request: {
+        projectId,
+        message: "Verify a replay candidate.",
+        modelMessage: "Verify a replay candidate.",
+        validationTargetPaths: [operation.change.path],
+        workspaceRevision: proposal.baseRevision,
+        proofRequired: true,
+      },
+    });
+    const replayWorkerId = randomUUID();
+    await db.update(aiExecutionsTable).set({
+      goalId,
+      operationId: operation.operationId,
+      baseRevision: proposal.baseRevision,
+      status: "running",
+      workerId: replayWorkerId,
+      leaseUntil: new Date(Date.now() + 60_000),
+      lastHeartbeatAt: now,
+      startedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, replayExecution.execution.id));
+
+    const finalization = await finalizeExecutionAcceptance({
+      executionId: replayExecution.execution.id,
+      expectedAttempt: replayExecution.execution.attempt,
+      workerId: replayWorkerId,
+      finalizationKey: `test-shadow-replay:${replayId}:completed`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "ACCEPTED",
+      recoveryState: "NONE",
+      proposalId: operation.proposalId,
+      evidence: {
+        operationId: operation.operationId,
+        sourceRevision: proposal.baseRevision,
+        candidateIdentity: proposal.candidateTreeHash,
+        verdict: "PROVEN",
+        required: true,
+        sourceEvidenceRequired: false,
+        reads: [],
+      },
+    });
+    expect(finalization.accepted, finalization.reason).toBe(true);
+    if (!finalization.acceptance) {
+      throw new Error("Test execution did not persist its Canonical Proof acceptance.");
+    }
+
+    await db.insert(aiShadowReplaysTable).values({
+      id: replayId,
+      executionId: replayExecution.execution.id,
+      projectId,
+      proposalId: operation.proposalId,
+      userId: "test-user",
+      idempotencyKey: `test-shadow-replay:${replayId}`,
+      operationId: operation.operationId,
+      candidateId: "stored-candidate",
+      canonicalAcceptanceId: "test-source-acceptance",
+      replayCanonicalAcceptanceId: finalization.acceptance.id,
+      trajectoryDigest: "test-source-trajectory",
+      sourceRevision: proposal.baseRevision,
+      candidateTreeHash: proposal.candidateTreeHash,
+      changeSetHash: proposal.changeSetHash,
+      executionProfile: "shadow-replay",
+      sourceWorkspaceRoot: `/tmp/test-shadow-replay-source-${replayId}`,
+      replayWorkspaceRoot: null,
+      replayWorkspaceCleaned: true,
+      status: "completed",
+      attempt: replayExecution.execution.attempt,
+      receipt: {
+        status: "completed",
+        replayId,
+        replayExecutionId: replayExecution.execution.id,
+        productionExecution: false,
+        pairedBaseline: {
+          status: "passed",
+          promotionAllowed: true,
+          candidateRunId,
+          candidateWorkspaceHash: proposal.candidateTreeHash,
+          proof: {
+            verdict: "PROVEN",
+            receiptId: finalization.acceptance.id,
+          },
+          contract: {
+            candidateId: "stored-candidate",
+            candidateRunId,
+            candidateWorkspaceHash: proposal.candidateTreeHash,
+          },
+        },
+      },
+    });
+    await db.insert(aiDeliveryPoliciesTable).values({
+      projectId,
+      mode: "manual",
+      approvedBy: "test-user",
+    });
+    vi.spyOn(repairValidation, "runRepairValidation").mockResolvedValue({
+      status: "passed",
+      profile: "api-ai-tests",
+      exitCode: 0,
+      scenario: "Run API tests for Gate 3 recovery.",
+      command: "pnpm test",
+      stdout: "",
+      stderr: "",
+      failedTests: [],
+      changedFiles: [],
+      evidence: {
+        evidenceId: randomUUID(),
+        observedAt: new Date().toISOString(),
+        artifactRef: "gate3-recovery-validation",
+      },
+      detail: "Validation passed.",
+    });
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "validated",
+      promotionDecision: "AUTO_PROMOTE_ELIGIBLE",
+      promotionReasons: ["eligible"],
+    });
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
   });
 
   it("does not report validated recovery when its workspace is gone", async () => {

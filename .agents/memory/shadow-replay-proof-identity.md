@@ -3,8 +3,8 @@ name: Shadow replay proof identity
 description: Shadow replay rows distinguish source proof acceptance from replay proof acceptance.
 ---
 
-Shadow Replay must persist the source Canonical Proof acceptance separately from the new Canonical Proof acceptance produced by the replay execution. The receipt and durable replay row must agree on the replay acceptance identity before recovery can report completion.
+Shadow Replay must persist source and replay Canonical Proof acceptance IDs separately. Any consumer that uses a replay receipt for completion or promotion must reload Canonical Proof from the replay execution's durable acceptance and evidence rows; a receipt's `PROVEN` label is never authoritative. The receipt ID, replay row's `replayCanonicalAcceptanceId`, and freshly loaded acceptance ID must agree.
 
-**Why:** Reusing the source acceptance would make a successful validation recipe look like proof from the replay execution, weakening the Mission → Goal → Execution → Evidence → Acceptance → Proof chain.
+**Why:** Reusing the source acceptance or trusting a stored `PROVEN` projection could let stale or forged receipt data authorize promotion without proof from the replay execution.
 
-**How to apply:** Keep source and replay acceptance IDs in separate durable fields, bind the replay receipt to the replay field, and fail closed when recovery finds a mismatch.
+**How to apply:** Keep source and replay acceptance IDs in separate durable fields. Bind the reloaded proof to the replay execution, attempt, operation, project/Mission/Goal, active plan revision, source revision, and candidate identity; fail closed on any mismatch.

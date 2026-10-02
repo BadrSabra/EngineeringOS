@@ -309,6 +309,10 @@ import {
   decideDeliveryPromotionWithPairedBaseline,
   type DeliveryPairedBaseline,
 } from "../../lib/ai-promotion-decision.js";
+import {
+  loadCanonicalProof,
+  type CanonicalProof,
+} from "../../lib/proof-foundation.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
   getAiExecutionDiagnostics,
@@ -1736,10 +1740,14 @@ function getDeliveryPromotionDecision(params: {
     : decideDeliveryPromotion(input);
 }
 
-function parsePairedBaselineComparison(value: unknown, expected?: {
+function parsePairedBaselineComparison(
+  value: unknown,
+  expected: {
   candidateId: string;
   candidateTreeHash: string | null;
-}): {
+  },
+  verifiedProof?: CanonicalProof,
+): {
   status: "incomplete" | "regressed" | "passed";
   promotionAllowed: boolean;
   canonicalProof?: {
@@ -1758,23 +1766,6 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
     (record.status !== "incomplete" && record.status !== "regressed" && record.status !== "passed")
     || typeof record.promotionAllowed !== "boolean"
   ) return undefined;
-  let canonicalProof: DeliveryPairedBaseline["canonicalProof"];
-  if (record.status === "passed") {
-    const proof = record.proof;
-    if (!proof || typeof proof !== "object" || Array.isArray(proof)) return undefined;
-    const proofRecord = proof as Record<string, unknown>;
-    if (
-      proofRecord.verdict !== "PROVEN"
-      || typeof proofRecord.receiptId !== "string"
-      || proofRecord.receiptId.length === 0
-    ) return undefined;
-    canonicalProof = {
-      accepted: true,
-      verdict: "PROVEN",
-      acceptanceId: proofRecord.receiptId,
-      candidateTreeHash: record.candidateWorkspaceHash as string,
-    };
-  }
   if (
     typeof record.candidateRunId !== "string"
     || typeof record.candidateWorkspaceHash !== "string"
@@ -1794,6 +1785,27 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
       && record.candidateWorkspaceHash !== expected?.candidateTreeHash)
     || record.promotionAllowed !== (record.status === "passed")
   ) return undefined;
+  let canonicalProof: DeliveryPairedBaseline["canonicalProof"];
+  if (record.status === "passed") {
+    const proof = record.proof;
+    if (!proof || typeof proof !== "object" || Array.isArray(proof)) return undefined;
+    const proofRecord = proof as Record<string, unknown>;
+    if (
+      proofRecord.verdict !== "PROVEN"
+      || typeof proofRecord.receiptId !== "string"
+      || proofRecord.receiptId.length === 0
+      || !verifiedProof?.accepted
+      || verifiedProof.verdict !== "PROVEN"
+      || verifiedProof.acceptanceId !== proofRecord.receiptId
+      || verifiedProof.candidateIdentity !== record.candidateWorkspaceHash
+    ) return undefined;
+    canonicalProof = {
+      accepted: verifiedProof.accepted,
+      verdict: verifiedProof.verdict,
+      acceptanceId: verifiedProof.acceptanceId,
+      candidateTreeHash: verifiedProof.candidateIdentity,
+    };
+  }
   return {
     status: record.status,
     promotionAllowed: record.promotionAllowed,
@@ -1801,30 +1813,169 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
   };
 }
 
+function asJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readPlanRevisionHash(value: unknown): string | null {
+  const revision = asJsonRecord(value);
+  return typeof revision?.hash === "string" && revision.hash.length > 0
+    ? revision.hash
+    : null;
+}
+
+async function loadVerifiedShadowReplayProof(replay: {
+  executionId: string;
+  projectId: string;
+  operationId: string;
+  attempt: number;
+  replayCanonicalAcceptanceId: string | null;
+  sourceRevision: string;
+  candidateTreeHash: string;
+}): Promise<CanonicalProof | undefined> {
+  if (!replay.replayCanonicalAcceptanceId) return undefined;
+  return db.transaction(async (tx) => {
+    const [execution] = await tx
+      .select({
+        goalId: aiExecutionsTable.goalId,
+        operationId: aiExecutionsTable.operationId,
+        baseRevision: aiExecutionsTable.baseRevision,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, replay.executionId),
+        eq(aiExecutionsTable.projectId, replay.projectId),
+      ))
+      .for("update")
+      .limit(1);
+    if (
+      !execution?.goalId
+      || execution.operationId !== replay.operationId
+      || execution.baseRevision !== replay.sourceRevision
+    ) return undefined;
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, execution.goalId),
+        eq(aiGoalsTable.projectId, replay.projectId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!goal?.missionId || goal.status !== "completed") return undefined;
+
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, goal.missionId),
+        eq(aiMissionsTable.projectId, replay.projectId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!mission) return undefined;
+
+    const outcomeContract = asJsonRecord(goal.outcomeContract);
+    const successCriteria = asJsonRecord(goal.successCriteria);
+    const planRevision = readPlanRevisionHash(outcomeContract?.planRevision)
+      ?? readPlanRevisionHash(successCriteria?.planRevision);
+    const activePlanRevision = asJsonRecord(mission.autonomyPolicy)?.activePlanRevision;
+    if (
+      !planRevision
+      || typeof activePlanRevision !== "string"
+      || activePlanRevision !== planRevision
+    ) return undefined;
+
+    const proof = await loadCanonicalProof({
+      tx,
+      executionId: replay.executionId,
+      scope: {
+        projectId: replay.projectId,
+        missionId: mission.id,
+        goalId: goal.id,
+        executionId: replay.executionId,
+        operationId: replay.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision: replay.sourceRevision,
+        candidateIdentity: replay.candidateTreeHash,
+      },
+      goalStatus: goal.status,
+      attempt: replay.attempt,
+    });
+    if (
+      !proof.accepted
+      || proof.verdict !== "PROVEN"
+      || proof.executionId !== replay.executionId
+      || proof.attempt !== replay.attempt
+      || proof.acceptanceId !== replay.replayCanonicalAcceptanceId
+      || proof.operationId !== replay.operationId
+      || proof.sourceRevision !== replay.sourceRevision
+      || proof.candidateIdentity !== replay.candidateTreeHash
+    ) return undefined;
+    return proof;
+  });
+}
+
 async function loadPairedBaselineComparisonForProposal(
-  proposalId: string,
-  projectId: string,
+  proposal: Pick<
+    typeof aiChangeProposalsTable.$inferSelect,
+    "id" | "projectId" | "baseRevision" | "candidateTreeHash"
+  >,
 ): Promise<DeliveryPairedBaseline | undefined> {
+  if (!proposal.baseRevision || !proposal.candidateTreeHash) return undefined;
   const [replay] = await db
     .select({
       receipt: aiShadowReplaysTable.receipt,
       candidateId: aiShadowReplaysTable.candidateId,
       candidateTreeHash: aiShadowReplaysTable.candidateTreeHash,
+      executionId: aiShadowReplaysTable.executionId,
+      projectId: aiShadowReplaysTable.projectId,
+      operationId: aiShadowReplaysTable.operationId,
+      attempt: aiShadowReplaysTable.attempt,
+      replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
+      sourceRevision: aiShadowReplaysTable.sourceRevision,
+      executionProfile: aiShadowReplaysTable.executionProfile,
     })
     .from(aiShadowReplaysTable)
     .where(and(
-      eq(aiShadowReplaysTable.proposalId, proposalId),
-      eq(aiShadowReplaysTable.projectId, projectId),
+      eq(aiShadowReplaysTable.proposalId, proposal.id),
+      eq(aiShadowReplaysTable.projectId, proposal.projectId),
       eq(aiShadowReplaysTable.status, "completed"),
     ))
     .orderBy(desc(aiShadowReplaysTable.updatedAt))
     .limit(1);
-  return replay
-    ? parsePairedBaselineComparison(replay.receipt, {
-        candidateId: replay.candidateId,
-        candidateTreeHash: replay.candidateTreeHash,
-      })
+  if (
+    !replay
+    || replay.executionProfile !== "shadow-replay"
+    || replay.sourceRevision !== proposal.baseRevision
+    || replay.candidateTreeHash !== proposal.candidateTreeHash
+  ) return undefined;
+
+  let receipt: unknown;
+  try {
+    receipt = parseStoredJson(replay.receipt);
+  } catch {
+    return undefined;
+  }
+  const receiptRecord = asJsonRecord(receipt);
+  const pairedRecord = asJsonRecord(receiptRecord?.pairedBaseline);
+  const verifiedProof = pairedRecord?.status === "passed"
+    ? await loadVerifiedShadowReplayProof(replay)
     : undefined;
+  return parsePairedBaselineComparison(
+    receipt,
+    {
+      candidateId: replay.candidateId,
+      candidateTreeHash: proposal.candidateTreeHash,
+    },
+    verifiedProof,
+  );
 }
 
 const serverAutoPromotionRequests = new WeakSet<Request>();
@@ -14526,10 +14677,7 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
       ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
       : null;
     const latestEvidence = validationEvidence?.at(-1)?.evidence;
-    const pairedBaseline = await loadPairedBaselineComparisonForProposal(
-      proposal.id,
-      proposal.projectId,
-    );
+    const pairedBaseline = await loadPairedBaselineComparisonForProposal(proposal);
     const promotion = getDeliveryPromotionDecision({
       proposal,
       validationEvidence: validationEvidence ?? [],
@@ -14713,10 +14861,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }
   const passed = results.length === groups.size && results.length > 0
     && results.every((result) => result.status === "passed");
-  const pairedBaseline = await loadPairedBaselineComparisonForProposal(
-    proposal.id,
-    proposal.projectId,
-  );
+  const pairedBaseline = await loadPairedBaselineComparisonForProposal(proposal);
   const promotion = getDeliveryPromotionDecision({
     proposal,
     validationEvidence: results,
@@ -15836,10 +15981,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           status: validation.status,
           evidence: "evidence" in validation ? validation.evidence : undefined,
         }));
-      const pairedBaseline = await loadPairedBaselineComparisonForProposal(
-        proposal.id,
-        projectId,
-      );
+      const pairedBaseline = await loadPairedBaselineComparisonForProposal(proposal);
       const currentPromotion = getDeliveryPromotionDecision({
         proposal,
         validationEvidence: currentValidationEvidence,
