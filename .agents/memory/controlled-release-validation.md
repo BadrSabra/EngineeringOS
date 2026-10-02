@@ -87,3 +87,20 @@ inflates latency and can falsely mark a healthy provider circuit as unavailable.
 **How to apply:** Keep the recovery deadline and final-output reserve unchanged;
 use provider-owned fallback only for the first attempt, keep retries single-model,
 and retain fail-closed `ANALYSIS_INCOMPLETE` when evidence remains unaccepted.
+
+Before running required process recovery, verify that `DATABASE_URL` targets a
+disposable database and set `LIVE_RECOVERY_RECEIPT_PATH` to an isolated output.
+`RELEASE_PROCESS_RECOVERY_REQUIRED=1` only turns a skipped recovery into a
+failure; it does not enable the real run. Set
+`RUN_REAL_API_PROCESS_RECOVERY=1` only in that controlled environment: the
+harness uses the configured database/provider and atomically replaces the
+selected receipt on success.
+
+**Why:** The required flag is a release gate, not the process-recovery opt-in.
+The real harness uses persistent database/provider configuration and replaces
+its selected receipt, so an ordinary development environment may not be safe.
+
+**How to apply:** Before starting the release workflow, establish that the
+database is disposable, the provider run is explicitly authorized, and receipt
+output is isolated. Do not run real process recovery when any of those boundaries
+is uncertain.
