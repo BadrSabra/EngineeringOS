@@ -1339,7 +1339,9 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const suppliedVerdict = typeof input?.verdict === "string" && input.verdict.trim()
     ? input.verdict.slice(0, 40)
     : undefined;
-  const verdict = suppliedVerdict ?? (readsComplete || artifactsComplete ? "PROVEN" : "NOT_RECORDED");
+  // Complete reads and artifacts establish that evidence is available, not that
+  // the requested objective was accepted. Keep that decision explicit.
+  const verdict = suppliedVerdict ?? "NOT_RECORDED";
   const verdictBlocksCompletion =
     verdict === "UNAVAILABLE"
     || (sourceEvidenceRequired && verdict !== "PROVEN");

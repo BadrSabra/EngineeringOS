@@ -37,6 +37,43 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.verdict).toBe("NOT_RECORDED");
   });
 
+  it("does not infer PROVEN from complete reads when no verdict was supplied", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      reads: [{ path: "src/index.ts", body: "export const ok = true;" }],
+    });
+
+    expect(snapshot).toMatchObject({
+      complete: false,
+      verdict: "NOT_RECORDED",
+    });
+  });
+
+  it("does not infer PROVEN from a valid artifact when no verdict was supplied", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      artifacts: [{
+        kind: "png",
+        evidenceId: `binary-evidence:${"a".repeat(64)}`,
+        artifactRef: `binary-artifact:${"b".repeat(64)}`,
+        path: "reports/preview.png",
+        operationId: "operation-1",
+        workspaceRevision: "revision-1",
+        sha256: "c".repeat(64),
+        sizeBytes: 1,
+        width: 1,
+        height: 1,
+      }],
+    });
+
+    expect(snapshot).toMatchObject({
+      complete: false,
+      verdict: "NOT_RECORDED",
+      artifacts: [{ operationId: "operation-1" }],
+    });
+  });
+
   it("does not treat an unavailable provider result as complete when evidence was not required", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: false,
@@ -55,12 +92,24 @@ describe("server-owned execution acceptance", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,
       sourceEvidenceRequired: false,
-      verdict: "PARTIAL",
+      verdict: "PROVEN",
+      artifacts: [{
+        kind: "png",
+        evidenceId: `binary-evidence:${"a".repeat(64)}`,
+        artifactRef: `binary-artifact:${"b".repeat(64)}`,
+        path: "reports/preview.png",
+        operationId: "operation-1",
+        workspaceRevision: "revision-1",
+        sha256: "c".repeat(64),
+        sizeBytes: 1,
+        width: 1,
+        height: 1,
+      }],
     });
 
     expect(snapshot).toMatchObject({
       complete: true,
-      verdict: "PARTIAL",
+      verdict: "PROVEN",
       reads: [],
     });
   });
