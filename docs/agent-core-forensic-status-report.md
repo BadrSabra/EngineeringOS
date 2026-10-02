@@ -18,7 +18,7 @@
   - `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` — نجاح.
 - التحقق الحالي المعاد من جذر الحزم الصحيح: `cd lib/ai-orchestrator && pnpm exec vitest run src/__tests__/reliable-tool-agent-100.test.ts src/__tests__/tool-execution-engine.test.ts` — ملفان، **447/447** ناجحة.
 - خط الأساس قبل إصلاح Mission recipe: تشغيل الملفات الثمانية أعلاه أعطى **109 ناجحة و4 فاشلة من 113**؛ فشلت أربعة اختبارات في `mission-runtime-recipe.test.ts` لأن Canonical Proof رُفض وبقي Goal على `verifying`. هذه نتيجة ما قبل الإصلاح وليست تحققًا للحالة الحالية.
-- التحقق بعد الإصلاح (2026-10-02): `pnpm --filter @workspace/api-server run typecheck` نجح؛ واجتازت `mission-runtime-recipe.test.ts` (6/6)، و`recipe-operation-runner.test.ts` (27/27)، و`ai-execution-acceptance.test.ts` (24/24)، و`recipe-definition-registry.test.ts` (6/6) — **63/63**. شمل ذلك قبول دليل المحاولة الحالية ورفض دليل محاولة سابقة. لم تُعد مجموعة الملفات الثمانية كاملة بعد هذا الإصلاح.
+- التحقق بعد الإصلاح (2026-10-02): `pnpm --filter @workspace/api-server run typecheck` نجح؛ واجتازت `mission-runtime-recipe.test.ts` (6/6)، و`recipe-operation-runner.test.ts` (27/27)، و`ai-execution-acceptance.test.ts` (24/24)، و`recipe-definition-registry.test.ts` (6/6) — **63/63**. شمل ذلك قبول دليل المحاولة الحالية ورفض دليل محاولة سابقة. وبعد إصلاح سياق validator لـShadow Replay اجتازت مجموعة التدقيق الأوسع ذات الملفات الثمانية **114/114**، بما فيها نجاح replay والاستعادة بعد crash.
 - استدعاء Vitest أول من جذر monorepo التقط نسخًا مستوردة وتعارض fixtures؛ استُبعد من النتائج أعلاه ولم يُستخدم كتحقق صالح.
 - لقطة قاعدة **التطوير فقط** أثناء التدقيق: 156 execution، 246 acceptance، 6 Missions، 11 Goals، 202 Episode، 11 EffectBundle، 126 World Fact، و3 World Transition. حالات execution: 65 completed، 76 failed، 10 cancelled، 5 paused؛ حالات Mission: 1 active، 3 blocked، 1 completed، 1 waiting؛ حالات Goal: 1 cancelled، 2 completed، 3 needs_replan، 3 queued، 1 running، 1 verifying. انتقالان `materialized/fresh` وواحد `terminal_failed/unknown`؛ لا ينقصها EffectBundle، والانتقال الفاشل وحده له refs فارغة ونتيجة revision مفقودة. هذه أعداد صفوف لا تثبت صحة ربطها أو دلالة كل سجل.
 - لم يُشغّل مزود حي أو تحقق release/process-recovery، ولم تُستعلم قاعدة الإنتاج؛ لا توجد هنا مطالبة بـ`PRODUCTION-PATH-VERIFIED`.
@@ -400,6 +400,8 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 - `[✗]` لا يوجد دليل أن World State changes تفرض خطة/Action مختلفة على نحو عام.
 - `[✗]` لا يوجد تقييم held-out عام يثبت loop عبر أسطح mutation مختلفة.
 - `[✗]` لا تبدأ طبقات Learning / Transfer / Generalization بعد.
+
+**E3 Recipe validator identity continuity (2026-10-02):** كشفت مجموعة التدقيق أن recipe capability أسقط سياق validator الخادمي، فلم يرتبط دليل Shadow Replay بهوية التنفيذ الحالية. أصبح `runRecipeOperation` يحقن execution ID والمراجعة والمرشح من التنفيذ المملوك للـlease، ويستخدمها Shadow Replay في دليل التحقق مع إبقاء operation ID الدائم منفصلًا؛ كما يحفظ طلب replay نمط `artifact_only` صراحةً. اجتاز الاختبار الإيجابي واختبار الاستعادة بعد crash، واجتازت مجموعة الملفات الثمانية 114/114. هذا إصلاح توافق لمسار recipe، ولا يغلق تدقيق ملاءمة نمط الأدلة لكل recipe أو بقية نواقص E3.
 
 ## 18. Final Verdict
 

@@ -599,6 +599,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     validationTargetPaths: [...behaviorContract.approvedPaths],
     validationProfiles: behaviorContract.validationProfiles,
     proofRequired: true,
+    proofEvidenceMode: prepared.proofEvidenceMode,
     objective: behaviorContract.objective.objective,
     taskObjective: behaviorContract.objective,
   };
@@ -900,9 +901,21 @@ export async function runShadowReplayAttempt(
     targetPaths,
     signal,
     _pendingChanges,
-    _evidenceContext,
+    evidenceContext,
     serverOwnedContext,
   ) => {
+    if (
+      !evidenceContext
+      || typeof evidenceContext.operationId !== "string"
+      || !evidenceContext.operationId
+      || evidenceContext.projectRevision !== replay.sourceRevision
+      || evidenceContext.candidateHash !== replay.candidateTreeHash
+    ) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_VALIDATION_BINDING_MISSING",
+        "The validator did not receive the server-owned execution, revision, and candidate identities.",
+      );
+    }
     if (ownershipLost || !await renewReplayLease()) {
       throw new ShadowReplayError(
         "SHADOW_REPLAY_LEASE_LOST",
@@ -924,9 +937,9 @@ export async function runShadowReplayAttempt(
           evidenceId: `shadow-replay:${replay.id}:blocked:${profile}`,
           observedAt: new Date().toISOString(),
           artifactRef: `shadow-replay:${replay.id}:blocked`,
-          operationId: replay.operationId,
-          projectRevision: replay.sourceRevision,
-          candidateHash: replay.candidateTreeHash,
+          operationId: evidenceContext.operationId,
+          projectRevision: evidenceContext.projectRevision,
+          candidateHash: evidenceContext.candidateHash,
           treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
         },
         terminalState: "blocked",
@@ -949,9 +962,9 @@ export async function runShadowReplayAttempt(
       replaySignal,
       [],
       {
-        operationId: replay.operationId,
-        projectRevision: replay.sourceRevision,
-        candidateHash: replay.candidateTreeHash,
+        operationId: evidenceContext.operationId,
+        projectRevision: evidenceContext.projectRevision,
+        candidateHash: evidenceContext.candidateHash,
         childProcessIdentity: serverOwnedContext?.childProcessIdentity,
       },
     );

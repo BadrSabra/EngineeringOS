@@ -30,3 +30,9 @@ Recipe capability predicates, validation outputs, artifacts, and receipts do not
 **Why:** Capability output and a completed receipt previously had no durable evidence snapshot for Canonical Proof; accepting them directly would also allow missing or stale node evidence to pass.
 
 **How to apply:** Declare the mode server-side, persist and validate the corresponding evidence snapshot in finalization, and test both a current-attempt success and a missing/stale-evidence rejection through `loadCanonicalProof`. Keep receipt-only recipes out of Canonical Proof.
+
+Recipe validation evidence must carry the current execution ID, revision, and candidate identity from the server-owned runner context; keep the durable operation ID as a separate binding.
+
+**Why:** Recipe capability adapters may omit the callback evidence context, so custom validators that reconstruct identity from the operation alone can produce artifacts that cannot be bound to the current execution acceptance.
+
+**How to apply:** Inject evidence identity from the claimed execution at `runRecipeOperation`, pass it to custom validators, and verify artifact identity independently from receipt operation identity.

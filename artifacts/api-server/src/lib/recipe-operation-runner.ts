@@ -2078,14 +2078,21 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       revision: params.sourceRevision,
     } : undefined,
   };
+  const serverOwnedEvidenceContext = {
+    operationId: claimed.id,
+    projectRevision: params.sourceRevision,
+    ...(params.candidateIdentity
+      ? { candidateHash: params.candidateIdentity }
+      : {}),
+  };
   const customValidationRunner: ValidationRunner | undefined = params.validationRunner
-    ? (profile, targetPaths, signal, pendingChanges, evidenceContext) =>
+    ? (profile, targetPaths, signal, pendingChanges) =>
         params.validationRunner!(
           profile,
           targetPaths,
           signal,
           pendingChanges,
-          evidenceContext,
+          serverOwnedEvidenceContext,
           serverOwnedValidationContext,
         )
     : undefined;

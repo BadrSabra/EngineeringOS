@@ -1162,6 +1162,7 @@ describe("AI missions and goals", () => {
         attempt: aiExecutionAcceptancesTable.attempt,
         executionAttempt: aiExecutionsTable.attempt,
         evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        request: aiExecutionsTable.request,
       })
       .from(aiExecutionAcceptancesTable)
       .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
@@ -1170,6 +1171,10 @@ describe("AI missions and goals", () => {
     expect(replayProofBinding).toBeDefined();
     expect(replayProofBinding?.attempt).toBe(replayProofBinding?.executionAttempt);
     expect(replayProofBinding?.evidenceSnapshotId).toBeTruthy();
+    expect(JSON.parse(replayProofBinding!.request)).toMatchObject({
+      proofRequired: true,
+      proofEvidenceMode: "artifact_only",
+    });
     const [replayProofEvidence] = await db
       .select({
         id: aiExecutionEvidenceSnapshotsTable.id,
@@ -1744,6 +1749,7 @@ describe("AI missions and goals", () => {
         validationProfiles: ["workspace-typecheck"],
         taskObjective,
         proofRequired: true,
+        proofEvidenceMode: prepared.proofEvidenceMode,
       },
       idempotencyKey: executionIdempotencyKey,
       correlationId: operationId,
