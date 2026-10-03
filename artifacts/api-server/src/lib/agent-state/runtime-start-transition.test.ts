@@ -854,6 +854,41 @@ describe("runtime.start transition retry scheduling", () => {
         fixture.childProcessObservationId,
       ],
     });
+    const runtimeTransitionObservationIds = new Set<string>([
+      fixture.beforeObservationId,
+      fixture.afterObservationId,
+      fixture.statusObservationId,
+      fixture.childProcessObservationId,
+    ]);
+    const runtimeTransitionFacts = await db.select({
+      id: aiWorldFactsTable.id,
+      subject: aiWorldFactsTable.subject,
+      predicate: aiWorldFactsTable.predicate,
+      sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+    }).from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    const expectedRuntimeChangedFactRefs = runtimeTransitionFacts
+      .filter((fact) => Array.isArray(fact.sourceObservationIds)
+        && fact.sourceObservationIds.some((observationId: unknown) => (
+          typeof observationId === "string"
+          && runtimeTransitionObservationIds.has(observationId)
+        )))
+      .map((fact) => fact.id)
+      .sort((left, right) => left.localeCompare(right));
+    const actualRuntimeChangedFactRefs = Array.isArray(transition?.changedFactRefs)
+      ? transition.changedFactRefs
+        .filter((factRef): factRef is string => typeof factRef === "string")
+        .sort((left, right) => left.localeCompare(right))
+      : [];
+    expect(expectedRuntimeChangedFactRefs.length).toBeGreaterThan(0);
+    expect(actualRuntimeChangedFactRefs).toEqual(expectedRuntimeChangedFactRefs);
+    expect(runtimeTransitionFacts.some((fact) =>
+      fact.subject.startsWith("runtime:")
+      && fact.predicate === "runtime.status"
+      && Array.isArray(fact.sourceObservationIds)
+      && fact.sourceObservationIds.includes(fixture.statusObservationId)
+      && actualRuntimeChangedFactRefs.includes(fact.id)
+    )).toBe(true);
 
     const woken = await wakeRuntimeTransitionMissionGoals();
     const [targetAfterWake] = await db.select({

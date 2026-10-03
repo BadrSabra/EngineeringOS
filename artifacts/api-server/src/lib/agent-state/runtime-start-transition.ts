@@ -614,7 +614,8 @@ export async function finalizeRuntimeStartTransition(input: {
           && fact.sourceObservationIds.some((id: unknown) => (
             typeof id === "string" && selected.has(id)
           )))
-        .map((fact) => fact.id);
+          .map((fact) => fact.id)
+          .sort((left, right) => left.localeCompare(right));
       const updated = await tx.update(aiWorldTransitionsTable)
         .set({
           resultingWorldRevision: result.worldRevision,
