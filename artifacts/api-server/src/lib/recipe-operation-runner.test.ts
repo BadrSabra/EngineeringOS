@@ -67,7 +67,10 @@ import {
   deleteUnreplayedStrategyReplayCases,
   registerProspectiveStrategyReplayCase,
 } from "./agent-state/strategy-replay-case-registry.js";
-import { runRegisteredStrategyReplayCase } from "./agent-state/strategy-replay-case-runner.js";
+import {
+  runRegisteredStrategyReplayCase,
+  StrategyReplayCaseBusyError,
+} from "./agent-state/strategy-replay-case-runner.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
 
 const validationCalls: string[] = [];
@@ -2486,11 +2489,34 @@ describe("recipe operation preparation", () => {
         .where(eq(aiStrategyReplayCasesTable.projectId, projectId));
       expect(registeredReplayCase).toBeDefined();
 
-      const replayResult = await runRegisteredStrategyReplayCase({
-        projectId,
-        caseRegistrationId: registeredReplayCase!.id,
-        userId,
-      });
+      const concurrentReplayStarts = await Promise.allSettled([
+        runRegisteredStrategyReplayCase({
+          projectId,
+          caseRegistrationId: registeredReplayCase!.id,
+          userId,
+        }),
+        runRegisteredStrategyReplayCase({
+          projectId,
+          caseRegistrationId: registeredReplayCase!.id,
+          userId,
+        }),
+      ]);
+      const replayOwners = concurrentReplayStarts.filter(
+        (start) => start.status === "fulfilled" && !start.value.recovered,
+      );
+      expect(replayOwners).toHaveLength(1);
+      const replayOwner = replayOwners[0];
+      if (!replayOwner || replayOwner.status !== "fulfilled") {
+        throw new Error("Concurrent replay admission did not produce exactly one owned run.");
+      }
+      const replayResult = replayOwner.value;
+      for (const start of concurrentReplayStarts) {
+        if (start.status === "rejected") {
+          expect(start.reason).toBeInstanceOf(StrategyReplayCaseBusyError);
+        } else if (start.value.recovered) {
+          expect(start.value.receipt).toEqual(replayResult.receipt);
+        }
+      }
       expect(replayResult.status).toBe("incomplete");
       expect(replayResult.recovered).toBe(false);
       expect(replayResult.receipt).toMatchObject({
@@ -2592,8 +2618,43 @@ describe("recipe operation preparation", () => {
         attemptNumber: 2,
         status: retryResult.status,
         operationId: retryResult.receipt.operationId,
+        replayExecutionId: expect.any(String),
+        replayEpisodeId: expect.any(String),
+        replayAttempt: expect.any(Number),
+        replayCanonicalProofHash: null,
+      });
+      const retryAttempt = orderedAttempts[1]!;
+      expect(retryResult.receipt).toMatchObject({
+        runId: retryAttempt.id,
+        attemptNumber: 2,
+        operationId: retryAttempt.operationId,
+        sourceCanonicalProofHash: registeredReplayCase!.caseDefinition
+          ? (registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string })
+            .sourceCanonicalProofHash
+          : undefined,
       });
       expect(orderedAttempts[1]?.id).not.toBe(orderedAttempts[0]?.id);
+      const [retryEpisode] = await db.select().from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.projectId, projectId),
+        eq(aiAgentEpisodesTable.id, retryAttempt.replayEpisodeId!),
+      )).limit(1);
+      expect(retryEpisode).toMatchObject({
+        executionId: retryAttempt.replayExecutionId,
+        attempt: retryAttempt.replayAttempt,
+        projectRevision: sourceRevision,
+      });
+      expect(retryEpisode?.scope).toMatchObject({
+        strategyReplayCase: {
+          caseRegistrationId: registeredReplayCase!.id,
+          caseRunId: retryAttempt.id,
+          caseAttemptNumber: retryAttempt.attemptNumber,
+          caseId: (registeredReplayCase!.caseDefinition as { caseId: string }).caseId,
+          sourceEpisodeId: registeredReplayCase!.sourceEpisodeId,
+          sourceCanonicalProofHash:
+            (registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string })
+              .sourceCanonicalProofHash,
+        },
+      });
       const retryEpisodesBeforeReplay = await db.select({ id: aiAgentEpisodesTable.id })
         .from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
       const retryExecutionsBeforeReplay = await db.select({ id: aiExecutionsTable.id })
