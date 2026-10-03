@@ -13,6 +13,7 @@ import type { RecipeExecutionPolicy } from "./recipe-contract.js";
 export type RecipeProofEvidenceMode =
   | "artifact_only"
   | "source_required"
+  | "runtime_start_gate_c"
   | "operational_only";
 
 export type RecipeDefinition = {
@@ -245,7 +246,7 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     ),
     definition(
       "runtime.start",
-      "operational_only",
+      "runtime_start_gate_c",
       () => [{
         id: "runtime-start",
         title: "Start and verify the server-owned workspace runtime",

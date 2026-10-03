@@ -882,6 +882,7 @@ export type AiExecutionRequestEnvelope = {
   validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   proofRequired?: boolean;
   proofEvidenceMode?: "artifact_only";
+  recipeProofMode?: "runtime_start_gate_c_v1";
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
   effectRequired?: boolean;
 };
@@ -1112,7 +1113,17 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       !Array.isArray(value.validationTargetPaths) ||
       (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean") ||
       (value.proofEvidenceMode !== undefined && value.proofEvidenceMode !== "artifact_only") ||
-      (value.proofEvidenceMode !== undefined && value.proofRequired !== true)
+      (value.proofEvidenceMode !== undefined && value.proofRequired !== true) ||
+      (value.recipeProofMode !== undefined && (
+        value.recipeProofMode !== "runtime_start_gate_c_v1"
+        || value.proofRequired === true
+        || typeof value.operationId !== "string"
+        || value.message !== `recipe:${value.operationId}`
+        || typeof value.workspaceRoot !== "string"
+        || !value.workspaceRoot.trim()
+        || typeof value.workspaceRevision !== "string"
+        || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(value.workspaceRevision)
+      ))
     ) {
       return undefined;
     }

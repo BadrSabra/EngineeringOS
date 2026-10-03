@@ -1914,7 +1914,7 @@ describe("recipe operation preparation", () => {
     }
   });
 
-  it("does not promote a verified runtime transition to Canonical Proof", async () => {
+  it("derives runtime.start Canonical Proof from Gate C before the separate World State transition", async () => {
     const projectId = crypto.randomUUID();
     const operationId = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
@@ -2183,32 +2183,12 @@ describe("recipe operation preparation", () => {
         },
         attempt: acceptance?.attempt ?? 0,
       }));
-      if (proofBinding.status !== "verified") {
-        expect(acceptance).toMatchObject({
-          evidenceRequired: 0,
-          evidenceComplete: 1,
-          evidenceSnapshotId: null,
-        });
-        expect(episode).toMatchObject({
-          state: "verifying",
-          verdict: null,
-          reasonCode: null,
-        });
-        expect(proofBinding).toEqual({
-          status: "not_eligible",
-          reason: "episode_not_accepted",
-        });
-        expect(canonicalProof.accepted).toBe(false);
-        // The replay and stored-receipt assertions below require a genuine
-        // Canonical Proof producer; do not fabricate a proven source receipt.
-        return;
-      }
       expect(acceptance).toMatchObject({
         evidenceRequired: 1,
         evidenceComplete: 1,
         evidenceSnapshotId: expect.any(String),
       });
-      expect(canonicalProof.accepted).toBe(true);
+      expect(canonicalProof.accepted, canonicalProof.failureReasons.join(", ")).toBe(true);
       expect(episode).toMatchObject({
         state: "completed",
         verdict: "achieved",
@@ -2238,6 +2218,71 @@ describe("recipe operation preparation", () => {
           reason: "binding_mismatch",
         });
       }
+      const [runtimeAfterObservation] = await db.select()
+        .from(aiAgentObservationsTable)
+        .where(and(
+          eq(aiAgentObservationsTable.executionId, executionId),
+          eq(
+            aiAgentObservationsTable.sourceId,
+            `gate-c:${executionId}:0:after:runtime.after_state`,
+          ),
+        ))
+        .limit(1);
+      expect(runtimeAfterObservation).toBeDefined();
+      await db.update(aiAgentObservationsTable)
+        .set({ environmentFreshness: "stale" })
+        .where(eq(aiAgentObservationsTable.id, runtimeAfterObservation!.id));
+      const mismatchedBindingProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: result.executionId,
+        goalStatus: "completed",
+        scope: {
+          projectId,
+          executionId: result.executionId,
+          operationId,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: acceptance?.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
+          sourceRevision,
+          candidateIdentity: acceptance?.candidateIdentity ?? null,
+        },
+        attempt: acceptance?.attempt ?? 0,
+      }));
+      expect(mismatchedBindingProof.accepted).toBe(false);
+      expect(mismatchedBindingProof.failureReasons)
+        .toContain("runtime_start_gate_c_proof_mismatch");
+      const [stillSucceeded] = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+        .limit(1);
+      expect(stillSucceeded).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 1,
+      });
+      await db.update(aiAgentObservationsTable)
+        .set({ environmentFreshness: runtimeAfterObservation!.environmentFreshness })
+        .where(eq(aiAgentObservationsTable.id, runtimeAfterObservation!.id));
+      const restoredProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: result.executionId,
+        goalStatus: "completed",
+        scope: {
+          projectId,
+          executionId: result.executionId,
+          operationId,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: acceptance?.candidateIdentity == null
+            ? "not_applicable"
+            : "required",
+          sourceRevision,
+          candidateIdentity: acceptance?.candidateIdentity ?? null,
+        },
+        attempt: acceptance?.attempt ?? 0,
+      }));
+      expect(restoredProof.accepted).toBe(true);
       expect(await materializeStrategyReplayCaseProofBinding({
         projectId: crypto.randomUUID(),
         episodeId: episode!.id,
@@ -2691,6 +2736,79 @@ describe("recipe operation preparation", () => {
       });
       expect(candidateAfterFailClosedCases[0]?.supportingEpisodeIds)
         .not.toContain(mutatedWorkspaceReplay.receipt.replayEpisodeId);
+
+      const proofUnavailableOperationId = crypto.randomUUID();
+      const proofUnavailableRunnerBase = createRuntimeStartRunner(manager);
+      const proofUnavailableRuntimeStartRunner = async (
+        args: Parameters<typeof proofUnavailableRunnerBase>[0],
+      ) => {
+        const beforeEffectGate = args.beforeEffectGate;
+        const proofUnavailableExecutionId = args.executionId;
+        const proofUnavailableAttempt = args.executionAttempt;
+        if (
+          !beforeEffectGate
+          || !proofUnavailableExecutionId
+          || typeof proofUnavailableAttempt !== "number"
+        ) {
+          throw new Error("runtime start did not receive its attempt-bound pre-state gate");
+        }
+        return proofUnavailableRunnerBase({
+          ...args,
+          beforeEffectGate: async (input) => {
+            const decision = await beforeEffectGate(input);
+            if (decision.allowEffect) {
+              const beforeStateSourceId = `runtime-start:${proofUnavailableExecutionId}:${proofUnavailableAttempt}:action:${proofUnavailableExecutionId}:${proofUnavailableAttempt}:gate-c:before:runtime.before_state`;
+              const invalidated = await db.update(aiAgentObservationsTable)
+                .set({ freshness: "stale" })
+                .where(and(
+                  eq(aiAgentObservationsTable.projectId, projectId),
+                  eq(aiAgentObservationsTable.executionId, proofUnavailableExecutionId),
+                  eq(aiAgentObservationsTable.sourceId, beforeStateSourceId),
+                ))
+                .returning({ id: aiAgentObservationsTable.id });
+              expect(invalidated).toHaveLength(1);
+            }
+            return decision;
+          },
+        });
+      };
+      const proofUnavailableResult = await runRecipeOperation({
+        projectId,
+        operationId: proofUnavailableOperationId,
+        sessionId,
+        userId,
+        idempotencyKey: `${proofUnavailableOperationId}:runtime-effect-without-proof`,
+        rootPath,
+        sourceRevision,
+        recipeId: "runtime.start",
+        recipeVersion: 1,
+        runtimeStartRunner: proofUnavailableRuntimeStartRunner,
+      });
+      executionIds.push(proofUnavailableResult.executionId);
+      expect(proofUnavailableResult.status).toBe("completed");
+      const [proofUnavailableBundle] = await db.select()
+        .from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, proofUnavailableResult.executionId))
+        .limit(1);
+      expect(proofUnavailableBundle).toMatchObject({ verdict: "OBSERVED" });
+      const [proofUnavailableAcceptance] = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, proofUnavailableResult.executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      expect(proofUnavailableAcceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 0,
+        evidenceSnapshotId: null,
+      });
+      const proofUnavailableObservations = await db.select()
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, proofUnavailableResult.executionId));
+      expect(proofUnavailableObservations.find((row) => row.predicate === "runtime.before_state"))
+        .toMatchObject({ freshness: "stale" });
     } finally {
       await manager.shutdown();
       for (const executionId of executionIds) {
@@ -2714,7 +2832,7 @@ describe("recipe operation preparation", () => {
           runtimeCalled = true;
           return { status: "passed" as const };
         },
-      })).rejects.toThrow("is operational-only and cannot satisfy Canonical Proof");
+      })).rejects.toThrow("uses its server-owned Gate C proof path");
       expect(runtimeCalled).toBe(false);
       const executions = await db.select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)

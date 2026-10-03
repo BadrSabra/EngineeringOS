@@ -13,6 +13,12 @@ import {
   aggregateDelegatedExecutionSummary,
   type DelegatedExecutionSummary,
 } from "./execution-lineage.js";
+import { canonicalJsonHash } from "@workspace/ai-orchestrator";
+import {
+  deriveRuntimeStartGateCProof,
+  RUNTIME_START_GATE_C_PROOF_MODE,
+  type RuntimeStartGateCProofArtifact,
+} from "./runtime-start-gate-c-proof.js";
 
 export const CANONICAL_PROOF_CONTRACT_VERSION = 1 as const;
 
@@ -42,6 +48,7 @@ export type CanonicalProofFailureReason =
   | "evidence_incomplete"
   | "evidence_unavailable"
   | "evidence_not_required_for_canonical_proof"
+  | "runtime_start_gate_c_proof_mismatch"
   | "acceptance_not_succeeded"
   | "acceptance_not_completed"
   | "acceptance_proof_missing"
@@ -573,7 +580,7 @@ export async function loadCanonicalProof(
       .limit(1)
     : [];
 
-  return composeCanonicalProof({
+  const proof = composeCanonicalProof({
     scope: {
       ...input.scope,
       executionId: input.executionId,
@@ -619,6 +626,62 @@ export async function loadCanonicalProof(
         }
       : null,
   });
+  let request: Record<string, unknown> | undefined;
+  try {
+    const parsed: unknown = JSON.parse(execution.request);
+    request = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    request = undefined;
+  }
+  if (request?.recipeProofMode !== RUNTIME_START_GATE_C_PROOF_MODE) return proof;
+
+  const rawArtifacts = evidence && Array.isArray(evidence.artifactRefs)
+    ? evidence.artifactRefs
+    : [];
+  const runtimeArtifacts = rawArtifacts.filter((artifact) => (
+    artifact
+    && typeof artifact === "object"
+    && !Array.isArray(artifact)
+    && (artifact as Record<string, unknown>).kind === "runtime_start_gate_c"
+  ));
+  const expectedArtifact = acceptance
+    && acceptance.outcome === "SUCCEEDED"
+    && acceptance.terminalStatus === "completed"
+    && acceptance.evidenceRequired === 1
+    && acceptance.evidenceComplete === 1
+    ? await deriveRuntimeStartGateCProof({
+        tx: input.tx,
+        execution,
+        request,
+        recipeReceipt: execution.recipeReceipt,
+        sourceRevision: acceptance.sourceRevision,
+        candidateIdentity: acceptance.candidateIdentity,
+        effectBundleId: acceptance.effectBundleId,
+        allowCompleted: true,
+      })
+    : undefined;
+  const storedArtifact = runtimeArtifacts.length === 1
+    ? runtimeArtifacts[0] as RuntimeStartGateCProofArtifact
+    : undefined;
+  if (
+    !proof.accepted
+    || !expectedArtifact
+    || !storedArtifact
+    || canonicalJsonHash(storedArtifact) !== canonicalJsonHash(expectedArtifact)
+  ) {
+    return {
+      ...proof,
+      accepted: false,
+      verdict: proof.verdict === "UNAVAILABLE" ? "UNAVAILABLE" : "INCOMPLETE",
+      failureReasons: [...new Set([
+        ...proof.failureReasons,
+        "runtime_start_gate_c_proof_mismatch" as const,
+      ])],
+    };
+  }
+  return proof;
 }
 
 export type CanonicalDelegationProof = {

@@ -573,7 +573,7 @@ export type PrepareRecipeOperationParams = {
 export type PreparedRecipeOperation = {
   plan: ActiveTaskExecutionPlan;
   binding: RecipeOperationBinding;
-  proofEvidenceMode: "artifact_only" | "source_required" | "operational_only";
+  proofEvidenceMode: "artifact_only" | "source_required" | "runtime_start_gate_c" | "operational_only";
 };
 
 type RecipeTaskObjectiveEvidence = {
@@ -1729,9 +1729,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     ...(runtimeStartRunner ? { runtimeStartRunner } : {}),
   });
   if (params.proofRequired && prepared.proofEvidenceMode !== "artifact_only") {
-    throw new Error(prepared.proofEvidenceMode === "operational_only"
-      ? `Recipe "${params.recipeId}" is operational-only and cannot satisfy Canonical Proof.`
-      : `Recipe "${params.recipeId}" requires retained source evidence that recipe execution does not currently provide.`);
+    throw new Error(prepared.proofEvidenceMode === "runtime_start_gate_c"
+      ? `Recipe "${params.recipeId}" uses its server-owned Gate C proof path and cannot accept a generic proof requirement.`
+      : prepared.proofEvidenceMode === "operational_only"
+        ? `Recipe "${params.recipeId}" is operational-only and cannot satisfy Canonical Proof.`
+        : `Recipe "${params.recipeId}" requires retained source evidence that recipe execution does not currently provide.`);
   }
   if (params.skillBinding) {
     await requireActiveSkillRegistry({
@@ -1758,6 +1760,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     workspaceRevision: params.sourceRevision,
     workspaceRoot: executionRoot,
     validationTargetPaths: normalizedPaths(params.approvedPaths),
+    ...(prepared.proofEvidenceMode === "runtime_start_gate_c"
+      ? { recipeProofMode: "runtime_start_gate_c_v1" as const }
+      : {}),
     ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
     ...(params.proofRequired
       ? {

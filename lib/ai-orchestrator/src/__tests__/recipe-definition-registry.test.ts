@@ -38,7 +38,7 @@ describe("server recipe definition registry", () => {
       "database.inspect.project": "artifact_only",
       "delivery.push.github": "artifact_only",
       "runtime.restart": "operational_only",
-      "runtime.start": "operational_only",
+      "runtime.start": "runtime_start_gate_c",
       "runtime.stop": "operational_only",
       "validation.recover": "artifact_only",
     });

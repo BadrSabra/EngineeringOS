@@ -29,6 +29,11 @@ import {
   type ExecutionProofProjection,
 } from "./execution-proof.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
+import {
+  deriveRuntimeStartGateCProof,
+  RUNTIME_START_GATE_C_PROOF_MODE,
+  type RuntimeStartGateCProofArtifact,
+} from "./runtime-start-gate-c-proof.js";
 import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
@@ -79,6 +84,26 @@ export type EvidenceReadInput = {
 };
 
 export type EvidenceArtifactInput = {
+  kind: "runtime_start_gate_c";
+  version: 1;
+  executionId: string;
+  attempt: number;
+  operationId: string;
+  sourceRevision: string;
+  workspaceIdentity: string;
+  candidateIdentity: string | null;
+  episodeId: string;
+  actionId: string;
+  actionEventId: string;
+  committedEventId: string;
+  effectBundleId: string;
+  effectId: string;
+  actionHash: string;
+  effectContractHash: string;
+  environmentRevision: string;
+  beforeObservationIds: string[];
+  afterObservationIds: string[];
+} | {
   kind: "png";
   evidenceId: string;
   artifactRef: string;
@@ -1365,6 +1390,66 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
   const artifacts: EvidenceArtifactInput[] = (input?.artifacts ?? []).flatMap(
     (artifact): EvidenceArtifactInput[] => {
+    if (artifact.kind === "runtime_start_gate_c") {
+      const requiredIds = [
+        artifact.executionId,
+        artifact.operationId,
+        artifact.sourceRevision,
+        artifact.workspaceIdentity,
+        artifact.episodeId,
+        artifact.actionId,
+        artifact.actionEventId,
+        artifact.committedEventId,
+        artifact.effectBundleId,
+        artifact.effectId,
+        artifact.environmentRevision,
+      ];
+      const beforeObservationIds = artifact.beforeObservationIds;
+      const afterObservationIds = artifact.afterObservationIds;
+      if (
+        artifact.version !== 1
+        || !Number.isSafeInteger(artifact.attempt)
+        || artifact.attempt < 0
+        || requiredIds.some((value) => typeof value !== "string" || !value.trim() || value.length > 500)
+        || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(artifact.sourceRevision)
+        || !/^env-v1:[a-f0-9]{64}$/.test(artifact.environmentRevision)
+        || !/^[a-f0-9]{64}$/i.test(artifact.workspaceIdentity)
+        || !/^[a-f0-9]{64}$/i.test(artifact.actionHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.effectContractHash)
+        || (artifact.candidateIdentity !== null && !/^[a-f0-9]{64}$/i.test(artifact.candidateIdentity))
+        || !Array.isArray(beforeObservationIds)
+        || beforeObservationIds.length < 2
+        || beforeObservationIds.length > 8
+        || beforeObservationIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 160)
+        || !Array.isArray(afterObservationIds)
+        || afterObservationIds.length < 2
+        || afterObservationIds.length > 16
+        || afterObservationIds.some((id) => typeof id !== "string" || !id.trim() || id.length > 160)
+        || new Set([...beforeObservationIds, ...afterObservationIds]).size
+          !== beforeObservationIds.length + afterObservationIds.length
+      ) return [];
+      return [{
+        kind: "runtime_start_gate_c",
+        version: 1,
+        executionId: artifact.executionId.slice(0, 160),
+        attempt: artifact.attempt,
+        operationId: artifact.operationId.slice(0, 160),
+        sourceRevision: artifact.sourceRevision,
+        workspaceIdentity: artifact.workspaceIdentity,
+        candidateIdentity: artifact.candidateIdentity,
+        episodeId: artifact.episodeId.slice(0, 160),
+        actionId: artifact.actionId.slice(0, 200),
+        actionEventId: artifact.actionEventId.slice(0, 160),
+        committedEventId: artifact.committedEventId.slice(0, 160),
+        effectBundleId: artifact.effectBundleId.slice(0, 160),
+        effectId: artifact.effectId.slice(0, 160),
+        actionHash: artifact.actionHash.toLowerCase(),
+        effectContractHash: artifact.effectContractHash.toLowerCase(),
+        environmentRevision: artifact.environmentRevision,
+        beforeObservationIds: beforeObservationIds.slice(0, 8),
+        afterObservationIds: afterObservationIds.slice(0, 16),
+      }];
+    }
     if (artifact.kind === "recipe_evidence") {
       if (
         !Number.isSafeInteger(artifact.recipeVersion)
@@ -1612,7 +1697,6 @@ export async function finalizeExecutionAcceptance(
       params.effectRequired === true
       || storedRequest?.effectRequired === true
       || Boolean(params.effectBundleId);
-    const evidenceRequired = storedProofRequired || params.evidence?.required === true;
     const reviewReadyProposal =
       params.outcome === "SUCCEEDED"
       && typeof params.proposalId === "string"
@@ -1640,6 +1724,21 @@ export async function finalizeExecutionAcceptance(
     const canonicalCandidateIdentity = params.candidateIdentity
       ?? params.evidence?.candidateIdentity
       ?? null;
+    const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
+    const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
+      ? await deriveRuntimeStartGateCProof({
+          tx,
+          execution,
+          request: storedRequest,
+          recipeReceipt: params.recipeReceipt,
+          sourceRevision: canonicalSourceRevision,
+          candidateIdentity: canonicalCandidateIdentity,
+          effectBundleId: params.effectBundleId ?? null,
+        })
+      : undefined;
+    const evidenceRequired = runtimeStartProofMode
+      ? Boolean(runtimeStartProof)
+      : storedProofRequired || params.evidence?.required === true;
     const canonicalDeliveryReceipt = buildCanonicalRecipeReceipt({
       value: params.recipeReceipt,
       execution,
@@ -1667,18 +1766,32 @@ export async function finalizeExecutionAcceptance(
     const sourceEvidenceRequired = storedProofRequired
       ? storedRequest?.proofEvidenceMode !== "artifact_only"
       : params.evidence?.sourceEvidenceRequired ?? evidenceRequired;
-    const effectiveEvidence = evidenceRequired
-      ? {
-          ...(params.evidence ?? {}),
-          required: true,
-          sourceEvidenceRequired,
-          operationId: params.evidence?.operationId ?? execution.operationId,
-           workspaceRoot: suppliedRoot,
-           sourceRevision: suppliedRevision,
-          verdict: params.evidence?.verdict ?? "NOT_RECORDED",
-          reads: params.evidence?.reads ?? [],
-        } satisfies EvidenceSnapshotInput
-      : params.evidence;
+    const effectiveEvidence: EvidenceSnapshotInput | undefined = runtimeStartProofMode
+      ? runtimeStartProof
+        ? {
+            required: true,
+            sourceEvidenceRequired: false,
+            operationId: execution.operationId,
+            workspaceRoot: expectedRoot,
+            sourceRevision: canonicalSourceRevision,
+            candidateIdentity: canonicalCandidateIdentity,
+            verdict: "PROVEN",
+            reads: [],
+            artifacts: [runtimeStartProof satisfies RuntimeStartGateCProofArtifact],
+          }
+        : undefined
+      : evidenceRequired
+        ? {
+            ...(params.evidence ?? {}),
+            required: true,
+            sourceEvidenceRequired,
+            operationId: params.evidence?.operationId ?? execution.operationId,
+            workspaceRoot: suppliedRoot,
+            sourceRevision: suppliedRevision,
+            verdict: params.evidence?.verdict ?? "NOT_RECORDED",
+            reads: params.evidence?.reads ?? [],
+          } satisfies EvidenceSnapshotInput
+        : params.evidence;
     const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
     if (
       params.outcome === "SUCCEEDED"
