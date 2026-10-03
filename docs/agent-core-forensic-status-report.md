@@ -162,6 +162,12 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاعدة دائمة ولا يغطي W2–W8 لبقية
 الأسطح.
 
+**حد إكمال workflow (2026-10-04):** اختبار وحدة لـ`executeWorkflowPhase` يحاكي
+خسارة حاجز `completeAiExecution` بعد وصول الحالة المحلية إلى `succeeded`؛ يجب
+أن تعود الخدمة بـ`failed` دون محاولة كتابة `failAiExecution` بواسطة العامل القديم.
+هذا الاختبار يستخدم mocks ولا يثبت سباق قاعدة بيانات حقيقيًا أو تنفيذ خطوات phase
+المعلنة؛ helper الحالي يسجل حدًا محليًا فقط.
+
 **الخلاصة:** DB يعيد بناء الحالة المسجلة، لا الحقيقة الفيزيائية لحدث في W2–W4 لم تُحفظ له ملاحظة/أثر. توجد اختبارات لحدود محددة (`effect-observer.test.ts`, `runtime-start-transition.test.ts`) لكن لا توجد أدلة على crash injection لكل W0–W9.
 
 ### 5.4 Recovery

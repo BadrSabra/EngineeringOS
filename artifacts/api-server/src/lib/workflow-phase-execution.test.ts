@@ -81,4 +81,28 @@ describe("executeWorkflowPhase", () => {
     });
     expect(operation.nodes.map((node) => node.title)).not.toContain("Run the test suite");
   });
+
+  it("does not report completion or write a stale failure after losing the terminal fence", async () => {
+    mocks.completeAiExecution.mockResolvedValue(false);
+
+    const result = await executeWorkflowPhase({
+      userId: "user-1",
+      projectId: "project-1",
+      workflowId: "workflow-1",
+      workflowExecutionId: "workflow-execution-1",
+      workflowName: "Example",
+      phaseName: "test",
+      phaseSteps: ["Run the test suite"],
+      revision: "revision-1",
+      completedPhaseNames: [],
+      rootPath: "/tmp",
+    });
+
+    expect(result).toMatchObject({
+      executionId: "execution-1",
+      status: "failed",
+    });
+    expect(mocks.completeAiExecution).toHaveBeenCalledOnce();
+    expect(mocks.failAiExecution).not.toHaveBeenCalled();
+  });
 });

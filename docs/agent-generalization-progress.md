@@ -4142,6 +4142,17 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يغطي retry محدودًا لمدير runtime فقط؛ جرد E2 واختبارات crash/race عند W2–W8 لبقية mutation surfaces ما زالت مفتوحة.
 - **next step:** متابعة جرد E2 وإضافة fault injection لكل سطح mutation؛ لا يبدأ E3 قبل إغلاق E2.
 
+### 2026-10-04 — منع worker قديم من قلب نتيجة workflow النهائية
+
+- **phase/step:** E2 / سباق terminal ownership عند إكمال حد workflow.
+- **status:** `partial — اختبار وحدة للحاجز؛ سباق قاعدة البيانات والتعافي عبر الأسطح ما زالا غير مثبتين`.
+- **what changed:** يغطي الاختبار الآن حالة عودة `completeAiExecution=false` بعد أن صارت العملية محليًا `succeeded`: تعيد الخدمة `failed` ولا تستدعي `failAiExecution` من العامل الذي خسر الحاجز. لا تُنفّذ خطوات phase المعلنة ولا يثبت الاختبار قبولًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workflow-phase-execution.test.ts`، `docs/agent-core-forensic-status-report.md`، وهذا السجل. لا تغيير في schema أو صلاحيات التنفيذ.
+- **validation:** `cd artifacts/api-server && pnpm exec vitest run src/lib/workflow-phase-execution.test.ts` — 2/2 ناجحة؛ يلزم إعادة typecheck و`git diff --check` بعد تحديث السجل.
+- **authority/safety impact:** لا أثر خارجي أو proof أو acceptance جديد؛ الاختبار يحرس فقط إسقاط نتيجة الحد المحلي عند خسارة ملكية الكتابة.
+- **remaining/blocker:** لا يغلق هذا workflow mutation lifecycle؛ يظل جرد terminal writers وfault injection عند W2–W8 عبر الأسطح مفتوحًا.
+- **next step:** متابعة audit/fault injection لمسارات task وstructured-task وMission repair وapply وGit delivery؛ لا يبدأ E3 قبل إغلاق E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
