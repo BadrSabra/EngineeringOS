@@ -9,6 +9,20 @@ Provider-attempt admission must happen before each server-selected provider fall
 
 **How to apply:** Keep admission and provider-attempt reconciliation in the shared AI route helpers, bind both to the project and unique provider-attempt identity, and preserve the typed `AI_BUDGET_EXHAUSTED` response path. Keep token accounting separate from attempt counting.
 
+Consumed reservations remain the attempt ledger even when best-effort usage
+telemetry is missing. Count telemetry-only attempts only when no reservation
+matches; count reserved and consumed rows by admission day so an event and its
+reservation are never double-counted. Without a durable usage event, retain at
+least the conservative token estimate and project usage as unknown.
+
+**Why:** Telemetry persistence intentionally cannot block a successful AI
+response. If budget accounting depends on that write, a consumed reservation
+can disappear from attempt limits or make token usage look known when it is not.
+
+**How to apply:** Use the reservation's attempt identity and UTC admission day
+as the durable accounting key. A durable known usage event replaces its
+conservative charge; a missing or partial event does not.
+
 Reservation identity must include the intended budget unit and durable attempt
 generation when work can resume. Reusing a matching reservation is only
 idempotent for that same admitted attempt; resumed provider work must not reuse

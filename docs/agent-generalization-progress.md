@@ -4054,6 +4054,17 @@ G9 Revocation Safety
 - **remaining/blocker:** runner الكامل ما زال يرجع `incomplete/runner_blocked`؛ لا يوجد replay بحالة `proven` ولا اختبار كامل لاستعادة receipt `proven`. اختبار قاعدة البيانات غطى lease والتخزين، لا استرداد صف التطوير القديم. لا توجد مصالحة خلفية؛ P7.5 تبقى `NO-GO` والإنتاج غير متاح.
 - **next step:** تشخيص `runner_blocked` وإثبات replay إيجابي يحافظ على كل روابط Canonical Proof، ثم اختبار إعادة تحميل receipt `proven` واستعادتها على قاعدة مؤقتة. لا تغيّر صفوف التطوير أو الإنتاج كجزء من هذا التحقق.
 
+### 2026-10-03 — تصحيح حساب ميزانية AI ومراجعة عائق Strategy Replay
+
+- **phase/step:** تثبيت احتساب المحاولات المستهلكة عند غياب telemetry، ومراجعة ادعاءات ميزانية الرموز ومسار Strategy Replay في التقارير.
+- **status:** `done` لحساب الاحتياطيات وتحديث التقارير؛ تقدير الرموز لكل طلب ومسار replay الإيجابي ما زالا فجوتين مفتوحتين.
+- **what changed:** أصبحت احتياطيات المحاولات المستهلكة جزءًا من إجمالي المحاولات حتى عند غياب telemetry؛ تُحسب أحداث الاستخدام والاحتياطي المطابق مرة واحدة، وتبقى كلفة الرموز محافظة بينما تُعرض حالة الاستخدام `unknown` إذا لم يوجد حدث دائم. جرى فحص أحدث إيصالين `runner_blocked` في قاعدة التطوير للقراءة فقط؛ معرفا التنفيذ المشار إليهما غير موجودين في `ai_executions`، وإيصال الحالة لا يحفظ عقدة recipe المتوقفة، لذلك تعذر تحديد السبب دون إعادة إنتاج معزولة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-budget.ts` واختباراته؛ `docs/replit-platform-gap-inventory.md` و`docs/agent-core-forensic-status-report.md` وهذا السجل؛ مذكرة عقد ميزانية AI. لا تغيير schema.
+- **validation:** اختبارات ميزانية AI المركزة 4/4؛ `pnpm --filter @workspace/api-server run typecheck` ناجح؛ أُعيد تشغيل API وDashboard وبدآ بنجاح. فحص `git diff --check` ناجح بعد تعديلات التوثيق.
+- **authority/safety impact:** لا صلاحية أو proof أو promotion جديدة؛ لا كتابة لقاعدة التطوير أو الإنتاج، ولا إعادة تشغيل replay، ولا تغيير لمسار Git push اليدوي أو `delivery.push.github`.
+- **remaining/blocker:** احتياطي الرمز ما زال ثابتًا (8,192) وليس تقديرًا محافظًا خاصًا بالطلب؛ لا يوجد replay إيجابي كامل أو استعادة receipt `proven`. سجلات التطوير الحالية لا تكشف سبب `runner_blocked`.
+- **next step:** أضف تقديرًا محافظًا خاصًا بكل طلب قبل provider admission. ثم أعد إنتاج Strategy Replay على قاعدة مؤقتة مع حفظ حالة العقدة المتوقفة كمعرّف آمن، وأثبت proof الإيجابي واستعادة receipt دون لمس صفوف التطوير أو الإنتاج.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

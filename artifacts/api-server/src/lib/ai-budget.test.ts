@@ -3,12 +3,14 @@ import { eq } from "drizzle-orm";
 import {
   aiBudgetReservationsTable,
   aiProjectBudgetsTable,
+  aiUsageEventsTable,
   db,
   projectsTable,
 } from "@workspace/db";
 import {
   AiBudgetAdmissionError,
   admitAiProviderAttempt,
+  getAiProjectBudgetSummary,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
 
@@ -16,6 +18,7 @@ const projectIds: string[] = [];
 
 afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
+    await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.projectId, projectId)).catch(() => undefined);
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
@@ -129,6 +132,128 @@ describe("AI project budget admission", () => {
     })).rejects.toMatchObject({
       code: "AI_BUDGET_EXHAUSTED",
       reason: "tokens",
+    });
+  });
+
+  it("keeps a consumed attempt and conservative token charge when usage telemetry is missing", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-unlogged-user";
+    const attemptId = `unlogged-${projectId}`;
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId,
+      name: `ai-budget-unlogged-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/ai-budget-unlogged-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiProjectBudgetsTable).values({
+      id: crypto.randomUUID(),
+      schemaVersion: 1,
+      projectId,
+      ownerId,
+      dailyAttemptLimit: 1,
+      dailyTokenLimit: 20_000,
+      warningThreshold: 0.8,
+      resetAt: new Date(now.getTime() + 86_400_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(admitAiProviderAttempt({ ownerId, projectId, attemptId })).resolves.toMatchObject({
+      projected: 1,
+    });
+    await reconcileAiBudgetReservation(attemptId, {
+      promptTokens: 10_000,
+      completionTokens: 2_000,
+      usageStatus: "known",
+    });
+
+    const summary = await getAiProjectBudgetSummary({ ownerId, projectId });
+    expect(summary).toMatchObject({
+      consumedAttempts: 1,
+      reservedAttempts: 0,
+      remainingAttempts: 0,
+      tokenUsage: {
+        status: "unknown",
+        total: null,
+        admissionTotal: 12_000,
+      },
+    });
+    await expect(admitAiProviderAttempt({
+      ownerId,
+      projectId,
+      attemptId: `${attemptId}:next`,
+    })).rejects.toMatchObject({
+      code: "AI_BUDGET_EXHAUSTED",
+      reason: "attempts",
+    });
+  });
+
+  it("counts a durable usage event and its reservation as one provider attempt", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-dedup-user";
+    const attemptId = `tracked-${projectId}`;
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId,
+      name: `ai-budget-dedup-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/ai-budget-dedup-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiProjectBudgetsTable).values({
+      id: crypto.randomUUID(),
+      schemaVersion: 1,
+      projectId,
+      ownerId,
+      dailyAttemptLimit: 1,
+      dailyTokenLimit: 20_000,
+      warningThreshold: 0.8,
+      resetAt: new Date(now.getTime() + 86_400_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await admitAiProviderAttempt({ ownerId, projectId, attemptId });
+    await db.insert(aiUsageEventsTable).values({
+      id: crypto.randomUUID(),
+      projectId,
+      userId: ownerId,
+      correlationId: `budget-event-${projectId}`,
+      attemptId,
+      provider: "openrouter",
+      outcome: "success",
+      promptTokens: 12,
+      completionTokens: 8,
+      usageStatus: "known",
+      expiresAt: new Date(now.getTime() + 86_400_000),
+    });
+    await reconcileAiBudgetReservation(attemptId, {
+      promptTokens: 12,
+      completionTokens: 8,
+      usageStatus: "known",
+    });
+
+    const summary = await getAiProjectBudgetSummary({ ownerId, projectId });
+    expect(summary).toMatchObject({
+      consumedAttempts: 1,
+      reservedAttempts: 0,
+      tokenUsage: {
+        status: "known",
+        total: 20,
+        admissionTotal: 20,
+      },
     });
   });
 });

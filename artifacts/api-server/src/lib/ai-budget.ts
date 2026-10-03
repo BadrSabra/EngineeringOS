@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
 import {
   db,
   aiProjectBudgetsTable,
@@ -112,10 +112,21 @@ async function loadOrCreateBudget(
 
 async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
   const since = utcDayStart(day);
-  const [attempts, reservations, tokenUsage, reservationTokens] = await Promise.all([
+  const [unreservedUsageAttempts, consumedReservations, reservations, tokenUsage, reservedTokens, chargedTokens, unreportedReservations] = await Promise.all([
     executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
+      notExists(executor.select({ id: aiBudgetReservationsTable.id })
+        .from(aiBudgetReservationsTable)
+        .where(and(
+          eq(aiBudgetReservationsTable.projectId, projectId),
+          eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
+        ))),
+    )),
+    executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
+      eq(aiBudgetReservationsTable.projectId, projectId),
+      eq(aiBudgetReservationsTable.utcDay, day),
+      eq(aiBudgetReservationsTable.status, "consumed"),
     )),
     executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
       eq(aiBudgetReservationsTable.projectId, projectId),
@@ -132,22 +143,47 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
       gte(aiUsageEventsTable.occurredAt, since),
     )),
     executor.select({
-      reserved: sql<number>`coalesce(sum(case when ${aiBudgetReservationsTable.status} = 'reserved' then ${aiBudgetReservationsTable.estimatedTokens} else 0 end), 0)`,
-      charged: sql<number>`coalesce(sum(${aiBudgetReservationsTable.chargedTokens}), 0)`,
+      value: sql<number>`coalesce(sum(${aiBudgetReservationsTable.estimatedTokens}), 0)`,
     }).from(aiBudgetReservationsTable).where(and(
       eq(aiBudgetReservationsTable.projectId, projectId),
       eq(aiBudgetReservationsTable.utcDay, day),
+      eq(aiBudgetReservationsTable.status, "reserved"),
+    )),
+    executor.select({
+      value: sql<number>`coalesce(sum(greatest(${aiBudgetReservationsTable.chargedTokens}, ${aiBudgetReservationsTable.estimatedTokens})), 0)`,
+    }).from(aiBudgetReservationsTable).where(and(
+      eq(aiBudgetReservationsTable.projectId, projectId),
+      eq(aiBudgetReservationsTable.utcDay, day),
+      eq(aiBudgetReservationsTable.status, "consumed"),
+      notExists(executor.select({ id: aiUsageEventsTable.id })
+        .from(aiUsageEventsTable)
+        .where(and(
+          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
+          eq(aiUsageEventsTable.usageStatus, "known"),
+          isNotNull(aiUsageEventsTable.promptTokens),
+          isNotNull(aiUsageEventsTable.completionTokens),
+        ))),
+    )),
+    executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
+      eq(aiBudgetReservationsTable.projectId, projectId),
+      eq(aiBudgetReservationsTable.utcDay, day),
+      eq(aiBudgetReservationsTable.status, "consumed"),
+      notExists(executor.select({ id: aiUsageEventsTable.id })
+        .from(aiUsageEventsTable)
+        .where(eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId))),
     )),
   ]);
-  const consumed = Number(attempts[0]?.value ?? 0);
+  const consumed = Number(unreservedUsageAttempts[0]?.value ?? 0)
+    + Number(consumedReservations[0]?.value ?? 0);
   const pending = Number(reservations[0]?.value ?? 0);
   const promptTokens = Number(tokenUsage[0]?.prompt ?? 0);
   const completionTokens = Number(tokenUsage[0]?.completion ?? 0);
-  const unknownCount = Number(tokenUsage[0]?.unknown ?? 0);
+  const unknownCount = Number(tokenUsage[0]?.unknown ?? 0)
+    + Number(unreportedReservations[0]?.value ?? 0);
   const partialCount = Number(tokenUsage[0]?.partial ?? 0);
-  const reservedTokens = Number(reservationTokens[0]?.reserved ?? 0);
-  const chargedTokens = Number(reservationTokens[0]?.charged ?? 0);
-  const tokenAdmissionTotal = promptTokens + completionTokens + reservedTokens + chargedTokens;
+  const reservedTokenTotal = Number(reservedTokens[0]?.value ?? 0);
+  const chargedTokenTotal = Number(chargedTokens[0]?.value ?? 0);
+  const tokenAdmissionTotal = promptTokens + completionTokens + reservedTokenTotal + chargedTokenTotal;
   return {
     consumed,
     reserved: pending,
@@ -155,8 +191,8 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     promptTokens,
     completionTokens,
     tokenTotal: promptTokens + completionTokens,
-    reservedTokens,
-    chargedTokens,
+    reservedTokens: reservedTokenTotal,
+    chargedTokens: chargedTokenTotal,
     tokenAdmissionTotal,
     usageStatus: unknownCount > 0 ? "unknown" as const : partialCount > 0 ? "partial" as const : "known" as const,
   };
@@ -380,13 +416,43 @@ export async function reconcileAiBudgetReservation(
 ): Promise<void> {
   const usageKnown = usage?.usageStatus === "known"
     && Number.isSafeInteger(usage.promptTokens)
-    && Number.isSafeInteger(usage.completionTokens);
+    && usage.promptTokens! >= 0
+    && Number.isSafeInteger(usage.completionTokens)
+    && usage.completionTokens! >= 0;
+  const reportedPromptTokens = Number.isSafeInteger(usage?.promptTokens) && usage!.promptTokens! >= 0
+    ? usage!.promptTokens!
+    : 0;
+  const reportedCompletionTokens = Number.isSafeInteger(usage?.completionTokens) && usage!.completionTokens! >= 0
+    ? usage!.completionTokens!
+    : 0;
+  const hasReportedTokens = Number.isSafeInteger(usage?.promptTokens) && usage!.promptTokens! >= 0
+    || Number.isSafeInteger(usage?.completionTokens) && usage!.completionTokens! >= 0;
+  const [telemetry] = await db.select({
+    usageStatus: aiUsageEventsTable.usageStatus,
+    promptTokens: aiUsageEventsTable.promptTokens,
+    completionTokens: aiUsageEventsTable.completionTokens,
+  }).from(aiUsageEventsTable)
+    .where(eq(aiUsageEventsTable.attemptId, attemptId))
+    .limit(1);
+  const telemetryKnown = telemetry?.usageStatus === "known"
+    && Number.isSafeInteger(telemetry.promptTokens)
+    && telemetry.promptTokens! >= 0
+    && Number.isSafeInteger(telemetry.completionTokens)
+    && telemetry.completionTokens! >= 0;
+  const telemetryMatchesUsage = !usageKnown
+    || (telemetry?.promptTokens === usage?.promptTokens
+      && telemetry?.completionTokens === usage?.completionTokens);
+  const hasDurableKnownUsage = telemetryKnown && telemetryMatchesUsage;
+  const reportedTokens = reportedPromptTokens + reportedCompletionTokens;
+  const conservativeCharge = hasReportedTokens
+    ? sql<number>`greatest(${aiBudgetReservationsTable.estimatedTokens}, ${reportedTokens})`
+    : sql<number>`${aiBudgetReservationsTable.estimatedTokens}`;
   await db.update(aiBudgetReservationsTable)
     .set({
       status: "consumed",
-      chargedTokens: usageKnown
+      chargedTokens: hasDurableKnownUsage
         ? 0
-        : sql`${aiBudgetReservationsTable.estimatedTokens}`,
+        : conservativeCharge,
       reconciledAt: new Date(),
     })
     .where(and(eq(aiBudgetReservationsTable.attemptId, attemptId), isNull(aiBudgetReservationsTable.reconciledAt)));

@@ -84,9 +84,9 @@ The most important current boundaries are:
    has been established.
 5. Repository freshness and index completeness over long-running jobs are not
    guaranteed by the current evidence.
-6. The AI project budget reports a token limit, but current admission source
-   checks the daily attempt limit rather than projected token usage; this is a
-   concrete readiness gap requiring focused correction and tests.
+6. AI project-budget admission now enforces attempt limits and reserves tokens
+   per provider attempt. Missing-telemetry accounting remains conservative;
+   the token reserve is still fixed-size rather than request-specific.
 7. The general Replit-like surface is intentionally absent in areas such as a
    hosted IDE, arbitrary model shell, teams/RBAC, deployment/preview
    provisioning, and broad collaboration.
@@ -345,11 +345,13 @@ tests include:
 
 Two material limitations remain:
 
-1. `dailyTokenLimit` is reported, but the current admission branch checks
-   projected daily attempts rather than projected token usage. Token
-   exhaustion is therefore not a proven admission blocker.
-2. Telemetry persistence is best effort and logs/continues when its database
-   write fails. Monitoring is not itself a hard execution gate.
+1. `dailyTokenLimit` is enforced with a fixed 8,192-token reservation per
+   provider attempt (capped at the configured limit), not a request-specific
+   upper bound. A request whose actual usage exceeds that reserve can exceed
+   the token limit before reconciliation.
+2. Detailed telemetry persistence is best effort and logs/continues when its
+   database write fails. Project-budget accounting remains conservative in
+   that case, but the detailed usage projection reports `unknown`.
 
 The project reservation budget and user-wide daily attempt limit are separate
 concepts. Operators need them clearly distinguished to avoid treating a
@@ -385,9 +387,10 @@ source-backed engineering Agent:
    approval, isolated validation, Apply, conflict retry, cancellation/restart
    reload, audit export, and scoped Git delivery need a retained operation
    receipt in one controlled campaign.
-2. **Budget admission correctness:** enforce projected token limits at the same
-   server-owned admission boundary as attempt limits, then test reservation,
-   exhaustion, reconciliation, fallback, and restart behavior.
+2. **Budget admission correctness:** replace the fixed per-provider reserve
+   with a request-specific conservative estimate; test near-limit payloads,
+   exhaustion, fallback, and restart behavior. Missing-telemetry reservation
+   recovery and single-count accounting now have focused regression tests.
 3. **Repository and graph proof boundaries:** add focused regression coverage
    for graph project scoping, stale graph cleanup/revision changes, and
    oversized/truncated source handling so graph or fallback evidence cannot be
@@ -430,7 +433,7 @@ accepted-evidence reuse, and benchmark work.
 | Gap | Why it matters | Dependency | Observable acceptance criteria |
 |---|---|---|---|
 | **Archive Upload reachability and proof — resolved** | The wizard exposes the existing upload route and passes its returned `uploadId` into discovery. The Clerk-authenticated journey uses real upload, discovery, import, and scan routes. | Existing authenticated upload/discovery routes, OpenAPI operation, generated upload hook, and discovery `uploadId` contract. | The real browser journey reaches a completed scan and deletes its temporary project. API tests verify malformed, unsafe, unsupported, oversized, missing-file, and cross-owner rejection; browser tests cover user-visible validation and retry after simulated 413/422 responses. The broader 50-test browser journey stopped at 21/50 for an undetermined reason; this remains separate. |
-| **Token budget is reported but not enforced at admission** | A project can appear to have a daily token limit while still allowing provider attempts after projected token exhaustion. | Existing `ai-budget.ts` reservation/usage model; no new budget subsystem. | A request that would exceed the projected token limit is rejected before provider work; reservations are idempotent; partial/unknown usage remains conservative; reconciliation after crash cannot reopen exhausted budget; API/operator projection states the reason without provider diagnostics. |
+| **Token reservation is fixed-size rather than request-specific** | Admission now reserves tokens, but a provider attempt can consume more than the fixed 8,192-token estimate before reconciliation. | Existing `ai-budget.ts` reservation/usage model; no new budget subsystem. | Admission uses a conservative request-specific estimate before provider work; durable reservations count exactly once alongside legacy telemetry; missing/partial usage remains conservative and projects as unknown/partial; near-limit and recovery tests show no budget reopening. |
 | **Graph and scanner freshness are not a complete proof guarantee** | Stale or weak graph/fallback data can mislead navigation or scope selection if later code treats it as source proof. | Existing graph provenance, scanner revision, source-read/evidence acceptance. | A changed/deleted file or graph revision mismatch is surfaced as stale/incomplete; every graph traversal used for project evidence is project-scoped; regex/fallback evidence cannot satisfy a behavioral objective without a complete source read; focused tests cover incoming-edge and cleanup paths. |
 
 ### P1 — operational proof
@@ -473,7 +476,7 @@ The following statements are intentionally conservative:
 | **External Git commit/push** | Isolated local/bare-remote route proof exists, including uncertain push recovery. | No external GitHub push from the authenticated complete user journey is claimed. |
 | **Repository freshness/index completeness** | Per-run file walking, scan revisions, manifests, cache invalidation and mismatch gates exist. | No long-running freshness SLA or continuously complete repository index is claimed. |
 | **Audit/export** | Redacted operation evidence, history, CSV/JSON projections, and route/component tests exist. | No production download smoke or deployment observability claim is made. |
-| **Budgets/monitoring** | Attempts, telemetry, operator alerts and scoped metrics are implemented. | Token-limit admission, billing completeness, telemetry durability as a hard gate, and long-horizon monitoring are not fully proven. |
+| **Budgets/monitoring** | Attempts, fixed-size token admission, telemetry, operator alerts and scoped metrics are implemented. | Request-specific token estimation, billing completeness, telemetry durability as a hard gate, and long-horizon monitoring are not fully proven. |
 
 ## 9. Suggested verification order
 
@@ -485,9 +488,10 @@ backend capability or the separate agent-generalization dependency graph:
    coverage and browser validation/retry checks. The earlier 50-test browser
    run still stops at 21/50 for an unknown reason; do not attribute it to this
    feature without evidence.
-2. Keep token-budget admission as a separate concrete release-readiness issue;
-   correct and test it without conflating it with the missing Project AI Budget
-   control UI.
+2. Token-limit admission and missing-telemetry reservation accounting are
+   covered; replace the fixed 8,192-token reserve with request-specific
+   estimation without conflating that backend work with the missing Project
+   AI Budget control UI.
 3. Decide which advanced Graph modes are committed user-facing scope, then
    expose and test those modes. Reconcile backend-only Runtime Disagreements,
    World State, and Runtime Observations with an explicit internal-versus-

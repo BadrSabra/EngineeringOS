@@ -45,7 +45,7 @@
 | Reliable Tool Agent | `PARTIAL` | dispatcher مركزي؛ أزيلت raw executor functions من package root، وحُصر server-internal subpath في مستدعيين خادميين معروفين | ضمانات الوقت/الإلغاء/replay/حدود الذاكرة لكل executor لا تزال غير مكتملة |
 | Reliable Execution Agent | `PARTIAL` | executions دائمة، attempts وleases وcheckpoints وacceptance/recovery في المسار المركزي | lifecycle موحد لكل mutation surface أو إعادة بناء نتيجة الأثر الخارجي بعد crash |
 | Evidence-Grounded Agent | `PARTIAL` | `proof-foundation.ts` يتحقق من سجل Canonical Proof؛ الاختياري لا يصبح Canonical Proof | أن كل قيمة `PROVEN` في النظام تمر بهذا verifier أو أن كل claim مقفول عبر كل المسارات |
-| Closed-Loop World Agent | `PARTIAL` | مسارا `runtime.start` و`apply-changes` يmaterializeان transitions ويكتبان مراجع facts المرتبطة بملاحظات الانتقال المختارة؛ اختبارات تكامل تتحقق من refs في المسارين | delta مكتملًا لكل mutation أو planner عامًّا يتغير قراره بسبب facts جديدة |
+| Closed-Loop World Agent | `PARTIAL` | مسارات `runtime.start` و`apply-changes` و`delivery.push.github` تmaterialize transitions محددة؛ اختبار Apply يتحقق من مراجع facts المرتبطة بالملاحظات المختارة | delta مكتملًا لكل mutation أو planner عامًّا يتغير قراره بسبب facts جديدة |
 
 ### Evidence-Based Scorecard
 
@@ -56,7 +56,7 @@
 | Reliable Tool Agent | `PARTIAL` | dispatcher موحد للمكالمات المفحوصة وحدود package الحالية محمية باختبار | timeout/cancel/output/audit/Episode/revision ضماناتها ليست موحدة لكل runner؛ Git symlink/root races `UNKNOWN` | كل model-reachable call يمر بسلطة authorization واحدة وبحدود scope/وقت/خرج/cancel/audit/Episode قابلة للإثبات |
 | Reliable Execution Agent | `PARTIAL` | execution identity وattempt وlease/checkpoint والقبول/recovery في المسار المركزي؛ Apply proof-specific path اجتاز الاختبار | mutation surfaces غير محصورة؛ آثار W2–W4 قد تبقى uncertain؛ completed observation-only؛ لا universal lifecycle | كل mutation يملك lifecycle موحدًا وفences/idempotency/reconciliation، مع crash/race tests عند action/effect/acceptance |
 | Evidence-Grounded Agent | `PARTIAL` | Canonical loader يربط الدليل الحالي؛ runtime.start وMission-linked Apply لديهما artifacts خادمية متخصصة في المسارات المختبرة | statuses `PROVEN` المحلية متعددة؛ جرد producer/consumer غير كامل | كل قرار نجاح ذي proof-required يمر بCanonical verifier وبـclaim/scope/revision/candidate/delivery bindings المطلوبة |
-| Closed-Loop World Agent | `PARTIAL` | `runtime.start` وApply يشتقان `changedFactRefs` من facts المرتبطة بملاحظات الانتقال المختارة؛ Mission auto-replan يربط قراءة World State advisory بالمراجعة وبـtask prompt. اختبار DB يثبت أن fact متغيرًا يغيّر المراجعة والprompt مع بقاء خطوات الخطة كما هي | لا توجد transition producers صريحة أخرى في API server؛ المادتة العامة لـWorld State لا تنشئ Transition؛ لا دليل أن fact يغير plan step أو اختيار provider؛ belief/replay العام غير مثبت | كل accepted effect ينتج delta قابلاً لإعادة البناء، ويُستهلك بplan revision-bound ويُختبر تغيّر القرار وheld-out outcomes |
+| Closed-Loop World Agent | `PARTIAL` | `runtime.start` وApply و`delivery.push.github` يملكون producers صريحة لمسارات محددة؛ Apply يشتق `changedFactRefs` من facts المرتبطة بالملاحظات المختارة؛ Mission auto-replan يربط قراءة World State advisory بالمراجعة وبـtask prompt. اختبار DB يثبت أن fact متغيرًا يغيّر المراجعة والprompt مع بقاء خطوات الخطة كما هي | لا توجد transition producers صريحة لبقية mutation surfaces؛ المادة العامة لـWorld State لا تنشئ Transition؛ لا دليل أن fact يغير plan step أو اختيار provider؛ belief/replay العام غير مثبت | كل accepted effect ينتج delta قابلاً لإعادة البناء، ويُستهلك بplan revision-bound ويُختبر تغيّر القرار وheld-out outcomes |
 
 ## 4. Reliable Tool Agent
 
@@ -230,14 +230,15 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:301-3
 
 ### 7.2 World Transitions
 
-- `runtime.start`: `recipe-operation-runner.ts:1283-1348` يربط prestate وparent/environment revision؛ و`runtime-start-transition.ts:437-630` يتحقق من acceptance/effect والهوية والملاحظات المباشرة/الحديثة ثم materializes. الحالة: `IMPLEMENTED` لمسار محدد.
-- `apply-changes`: route في `routes/ai/chat.ts` يخزن نمط الإثبات `apply_changes_v1` ويستدعي acceptance بعد promotion؛ finalizer يعيد اشتقاق artifact من السجلات الدائمة ويشترطه قبل قبول النجاح. اختبار Mission-linked Apply/D2 اجتاز؛ D2 يظل معتمدًا على observations وانتقال plan-bound مستقل. الحالة: acceptance وtransition `IMPLEMENTED + TESTED` للمسار المغطى؛ عمومية lifecycle ما زالت `PARTIAL`.
-- لا يثبت المساران التغطية لكل mutation-capable operation: `PARTIAL`.
+- `runtime.start`: `recipe-operation-runner.ts` يربط prestate وparent/environment revision؛ و`runtime-start-transition.ts` يتحقق من acceptance/effect والهوية والملاحظات المباشرة/الحديثة ثم materializes. الحالة: `IMPLEMENTED` لمسار محدد.
+- `apply-changes`: route يخزن نمط الإثبات `apply_changes_v1` ويستدعي acceptance بعد promotion؛ finalizer يعيد اشتقاق artifact من السجلات الدائمة ويشترطه قبل قبول النجاح. اختبار Mission-linked Apply/D2 اجتاز؛ D2 يظل معتمدًا على observations وانتقال plan-bound مستقل. الحالة: acceptance وtransition `IMPLEMENTED + TESTED` للمسار المغطى؛ عمومية lifecycle ما زالت `PARTIAL`.
+- `delivery.push.github`: وصفة GitHub المملوكة للتنفيذ تربط transition بقبول Gate C وملاحظة الأثر؛ finalization منفصل عن قبول الوصفة، وفشل materialization لا يلغيه. هذا يخص وصفة GitHub فقط؛ الدفع اليدوي أو العادي لا ينشئ execution أو Episode أو transition مصطنعًا.
+- لا تثبت هذه المسارات الثلاثة التغطية لكل mutation-capable operation: `PARTIAL`.
 
 ### 7.3 World Delta
 
 - `runtime-start-transition.ts:599-630` يستنتج `changedFactRefs` من materialized facts ذات `sourceObservationIds` المطابقة للـobservations المختارة.
-- `finalizeApplyChangesTransition` في الملف نفسه `:967-990` يmaterialize observations/revision ثم يكتب `changedFactRefs: []` عند `:975`. test `runtime-start-transition.test.ts:547-606` يثبت نجاح materialization ولا يفحص صحة `changedFactRefs`؛ لا يوجد إثبات أن empty مقصود أو صحيح. النتيجة `PARTIAL / UNKNOWN semantic intent`.
+- Apply: `finalizeApplyChangesTransition` يشتق `changedFactRefs` من facts materialized المرتبطة بملاحظات before/after المختارة. الاختبار يتحقق من أن القائمة غير فارغة وتطابق refs الفعلية، ومن وجود fact مرتبط بملاحظة after. الادعاء التاريخي بأن finalizer يكتب قائمة فارغة لم يعد صحيحًا؛ بقيت دلالة intent وتأثيرها على قرار planner غير مثبتة.
 - لقطة قاعدة التطوير الحالية: 8 transitions `materialized/fresh` وواحد `terminal_failed/unknown`. لم يُحدّث هذا الاستعلام دلالات delta أو يثبت أي صف منها كمسار runtime/apply بعينه.
 
 ### 7.4 Accepted Effect → World State
@@ -288,10 +289,10 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 1. `routes/ai/chat.ts:16017-16073`: action/effect contract وbefore tree-hash.
 2. `:16206-16420`: promotion والتحقق وملاحظات after/tree/environment.
 3. `:16798-16829`: ينادي `finalizeExecutionAcceptance` بنتيجة `SUCCEEDED` عند `allOk`. الطلب يعلن `sourceEvidenceRequired=false` و`reads=[]` لأن finalizer يشتق artifact متخصصًا من `apply_changes_v1`؛ عدم وجود retained source reads لا يعني غياب proof artifact.
-4. `:16768-16795`: ينشئ transition المرتبط بـeffect والملاحظات؛ `runtime-start-transition.ts:871-990` يmaterialize المراجعة ويكتب `changedFactRefs: []`.
+4. `:16768-16795`: ينشئ transition المرتبط بـeffect والملاحظات؛ finalizer يmaterialize المراجعة ويشتق `changedFactRefs` من facts المرتبطة بالملاحظات المختارة.
 5. `:16858-16880`: finalize transition ثم wake Mission goal.
 
-اختبار Mission-linked Apply الحالي في `routes/ai.test.ts` يجتاز قبول التنفيذ وD2 وdispatch للـsuccessor. `apply_changes_v1` يثبت `proofRequired` و`effectRequired` في الطلب الدائم؛ `finalizeExecutionAcceptance` يعيد اشتقاق artifact من أحداث `ACTION_REQUESTED` و`ACTION_COMMITTED`، وEffectBundle بحالة `OBSERVED`، وملاحظات before/after المرتبطة بالمحاولة. إذا غاب الدليل أو لم يطابق، يُرفض النجاح؛ وCanonical loader يعيد اشتقاق artifact من الصفوف الدائمة. لا تُعد `reads=[]` نقصًا هنا لأن artifact هو دليل هذا المسار، ولا يثبت `proposalId` وحده شيئًا. يبقى D2 منفصلًا، مربوطًا بالملاحظات الحية وانتقال الخطة. اختبار `runtime-start-transition.test.ts:547-606` لا يثبت delta refs أو قرار planner لاحق؛ `changedFactRefs: []` يظل فجوة مستقلة.
+اختبار Mission-linked Apply الحالي يجتاز قبول التنفيذ وD2 وdispatch للـsuccessor. `apply_changes_v1` يثبت `proofRequired` و`effectRequired` في الطلب الدائم؛ `finalizeExecutionAcceptance` يعيد اشتقاق artifact من أحداث `ACTION_REQUESTED` و`ACTION_COMMITTED`، وEffectBundle بحالة `OBSERVED`، وملاحظات before/after المرتبطة بالمحاولة. إذا غاب الدليل أو لم يطابق، يُرفض النجاح؛ وCanonical loader يعيد اشتقاق artifact من الصفوف الدائمة. لا تُعد `reads=[]` نقصًا هنا لأن artifact هو دليل هذا المسار، ولا يثبت `proposalId` وحده شيئًا. يبقى D2 منفصلًا، مربوطًا بالملاحظات الحية وانتقال الخطة. اختبار الانتقال يثبت refs غير فارغة ومطابقة لملاحظات المصدر؛ لا يثبت أن كل ref يفسر intent أو يغيّر قرار planner لاحقًا.
 
 ## 9. Bypass Inventory
 
@@ -351,7 +352,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 |---|---|---|
 | P1 | lifecycle/status writers متعددة، ومنها `completed` observation-only بلا acceptance | أُصلح استنتاج النجاح في إسقاطات chat/detail وexecution progress؛ لا يمكن تفسير status وحده كنجاح موحد أو إثبات terminal authority عالمية |
 | P1 | دلالات `PROVEN` متعددة، مع جرد global غير مكتمل | false acceptance محتمل عند consumer يخلط phase-local/projection/canonical status |
-| P1 | apply `changedFactRefs: []` مع intent/semantic test غير مثبت | World Delta وسبب التغيير غير موثقين على مسار apply |
+| P1 | Apply refs مشتقة ومختبرة، لكن intent/semantic delta وتأثيره على قرار planner غير مثبت | الاختبار يثبت lineage للfacts المختارة لا أن كل fact يعبّر عن intent التغيير أو يغيّر قرارًا لاحقًا |
 | P2 | أثر خارجي أثناء/بعد التنفيذ وقبل durable observation يبقى uncertain؛ لا crash test شامل لكل نافذة | فُرض fail-closed على marker `started` للأدوات المحظور replay لها في Mission tool-loop فقط؛ بقية الأسطح لا تزال بلا reconciliation شامل، وretry/recovery لا يستطيع إثبات الحالة الفيزيائية من DB وحدها |
 | P2 | لا إثبات أن World State الجديدة تغيّر قرار planner أو action عمومًا، ولا belief/evaluation عام | حلقة Action→World→Decision غير مغلقة |
 | P3 | تحقق release/process-recovery غير منفذ في بيئة ثبت أنها disposable | لا يجوز تحويل التحقق التاريخي أو غيابه إلى نجاح حالي |
@@ -371,7 +372,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 **E3 Strategy candidate/replay consumer audit (updated 2026-10-03):** مستهلك candidate يتحقق من attempt/revision/operation والقبول وeffect observations، ثم يعيد تحميل Canonical Proof للمحاولة الحالية ويربط acceptance ID والعملية والمراجعة قبل persistence (`strategy-candidate-extractor.ts:388-445,447-706`). مستهلك Strategy Replay يعيد تحميل Proof نفسه للمحاولة الحالية ويربط acceptance/effect/revision ثم يعيد materialize binding digest من durable rows عند التحقق (`strategy-replay-case-proof.ts:216-298`). Gate C أو digest/receipt محفوظ وحده لا يمنح candidate أو replay Canonical Proof. أُضيف producer `runtime.start` المتخصص، لكن `runRegisteredStrategyReplayCase` ما زال له نتيجة `incomplete/runner_blocked` في الاختبار المسجل؛ سبب الإيقاف end-to-end واستعادة receipt `proven` عبر runner كامل غير مثبتين. قاعدة التطوير تعرض receipt-status row واحدة `proven`, אך هذا الإسقاط وحده لا يثبت Canonical Proof الحالي. تغطية positive candidate/replay/recovery تظل `PARTIAL / UNKNOWN`.
 
-**E3 stored receipt consumer finding (updated 2026-10-03):** revalidation يطابق project/case/candidate/source revision/episode/execution/attempt/acceptance/effect/proof identity مع التعريف الحالي، واختبارات الخلوص تغطي هذا الربط. إضافة runtime Gate C artifact تزيل ادعاء أن غياب source producer يمنع التقدم؛ لكن استعادة receipt `proven` عبر Strategy Replay runner كامل ما زالت غير مثبتة. سجل التطوير يحوي receipt-status واحدة `proven`، ولا يكفي هذا الصف بدل إعادة تحميل Proof الحالي. تبقى recovery/positive runner coverage فجوة E3.
+**E3 stored receipt consumer finding (updated 2026-10-03):** revalidation يطابق project/case/candidate/source revision/episode/execution/attempt/acceptance/effect/proof identity مع التعريف الحالي، واختبارات الخلوص تغطي هذا الربط. إضافة runtime Gate C artifact تزيل ادعاء أن غياب source producer يمنع التقدم؛ لكن استعادة receipt `proven` عبر Strategy Replay runner كامل ما زالت غير مثبتة. سجل التطوير يحوي receipt-status واحدة `proven`، ولا يكفي هذا الصف بدل إعادة تحميل Proof الحالي. فحص قراءة فقط لأحدث إيصالين `runner_blocked` وجد أن معرفي التنفيذ المشار إليهما غير موجودين في `ai_executions`؛ كما أن إيصال الحالة يحتفظ بسبب عام فقط ولا يحدد عقدة recipe المتوقفة. لم تُعد المحاولات ولم تُعدّل البيانات. تبقى recovery/positive runner coverage فجوة E3، ويلزم إعادة الإنتاج على قاعدة مؤقتة مع تشخيص محدود وآمن.
 
 **E3 proofSpine consumer audit (2026-10-02):** وجد الجرد أن `loadOperationEvidence` ينشئ `proof` و`proofSpine` من نتيجة `loadCanonicalProof` الحالية؛ chat وbenchmark وaudit-export تستخدم هذا loader، ولم يظهر direct Mission/Replay-specific `projectProofSpine` consumer. شُغّل اختبار `redacts owner-scoped export and refuses prior-attempt Canonical Proof` بنجاح (1 passed): يحمّل audit-export execution في attempt 1 مع acceptance/evidence محفوظين لـattempt 0، ثم يثبت أن `operationEvidence.proof` و`proofSpine` ليسا `PROVEN` وأن spine يحدد attempt 1. هذا يغطّي مسار loader/spine عبر audit-export فقط؛ لا يثبت استعادة Strategy Replay receipt، التي تبقى غير مغطاة end-to-end.
 
@@ -423,7 +424,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 - `[~]` Durable execution/checkpoint/acceptance/recovery موجود؛ completed بلا acceptance يظهر `UNKNOWN` في الإسقاطات المغطاة، وMission started-marker المحظور يفشل مغلقًا؛ لا universal lifecycle ولا crash reconstruction عام للأثر الخارجي.
 - `[~]` Canonical Proof يرفض evidence-optional acceptance؛ global `PROVEN` producers/semantics غير موحدة بالكامل.
 - `[✓]` Mission-linked Apply acceptance للمسار المختبر: `apply_changes_v1` يربط artifact مشتقًا من السجلات الدائمة، وD2 يبقى gate مستقلًا ومربوطًا بالخطة؛ هذا لا يغلق E2/E3 عالميًا.
-- `[~]` runtime.start وapply-changes لديهما transitions محددة و`changedFactRefs` مشتقة ومختبرة على الملاحظات المختارة؛ Mission replan يربط World State revision بالrevision والprompt. لا transition producers صريحة أخرى في API server، واكتمال delta عبر بقية الأسطح وتغيّر قرار planner ما زالا غير مثبتين.
+- `[~]` `runtime.start` وapply-changes و`delivery.push.github` لديها transitions محددة؛ Apply يشتق `changedFactRefs` ويختبرها على الملاحظات المختارة. Mission replan يربط World State revision بالrevision والprompt. الدفع اليدوي خارج انتقال وصفة GitHub ولا يحصل على هويات execution/Episode مصطنعة. اكتمال delta عبر بقية الأسطح وتغيّر قرار planner ما زالا غير مثبتين.
 - `[✗]` لا يوجد دليل أن World State changes تفرض خطة/Action مختلفة على نحو عام.
 - `[✗]` لا يوجد تقييم held-out عام يثبت loop عبر أسطح mutation مختلفة.
 - `[✗]` لا تبدأ طبقات Learning / Transfer / Generalization بعد.
@@ -434,4 +435,4 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 ## 18. Final Verdict
 
-**NOT READY.** أُغلق E1 package-boundary على مصادر workspace الحالية، وأُصلح تعارض Mission-linked Apply على المسار المختبر، لكن ذلك لا يغلق Agent Core. الحد الأدنى المانع المتبقي: (1) E2 lifecycle/terminal state عبر mutation surfaces مع reconciliation واختبارات crash/race؛ (2) E3 توحيد دلالة `PROVEN` وربط كل قبول بالـCanonical Proof الحالي؛ (3) تحديد وتغطية بقية mutation surfaces بـWorld Transitions حيث يلزم، إذ إن المنتجين الصريحين المثبتين حاليًا هما `runtime.start` وApply فقط؛ (4) إثبات أن تغيّر fact ذي صلة يغير قرار planner وفق سياسة domain محددة؛ ثم استكمال E6–E8 وheld-out evaluation قبل Learning/Transfer/Generalization. لا يُدّعى وصول أي طبقة إلى 100%.
+**NOT READY.** أُغلق E1 package-boundary على مصادر workspace الحالية، وأُصلح تعارض Mission-linked Apply على المسار المختبر، لكن ذلك لا يغلق Agent Core. الحد الأدنى المانع المتبقي: (1) E2 lifecycle/terminal state عبر mutation surfaces مع reconciliation واختبارات crash/race؛ (2) E3 توحيد دلالة `PROVEN` وربط كل قبول بالـCanonical Proof الحالي؛ (3) تحديد وتغطية بقية mutation surfaces بـWorld Transitions حيث يلزم؛ المنتجون الصريحون المثبتون حاليًا هم `runtime.start` وApply و`delivery.push.github` recipe فقط، ولا يشمل ذلك الدفع اليدوي؛ (4) إثبات أن تغيّر fact ذي صلة يغير قرار planner وفق سياسة domain محددة؛ ثم استكمال E6–E8 وheld-out evaluation قبل Learning/Transfer/Generalization. لا يُدّعى وصول أي طبقة إلى 100%.
