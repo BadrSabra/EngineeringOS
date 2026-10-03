@@ -12,6 +12,7 @@ import {
   aiGoalDependenciesTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiWorldFactsTable,
   aiWorldTransitionsTable,
   db,
   eventsTable,
@@ -604,6 +605,35 @@ describe("runtime.start transition retry scheduling", () => {
       effectBundleId: fixture.effectBundleId,
     });
     expect(finalized.status).toBe("materialized");
+    const [materializedTransition] = await db.select({
+      changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, id));
+    const materializedFacts = await db.select({
+      id: aiWorldFactsTable.id,
+      sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+    }).from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    const transitionObservationIds = new Set<string>([beforeObservationId, afterObservationId]);
+    const expectedChangedFactRefs = materializedFacts
+      .filter((fact) => Array.isArray(fact.sourceObservationIds)
+        && fact.sourceObservationIds.some((observationId: unknown) => (
+          typeof observationId === "string" && transitionObservationIds.has(observationId)
+        )))
+      .map((fact) => fact.id)
+      .sort((left, right) => left.localeCompare(right));
+    const actualChangedFactRefs = Array.isArray(materializedTransition?.changedFactRefs)
+      ? materializedTransition.changedFactRefs
+        .filter((factRef): factRef is string => typeof factRef === "string")
+        .sort((left, right) => left.localeCompare(right))
+      : [];
+    expect(expectedChangedFactRefs.length).toBeGreaterThan(0);
+    expect(actualChangedFactRefs).toEqual(expectedChangedFactRefs);
+    expect(materializedFacts.some((fact) =>
+      Array.isArray(fact.sourceObservationIds)
+      && fact.sourceObservationIds.includes(afterObservationId)
+      && actualChangedFactRefs.includes(fact.id)
+    )).toBe(true);
 
     const [mission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
     const [goal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));

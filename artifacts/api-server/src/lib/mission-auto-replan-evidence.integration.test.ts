@@ -11,11 +11,14 @@ import {
   aiWorldFactsTable,
   db,
   projectsTable,
+  tasksTable,
 } from "@workspace/db";
 import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
 import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
-import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
+import {
+  loadMissionWorldStatePlanningRead,
+} from "./mission-world-state-planning-read.js";
 import { executionProfileForMissionStep } from "./mission-execution-profile.js";
 
 const projectIds: string[] = [];
@@ -75,13 +78,6 @@ async function createReplanEvidenceFixture(): Promise<ReplanEvidenceFixture> {
   const observationId = randomUUID();
   const worldFactId = randomUUID();
   const now = new Date();
-  const taskScope = taskScopeIdentity({
-    id: episodeId,
-    projectId,
-    missionId,
-    goalId,
-    scope: { kind: "mission-task", missionId, goalId },
-  });
   const episodeScope = { kind: "mission-task" as const, missionId, goalId };
   const observedValue = "main";
   const valueHash = createHash("sha256")
@@ -192,6 +188,10 @@ async function createReplanEvidenceFixture(): Promise<ReplanEvidenceFixture> {
     updatedAt: now,
     closedAt: now,
   });
+  const [persistedEpisode] = await db.select().from(aiAgentEpisodesTable)
+    .where(eq(aiAgentEpisodesTable.id, episodeId));
+  if (!persistedEpisode) throw new Error("mission_replan_test_episode_missing");
+  const taskScope = taskScopeIdentity(persistedEpisode);
   await db.insert(aiAgentObservationsTable).values({
     id: observationId,
     projectId,
@@ -263,14 +263,6 @@ async function addForeignEpisodeWorldFactSource(fixture: ReplanEvidenceFixture) 
   const executionId = randomUUID();
   const episodeId = randomUUID();
   const observationId = randomUUID();
-  const taskScope = taskScopeIdentity({
-    id: episodeId,
-    projectId: fixture.projectId,
-    missionId: fixture.missionId,
-    goalId: fixture.goalId,
-    scope: fixture.episodeScope,
-  });
-  expect(taskScope).toBe(fixture.taskScope);
 
   await db.insert(aiExecutionsTable).values({
     id: executionId,
@@ -310,6 +302,11 @@ async function addForeignEpisodeWorldFactSource(fixture: ReplanEvidenceFixture) 
     updatedAt: fixture.now,
     closedAt: fixture.now,
   });
+  const [persistedEpisode] = await db.select().from(aiAgentEpisodesTable)
+    .where(eq(aiAgentEpisodesTable.id, episodeId));
+  if (!persistedEpisode) throw new Error("mission_replan_test_foreign_episode_missing");
+  const taskScope = taskScopeIdentity(persistedEpisode);
+  expect(taskScope).toBe(fixture.taskScope);
   await db.insert(aiAgentObservationsTable).values({
     id: observationId,
     projectId: fixture.projectId,
@@ -457,6 +454,105 @@ async function sourceRowsSnapshot(fixture: ReplanEvidenceFixture) {
 }
 
 describe("DB-backed automatic Mission replan evidence boundary", () => {
+  it("binds a changed trusted fact to the replan revision and advisory task prompt", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    const [failedGoal] = await db.select({
+      id: aiGoalsTable.id,
+      blockedReason: aiGoalsTable.blockedReason,
+      nextAction: aiGoalsTable.nextAction,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    if (!failedGoal) throw new Error("mission_replan_test_goal_missing");
+
+    const loadRead = () => db.transaction((tx) =>
+      loadMissionWorldStatePlanningRead(tx, {
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        goalId: fixture.goalId,
+        outcomeContract: failedGoal.outcomeContract,
+        nextAction: failedGoal.nextAction,
+        successCriteria: failedGoal.successCriteria,
+      }),
+    );
+    const initialRead = await loadRead();
+    expect(initialRead?.facts).toEqual([
+      expect.objectContaining({
+        subject: "repository",
+        predicate: "branch",
+        value: "main",
+      }),
+    ]);
+    if (!initialRead) throw new Error("mission_replan_test_initial_world_state_missing");
+
+    const noReadPreview = buildMissionPlanPreview({
+      message: MISSION_INTENT,
+      objective: MISSION_INTENT,
+      replanContext: buildReplanContext(failedGoal),
+    });
+    const initialPreview = buildMissionPlanPreview({
+      message: MISSION_INTENT,
+      objective: MISSION_INTENT,
+      replanContext: buildReplanContext(failedGoal, undefined, initialRead),
+    });
+    expect(initialPreview.plan.steps).toEqual(noReadPreview.plan.steps);
+
+    const changedValue = "release";
+    const changedValueHash = createHash("sha256")
+      .update(JSON.stringify(changedValue))
+      .digest("hex");
+    await db.update(aiAgentObservationsTable).set({
+      value: changedValue,
+      valueHash: changedValueHash,
+    }).where(eq(aiAgentObservationsTable.id, fixture.observationId));
+    await db.update(aiWorldFactsTable).set({
+      value: changedValue,
+      valueHash: changedValueHash,
+    }).where(eq(aiWorldFactsTable.id, fixture.worldFactId));
+
+    const changedRead = await loadRead();
+    expect(changedRead?.facts).toEqual([
+      expect.objectContaining({
+        subject: "repository",
+        predicate: "branch",
+        value: changedValue,
+      }),
+    ]);
+    if (!changedRead) throw new Error("mission_replan_test_changed_world_state_missing");
+    expect(changedRead.planningReadRevision).not.toBe(initialRead.planningReadRevision);
+
+    const changedPreview = buildMissionPlanPreview({
+      message: MISSION_INTENT,
+      objective: MISSION_INTENT,
+      replanContext: buildReplanContext(failedGoal, undefined, changedRead),
+    });
+    expect(changedPreview.plan.steps).toEqual(initialPreview.plan.steps);
+
+    const expectedRevision = `auto:${fixture.goalId}:${createHash("sha256")
+      .update(JSON.stringify({
+        sourcePlanHash: changedPreview.plan.planHash,
+        worldStatePlanningReadRevision: changedRead.planningReadRevision,
+      }))
+      .digest("hex")}`;
+    const result = await autoReplanMission(fixture.missionId, async (input) => ({
+      status: "scheduled",
+      goalId: input.goalId,
+      reason: "scheduled_by_test_fixture",
+    }));
+    expect(result.status).toBe("replanned");
+    if (result.status !== "replanned") return;
+    expect(result.revision).toBe(expectedRevision);
+
+    const prompts = await db.select({ prompt: tasksTable.prompt })
+      .from(tasksTable)
+      .where(inArray(tasksTable.goalId, result.plan.goals.map((goal) => goal.goalId)));
+    const combinedPrompt = prompts.map((row) => row.prompt).join("\n");
+    expect(combinedPrompt).toContain("Advisory World State facts");
+    expect(combinedPrompt).toContain('"value":"release"');
+    expect(combinedPrompt).not.toContain('"value":"main"');
+    expect(combinedPrompt).toContain("Verify with fresh server-owned evidence before acting.");
+  });
+
   it.each(rejectedEvidenceCases)(
     "excludes $name from the durable plan and revision hash",
     async ({ mutate }) => {

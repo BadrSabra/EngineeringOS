@@ -971,10 +971,24 @@ export async function finalizeApplyChangesTransition(input: {
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: [input.episodeId],
     }, async (tx, result) => {
+      const materializedObservationIds = unique([...beforeIds, ...afterIds]);
+      const selectedObservationIds = new Set(materializedObservationIds);
+      const facts = await tx.select({
+        id: aiWorldFactsTable.id,
+        sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+      }).from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, input.projectId));
+      const changedFactRefs = facts
+        .filter((fact) => Array.isArray(fact.sourceObservationIds)
+          && fact.sourceObservationIds.some((id: unknown) => (
+            typeof id === "string" && selectedObservationIds.has(id)
+          )))
+        .map((fact) => fact.id)
+        .sort((left, right) => left.localeCompare(right));
       const changed = await tx.update(aiWorldTransitionsTable).set({
         resultingWorldRevision: result.worldRevision,
-        materializedObservationIds: unique([...beforeIds, ...afterIds]),
-        changedFactRefs: [],
+        materializedObservationIds,
+        changedFactRefs,
         freshness: "fresh",
         status: "materialized",
         failureCode: null,
