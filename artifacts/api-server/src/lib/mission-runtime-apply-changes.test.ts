@@ -9,6 +9,8 @@ import {
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceReadsTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalDependenciesTable,
   aiGoalsTable,
@@ -61,6 +63,8 @@ async function createApplyChangesFixture() {
   const parentWorldRevision = "1".repeat(64);
   const resultingWorldRevision = "2".repeat(64);
   const operationId = `operation:${executionId}`;
+  const evidenceSnapshotId = `apply-evidence:${executionId}`;
+  const sourceBody = "Source retained before the approved change.\n";
   const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
   const requirement = {
     kind: "apply.changes" as const,
@@ -83,8 +87,9 @@ async function createApplyChangesFixture() {
   };
   const proof = buildExecutionProofProjection({
     outcome: "SUCCEEDED",
-    evidenceRequired: false,
+    evidenceRequired: true,
     evidenceComplete: true,
+    evidenceSnapshotId,
     sourceRevision: baseRevision,
     candidateIdentity,
   });
@@ -227,6 +232,35 @@ async function createApplyChangesFixture() {
     createdAt: now,
     updatedAt: now,
   });
+  const sourceBodyBytes = Buffer.byteLength(sourceBody);
+  const sourceContentHash = createHash("sha256").update(sourceBody, "utf8").digest("hex");
+  await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+    id: evidenceSnapshotId,
+    executionId,
+    projectId,
+    attempt: 0,
+    operationId,
+    sourceRevision: baseRevision,
+    candidateIdentity,
+    verdict: "PROVEN",
+    complete: 1,
+    readCount: 1,
+    totalBytes: sourceBodyBytes,
+    artifactRefs: [],
+    createdAt: now,
+  });
+  await db.insert(aiExecutionEvidenceReadsTable).values({
+    id: randomUUID(),
+    snapshotId: evidenceSnapshotId,
+    path: "README.md",
+    readType: "source",
+    contentHash: sourceContentHash,
+    byteLength: sourceBodyBytes,
+    complete: 1,
+    truncated: 0,
+    body: sourceBody,
+    createdAt: now,
+  });
   await db.insert(aiAgentEpisodesTable).values({
     id: episodeId,
     projectId,
@@ -270,7 +304,8 @@ async function createApplyChangesFixture() {
     reasonCode: "CANONICAL_PROOF_PROVEN",
     nextActionCode: "none",
     disposition: { proof },
-    evidenceRequired: 0,
+    evidenceSnapshotId,
+    evidenceRequired: 1,
     evidenceComplete: 1,
     sourceRevision: baseRevision,
     candidateIdentity,
