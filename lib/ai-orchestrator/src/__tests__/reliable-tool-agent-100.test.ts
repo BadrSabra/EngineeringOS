@@ -350,6 +350,17 @@ describe("canonical executor dispatcher boundary", () => {
       expect(missionDenied.kind).toBe("failed");
       expect(readPhases).toEqual([]);
 
+      const cancelledController = new AbortController();
+      cancelledController.abort();
+      const cancelled = await executeScopedReadTool({
+        ...common,
+        signal: cancelledController.signal,
+        toolCallId: "5".repeat(64),
+        allowedReadPaths: ["src/index.ts"],
+      });
+      expect(cancelled.kind).toBe("failed");
+      expect(readPhases).toEqual([]);
+
       const result = await executeScopedReadTool({
         ...common,
         toolCallId: "2".repeat(64),
@@ -360,7 +371,19 @@ describe("canonical executor dispatcher boundary", () => {
       expect(admit).toHaveBeenCalledTimes(2);
       expect(complete).toHaveBeenCalledTimes(2);
       expect(readPhases).toEqual(["requested", "recorded"]);
-      expect(lifecyclePhases).toEqual(["requested", "started", "completed"]);
+      expect(lifecyclePhases).toEqual([
+        "requested",
+        "failed",
+        "requested",
+        "failed",
+        "requested",
+        "failed",
+        "requested",
+        "cancelled",
+        "requested",
+        "started",
+        "completed",
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1863,6 +1886,39 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       "requested",
       "started",
       "completed",
+    ]);
+  });
+
+  it("records server-denied invocations as requested then failed, without starting them", async () => {
+    const call = makeCall("read_file", SAFE_ARGS.read_file, {
+      allowedToolNames: new Set(["git_status"]),
+    });
+    const result = await executeSingleTool(call.options);
+
+    expect(result.kind).toBe("failed");
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "failed",
+    ]);
+    expect(call.lifecycleEvents[1]).toMatchObject({
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(call.readEvents).toHaveLength(0);
+  });
+
+  it("records a thrown executor as failed after the invocation starts", async () => {
+    const call = makeCall("run_command", SAFE_ARGS.run_command, {
+      commandRunner: async () => {
+        throw new Error("t8 executor failure");
+      },
+    });
+    const result = await executeSingleTool(call.options);
+
+    expect(result.kind).toBe("failed");
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "failed",
     ]);
   });
 

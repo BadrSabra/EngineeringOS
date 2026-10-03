@@ -7,4 +7,4 @@ Complete the remaining Layer 1 Reliable Tool Agent work while keeping delegation
 
 **Why:** The user explicitly set these constraints for the EngineeringOS Layer 1 closeout.
 
-**How to apply:** Bind tool-dispatch records to the current execution, attempt, revision, scope, and manifest; keep raw arguments out of durable records; do not let telemetry grant authority or replace proof.
+**How to apply:** Bind tool-dispatch records to the current execution, attempt, revision, scope, and manifest. Every well-formed, identity-bound attempt needs a durable terminal phase, including requests denied before start or cancelled during preflight. Keep raw arguments out of durable records; telemetry never grants authority or replaces proof.

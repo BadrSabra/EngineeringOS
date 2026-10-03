@@ -1163,6 +1163,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     };
   }
   let lifecycleRequested = false;
+  let lifecycleStarted = false;
+  let lifecycleTerminal = false;
   const emitToolLifecycle = async (
     phase: ToolInvocationLifecycleEvent["phase"],
     details: Pick<ToolInvocationLifecycleEvent, "outputHash" | "diagnosticCode"> = {},
@@ -1179,8 +1181,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       ...details,
     });
   };
+  const emitTerminalToolLifecycle = async (
+    phase: Extract<ToolInvocationLifecycleEvent["phase"], "completed" | "failed" | "cancelled">,
+    details: Pick<ToolInvocationLifecycleEvent, "outputHash" | "diagnosticCode"> = {},
+  ): Promise<void> => {
+    await emitToolLifecycle(phase, details);
+    lifecycleTerminal = true;
+  };
 
   try {
+    if (opts.onToolInvocation) {
+      lifecycleRequested = true;
+      await emitToolLifecycle("requested");
+    }
     if (isExecutionTool && !opts.allowExecutionTools) {
       return {
         kind: "failed",
@@ -1405,9 +1418,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         }
       : undefined;
     if (opts.onToolInvocation) {
-      await emitToolLifecycle("requested");
-      lifecycleRequested = true;
       await emitToolLifecycle("started");
+      lifecycleStarted = true;
     }
     const output = await (isGitTool
       ? await (opts.signal
@@ -1515,7 +1527,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         : output.startsWith('Focused change queued for "') && pendingChanges.length === mutationPendingStart + 1;
       if (!queuedSuccessfully) {
         pendingChanges.splice(mutationPendingStart);
-        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_EXECUTION_FAILED" });
+        await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_EXECUTION_FAILED" });
         return {
           kind: "failed",
           failureKind: "execution",
@@ -1527,7 +1539,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         await mutationCallback({ ...mutationInvocationBase, phase: "committed" });
       } catch {
         pendingChanges.splice(mutationPendingStart);
-        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
+        await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
           kind: "failed",
           failureKind: "unavailable",
@@ -1557,7 +1569,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       try {
         await readCallback({ ...readInvocationBase, ...recorded });
       } catch {
-        await emitToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
+        await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
           kind: "failed",
           failureKind: "unavailable",
@@ -1568,7 +1580,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
 
     if (analysisFailure) {
-      await emitToolLifecycle(
+      await emitTerminalToolLifecycle(
         analysisFailure.failureKind === "cancelled" ? "cancelled" : "failed",
         { diagnosticCode: analysisFailure.diagnosticCode },
       );
@@ -1625,7 +1637,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
-    await emitToolLifecycle("completed", {
+    await emitTerminalToolLifecycle("completed", {
       outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
     });
     return { kind: "ok", output, source };
@@ -1660,7 +1672,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (lifecycleRequested) {
       try {
-        await emitToolLifecycle(
+        await emitTerminalToolLifecycle(
           cancelled ? "cancelled" : "failed",
           { diagnosticCode },
         );
@@ -1689,6 +1701,24 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           ? `Tool "${name}" exceeded the server output limit of ${outputLimitError.maxBytes} bytes; its output was withheld. Use a narrower query or scope.`
           : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
     };
+  } finally {
+    if (lifecycleRequested && !lifecycleTerminal) {
+      const cancelled = opts.signal?.aborted === true;
+      try {
+        await emitTerminalToolLifecycle(
+          cancelled ? "cancelled" : "failed",
+          {
+            diagnosticCode: cancelled
+              ? "TOOL_CANCELLED"
+              : lifecycleStarted
+                ? "TOOL_EXECUTION_FAILED"
+                : "TOOL_UNAVAILABLE",
+          },
+        );
+      } catch {
+        // Preserve the tool result if a terminal audit write also fails.
+      }
+    }
   }
 }
 
@@ -1939,12 +1969,61 @@ export async function executeScopedReadTool(
     diagnosticCode: "TOOL_UNAVAILABLE",
     safeMessage,
   });
+  const manifestHash = opts.toolManifestHash.trim();
+  const invocationId = opts.toolCallId.trim();
+  const validatedArgs = validateToolArguments(opts.name, opts.args);
+  const requestedPath =
+    validatedArgs && normalizeMissionScopedReadPath(validatedArgs.path);
+  const scopeHash = canonicalJsonHash({
+    rootPath: opts.rootPath,
+    manifestHash,
+    allowedToolNames: [...opts.allowedToolNames].sort(),
+    allowedReadPaths: sortedCachePaths(opts.allowedReadPaths),
+    missionReadPathScope: sortedCachePaths(opts.missionReadPathScope),
+    objectiveScopePolicy: opts.objectiveScopePolicy ?? null,
+    strictAllowedReadPaths: opts.strictAllowedReadPaths ?? false,
+  } as unknown as JsonValue);
+  const lifecycleCallback = opts.onToolInvocation;
+  const lifecycleBinding =
+    validatedArgs
+    && requestedPath
+    && invocationId
+    && invocationId.length <= 160
+    && /^[a-f0-9]{64}$/u.test(manifestHash)
+    && opts.executionLedger.id.trim()
+      ? {
+          toolCallId: invocationId,
+          executionId: opts.executionLedger.id,
+          scopeHash,
+          toolName: opts.name,
+          inputHash: toolInputHash(validatedArgs),
+          manifestHash,
+        }
+      : undefined;
+  const recordPreExecutionFailure = async (cancelled: boolean): Promise<void> => {
+    if (!lifecycleBinding || !lifecycleCallback) return;
+    try {
+      await lifecycleCallback({ ...lifecycleBinding, phase: "requested" });
+      await lifecycleCallback({
+        ...lifecycleBinding,
+        phase: cancelled ? "cancelled" : "failed",
+        diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_UNAVAILABLE",
+      });
+    } catch {
+      // No tool runs on this path; a failed audit write must not open the gate.
+    }
+  };
+  const failBeforeExecution = async (
+    safeMessage: string,
+    cancelled = opts.signal.aborted,
+  ): Promise<SingleToolResult> => {
+    await recordPreExecutionFailure(cancelled);
+    return failClosed(safeMessage);
+  };
   const hasScope =
     (opts.allowedReadPaths?.length ?? 0) > 0
     || opts.objectiveScopePolicy !== undefined
     || opts.missionReadPathScope !== undefined;
-  const manifestHash = opts.toolManifestHash.trim();
-  const invocationId = opts.toolCallId.trim();
   if (
     !hasScope
     || !opts.rootPath.trim()
@@ -1955,19 +2034,18 @@ export async function executeScopedReadTool(
     || !opts.onReadOnlyInvocation
     || !opts.onToolInvocation
   ) {
-    return failClosed(
+    return failBeforeExecution(
       "The server could not establish this read's authorized manifest, exact scope, or invocation lifecycle; no read was performed.",
     );
   }
   if (opts.signal.aborted) {
-    return failClosed("The read was cancelled before execution.");
+    return failBeforeExecution("The read was cancelled before execution.", true);
   }
 
-  const validatedArgs = validateToolArguments(opts.name, opts.args);
-  const requestedPath =
-    validatedArgs && normalizeMissionScopedReadPath(validatedArgs.path);
   if (!validatedArgs || !requestedPath) {
-    return failClosed("The server read request did not contain a valid project-relative path.");
+    return failBeforeExecution(
+      "The server read request did not contain a valid project-relative path.",
+    );
   }
   const exactScope = new Set(
     (opts.allowedReadPaths ?? [])
@@ -1978,21 +2056,27 @@ export async function executeScopedReadTool(
     ? classifyObjectiveScopePath(validatedArgs.path, opts.objectiveScopePolicy)
     : undefined;
   if (objectiveExpansion?.kind === "UNJUSTIFIED_SCOPE_EXPANSION") {
-    return failClosed("The requested source path is outside the server-approved objective scope.");
+    return failBeforeExecution(
+      "The requested source path is outside the server-approved objective scope.",
+    );
   }
   if (
     opts.allowedReadPaths !== undefined
     && !exactScope.has(requestedPath)
     && opts.strictAllowedReadPaths
   ) {
-    return failClosed("The requested source path is outside the immutable server-approved read packet.");
+    return failBeforeExecution(
+      "The requested source path is outside the immutable server-approved read packet.",
+    );
   }
   if (
     opts.allowedReadPaths !== undefined
     && !exactScope.has(requestedPath)
     && objectiveExpansion?.kind !== "JUSTIFIED_SCOPE_EXPANSION"
   ) {
-    return failClosed("The requested source path is outside the server-approved read manifest.");
+    return failBeforeExecution(
+      "The requested source path is outside the server-approved read manifest.",
+    );
   }
   if (
     opts.name === "search_code"
@@ -2000,7 +2084,9 @@ export async function executeScopedReadTool(
     && !opts.objectiveScopePolicy
     && !exactScope.has(".")
   ) {
-    return failClosed("Project-wide search requires an explicit server-approved objective scope.");
+    return failBeforeExecution(
+      "Project-wide search requires an explicit server-approved objective scope.",
+    );
   }
 
   let admitted = false;
@@ -2010,10 +2096,12 @@ export async function executeScopedReadTool(
       model: opts.model,
     });
   } catch {
-    return failClosed("The request budget could not admit this read; no read was performed.");
+    return failBeforeExecution(
+      "The request budget could not admit this read; no read was performed.",
+    );
   }
   if (!admitted) {
-    return failClosed("The request budget does not permit another read.");
+    return failBeforeExecution("The request budget does not permit another read.");
   }
 
   const startedAt = Date.now();
@@ -2032,15 +2120,7 @@ export async function executeScopedReadTool(
       signal: opts.signal,
       toolCallId: invocationId,
       executionId: opts.executionLedger.id,
-      scopeHash: canonicalJsonHash({
-        rootPath: opts.rootPath,
-        manifestHash,
-        allowedToolNames: [...opts.allowedToolNames].sort(),
-        allowedReadPaths: sortedCachePaths(opts.allowedReadPaths),
-        missionReadPathScope: sortedCachePaths(opts.missionReadPathScope),
-        objectiveScopePolicy: opts.objectiveScopePolicy ?? null,
-        strictAllowedReadPaths: opts.strictAllowedReadPaths ?? false,
-      } as unknown as JsonValue),
+      scopeHash,
       toolManifestHash: manifestHash,
       onReadOnlyInvocation: opts.onReadOnlyInvocation,
       onToolInvocation: opts.onToolInvocation,
