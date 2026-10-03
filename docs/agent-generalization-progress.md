@@ -4065,6 +4065,17 @@ G9 Revocation Safety
 - **remaining/blocker:** احتياطي الرمز ما زال ثابتًا (8,192) وليس تقديرًا محافظًا خاصًا بالطلب؛ لا يوجد replay إيجابي كامل أو استعادة receipt `proven`. سجلات التطوير الحالية لا تكشف سبب `runner_blocked`.
 - **next step:** أضف تقديرًا محافظًا خاصًا بكل طلب قبل provider admission. ثم أعد إنتاج Strategy Replay على قاعدة مؤقتة مع حفظ حالة العقدة المتوقفة كمعرّف آمن، وأثبت proof الإيجابي واستعادة receipt دون لمس صفوف التطوير أو الإنتاج.
 
+### 2026-10-03 — تقدير حمولة الطلب وتشخيص العقدة المتوقفة
+
+- **phase/step:** تحسين تقدير ميزانية AI وتوسيع تشخيص runner المحتجز دون إعادة تشغيل بيانات التطوير.
+- **status:** `caller-payload estimates and bounded node diagnostics implemented`; الحجز لكل طلب provider فعلي والـreplay الإيجابي الكامل ما زالا غير مثبتين.
+- **what changed:** يتدرج الحجز الآن حسب بايتات UTF-8 للحمولة المتاحة لمسارات analysis/review وchat/evidence وsynthesis، مع احتياطي ثابت للـprompt والإكمال. يظل الحجز على مستوى provider candidate الخارجي ولا يشمل كل retry أو fallback داخلي. إيصالات `runner_blocked` الجديدة تسجل حتى 24 معرّف عقدة آمنًا، بلا excerpts؛ الإيصالات التاريخية لم تتغير.
+- **files/schema/contracts touched:** `ai-budget.ts` واختباراته، `ai-route-helpers.ts`، `routes/ai/analysis.ts`، `strategy-replay-case-runner.ts` واختباراته، جرد الفجوات والتقرير الجنائي ومذكرة ميزانية AI. لا تغيير schema.
+- **validation:** الاختبارات المركزة 14/14؛ API typecheck و`git diff --check` ناجحان؛ أعيد تشغيل API وبدأ يستمع على المنفذ. لا يوجد اختبار runner إيجابي كامل أو fixture معزول موثق.
+- **authority/safety impact:** لا إثبات أو صلاحية أو promotion جديدة؛ لا قراءة كتابة جديدة في قاعدة التطوير/الإنتاج ولا إعادة تشغيل replay؛ لم يتغير فصل Git push اليدوي عن `delivery.push.github`.
+- **remaining/blocker:** تقدير الحمولة ليس نص provider النهائي؛ retries/fallbacks الفعلية لا تحصل على reservation منفرد قبل النقل. سبب الإيصالات التاريخية لا يزال مجهولًا لأن execution IDs المشار إليها غير موجودة.
+- **next step:** أضف admission/reconciliation بمعرّف فريد لكل provider transport request، ثم ابنِ fixture قاعدة مؤقتة لتشغيل runner كامل وإثبات replay وقراءة receipt `proven` من جديد.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

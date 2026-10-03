@@ -591,6 +591,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
             operationId: metadata.operationId,
             correlationId: metadata.operationId,
           },
+          requestPayload: projectContext,
         },
       ),
     ));
@@ -741,6 +742,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
       (opts) => reviewCode(projectContext, fileContents, opts),
       {
         qualityProfile: "code_review",
+        requestPayload: { projectContext, fileContents },
         telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
       },
     ));
@@ -957,6 +959,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
           operationId: metadata.operationId,
           correlationId: metadata.operationId,
         },
+        requestPayload: projectContext,
       },
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
@@ -1204,6 +1207,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
             operationId: metadata.operationId,
             correlationId: metadata.operationId,
           },
+          requestPayload: { projectContext, fileContents },
         },
       ),
     ).then((output) => {

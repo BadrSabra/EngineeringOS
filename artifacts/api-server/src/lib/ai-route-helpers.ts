@@ -64,6 +64,7 @@ import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js"
 import {
   AiBudgetAdmissionError,
   admitAiProviderAttempt,
+  estimateAiProviderReservationTokens,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
@@ -643,6 +644,7 @@ export async function runAgentWithFallback<T>(
   }) => Promise<T>,
   options?: ProviderSelectionOptions & {
     signal?: AbortSignal;
+    requestPayload?: unknown;
     onProviderAttempt?: (attempt: {
       provider: ProviderId;
        model?: string | null;
@@ -695,6 +697,9 @@ export async function runAgentWithFallback<T>(
         ownerId: userId,
         projectId: options.telemetryContext.projectId,
         attemptId,
+        ...(options.requestPayload !== undefined
+          ? { estimatedTokens: estimateAiProviderReservationTokens(options.requestPayload) }
+          : {}),
       });
     }
     let modelAttemptCount = 0;
@@ -996,6 +1001,10 @@ export async function chatWithFallback(
         ownerId: userId,
         projectId: baseParams.telemetryContext.projectId,
         attemptId,
+        estimatedTokens: estimateAiProviderReservationTokens({
+          message: baseParams.message,
+          retainedEvidence: [...retainedEvidence.values()],
+        }),
       });
     }
     if (lastErr) {
@@ -1186,6 +1195,10 @@ export async function chatWithFallback(
                         ownerId: userId,
                         projectId,
                         attemptId: synthesisReservationId,
+                        estimatedTokens: estimateAiProviderReservationTokens({
+                          message: baseParams.message,
+                          retainedEvidence: [...retainedEvidence.values()],
+                        }),
                       });
                       return true;
                     },

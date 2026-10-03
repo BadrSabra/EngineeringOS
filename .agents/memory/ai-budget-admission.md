@@ -32,12 +32,12 @@ if best-effort usage telemetry could not be persisted.
 
 **Why:** A resumed candidate can otherwise bypass fresh admission, and a
 consumed reservation disappears from attempt totals when its telemetry row is
-missing. One outer provider-candidate reservation does not pre-admit each
-physical provider request made by tools, retries, or synthesis; later usage
-events may count those calls, but cannot prevent within-candidate overrun.
+missing. An estimate based on caller payload bytes is not the final provider
+prompt and does not pre-admit each physical request made by retries or internal
+model fallbacks; later usage events cannot prevent within-candidate overrun.
 
-**How to apply:** Choose and document whether limits apply per HTTP invocation,
-durable execution attempt, or physical provider request. Bind reservation
-identities to that unit, count consumed reservations independently of telemetry
-success, and reconcile token usage across every provider call or mark totals
-partial/unknown.
+**How to apply:** Treat each physical outbound provider request as the spend
+unit. Caller-payload estimates are only an upstream screening bound; do not
+claim per-request enforcement until every transport, including internal
+retries and model fallbacks, obtains a unique reservation before network I/O
+and reconciles its own known or unknown usage.

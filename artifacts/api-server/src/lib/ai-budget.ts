@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { and, count, eq, gte, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
 import {
@@ -17,6 +18,36 @@ export const AI_BUDGET_MIN_ATTEMPT_LIMIT = 1;
 export const AI_BUDGET_MAX_ATTEMPT_LIMIT = 10_000;
 export const AI_BUDGET_DEFAULT_TOKEN_LIMIT = 100_000;
 export const AI_BUDGET_PROVIDER_RESERVATION_TOKENS = 8_192;
+
+const AI_BUDGET_DEFAULT_COMPLETION_RESERVE_TOKENS = 4_096;
+const AI_BUDGET_FIXED_PROMPT_OVERHEAD_TOKENS = 4_096;
+
+/**
+ * Conservative reservation estimate from the request payload available at
+ * server admission. UTF-8 byte length bounds the encoded input more safely
+ * than a character/4 heuristic; the reservation also includes fixed prompt
+ * overhead and the completion allowance.
+ */
+export function estimateAiProviderReservationTokens(
+  requestPayload: unknown,
+  maxCompletionTokens = AI_BUDGET_DEFAULT_COMPLETION_RESERVE_TOKENS,
+): number {
+  if (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0) {
+    throw new Error("AI budget completion reserve must be a non-negative safe integer.");
+  }
+  const serialized = typeof requestPayload === "string"
+    ? requestPayload
+    : JSON.stringify(requestPayload);
+  if (typeof serialized !== "string") {
+    throw new Error("AI budget request estimate requires serializable input.");
+  }
+  const inputBytes = Buffer.byteLength(serialized, "utf8");
+  const estimate = inputBytes + maxCompletionTokens + AI_BUDGET_FIXED_PROMPT_OVERHEAD_TOKENS;
+  if (!Number.isSafeInteger(estimate)) {
+    throw new Error("AI budget request estimate exceeds the safe integer range.");
+  }
+  return Math.max(AI_BUDGET_PROVIDER_RESERVATION_TOKENS, estimate);
+}
 export const AI_BUDGET_MIN_TOKEN_LIMIT = 1_000;
 export const AI_BUDGET_MAX_TOKEN_LIMIT = 10_000_000;
 export const AI_BUDGET_DEFAULT_WARNING_THRESHOLD = 0.8;
@@ -299,6 +330,7 @@ export async function admitAiProviderAttempt(params: {
   ownerId: string;
   projectId: string;
   attemptId: string;
+  estimatedTokens?: number;
 }): Promise<{ budget: AiProjectBudget; state: AiBudgetState; projected: number }> {
   const result = await db.transaction(async (tx) => {
     const budget = await loadOrCreateBudget(tx, params.projectId, params.ownerId);
@@ -317,11 +349,13 @@ export async function admitAiProviderAttempt(params: {
     if (usage.projected >= budget.dailyAttemptLimit) {
       throw new AiBudgetAdmissionError("attempts");
     }
-    const estimatedTokens = Math.min(
-      budget.dailyTokenLimit,
-      AI_BUDGET_PROVIDER_RESERVATION_TOKENS,
-    );
-    if (usage.tokenAdmissionTotal + estimatedTokens > budget.dailyTokenLimit) {
+    const estimatedTokens = params.estimatedTokens ?? AI_BUDGET_PROVIDER_RESERVATION_TOKENS;
+    if (
+      !Number.isSafeInteger(estimatedTokens)
+      || estimatedTokens < 1
+      || estimatedTokens > budget.dailyTokenLimit
+      || usage.tokenAdmissionTotal + estimatedTokens > budget.dailyTokenLimit
+    ) {
       throw new AiBudgetAdmissionError("tokens");
     }
     await tx.insert(aiBudgetReservationsTable).values({

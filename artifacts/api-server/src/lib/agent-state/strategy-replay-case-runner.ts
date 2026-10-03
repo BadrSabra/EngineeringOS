@@ -85,6 +85,9 @@ const ReplayCaseRunReceiptSchema = z.object({
   replayEffectBundleId: z.string().min(1).max(200).nullable(),
   replayCanonicalProofHash: z.string().regex(HASH).nullable(),
   workspaceTreeHash: z.string().regex(HASH).nullable(),
+  runnerBlockedNodeIds: z.array(
+    z.string().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9._:-]*$/),
+  ).max(24).optional(),
 }).strict().superRefine((receipt, context) => {
   const replayFields = [
     receipt.replayExecutionId,
@@ -116,6 +119,19 @@ export type StrategyReplayCaseRunResult = {
   receipt: StrategyReplayCaseRunReceipt;
   recovered: boolean;
 };
+
+const SAFE_RECIPE_NODE_ID = /^[A-Za-z][A-Za-z0-9._:-]{0,79}$/;
+
+export function blockedStrategyReplayNodeIds(
+  nodes: readonly { nodeId: string; status: "passed" | "failed" | "blocked" }[],
+): string[] {
+  return [...new Set(
+    nodes
+      .filter((node) => node.status !== "passed")
+      .map((node) => node.nodeId)
+      .filter((nodeId) => SAFE_RECIPE_NODE_ID.test(nodeId)),
+  )].slice(0, 24);
+}
 
 type ReplayCaseSnapshot = {
   definition: RegisteredStrategyReplayCaseDefinition;
@@ -521,6 +537,7 @@ function makeReceipt(
     replayAcceptanceId?: string | null;
     replayEffectBundleId?: string | null;
     replayCanonicalProofHash?: string | null;
+    runnerBlockedNodeIds?: string[];
   },
 ): StrategyReplayCaseRunReceipt {
   return ReplayCaseRunReceiptSchema.parse({
@@ -550,6 +567,9 @@ function makeReceipt(
     replayEffectBundleId: input.replayEffectBundleId ?? null,
     replayCanonicalProofHash: input.replayCanonicalProofHash ?? null,
     workspaceTreeHash: input.workspaceTreeHash ?? null,
+    ...(input.runnerBlockedNodeIds?.length
+      ? { runnerBlockedNodeIds: input.runnerBlockedNodeIds }
+      : {}),
   });
 }
 
@@ -902,6 +922,9 @@ export async function runRegisteredStrategyReplayCase(input: {
         replayAttempt: result.receipt.attempt,
         replayEpisodeId: replayEpisode?.id ?? null,
         workspaceTreeHash,
+        ...(result.status === "blocked"
+          ? { runnerBlockedNodeIds: blockedStrategyReplayNodeIds(result.receipt.nodes) }
+          : {}),
       });
       await persistReceipt(snapshot, lease, receipt);
       return { status: receipt.status, receipt, recovered: snapshot.reclaimed };

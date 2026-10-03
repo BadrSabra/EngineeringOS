@@ -1,11 +1,31 @@
 import { describe, expect, it } from "vitest";
 import type { RegisteredStrategyReplayCaseDefinition } from "./strategy-replay-case-registry.js";
 import {
+  blockedStrategyReplayNodeIds,
   matchesStoredReplayReceiptIdentity,
   type StrategyReplayCaseRunReceipt,
 } from "./strategy-replay-case-runner.js";
 
 const hash = (character: string) => character.repeat(64);
+
+describe("Strategy Replay blocked-node diagnostic projection", () => {
+  it("retains only bounded safe node IDs for failed or blocked nodes", () => {
+    expect(blockedStrategyReplayNodeIds([
+      { nodeId: "runtime.start", status: "passed" },
+      { nodeId: "runtime.observe", status: "blocked" },
+      { nodeId: "runtime.observe", status: "failed" },
+      { nodeId: "not a safe id", status: "blocked" },
+    ])).toEqual(["runtime.observe"]);
+  });
+
+  it("caps the diagnostic node list at 24 IDs", () => {
+    const nodes = Array.from({ length: 30 }, (_, index) => ({
+      nodeId: `step-${index}`,
+      status: "blocked" as const,
+    }));
+    expect(blockedStrategyReplayNodeIds(nodes)).toHaveLength(24);
+  });
+});
 
 describe("stored Strategy Replay receipt identity", () => {
   const definition = {

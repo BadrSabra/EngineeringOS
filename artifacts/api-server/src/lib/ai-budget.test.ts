@@ -46,7 +46,7 @@ describe("AI project budget admission", () => {
       projectId,
       ownerId,
       dailyAttemptLimit: 1,
-      dailyTokenLimit: 1_000,
+      dailyTokenLimit: 10_000,
       warningThreshold: 0.8,
       resetAt: new Date(now.getTime() + 86_400_000),
       createdAt: now,
@@ -97,7 +97,7 @@ describe("AI project budget admission", () => {
       projectId,
       ownerId,
       dailyAttemptLimit: 10,
-      dailyTokenLimit: 1_000,
+      dailyTokenLimit: 10_000,
       warningThreshold: 0.8,
       resetAt: new Date(now.getTime() + 86_400_000),
       createdAt: now,
@@ -121,8 +121,8 @@ describe("AI project budget admission", () => {
       .where(eq(aiBudgetReservationsTable.attemptId, "token-attempt-1"));
     expect(reservation).toMatchObject({
       status: "consumed",
-      chargedTokens: 1_000,
-      estimatedTokens: 1_000,
+      chargedTokens: 8_192,
+      estimatedTokens: 8_192,
     });
 
     await expect(admitAiProviderAttempt({
