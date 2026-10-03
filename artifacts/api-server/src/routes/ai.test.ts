@@ -6047,6 +6047,10 @@ describe("delivery recovery routes", () => {
     const operation = await makeRecoverableProposal(projectId, "isolated", {
       changePath: "README.md",
     });
+    if (!operation.workspaceRoot) {
+      throw new Error("Test proposal is missing its managed workspace root.");
+    }
+    const sourceManifest = await fs.readFile(`${operation.workspaceRoot}/package.json`, "utf8");
     const [proposal] = await db.select({
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
@@ -6093,14 +6097,16 @@ describe("delivery recovery routes", () => {
     const replayExecution = await createAiExecution({
       userId: "test-user",
       projectId,
+      workspaceRoot: operation.workspaceRoot,
       idempotencyKey: `test-shadow-replay:${replayId}`,
       correlationId: operation.operationId,
       request: {
         projectId,
         message: "Verify a replay candidate.",
         modelMessage: "Verify a replay candidate.",
-        validationTargetPaths: [operation.change.path],
+        validationTargetPaths: ["package.json"],
         workspaceRevision: proposal.baseRevision,
+        workspaceRoot: operation.workspaceRoot,
         proofRequired: true,
       },
     });
@@ -6129,12 +6135,19 @@ describe("delivery recovery routes", () => {
       proposalId: operation.proposalId,
       evidence: {
         operationId: operation.operationId,
+        workspaceRoot: operation.workspaceRoot,
         sourceRevision: proposal.baseRevision,
         candidateIdentity: proposal.candidateTreeHash,
         verdict: "PROVEN",
         required: true,
-        sourceEvidenceRequired: false,
-        reads: [],
+        sourceEvidenceRequired: true,
+        reads: [{
+          path: "package.json",
+          readType: "source",
+          body: sourceManifest,
+          complete: true,
+          truncated: false,
+        }],
       },
     });
     expect(finalization.accepted, finalization.reason).toBe(true);
