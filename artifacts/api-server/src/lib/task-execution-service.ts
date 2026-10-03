@@ -75,6 +75,7 @@ import {
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 import {
   appendEpisodeEvent,
+  createToolInvocationEpisodeEventInput,
   startEpisode,
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
@@ -1895,6 +1896,21 @@ async function executeMissionToolLoop(params: {
         }
       }
     };
+  const onToolInvocation:
+    | import("@workspace/ai-orchestrator").ToolInvocationLifecycleCallback
+    = async (invocation) => {
+      const episode = await getMissionRepairEpisode();
+      await appendEpisodeEvent(createToolInvocationEpisodeEventInput({
+        episodeId: episode.episodeId,
+        projectId: params.task.projectId,
+        executionId: params.executionId,
+        attempt: params.expectedAttempt,
+        workerId: params.workerId,
+        projectRevision: params.workspaceRevision,
+        correlationId: params.correlationId,
+        invocation,
+      }));
+    };
   const missionFileReadToolNames = policy.targetPaths.length > 0
     ? ["read_file", "read_file_range"]
     : [];
@@ -1955,6 +1971,7 @@ async function executeMissionToolLoop(params: {
       allowExecutionTools: params.profile !== "mission_observe" && approvalState === "APPROVED",
       onMutationInvocation,
       onReadOnlyInvocation,
+      onToolInvocation,
       allowedToolNames: missionToolNames,
       authorizedToolManifestNames: missionToolNames,
       missionReadPathScope: policy.targetPaths,

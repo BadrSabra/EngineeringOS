@@ -17,6 +17,7 @@ import {
   EpisodeLedgerError,
   appendEpisodeEvent,
   closeEpisode,
+  createToolInvocationEpisodeEventInput,
   loadEpisodeForOwner,
   publicEpisodeProjection,
   replayEpisode,
@@ -194,6 +195,66 @@ describe("agent episode ledger", () => {
     expect(retry.eventId).toBe(first.eventId);
     expect(second.sequence).toBe(2);
     expect(replay.events.map((event) => event.sequence)).toEqual([0, 1, 2]);
+  });
+
+  it("persists each bound tool invocation phase and replays it idempotently", async () => {
+    const episode = await startEpisode(startInput());
+    const phases = [
+      { phase: "requested" as const },
+      { phase: "started" as const },
+      { phase: "completed" as const, outputHash: "d".repeat(64) },
+    ];
+    const recorded: Array<Awaited<ReturnType<typeof appendEpisodeEvent>>> = [];
+    for (const phase of phases) {
+      recorded.push(await appendEpisodeEvent(createToolInvocationEpisodeEventInput({
+        episodeId: episode.episodeId,
+        projectId,
+        executionId,
+        attempt: 0,
+        workerId,
+        projectRevision: "revision-1",
+        invocation: {
+          ...phase,
+          toolCallId: "provider-call-17",
+          executionId: "tool-loop-execution",
+          scopeHash: "c".repeat(64),
+          toolName: "read_file",
+          inputHash: "a".repeat(64),
+          manifestHash: "b".repeat(64),
+        },
+      })));
+    }
+    const requestedInput = createToolInvocationEpisodeEventInput({
+      episodeId: episode.episodeId,
+      projectId,
+      executionId,
+      attempt: 0,
+      workerId,
+      projectRevision: "revision-1",
+      invocation: {
+        phase: "requested",
+        toolCallId: "provider-call-17",
+        executionId: "tool-loop-execution",
+        scopeHash: "c".repeat(64),
+        toolName: "read_file",
+        inputHash: "a".repeat(64),
+        manifestHash: "b".repeat(64),
+      },
+    });
+    const retry = await appendEpisodeEvent(requestedInput);
+    const replay = await replayEpisode({ userId, projectId, episodeId: episode.episodeId });
+    const toolEvents = replay.events.filter((event) =>
+      event.eventType === "TOOL_INVOCATION_RECORDED",
+    );
+    const toolEventPayloads = toolEvents.map((event) =>
+      event.payload as unknown as Record<string, unknown>,
+    );
+
+    expect(retry.eventId).toBe(recorded[0]?.eventId);
+    expect(toolEventPayloads.map((payload) => payload.phase))
+      .toEqual(["requested", "started", "completed"]);
+    expect(new Set(toolEventPayloads.map((payload) => payload.invocationId)).size).toBe(1);
+    expect(JSON.stringify(toolEvents)).not.toContain("src/private.ts");
   });
 
   it("requires canonical actions on request events and records their episode references", async () => {

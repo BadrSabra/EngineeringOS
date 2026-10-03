@@ -26,6 +26,7 @@ import type { ToolDefinitionLike } from "../tool-policy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage } from "../groq-client.js";
 import { executeToolLoop } from "../tool-execution-engine.js";
+import type { ToolInvocationLifecycleCallback } from "../tool-execution-engine.js";
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
@@ -93,6 +94,7 @@ export type HierarchicalExecutorOpts = {
   /** Optional coverage contract for a compound question. */
   compoundParts?: CompoundQueryPart[];
   executionLedger?: ExecutionLedger;
+  onToolInvocation?: ToolInvocationLifecycleCallback;
 };
 
 export type SourceEvidence = {
@@ -208,6 +210,7 @@ async function runSubTask(
       // enforce the task's target paths inside the dispatcher as well.
       allowedReadPaths: task.targetPaths,
       executionLedger: opts.executionLedger,
+      onToolInvocation: opts.onToolInvocation,
       onStep: (step) => {
         if (step.kind !== "tool_call" || step.tool !== "read_file_range") return;
         const path = step.args.path;

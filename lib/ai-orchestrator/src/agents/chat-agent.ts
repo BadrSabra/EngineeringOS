@@ -6447,6 +6447,8 @@ export async function chat(opts: {
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
+  /** Server-owned durable lifecycle sink for model-dispatched tool calls. */
+  onToolInvocation?: ToolInvocationLifecycleCallback;
   /** Server-owned complete provider manifest for a scoped Mission execution. */
   authorizedToolManifestNames?: readonly string[];
   /** Server-owned Mission dispatch allowlist, rechecked after model tool selection. */
@@ -7903,6 +7905,8 @@ export async function chat(opts: {
       scope: "chat-agent",
       code: "SERVER_READ_TOOL_LIFECYCLE",
       executionId: executionLedger.id,
+      ...(event.scopeHash ? { scopeHash: event.scopeHash } : {}),
+      ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
       phase: event.phase,
       toolName: event.toolName,
       inputHash: event.inputHash,
@@ -7910,6 +7914,7 @@ export async function chat(opts: {
       ...(event.outputHash ? { outputHash: event.outputHash } : {}),
       ...(event.diagnosticCode ? { diagnosticCode: event.diagnosticCode } : {}),
     }));
+    await opts.onToolInvocation?.(event);
   };
   const dispatchServerRead: ServerScopedReadDispatcher = async (request) => {
     if (!rootPath || !serverReadManifestHash || !opts.onReadOnlyInvocation) {
@@ -9022,6 +9027,7 @@ export async function chat(opts: {
         cache: toolCallCache,
         compoundParts: queryPlan.compoundParts ?? [],
         executionLedger,
+        onToolInvocation: opts.onToolInvocation,
       });
 
       const mergedSources = [
@@ -9242,6 +9248,7 @@ export async function chat(opts: {
             : undefined,
           missionReadPathScope: opts.missionReadPathScope,
           onReadOnlyInvocation: opts.onReadOnlyInvocation,
+          onToolInvocation: opts.onToolInvocation,
           rootPath,
           pendingChanges: nodePendingChanges,
           initialFileContents: nodeInitialContents,
@@ -9796,6 +9803,7 @@ export async function chat(opts: {
     onStep: relayAgentStep,
     onMutationInvocation: opts.onMutationInvocation,
     onReadOnlyInvocation: opts.onReadOnlyInvocation,
+    onToolInvocation: opts.onToolInvocation,
   });
   if (
     capabilityProbeRequest &&
@@ -10056,6 +10064,7 @@ export async function chat(opts: {
           allowedReadPaths: [target.path],
           missionReadPathScope: opts.missionReadPathScope,
           onReadOnlyInvocation: replanReadCallback,
+          onToolInvocation: opts.onToolInvocation,
           firstEvidenceTargetPath: target.path,
           objectiveScopePolicy: objective.scopePolicy,
           orderedForensicRoots:

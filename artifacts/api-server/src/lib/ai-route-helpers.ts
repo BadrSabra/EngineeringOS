@@ -934,6 +934,8 @@ export async function chatWithFallback(
       onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
      /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
      onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
+      /** Server-owned audit lifecycle for model-dispatched tool calls. */
+      onToolInvocation?: import("@workspace/ai-orchestrator").ToolInvocationLifecycleCallback;
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
     browserValidationContext?: { operationId?: string; revision?: string };
     approvedValidationProfiles?: readonly string[];
@@ -1191,6 +1193,7 @@ export async function chatWithFallback(
          authorizedToolManifestNames: baseParams.authorizedToolManifestNames,
          missionReadPathScope: baseParams.missionReadPathScope,
          onReadOnlyInvocation: baseParams.onReadOnlyInvocation,
+          onToolInvocation: baseParams.onToolInvocation,
         browserValidationRunner: baseParams.browserValidationRunner,
         browserValidationContext: baseParams.browserValidationContext,
         approvedValidationProfiles: baseParams.approvedValidationProfiles,

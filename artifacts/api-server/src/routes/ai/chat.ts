@@ -167,6 +167,7 @@ import { logger } from "../../lib/logger.js";
 import {
   appendEpisodeEvent,
   closeEpisode,
+  createToolInvocationEpisodeEventInput,
   startEpisode,
   startEpisodeShadowWithEpisode,
 } from "../../lib/agent-state/agent-episode-ledger.js";
@@ -6571,6 +6572,29 @@ router.post("/ai/chat", async (req, res) => {
               })
             : undefined,
           analysisCorrelation,
+          onToolInvocation: async (invocation) => {
+            await ensureChatObservationLifecycle();
+            await assertChatObservationOwned();
+            if (
+              !chatObservationExecution
+              || !chatObservationWorkerId
+              || !chatObservationEpisode
+            ) {
+              throw new Error("Chat tool invocation provenance is unavailable");
+            }
+            const execution = chatObservationExecution;
+            const episode = chatObservationEpisode;
+            await appendEpisodeEvent(createToolInvocationEpisodeEventInput({
+              episodeId: episode.episodeId,
+              projectId,
+              executionId: execution.id,
+              attempt: execution.attempt,
+              workerId: chatObservationWorkerId,
+              projectRevision: episode.projectRevision,
+              correlationId: execution.operationId ?? execution.id,
+              invocation,
+            }));
+          },
           onReadOnlyInvocation: async (invocation) => {
             await ensureChatObservationLifecycle();
             await assertChatObservationOwned();
@@ -9289,7 +9313,7 @@ export async function handleChatStream(req: Request, res: Response) {
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
 
-    const chatObservationEpisode = await startEpisodeShadowWithEpisode({
+    const chatObservationEpisodeInput = {
       projectId,
       executionId: aiExecution.id,
       attempt: aiExecution.attempt,
@@ -9303,7 +9327,10 @@ export async function handleChatStream(req: Request, res: Response) {
         turnIntent: streamTurnIntent.kind,
       },
       ...(effectiveLinkedTaskId ? { objectiveContractId: effectiveLinkedTaskId } : {}),
-    });
+    };
+    let chatObservationEpisode = await startEpisodeShadowWithEpisode(
+      chatObservationEpisodeInput,
+    );
     let chatObservationEpisodeCloseAttempted = false;
     const closeChatObservationEpisode = async (
       verdict: "incomplete" | "cancelled",
@@ -10715,6 +10742,25 @@ export async function handleChatStream(req: Request, res: Response) {
               })
             : undefined,
           analysisCorrelation,
+          onToolInvocation: async (invocation) => {
+            if (!aiExecution || !executionWorkerId) {
+              throw new Error("Chat tool invocation execution ownership is unavailable");
+            }
+            await assertStreamExecutionOwned();
+            chatObservationEpisode ??= await startEpisode(
+              chatObservationEpisodeInput,
+            );
+            await appendEpisodeEvent(createToolInvocationEpisodeEventInput({
+              episodeId: chatObservationEpisode.episodeId,
+              projectId,
+              executionId: aiExecution.id,
+              attempt: aiExecution.attempt,
+              workerId: executionWorkerId,
+              projectRevision: chatObservationEpisode.projectRevision,
+              correlationId: aiExecution.operationId ?? aiExecution.id,
+              invocation,
+            }));
+          },
           onReadOnlyInvocation: async (invocation) => {
             if (!chatObservationEpisode || !aiExecution || !executionWorkerId) {
               throw new Error("Chat read observation provenance is unavailable");

@@ -96,6 +96,7 @@ export type AppendEpisodeEventInput = {
   observedEffectRefs?: string[];
   evidenceRefs?: string[];
 };
+export { createToolInvocationEpisodeEventInput } from "./tool-invocation-episode-event.js";
 
 export type CloseEpisodeInput = AppendEpisodeEventInput & {
   verdict: EpisodeVerdict;

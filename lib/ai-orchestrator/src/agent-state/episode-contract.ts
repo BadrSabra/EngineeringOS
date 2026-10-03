@@ -42,6 +42,7 @@ export type EpisodeVerdict = z.infer<typeof EpisodeVerdictSchema>;
 
 export const EpisodeEventTypeSchema = z.enum([
   "EPISODE_CREATED",
+  "TOOL_INVOCATION_RECORDED",
   "OBSERVATION_REQUESTED",
   "OBSERVATION_RECORDED",
   "PLAN_SELECTED",

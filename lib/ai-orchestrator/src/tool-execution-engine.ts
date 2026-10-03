@@ -656,6 +656,8 @@ export type MutationToolInvocationCallback = (
 export type ToolInvocationLifecycleEvent = {
   phase: "requested" | "started" | "completed" | "failed" | "cancelled";
   toolCallId?: string;
+  executionId?: string;
+  scopeHash?: string;
   toolName: string;
   inputHash: string;
   manifestHash: string;
@@ -750,6 +752,14 @@ function toolInputHash(args: Record<string, string>): string {
     .digest("hex");
 }
 
+function logToolInvocationLifecycle(event: ToolInvocationLifecycleEvent): void {
+  console.info(JSON.stringify({
+    scope: "tool-execution-engine",
+    code: "TOOL_INVOCATION_LIFECYCLE",
+    ...event,
+  }));
+}
+
 function normalizeMissionScopedReadPath(value: unknown): string | undefined {
   if (typeof value !== "string" || !value || value.includes("\0")) return undefined;
   const slashPath = value.replaceAll("\\", "/");
@@ -809,6 +819,9 @@ export type SingleToolOpts = {
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
   /** Server-observable lifecycle for every authorized executor dispatch. */
   onToolInvocation?: ToolInvocationLifecycleCallback;
+  /** Durable request identity and authorization-scope binding for loop dispatches. */
+  executionId?: string;
+  scopeHash?: string;
   /** Hash of the complete server-owned provider authorization manifest. */
   toolManifestHash?: string;
   /** Provider tool-call identity, used only as an input to server-owned correlation. */
@@ -1132,6 +1145,23 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       : validatedArgs;
   const lifecycleInputHash = toolInputHash(effectiveArgs);
   const lifecycleToolCallId = opts.toolCallId?.trim();
+  if (
+    opts.executionId
+    && (
+      !lifecycleToolCallId
+      || lifecycleToolCallId.length > 160
+      || !/^[a-f0-9]{64}$/u.test(opts.toolManifestHash ?? "")
+      || !/^[a-f0-9]{64}$/u.test(opts.scopeHash ?? "")
+      || !opts.onToolInvocation
+    )
+  ) {
+    return {
+      kind: "failed",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+      safeMessage: "The server could not bind this tool call to its execution, manifest, scope, and lifecycle; no tool was run.",
+    };
+  }
   let lifecycleRequested = false;
   const emitToolLifecycle = async (
     phase: ToolInvocationLifecycleEvent["phase"],
@@ -1141,6 +1171,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     await opts.onToolInvocation({
       phase,
       ...(lifecycleToolCallId ? { toolCallId: lifecycleToolCallId } : {}),
+      ...(opts.executionId ? { executionId: opts.executionId } : {}),
+      ...(opts.scopeHash ? { scopeHash: opts.scopeHash } : {}),
       toolName: name,
       inputHash: lifecycleInputHash,
       manifestHash: opts.toolManifestHash ?? "",
@@ -1999,6 +2031,16 @@ export async function executeScopedReadTool(
       missionReadPathScope: opts.missionReadPathScope,
       signal: opts.signal,
       toolCallId: invocationId,
+      executionId: opts.executionLedger.id,
+      scopeHash: canonicalJsonHash({
+        rootPath: opts.rootPath,
+        manifestHash,
+        allowedToolNames: [...opts.allowedToolNames].sort(),
+        allowedReadPaths: sortedCachePaths(opts.allowedReadPaths),
+        missionReadPathScope: sortedCachePaths(opts.missionReadPathScope),
+        objectiveScopePolicy: opts.objectiveScopePolicy ?? null,
+        strictAllowedReadPaths: opts.strictAllowedReadPaths ?? false,
+      } as unknown as JsonValue),
       toolManifestHash: manifestHash,
       onReadOnlyInvocation: opts.onReadOnlyInvocation,
       onToolInvocation: opts.onToolInvocation,
@@ -6942,8 +6984,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           signal,
           onMutationInvocation: opts.onMutationInvocation,
           onReadOnlyInvocation: opts.onReadOnlyInvocation,
-          onToolInvocation: opts.onToolInvocation,
-          toolManifestHash: hashProviderToolManifest(toolManifest),
+          onToolInvocation: opts.onToolInvocation ?? logToolInvocationLifecycle,
+          executionId: executionLedger.id,
+          scopeHash: cacheContextHash,
+          toolManifestHash: hashProviderToolManifest(toolManifest ?? opts.tools),
         });
         toolCompleted = toolResult.kind === "ok";
       } finally {

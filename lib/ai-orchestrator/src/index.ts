@@ -27,6 +27,8 @@ export type {
   MutationToolInvocationCallback,
   ReadOnlyToolInvocation,
   ReadOnlyToolInvocationCallback,
+  ToolInvocationLifecycleEvent,
+  ToolInvocationLifecycleCallback,
   SourceRetrievalTelemetry,
   ReadStatus,
 } from "./tool-execution-engine.js";
