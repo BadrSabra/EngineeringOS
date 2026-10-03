@@ -4043,6 +4043,17 @@ G9 Revocation Safety
 - **remaining/blocker:** مسار replay الإيجابي end-to-end ما زال ينتظر Canonical Proof producer صالحًا لـ`runtime.start`.
 - **next step:** لا تنفيذ نشر هنا؛ استخدم Publish لتطبيق schema الإنتاج عند اعتماد الإصدار، وأعد اختبار runner كاملًا بعد إصلاح proof producer.
 
+### 2026-10-03 — تصحيح حالة `runtime.start` والتحقق من Strategy Replay
+
+- **phase/step:** E3 — تصحيح producer Canonical Proof لمسار `runtime.start`، والتحقق من تزامن replay والمحاولات الجديدة.
+- **status:** `runtime.start producer verified; positive proof-producing replay remains unverified`
+- **what changed:** أُضيف producer خادمي لـCanonical Proof يربط ملاحظات الأثر وقبول Gate C بمحاولة التنفيذ. اختبارات الحالة غير المتطابقة تؤكد بقاء قبول Gate C دون إنشاء Canonical Proof. اختبار replay متكامل يتنافس فيه طلبان يثبت أن مالك تشغيل جديدًا واحدًا فقط يبدأ العمل؛ وتتحقق إعادة المحاولة من attempt ثانية append-only وهوية `caseRunId` و`caseAttemptNumber` وإثبات المصدر في Episode. تبقى المحاولة غير المكتملة بلا `replayCanonicalProofHash`.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/recipe-operation-runner.ts` و`recipe-operation-runner.test.ts`؛ `artifacts/api-server/src/lib/agent-state/strategy-replay-case-runner.ts` واختبارات lease وrunner والتخزين؛ وتقرير الحالة الجنائية.
+- **validation:** اختبارا recipe-operation المركزان 2/2؛ lease وrunner 10/10؛ PostgreSQL المعزول 4/4 بعد التحقق من اسم القاعدة والعنوان والمنفذ؛ API typecheck و`git diff --check` ناجحان. شملت اختبارات التشغيل المتزامن ومحاولة ثانية غير مكتملة، لا تشغيلًا إيجابيًا ينتج replay proof.
+- **authority/safety impact:** لا يُستنتج Canonical Proof من receipt أو status؛ غياب أو عدم تطابق الدليل يبقي Gate C المقبول منفصلًا عن إثبات غير متاح. المحاولة الجديدة لا تستبدل السجل السابق، واختبارات هذا التحديث لم تكتب إلى قاعدة التطوير أو الإنتاج.
+- **remaining/blocker:** runner الكامل ما زال يرجع `incomplete/runner_blocked`؛ لا يوجد replay بحالة `proven` ولا اختبار كامل لاستعادة receipt `proven`. اختبار قاعدة البيانات غطى lease والتخزين، لا استرداد صف التطوير القديم. لا توجد مصالحة خلفية؛ P7.5 تبقى `NO-GO` والإنتاج غير متاح.
+- **next step:** تشخيص `runner_blocked` وإثبات replay إيجابي يحافظ على كل روابط Canonical Proof، ثم اختبار إعادة تحميل receipt `proven` واستعادتها على قاعدة مؤقتة. لا تغيّر صفوف التطوير أو الإنتاج كجزء من هذا التحقق.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
