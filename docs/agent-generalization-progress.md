@@ -4098,6 +4098,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لا fixture معزول بقاعدة مؤقتة يثبت Strategy Replay إيجابيًا وإعادة تحميل Canonical Proof؛ usage المجهول/الجزئي يبقى تقديرًا محافظًا، وإثبات route-to-durable-usage الشامل ما زال غير منفذ.
 - **next step:** ابنِ fixture قاعدة مؤقتة معزولة لإثبات Strategy Replay وقراءة Canonical Proof المحفوظ من جديد دون لمس صفوف التطوير أو الإنتاج.
 
+### 2026-10-03 — تصحيح: تحقق Strategy Replay الإيجابي على قاعدة محلية معزولة
+
+- **phase/step:** تحقق replay المسجل وإعادة تحميل Canonical Proof بعد عزل قاعدة البيانات.
+- **status:** `partial`; مسار Strategy Replay الإيجابي تحقق، بينما إثبات route-to-durable-usage الشامل ما زال مفتوحًا.
+- **what changed:** استخدم الاختبار مشروعًا وإيصالات جديدة بمعرّفات عشوائية على PostgreSQL مؤقت محلي؛ فشلت المحاولة الأولى عمدًا بسبب اختلاف هوية replay، ثم عادت الإيصال نفسها عند الاسترداد، ونجحت المحاولة الثانية كـ`proven`. أُعيد تحميل Canonical Proof من القبول والأدلة الدائمة والتحقق من ربطه بالإيصال.
+- **files/schema/contracts touched:** لا تغيير في كود التطبيق أو schema؛ سجل التقدم ومذكرة حدود Strategy Replay ومذكرة عزل قاعدة الاختبار فقط.
+- **validation:** PostgreSQL 16.10 على `127.0.0.1`؛ `pnpm --filter @workspace/db run schema:apply` نجح؛ اختبار Vitest المستهدف نجح `1 passed | 31 skipped` خلال 21.96 ثانية. ظهرت تحذيرات best-effort لمادة ملاحظات ما بعد القبول، لكنها لم تمنع فحص Canonical Proof الإيجابي.
+- **authority/safety impact:** لم تُستخدم قاعدة التطوير أو الإنتاج، ولم تُعد أي إيصالات سابقة، ولم تُنفذ model completions. أُوقف الخادم المؤقت وحُذف مجلده؛ الاختبار نظّف جذر المشروع المؤقت.
+- **remaining/blocker:** usage المجهول/الجزئي يظل تقديرًا محافظًا، وإثبات route-to-durable-usage الشامل لم يُنفذ.
+- **next step:** تابع إثبات route-to-durable-usage دون توجيه أي اختبار كاتب إلى قاعدة التطوير أو الإنتاج.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

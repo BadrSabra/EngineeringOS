@@ -133,7 +133,8 @@
 - [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
-- [Strategy replay acceptance](strategy-replay-acceptance.md) — Gate C success is not Canonical Proof; runtime.start needs a recipe-specific producer before replay admission.
+- [Strategy replay acceptance](strategy-replay-acceptance.md) — runtime.start proof comes only from its bound Gate C evidence path; replay receipts still require an independent Canonical Proof reload.
+- [Disposable PostgreSQL tests](disposable-postgres-tests.md) — DB-backed integration tests must use a loopback-only temporary cluster and explicit DATABASE_URL, never inherited development or production settings.
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable lifecycle proof-bound; live World Delta needs separate post-promotion scope, revision, and Mission-read contracts.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Separate environment identity/freshness from project freshness and keep it outside effect or acceptance authority.
