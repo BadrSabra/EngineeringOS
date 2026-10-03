@@ -601,7 +601,11 @@ async function createDatabaseReadRecipeFixture() {
   };
 }
 
-async function assertSuccessfulGateCEffect(executionId: string, capabilityId: string) {
+async function assertSuccessfulGateCEffect(
+  executionId: string,
+  capabilityId: string,
+  expectedDirectObservationCount = 3,
+) {
   const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
     .where(eq(aiAgentEffectBundlesTable.executionId, executionId))
     .limit(1);
@@ -619,7 +623,8 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
   expect(acceptance?.effectBundleId).toBe(bundle?.id);
   const observations = await db.select().from(aiAgentObservationsTable)
     .where(eq(aiAgentObservationsTable.executionId, executionId));
-  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(3);
+  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION"))
+    .toHaveLength(expectedDirectObservationCount);
   const events = await db.select({
     eventType: aiAgentEpisodeEventsTable.eventType,
     payload: aiAgentEpisodeEventsTable.payload,
@@ -3073,6 +3078,7 @@ describe("recipe operation preparation", () => {
         executionAttempt,
         sourceRevision,
         message,
+        beforeStateObserver,
       }: {
         projectId: string;
         operationId: string;
@@ -3080,9 +3086,50 @@ describe("recipe operation preparation", () => {
         executionAttempt?: number;
         sourceRevision?: string;
         message: string;
+        beforeStateObserver?: (state: {
+          status: "observed";
+          projectId: string;
+          operationId: string;
+          executionId: string;
+          executionAttempt: number;
+          sourceRevision: string;
+          proposalId: string;
+          remoteUrl: string;
+          branch: string;
+          expectedCommitHash: string;
+          expectedParentHash: string;
+          expectedParentTreeHash: string;
+          expectedTreeHash: string;
+          remoteCommitHash: string;
+          remoteTreeHash: string;
+          remoteParentCount: number;
+          observedAt: string;
+        }) => Promise<void>;
       }) => {
         deliveryCalls.push(`${projectId}:${operationId}:${message}`);
         const marker = `EngineeringOS-Operation: ${operationId}`;
+        const observedAt = new Date().toISOString();
+        if (beforeStateObserver && executionId && Number.isInteger(executionAttempt) && sourceRevision) {
+          await beforeStateObserver({
+            status: "observed",
+            projectId,
+            operationId,
+            executionId,
+            executionAttempt: executionAttempt!,
+            sourceRevision,
+            proposalId: "proposal-delivery",
+            remoteUrl: "https://github.com/example/project.git",
+            branch: "main",
+            expectedCommitHash: "remote-commit",
+            expectedParentHash: "parent-commit",
+            expectedParentTreeHash: "parent-tree",
+            expectedTreeHash: "remote-tree",
+            remoteCommitHash: "parent-commit",
+            remoteTreeHash: "parent-tree",
+            remoteParentCount: 1,
+            observedAt,
+          });
+        }
         return {
           status: "passed" as const,
           evidence: {
@@ -3115,7 +3162,7 @@ describe("recipe operation preparation", () => {
             committedTreeHash: "candidate-tree",
             operationMarker: marker,
             markerMatched: true,
-            observedAt: new Date().toISOString(),
+            observedAt,
           },
         };
       },
@@ -3125,7 +3172,38 @@ describe("recipe operation preparation", () => {
       executionId = completed.executionId;
       expect(completed.status).toBe("completed");
       await assertCanonicalRecipeProof(fixture.params, executionId);
-      const bundleId = await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit");
+      const bundleId = await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit", 5);
+      const [deliveryTransition] = await db.select().from(aiWorldTransitionsTable).where(and(
+        eq(aiWorldTransitionsTable.projectId, fixture.params.projectId),
+        eq(aiWorldTransitionsTable.idempotencyKey, `github.delivery:${executionId}:${fixture.params.operationId}`),
+      )).limit(1);
+      expect(deliveryTransition).toMatchObject({
+        status: "materialized",
+        effectBundleId: bundleId,
+      });
+      expect(deliveryTransition?.attempt).toBe(0);
+      const transitionObservationIds = [
+        ...(deliveryTransition?.beforeObservationIds as string[] ?? []),
+        ...(deliveryTransition?.afterObservationIds as string[] ?? []),
+      ];
+      const transitionObservations = await db.select().from(aiAgentObservationsTable)
+        .where(inArray(aiAgentObservationsTable.id, transitionObservationIds));
+      expect(transitionObservations).toHaveLength(2);
+      expect(transitionObservations.map((observation) => observation.predicate).sort())
+        .toEqual(["delivery.remote_branch_state", "delivery.remote_branch_state"]);
+      const changedFacts = await db.select().from(aiWorldFactsTable).where(inArray(
+        aiWorldFactsTable.id,
+        deliveryTransition?.changedFactRefs as string[],
+      ));
+      expect(changedFacts.some((fact) => (
+        fact.predicate === "delivery.remote_branch_state"
+        && fact.status === "believed"
+        && fact.projectRevision === "remote-commit"
+        && typeof fact.value === "object"
+        && fact.value !== null
+        && !Array.isArray(fact.value)
+        && (fact.value as Record<string, unknown>).remoteCommitHash === "remote-commit"
+      ))).toBe(true);
       expect(deliveryCalls).toEqual([
         `${fixture.params.projectId}:${fixture.params.operationId}:Deliver the verified proposal`,
       ]);
@@ -3136,7 +3214,7 @@ describe("recipe operation preparation", () => {
         status: "completed",
         receipt: { status: "completed" },
       });
-      expect(await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit")).toBe(bundleId);
+      expect(await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit", 5)).toBe(bundleId);
       expect(deliveryCalls).toHaveLength(1);
     } finally {
       await fixture.cleanup(executionId);

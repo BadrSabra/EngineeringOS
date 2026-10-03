@@ -498,6 +498,7 @@ export {
 export type {
   DatabaseReadResource,
   DatabaseReadRunner,
+  GitHubDeliveryBeforeState,
   GitHubDeliveryRunner,
   RuntimeStartRunner,
   RuntimeRestartRunner,

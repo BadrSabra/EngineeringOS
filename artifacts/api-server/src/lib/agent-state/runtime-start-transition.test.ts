@@ -18,9 +18,15 @@ import {
   eventsTable,
   projectsTable,
 } from "@workspace/db";
-import { createAiExecution, claimAiExecution } from "../ai-execution-state.js";
+import {
+  claimAiExecution,
+  createAiExecution,
+  recoverAiExecutionResumeToken,
+} from "../ai-execution-state.js";
 import { startEpisode } from "./agent-episode-ledger.js";
 import {
+  bindGitHubDeliveryTransitionEffect,
+  createPendingGitHubDeliveryTransition,
   createPendingRuntimeStartTransition,
   createPendingApplyChangesTransition,
   finalizeApplyChangesTransition,
@@ -1126,5 +1132,152 @@ describe("runtime.start transition retry scheduling", () => {
     });
     expect(after.worldRevision).toBe(parent.worldRevision);
     expect(after.facts).toHaveLength(0);
+  });
+
+  it("rebinds a resumed GitHub delivery attempt without replacing its direct before-state", async () => {
+    const projectId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const operationId = crypto.randomUUID();
+    const proposalId = crypto.randomUUID();
+    const userId = `github-delivery-transition-test:${projectId}`;
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: "GitHub delivery transition retry test",
+      rootPath: `${process.cwd()}/.github-delivery-transition-test/${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    createdProjects.push(projectId);
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "GitHub delivery transition retry test",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await createAiExecution({
+      userId,
+      projectId,
+      sessionId,
+      idempotencyKey: `${operationId}:github-delivery-transition-retry`,
+      request: {
+        projectId,
+        operationId,
+        sessionId,
+        message: "Retry GitHub delivery transition",
+        modelMessage: "Retry GitHub delivery transition",
+        workspaceRevision: "a".repeat(64),
+        validationTargetPaths: [],
+      },
+    });
+    const executionId = created.execution.id;
+    createdExecutionIds.push(executionId);
+    const firstWorkerId = `github-delivery-transition-worker-a:${projectId}`;
+    const firstClaim = await claimAiExecution({
+      executionId,
+      userId,
+      workerId: firstWorkerId,
+    });
+    expect(firstClaim?.attempt).toBe(0);
+    const firstEpisode = await startEpisode({
+      projectId,
+      executionId,
+      attempt: 0,
+      workerId: firstWorkerId,
+      idempotencyKey: `${operationId}:github-delivery-episode:0`,
+      projectRevision: "a".repeat(64),
+      intentKind: "RUNTIME_START",
+      scope: { kind: "project", paths: [] },
+    });
+    const parent = await getProjectWorldState(projectId, {
+      excludeEpisodeIds: [firstEpisode.episodeId],
+    });
+    const beforeObservationId = crypto.randomUUID();
+    const transitionId = await createPendingGitHubDeliveryTransition({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId: firstEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      workerId: firstWorkerId,
+      operationId,
+      proposalId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+      parentWorldRevision: parent.worldRevision,
+      parentFactRefs: parent.currentFacts.map((fact) => fact.id),
+      taskScope: "project",
+      beforeObservationIds: [beforeObservationId],
+    });
+
+    await db.update(aiExecutionsTable).set({
+      status: "paused",
+      workerId: null,
+      leaseUntil: null,
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const recovery = await recoverAiExecutionResumeToken({
+      executionId,
+      userId,
+      expectedAttempt: 0,
+    });
+    expect(recovery).toBeDefined();
+    const secondWorkerId = `github-delivery-transition-worker-b:${projectId}`;
+    const secondClaim = await claimAiExecution({
+      executionId,
+      userId,
+      workerId: secondWorkerId,
+      resumeToken: recovery!.resumeToken,
+    });
+    expect(secondClaim?.attempt).toBe(1);
+    const secondEpisode = await startEpisode({
+      projectId,
+      executionId,
+      attempt: 1,
+      workerId: secondWorkerId,
+      idempotencyKey: `${operationId}:github-delivery-episode:1`,
+      projectRevision: "a".repeat(64),
+      intentKind: "RUNTIME_START",
+      scope: { kind: "project", paths: [] },
+    });
+    const afterObservationId = crypto.randomUUID();
+    const effectBundleId = `github-delivery-effect:${operationId}:attempt-1`;
+    await db.insert(aiAgentEffectBundlesTable).values({
+      id: effectBundleId,
+      projectId,
+      executionId,
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      effectIds: [],
+      effectContractHashes: [],
+      verdict: "OBSERVED",
+    });
+    await expect(bindGitHubDeliveryTransitionEffect({
+      projectId,
+      executionId,
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      effectBundleId,
+      workerId: secondWorkerId,
+      operationId,
+      afterObservationIds: [afterObservationId],
+    })).resolves.toBe(transitionId);
+
+    const [transition] = await db.select().from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, transitionId)).limit(1);
+    expect(transition).toMatchObject({
+      attempt: 1,
+      episodeId: secondEpisode.episodeId,
+      actionId: `github-delivery-action:${operationId}`,
+      effectBundleId,
+      beforeObservationIds: [beforeObservationId],
+      afterObservationIds: [afterObservationId],
+      status: "pending",
+    });
   });
 });

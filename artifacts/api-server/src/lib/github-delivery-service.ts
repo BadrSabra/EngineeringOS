@@ -7,6 +7,7 @@ import {
   db,
   eventsTable,
 } from "@workspace/db";
+import type { GitHubDeliveryBeforeState } from "@workspace/ai-orchestrator";
 import {
   getGitHubBranchState,
   GitHubConnectorError,
@@ -33,6 +34,7 @@ export type VerifiedGitHubDeliveryParams = {
   message: string;
   signal?: AbortSignal;
   request?: GitHubRequest;
+  beforeStateObserver?: (state: GitHubDeliveryBeforeState) => Promise<void>;
 };
 
 export type VerifiedGitHubDeliveryResult = {
@@ -211,13 +213,15 @@ function deliveryCommitMessage(message: string, operationId: string): string {
 
 async function localCommitIdentity(rootPath: string, commitHash: string): Promise<{
   parentHash: string;
+  parentTreeHash: string;
   treeHash: string;
 }> {
-  const [parentHash, treeHash] = await Promise.all([
-    gitText(rootPath, ["rev-parse", `${commitHash}^`]),
+  const parentHash = await gitText(rootPath, ["rev-parse", `${commitHash}^`]);
+  const [parentTreeHash, treeHash] = await Promise.all([
+    gitText(rootPath, ["rev-parse", `${parentHash}^{tree}`]),
     gitText(rootPath, ["rev-parse", `${commitHash}^{tree}`]),
   ]);
-  return { parentHash, treeHash };
+  return { parentHash, parentTreeHash, treeHash };
 }
 
 async function recordGitHubPush(params: {
@@ -399,6 +403,85 @@ export async function executeVerifiedGitHubDelivery(
     }
 
     const expectedMessage = deliveryCommitMessage(params.message, params.operationId);
+    const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
+    const remoteBeforeState = await getGitHubBranchState({
+      remote,
+      branch: params.branch,
+      ...(params.request ? { request: params.request } : {}),
+    });
+    if (remoteBeforeState.commitHash === commitHash) {
+      assertRemoteAfterState(remoteBeforeState, localIdentity, params.operationId, commitHash);
+      const changedPaths = Array.isArray(commitEvidence.committedPaths)
+        ? commitEvidence.committedPaths.filter((value): value is string => typeof value === "string")
+        : [];
+      const result = passedResult({
+        projectId: params.projectId,
+        proposalId: params.proposalId,
+        operationId: params.operationId,
+        executionId: params.executionId,
+        executionAttempt: params.executionAttempt,
+        sourceRevision: params.sourceRevision,
+        remoteUrl: params.remoteUrl,
+        branch: params.branch,
+        expectedCommitHash: commitHash,
+        expectedParentHash: localIdentity.parentHash,
+        expectedTreeHash: localIdentity.treeHash,
+        remoteState: remoteBeforeState,
+        candidateTreeHash: proposal.candidateTreeHash,
+        committedTreeHash,
+        changedPaths,
+        idempotent: true,
+      });
+      await recordGitHubPush({
+        projectId: params.projectId,
+        proposalId: params.proposalId,
+        operationId: params.operationId,
+        branch: params.branch,
+        remoteUrl: params.remoteUrl,
+        commitHash,
+        remoteCommitHash: remoteBeforeState.commitHash,
+        remoteParentHash: remoteBeforeState.parentHashes[0],
+        remoteTreeHash: remoteBeforeState.treeHash,
+        changedPaths,
+        deliveryProof,
+      });
+      return result;
+    }
+    if (
+      remoteBeforeState.commitHash !== localIdentity.parentHash
+      || remoteBeforeState.treeHash !== localIdentity.parentTreeHash
+    ) {
+      return blocked("The GitHub branch changed after the verified delivery parent was recorded.");
+    }
+    if (params.executionId || params.executionAttempt !== undefined) {
+      if (
+        !params.executionId
+        || !Number.isInteger(params.executionAttempt)
+        || !params.sourceRevision
+        || !params.beforeStateObserver
+      ) {
+        return blocked("Verified recipe delivery requires a durable remote before-state observer.");
+      }
+      await params.beforeStateObserver({
+        status: "observed",
+        projectId: params.projectId,
+        operationId: params.operationId,
+        executionId: params.executionId,
+        executionAttempt: params.executionAttempt!,
+        sourceRevision: params.sourceRevision,
+        proposalId: params.proposalId,
+        remoteUrl: params.remoteUrl,
+        branch: params.branch,
+        expectedCommitHash: commitHash,
+        expectedParentHash: localIdentity.parentHash,
+        expectedParentTreeHash: localIdentity.parentTreeHash,
+        expectedTreeHash: localIdentity.treeHash,
+        remoteCommitHash: remoteBeforeState.commitHash,
+        remoteTreeHash: remoteBeforeState.treeHash,
+        remoteParentCount: remoteBeforeState.parentHashes.length,
+        observedAt: new Date().toISOString(),
+      });
+    }
     const pushed = await pushLocalCommitToGitHub({
       rootPath: params.rootPath,
       remote,
@@ -407,13 +490,12 @@ export async function executeVerifiedGitHubDelivery(
       message: expectedMessage,
       ...(params.request ? { request: params.request } : {}),
     });
-      const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
-      const remoteAfterState = await getGitHubBranchState({
-        remote,
-        branch: params.branch,
-        ...(params.request ? { request: params.request } : {}),
-      });
-      assertRemoteAfterState(remoteAfterState, localIdentity, params.operationId, commitHash);
+    const remoteAfterState = await getGitHubBranchState({
+      remote,
+      branch: params.branch,
+      ...(params.request ? { request: params.request } : {}),
+    });
+    assertRemoteAfterState(remoteAfterState, localIdentity, params.operationId, commitHash);
     const result = passedResult({
       projectId: params.projectId,
       proposalId: params.proposalId,
@@ -449,6 +531,7 @@ export async function executeVerifiedGitHubDelivery(
     return result;
   } catch (error) {
     if (error instanceof GitHubConnectorError && error.code === "GITHUB_PUSH_REMOTE_DRIFT") {
+      let remoteStateObserved = false;
       try {
         const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
         const branchState = await getGitHubBranchState({
@@ -456,6 +539,7 @@ export async function executeVerifiedGitHubDelivery(
           branch: params.branch,
           ...(params.request ? { request: params.request } : {}),
         });
+        remoteStateObserved = true;
         const alreadyApplied = branchState.commitHash === commitHash
           && branchState.treeHash === localIdentity.treeHash
           && branchState.parentHashes.length === 1
@@ -499,7 +583,12 @@ export async function executeVerifiedGitHubDelivery(
           return result;
         }
       } catch {
-        // Preserve the original drift classification when reconciliation is unavailable.
+        if (!remoteStateObserved) {
+          return {
+            status: "unavailable",
+            detail: "The GitHub branch outcome could not be reconciled after the push attempt.",
+          };
+        }
       }
       return blocked(error.message);
     }

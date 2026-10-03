@@ -13,6 +13,7 @@ import {
   type ActiveTaskExecutionPlan,
   type ExecutionNode,
   type BrowserValidationRunner,
+  type GitHubDeliveryBeforeState,
   type GitHubDeliveryRunner,
   type RuntimeStartRunner,
   type RuntimeRestartRunner,
@@ -96,8 +97,12 @@ import { hashDeliveryTree } from "./delivery-workspace.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import {
+  bindGitHubDeliveryTransitionEffect,
   createPendingRuntimeStartTransition,
+  createPendingGitHubDeliveryTransition,
+  finalizeGitHubDeliveryTransition,
   finalizeRuntimeStartTransition,
+  terminalizeUnmutatedGitHubDeliveryTransition,
 } from "./agent-state/runtime-start-transition.js";
 import {
   RUNTIME_START_OBJECTIVE_CONTRACT_ID,
@@ -2006,6 +2011,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
   let gateCEffectBundleId: string | undefined;
+  let githubDeliveryTransitionQueued = false;
+  let githubDeliveryTransitionId: string | undefined;
+  let githubDeliveryWorldAfterObservationId: string | undefined;
   let strategyReplayActionContractMatches = true;
   if (candidateValidation) {
     if (!episode || !params.candidateIdentity || !candidateRoot) {
@@ -2257,6 +2265,67 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+    ...(params.recipeId === "delivery.push.github" && episode && gateCAction
+      ? {
+          githubDeliveryBeforeStateObserver: async (state: GitHubDeliveryBeforeState) => {
+            if (
+              state.status !== "observed"
+              || state.projectId !== params.projectId
+              || state.operationId !== params.operationId
+              || state.executionId !== claimed.id
+              || state.executionAttempt !== claimed.attempt
+              || state.sourceRevision !== params.sourceRevision
+              || state.remoteCommitHash !== state.expectedParentHash
+              || state.remoteTreeHash !== state.expectedParentTreeHash
+              || !Number.isFinite(Date.parse(state.observedAt))
+            ) {
+              throw new Error("github_delivery_before_state_binding_invalid");
+            }
+            const parent = await getProjectWorldState(params.projectId, {
+              excludeEpisodeIds: [episode.episodeId],
+            });
+            const before = await materializeServerOwnedObservations({
+              projectId: params.projectId,
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              episodeId: episode.episodeId,
+              projectRevision: state.remoteCommitHash,
+              workerLease: { workerId },
+              materializeWorldState: false,
+              sources: [{
+                kind: "direct_observation",
+                sourceId: `github-delivery:${claimed.id}:${params.operationId}:${claimed.attempt}:before`,
+                sourceRevision: state.remoteCommitHash,
+                environmentRevision: null,
+                subject: `github:${state.remoteUrl}:${state.branch}`,
+                predicate: "delivery.remote_branch_state",
+                value: { ...state },
+                evidenceRefs: [`github-delivery:${params.operationId}:before`],
+                observedAt: state.observedAt,
+              }],
+            });
+            if (before.observationIds.length !== 1) {
+              throw new Error("github_delivery_before_observation_missing");
+            }
+            githubDeliveryTransitionId = await createPendingGitHubDeliveryTransition({
+              projectId: params.projectId,
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              episodeId: episode.episodeId,
+              actionId: gateCAction.actionId,
+              workerId,
+              operationId: params.operationId,
+              proposalId: state.proposalId,
+              remoteUrl: state.remoteUrl,
+              branch: state.branch,
+              parentWorldRevision: parent.worldRevision,
+              parentFactRefs: parent.currentFacts.map((fact) => fact.id),
+              taskScope: taskScopeIdentity(episode),
+              beforeObservationIds: before.observationIds,
+            });
+          },
+        }
+      : {}),
     ...(runtimeStartRunner ? { runtimeStartRunner } : {}),
     ...(params.runtimeRestartRunner ? { runtimeRestartRunner: params.runtimeRestartRunner } : {}),
     ...(params.runtimeStopRunner ? { runtimeStopRunner: params.runtimeStopRunner } : {}),
@@ -2786,6 +2855,49 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 })
               : undefined;
             const afterObservationIds = after?.observationIds ?? [];
+            if (
+              recipeGateCEffectKind === "delivery"
+              && deliveryAfterObservation?.effectValue === "passed"
+            ) {
+              const remoteCommitHash = deliveryAfterObservation.facts.remoteCommitHash;
+              if (typeof remoteCommitHash === "string") {
+                try {
+                  const deliveryWorldAfter = await materializeServerOwnedObservations({
+                    projectId: params.projectId,
+                    executionId: claimed.id,
+                    attempt: claimed.attempt,
+                    episodeId: episode.episodeId,
+                    projectRevision: remoteCommitHash,
+                    workerLease: { workerId },
+                    materializeWorldState: false,
+                    sources: [{
+                      kind: "direct_observation",
+                      sourceId: `github-delivery:${claimed.id}:${params.operationId}:${claimed.attempt}:after`,
+                      sourceRevision: remoteCommitHash,
+                      environmentRevision: null,
+                      subject: `github:${String(deliveryAfterObservation.facts.remoteUrl)}:${String(deliveryAfterObservation.facts.branch)}`,
+                      predicate: "delivery.remote_branch_state",
+                      value: deliveryAfterObservation.facts,
+                      evidenceRefs: [afterEvidenceRef, ...deliveryAfterObservation.sourceRefs],
+                      observedAt: deliveryAfterObservation.observedAt,
+                    }],
+                  });
+                  githubDeliveryWorldAfterObservationId = deliveryWorldAfter.observationIds[0];
+                } catch (error) {
+                  logger.warn(
+                    {
+                      scope: "recipe-operation",
+                      code: "github_delivery_world_after_observation_failed",
+                      executionId: claimed.id,
+                      attempt: claimed.attempt,
+                      episodeId: episode.episodeId,
+                      error,
+                    },
+                    "GitHub delivery acceptance remains independent of World State observation materialization",
+                  );
+                }
+              }
+            }
             await appendEpisodeEvent({
               episodeId: episode.episodeId,
               projectId: params.projectId,
@@ -3060,6 +3172,21 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               }
             }
             if (gateCBeforeObservationIds.length === 0 || afterObservationIds.length === 0) {
+              if (params.recipeId === "delivery.push.github" && output.status === "blocked") {
+                await terminalizeUnmutatedGitHubDeliveryTransition({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  operationId: params.operationId,
+                  workerId,
+                  failureCode: "github_delivery_blocked_before_verified_effect",
+                }).catch((error: unknown) => {
+                  logger.warn(
+                    { scope: "recipe-operation", code: "github_delivery_transition_terminalize_failed", executionId: claimed.id, error },
+                    "Blocked GitHub delivery left its World State transition recoverable",
+                  );
+                });
+              }
               return {
                 status: "failed" as const,
                 detail: "Gate C effect is missing a verified before-state or after-state.",
@@ -3078,6 +3205,21 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               afterObservationIds,
             });
             if (effect.status !== "observed") {
+              if (params.recipeId === "delivery.push.github" && output.status === "blocked") {
+                await terminalizeUnmutatedGitHubDeliveryTransition({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  operationId: params.operationId,
+                  workerId,
+                  failureCode: "github_delivery_blocked_before_verified_effect",
+                }).catch((error: unknown) => {
+                  logger.warn(
+                    { scope: "recipe-operation", code: "github_delivery_transition_terminalize_failed", executionId: claimed.id, error },
+                    "Blocked GitHub delivery left its World State transition recoverable",
+                  );
+                });
+              }
               return {
                 status: "failed" as const,
                 detail: `Gate C effect was ${effect.status}.`,
@@ -3085,6 +3227,43 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               };
             }
             gateCEffectBundleId = effect.effectBundleId;
+            if (
+              params.recipeId === "delivery.push.github"
+              && episode
+              && gateCAction
+              && githubDeliveryWorldAfterObservationId
+            ) {
+              try {
+                const transitionId = await bindGitHubDeliveryTransitionEffect({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  actionId: gateCAction.actionId,
+                  effectBundleId: effect.effectBundleId,
+                  workerId,
+                  operationId: params.operationId,
+                  afterObservationIds: [githubDeliveryWorldAfterObservationId],
+                });
+                if (transitionId) {
+                  githubDeliveryTransitionId = transitionId;
+                  githubDeliveryTransitionQueued = true;
+                }
+              } catch (error) {
+                logger.warn(
+                  {
+                    scope: "recipe-operation",
+                    code: "github_delivery_transition_bind_failed",
+                    executionId: claimed.id,
+                    attempt: claimed.attempt,
+                    episodeId: episode.episodeId,
+                    actionId: gateCAction.actionId,
+                    error,
+                  },
+                  "GitHub delivery Gate C acceptance remains independent of World State transition binding",
+                );
+              }
+            }
             if (
               params.recipeId === "runtime.start"
               && runtimeStartD1Decision?.transitionEligible === true
@@ -3844,7 +4023,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       ...(episode ? { episodeId: episode.episodeId } : {}),
       ...(episode ? { environmentRootPath: evidenceEnvironmentRoot } : {}),
       projectRevision: receipt.sourceRevision,
-      materializeWorldState: params.recipeId !== "runtime.start",
+      materializeWorldState: params.recipeId !== "runtime.start"
+        && params.recipeId !== "delivery.push.github",
       sources: [
         {
           kind: "acceptance",
@@ -3958,6 +4138,52 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             error,
           },
           "Runtime start acceptance remains intact after transition finalization failure",
+        );
+      }
+    }
+    if (
+      params.recipeId === "delivery.push.github"
+      && episode
+      && gateCAction
+      && gateCEffectBundleId
+      && githubDeliveryTransitionQueued
+      && githubDeliveryTransitionId
+    ) {
+      try {
+        const transition = await finalizeGitHubDeliveryTransition({
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: receipt.attempt ?? claimed.attempt,
+          episodeId: episode.episodeId,
+          actionId: gateCAction.actionId,
+          effectBundleId: gateCEffectBundleId,
+        });
+        if (transition.status !== "materialized") {
+          logger.warn(
+            {
+              scope: "recipe-operation",
+              code: "github_delivery_transition_not_materialized",
+              executionId: claimed.id,
+              attempt: receipt.attempt ?? claimed.attempt,
+              episodeId: episode.episodeId,
+              actionId: gateCAction.actionId,
+              failureCode: transition.failureCode,
+            },
+            "GitHub delivery acceptance remains intact; its World State transition is explicitly incomplete",
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "github_delivery_transition_finalize_failed",
+            executionId: claimed.id,
+            attempt: receipt.attempt ?? claimed.attempt,
+            episodeId: episode.episodeId,
+            actionId: gateCAction.actionId,
+            error,
+          },
+          "GitHub delivery acceptance remains intact after World State transition finalization failure",
         );
       }
     }

@@ -132,6 +132,7 @@ router.post("/ai/projects/:projectId/recipe", requireRecipeAccess, async (req, r
               sourceRevision,
               message,
               signal,
+              beforeStateObserver,
             }) =>
               executeVerifiedGitHubDelivery({
                 rootPath,
@@ -145,6 +146,7 @@ router.post("/ai/projects/:projectId/recipe", requireRecipeAccess, async (req, r
                 branch: project.gitDefaultBranch ?? "main",
                 message,
                 signal,
+                beforeStateObserver,
               }),
           }
         : {}),

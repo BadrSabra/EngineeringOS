@@ -103,6 +103,7 @@ export type RecipeCapabilityRuntime = {
    * controls stay inside the API-side callback.
    */
   githubDeliveryRunner?: GitHubDeliveryRunner;
+  githubDeliveryBeforeStateObserver?: (state: GitHubDeliveryBeforeState) => Promise<void>;
   runtimeStartRunner?: RuntimeStartRunner;
   runtimeRestartRunner?: RuntimeRestartRunner;
   runtimeStopRunner?: RuntimeStopRunner;
@@ -127,6 +128,26 @@ export type DatabaseReadRunner = (args: {
   detail?: string;
 }>;
 
+export type GitHubDeliveryBeforeState = {
+  status: "observed";
+  projectId: string;
+  operationId: string;
+  executionId: string;
+  executionAttempt: number;
+  sourceRevision: string;
+  proposalId: string;
+  remoteUrl: string;
+  branch: string;
+  expectedCommitHash: string;
+  expectedParentHash: string;
+  expectedParentTreeHash: string;
+  expectedTreeHash: string;
+  remoteCommitHash: string;
+  remoteTreeHash: string;
+  remoteParentCount: number;
+  observedAt: string;
+};
+
 export type GitHubDeliveryRunner = (args: {
   rootPath: string;
   projectId: string;
@@ -136,6 +157,7 @@ export type GitHubDeliveryRunner = (args: {
   sourceRevision?: string;
   message: string;
   signal?: AbortSignal;
+  beforeStateObserver?: (state: GitHubDeliveryBeforeState) => Promise<void>;
 }) => Promise<{
   status: "passed" | "blocked" | "unavailable";
   evidence?: {
@@ -586,6 +608,9 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
         sourceRevision: context.revision,
         message: parsedInput.message,
         signal: context.signal,
+        ...(runtime.githubDeliveryBeforeStateObserver
+          ? { beforeStateObserver: runtime.githubDeliveryBeforeStateObserver }
+          : {}),
       });
       return {
         status: result.status,

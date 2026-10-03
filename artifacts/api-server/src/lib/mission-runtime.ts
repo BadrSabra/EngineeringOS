@@ -1070,6 +1070,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
               sourceRevision,
               message,
               signal,
+               beforeStateObserver,
             }) => executeVerifiedGitHubDelivery({
               rootPath,
               projectId,
@@ -1082,6 +1083,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
               branch: project.gitDefaultBranch ?? "main",
               message,
               signal,
+               beforeStateObserver,
             }),
           }
         : {}),

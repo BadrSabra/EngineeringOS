@@ -14,3 +14,9 @@ The ordinary user-requested Git push path is a separate contract from AI-scoped 
 **Why:** Manual pushes do not have an AI proposal or operation-owned commit evidence to validate, so forcing them through the proposal contract would either invent authority or break the existing Git settings flow.
 
 **How to apply:** Route only proposal-bound GitHub pushes through `executeVerifiedGitHubDelivery`; keep manual pushes on the existing credentialed Git path until they receive a separately designed server-owned operation contract.
+
+For the recipe-only World State projection, persist a direct remote-branch observation before a new push. Key the pending transition by execution and operation, then let a resumed attempt rebind its accepted effect and after-state while preserving the original before observation. If the exact delivered commit is already present, reconcile it without fabricating a new before-state; use the observed remote commit as the World State project revision.
+
+**Why:** A remote branch mutation cannot be reconstructed from local workspace revision, and retries may change Episode attempt identity without changing the original pre-mutation fact.
+
+**How to apply:** Keep this transition path inside `delivery.push.github`. Missing or uncertain remote state remains recoverable; manual pushes receive no synthetic execution, Episode, or transition identities.

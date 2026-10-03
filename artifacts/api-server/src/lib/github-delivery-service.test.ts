@@ -65,7 +65,7 @@ describe("verified GitHub delivery service", () => {
     });
   });
 
-  it("reconciles a remote commit after the local GitPushed receipt was lost", async () => {
+  it("blocks branch drift before mutation and reconciles a remote commit after its GitPushed receipt is lost", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-delivery-recovery-"));
     const projectId = randomUUID();
     const sessionId = randomUUID();
@@ -158,6 +158,38 @@ describe("verified GitHub delivery service", () => {
         },
       });
 
+      const preflightDriftCalls: string[] = [];
+      let beforeStateObserved = false;
+      const driftedBeforePush = await executeVerifiedGitHubDelivery({
+        ...params({ projectId, proposalId, operationId, rootPath }),
+        executionId: "execution-delivery-drift",
+        executionAttempt: 1,
+        sourceRevision: "revision-delivery-drift",
+        beforeStateObserver: async () => {
+          beforeStateObserved = true;
+        },
+        request: async (requestPath, init) => {
+          preflightDriftCalls.push(`${init?.method ?? "GET"} ${requestPath}`);
+          if (requestPath.endsWith("/git/ref/heads/main")) {
+            return { object: { sha: "remote-drift-commit" } };
+          }
+          if (requestPath.endsWith("/git/commits/remote-drift-commit")) {
+            return {
+              tree: { sha: "remote-drift-tree" },
+              message: "Unexpected branch update",
+              parents: [{ sha: parentHash }],
+            };
+          }
+          throw new Error(`unexpected GitHub path: ${requestPath}`);
+        },
+      });
+      expect(driftedBeforePush).toMatchObject({ status: "blocked" });
+      expect(beforeStateObserved).toBe(false);
+      expect(preflightDriftCalls).toEqual([
+        "GET /repos/example/project/git/ref/heads/main",
+        "GET /repos/example/project/git/commits/remote-drift-commit",
+      ]);
+
       const result = await executeVerifiedGitHubDelivery({
         ...params({ projectId, proposalId, operationId, rootPath }),
         executionId: "execution-delivery",
@@ -208,7 +240,6 @@ describe("verified GitHub delivery service", () => {
         },
       });
       expect(calls).toEqual([
-        "GET /repos/example/project/git/ref/heads/main",
         "GET /repos/example/project/git/ref/heads/main",
         `GET /repos/example/project/git/commits/${remoteCommitHash}`,
       ]);

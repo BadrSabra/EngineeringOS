@@ -37,6 +37,23 @@ export type RuntimeStartTransitionIntent = {
   environmentRevision: string | null;
 };
 
+export type GitHubDeliveryTransitionIntent = {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  workerId: string;
+  operationId: string;
+  proposalId: string;
+  remoteUrl: string;
+  branch: string;
+  parentWorldRevision: string;
+  parentFactRefs: readonly string[];
+  taskScope: string;
+  beforeObservationIds: readonly string[];
+};
+
 export type ApplyChangesTransitionIntent = {
   projectId: string;
   executionId: string;
@@ -225,6 +242,218 @@ export async function createPendingRuntimeStartTransition(
   });
 }
 
+function githubDeliveryTransitionKey(input: Pick<GitHubDeliveryTransitionIntent, "executionId" | "operationId">): string {
+  return `github.delivery:${input.executionId}:${input.operationId}`;
+}
+
+function githubDeliveryBindingRef(input: Pick<GitHubDeliveryTransitionIntent, "operationId" | "proposalId" | "remoteUrl" | "branch">): string {
+  return `github-delivery-binding:v1:${JSON.stringify({
+    operationId: input.operationId,
+    proposalId: input.proposalId,
+    remoteUrl: input.remoteUrl,
+    branch: input.branch,
+  })}`;
+}
+
+function parseGitHubDeliveryBinding(refs: unknown): {
+  operationId: string;
+  proposalId: string;
+  remoteUrl: string;
+  branch: string;
+} | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const candidates = refs.filter((value): value is string =>
+    typeof value === "string" && value.startsWith("github-delivery-binding:v1:"));
+  if (candidates.length !== 1) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(candidates[0]!.slice("github-delivery-binding:v1:".length));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const value = parsed as Record<string, unknown>;
+    return typeof value.operationId === "string"
+      && typeof value.proposalId === "string"
+      && typeof value.remoteUrl === "string"
+      && typeof value.branch === "string"
+      ? {
+          operationId: value.operationId,
+          proposalId: value.proposalId,
+          remoteUrl: value.remoteUrl,
+          branch: value.branch,
+        }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function createPendingGitHubDeliveryTransition(
+  input: GitHubDeliveryTransitionIntent,
+): Promise<string> {
+  const idempotencyKey = githubDeliveryTransitionKey(input);
+  const bindingRef = githubDeliveryBindingRef(input);
+  const beforeObservationIds = unique(input.beforeObservationIds);
+  if (
+    !/^[a-f0-9]{64}$/.test(input.parentWorldRevision)
+    || beforeObservationIds.length !== 1
+    || !input.operationId
+    || !input.proposalId
+    || !input.remoteUrl
+    || !input.branch
+  ) {
+    throw new Error("github_delivery_transition_intent_invalid");
+  }
+  return db.transaction(async (tx) => {
+    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.attempt, input.attempt),
+    )).for("update").limit(1);
+    if (
+      !execution || execution.status !== "running" || execution.workerId !== input.workerId
+      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+    ) {
+      throw new Error("github_delivery_transition_owner_stale");
+    }
+    const [existing] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.idempotencyKey, idempotencyKey),
+    )).for("update").limit(1);
+    if (existing) {
+      const binding = parseGitHubDeliveryBinding(existing.evidenceRefs);
+      if (
+        existing.executionId !== input.executionId
+        || !binding
+        || JSON.stringify(binding) !== JSON.stringify({
+          operationId: input.operationId,
+          proposalId: input.proposalId,
+          remoteUrl: input.remoteUrl,
+          branch: input.branch,
+        })
+      ) {
+        throw new Error("github_delivery_transition_idempotency_conflict");
+      }
+      if (existing.status === "terminal_failed") {
+        throw new Error("github_delivery_transition_already_terminal");
+      }
+      return existing.id;
+    }
+    const id = randomUUID();
+    await tx.insert(aiWorldTransitionsTable).values({
+      id,
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      episodeId: input.episodeId,
+      actionId: input.actionId,
+      effectBundleId: null,
+      parentWorldRevision: input.parentWorldRevision,
+      taskScope: input.taskScope,
+      environmentRevisionKey: "unknown",
+      environmentRevision: null,
+      freshness: "unknown",
+      beforeObservationIds,
+      afterObservationIds: [],
+      materializedObservationIds: [],
+      parentFactRefs: unique(input.parentFactRefs),
+      changedFactRefs: [],
+      evidenceRefs: [bindingRef, `github-delivery-before:v1:${beforeObservationIds[0]}`],
+      status: "pending",
+      idempotencyKey,
+      retryCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return id;
+  });
+}
+
+export async function bindGitHubDeliveryTransitionEffect(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+  workerId: string;
+  operationId: string;
+  afterObservationIds: readonly string[];
+}): Promise<string | undefined> {
+  const afterObservationIds = unique(input.afterObservationIds);
+  if (!input.effectBundleId || afterObservationIds.length !== 1) {
+    throw new Error("github_delivery_transition_after_state_missing");
+  }
+  return db.transaction(async (tx) => {
+    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.attempt, input.attempt),
+    )).for("update").limit(1);
+    if (
+      !execution || execution.status !== "running" || execution.workerId !== input.workerId
+      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+    ) {
+      throw new Error("github_delivery_transition_owner_stale");
+    }
+    const [transition] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.idempotencyKey, `github.delivery:${input.executionId}:${input.operationId}`),
+    )).for("update").limit(1);
+    if (!transition) return undefined;
+    const binding = parseGitHubDeliveryBinding(transition.evidenceRefs);
+    if (!binding || binding.operationId !== input.operationId) {
+      throw new Error("github_delivery_transition_binding_invalid");
+    }
+    if (transition.status === "materialized") return undefined;
+    if (transition.status === "terminal_failed" || unique(transition.beforeObservationIds as string[]).length !== 1) {
+      throw new Error("github_delivery_transition_not_rebindable");
+    }
+    const updated = await tx.update(aiWorldTransitionsTable).set({
+      attempt: input.attempt,
+      episodeId: input.episodeId,
+      actionId: input.actionId,
+      effectBundleId: input.effectBundleId,
+      afterObservationIds,
+      status: "pending",
+      failureCode: null,
+      nextRetryAt: null,
+      updatedAt: new Date(),
+    }).where(eq(aiWorldTransitionsTable.id, transition.id))
+      .returning({ id: aiWorldTransitionsTable.id });
+    return updated[0]?.id;
+  });
+}
+
+export async function terminalizeUnmutatedGitHubDeliveryTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  operationId: string;
+  workerId: string;
+  failureCode: string;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.attempt, input.attempt),
+    )).for("update").limit(1);
+    if (
+      !execution || execution.status !== "running" || execution.workerId !== input.workerId
+      || !execution.leaseUntil || execution.leaseUntil <= new Date()
+    ) return;
+    const [transition] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.idempotencyKey, `github.delivery:${input.executionId}:${input.operationId}`),
+    )).for("update").limit(1);
+    if (!transition || transition.effectBundleId || transition.status === "materialized") return;
+    await tx.update(aiWorldTransitionsTable).set({
+      status: "terminal_failed",
+      failureCode: input.failureCode.slice(0, 80),
+      nextRetryAt: null,
+      updatedAt: new Date(),
+    }).where(eq(aiWorldTransitionsTable.id, transition.id));
+  });
+}
+
 function validBeforeObservation(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const state = value as Record<string, unknown>;
@@ -311,6 +540,350 @@ async function markRetryableFailure(
     ))
     .returning({ id: aiWorldTransitionsTable.id });
   return updated.length > 0;
+}
+
+type GitHubDeliveryTransitionClaim =
+  | { kind: "claimed"; transition: typeof aiWorldTransitionsTable.$inferSelect; leaseUntil: Date }
+  | { kind: "materialized"; worldRevision: string }
+  | { kind: "terminal_failed"; failureCode: string }
+  | { kind: "pending"; failureCode?: string };
+
+function githubDeliveryRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function validCredentialFreeGitHubRemote(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && url.hostname === "github.com"
+      && !url.username
+      && !url.password
+      && !url.search
+      && !url.hash
+      && url.pathname.split("/").filter(Boolean).length === 2;
+  } catch {
+    return false;
+  }
+}
+
+async function claimGitHubDeliveryTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+}): Promise<GitHubDeliveryTransitionClaim> {
+  return db.transaction(async (tx) => {
+    const [transition] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.executionId, input.executionId),
+      eq(aiWorldTransitionsTable.attempt, input.attempt),
+      eq(aiWorldTransitionsTable.episodeId, input.episodeId),
+      eq(aiWorldTransitionsTable.actionId, input.actionId),
+    )).for("update").limit(1);
+    if (!transition || transition.effectBundleId !== input.effectBundleId) {
+      throw new Error("github_delivery_transition_identity_missing");
+    }
+    if (transition.status === "materialized" && transition.resultingWorldRevision) {
+      return { kind: "materialized", worldRevision: transition.resultingWorldRevision };
+    }
+    if (transition.status === "terminal_failed") {
+      return {
+        kind: "terminal_failed",
+        failureCode: transition.failureCode ?? "github_delivery_transition_terminal_failed",
+      };
+    }
+    const binding = parseGitHubDeliveryBinding(transition.evidenceRefs);
+    if (!binding || transition.idempotencyKey !== githubDeliveryTransitionKey({
+      executionId: input.executionId,
+      operationId: binding.operationId,
+    })) {
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: "github_delivery_transition_binding_invalid",
+        nextRetryAt: null,
+        updatedAt: new Date(),
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: "github_delivery_transition_binding_invalid" };
+    }
+    const now = new Date();
+    const [acceptance] = await tx.select({
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      operationId: aiExecutionAcceptancesTable.operationId,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+      eq(aiExecutionAcceptancesTable.attempt, input.attempt),
+      eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+    )).limit(1);
+    if (!acceptance) {
+      const [execution] = await tx.select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+      }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.id, input.executionId),
+        eq(aiExecutionsTable.projectId, input.projectId),
+      )).limit(1);
+      if (execution && execution.attempt > input.attempt) {
+        await tx.update(aiWorldTransitionsTable).set({
+          status: "retrying",
+          failureCode: "github_delivery_transition_awaiting_retry_binding",
+          nextRetryAt: new Date(now.getTime() + 60_000),
+          updatedAt: now,
+        }).where(eq(aiWorldTransitionsTable.id, transition.id));
+        return { kind: "pending", failureCode: "github_delivery_transition_awaiting_retry_binding" };
+      }
+      if (
+        execution
+        && execution.attempt === input.attempt
+        && ACTIVE_EXECUTION_STATUSES.has(execution.status)
+      ) return { kind: "pending" };
+      const failureCode = "github_delivery_transition_acceptance_missing";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode,
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode };
+    }
+    if (
+      acceptance.effectBundleId !== input.effectBundleId
+      || acceptance.operationId !== binding.operationId
+    ) {
+      const failureCode = "github_delivery_transition_acceptance_binding_mismatch";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode,
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode };
+    }
+    if (transition.nextRetryAt && transition.nextRetryAt > now) {
+      return {
+        kind: "pending",
+        ...(transition.failureCode ? { failureCode: transition.failureCode } : {}),
+      };
+    }
+    if (transition.retryCount >= 8) {
+      const failureCode = "world_state_materialization_retry_exhausted";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode,
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode };
+    }
+    const leaseUntil = new Date(now.getTime() + 60_000);
+    const claimed = await tx.update(aiWorldTransitionsTable).set({
+      status: "retrying",
+      nextRetryAt: leaseUntil,
+      updatedAt: now,
+    }).where(and(
+      eq(aiWorldTransitionsTable.id, transition.id),
+      inArray(aiWorldTransitionsTable.status, ["pending", "retrying"]),
+    )).returning({ id: aiWorldTransitionsTable.id });
+    return claimed.length > 0
+      ? { kind: "claimed", transition, leaseUntil }
+      : { kind: "pending" };
+  });
+}
+
+export async function finalizeGitHubDeliveryTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+}): Promise<{
+  status: "materialized" | "terminal_failed" | "pending";
+  worldRevision?: string;
+  failureCode?: string;
+}> {
+  const claim = await claimGitHubDeliveryTransition(input);
+  if (claim.kind === "materialized") {
+    return { status: "materialized", worldRevision: claim.worldRevision };
+  }
+  if (claim.kind === "terminal_failed") {
+    return { status: "terminal_failed", failureCode: claim.failureCode };
+  }
+  if (claim.kind === "pending") {
+    return { status: "pending", ...(claim.failureCode ? { failureCode: claim.failureCode } : {}) };
+  }
+  const { transition, leaseUntil } = claim;
+  try {
+    const binding = parseGitHubDeliveryBinding(transition.evidenceRefs);
+    if (!binding || !validCredentialFreeGitHubRemote(binding.remoteUrl) || !binding.branch.trim()) {
+      throw new Error("github_delivery_transition_binding_invalid");
+    }
+    if (!/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)) {
+      throw new Error("github_delivery_transition_parent_unavailable");
+    }
+    const [acceptance] = await db.select()
+      .from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, input.attempt),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+    if (
+      !acceptance
+      || acceptance.effectBundleId !== input.effectBundleId
+      || acceptance.operationId !== binding.operationId
+    ) throw new Error("github_delivery_transition_acceptance_missing");
+
+    const beforeObservationIds = unique(transition.beforeObservationIds as string[]);
+    const afterObservationIds = unique(transition.afterObservationIds as string[]);
+    if (beforeObservationIds.length !== 1 || afterObservationIds.length !== 1) {
+      throw new Error("github_delivery_transition_observations_missing");
+    }
+    const observationIds = unique([...beforeObservationIds, ...afterObservationIds]);
+    const observations = await db.select().from(aiAgentObservationsTable).where(and(
+      eq(aiAgentObservationsTable.projectId, input.projectId),
+      inArray(aiAgentObservationsTable.id, observationIds),
+    ));
+    if (observations.length !== observationIds.length || observations.some((observation) => (
+      observation.executionId !== input.executionId
+      || observation.provenance !== "DIRECT_OBSERVATION"
+      || observation.completeness !== "complete"
+      || observation.freshness !== "fresh"
+      || observation.environmentFreshness === "stale"
+    ))) throw new Error("github_delivery_transition_observations_incomplete");
+
+    const beforeObservation = observations.find((observation) => beforeObservationIds.includes(observation.id));
+    const afterObservation = observations.find((observation) => afterObservationIds.includes(observation.id));
+    if (!beforeObservation || !afterObservation) {
+      throw new Error("github_delivery_transition_observations_missing");
+    }
+    const episodeIds = unique([beforeObservation.episodeId, afterObservation.episodeId]);
+    const episodes = await db.select({
+      id: aiAgentEpisodesTable.id,
+      projectId: aiAgentEpisodesTable.projectId,
+      executionId: aiAgentEpisodesTable.executionId,
+      attempt: aiAgentEpisodesTable.attempt,
+    }).from(aiAgentEpisodesTable).where(and(
+      eq(aiAgentEpisodesTable.projectId, input.projectId),
+      inArray(aiAgentEpisodesTable.id, episodeIds),
+    ));
+    const beforeEpisode = episodes.find((episode) => episode.id === beforeObservation.episodeId);
+    const afterEpisode = episodes.find((episode) => episode.id === afterObservation.episodeId);
+    if (
+      episodes.length !== episodeIds.length
+      || episodes.some((episode) => episode.executionId !== input.executionId)
+      || !beforeEpisode
+      || !afterEpisode
+      || beforeEpisode.attempt > input.attempt
+      || afterEpisode.attempt !== input.attempt
+      || afterEpisode.id !== input.episodeId
+      || transition.episodeId !== input.episodeId
+    ) throw new Error("github_delivery_transition_episode_binding_mismatch");
+
+    const before = githubDeliveryRecord(beforeObservation.value);
+    const after = githubDeliveryRecord(afterObservation.value);
+    const sameIdentity = (state: Record<string, unknown>, episodeAttempt: number) => (
+      state.projectId === input.projectId
+      && state.operationId === binding.operationId
+      && state.executionId === input.executionId
+      && state.executionAttempt === episodeAttempt
+      && state.proposalId === binding.proposalId
+      && state.remoteUrl === binding.remoteUrl
+      && state.branch === binding.branch
+      && typeof state.sourceRevision === "string"
+      && state.sourceRevision.length > 0
+      && typeof state.expectedCommitHash === "string"
+      && typeof state.expectedParentHash === "string"
+      && typeof state.expectedTreeHash === "string"
+      && typeof state.observedAt === "string"
+      && Number.isFinite(Date.parse(state.observedAt))
+    );
+    if (
+      !before || !after
+      || beforeObservation.predicate !== "delivery.remote_branch_state"
+      || afterObservation.predicate !== "delivery.remote_branch_state"
+      || beforeObservation.subject !== `github:${binding.remoteUrl}:${binding.branch}`
+      || afterObservation.subject !== beforeObservation.subject
+      || beforeObservation.projectRevision !== before.remoteCommitHash
+      || afterObservation.projectRevision !== after.remoteCommitHash
+      || !sameIdentity(before, beforeEpisode.attempt)
+      || !sameIdentity(after, afterEpisode.attempt)
+      || before.status !== "observed"
+      || before.remoteCommitHash !== before.expectedParentHash
+      || before.remoteTreeHash !== before.expectedParentTreeHash
+      || before.expectedParentHash !== after.expectedParentHash
+      || before.expectedCommitHash !== after.expectedCommitHash
+      || before.expectedTreeHash !== after.expectedTreeHash
+      || before.sourceRevision !== after.sourceRevision
+      || after.status !== "passed"
+      || after.remoteCommitHash !== after.expectedCommitHash
+      || after.remoteParentHash !== after.expectedParentHash
+      || after.remoteTreeHash !== after.expectedTreeHash
+      || after.remoteParentCount !== 1
+      || after.markerMatched !== true
+      || after.operationMarker !== `EngineeringOS-Operation: ${binding.operationId}`
+      || after.candidateTreeHash !== after.committedTreeHash
+    ) throw new Error("github_delivery_transition_observations_unproven");
+
+    const materialized = await materializeWorldStateForProject(input.projectId, {
+      observationIds,
+      expectedWorldRevision: transition.parentWorldRevision,
+      expectedRevisionExcludeEpisodeIds: episodeIds,
+    }, async (tx, result) => {
+      const selected = new Set(observationIds);
+      const facts = await tx.select({
+        id: aiWorldFactsTable.id,
+        sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+      }).from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, input.projectId));
+      const changedFactRefs = facts.filter((fact) =>
+        Array.isArray(fact.sourceObservationIds)
+        && fact.sourceObservationIds.some((id: unknown) => typeof id === "string" && selected.has(id)),
+      ).map((fact) => fact.id).sort((left, right) => left.localeCompare(right));
+      const updated = await tx.update(aiWorldTransitionsTable).set({
+        resultingWorldRevision: result.worldRevision,
+        materializedObservationIds: observationIds,
+        changedFactRefs,
+        freshness: "fresh",
+        status: "materialized",
+        failureCode: null,
+        nextRetryAt: null,
+        materializedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(and(
+        eq(aiWorldTransitionsTable.id, transition.id),
+        eq(aiWorldTransitionsTable.status, "retrying"),
+        eq(aiWorldTransitionsTable.nextRetryAt, leaseUntil),
+      )).returning({ id: aiWorldTransitionsTable.id });
+      if (updated.length === 0) throw new Error("github_delivery_transition_owner_stale");
+    });
+    try {
+      invalidateContextSlice(input.projectId, "worldState");
+    } catch (error) {
+      logger.warn(
+        { scope: "github-delivery-transition", code: "context_invalidation_failed", executionId: input.executionId, error },
+        "GitHub delivery World State materialized but cache invalidation failed",
+      );
+    }
+    return { status: "materialized", worldRevision: materialized.worldRevision };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const code = message.startsWith("github_delivery_transition_")
+      ? message.slice(0, 80)
+      : message.includes("parent_revision_mismatch")
+        ? "parent_world_revision_mismatch"
+        : "world_state_materialization_failed";
+    if (code === "world_state_materialization_failed") {
+      if (await markRetryableFailure(transition.id, code, leaseUntil, transition.retryCount)) {
+        return { status: "pending", failureCode: code };
+      }
+    }
+    await markTerminalFailure(transition.id, code, leaseUntil);
+    return { status: "terminal_failed", failureCode: code };
+  }
 }
 
 type RuntimeStartTransitionClaim =
@@ -1058,7 +1631,9 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
         )).limit(1);
       const finalize = transition?.idempotencyKey.startsWith("apply.changes:")
         ? finalizeApplyChangesTransition
-        : finalizeRuntimeStartTransition;
+        : transition?.idempotencyKey.startsWith("github.delivery:")
+          ? finalizeGitHubDeliveryTransition
+          : finalizeRuntimeStartTransition;
       await finalize({
         ...candidate,
         effectBundleId: candidate.effectBundleId,
