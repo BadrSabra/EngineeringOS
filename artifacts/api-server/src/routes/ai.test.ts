@@ -7482,11 +7482,13 @@ describe("POST /api/ai/chat/apply-changes", () => {
       expect(JSON.parse(execution!.request)).toMatchObject({
         proofRequired: true,
         effectRequired: true,
+        applyChangesProofMode: "apply_changes_v1",
       });
 
       const [acceptance] = await db.select({
         outcome: aiExecutionAcceptancesTable.outcome,
         reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
         evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
         effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
@@ -7673,8 +7675,48 @@ describe("POST /api/ai/chat/apply-changes", () => {
         projectRevision: acceptance!.sourceRevision,
       });
 
-      // Recreate the pre-finalization episode state to exercise the duplicate
-      // acceptance path with a legacy optional-evidence PROVEN projection.
+      const [proofSnapshot] = await db.select()
+        .from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+        .limit(1);
+      expect(proofSnapshot).toBeDefined();
+      const originalArtifactRefs = proofSnapshot!.artifactRefs;
+      const mismatchedArtifactRefs = JSON.parse(JSON.stringify(originalArtifactRefs)) as Array<
+        Record<string, unknown>
+      >;
+      const applyArtifact = mismatchedArtifactRefs.find((artifact) =>
+        artifact.kind === "apply_changes",
+      );
+      expect(applyArtifact).toBeDefined();
+      applyArtifact!.candidateTreeHash = "f".repeat(64);
+      await db.update(aiExecutionEvidenceSnapshotsTable)
+        .set({ artifactRefs: mismatchedArtifactRefs })
+        .where(eq(aiExecutionEvidenceSnapshotsTable.id, proofSnapshot!.id));
+      try {
+        const mismatchedProof = await db.transaction((tx) => loadCanonicalProof({
+          tx,
+          executionId: execution!.id,
+          scope: {
+            projectId,
+            executionId: execution!.id,
+            sourceRevisionBinding: "execution",
+            candidateIdentityBinding: "required",
+            sourceRevision: deliveryWorkspace.baseRevision,
+            candidateIdentity: `${proposalId}:${deliveryWorkspace.candidateTreeHash}`,
+          },
+          goalStatus: "completed",
+          attempt: execution!.attempt,
+        }));
+        expect(mismatchedProof.accepted).toBe(false);
+        expect(mismatchedProof.failureReasons).toContain("apply_changes_proof_mismatch");
+      } finally {
+        await db.update(aiExecutionEvidenceSnapshotsTable)
+          .set({ artifactRefs: originalArtifactRefs })
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, proofSnapshot!.id));
+      }
+
+      // A duplicate callback must not report success if required proof is no
+      // longer present on the durable acceptance.
       await db.delete(aiAgentEpisodeEventsTable).where(and(
         eq(aiAgentEpisodeEventsTable.episodeId, episodeBeforeReplay!.id),
         eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
@@ -7696,7 +7738,11 @@ describe("POST /api/ai/chat/apply-changes", () => {
           recoveryState: "NONE",
           proposalId: execution!.proposalId ?? undefined,
         });
-        expect(duplicate).toMatchObject({ accepted: true, duplicate: true });
+        expect(duplicate).toMatchObject({
+          accepted: false,
+          duplicate: true,
+          reason: "Existing Apply acceptance has no current canonical proof.",
+        });
 
         const [episodeAfterReplay] = await db.select({
           state: aiAgentEpisodesTable.state,

@@ -174,6 +174,7 @@ import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
 } from "../../lib/agent-state/apply-change-effect.js";
+import { APPLY_CHANGES_PROOF_MODE } from "../../lib/agent-state/apply-changes-proof.js";
 import { verifyAndPersistEffect } from "../../lib/agent-state/effect-observer.js";
 import {
   captureEnvironmentAttestation,
@@ -16125,6 +16126,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           validationTargetPaths: writableChanges.map((change) => change.path),
           proofRequired: true,
           effectRequired: true,
+          applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
         },
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,

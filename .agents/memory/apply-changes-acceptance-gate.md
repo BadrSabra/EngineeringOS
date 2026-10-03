@@ -32,3 +32,9 @@ When recording the parent World State revision for an Apply Changes transition, 
 **Why:** The live before/after observations are retained before the transition is created. Including them in the parent revision and excluding them during finalization makes a valid transition look like parent drift and leaves it retrying.
 
 **How to apply:** Capture the parent with `getProjectWorldState` excluding the transition Episode, then preserve the matching exclusion during materialization. Keep those direct observations linked to the transition itself.
+
+Canonical Apply acceptance is a separate artifact derived from the durable `ACTION_REQUESTED`/`ACTION_COMMITTED` events, an `OBSERVED` effect bundle, and the exact attempt-bound before/after observations. A proposal ID never substitutes for required evidence, and duplicate callbacks must revalidate the durable proof before reporting success.
+
+**Why:** The Apply effect proves that the approved candidate was promoted; it does not prove live project state or Mission D2. Skipping this artifact check can accept incomplete writes, while trusting proposal identity can turn a retry into false success.
+
+**How to apply:** Reconstruct and compare the artifact from durable rows during acceptance and every Canonical Proof load. Keep D2 on its separate path through direct live-project observations and the transition bound to the active Mission plan.

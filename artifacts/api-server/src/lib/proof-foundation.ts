@@ -19,6 +19,11 @@ import {
   RUNTIME_START_GATE_C_PROOF_MODE,
   type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
+import {
+  APPLY_CHANGES_PROOF_MODE,
+  deriveApplyChangesProof,
+  type ApplyChangesProofArtifact,
+} from "./agent-state/apply-changes-proof.js";
 
 export const CANONICAL_PROOF_CONTRACT_VERSION = 1 as const;
 
@@ -57,7 +62,8 @@ export type CanonicalProofFailureReason =
   | "delivery_not_proven"
   | "delivery_identity_missing"
   | "delivery_identity_mismatch"
-  | "apply_changes_transition_unproven";
+  | "apply_changes_transition_unproven"
+  | "apply_changes_proof_mismatch";
 
 export type CanonicalProofScope = {
   projectId: string;
@@ -634,6 +640,53 @@ export async function loadCanonicalProof(
       : undefined;
   } catch {
     request = undefined;
+  }
+  if (request?.turnIntent === "APPLY_CHANGES" && request.proofRequired === true) {
+    const rawArtifacts = evidence && Array.isArray(evidence.artifactRefs)
+      ? evidence.artifactRefs
+      : [];
+    const applyArtifacts = rawArtifacts.filter((artifact) => (
+      artifact
+      && typeof artifact === "object"
+      && !Array.isArray(artifact)
+      && (artifact as Record<string, unknown>).kind === "apply_changes"
+    ));
+    const expectedArtifact = request.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE
+      && acceptance
+      && acceptance.outcome === "SUCCEEDED"
+      && acceptance.terminalStatus === "completed"
+      && acceptance.evidenceRequired === 1
+      && acceptance.evidenceComplete === 1
+      ? await deriveApplyChangesProof({
+          tx: input.tx,
+          execution,
+          request,
+          sourceRevision: acceptance.sourceRevision,
+          candidateIdentity: acceptance.candidateIdentity,
+          effectBundleId: acceptance.effectBundleId,
+          allowCompleted: true,
+        })
+      : undefined;
+    const storedArtifact = applyArtifacts.length === 1
+      ? applyArtifacts[0] as ApplyChangesProofArtifact
+      : undefined;
+    if (
+      !proof.accepted
+      || !expectedArtifact
+      || !storedArtifact
+      || canonicalJsonHash(storedArtifact) !== canonicalJsonHash(expectedArtifact)
+    ) {
+      return {
+        ...proof,
+        accepted: false,
+        verdict: proof.verdict === "UNAVAILABLE" ? "UNAVAILABLE" : "INCOMPLETE",
+        failureReasons: [...new Set([
+          ...proof.failureReasons,
+          "apply_changes_proof_mismatch" as const,
+        ])],
+      };
+    }
+    return proof;
   }
   if (request?.recipeProofMode !== RUNTIME_START_GATE_C_PROOF_MODE) return proof;
 

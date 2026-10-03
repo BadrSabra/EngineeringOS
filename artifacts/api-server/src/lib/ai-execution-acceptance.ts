@@ -34,6 +34,11 @@ import {
   RUNTIME_START_GATE_C_PROOF_MODE,
   type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
+import {
+  APPLY_CHANGES_PROOF_MODE,
+  deriveApplyChangesProof,
+  type ApplyChangesProofArtifact,
+} from "./agent-state/apply-changes-proof.js";
 import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
@@ -101,6 +106,29 @@ export type EvidenceArtifactInput = {
   actionHash: string;
   effectContractHash: string;
   environmentRevision: string;
+  beforeObservationIds: string[];
+  afterObservationIds: string[];
+} | {
+  kind: "apply_changes";
+  version: 1;
+  executionId: string;
+  attempt: number;
+  operationId: string;
+  proposalId: string;
+  proposalOperationId: string;
+  sourceRevision: string;
+  candidateIdentity: string;
+  baseTreeHash: string;
+  candidateTreeHash: string;
+  changeSetHash: string;
+  episodeId: string;
+  actionId: string;
+  actionEventId: string;
+  committedEventId: string;
+  effectBundleId: string;
+  effectId: string;
+  actionHash: string;
+  effectContractHash: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
 } | {
@@ -1021,6 +1049,38 @@ export type FinalizeExecutionAcceptanceResult = {
   reason?: string;
 };
 
+async function existingApplyAcceptanceHasCurrentProof(
+  tx: AcceptanceTransaction,
+  execution: typeof aiExecutionsTable.$inferSelect,
+  acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
+): Promise<boolean> {
+  const request = parseStoredExecutionRequest(execution.request);
+  if (request?.turnIntent !== "APPLY_CHANGES" || request.proofRequired !== true) return true;
+  if (
+    request.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+    || acceptance.outcome !== "SUCCEEDED"
+    || acceptance.terminalStatus !== "completed"
+    || acceptance.evidenceRequired !== 1
+    || acceptance.evidenceComplete !== 1
+  ) return false;
+
+  const proof = await loadCanonicalProof({
+    tx,
+    executionId: execution.id,
+    scope: {
+      projectId: execution.projectId,
+      executionId: execution.id,
+      sourceRevisionBinding: "execution",
+      candidateIdentityBinding: "required",
+      sourceRevision: acceptance.sourceRevision ?? undefined,
+      candidateIdentity: acceptance.candidateIdentity ?? undefined,
+    },
+    goalStatus: "completed",
+    attempt: execution.attempt,
+  });
+  return proof.accepted;
+}
+
 async function closeEpisodeAfterCanonicalProof(input: {
   tx: AcceptanceTransaction;
   execution: typeof aiExecutionsTable.$inferSelect;
@@ -1390,6 +1450,74 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
   const artifacts: EvidenceArtifactInput[] = (input?.artifacts ?? []).flatMap(
     (artifact): EvidenceArtifactInput[] => {
+    if (artifact.kind === "apply_changes") {
+      const requiredIds = [
+        artifact.executionId,
+        artifact.operationId,
+        artifact.proposalId,
+        artifact.proposalOperationId,
+        artifact.sourceRevision,
+        artifact.candidateIdentity,
+        artifact.episodeId,
+        artifact.actionId,
+        artifact.actionEventId,
+        artifact.committedEventId,
+        artifact.effectBundleId,
+        artifact.effectId,
+      ];
+      const beforeObservationIds = artifact.beforeObservationIds;
+      const afterObservationIds = artifact.afterObservationIds;
+      if (
+        artifact.version !== 1
+        || !Number.isSafeInteger(artifact.attempt)
+        || artifact.attempt < 0
+        || requiredIds.some((value) =>
+          typeof value !== "string" || !value.trim() || value.length > 500
+        )
+        || artifact.sourceRevision.length > 500
+        || !/^[a-f0-9]{64}$/i.test(artifact.baseTreeHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.candidateTreeHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.changeSetHash)
+        || artifact.candidateIdentity !== `${artifact.proposalId}:${artifact.candidateTreeHash}`
+        || !/^[a-f0-9]{64}$/i.test(artifact.actionHash)
+        || !/^[a-f0-9]{64}$/i.test(artifact.effectContractHash)
+        || !Array.isArray(beforeObservationIds)
+        || beforeObservationIds.length !== 1
+        || beforeObservationIds.some((id) =>
+          typeof id !== "string" || !id.trim() || id.length > 160
+        )
+        || !Array.isArray(afterObservationIds)
+        || afterObservationIds.length !== 1
+        || afterObservationIds.some((id) =>
+          typeof id !== "string" || !id.trim() || id.length > 160
+        )
+        || beforeObservationIds[0] === afterObservationIds[0]
+      ) return [];
+      return [{
+        kind: "apply_changes",
+        version: 1,
+        executionId: artifact.executionId.slice(0, 160),
+        attempt: artifact.attempt,
+        operationId: artifact.operationId.slice(0, 160),
+        proposalId: artifact.proposalId.slice(0, 160),
+        proposalOperationId: artifact.proposalOperationId.slice(0, 160),
+        sourceRevision: artifact.sourceRevision,
+        candidateIdentity: artifact.candidateIdentity.slice(0, 240),
+        baseTreeHash: artifact.baseTreeHash.toLowerCase(),
+        candidateTreeHash: artifact.candidateTreeHash.toLowerCase(),
+        changeSetHash: artifact.changeSetHash.toLowerCase(),
+        episodeId: artifact.episodeId.slice(0, 160),
+        actionId: artifact.actionId.slice(0, 200),
+        actionEventId: artifact.actionEventId.slice(0, 160),
+        committedEventId: artifact.committedEventId.slice(0, 160),
+        effectBundleId: artifact.effectBundleId.slice(0, 160),
+        effectId: artifact.effectId.slice(0, 160),
+        actionHash: artifact.actionHash.toLowerCase(),
+        effectContractHash: artifact.effectContractHash.toLowerCase(),
+        beforeObservationIds: beforeObservationIds.slice(0, 1),
+        afterObservationIds: afterObservationIds.slice(0, 1),
+      }];
+    }
     if (artifact.kind === "runtime_start_gate_c") {
       const requiredIds = [
         artifact.executionId,
@@ -1697,10 +1825,6 @@ export async function finalizeExecutionAcceptance(
       params.effectRequired === true
       || storedRequest?.effectRequired === true
       || Boolean(params.effectBundleId);
-    const reviewReadyProposal =
-      params.outcome === "SUCCEEDED"
-      && typeof params.proposalId === "string"
-      && params.proposalId.length > 0;
     const expectedRevision = typeof storedRequest?.workspaceRevision === "string"
       ? storedRequest.workspaceRevision
       : execution.baseRevision ?? null;
@@ -1725,6 +1849,7 @@ export async function finalizeExecutionAcceptance(
       ?? params.evidence?.candidateIdentity
       ?? null;
     const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
+    const applyChangesProofMode = storedRequest?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE;
     const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
       ? await deriveRuntimeStartGateCProof({
           tx,
@@ -1734,6 +1859,33 @@ export async function finalizeExecutionAcceptance(
           sourceRevision: canonicalSourceRevision,
           candidateIdentity: canonicalCandidateIdentity,
           effectBundleId: params.effectBundleId ?? null,
+        })
+      : undefined;
+    const [priorApplyAcceptance] = applyChangesProofMode && params.outcome === "SUCCEEDED"
+      ? await tx
+        .select({
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+          candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, execution.id),
+          eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+        ))
+        .for("update")
+        .limit(1)
+      : [];
+    const applyChangesProof = applyChangesProofMode && params.outcome === "SUCCEEDED"
+      ? await deriveApplyChangesProof({
+          tx,
+          execution,
+          request: storedRequest,
+          sourceRevision: canonicalSourceRevision,
+          candidateIdentity: canonicalCandidateIdentity
+            ?? priorApplyAcceptance?.candidateIdentity
+            ?? null,
+          effectBundleId: params.effectBundleId ?? priorApplyAcceptance?.effectBundleId ?? null,
+          allowCompleted: true,
         })
       : undefined;
     const evidenceRequired = runtimeStartProofMode
@@ -1752,7 +1904,6 @@ export async function finalizeExecutionAcceptance(
         || (rootWasSupplied && suppliedRoot !== expectedRoot)
         || (
           params.outcome === "SUCCEEDED"
-          && !reviewReadyProposal
           && (expectedRevision === null || expectedRoot === null)
         )
       )
@@ -1763,9 +1914,11 @@ export async function finalizeExecutionAcceptance(
         reason: "EXECUTION_PROVENANCE_MISMATCH: evidence root or revision does not match the durable execution.",
       };
     }
-    const sourceEvidenceRequired = storedProofRequired
-      ? storedRequest?.proofEvidenceMode !== "artifact_only"
-      : params.evidence?.sourceEvidenceRequired ?? evidenceRequired;
+    const sourceEvidenceRequired = applyChangesProofMode
+      ? false
+      : storedProofRequired
+        ? storedRequest?.proofEvidenceMode !== "artifact_only"
+        : params.evidence?.sourceEvidenceRequired ?? evidenceRequired;
     const effectiveEvidence: EvidenceSnapshotInput | undefined = runtimeStartProofMode
       ? runtimeStartProof
         ? {
@@ -1774,12 +1927,27 @@ export async function finalizeExecutionAcceptance(
             operationId: execution.operationId,
             workspaceRoot: expectedRoot,
             sourceRevision: canonicalSourceRevision,
-            candidateIdentity: canonicalCandidateIdentity,
+            candidateIdentity: applyChangesProof?.candidateIdentity
+              ?? canonicalCandidateIdentity,
             verdict: "PROVEN",
             reads: [],
             artifacts: [runtimeStartProof satisfies RuntimeStartGateCProofArtifact],
           }
         : undefined
+      : applyChangesProofMode
+        ? {
+            required: true,
+            sourceEvidenceRequired: false,
+            operationId: execution.operationId,
+            workspaceRoot: expectedRoot,
+            sourceRevision: canonicalSourceRevision,
+            candidateIdentity: canonicalCandidateIdentity,
+            verdict: applyChangesProof ? "PROVEN" : "INCOMPLETE",
+            reads: [],
+            artifacts: applyChangesProof
+              ? [applyChangesProof satisfies ApplyChangesProofArtifact]
+              : [],
+          }
       : evidenceRequired
         ? {
             ...(params.evidence ?? {}),
@@ -1858,11 +2026,20 @@ export async function finalizeExecutionAcceptance(
         };
       }
     }
-    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete && !reviewReadyProposal) {
+    if (params.outcome === "SUCCEEDED" && applyChangesProofMode && !applyChangesProof) {
+      return {
+        accepted: false,
+        duplicate: false,
+        reason: "Apply proof evidence is missing, stale, or mismatched.",
+      };
+    }
+    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete) {
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
     }
 
-    let effectBundleId = params.effectBundleId ?? null;
+    let effectBundleId = params.effectBundleId
+      ?? priorApplyAcceptance?.effectBundleId
+      ?? null;
     if (effectRequired || effectBundleId) {
       const [effectBundle] = effectBundleId
         ? await tx.select()
@@ -1926,6 +2103,14 @@ export async function finalizeExecutionAcceptance(
           reason: "Finalization key belongs to another execution attempt.",
         };
       }
+      if (!await existingApplyAcceptanceHasCurrentProof(tx, execution, existingByKey)) {
+        return {
+          accepted: false,
+          duplicate: true,
+          acceptance: existingByKey,
+          reason: "Existing Apply acceptance has no current canonical proof.",
+        };
+      }
       await closeEpisodeAfterCanonicalProof({
         tx,
         execution,
@@ -1968,6 +2153,14 @@ export async function finalizeExecutionAcceptance(
           && existing.terminalStatus === "paused",
         );
         if (!reclaimOwnsLiveLease) {
+          if (!await existingApplyAcceptanceHasCurrentProof(tx, execution, existing)) {
+            return {
+              accepted: false,
+              duplicate: true,
+              acceptance: existing,
+              reason: "Existing Apply acceptance has no current canonical proof.",
+            };
+          }
           await closeEpisodeAfterCanonicalProof({
             tx,
             execution,
@@ -2263,9 +2456,18 @@ export async function finalizeExecutionAcceptance(
           eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
         ))
         .limit(1);
-      return concurrentAcceptance
-        ? { accepted: true, duplicate: true, acceptance: concurrentAcceptance }
-        : { accepted: false, duplicate: false, reason: "Acceptance insert failed." };
+      if (!concurrentAcceptance) {
+        return { accepted: false, duplicate: false, reason: "Acceptance insert failed." };
+      }
+      if (!await existingApplyAcceptanceHasCurrentProof(tx, execution, concurrentAcceptance)) {
+        return {
+          accepted: false,
+          duplicate: true,
+          acceptance: concurrentAcceptance,
+          reason: "Existing Apply acceptance has no current canonical proof.",
+        };
+      }
+      return { accepted: true, duplicate: true, acceptance: concurrentAcceptance };
     }
     await closeEpisodeAfterCanonicalProof({
       tx,

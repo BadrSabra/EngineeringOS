@@ -883,6 +883,7 @@ export type AiExecutionRequestEnvelope = {
   proofRequired?: boolean;
   proofEvidenceMode?: "artifact_only";
   recipeProofMode?: "runtime_start_gate_c_v1";
+  applyChangesProofMode?: "apply_changes_v1";
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
   effectRequired?: boolean;
 };
@@ -1114,6 +1115,20 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean") ||
       (value.proofEvidenceMode !== undefined && value.proofEvidenceMode !== "artifact_only") ||
       (value.proofEvidenceMode !== undefined && value.proofRequired !== true) ||
+      (value.applyChangesProofMode !== undefined && (
+        value.applyChangesProofMode !== "apply_changes_v1"
+        || value.proofRequired !== true
+        || value.effectRequired !== true
+        || value.turnIntent !== "APPLY_CHANGES"
+        || value.proofEvidenceMode !== undefined
+        || value.recipeProofMode !== undefined
+        || typeof value.operationId !== "string"
+        || !value.operationId.trim()
+        || typeof value.workspaceRoot !== "string"
+        || !value.workspaceRoot.trim()
+        || typeof value.workspaceRevision !== "string"
+        || !value.workspaceRevision.trim()
+      )) ||
       (value.recipeProofMode !== undefined && (
         value.recipeProofMode !== "runtime_start_gate_c_v1"
         || value.proofRequired === true
@@ -3193,7 +3208,9 @@ export async function completeAiExecution(params: {
     return false;
   }
   const sourceEvidenceRequired = !factInvestigationExecution && (
-    (request?.proofRequired === true && request.proofEvidenceMode !== "artifact_only")
+    (request?.proofRequired === true
+      && request.proofEvidenceMode !== "artifact_only"
+      && request.applyChangesProofMode !== "apply_changes_v1")
     || projectOrientationAcceptance
     || forensicExecution
     || Boolean(params.analysisEvidence)
