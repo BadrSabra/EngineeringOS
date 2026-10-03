@@ -156,6 +156,12 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 | W8 قبل acceptance | قد يكون effect محفوظًا والقبول غائبًا | يمكن تمييز السجلين إن استُعلما؛ سلامة recovery/finalize لكل سطح `UNKNOWN` |
 | W9 بعد acceptance | transaction المقبولة والإسقاطات الدائمة قابلة للاستعادة | قد يضيع response بعد commit؛ يمكن للعميل إعادة القراءة، لكن response-loss coverage المحدد `UNKNOWN` |
 
+**تحقق محدود لـruntime.start (2026-10-04):** يكرر اختبار `workspace-runtime.test.ts`
+استدعاء `start` عبر مدير ثانٍ بعد تشغيل العملية وقبل قبول after-state، ويتحقق من
+إرجاع `sessionId` وPID والمنفذ نفسها قبل مسار recovery القائم. يستخدم الاختبار
+runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاعدة دائمة ولا يغطي W2–W8 لبقية
+الأسطح.
+
 **الخلاصة:** DB يعيد بناء الحالة المسجلة، لا الحقيقة الفيزيائية لحدث في W2–W4 لم تُحفظ له ملاحظة/أثر. توجد اختبارات لحدود محددة (`effect-observer.test.ts`, `runtime-start-transition.test.ts`) لكن لا توجد أدلة على crash injection لكل W0–W9.
 
 ### 5.4 Recovery

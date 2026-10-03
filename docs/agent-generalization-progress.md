@@ -4131,6 +4131,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لا يوجد. غياب usage من رد المزود يظل `unknown` ويُحتسب بتقدير الحجز المحافظ.
 - **next step:** `none`.
 
+### 2026-10-04 — منع بدء runtime مكرر بعد فقد رد العامل
+
+- **phase/step:** E2 / إعادة محاولة `runtime.start` بعد الأثر وقبل قبول ملاحظة after-state.
+- **status:** `partial — اختبار handoff محدود؛ تعافي crash عبر مخزن دائم لم يُثبت`.
+- **what changed:** يكرر اختبار `workspace-runtime.test.ts` استدعاء `start` عبر مدير جديد بعد تشغيل العملية وقبل الملاحظة، ويتحقق من إعادة `sessionId` وPID والمنفذ نفسها، ثم يتابع مسار recovery والاختبار القائم. لا ينفذ Strategy Replay.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime.test.ts`، `docs/agent-core-forensic-status-report.md`، وهذا السجل. لا تغيير في schema أو صلاحيات التنفيذ.
+- **validation:** `cd artifacts/api-server && pnpm exec vitest run src/lib/workspace-runtime.test.ts` — 6/6 ناجحة؛ `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` ناجحان.
+- **authority/safety impact:** لا قبول أو proof أو أثر جديد؛ الاختبار يستخدم runtime fixture محليًا ومخزنًا داخل الذاكرة، وليس قاعدة التطوير أو الإنتاج.
+- **remaining/blocker:** هذا يغطي retry محدودًا لمدير runtime فقط؛ جرد E2 واختبارات crash/race عند W2–W8 لبقية mutation surfaces ما زالت مفتوحة.
+- **next step:** متابعة جرد E2 وإضافة fault injection لكل سطح mutation؛ لا يبدأ E3 قبل إغلاق E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

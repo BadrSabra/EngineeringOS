@@ -346,6 +346,21 @@ describe("WorkspaceRuntimeManager", () => {
     expect(started.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
 
     await firstWorker.shutdown({ preserveProcesses: true });
+    // Simulate losing the runtime.start response after the process is live,
+    // then retry before any after-state observation has been accepted.
+    const retriedStart = await secondWorker.start({
+      projectId: "recoverable-project",
+      projectRoot: root,
+      revision: "revision-1",
+      attestationIdentity,
+    });
+    expect(retriedStart).toMatchObject({
+      status: "running",
+      sessionId: started.sessionId,
+      pid: started.pid,
+      port: started.port,
+    });
+
     await secondWorker.recover();
     const adopted = await secondWorker.get("recoverable-project");
     expect(adopted.status).toBe("running");
