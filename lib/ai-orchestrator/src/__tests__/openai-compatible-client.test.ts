@@ -21,6 +21,7 @@ import {
   openrouterCompleteRaw,
   openrouterCompleteWithFallback,
   oacCompleteRaw,
+  oacCompleteStream,
   validateGeminiDefaultModels,
 } from "../openai-compatible-client.js";
 import { GroqClientError } from "../errors.js";
@@ -1103,7 +1104,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
         choices: [{ message: { content: "plain answer" }, finish_reason: "stop" }],
         model: primaryModel,
-        usage: {},
+        usage: { prompt_tokens: 23, completion_tokens: 7 },
       })));
     const ledger = createExecutionLedger();
 
@@ -1121,8 +1122,103 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         kind: "provider_attempt",
         operation: "project_query_no_tools_synthesis",
         status: "completed",
+        usage: { promptTokens: 23, completionTokens: 7, usageStatus: "known" },
       }),
     ]));
+  });
+});
+
+describe("stream usage accounting", () => {
+  it("records usage from a final OpenAI-compatible SSE chunk", async () => {
+    const reconcile = vi.fn(async () => undefined);
+    const ledger = createExecutionLedger({
+      providerRequestBudget: {
+        reserve: async () => "openrouter-stream:usage",
+        reconcile,
+      },
+    });
+    const streamBody = [
+      'data: {"choices":[{"delta":{"content":"answer"}}]}',
+      "",
+      'data: {"choices":[],"usage":{"prompt_tokens":17,"completion_tokens":6}}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(streamBody, {
+      headers: { "content-type": "text/event-stream" },
+    })));
+
+    const chunks: string[] = [];
+    for await (const chunk of oacCompleteStream(baseMessages as any, {
+      apiKey: "fixture-key",
+      baseUrl: "https://example.test/v1",
+      providerName: "OpenRouter",
+      model: "fixture-model",
+      executionLedger: ledger,
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("answer");
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      reservationId: "openrouter-stream:usage",
+      status: "completed",
+      usage: { promptTokens: 17, completionTokens: 6, usageStatus: "known" },
+    }));
+    expect(ledger.snapshot().events).toContainEqual(expect.objectContaining({
+      kind: "provider_attempt",
+      status: "completed",
+      usage: { promptTokens: 17, completionTokens: 6, usageStatus: "known" },
+    }));
+  });
+});
+
+describe("Gemini native usage accounting", () => {
+  it("records token usage metadata from tool-enabled Gemini responses", async () => {
+    const reconcile = vi.fn(async () => undefined);
+    const ledger = createExecutionLedger({
+      providerRequestBudget: {
+        reserve: async () => "gemini-request:usage",
+        reconcile,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      candidates: [{
+        finishReason: "STOP",
+        content: { parts: [{ text: "answer" }] },
+      }],
+      usageMetadata: {
+        promptTokenCount: 4,
+        candidatesTokenCount: 3,
+        thoughtsTokenCount: 2,
+      },
+    })));
+
+    await geminiCompleteRaw(baseMessages as any, {
+      apiKey: "fixture-key",
+      model: "gemini-3-flash-preview",
+      tools: [{
+        type: "function",
+        function: {
+          name: "fixture_tool",
+          description: "Fixture tool",
+          parameters: { type: "object", properties: {} },
+        },
+      }] as any,
+      executionLedger: ledger,
+    });
+
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      reservationId: "gemini-request:usage",
+      status: "completed",
+      usage: { promptTokens: 4, completionTokens: 3, usageStatus: "known" },
+    }));
+    expect(ledger.snapshot().events).toContainEqual(expect.objectContaining({
+      kind: "provider_attempt",
+      status: "completed",
+      usage: { promptTokens: 4, completionTokens: 3, usageStatus: "known" },
+    }));
   });
 });
 

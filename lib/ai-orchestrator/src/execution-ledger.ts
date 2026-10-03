@@ -51,6 +51,7 @@ export type ExecutionLedgerEvent = {
   at: number;
   durationMs?: number;
   reservationId?: string;
+  usage?: ProviderRequestUsage;
   provider?: string;
   model?: string;
   operation?: string;
@@ -99,6 +100,39 @@ export type ProviderRequestUsage = {
   usageStatus?: "known" | "partial" | "unknown";
 };
 
+function validTokenCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number
+    : undefined;
+}
+
+export function normalizeProviderRequestUsage(
+  promptTokens: unknown,
+  completionTokens: unknown,
+): ProviderRequestUsage {
+  const prompt = validTokenCount(promptTokens);
+  const completion = validTokenCount(completionTokens);
+  return {
+    ...(prompt !== undefined ? { promptTokens: prompt } : {}),
+    ...(completion !== undefined ? { completionTokens: completion } : {}),
+    usageStatus: prompt !== undefined && completion !== undefined
+      ? "known"
+      : prompt !== undefined || completion !== undefined
+        ? "partial"
+        : "unknown",
+  };
+}
+
+export function mergeProviderRequestUsage(
+  previous: ProviderRequestUsage,
+  observed: ProviderRequestUsage,
+): ProviderRequestUsage {
+  return normalizeProviderRequestUsage(
+    observed.promptTokens ?? previous.promptTokens,
+    observed.completionTokens ?? previous.completionTokens,
+  );
+}
+
 export type ProviderRequestBudgetHooks = {
   reserve: (input: {
     ledgerId: string;
@@ -131,19 +165,43 @@ export function estimateProviderRequestTokens(
   payload: unknown,
   promptAndCompletionReserve = 8_192,
 ): number {
-  let payloadBytes = 0;
+  let serialized: string | undefined;
   try {
-    const serialized = JSON.stringify(payload);
-    if (serialized !== undefined) {
-      payloadBytes = new TextEncoder().encode(serialized).length;
-    }
-  } catch {
-    // Non-serializable payloads still receive the conservative baseline.
+    serialized = JSON.stringify(payload);
+  } catch (error) {
+    throw new Error("Provider request budget estimate requires serializable input.", { cause: error });
   }
+  if (serialized === undefined) {
+    throw new Error("Provider request budget estimate requires serializable input.");
+  }
+  const payloadBytes = new TextEncoder().encode(serialized).length;
+  const record = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : undefined;
+  const generationConfig = record?.generationConfig
+    && typeof record.generationConfig === "object"
+    && !Array.isArray(record.generationConfig)
+    ? record.generationConfig as Record<string, unknown>
+    : undefined;
+  const configuredOutputTokens = [
+    record?.max_tokens,
+    record?.max_completion_tokens,
+    record?.maxTokens,
+    record?.maxOutputTokens,
+    generationConfig?.maxOutputTokens,
+  ].map(validTokenCount).filter((value): value is number => value !== undefined);
+  const maxOutputTokens = configuredOutputTokens.length > 0
+    ? Math.max(...configuredOutputTokens)
+    : 4_096;
   const reserve = Number.isSafeInteger(promptAndCompletionReserve)
     ? Math.max(8_192, promptAndCompletionReserve)
     : 8_192;
-  return Math.max(8_192, payloadBytes + reserve);
+  const outputAndPromptReserve = Math.max(reserve, maxOutputTokens + 4_096);
+  const estimate = payloadBytes + outputAndPromptReserve;
+  if (!Number.isSafeInteger(estimate)) {
+    throw new Error("Provider request budget estimate exceeds the safe integer range.");
+  }
+  return Math.max(8_192, estimate);
 }
 
 const SAFE_PROVIDER_OR_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
@@ -192,6 +250,7 @@ export type ExecutionLedger = {
       model?: string;
       operation?: string;
       reservationId?: string;
+      usage?: ProviderRequestUsage;
       startedAt?: number;
       status?: "completed" | "failed";
       reason?: string;
@@ -351,6 +410,7 @@ export function createExecutionLedger(options?: {
         ...(details?.model ? { model: details.model } : {}),
         ...(details?.operation ? { operation: details.operation } : {}),
         ...(details?.reservationId ? { reservationId: details.reservationId } : {}),
+        ...(details?.usage ? { usage: { ...details.usage } } : {}),
         ...(details?.startedAt !== undefined
           ? { durationMs: Math.max(0, at - details.startedAt) }
           : {}),
@@ -390,6 +450,7 @@ export function createExecutionLedger(options?: {
         model: input.model,
         ...(input.operation ? { operation: input.operation } : {}),
         ...(input.reservationId ? { reservationId: input.reservationId } : {}),
+        usage: input.usage ?? { usageStatus: "unknown" },
         ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
         status,
         ...(input.reason ? { reason: input.reason } : {}),

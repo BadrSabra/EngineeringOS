@@ -25,21 +25,18 @@ conservative charge; a missing or partial event does not. Catch reconciliation
 and telemetry persistence failures at their boundaries so they cannot enter
 provider retry or fallback classification.
 
-Reservation identity must include the intended budget unit and durable attempt
-generation when work can resume. Reusing a matching reservation is only
-idempotent for that same admitted attempt; resumed provider work must not reuse
-an earlier reservation merely because correlation, provider, and candidate
-index are unchanged. Consumed work must remain in daily attempt accounting even
-if best-effort usage telemetry could not be persisted.
+The globally unique reservation ID is the durable identity for one physical
+provider request across retries and resumed executions. Both reservation and
+usage telemetry use that ID; telemetry also retains `executionId` for grouping
+the request into its execution generation. Every outbound retry or fallback
+must receive a fresh UUID-bearing attempt ID.
 
-**Why:** A resumed candidate can otherwise bypass fresh admission, and a
-consumed reservation disappears from attempt totals when its telemetry row is
-missing. An estimate based on caller payload bytes is not the final provider
-prompt and does not pre-admit each physical request made by retries or internal
-model fallbacks; later usage events cannot prevent within-candidate overrun.
+**Why:** Correlation, provider, and candidate indexes can repeat after resume,
+but a fresh physical-request ID prevents that work from reusing an earlier
+reservation. A separate generation column is unnecessary while all transports
+preserve this unique reservation-to-telemetry binding.
 
-**How to apply:** Treat each physical outbound provider request as the spend
-unit. Caller-payload estimates are only an upstream screening bound; do not
-claim per-request enforcement until every transport, including internal
-retries and model fallbacks, obtains a unique reservation before network I/O
-and reconciles its own known or unknown usage.
+**How to apply:** Reserve immediately before each outbound provider request,
+reconcile the returned usage against the same ID, and persist that ID with
+`executionId`. If a transport ever reuses IDs across executions or omits the
+reservation ID from telemetry, revisit the schema-level generation binding.

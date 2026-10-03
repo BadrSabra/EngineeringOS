@@ -21,6 +21,8 @@ import { GroqClientError } from "./errors.js";
 import {
   estimateProviderRequestTokens,
   type ExecutionLedger,
+  type ProviderRequestUsage,
+  normalizeProviderRequestUsage,
 } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
@@ -375,7 +377,11 @@ export async function deepseekCompleteRaw(
   }
   providerAttemptStartedAt = Date.now();
   let providerAttemptSettled = false;
-  const settleProviderAttempt = async (status: "completed" | "failed", error?: unknown) => {
+  const settleProviderAttempt = async (
+    status: "completed" | "failed",
+    error?: unknown,
+    usage: ProviderRequestUsage = { usageStatus: "unknown" },
+  ) => {
     if (providerAttemptSettled) return;
     providerAttemptSettled = true;
     if (executionLedger?.completeProviderRequest) {
@@ -386,7 +392,7 @@ export async function deepseekCompleteRaw(
         operation: "provider_request",
         startedAt: providerAttemptStartedAt,
         status,
-        usage: { usageStatus: "unknown" },
+        usage,
         ...(error
           ? { reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED" }
           : {}),
@@ -398,6 +404,7 @@ export async function deepseekCompleteRaw(
         operation: "provider_request",
         startedAt: providerAttemptStartedAt,
         status,
+        usage,
         ...(error
           ? { reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED" }
           : {}),
@@ -472,16 +479,21 @@ export async function deepseekCompleteRaw(
       throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
     }
 
+    const providerUsage = normalizeProviderRequestUsage(
+      data.usage?.prompt_tokens,
+      data.usage?.completion_tokens,
+    );
     const normalized = normalizeProviderResponse({
       content,
       toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
       model: data.model,
       usage: {
-        promptTokens: data.usage?.prompt_tokens ?? 0,
-        completionTokens: data.usage?.completion_tokens ?? 0,
+        promptTokens: providerUsage.promptTokens ?? 0,
+        completionTokens: providerUsage.completionTokens ?? 0,
       },
+      providerUsage,
     }, { tools, toolManifest: opts.toolManifest, providerName: "DeepSeek", model });
-    await settleProviderAttempt("completed");
+    await settleProviderAttempt("completed", undefined, providerUsage);
     return normalized;
   } catch (err) {
     await settleProviderAttempt("failed", err);

@@ -7,12 +7,15 @@ import {
   db,
   projectsTable,
 } from "@workspace/db";
+import { createExecutionLedger } from "@workspace/ai-orchestrator";
 import {
   AiBudgetAdmissionError,
   admitAiProviderAttempt,
   getAiProjectBudgetSummary,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
+import { emitLedgerProviderAttempts } from "./ai-route-helpers.js";
+import { recordAiUsageAttempt } from "./ai-telemetry.js";
 
 const projectIds: string[] = [];
 
@@ -135,6 +138,98 @@ describe("AI project budget admission", () => {
     });
   });
 
+  it("keeps known and partial usage distinct across retry and resumed executions", async () => {
+    const projectId = crypto.randomUUID();
+    const ownerId = "budget-resume-user";
+    const executionId = `execution-${projectId}`;
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId,
+      name: `ai-budget-resume-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/ai-budget-resume-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiProjectBudgetsTable).values({
+      id: crypto.randomUUID(),
+      schemaVersion: 1,
+      projectId,
+      ownerId,
+      dailyAttemptLimit: 10,
+      dailyTokenLimit: 100_000,
+      warningThreshold: 0.8,
+      resetAt: new Date(now.getTime() + 86_400_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const attemptIds = [`retry-${projectId}`, `resume-${projectId}`];
+    await admitAiProviderAttempt({ ownerId, projectId, attemptId: attemptIds[0]! });
+    await recordAiUsageAttempt({
+      userId: ownerId,
+      projectId,
+      executionId,
+      operationId: "query",
+      correlationId: `correlation-${projectId}`,
+    }, {
+      attemptId: attemptIds[0]!,
+      provider: "openrouter",
+      model: "fixture-model",
+      outcome: "success",
+      latencyMs: 14,
+      attemptNumber: 1,
+      fallbackCount: 0,
+      promptTokens: 24,
+      completionTokens: 6,
+      usageStatus: "known",
+    });
+
+    await admitAiProviderAttempt({ ownerId, projectId, attemptId: attemptIds[1]! });
+    await recordAiUsageAttempt({
+      userId: ownerId,
+      projectId,
+      executionId,
+      operationId: "query",
+      correlationId: `correlation-${projectId}-resume`,
+    }, {
+      attemptId: attemptIds[1]!,
+      provider: "openrouter",
+      model: "fixture-model",
+      outcome: "success",
+      latencyMs: 18,
+      attemptNumber: 2,
+      fallbackCount: 0,
+      promptTokens: 400,
+      completionTokens: null,
+      usageStatus: "partial",
+    });
+
+    const events = await db.select({
+      attemptId: aiUsageEventsTable.attemptId,
+      executionId: aiUsageEventsTable.executionId,
+      usageStatus: aiUsageEventsTable.usageStatus,
+    }).from(aiUsageEventsTable).where(eq(aiUsageEventsTable.projectId, projectId));
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attemptId: attemptIds[0], executionId, usageStatus: "known" }),
+      expect.objectContaining({ attemptId: attemptIds[1], executionId, usageStatus: "partial" }),
+    ]));
+
+    const summary = await getAiProjectBudgetSummary({ ownerId, projectId });
+    expect(summary).toMatchObject({
+      consumedAttempts: 2,
+      tokenUsage: {
+        status: "partial",
+        total: 430,
+        admissionTotal: 8_222,
+      },
+    });
+  });
+
   it("keeps a consumed attempt and conservative token charge when usage telemetry is missing", async () => {
     const projectId = crypto.randomUUID();
     const ownerId = "budget-unlogged-user";
@@ -225,25 +320,46 @@ describe("AI project budget admission", () => {
       updatedAt: now,
     });
 
-    await admitAiProviderAttempt({ ownerId, projectId, attemptId });
-    await db.insert(aiUsageEventsTable).values({
-      id: crypto.randomUUID(),
-      projectId,
+    const context = {
       userId: ownerId,
+      projectId,
+      executionId: `execution-${projectId}`,
+      operationId: "provider-request",
       correlationId: `budget-event-${projectId}`,
-      attemptId,
+    };
+    const ledger = createExecutionLedger({
+      providerRequestBudget: {
+        reserve: async ({ estimatedTokens }) => {
+          await admitAiProviderAttempt({ ownerId, projectId, attemptId, estimatedTokens });
+          return attemptId;
+        },
+        reconcile: async ({ reservationId, usage }) => {
+          await reconcileAiBudgetReservation(reservationId, usage);
+        },
+      },
+    });
+    const before = ledger.snapshot();
+    const admission = await ledger.admitProviderRequest!({
       provider: "openrouter",
-      outcome: "success",
-      promptTokens: 12,
-      completionTokens: 8,
-      usageStatus: "known",
-      expiresAt: new Date(now.getTime() + 86_400_000),
+      model: "fixture-model",
+      estimatedTokens: 8_192,
+      operation: "provider_request",
     });
-    await reconcileAiBudgetReservation(attemptId, {
-      promptTokens: 12,
-      completionTokens: 8,
-      usageStatus: "known",
+    expect(admission).toMatchObject({ admitted: true, reservationId: attemptId });
+    await ledger.completeProviderRequest!({
+      reservationId: attemptId,
+      provider: "openrouter",
+      model: "fixture-model",
+      operation: "provider_request",
+      status: "completed",
+      usage: { promptTokens: 12, completionTokens: 8, usageStatus: "known" },
     });
+    await emitLedgerProviderAttempts(
+      before,
+      ledger.snapshot(),
+      { completedEventCount: 0, attemptNumber: 0, fallbackCount: 0 },
+      (attempt) => recordAiUsageAttempt(context, attempt),
+    );
 
     const summary = await getAiProjectBudgetSummary({ ownerId, projectId });
     expect(summary).toMatchObject({

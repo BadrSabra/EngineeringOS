@@ -4109,6 +4109,28 @@ G9 Revocation Safety
 - **remaining/blocker:** usage المجهول/الجزئي يظل تقديرًا محافظًا، وإثبات route-to-durable-usage الشامل لم يُنفذ.
 - **next step:** تابع إثبات route-to-durable-usage دون توجيه أي اختبار كاتب إلى قاعدة التطوير أو الإنتاج.
 
+### 2026-10-03 — ربط استخدام طلبات المزود بالميزانية الدائمة
+
+- **phase/step:** AI budget / provider-request telemetry
+- **status:** `partial`
+- **what changed:** أُضيف تمرير usage الفعلي المعروف أو الجزئي من Groq وOpenAI-compatible وDeepSeek وGemini إلى حدث طلب المزود، ثم إلى إسقاط telemetry ومسار التخزين الدائم. تدعم قراءة SSE وGroq stream أي usage يرسله المزود؛ الغياب يبقى `unknown`. يحافظ احتساب الميزانية على تقدير الحجز للقياسات الجزئية/المفقودة دون جمعها مرتين مع الرموز المرصودة. تقدير الطلب يحترم max-output-token المحدد ويرفض payload غير القابل للتسلسل.
+- **files/schema/contracts touched:** execution-ledger، Groq/OpenAI-compatible/DeepSeek clients، ai-route-helpers، ai-budget، واختباراتها؛ لا تغيير schema.
+- **validation:** اختبارات العملاء/ledger المركزة `97 passed`؛ اختبارات ai-route-helpers وتقدير الحجز `30 passed`؛ اختبارات ميزانية PostgreSQL المؤقت `5 passed`؛ typecheck لخدمة API ناجح قبل إضافة التقاط usage في stream.
+- **authority/safety impact:** لم تتغير صلاحيات التنفيذ أو القبول أو الإثبات أو الترقية؛ اختبار الكتابة استخدم PostgreSQL مؤقتًا على loopback مع schema حديثة فقط، دون قاعدة التطوير/الإنتاج أو model completion.
+- **remaining/blocker:** أعد typecheck بعد تغييرات stream، ثم أعد تشغيل API المُدار وتحقق من سجلاته. مزود لا يرسل usage يظل محسوبًا بتقدير الحجز المحافظ.
+- **next step:** أتمم typecheck وإعادة تشغيل API، ثم أضف نتيجة التحقق النهائي.
+
+### 2026-10-03 — تحقق نهائي لميزانية استخدام المزود
+
+- **phase/step:** AI budget / provider-request telemetry
+- **status:** `done`
+- **what changed:** اكتمل إسقاط سجل الطلب الواحد من مساري fallback إلى telemetry، وأصبح المعرّف UUID لكل طلب مادي يربط الحجز بحدث الاستخدام حتى عبر resume؛ لا حاجة إلى حقل generation إضافي ما دامت كل محاولة تحصل على معرّف جديد.
+- **files/schema/contracts touched:** توثيق التقدم ومذكرة قرار AI budget؛ لا تغيير schema.
+- **validation:** typecheck لخدمة API بعد تحديث stream نجح؛ اختبارات orchestrator المركزة `97 passed`، اختبارات route helpers وتقدير الحجز `30 passed`، واختبارات الميزانية مع schema على PostgreSQL مؤقت محلي `5 passed`. `git diff --check` نجح؛ API أُعيد بناؤه وبدأ الاستماع على 8080.
+- **authority/safety impact:** لا Strategy Replay أو model completion؛ قاعدة الاختبارات كانت مؤقتة على loopback وحُذفت بعد الاختبار، ولم تُلمس قاعدة التطوير/الإنتاج أو مسار Git push.
+- **remaining/blocker:** لا يوجد. غياب usage من رد المزود يظل `unknown` ويُحتسب بتقدير الحجز المحافظ.
+- **next step:** `none`.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

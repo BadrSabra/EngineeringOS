@@ -122,6 +122,7 @@ describe("ledger provider-attempt projection", () => {
         model: "model-b",
         operation: "provider_request",
         durationMs: 18,
+        usage: { promptTokens: 37, completionTokens: 11, usageStatus: "known" },
       },
     ]);
 
@@ -136,6 +137,7 @@ describe("ledger provider-attempt projection", () => {
       (attempt) => {
         attempts.push(attempt);
       },
+      { promptTokens: 999, completionTokens: 888, usageStatus: "known" },
     );
 
     expect(attempts).toMatchObject([
@@ -155,6 +157,9 @@ describe("ledger provider-attempt projection", () => {
         outcome: "success",
         attemptNumber: 2,
         fallbackCount: 1,
+        promptTokens: 37,
+        completionTokens: 11,
+        usageStatus: "known",
       },
     ]);
   });

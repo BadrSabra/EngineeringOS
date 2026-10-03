@@ -67,4 +67,36 @@ describe("DeepSeek response limits", () => {
       reservationId: "deepseek-request:1",
     }));
   });
+
+  it("forwards valid response usage to the completed request event", async () => {
+    const reconcile = vi.fn(async () => undefined);
+    const ledger = createExecutionLedger({
+      providerRequestBudget: {
+        reserve: async () => "deepseek-request:usage",
+        reconcile,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: "answer" } }],
+      model: "deepseek-chat",
+      usage: { prompt_tokens: 13, completion_tokens: 5 },
+    }), { status: 200 })));
+
+    await deepseekCompleteRaw(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "fixture-key", timeoutMs: 5_000, executionLedger: ledger },
+    );
+
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      reservationId: "deepseek-request:usage",
+      status: "completed",
+      usage: { promptTokens: 13, completionTokens: 5, usageStatus: "known" },
+    }));
+    expect(ledger.snapshot().events).toContainEqual(expect.objectContaining({
+      kind: "provider_attempt",
+      status: "completed",
+      reservationId: "deepseek-request:usage",
+      usage: { promptTokens: 13, completionTokens: 5, usageStatus: "known" },
+    }));
+  });
 });

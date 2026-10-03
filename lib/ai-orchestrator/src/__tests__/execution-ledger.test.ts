@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExecutionLedger } from "../execution-ledger.js";
+import {
+  createExecutionLedger,
+  estimateProviderRequestTokens,
+  normalizeProviderRequestUsage,
+} from "../execution-ledger.js";
 
 describe("ExecutionLedger", () => {
   it("shares one aggregate budget across orchestration phases", () => {
@@ -36,6 +40,33 @@ describe("ExecutionLedger", () => {
     vi.advanceTimersByTime(1_250);
     expect(ledger.timeoutMs(60_000)).toBe(750);
     vi.useRealTimers();
+  });
+
+  it("keeps provider usage known, partial, or unknown without inventing zeroes", () => {
+    expect(normalizeProviderRequestUsage(0, 14)).toEqual({
+      promptTokens: 0,
+      completionTokens: 14,
+      usageStatus: "known",
+    });
+    expect(normalizeProviderRequestUsage(12, undefined)).toEqual({
+      promptTokens: 12,
+      usageStatus: "partial",
+    });
+    expect(normalizeProviderRequestUsage(undefined, -1)).toEqual({
+      usageStatus: "unknown",
+    });
+  });
+
+  it("reserves configured output limits and fails closed on unserializable payloads", () => {
+    const estimate = estimateProviderRequestTokens({
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 24_000,
+    });
+    expect(estimate).toBeGreaterThan(24_000 + 4_096);
+
+    const cyclic: { self?: unknown } = {};
+    cyclic.self = cyclic;
+    expect(() => estimateProviderRequestTokens(cyclic)).toThrow(/serializable input/);
   });
 
   it("propagates cancellation and rejects fresh work", () => {
@@ -107,6 +138,7 @@ describe("ExecutionLedger", () => {
         kind: "provider_attempt",
         status: "completed",
         reservationId: "request:2",
+        usage: { promptTokens: 120, completionTokens: 48, usageStatus: "known" },
       }),
     ]));
   });

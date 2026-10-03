@@ -42,6 +42,11 @@ describe("groq-client", () => {
       content: '{"ok":true}',
       model: "openai/gpt-oss-20b",
       usage: { promptTokens: 10, completionTokens: 5 },
+      providerUsage: {
+        promptTokens: 10,
+        completionTokens: 5,
+        usageStatus: "known",
+      },
     });
   });
 
@@ -75,7 +80,7 @@ describe("groq-client", () => {
     expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
       reservationId: "request:1",
       status: "completed",
-      usage: { usageStatus: "unknown" },
+      usage: { promptTokens: 10, completionTokens: 5, usageStatus: "known" },
     }));
   });
 
@@ -307,7 +312,7 @@ describe("groq-client", () => {
       .mockResolvedValueOnce({
         choices: [{ message: { content: '{"ok":true}' } }],
         model: "m",
-        usage: {},
+        usage: { prompt_tokens: 31, completion_tokens: 9 },
       });
     let sdkMaxRetries: number | undefined;
     vi.doMock("groq-sdk", () => ({
@@ -339,6 +344,10 @@ describe("groq-client", () => {
     expect(reconcile.mock.calls.map(([input]) => input.reservationId)).toEqual([
       "request:1",
       "request:2",
+    ]);
+    expect(reconcile.mock.calls.map(([input]) => input.usage)).toEqual([
+      { usageStatus: "unknown" },
+      { promptTokens: 31, completionTokens: 9, usageStatus: "known" },
     ]);
   });
 

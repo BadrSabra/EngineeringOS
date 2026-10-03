@@ -29,4 +29,12 @@ describe("AI provider reservation estimates", () => {
     expect(() => estimateAiProviderReservationTokens(undefined)).toThrow();
     expect(() => estimateAiProviderReservationTokens({ token: 1n })).toThrow();
   });
+
+  it("reserves an explicit provider output-token limit", () => {
+    const estimate = estimateAiProviderReservationTokens({
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 24_000,
+    });
+    expect(estimate).toBeGreaterThan(24_000 + 4_096);
+  });
 });

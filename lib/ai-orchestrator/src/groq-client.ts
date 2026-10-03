@@ -23,6 +23,9 @@ import {
 import {
   estimateProviderRequestTokens,
   type ExecutionLedger,
+  type ProviderRequestUsage,
+  mergeProviderRequestUsage,
+  normalizeProviderRequestUsage,
 } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
@@ -45,6 +48,7 @@ export type GroqResponse = {
   content: string;
   model: string;
   usage: { promptTokens: number; completionTokens: number };
+  providerUsage?: ProviderRequestUsage;
 };
 
 export type CompleteOptions = {
@@ -151,6 +155,7 @@ async function completeProviderAttempt(
   model: string,
   attempt: { startedAt: number; reservationId?: string },
   error?: unknown,
+  usage: ProviderRequestUsage = { usageStatus: "unknown" },
 ): Promise<void> {
   if (ledger?.completeProviderRequest) {
     await ledger.completeProviderRequest({
@@ -160,7 +165,7 @@ async function completeProviderAttempt(
       operation: "provider_request",
       startedAt: attempt.startedAt,
       status: error ? "failed" : "completed",
-      usage: { usageStatus: "unknown" },
+      usage,
       ...(error
         ? {
             reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED",
@@ -175,6 +180,7 @@ async function completeProviderAttempt(
     operation: "provider_request",
     startedAt: attempt.startedAt,
     status: error ? "failed" : "completed",
+    usage,
     ...(error
       ? {
           reason: error instanceof GroqClientError
@@ -434,6 +440,7 @@ export type RawGroqResponse = {
   toolCalls: ToolCall[] | null;
   model: string;
   usage: { promptTokens: number; completionTokens: number };
+  providerUsage?: ProviderRequestUsage;
   /** Provider termination metadata; optional for mocked/legacy responses. */
   finishReason?: string | null;
   /** Reasoning is retained as bounded metadata, never mixed into report content. */
@@ -480,14 +487,19 @@ function readRawResponse(
     }
     throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
   }
+  const providerUsage = normalizeProviderRequestUsage(
+    c.usage?.prompt_tokens,
+    c.usage?.completion_tokens,
+  );
   return normalizeProviderResponse({
     content,
     toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
     model: c.model,
     usage: {
-      promptTokens: c.usage?.prompt_tokens ?? 0,
-      completionTokens: c.usage?.completion_tokens ?? 0,
+      promptTokens: providerUsage.promptTokens ?? 0,
+      completionTokens: providerUsage.completionTokens ?? 0,
     },
+    providerUsage,
   }, opts);
 }
 
@@ -560,6 +572,7 @@ export async function completeRaw(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const providerAttempt = await admitProviderAttempt(executionLedger, "Groq", model, request);
     let providerAttemptError: unknown;
+    let providerAttemptUsage: ProviderRequestUsage = { usageStatus: "unknown" };
     try {
       const completion = await sendRequest(client, request, timeoutMs, signal);
       const result = readRawResponse(completion, {
@@ -568,6 +581,7 @@ export async function completeRaw(
         providerName: "Groq",
         model,
       });
+      providerAttemptUsage = result.providerUsage ?? providerAttemptUsage;
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
       circuitRecord(circuitKey, true);
       return result;
@@ -591,6 +605,7 @@ export async function completeRaw(
         model,
         providerAttempt,
         providerAttemptError,
+        providerAttemptUsage,
       );
     }
   }
@@ -720,13 +735,18 @@ function readResponse(completion: Awaited<ReturnType<Groq["chat"]["completions"]
   if (!content) {
     throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
   }
+  const providerUsage = normalizeProviderRequestUsage(
+    chatCompletion.usage?.prompt_tokens,
+    chatCompletion.usage?.completion_tokens,
+  );
   return {
     content,
     model: chatCompletion.model,
     usage: {
-      promptTokens: chatCompletion.usage?.prompt_tokens ?? 0,
-      completionTokens: chatCompletion.usage?.completion_tokens ?? 0,
+      promptTokens: providerUsage.promptTokens ?? 0,
+      completionTokens: providerUsage.completionTokens ?? 0,
     },
+    providerUsage,
   };
 }
 
@@ -840,9 +860,19 @@ export async function* completeStream(
   }
 
   let hadContent = false;
+  let providerAttemptUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   const streamGuard = createContentOnlyStreamGuard({ providerName: "Groq", model });
   try {
     for await (const chunk of stream) {
+      const chunkUsage = (chunk as unknown as {
+        usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
+      }).usage;
+      if (chunkUsage) {
+        providerAttemptUsage = mergeProviderRequestUsage(
+          providerAttemptUsage,
+          normalizeProviderRequestUsage(chunkUsage.prompt_tokens, chunkUsage.completion_tokens),
+        );
+      }
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const delta: string | undefined = chunk.choices?.[0]?.delta?.content;
       if (delta) {
@@ -872,6 +902,7 @@ export async function* completeStream(
       model,
       providerAttempt,
       providerAttemptError,
+      providerAttemptUsage,
     );
   }
 }
@@ -906,9 +937,11 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const providerAttempt = await admitProviderAttempt(executionLedger, "Groq", model, request);
     let providerAttemptError: unknown;
+    let providerAttemptUsage: ProviderRequestUsage = { usageStatus: "unknown" };
     try {
       const completion = await sendRequest(client, request, timeoutMs, signal);
       const result = readResponse(completion);
+      providerAttemptUsage = result.providerUsage ?? providerAttemptUsage;
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
       circuitRecord(circuitKey, true);
       return result;
@@ -932,6 +965,7 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
         model,
         providerAttempt,
         providerAttemptError,
+        providerAttemptUsage,
       );
     }
   }

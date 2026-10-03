@@ -42,7 +42,27 @@ export function estimateAiProviderReservationTokens(
     throw new Error("AI budget request estimate requires serializable input.");
   }
   const inputBytes = Buffer.byteLength(serialized, "utf8");
-  const estimate = inputBytes + maxCompletionTokens + AI_BUDGET_FIXED_PROMPT_OVERHEAD_TOKENS;
+  const record = requestPayload && typeof requestPayload === "object" && !Array.isArray(requestPayload)
+    ? requestPayload as Record<string, unknown>
+    : undefined;
+  const generationConfig = record?.generationConfig
+    && typeof record.generationConfig === "object"
+    && !Array.isArray(record.generationConfig)
+    ? record.generationConfig as Record<string, unknown>
+    : undefined;
+  const configuredOutputTokens = [
+    record?.max_tokens,
+    record?.max_completion_tokens,
+    record?.maxTokens,
+    record?.maxOutputTokens,
+    generationConfig?.maxOutputTokens,
+  ].filter((value): value is number =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+  const completionReserve = Math.max(
+    maxCompletionTokens,
+    ...configuredOutputTokens,
+  );
+  const estimate = inputBytes + completionReserve + AI_BUDGET_FIXED_PROMPT_OVERHEAD_TOKENS;
   if (!Number.isSafeInteger(estimate)) {
     throw new Error("AI budget request estimate exceeds the safe integer range.");
   }
@@ -143,7 +163,7 @@ async function loadOrCreateBudget(
 
 async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
   const since = utcDayStart(day);
-  const [unreservedUsageAttempts, consumedReservations, reservations, tokenUsage, reservedTokens, chargedTokens, unreportedReservations] = await Promise.all([
+  const [unreservedUsageAttempts, consumedReservations, reservations, tokenUsage, unreservedEventTokens, reservedKnownTokens, reservedTokens, chargedTokens, unreportedReservations] = await Promise.all([
     executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
@@ -174,11 +194,52 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
       gte(aiUsageEventsTable.occurredAt, since),
     )),
     executor.select({
+      value: sql<number>`coalesce(sum(case
+        when ${aiUsageEventsTable.usageStatus} = 'known'
+          then coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0)
+        else greatest(${AI_BUDGET_PROVIDER_RESERVATION_TOKENS},
+          coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0))
+        end), 0)`,
+    }).from(aiUsageEventsTable).where(and(
+      eq(aiUsageEventsTable.projectId, projectId),
+      gte(aiUsageEventsTable.occurredAt, since),
+      notExists(executor.select({ id: aiBudgetReservationsTable.id })
+        .from(aiBudgetReservationsTable)
+        .where(and(
+          eq(aiBudgetReservationsTable.projectId, projectId),
+          eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
+        ))),
+    )),
+    executor.select({
+      value: sql<number>`coalesce(sum(coalesce(${aiUsageEventsTable.promptTokens}, 0) + coalesce(${aiUsageEventsTable.completionTokens}, 0)), 0)`,
+    }).from(aiUsageEventsTable).innerJoin(
+      aiBudgetReservationsTable,
+      and(
+        eq(aiBudgetReservationsTable.projectId, aiUsageEventsTable.projectId),
+        eq(aiBudgetReservationsTable.attemptId, aiUsageEventsTable.attemptId),
+      ),
+    ).where(and(
+      eq(aiUsageEventsTable.projectId, projectId),
+      eq(aiBudgetReservationsTable.utcDay, day),
+      eq(aiUsageEventsTable.usageStatus, "known"),
+      isNotNull(aiUsageEventsTable.promptTokens),
+      isNotNull(aiUsageEventsTable.completionTokens),
+    )),
+    executor.select({
       value: sql<number>`coalesce(sum(${aiBudgetReservationsTable.estimatedTokens}), 0)`,
     }).from(aiBudgetReservationsTable).where(and(
       eq(aiBudgetReservationsTable.projectId, projectId),
       eq(aiBudgetReservationsTable.utcDay, day),
       eq(aiBudgetReservationsTable.status, "reserved"),
+      notExists(executor.select({ id: aiUsageEventsTable.id })
+        .from(aiUsageEventsTable)
+        .where(and(
+          eq(aiUsageEventsTable.projectId, projectId),
+          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
+          eq(aiUsageEventsTable.usageStatus, "known"),
+          isNotNull(aiUsageEventsTable.promptTokens),
+          isNotNull(aiUsageEventsTable.completionTokens),
+        ))),
     )),
     executor.select({
       value: sql<number>`coalesce(sum(greatest(${aiBudgetReservationsTable.chargedTokens}, ${aiBudgetReservationsTable.estimatedTokens})), 0)`,
@@ -190,6 +251,7 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
         .from(aiUsageEventsTable)
         .where(and(
           eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
+          eq(aiUsageEventsTable.projectId, projectId),
           eq(aiUsageEventsTable.usageStatus, "known"),
           isNotNull(aiUsageEventsTable.promptTokens),
           isNotNull(aiUsageEventsTable.completionTokens),
@@ -198,10 +260,13 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     executor.select({ value: count() }).from(aiBudgetReservationsTable).where(and(
       eq(aiBudgetReservationsTable.projectId, projectId),
       eq(aiBudgetReservationsTable.utcDay, day),
-      eq(aiBudgetReservationsTable.status, "consumed"),
+      inArray(aiBudgetReservationsTable.status, ["reserved", "consumed"]),
       notExists(executor.select({ id: aiUsageEventsTable.id })
         .from(aiUsageEventsTable)
-        .where(eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId))),
+        .where(and(
+          eq(aiUsageEventsTable.attemptId, aiBudgetReservationsTable.attemptId),
+          eq(aiUsageEventsTable.projectId, projectId),
+        ))),
     )),
   ]);
   const consumed = Number(unreservedUsageAttempts[0]?.value ?? 0)
@@ -214,7 +279,10 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
   const partialCount = Number(tokenUsage[0]?.partial ?? 0);
   const reservedTokenTotal = Number(reservedTokens[0]?.value ?? 0);
   const chargedTokenTotal = Number(chargedTokens[0]?.value ?? 0);
-  const tokenAdmissionTotal = promptTokens + completionTokens + reservedTokenTotal + chargedTokenTotal;
+  const tokenAdmissionTotal = Number(unreservedEventTokens[0]?.value ?? 0)
+    + Number(reservedKnownTokens[0]?.value ?? 0)
+    + reservedTokenTotal
+    + chargedTokenTotal;
   return {
     consumed,
     reserved: pending,

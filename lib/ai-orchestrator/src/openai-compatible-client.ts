@@ -45,6 +45,9 @@ import { getPhaseBudget } from "./quality/execution-phases.js";
 import {
   estimateProviderRequestTokens,
   type ExecutionLedger,
+  type ProviderRequestUsage,
+  mergeProviderRequestUsage,
+  normalizeProviderRequestUsage,
 } from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
@@ -424,6 +427,7 @@ async function completeProviderAttempt(
   attempt: { startedAt: number; reservationId?: string },
   error?: unknown,
   operation = "provider_request",
+  usage: ProviderRequestUsage = { usageStatus: "unknown" },
 ): Promise<void> {
   if (ledger?.completeProviderRequest) {
     await ledger.completeProviderRequest({
@@ -433,7 +437,7 @@ async function completeProviderAttempt(
       operation,
       startedAt: attempt.startedAt,
       status: error ? "failed" : "completed",
-      usage: { usageStatus: "unknown" },
+      usage,
       ...(error
         ? {
             reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED",
@@ -448,6 +452,7 @@ async function completeProviderAttempt(
     operation,
     startedAt: attempt.startedAt,
     status: error ? "failed" : "completed",
+    usage,
     ...(error
       ? {
           reason: error instanceof GroqClientError
@@ -1074,6 +1079,10 @@ async function oacCompleteRawUntracked(
   const reasoningContent =
     coerceProviderText(msg?.reasoning_content) ??
     coerceProviderText(msg?.reasoning);
+  const providerUsage = normalizeProviderRequestUsage(
+    data.usage?.prompt_tokens,
+    data.usage?.completion_tokens,
+  );
   const reasoningTokens =
     data.usage?.reasoning_tokens ??
     data.usage?.completion_tokens_details?.reasoning_tokens;
@@ -1084,9 +1093,10 @@ async function oacCompleteRawUntracked(
         msg?.tool_calls === undefined ? null : msg.tool_calls as ToolCall[],
       model: data.model,
       usage: {
-        promptTokens: data.usage?.prompt_tokens ?? 0,
-        completionTokens: data.usage?.completion_tokens ?? 0,
+        promptTokens: providerUsage.promptTokens ?? 0,
+        completionTokens: providerUsage.completionTokens ?? 0,
       },
+      providerUsage,
       finishReason: choice?.finish_reason ?? null,
       reasoningContent,
       outputText,
@@ -1146,11 +1156,14 @@ export async function oacCompleteRaw(
     opts.operation,
   );
   let error: unknown;
+  let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   try {
-    return await oacCompleteRawUntracked(messages, {
+    const result = await oacCompleteRawUntracked(messages, {
       ...opts,
       signal: opts.signal ?? opts.executionLedger?.signal,
     });
+    providerUsage = result.providerUsage ?? providerUsage;
+    return result;
   } catch (err) {
     error = err;
     throw err;
@@ -1162,6 +1175,7 @@ export async function oacCompleteRaw(
       providerAttempt,
       error,
       opts.operation,
+      providerUsage,
     );
   }
 }
@@ -1173,7 +1187,7 @@ export async function oacCompleteRaw(
 async function* oacCompleteStreamUntracked(
   messages: RawMessage[],
   opts: OpenAICompatibleStreamOptions,
-): AsyncGenerator<string> {
+): AsyncGenerator<string, ProviderRequestUsage, void> {
   const {
     model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
@@ -1250,6 +1264,7 @@ async function* oacCompleteStreamUntracked(
   const decoder = new TextDecoder();
   let buffer = "";
   let hadContent = false;
+  let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   const streamGuard = createContentOnlyStreamGuard({ providerName, model });
 
   try {
@@ -1269,7 +1284,14 @@ async function* oacCompleteStreamUntracked(
         try {
           const json = JSON.parse(trimmed.slice(6)) as {
             choices?: Array<{ delta?: { content?: string | null } }>;
+            usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
           };
+          if (json.usage) {
+            providerUsage = mergeProviderRequestUsage(
+              providerUsage,
+              normalizeProviderRequestUsage(json.usage.prompt_tokens, json.usage.completion_tokens),
+            );
+          }
           const delta = json.choices?.[0]?.delta?.content;
           if (delta) {
             hadContent = true;
@@ -1288,7 +1310,14 @@ async function* oacCompleteStreamUntracked(
       try {
         const json = JSON.parse(trailing.slice(6)) as {
           choices?: Array<{ delta?: { content?: string | null } }>;
+          usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } | null;
         };
+        if (json.usage) {
+          providerUsage = mergeProviderRequestUsage(
+            providerUsage,
+            normalizeProviderRequestUsage(json.usage.prompt_tokens, json.usage.completion_tokens),
+          );
+        }
         const delta = json.choices?.[0]?.delta?.content;
         if (delta) {
           hadContent = true;
@@ -1327,6 +1356,7 @@ async function* oacCompleteStreamUntracked(
   if (!hadContent) {
     throw new GroqClientError("EMPTY_RESPONSE", `${providerName} stream returned no content`);
   }
+  return providerUsage;
 }
 
 export async function* oacCompleteStream(
@@ -1348,8 +1378,9 @@ export async function* oacCompleteStream(
     opts.operation,
   );
   let error: unknown;
+  let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   try {
-    yield* oacCompleteStreamUntracked(messages, {
+    providerUsage = yield* oacCompleteStreamUntracked(messages, {
       ...opts,
       signal: opts.signal ?? opts.executionLedger?.signal,
     });
@@ -1357,7 +1388,15 @@ export async function* oacCompleteStream(
     error = err;
     throw err;
   } finally {
-    await completeProviderAttempt(opts.executionLedger, opts.providerName, model, providerAttempt, error, opts.operation);
+    await completeProviderAttempt(
+      opts.executionLedger,
+      opts.providerName,
+      model,
+      providerAttempt,
+      error,
+      opts.operation,
+      providerUsage,
+    );
   }
 }
 
@@ -2234,6 +2273,7 @@ async function geminiCompleteWithTools(
     { messages, model, temperature: opts.temperature, maxTokens: opts.maxTokens, tools: opts.tools },
   );
   let error: unknown;
+  let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -2320,6 +2360,10 @@ async function geminiCompleteWithTools(
     });
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts ?? [];
+    providerUsage = normalizeProviderRequestUsage(
+      data.usageMetadata?.promptTokenCount,
+      data.usageMetadata?.candidatesTokenCount,
+    );
     const content = parts
       .map((part) => (typeof part.text === "string" ? part.text : ""))
       .filter(Boolean)
@@ -2350,9 +2394,10 @@ async function geminiCompleteWithTools(
         toolCalls: rawToolCalls,
         model,
         usage: {
-          promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
-          completionTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+          promptTokens: providerUsage.promptTokens ?? 0,
+          completionTokens: providerUsage.completionTokens ?? 0,
         },
+        providerUsage,
         finishReason: candidate?.finishReason ?? null,
         reasoningContent: null,
         outputText: content,
@@ -2398,7 +2443,15 @@ async function geminiCompleteWithTools(
     );
   } finally {
     cleanup();
-    await completeProviderAttempt(opts.executionLedger, "Gemini", model, providerAttempt, error);
+    await completeProviderAttempt(
+      opts.executionLedger,
+      "Gemini",
+      model,
+      providerAttempt,
+      error,
+      "provider_request",
+      providerUsage,
+    );
   }
 }
 

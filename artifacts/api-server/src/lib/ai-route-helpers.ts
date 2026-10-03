@@ -609,7 +609,10 @@ export async function emitLedgerProviderAttempts(
     const outcome = event.status === "failed" ? "failure" : "success";
     if (outcome === "failure") failed += 1;
     try {
+      const latestMetadata = newEvents.at(-1) === event ? metadata : undefined;
+      const usage = event.usage ?? latestMetadata ?? { usageStatus: "unknown" as const };
       await onProviderAttempt?.({
+        ...(latestMetadata ?? {}),
         provider,
         model,
         ...(event.reservationId ? { attemptId: event.reservationId } : {}),
@@ -619,7 +622,9 @@ export async function emitLedgerProviderAttempts(
         attemptNumber: state.attemptNumber,
         fallbackCount: state.fallbackCount,
         providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
-        ...(newEvents.at(-1) === event && metadata ? metadata : {}),
+        promptTokens: usage.promptTokens ?? null,
+        completionTokens: usage.completionTokens ?? null,
+        usageStatus: usage.usageStatus ?? "unknown",
       });
     } catch (error) {
       logger.warn(
@@ -748,7 +753,8 @@ export async function runAgentWithFallback<T>(
     const providerLedgerBefore = executionLedger.snapshot();
     const completedProviderAttemptsBefore = completedProviderEvents(providerLedgerBefore).length;
     const recordPhysicalProviderAttempts = async () => {
-      const currentEvents = completedProviderEvents(executionLedger.snapshot());
+      const afterSnapshot = executionLedger.snapshot();
+      const currentEvents = completedProviderEvents(afterSnapshot);
       const physicalEvents = currentEvents.slice(completedProviderAttemptsBefore);
       if (
         options?.telemetryContext?.projectId &&
@@ -763,39 +769,41 @@ export async function runAgentWithFallback<T>(
           "Provider request reservation and transport counts did not match",
         );
       }
-      for (const [modelIndex, event] of physicalEvents.entries()) {
-        const reservationId = event.reservationId;
-        const outcome: "cancelled" | "failure" | "success" = event.status === "failed"
-          ? options?.signal?.aborted ? "cancelled" : "failure"
-          : "success";
-        logicalAttemptNumber += 1;
-        logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelIndex);
-        const telemetryAttempt = {
-          ...(reservationId ? { attemptId: reservationId } : {}),
-          ...(event.operation ? { operation: event.operation } : {}),
-          provider: providerEntry.provider,
-          model: event.model ?? null,
-          outcome,
-          latencyMs: event.durationMs ?? 0,
-          attemptNumber: logicalAttemptNumber,
-          fallbackCount: logicalFallbackCount,
-          ...(event.status === "failed"
-            ? { providerFailureKind: event.reason ?? "PROVIDER_REQUEST_FAILED" }
-            : {}),
-          usageStatus: "unknown" as const,
-        };
-        await Promise.resolve(options?.onProviderAttempt?.(telemetryAttempt)).catch((error) => {
-          logger.warn({ error, provider: providerEntry.provider }, "Provider attempt telemetry callback failed");
-        });
-        if (options?.telemetryContext && reservationId) {
-          await recordAiUsageAttempt(options.telemetryContext, {
-            ...telemetryAttempt,
-            attemptId: reservationId,
-          }).catch((error) => {
-            logger.warn({ error, attemptId: reservationId }, "AI usage attempt telemetry write failed");
+      const projectionState = {
+        completedEventCount: completedProviderAttemptsBefore,
+        attemptNumber: logicalAttemptNumber,
+        fallbackCount: logicalFallbackCount,
+      };
+      let modelIndex = 0;
+      await emitLedgerProviderAttempts(
+        providerLedgerBefore,
+        afterSnapshot,
+        projectionState,
+        async (attempt) => {
+          logicalAttemptNumber = projectionState.attemptNumber;
+          logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelIndex++);
+          const telemetryAttempt = {
+            ...attempt,
+            provider: providerEntry.provider,
+            outcome: attempt.outcome === "failure" && options?.signal?.aborted
+              ? "cancelled" as const
+              : attempt.outcome,
+            fallbackCount: logicalFallbackCount,
+          };
+          await Promise.resolve(options?.onProviderAttempt?.(telemetryAttempt)).catch((error) => {
+            logger.warn({ error, provider: providerEntry.provider }, "Provider attempt telemetry callback failed");
           });
-        }
-      }
+          if (options?.telemetryContext && telemetryAttempt.attemptId) {
+            await recordAiUsageAttempt(options.telemetryContext, telemetryAttempt).catch((error) => {
+              logger.warn(
+                { error, attemptId: telemetryAttempt.attemptId },
+                "AI usage attempt telemetry write failed",
+              );
+            });
+          }
+        },
+      );
+      logicalAttemptNumber = projectionState.attemptNumber;
     };
     try {
       const result = await run({
