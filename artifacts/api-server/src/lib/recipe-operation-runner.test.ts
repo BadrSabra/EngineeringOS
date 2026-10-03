@@ -1987,6 +1987,15 @@ describe("recipe operation preparation", () => {
         };
       },
     });
+    const stopSourceRuntime = async () => {
+      await manager.stop(projectId);
+      preStateRuntime = {
+        running: false,
+        sessionId: null,
+        pid: null,
+        port: null,
+      };
+    };
     let executionId: string | undefined;
     const executionIds: string[] = [];
     try {
@@ -2489,6 +2498,12 @@ describe("recipe operation preparation", () => {
         .where(eq(aiStrategyReplayCasesTable.projectId, projectId));
       expect(registeredReplayCase).toBeDefined();
 
+      await stopSourceRuntime();
+      await writeFile(
+        path.join(rootPath, "node_modules/.cache/mutate-next-replay"),
+        "mutate\n",
+        "utf8",
+      );
       const concurrentReplayStarts = await Promise.allSettled([
         runRegisteredStrategyReplayCase({
           projectId,
@@ -2521,7 +2536,7 @@ describe("recipe operation preparation", () => {
       expect(replayResult.recovered).toBe(false);
       expect(replayResult.receipt).toMatchObject({
         status: "incomplete",
-        incompleteReason: "runner_blocked",
+        incompleteReason: "replay_identity_mismatch",
         partition: "held_out",
         projectId,
         caseRegistrationId: registeredReplayCase!.id,
@@ -2598,6 +2613,7 @@ describe("recipe operation preparation", () => {
         .toHaveLength(1);
 
       const retryRequestId = crypto.randomUUID();
+      await rm(path.join(rootPath, "node_modules/.cache/mutate-next-replay"), { force: true });
       const retryResult = await runRegisteredStrategyReplayCase({
         projectId,
         caseRegistrationId: registeredReplayCase!.id,
@@ -2610,19 +2626,29 @@ describe("recipe operation preparation", () => {
       const orderedAttempts = [...attemptsAfterRetry]
         .sort((left, right) => left.attemptNumber - right.attemptNumber);
       expect(orderedAttempts).toHaveLength(2);
-      expect(orderedAttempts[0]?.receipt).toEqual(replayResult.receipt === orderedAttempts[0]?.receipt
-        ? replayResult.receipt
-        : runsAfterReplay[0]?.receipt);
+      expect(orderedAttempts[0]?.receipt).toEqual(runsAfterReplay[0]?.receipt);
       expect(orderedAttempts[0]?.status).toBe("incomplete");
       expect(orderedAttempts[1]).toMatchObject({
         attemptNumber: 2,
-        status: retryResult.status,
+        status: "proven",
         operationId: retryResult.receipt.operationId,
         replayExecutionId: expect.any(String),
         replayEpisodeId: expect.any(String),
         replayAttempt: expect.any(Number),
-        replayCanonicalProofHash: null,
+        replayCanonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
+      expect(retryResult.status).toBe("proven");
+      expect(retryResult.receipt).toMatchObject({
+        status: "proven",
+        incompleteReason: null,
+        replayAcceptanceId: expect.any(String),
+        replayEffectBundleId: expect.any(String),
+        replayCanonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        workspaceTreeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(retryResult.receipt.replayCanonicalProofHash)
+        .not.toBe((registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string })
+          .sourceCanonicalProofHash);
       const retryAttempt = orderedAttempts[1]!;
       expect(retryResult.receipt).toMatchObject({
         runId: retryAttempt.id,
@@ -2643,6 +2669,35 @@ describe("recipe operation preparation", () => {
         attempt: retryAttempt.replayAttempt,
         projectRevision: sourceRevision,
       });
+      const replayProof = await materializeStrategyReplayCaseProofBinding({
+        projectId,
+        episodeId: retryAttempt.replayEpisodeId!,
+      });
+      expect(replayProof).toMatchObject({
+        status: "verified",
+        binding: {
+          executionId: retryAttempt.replayExecutionId,
+          attempt: retryAttempt.replayAttempt,
+          acceptanceId: retryResult.receipt.replayAcceptanceId,
+          effectBundleId: retryResult.receipt.replayEffectBundleId,
+          sourceCanonicalProofHash: retryResult.receipt.replayCanonicalProofHash,
+        },
+      });
+      const replayTransitions = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, retryAttempt.replayExecutionId!));
+      expect(replayTransitions).toHaveLength(1);
+      expect(replayTransitions[0]).toMatchObject({
+        status: "materialized",
+        taskScope: expect.stringMatching(/^scope:/),
+      });
+      const replayObservations = await db.select({
+        taskScope: aiAgentObservationsTable.taskScope,
+      }).from(aiAgentObservationsTable).where(
+        eq(aiAgentObservationsTable.executionId, retryAttempt.replayExecutionId!),
+      );
+      expect(replayObservations.length).toBeGreaterThan(0);
+      expect(new Set(replayObservations.map((row) => row.taskScope)))
+        .toEqual(new Set([replayTransitions[0]!.taskScope]));
       expect(retryEpisode?.scope).toMatchObject({
         strategyReplayCase: {
           caseRegistrationId: registeredReplayCase!.id,
@@ -2723,6 +2778,7 @@ describe("recipe operation preparation", () => {
           eq(aiStrategyReplayCasesTable.sourceEpisodeId, sourceEpisode!.id),
         )).limit(1);
         expect(replayCase).toBeDefined();
+        await stopSourceRuntime();
         return replayCase!;
       };
 
@@ -2760,7 +2816,7 @@ describe("recipe operation preparation", () => {
         status: "incomplete",
         recovered: false,
         receipt: {
-          incompleteReason: "runner_blocked",
+          incompleteReason: "replay_identity_mismatch",
           replayExecutionId: expect.any(String),
           replayEpisodeId: expect.any(String),
           replayCanonicalProofHash: null,

@@ -30,6 +30,7 @@ export type RuntimeStartTransitionIntent = {
   workerId: string;
   parentWorldRevision: string;
   parentFactRefs: readonly string[];
+  taskScope?: string;
   beforeObservationIds: readonly string[];
   afterObservationIds: readonly string[];
   evidenceRefs: readonly string[];
@@ -180,6 +181,7 @@ export async function createPendingRuntimeStartTransition(
         || existing.actionId !== input.actionId
         || existing.effectBundleId !== input.effectBundleId
         || existing.parentWorldRevision !== input.parentWorldRevision
+        || existing.taskScope !== (input.taskScope ?? "project")
         || existing.environmentRevision !== input.environmentRevision
         || JSON.stringify(existing.parentFactRefs) !== JSON.stringify(parentFactRefs)
         || JSON.stringify(existing.beforeObservationIds) !== JSON.stringify(beforeObservationIds)
@@ -201,7 +203,7 @@ export async function createPendingRuntimeStartTransition(
       actionId: input.actionId,
       effectBundleId: input.effectBundleId,
       parentWorldRevision: input.parentWorldRevision,
-      taskScope: "project",
+      taskScope: input.taskScope ?? "project",
       environmentRevisionKey: input.environmentRevision
         ? `revision:${input.environmentRevision}`
         : "unknown",

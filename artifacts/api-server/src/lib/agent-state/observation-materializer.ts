@@ -208,11 +208,18 @@ export function taskScopeIdentity(episode: {
     return `unscoped:${episode.id}`;
   }
   const scope = episode.scope as Record<string, unknown>;
-  if (scope.kind === "project" && !episode.missionId && !episode.goalId) return "project";
+  if (
+    scope.kind === "project"
+    && !episode.missionId
+    && !episode.goalId
+    && (scope.strategyReplayCase === undefined || scope.strategyReplayCase === null)
+  ) return "project";
+  // The public Episode contract omits nullable IDs; database rows expose them as null.
+  // Normalize both forms before hashing so one episode has one task-scope identity.
   const identity = parseBoundedJson(JSON.stringify({
     projectId: episode.projectId,
-    missionId: episode.missionId,
-    goalId: episode.goalId,
+    missionId: episode.missionId ?? null,
+    goalId: episode.goalId ?? null,
     scope,
   }), MAX_VALUE_BYTES);
   return `scope:${canonicalJsonHash(identity)}`;

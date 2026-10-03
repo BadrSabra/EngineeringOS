@@ -88,7 +88,10 @@ import {
   captureEnvironmentAttestation,
   serverEnvironmentProfile,
 } from "./agent-state/environment-attestation.js";
-import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
+import {
+  materializeServerOwnedObservations,
+  taskScopeIdentity,
+} from "./agent-state/observation-materializer.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
@@ -681,6 +684,7 @@ export function createRuntimeStartRunner(
     projectId,
     operationId,
     rootPath,
+    environmentRootPath,
     revision,
     executionId,
     executionAttempt,
@@ -704,7 +708,7 @@ export function createRuntimeStartRunner(
         let observedEnvironmentRevision: string | null = null;
         try {
           const attestation = await captureEnvironmentAttestation({
-            rootPath,
+            rootPath: environmentRootPath ?? rootPath,
             profile: serverEnvironmentProfile("RUNTIME_START", {
               kind: "recipe",
               recipeId: "runtime.start",
@@ -751,7 +755,7 @@ export function createRuntimeStartRunner(
       });
       if (beforeEffectGate) {
         const attestation = await captureEnvironmentAttestation({
-          rootPath,
+          rootPath: environmentRootPath ?? rootPath,
           profile: serverEnvironmentProfile("RUNTIME_START", {
             kind: "recipe",
             recipeId: "runtime.start",
@@ -776,6 +780,7 @@ export function createRuntimeStartRunner(
       const snapshot = await manager.start({
         projectId,
         projectRoot: rootPath,
+        ...(environmentRootPath ? { environmentRootPath } : {}),
         revision,
         ...(d1Decision?.allowEffect && environmentRevision
           ? { expectedEnvironmentRevision: environmentRevision }
@@ -856,6 +861,7 @@ function createRuntimeModeRunner(
     projectId,
     operationId,
     rootPath,
+    environmentRootPath,
     revision,
     executionId,
     executionAttempt,
@@ -1371,6 +1377,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   measurementContinuation?: RuntimeStartMeasurementContinuationDisposition;
 }> {
   let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
+  let runtimeStartParentTaskWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
   let runtimeStartBeforeObservationIds: string[] = [];
   let runtimeStartAfterObservationIds: string[] = [];
   let runtimeStartChildProcessObservationRetained = false;
@@ -1387,6 +1394,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const runtimeStartRunner = params.runtimeStartRunner
     ? async (args: Parameters<RuntimeStartRunner>[0]) => params.runtimeStartRunner!({
         ...args,
+        environmentRootPath: params.rootPath,
         beforeEffectGate: async ({ beforeState, environmentRevision }) => {
           const executionId = args.executionId;
           const executionAttempt = args.executionAttempt;
@@ -1424,7 +1432,15 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 const current = await getProjectWorldState(params.projectId, {
                   excludeEpisodeIds: [episode.episodeId],
                 });
-                const priorStatuses = parent.currentFacts
+                const taskScope = taskScopeIdentity(episode);
+                const relevantTaskScopes = [...new Set(["project", taskScope])];
+                const relevantWorldStates = await Promise.all(relevantTaskScopes.map(
+                  (scope) => getProjectWorldState(params.projectId, {
+                    taskScope: scope,
+                    excludeEpisodeIds: [episode.episodeId],
+                  }),
+                ));
+                const priorStatuses = relevantWorldStates.flatMap((state) => state.currentFacts)
                   .filter((fact) => fact.predicate === "runtime.status")
                   .map((fact) => fact.value);
                 const directStatus = beforeStateRecord.runtimeStatus;
@@ -1456,7 +1472,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 executionId,
                 attempt: executionAttempt,
                 episodeId: episode.episodeId,
-                environmentRootPath: executionRoot,
+                environmentRootPath: params.rootPath,
                 projectRevision: params.sourceRevision,
                 materializeWorldState: false,
                 sources: [{
@@ -1473,6 +1489,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               beforeObservationIds = before.observationIds;
               runtimeStartBeforeObservationIds = beforeObservationIds;
             } catch (error) {
+              console.error("RUNTIME_D1_OBSERVATION_ERROR", error);
               logger.warn(
                 {
                   scope: "recipe-operation",
@@ -1750,6 +1767,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   }
   const candidateRoot = await canonicalCandidateWorkspace(params.candidateWorkspace);
   const executionRoot = candidateRoot ?? path.resolve(params.rootPath);
+  const evidenceEnvironmentRoot = params.recipeId === "runtime.start"
+    ? params.rootPath
+    : executionRoot;
   const executionRequest = {
     projectId: params.projectId,
     ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
@@ -1851,7 +1871,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         workerId,
         idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
         projectRevision: params.sourceRevision,
-        environmentRootPath: executionRoot,
+        environmentRootPath: evidenceEnvironmentRoot,
          intentKind: candidateValidation
            ? "CANDIDATE_VALIDATION"
            : recipeGateCEffectKind === "browser"
@@ -2036,7 +2056,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: claimed.attempt,
       episodeId: episode.episodeId,
-      environmentRootPath: executionRoot,
+      environmentRootPath: evidenceEnvironmentRoot,
       projectRevision: params.sourceRevision,
       materializeWorldState: false,
       sources: [
@@ -2119,7 +2139,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: claimed.attempt,
       episodeId: episode.episodeId,
-      environmentRootPath: executionRoot,
+      environmentRootPath: evidenceEnvironmentRoot,
       projectRevision: params.sourceRevision,
       materializeWorldState: false,
       sources: [{
@@ -2138,6 +2158,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         runtimeStartParentWorldState = await getProjectWorldState(params.projectId, {
           excludeEpisodeIds: [episode.episodeId],
         });
+          const taskScope = taskScopeIdentity(episode);
+          runtimeStartParentTaskWorldState = taskScope === "project"
+            ? runtimeStartParentWorldState
+            : await getProjectWorldState(params.projectId, {
+                taskScope,
+                excludeEpisodeIds: [episode.episodeId],
+              });
       } catch (error) {
         logger.warn(
           {
@@ -2610,7 +2637,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   executionId: claimed.id,
                   attempt: claimed.attempt,
                   episodeId: episode.episodeId,
-                  environmentRootPath: executionRoot,
+                  environmentRootPath: evidenceEnvironmentRoot,
                   projectRevision: params.sourceRevision,
                   materializeWorldState: false,
                   sources: [{
@@ -2752,7 +2779,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   executionId: claimed.id,
                   attempt: claimed.attempt,
                   episodeId: episode.episodeId,
-                  environmentRootPath: executionRoot,
+                  environmentRootPath: evidenceEnvironmentRoot,
                   projectRevision: params.sourceRevision,
                   materializeWorldState: false,
                   sources: afterSources,
@@ -2879,7 +2906,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                         executionId: claimed.id,
                         attempt: claimed.attempt,
                         episodeId: episode.episodeId,
-                        environmentRootPath: executionRoot,
+                        environmentRootPath: evidenceEnvironmentRoot,
                         projectRevision: params.sourceRevision,
                         materializeWorldState: false,
                         sources: [{
@@ -3078,7 +3105,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   effectBundleId: effect.effectBundleId,
                   workerId,
                   parentWorldRevision: runtimeStartD1Decision.parentWorldRevision ?? "unavailable",
-                  parentFactRefs: runtimeStartParentWorldState?.currentFacts.map((fact) => fact.id) ?? [],
+                  parentFactRefs: runtimeStartParentTaskWorldState?.currentFacts.map((fact) => fact.id) ?? [],
+                  taskScope: taskScopeIdentity(episode),
                   beforeObservationIds: runtimeStartBeforeObservationIds,
                   afterObservationIds: [...afterObservationIds, ...runtimeStartAfterObservationIds],
                   evidenceRefs: [
@@ -3535,7 +3563,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         executionId: claimed.id,
         attempt: claimed.attempt,
         episodeId: episode.episodeId,
-        environmentRootPath: executionRoot,
+        environmentRootPath: evidenceEnvironmentRoot,
         projectRevision: params.sourceRevision,
         materializeWorldState: false,
         sources: [
@@ -3814,7 +3842,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: receipt.attempt ?? claimed.attempt,
       ...(episode ? { episodeId: episode.episodeId } : {}),
-      ...(episode ? { environmentRootPath: executionRoot } : {}),
+      ...(episode ? { environmentRootPath: evidenceEnvironmentRoot } : {}),
       projectRevision: receipt.sourceRevision,
       materializeWorldState: params.recipeId !== "runtime.start",
       sources: [

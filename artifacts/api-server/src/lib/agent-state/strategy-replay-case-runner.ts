@@ -35,6 +35,7 @@ import {
 } from "./strategy-replay-case-registry.js";
 import { createInMemoryWorkspaceRuntimeStore } from "../workspace-runtime-store.js";
 import { WorkspaceRuntimeManager } from "../workspace-runtime.js";
+import { WorkspaceRuntimeSupervisorClient } from "../workspace-runtime-supervisor-client.js";
 import {
   STRATEGY_REPLAY_CASE_LEASE_RENEW_INTERVAL_MS,
 } from "./strategy-replay-case-lease.js";
@@ -783,6 +784,11 @@ export async function runRegisteredStrategyReplayCase(input: {
   try {
     runtimeManager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
+      supervisor: new WorkspaceRuntimeSupervisorClient(),
+      runtimeNamespace: {
+        projectId: snapshot.definition.projectId,
+        runtimeId: `strategy-replay:${snapshot.replayRun.id}`,
+      },
     });
     await lease.assertOwned();
     const parsedSourceBinding = sourceProofBinding(snapshot.definition);

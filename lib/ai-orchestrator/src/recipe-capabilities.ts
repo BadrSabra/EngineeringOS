@@ -178,6 +178,7 @@ export type RuntimeStartRunner = (args: {
   projectId: string;
   operationId: string;
   rootPath: string;
+  environmentRootPath?: string;
   revision: string;
   executionId?: string;
   executionAttempt?: number;

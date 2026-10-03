@@ -103,6 +103,7 @@ export type WorkspaceRuntimeSnapshot = {
 
 type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId" | "sessionId"> & {
   projectId: string;
+  runtimeId: string;
   sessionId: string;
   projectRoot: string;
   workerId: string;
@@ -307,9 +308,12 @@ async function terminateProcessGroup(pid: number | null, child: ChildProcess | u
   if (await isPidAlive(pid)) signalProcessGroup(pid, child, "SIGKILL");
 }
 
-function rowSnapshot(row: WorkspaceRuntime): WorkspaceRuntimeSnapshot {
+function rowSnapshot(
+  row: WorkspaceRuntime,
+  projectId = row.projectId,
+): WorkspaceRuntimeSnapshot {
   return {
-    projectId: row.projectId,
+    projectId,
     sessionId: row.sessionId,
     status: row.status,
     port: row.port,
@@ -330,9 +334,11 @@ function sessionFromRow(
   row: WorkspaceRuntime,
   workerId: string,
   logs = row.logs,
+  projectId = row.projectId,
 ): RuntimeSession {
   return {
-    ...rowSnapshot(row),
+    ...rowSnapshot(row, projectId),
+    runtimeId: row.projectId,
     sessionId: row.sessionId,
     projectRoot: row.projectRoot,
     workerId,
@@ -347,6 +353,7 @@ export class WorkspaceRuntimeManager {
   private readonly supervisor?: WorkspaceRuntimeSupervisorClient;
   private readonly listenerResolver: typeof resolveRuntimeListenerProcess;
   private readonly heartbeatIntervalMs: number;
+  private readonly runtimeNamespace?: { projectId: string; runtimeId: string };
   private readonly startPreStateObserver?: (input: {
     projectId: string;
     revision: string;
@@ -358,6 +365,7 @@ export class WorkspaceRuntimeManager {
     supervisor?: WorkspaceRuntimeSupervisorClient;
     listenerResolver?: typeof resolveRuntimeListenerProcess;
     heartbeatIntervalMs?: number;
+    runtimeNamespace?: { projectId: string; runtimeId: string };
     startPreStateObserver?: (input: {
       projectId: string;
       revision: string;
@@ -368,14 +376,28 @@ export class WorkspaceRuntimeManager {
     this.supervisor = options?.supervisor;
     this.listenerResolver = options?.listenerResolver ?? resolveRuntimeListenerProcess;
     this.heartbeatIntervalMs = options?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
+    this.runtimeNamespace = options?.runtimeNamespace;
     this.startPreStateObserver = options?.startPreStateObserver;
   }
 
+  private runtimeIdFor(projectId: string): string {
+    return this.runtimeNamespace?.projectId === projectId
+      ? this.runtimeNamespace.runtimeId
+      : projectId;
+  }
+
+  private projectIdForRuntimeId(runtimeId: string): string {
+    return this.runtimeNamespace?.runtimeId === runtimeId
+      ? this.runtimeNamespace.projectId
+      : runtimeId;
+  }
+
   async get(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
-    const session = this.sessions.get(projectId);
+    const runtimeId = this.runtimeIdFor(projectId);
+    const session = this.sessions.get(runtimeId);
     if (session) return this.snapshot(session);
-    const persisted = await this.store.get(projectId);
-    return persisted ? rowSnapshot(persisted) : this.stoppedSnapshot(projectId);
+    const persisted = await this.store.get(runtimeId);
+    return persisted ? rowSnapshot(persisted, projectId) : this.stoppedSnapshot(projectId);
   }
 
   /**
@@ -390,6 +412,7 @@ export class WorkspaceRuntimeManager {
     signal?: AbortSignal;
   }): Promise<RuntimeStartBeforeState> {
     const observedAt = new Date().toISOString();
+    const runtimeId = this.runtimeIdFor(input.projectId);
     const unavailable = (
       detail: string,
       fields: Partial<RuntimeStartBeforeState> = {},
@@ -442,9 +465,9 @@ export class WorkspaceRuntimeManager {
     }
 
     try {
-      const inventory = await this.supervisor.observeStartState(input.projectId);
+      const inventory = await this.supervisor.observeStartState(runtimeId);
       if (
-        inventory.projectId !== input.projectId
+        inventory.projectId !== runtimeId
         || !inventory.inventoryComplete
         || !Number.isFinite(Date.parse(inventory.observedAt))
       ) {
@@ -461,8 +484,8 @@ export class WorkspaceRuntimeManager {
       }
 
       if (inventory.status === "stopped" && inventory.unknownListenerPorts.length === 0) {
-        const persisted = await this.store.get(input.projectId);
-        const local = this.sessions.get(input.projectId);
+        const persisted = await this.store.get(runtimeId);
+        const local = this.sessions.get(runtimeId);
         if (
           local
           && (local.status === "starting" || local.status === "running")
@@ -525,7 +548,7 @@ export class WorkspaceRuntimeManager {
 
       const target = inventory.session;
       if (
-        target.projectId !== input.projectId
+        target.projectId !== runtimeId
         || target.status !== "running"
         || !target.sessionId
         || !Number.isInteger(target.pid)
@@ -536,9 +559,9 @@ export class WorkspaceRuntimeManager {
           unknownListenerPorts: inventory.unknownListenerPorts,
         });
       }
-      await this.recover(input.projectId);
-      const local = this.sessions.get(input.projectId);
-      const persisted = await this.store.get(input.projectId);
+      await this.recover(runtimeId);
+      const local = this.sessions.get(runtimeId);
+      const persisted = await this.store.get(runtimeId);
       if (
         !local
         || !persisted
@@ -601,7 +624,7 @@ export class WorkspaceRuntimeManager {
     revision: string;
     signal?: AbortSignal;
   }): Promise<RuntimeAfterState> {
-    const session = this.sessions.get(input.projectId);
+    const session = this.sessions.get(this.runtimeIdFor(input.projectId));
     if (
       !session
       || session.sessionId !== input.sessionId
@@ -634,6 +657,7 @@ export class WorkspaceRuntimeManager {
     expectedMarker?: string;
     signal?: AbortSignal;
   }): Promise<RuntimeAfterState> {
+    const runtimeId = this.runtimeIdFor(input.projectId);
     const healthPath = input.healthPath ?? "/";
     if (!healthPath.startsWith("/") || healthPath.startsWith("//")) {
       throw new WorkspaceRuntimeError(
@@ -642,8 +666,8 @@ export class WorkspaceRuntimeManager {
         400,
       );
     }
-    const session = this.sessions.get(input.projectId);
-    const persisted = await this.store.get(input.projectId);
+    const session = this.sessions.get(runtimeId);
+    const persisted = await this.store.get(runtimeId);
     if (
       !session
       || !persisted
@@ -962,8 +986,9 @@ export class WorkspaceRuntimeManager {
         409,
       );
     }
-    const persisted = await this.store.get(input.projectId);
-    const session = this.sessions.get(input.projectId);
+    const runtimeId = this.runtimeIdFor(input.projectId);
+    const persisted = await this.store.get(runtimeId);
+    const session = this.sessions.get(runtimeId);
     const row = persisted ?? session;
     if (
       !row
@@ -1016,8 +1041,9 @@ export class WorkspaceRuntimeManager {
     pid: number;
     port: number;
   }): Promise<RuntimeAfterState> {
-    const persisted = await this.store.get(input.projectId);
-    const session = this.sessions.get(input.projectId);
+    const runtimeId = this.runtimeIdFor(input.projectId);
+    const persisted = await this.store.get(runtimeId);
+    const session = this.sessions.get(runtimeId);
     const now = Date.now();
     if (
       !persisted
@@ -1129,13 +1155,13 @@ export class WorkspaceRuntimeManager {
 
   private async relinquishSessionForRetry(session: RuntimeSession): Promise<void> {
     this.stopHeartbeat(session);
-    await this.store.updateOwnedSession(session.projectId, session.sessionId, this.workerId, {
+    await this.store.updateOwnedSession(session.runtimeId, session.sessionId, this.workerId, {
       workerId: null,
       leaseUntil: null,
       lastHeartbeatAt: null,
     });
-    if (this.sessions.get(session.projectId) === session) {
-      this.sessions.delete(session.projectId);
+    if (this.sessions.get(session.runtimeId) === session) {
+      this.sessions.delete(session.runtimeId);
     }
   }
 
@@ -1167,7 +1193,12 @@ export class WorkspaceRuntimeManager {
         continue;
       }
 
-      const candidate = sessionFromRow(claimed, this.workerId);
+      const candidate = sessionFromRow(
+        claimed,
+        this.workerId,
+        claimed.logs,
+        this.projectIdForRuntimeId(claimed.projectId),
+      );
       if (!await this.hasKnownListener(candidate)) {
         await this.releaseRecoveryClaim(claimed.projectId, claimed.sessionId);
         continue;
@@ -1224,7 +1255,12 @@ export class WorkspaceRuntimeManager {
         this.startHeartbeat(existing);
         continue;
       }
-      const session = sessionFromRow(adoptedRow, this.workerId, adoptedLogs ?? claimed.logs);
+      const session = sessionFromRow(
+        adoptedRow,
+        this.workerId,
+        adoptedLogs ?? claimed.logs,
+        this.projectIdForRuntimeId(claimed.projectId),
+      );
       this.sessions.set(claimed.projectId, session);
       this.startHeartbeat(session);
     }
@@ -1233,11 +1269,13 @@ export class WorkspaceRuntimeManager {
   async start(input: {
     projectId: string;
     projectRoot: string;
+    environmentRootPath?: string;
     revision: string;
     attestationIdentity?: ChildProcessAttestationIdentity;
     expectedEnvironmentRevision?: string;
     restart?: boolean;
   }): Promise<WorkspaceRuntimeSnapshot> {
+    const runtimeId = this.runtimeIdFor(input.projectId);
     if (input.attestationIdentity && (
       input.attestationIdentity.projectId !== input.projectId
       || input.attestationIdentity.revision !== input.revision
@@ -1253,12 +1291,12 @@ export class WorkspaceRuntimeManager {
         409,
       );
     }
-    const localSession = this.sessions.get(input.projectId);
-    const persistedCurrent = localSession ? undefined : await this.store.get(input.projectId);
+    const localSession = this.sessions.get(runtimeId);
+    const persistedCurrent = localSession ? undefined : await this.store.get(runtimeId);
     const current = localSession ?? persistedCurrent;
     if (current && !input.restart && (current.status === "starting" || current.status === "running")) {
       if (localSession) return this.snapshot(localSession);
-      if (persistedCurrent) return rowSnapshot(persistedCurrent);
+      if (persistedCurrent) return rowSnapshot(persistedCurrent, input.projectId);
     }
     if (current && (current.status === "starting" || current.status === "running")) {
       const stopped = await this.stop(input.projectId);
@@ -1282,7 +1320,7 @@ export class WorkspaceRuntimeManager {
       : undefined;
     const childProcessMarker = childProcessBinding ? randomUUID() : undefined;
     const persisted = await this.store.begin({
-      projectId: input.projectId,
+      projectId: runtimeId,
       projectRoot,
       sessionId,
       revision: input.revision,
@@ -1292,8 +1330,8 @@ export class WorkspaceRuntimeManager {
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
     });
     if (!persisted) {
-      const existing = await this.store.get(input.projectId);
-      if (existing) return rowSnapshot(existing);
+      const existing = await this.store.get(runtimeId);
+      if (existing) return rowSnapshot(existing, input.projectId);
       throw new WorkspaceRuntimeError(
         "Another runtime worker currently owns this project.",
         "RUNTIME_OWNERSHIP_BUSY",
@@ -1304,7 +1342,7 @@ export class WorkspaceRuntimeManager {
     let environmentRevision: string | null = null;
     try {
       const attestation = await captureEnvironmentAttestation({
-        rootPath: projectRoot,
+        rootPath: input.environmentRootPath ?? projectRoot,
         profile: serverEnvironmentProfile("RUNTIME_START", {
           kind: "recipe",
           recipeId: "runtime.start",
@@ -1314,7 +1352,7 @@ export class WorkspaceRuntimeManager {
         environmentRevision = attestation.environmentRevision;
       }
       if (environmentRevision) {
-        const saved = await this.store.updateOwned(input.projectId, this.workerId, {
+        const saved = await this.store.updateOwned(runtimeId, this.workerId, {
           environmentRevision,
         });
         if (!saved) environmentRevision = null;
@@ -1335,7 +1373,7 @@ export class WorkspaceRuntimeManager {
       }
       if (this.supervisor) {
         supervised = await this.supervisor.start({
-          projectId: input.projectId,
+          projectId: runtimeId,
           sessionId,
           projectRoot,
           ...(childProcessMarker ? { attestationMarker: childProcessMarker } : {}),
@@ -1351,7 +1389,7 @@ export class WorkspaceRuntimeManager {
       }
     } catch (error) {
       const message = bounded(error instanceof Error ? error.message : String(error));
-      await this.store.updateOwned(input.projectId, this.workerId, {
+      await this.store.updateOwned(runtimeId, this.workerId, {
         status: "failed",
         workerId: null,
         leaseUntil: null,
@@ -1364,7 +1402,7 @@ export class WorkspaceRuntimeManager {
     const port = supervised?.port ?? directPort;
     const pid = supervised?.pid ?? child?.pid ?? null;
     if (!port) {
-      await this.store.updateOwned(input.projectId, this.workerId, {
+      await this.store.updateOwned(runtimeId, this.workerId, {
         status: "failed",
         workerId: null,
         leaseUntil: null,
@@ -1380,6 +1418,7 @@ export class WorkspaceRuntimeManager {
     }
     const session: RuntimeSession = {
       projectId: input.projectId,
+      runtimeId,
       projectRoot,
       workerId: this.workerId,
       sessionId,
@@ -1399,8 +1438,8 @@ export class WorkspaceRuntimeManager {
       ...(childProcessMarker ? { childProcessMarker } : {}),
       ...(childProcessBinding ? { childProcessBinding } : {}),
     };
-    this.sessions.set(input.projectId, session);
-    await this.store.updateOwned(input.projectId, this.workerId, {
+    this.sessions.set(runtimeId, session);
+    await this.store.updateOwned(runtimeId, this.workerId, {
       port,
       pid,
       logs: session.logs,
@@ -1408,14 +1447,14 @@ export class WorkspaceRuntimeManager {
     if (child) this.attachLogs(session);
     this.startHeartbeat(session);
     child?.once("exit", (code, signal) => {
-      if (this.sessions.get(input.projectId)?.sessionId !== session.sessionId) return;
+      if (this.sessions.get(runtimeId)?.sessionId !== session.sessionId) return;
       if (session.status === "starting" || session.status === "running") {
         session.status = code === 0 ? "stopped" : "failed";
         session.error = code === 0
           ? null
           : `Development process exited with ${signal ?? `code ${code ?? "unknown"}`}.`;
         session.stoppedAt = new Date().toISOString();
-        void this.store.updateOwned(input.projectId, this.workerId, {
+        void this.store.updateOwned(runtimeId, this.workerId, {
           status: session.status,
           pid: null,
           stoppedAt: new Date(),
@@ -1453,19 +1492,20 @@ export class WorkspaceRuntimeManager {
   }
 
   async stop(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
-    let session = this.sessions.get(projectId);
+    const runtimeId = this.runtimeIdFor(projectId);
+    let session = this.sessions.get(runtimeId);
     if (!session) {
-      const persisted = await this.store.get(projectId);
+      const persisted = await this.store.get(runtimeId);
       if (!persisted) return this.stoppedSnapshot(projectId);
-      await this.recover(projectId);
-      session = this.sessions.get(projectId);
+      await this.recover(runtimeId);
+      session = this.sessions.get(runtimeId);
       if (!session) {
-        const current = await this.store.get(projectId);
-        return current ? rowSnapshot(current) : this.stoppedSnapshot(projectId);
+        const current = await this.store.get(runtimeId);
+        return current ? rowSnapshot(current, projectId) : this.stoppedSnapshot(projectId);
       }
     }
     const activeSession = session;
-    const persisted = await this.store.get(projectId);
+    const persisted = await this.store.get(runtimeId);
     if (
       (activeSession.status === "starting" || activeSession.status === "running")
       && (
@@ -1477,8 +1517,8 @@ export class WorkspaceRuntimeManager {
       )
     ) {
       this.stopHeartbeat(activeSession);
-      if (this.sessions.get(projectId) === activeSession) this.sessions.delete(projectId);
-      return persisted ? rowSnapshot(persisted) : this.stoppedSnapshot(projectId);
+      if (this.sessions.get(runtimeId) === activeSession) this.sessions.delete(runtimeId);
+      return persisted ? rowSnapshot(persisted, projectId) : this.stoppedSnapshot(projectId);
     }
     await this.stopSession(activeSession);
     return this.snapshot(activeSession);
@@ -1549,7 +1589,7 @@ export class WorkspaceRuntimeManager {
   }
 
   private async heartbeat(session: RuntimeSession): Promise<void> {
-    if (session.heartbeatInFlight || this.sessions.get(session.projectId) !== session) return;
+    if (session.heartbeatInFlight || this.sessions.get(session.runtimeId) !== session) return;
     session.heartbeatInFlight = true;
     try {
       const renewLease = async (): Promise<boolean> => {
@@ -1558,7 +1598,7 @@ export class WorkspaceRuntimeManager {
         const now = new Date();
         const leaseUntil = new Date(now.getTime() + RUNTIME_LEASE_MS);
         const owned = await this.store.updateOwnedSession(
-          session.projectId,
+          session.runtimeId,
           session.sessionId,
           this.workerId,
           { leaseUntil, lastHeartbeatAt: now },
@@ -1566,12 +1606,12 @@ export class WorkspaceRuntimeManager {
         );
         if (!owned) {
           this.stopHeartbeat(session);
-          if (this.sessions.get(session.projectId) === session) {
-            this.sessions.delete(session.projectId);
+          if (this.sessions.get(session.runtimeId) === session) {
+            this.sessions.delete(session.runtimeId);
           }
           return false;
         }
-        if (this.sessions.get(session.projectId) === session) {
+        if (this.sessions.get(session.runtimeId) === session) {
           session.leaseUntil = leaseUntil.toISOString();
           session.lastHeartbeatAt = now.toISOString();
         }
@@ -1595,14 +1635,14 @@ export class WorkspaceRuntimeManager {
       if (this.supervisor) {
         try {
           const adopted = await this.supervisor.adopt({
-            projectId: session.projectId,
+            projectId: session.runtimeId,
             sessionId: session.sessionId,
             projectRoot: session.projectRoot,
             pid: session.pid,
             port: session.port,
           });
           if (
-            adopted.projectId !== session.projectId
+            adopted.projectId !== session.runtimeId
             || adopted.sessionId !== session.sessionId
             || adopted.status !== "running"
             || adopted.pid !== session.pid
@@ -1627,7 +1667,7 @@ export class WorkspaceRuntimeManager {
   }
 
   private async persist(session: RuntimeSession, patch: RuntimeStorePatch): Promise<void> {
-    const updated = await this.store.updateOwned(session.projectId, this.workerId, patch);
+    const updated = await this.store.updateOwned(session.runtimeId, this.workerId, patch);
     if (!updated) {
       this.stopHeartbeat(session);
       return;
@@ -1646,7 +1686,7 @@ export class WorkspaceRuntimeManager {
       session.status = finalStatus;
       if (this.supervisor) {
         await this.supervisor.stop({
-          projectId: session.projectId,
+          projectId: session.runtimeId,
           sessionId: session.sessionId,
           pid: session.pid,
         });
@@ -1657,7 +1697,7 @@ export class WorkspaceRuntimeManager {
       session.pid = null;
       session.leaseUntil = null;
       session.lastHeartbeatAt = null;
-      await this.store.updateOwned(session.projectId, this.workerId, {
+      await this.store.updateOwned(session.runtimeId, this.workerId, {
         status: finalStatus,
         pid: null,
         stoppedAt: new Date(),
