@@ -78,13 +78,13 @@
 | Tool/path | Entry point + authorization | Bounds / cancellation | Audit + Episode | Scope semantics | Status |
 |---|---|---|---|---|---|
 | File read/write/replace | `executeSingleTool`; membership, arguments, mode, approval, and scope checks | Read/write sizes bounded by tool contracts; `safePath` performs lexical and realpath checks, including nearest existing ancestor for new files | dispatcher callbacks exist, but durable audit/Episode binding is not universal | writes stage pending candidate changes; they are not an immediate live-tree commit | `TESTED` dispatcher; end-to-end audit and race closure `PARTIAL` |
-| Git status/diff/log | same dispatcher and policy path | Git reads use `execFile`, 10-second timeout, 512 KiB output cap; per-call cancellation coverage is not established here | no universal durable audit/Episode proof | `git_diff` uses lexical containment; the reviewed path does not establish equivalent symlink canonicalization to `safePath` | `PARTIAL`; narrower path guarantee |
+| Git status/diff/log | same dispatcher and policy path | Git reads use `execFile`, 10-second timeout, 512 KiB output cap; T8 tests in-flight cancellation and timeout termination | no universal durable audit/Episode proof | `git_diff` canonicalizes the project root and reuses `safePath` realpath containment; path validation remains check-then-use | `PARTIAL`; external symlink escape is tested, replacement races remain open |
 | Bounded command / registered validation | dispatcher requires authorized execution mode and approved profile; server validation uses a fixed allowlist | `shell:false`, root/cwd containment, timeout, output cap, abort/process-group cleanup in the bounded kernel | callbacks can attach invocation records, but every executor is not proven to persist an Episode/audit row | chat command profile is server-derived from an approved implementation plan; `workspace-typecheck` is fixed in the inspected validation path | `TESTED` for bounded kernel/current callers; root-replacement/TOCTOU atomicity `UNKNOWN` |
 | Package/binary/delegated runner | dispatcher authorization remains in force | registry explicitly marks some limits `unspecified`, `runner_defined`, or `runner_delegated` | universal audit/Episode binding not proven | runner-specific scope and resource enforcement not established by metadata alone | `PARTIAL / UNKNOWN` |
 | Analysis/project-navigation tools | dispatcher and request intent; analysis runner receives request deadline | deadline enforcement is delegated to runner; not a common executor-level timeout proof | read-only invocation telemetry is allowlist-based; durable Episode linkage is not universal | source/evidence selection is request-scoped, but not every consumer binds the same revision | `PARTIAL` |
 | Server-internal repair validation | not a model-tool entry point; trusted API caller | bounded command kernel plus fixed `allowedCommands` | server validation records its own result; not a model Episode | fixed validation commands and profile allowlist | separate server-owned path, not a dispatcher bypass |
 
-`tool-operational-registry.ts` is operational metadata; `tool-policy.ts` and `authorizeToolInvocation` supply the authorization decision. They are two registries with different jobs, not evidence of two independent grants. The file path check is check-then-use rather than an atomic filesystem capability; git path handling is weaker on symlinks, and root replacement races are not closed by the current source audit.
+`tool-operational-registry.ts` is operational metadata; `tool-policy.ts` and `authorizeToolInvocation` supply the authorization decision. They are two registries with different jobs, not evidence of two independent grants. File and Git path checks are check-then-use rather than atomic filesystem capabilities; root replacement races are not closed by the current source audit.
 
 ### 4.3 Bypasses
 
@@ -102,6 +102,8 @@
 ### 4.5 100% Gate
 
 **E1 package-boundary gate: `DONE` للمصادر الحالية.** لا raw command/package/binary executor من barrel العام؛ كل model tool call داخل orchestrator يخضع لاختبار dispatcher؛ والـserver-internal imports محدودة إلى runner injection في chat ومسارات validation الخادمية الثابتة. يبقى Reliable Tool Agent ككل `PARTIAL`: ضمانات الذاكرة/timeout/cancellation/replay وrunner delegation ليست ضمن إغلاق E1.
+
+**Follow-up 2026-10-04:** `git_diff` صار يتحقق من المسار عبر root canonical وrealpath guard المشترك قبل تمريره إلى Git. رفض المسار يخرج كفشل من dispatcher، ويسجل read observation كـ`failed` بدل عرضه كقراءة مكتملة. اختبار T8 يغطي symlink إلى ملف خارج المشروع. هذا يغلق escape الثابت فقط؛ سباقات استبدال root/path والحدود التشغيلية لبقية الأدوات ما زالت `PARTIAL / UNKNOWN`.
 
 ## 5. Reliable Execution Agent
 
@@ -330,7 +332,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | observation-only execution terminalization | `agent-episode-ledger.ts:1284-1318` | `finalizeExecutionAcceptance` / acceptance row | استثناء محدد وfenced؛ ليس acceptance، لكنه writer منفصل لحالة `completed` |
 | phase-local `PROVEN` | `workflow-phase-execution.ts:179-196` | لا يتجاوز final Goal verifier، لكنه يشارك القيمة اللفظية | assignment مؤكد؛ التمييز لا يملك test مخصصًا ظاهرًا |
 | apply delta refs الفارغة | `runtime-start-transition.ts:967-990` | اشتقاق changed-fact attribution | الكتابة `[]` مؤكدة؛ هل المقصود صحيح `UNKNOWN` |
-| Git path symlink handling | `git-tools.ts` مقارنة بـ`file-tools.ts:safePath` | يضعف realpath symlink containment المتاح في أدوات الملفات | لا يثبت تجاوز dispatcher؛ scope guarantee أضعف وrace behavior `UNKNOWN` |
+| Git path symlink handling | `git-tools.ts` يعيد استخدام `file-tools.ts:safePath` | symlink escape الثابت يُرفض؛ check-then-use لا يمنع تبديل المسار أثناء السباق | symlink escape `FIXED + TESTED`؛ race behavior `UNKNOWN` |
 | استعادة الأثر الخارجي بعد W2–W4 | أسطح mutation المختلفة | observation/reconciliation المستقل | فجوة عامة confirmed؛ كل مسار بعينه `UNKNOWN` ما لم يثبت خلافه |
 
 ## 10. Authority Inventory

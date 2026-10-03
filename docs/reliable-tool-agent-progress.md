@@ -95,3 +95,10 @@
 - أزيلت `runBoundedCommand`, `executeCommandTool`, `runRegisteredCommand`, `executePackageTool`, `executeBinaryTool` من barrel العام لـ`@workspace/ai-orchestrator`. بقيت واجهة `server-internal/execution` صريحة لمستدعيين خادميين حاليين: حقن `runRegisteredCommand` في مسار chat الذي يظل داخل dispatcher، و`runBoundedCommand` لمسارات validation ذات command allowlist خادمي.
 - امتد فحص AST في `reliable-tool-agent-100.test.ts` ليشمل raw file/Git/command/package/binary calls، ويثبت استعمال executors داخل `executeSingleTool` فقط ضمن ملفات orchestrator الإنتاجية. فحص آخر يسمح باستيراد server-internal subpath من `ai-repair-validation.ts` و`routes/ai/chat.ts` فقط في API source.
 - التحقق: boundary suite **4/4**؛ `ai-repair-validation.test.ts` **15/15**؛ Orchestrator وAPI typechecks ناجحان. أُعيد بناء وتشغيل API workflow وظهر `Server listening` على 8080. هذا يغلق E1 على حدود الاستيراد الحالية فقط؛ لا يغلق حدود الموارد والمهلة والإلغاء وreplay لكل أداة، ولا Reliable Tool Agent ككل.
+
+### تدقيق احتواء مسار Git (2026-10-04)
+
+- `git_diff` يتحقق الآن من المسار عبر root canonical وrealpath guard المشترك مع file tools، ويرفض symlink الذي يصل إلى خارج المشروع.
+- الرفض يُحوّل إلى `TOOL_UNAVAILABLE` داخل dispatcher؛ لا ينتج `completed` lifecycle ولا read observation مكتملًا، ولا يُحفظ مسار الطلب أو محتواه في الحدث.
+- اختبار T8 يثبت رفض symlink الخارجي وتسجيل القراءة كفشل؛ Orchestrator typecheck و451 اختبارًا مركّزًا نجحت، بما فيها timeout الخاص بـGit.
+- فحص realpath ما زال check-then-use؛ تبديل المسار أو root بين التحقق وتنفيذ Git غير مغلق. إلغاء وtimeout subprocess الخاص بـGit مغطّيان مسبقًا باختبارات T8؛ التغطية التشغيلية المقابلة لبقية executors وoutput/replay والـrunner delegation غير مكتملة، لذا لا توجد مطالبة بإغلاق الطبقة الأولى كاملة.

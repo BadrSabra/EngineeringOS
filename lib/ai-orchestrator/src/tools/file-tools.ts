@@ -387,7 +387,7 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
  *
  * Returns the canonical absolute path on success, null on any violation.
  */
-async function safePath(resolvedRoot: string, filePath: string): Promise<string | null> {
+export async function safePath(resolvedRoot: string, filePath: string): Promise<string | null> {
   // Null bytes are passed to OS path APIs as-is, where libc treats them as
   // string terminators. Node's fs layer rejects them, but the error message
   // is confusing. Catch them here with a clear early return.

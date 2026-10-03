@@ -1167,6 +1167,24 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     const readResult = await executeSingleTool(readCall.options);
     expect(visibleOutput(readResult)).not.toContain(TEST_ONLY_SECRET);
 
+    const gitCall = makeCall("git_diff", { path: "escape.txt" });
+    const gitResult = await executeSingleTool(gitCall.options);
+    expect(gitResult.kind).toBe("failed");
+    if (gitResult.kind === "failed") {
+      expect(gitResult.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+    }
+    expect(visibleOutput(gitResult)).not.toContain(TEST_ONLY_SECRET);
+    expect(gitCall.readEvents.at(-1)).toMatchObject({
+      phase: "recorded",
+      status: "failed",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(gitCall.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "failed",
+    ]);
+
     const writeCall = makeCall(
       "write_file",
       { path: "escape.txt", content: "overwrite", reason: "symlink attack" },

@@ -10,13 +10,22 @@
  * handled exclusively in the API layer, never here.
  */
 import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
 import { promisify } from "node:util";
 import path from "node:path";
+import { safePath } from "./file-tools.js";
 
 const execFileAsync = promisify(execFile);
 
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_MAX_BUFFER = 512 * 1024; // 512 KB
+
+export class GitToolPathRejectedError extends Error {
+  constructor() {
+    super("Git diff path could not be verified inside the project root.");
+    this.name = "GitToolPathRejectedError";
+  }
+}
 
 // ── Tool definitions (sent to Groq) ──────────────────────────────────────────
 
@@ -115,18 +124,22 @@ export async function executeGitTool(
       // Show all uncommitted changes (staged + unstaged) against HEAD.
       const gitArgs = ["diff", "HEAD"];
       if (args.path) {
-        // D-01: Bounds-check the path before handing it to git, mirroring the
-        // safePath guard in file-tools.ts.  git -C rootPath handles the
-        // working-directory, but a traversal like "../../other-project" would
-        // still resolve outside the project root if the git repo's root is an
-        // ancestor directory.  We reject any resolved path that escapes rootPath
-        // before the "--" separator is added to the git command.
-        const normalRoot = path.resolve(rootPath);
-        const resolved   = path.resolve(rootPath, args.path);
-        // Stricter canonicalization: ensure resolved is within normalRoot
-        const normalizedResolved = path.normalize(resolved);
-        if (!normalizedResolved.startsWith(normalRoot + path.sep) && normalizedResolved !== normalRoot) {
-          return `[git-tools]: Rejected — path "${args.path}" resolves outside the project root.`;
+        // Keep Git pathspecs inside the same canonical project root used by
+        // file tools. Lexical containment alone does not reject an in-root
+        // symlink that resolves to an external file.
+        let resolvedRoot: string;
+        try {
+          resolvedRoot = await fs.realpath(path.resolve(rootPath));
+        } catch {
+          throw new GitToolPathRejectedError();
+        }
+        try {
+          if (!(await safePath(resolvedRoot, args.path))) {
+            throw new GitToolPathRejectedError();
+          }
+        } catch (error) {
+          if (error instanceof GitToolPathRejectedError) throw error;
+          throw new GitToolPathRejectedError();
         }
         gitArgs.push("--", args.path);
       }

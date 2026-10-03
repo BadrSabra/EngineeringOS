@@ -50,7 +50,11 @@ import {
   executeFileTool,
   stripReadFileWrapper,
 } from "./tools/file-tools.js";
-import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
+import {
+  GIT_TOOL_DEFINITIONS,
+  GitToolPathRejectedError,
+  executeGitTool,
+} from "./tools/git-tools.js";
 import {
   CODE_NAVIGATION_TOOL_DEFINITIONS,
   executeCodeNavigationTool,
@@ -1647,11 +1651,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     const cancelled = opts.signal?.aborted === true;
     const outputLimitError = isToolOutputLimitExceeded(error) ? error : undefined;
+    const gitPathRejected = error instanceof GitToolPathRejectedError;
     const diagnosticCode = cancelled
       ? "TOOL_CANCELLED"
       : outputLimitError
         ? "TOOL_OUTPUT_LIMIT"
-        : "TOOL_EXECUTION_FAILED";
+        : gitPathRejected
+          ? "TOOL_UNAVAILABLE"
+          : "TOOL_EXECUTION_FAILED";
+    const failureKind = cancelled
+      ? "cancelled"
+      : gitPathRejected
+        ? "unavailable"
+        : "execution";
     if (readCallback && readInvocationBase) {
       try {
         await readCallback({
@@ -1693,10 +1705,12 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }));
     return {
       kind: "failed",
-      failureKind: cancelled ? "cancelled" : "execution",
+      failureKind,
       diagnosticCode,
       safeMessage: cancelled
         ? `Tool "${name}" was cancelled; the operation did not complete.`
+        : gitPathRejected
+          ? "Git diff was rejected because its path could not be verified within the project root."
         : outputLimitError
           ? `Tool "${name}" exceeded the server output limit of ${outputLimitError.maxBytes} bytes; its output was withheld. Use a narrower query or scope.`
           : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
