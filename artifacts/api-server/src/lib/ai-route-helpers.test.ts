@@ -106,6 +106,7 @@ describe("ledger provider-attempt projection", () => {
         kind: "provider_attempt",
         status: "failed",
         at: 10,
+        reservationId: "provider-request:1",
         provider: "OpenRouter",
         model: "model-a",
         operation: "provider_request",
@@ -116,6 +117,7 @@ describe("ledger provider-attempt projection", () => {
         kind: "provider_attempt",
         status: "completed",
         at: 20,
+        reservationId: "provider-request:2",
         provider: "OpenRouter",
         model: "model-b",
         operation: "provider_request",
@@ -138,6 +140,7 @@ describe("ledger provider-attempt projection", () => {
 
     expect(attempts).toMatchObject([
       {
+        attemptId: "provider-request:1",
         provider: "openrouter",
         model: "model-a",
         outcome: "failure",
@@ -146,6 +149,7 @@ describe("ledger provider-attempt projection", () => {
         providerFailureKind: "MODEL_NOT_FOUND",
       },
       {
+        attemptId: "provider-request:2",
         provider: "openrouter",
         model: "model-b",
         outcome: "success",
@@ -153,6 +157,34 @@ describe("ledger provider-attempt projection", () => {
         fallbackCount: 1,
       },
     ]);
+  });
+
+  it("does not let a usage-telemetry write failure become a provider retry", async () => {
+    const state = {
+      completedEventCount: 0,
+      attemptNumber: 0,
+      fallbackCount: 0,
+    };
+
+    await expect(emitLedgerProviderAttempts(
+      snapshot([]),
+      snapshot([{
+        kind: "provider_attempt",
+        status: "completed",
+        at: 10,
+        reservationId: "provider-request:1",
+        provider: "OpenRouter",
+        model: "model-a",
+        operation: "provider_request",
+        durationMs: 12,
+      }]),
+      state,
+      async () => {
+        throw new Error("fixture telemetry write failure");
+      },
+    )).resolves.toEqual({ emitted: 1, failed: 0 });
+
+    expect(state.completedEventCount).toBe(1);
   });
 
   it("keeps same-model contract correction on one provider attempt", async () => {
@@ -195,6 +227,7 @@ describe("ledger provider-attempt projection", () => {
         recoveryOutcome: "accepted",
       }),
     ]);
+    expect(attempts[0]).not.toHaveProperty("attemptId");
   });
 });
 

@@ -2958,10 +2958,10 @@ export async function executeTaskLifecycle(params: {
         relatedFiles: before.relatedFiles ?? [],
         remediationPlan: before.remediationPlan ?? null,
         projectContext,
-        ...opts,
       }, {
+        ...opts,
         onProgress: progressMessage,
-        signal: executionAbortController.signal,
+        signal: opts.signal ?? executionAbortController.signal,
         onModelAttempt: async (attempt) => {
           const isRetry = attempt.outcome !== "success" || attempt.contractOutcome === "malformed_but_recovered";
           if (isRetry) {
@@ -2974,6 +2974,7 @@ export async function executeTaskLifecycle(params: {
             44,
             4,
           );
+          await opts.onModelAttempt?.(attempt);
         },
       }),
       {

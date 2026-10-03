@@ -1053,11 +1053,22 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   });
 
   it("shares provider-attempt budget across fallback candidates", async () => {
-    const fetchMock = vi.fn(async () =>
-      textResponse('{"error":{"message":"model not found"}}', 404, new Headers()));
+    const requestOrder: string[] = [];
+    const fetchMock = vi.fn(async () => {
+      requestOrder.push(`fetch:${fetchMock.mock.calls.length}`);
+      return textResponse('{"error":{"message":"model not found"}}', 404, new Headers());
+    });
     vi.stubGlobal("fetch", fetchMock);
+    const reserve = vi.fn(async ({ sequence }: { sequence: number }) => {
+      requestOrder.push(`reserve:${sequence}`);
+      return `request:${sequence}`;
+    });
+    const reconcile = vi.fn(async ({ reservationId }: { reservationId: string }) => {
+      requestOrder.push(`reconcile:${reservationId}`);
+    });
     const ledger = createExecutionLedger({
       budget: { providerAttempts: 2, deadlineMs: 10_000 },
+      providerRequestBudget: { reserve, reconcile },
     });
 
     await expect(
@@ -1070,8 +1081,22 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toMatchObject({ code: "MODEL_NOT_FOUND" });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reserve).toHaveBeenCalledTimes(2);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(requestOrder).toEqual([
+      "reserve:1",
+      "fetch:1",
+      "reconcile:request:1",
+      "reserve:2",
+      "fetch:2",
+      "reconcile:request:2",
+    ]);
     expect(ledger.snapshot().counts.provider_attempt).toBe(2);
     expect(ledger.snapshot().providers).toContain("OpenRouter");
+    expect(ledger.snapshot().events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reservationId: "request:1", status: "failed" }),
+      expect.objectContaining({ reservationId: "request:2", status: "failed" }),
+    ]));
   });
 
   it("attributes bounded no-tools provider attempts to their recovery phase", async () => {

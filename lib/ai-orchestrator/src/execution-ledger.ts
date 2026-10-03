@@ -50,6 +50,7 @@ export type ExecutionLedgerEvent = {
   status: "started" | "completed" | "rejected" | "failed";
   at: number;
   durationMs?: number;
+  reservationId?: string;
   provider?: string;
   model?: string;
   operation?: string;
@@ -91,6 +92,59 @@ export type ExecutionLedgerPublicSnapshot = {
   models: string[];
   terminalReason?: ExecutionTerminalReason;
 };
+
+export type ProviderRequestUsage = {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  usageStatus?: "known" | "partial" | "unknown";
+};
+
+export type ProviderRequestBudgetHooks = {
+  reserve: (input: {
+    ledgerId: string;
+    sequence: number;
+    provider: string;
+    model: string;
+    operation?: string;
+    estimatedTokens: number;
+  }) => Promise<string>;
+  reconcile: (input: {
+    reservationId: string;
+    provider: string;
+    model: string;
+    operation?: string;
+    status: "completed" | "failed";
+    usage: ProviderRequestUsage;
+  }) => Promise<void>;
+  onReconcileError?: (input: {
+    reservationId: string;
+    error: unknown;
+  }) => void | Promise<void>;
+};
+
+export type ProviderRequestAdmission = {
+  admitted: boolean;
+  reservationId?: string;
+};
+
+export function estimateProviderRequestTokens(
+  payload: unknown,
+  promptAndCompletionReserve = 8_192,
+): number {
+  let payloadBytes = 0;
+  try {
+    const serialized = JSON.stringify(payload);
+    if (serialized !== undefined) {
+      payloadBytes = new TextEncoder().encode(serialized).length;
+    }
+  } catch {
+    // Non-serializable payloads still receive the conservative baseline.
+  }
+  const reserve = Number.isSafeInteger(promptAndCompletionReserve)
+    ? Math.max(8_192, promptAndCompletionReserve)
+    : 8_192;
+  return Math.max(8_192, payloadBytes + reserve);
+}
 
 const SAFE_PROVIDER_OR_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 
@@ -137,11 +191,29 @@ export type ExecutionLedger = {
       provider?: string;
       model?: string;
       operation?: string;
+      reservationId?: string;
       startedAt?: number;
       status?: "completed" | "failed";
       reason?: string;
     },
   ): void;
+  admitProviderRequest?(details: {
+    provider: string;
+    model: string;
+    operation?: string;
+    estimatedTokens: number;
+  }): Promise<ProviderRequestAdmission>;
+  completeProviderRequest?(input: {
+    reservationId?: string;
+    provider: string;
+    model: string;
+    operation?: string;
+    startedAt?: number;
+    status?: "completed" | "failed";
+    reason?: string;
+    usage?: ProviderRequestUsage;
+  }): Promise<void>;
+  setProviderRequestBudgetHooks?(hooks: ProviderRequestBudgetHooks | undefined): void;
   timeoutMs(requested?: number): number;
   isExhausted(): boolean;
   setTerminal(reason: ExecutionTerminalReason): void;
@@ -172,12 +244,14 @@ const KIND_TO_BUDGET: Record<ExecutionAttemptKind, keyof ExecutionLedgerBudget> 
 };
 
 let ledgerSequence = 0;
+const MAX_LEDGER_EVENTS = 2_048;
 
 export function createExecutionLedger(options?: {
   mode?: ExecutionMode;
   budget?: Partial<ExecutionLedgerBudget>;
   signal?: AbortSignal;
   id?: string;
+  providerRequestBudget?: ProviderRequestBudgetHooks;
 }): ExecutionLedger {
   const startedAt = Date.now();
   const budget: ExecutionLedgerBudget = {
@@ -208,6 +282,9 @@ export function createExecutionLedger(options?: {
   const events: ExecutionLedgerEvent[] = [];
   const providers: string[] = [];
   const models: string[] = [];
+  let providerRequestBudget = options?.providerRequestBudget;
+  let providerRequestSequence = 0;
+  const providerRequestHooksByReservation = new Map<string, ProviderRequestBudgetHooks>();
   let terminalReason: ExecutionTerminalReason | undefined;
 
   const remember = (list: string[], value?: string) => {
@@ -252,14 +329,14 @@ export function createExecutionLedger(options?: {
           reason: terminal,
         });
         if (!terminalReason) terminalReason = terminal;
-        if (events.length > 256) events.splice(0, events.length - 256);
+        if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
         return false;
       }
       counts[kind] += 1;
       remember(providers, details?.provider);
       remember(models, details?.model);
       events.push({ kind, status: "started", at: now, ...details });
-      if (events.length > 256) events.splice(0, events.length - 256);
+      if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
       return true;
     },
     complete(kind, details) {
@@ -273,12 +350,89 @@ export function createExecutionLedger(options?: {
         ...(details?.provider ? { provider: details.provider } : {}),
         ...(details?.model ? { model: details.model } : {}),
         ...(details?.operation ? { operation: details.operation } : {}),
+        ...(details?.reservationId ? { reservationId: details.reservationId } : {}),
         ...(details?.startedAt !== undefined
           ? { durationMs: Math.max(0, at - details.startedAt) }
           : {}),
         ...(details?.reason ? { reason: details.reason.slice(0, 160) } : {}),
       });
-      if (events.length > 256) events.splice(0, events.length - 256);
+      if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
+    },
+    async admitProviderRequest(details) {
+      if (!ledger.admit("provider_attempt", {
+        provider: details.provider,
+        model: details.model,
+        ...(details.operation ? { operation: details.operation } : {}),
+      })) {
+        return { admitted: false };
+      }
+      const hooks = providerRequestBudget;
+      if (!hooks) return { admitted: true };
+      const sequence = ++providerRequestSequence;
+      const reservationId = await hooks.reserve({
+        ledgerId: id,
+        sequence,
+        provider: details.provider,
+        model: details.model,
+        ...(details.operation ? { operation: details.operation } : {}),
+        estimatedTokens: Math.max(8_192, Math.floor(details.estimatedTokens)),
+      });
+      if (!reservationId || reservationId.length > 200) {
+        throw new Error("Provider request budget returned an invalid reservation ID");
+      }
+      providerRequestHooksByReservation.set(reservationId, hooks);
+      return { admitted: true, reservationId };
+    },
+    async completeProviderRequest(input) {
+      const status = input.status ?? "completed";
+      ledger.complete("provider_attempt", {
+        provider: input.provider,
+        model: input.model,
+        ...(input.operation ? { operation: input.operation } : {}),
+        ...(input.reservationId ? { reservationId: input.reservationId } : {}),
+        ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
+        status,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+      const hooks = input.reservationId
+        ? providerRequestHooksByReservation.get(input.reservationId)
+        : undefined;
+      if (!input.reservationId || !hooks) return;
+      providerRequestHooksByReservation.delete(input.reservationId);
+      try {
+        await hooks.reconcile({
+          reservationId: input.reservationId,
+          provider: input.provider,
+          model: input.model,
+          ...(input.operation ? { operation: input.operation } : {}),
+          status,
+          usage: input.usage ?? { usageStatus: "unknown" },
+        });
+      } catch (error) {
+        const diagnostic = {
+          reservationId: input.reservationId,
+          errorName: error instanceof Error ? error.name : "unknown",
+        };
+        let reported = false;
+        try {
+          if (hooks.onReconcileError) {
+            await hooks.onReconcileError({ reservationId: input.reservationId, error });
+            reported = true;
+          }
+        } catch {
+          // Diagnostic hooks must not change provider retry behavior either.
+        }
+        if (!reported) {
+          try {
+            console.warn("Provider request budget reconciliation failed", diagnostic);
+          } catch {
+            // Keep transport outcome independent of logging failures.
+          }
+        }
+      }
+    },
+    setProviderRequestBudgetHooks(hooks) {
+      providerRequestBudget = hooks;
     },
     timeoutMs(requested) {
       const remaining = Math.max(1, deadlineAt - Date.now());
@@ -290,7 +444,7 @@ export function createExecutionLedger(options?: {
     setTerminal(reason) {
       if (!terminalReason) terminalReason = reason;
       events.push({ kind: "terminal", status: "completed", at: Date.now(), reason });
-      if (events.length > 256) events.splice(0, events.length - 256);
+      if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
       clearTimeout(timer);
       options?.signal?.removeEventListener("abort", abortFromParent);
     },

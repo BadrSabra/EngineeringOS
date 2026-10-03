@@ -354,6 +354,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | P1 | دلالات `PROVEN` متعددة، مع جرد global غير مكتمل | false acceptance محتمل عند consumer يخلط phase-local/projection/canonical status |
 | P1 | Apply refs مشتقة ومختبرة، لكن intent/semantic delta وتأثيره على قرار planner غير مثبت | الاختبار يثبت lineage للfacts المختارة لا أن كل fact يعبّر عن intent التغيير أو يغيّر قرارًا لاحقًا |
 | P2 | أثر خارجي أثناء/بعد التنفيذ وقبل durable observation يبقى uncertain؛ لا crash test شامل لكل نافذة | فُرض fail-closed على marker `started` للأدوات المحظور replay لها في Mission tool-loop فقط؛ بقية الأسطح لا تزال بلا reconciliation شامل، وretry/recovery لا يستطيع إثبات الحالة الفيزيائية من DB وحدها |
+| P2 | تغطية AI budget لكل transport مفعّلة، لكن إثبات المسارات الشامل غير مكتمل | admission/reconciliation يمرّ عبر ledger لمسارات analysis/review/task وchat/tool/preflight/synthesis لكل طلب فعلي؛ الاختبارات المركزة لا تثبت بعد كل route من الحد إلى usage الدائم |
 | P2 | لا إثبات أن World State الجديدة تغيّر قرار planner أو action عمومًا، ولا belief/evaluation عام | حلقة Action→World→Decision غير مغلقة |
 | P3 | تحقق release/process-recovery غير منفذ في بيئة ثبت أنها disposable | لا يجوز تحويل التحقق التاريخي أو غيابه إلى نجاح حالي |
 

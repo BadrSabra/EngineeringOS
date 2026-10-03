@@ -21,7 +21,9 @@ can disappear from attempt limits or make token usage look known when it is not.
 
 **How to apply:** Use the reservation's attempt identity and UTC admission day
 as the durable accounting key. A durable known usage event replaces its
-conservative charge; a missing or partial event does not.
+conservative charge; a missing or partial event does not. Catch reconciliation
+and telemetry persistence failures at their boundaries so they cannot enter
+provider retry or fallback classification.
 
 Reservation identity must include the intended budget unit and durable attempt
 generation when work can resume. Reusing a matching reservation is only

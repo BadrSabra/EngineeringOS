@@ -19,6 +19,10 @@
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
 import {
+  estimateProviderRequestTokens,
+  type ExecutionLedger,
+} from "./execution-ledger.js";
+import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
   normalizeProviderToolCalls,
@@ -98,6 +102,7 @@ export type DeepSeekCompleteOptions = {
   timeoutMs?: number;
   apiKey:     string;               // required — no server-side fallback for DeepSeek
   signal?: AbortSignal;
+  executionLedger?: ExecutionLedger;
   tools?:     ToolDefinition[];
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
   toolManifest?: ToolDefinition[];
@@ -314,6 +319,7 @@ export async function deepseekCompleteRaw(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     apiKey,
     signal,
+    executionLedger,
     tools,
     toolChoice,
   } = opts;
@@ -340,6 +346,65 @@ export async function deepseekCompleteRaw(
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
 
+  let providerAttemptStartedAt = 0;
+  let reservationId: string | undefined;
+  if (executionLedger?.admitProviderRequest) {
+    const admission = await executionLedger.admitProviderRequest({
+      provider: "DeepSeek",
+      model,
+      operation: "provider_request",
+      estimatedTokens: estimateProviderRequestTokens(body),
+    });
+    if (!admission.admitted) {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      throw new GroqClientError("TIMEOUT", "DeepSeek request budget exhausted");
+    }
+    reservationId = admission.reservationId;
+  } else if (
+    executionLedger &&
+    !executionLedger.admit("provider_attempt", {
+      provider: "DeepSeek",
+      model,
+      operation: "provider_request",
+    })
+  ) {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+    throw new GroqClientError("TIMEOUT", "DeepSeek request budget exhausted");
+  }
+  providerAttemptStartedAt = Date.now();
+  let providerAttemptSettled = false;
+  const settleProviderAttempt = async (status: "completed" | "failed", error?: unknown) => {
+    if (providerAttemptSettled) return;
+    providerAttemptSettled = true;
+    if (executionLedger?.completeProviderRequest) {
+      await executionLedger.completeProviderRequest({
+        reservationId,
+        provider: "DeepSeek",
+        model,
+        operation: "provider_request",
+        startedAt: providerAttemptStartedAt,
+        status,
+        usage: { usageStatus: "unknown" },
+        ...(error
+          ? { reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED" }
+          : {}),
+      });
+    } else {
+      executionLedger?.complete("provider_attempt", {
+        provider: "DeepSeek",
+        model,
+        operation: "provider_request",
+        startedAt: providerAttemptStartedAt,
+        status,
+        ...(error
+          ? { reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED" }
+          : {}),
+      });
+    }
+  };
+
   let response: Response;
   try {
     assertProviderEgressEnabled();
@@ -353,6 +418,7 @@ export async function deepseekCompleteRaw(
       signal: controller.signal,
     });
   } catch (err) {
+    await settleProviderAttempt("failed", err);
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     if (controller.signal.aborted) {
@@ -364,62 +430,64 @@ export async function deepseekCompleteRaw(
       { cause: err },
     );
   }
-  if (!response.ok) {
-    const text = await readBoundedProviderResponseText(
-      response,
-      MAX_PROVIDER_ERROR_BODY_BYTES,
-    ).catch(() => "");
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
-    throw classifyStatus(response.status, text);
-  }
-
-  let data: {
-    choices: Array<{
-      message?: { content?: string | null; tool_calls?: unknown };
-    }>;
-    model:  string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
   try {
-    data = await readBoundedProviderResponseJson(response, {
+    if (!response.ok) {
+      const text = await readBoundedProviderResponseText(
+        response,
+        MAX_PROVIDER_ERROR_BODY_BYTES,
+      ).catch(() => "");
+      throw classifyStatus(response.status, text);
+    }
+
+    const data = await readBoundedProviderResponseJson(response, {
       providerName: "DeepSeek",
       model,
-    });
+    }) as {
+      choices: Array<{
+        message?: { content?: string | null; tool_calls?: unknown };
+      }>;
+      model: string;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    const msg = data.choices[0]?.message;
+    if (!msg) {
+      throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned an empty response");
+    }
+
+    // Strip <think> tokens from DeepSeek-R1; safe no-op for DeepSeek-V3.
+    const content = stripThink(msg.content ?? null);
+    const rawToolCalls: unknown = msg.tool_calls;
+    const hasCalls = Array.isArray(rawToolCalls) && rawToolCalls.length > 0;
+
+    if (!content && !hasCalls) {
+      if (rawToolCalls !== undefined) {
+        normalizeProviderToolCalls(rawToolCalls, {
+          tools,
+          toolManifest: opts.toolManifest,
+          providerName: "DeepSeek",
+          model,
+        });
+      }
+      throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
+    }
+
+    const normalized = normalizeProviderResponse({
+      content,
+      toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
+      model: data.model,
+      usage: {
+        promptTokens: data.usage?.prompt_tokens ?? 0,
+        completionTokens: data.usage?.completion_tokens ?? 0,
+      },
+    }, { tools, toolManifest: opts.toolManifest, providerName: "DeepSeek", model });
+    await settleProviderAttempt("completed");
+    return normalized;
+  } catch (err) {
+    await settleProviderAttempt("failed", err);
+    throw err;
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   }
-
-  const msg = data.choices[0]?.message;
-  if (!msg) {
-    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned an empty response");
-  }
-
-  // Strip <think> tokens from DeepSeek-R1; safe no-op for DeepSeek-V3.
-  const content   = stripThink(msg.content ?? null);
-  const rawToolCalls: unknown = msg.tool_calls;
-  const hasCalls  = Array.isArray(rawToolCalls) && rawToolCalls.length > 0;
-
-  if (!content && !hasCalls) {
-    if (rawToolCalls !== undefined) {
-      normalizeProviderToolCalls(rawToolCalls, {
-        tools,
-        toolManifest: opts.toolManifest,
-        providerName: "DeepSeek",
-        model,
-      });
-    }
-    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned neither content nor tool calls");
-  }
-
-  return normalizeProviderResponse({
-    content,
-    toolCalls: rawToolCalls === undefined ? null : rawToolCalls as ToolCall[],
-    model:  data.model,
-    usage: {
-      promptTokens:       data.usage?.prompt_tokens  ?? 0,
-      completionTokens:   data.usage?.completion_tokens ?? 0,
-    },
-  }, { tools, toolManifest: opts.toolManifest, providerName: "DeepSeek", model });
 }

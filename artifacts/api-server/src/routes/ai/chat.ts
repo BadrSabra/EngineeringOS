@@ -6681,19 +6681,21 @@ router.post("/ai/chat", async (req, res) => {
           },
           executionLedger,
           projectOrientation: projectOrientationTurn,
-          onProviderAttempt: (attempt) => recordAiUsageAttempt({
-            projectId,
-            userId: req.userId,
-            operationId: analysisCorrelation.operationId ?? sessionIdToUse,
-            correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
-          }, {
-            ...attempt,
-            attemptId: attempt.attemptId
-              ?? `${analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.operation ?? "provider"}:${attempt.provider}:${attempt.attemptNumber}`,
-            usageStatus: attempt.usageStatus,
-            promptTokens: attempt.promptTokens,
-            completionTokens: attempt.completionTokens,
-          }),
+          onProviderAttempt: (attempt) => {
+            if (!attempt.attemptId) return;
+            return recordAiUsageAttempt({
+              projectId,
+              userId: req.userId,
+              operationId: analysisCorrelation.operationId ?? sessionIdToUse,
+              correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
+            }, {
+              ...attempt,
+              attemptId: attempt.attemptId,
+              usageStatus: attempt.usageStatus,
+              promptTokens: attempt.promptTokens,
+              completionTokens: attempt.completionTokens,
+            });
+          },
         },
         { provider, apiKey },
         undefined,
@@ -10817,6 +10819,7 @@ export async function handleChatStream(req: Request, res: Response) {
           ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
           onProviderAttempt: (attempt) => {
             rememberProviderAttempt(attempt);
+            if (!attempt.attemptId) return;
             return recordAiUsageAttempt({
               projectId,
               userId: req.userId,
@@ -10828,8 +10831,7 @@ export async function handleChatStream(req: Request, res: Response) {
                 ?? sessionIdToUse,
             }, {
               ...attempt,
-              attemptId: attempt.attemptId
-                ?? `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.operation ?? "provider"}:${attempt.provider}:${attempt.attemptNumber}`,
+              attemptId: attempt.attemptId,
               usageStatus: attempt.usageStatus,
               promptTokens: attempt.promptTokens,
               completionTokens: attempt.completionTokens,

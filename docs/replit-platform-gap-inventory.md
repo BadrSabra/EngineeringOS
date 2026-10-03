@@ -84,10 +84,12 @@ The most important current boundaries are:
    has been established.
 5. Repository freshness and index completeness over long-running jobs are not
    guaranteed by the current evidence.
-6. AI project-budget admission enforces attempt limits and scales its conservative
-   token reservation with serialized caller payload size. Missing-telemetry
-   accounting remains conservative, but internal provider retries and model
-   fallbacks are not yet admitted as separate physical requests.
+6. AI project-budget admission now reserves each transport request in the
+   single-shot analysis, review, and task-execution fallback path, including
+   Groq retries and OpenRouter model/contract fallbacks. Chat/tool/synthesis
+   flows still reserve at the outer provider-candidate boundary, so complete
+   per-transport coverage remains open; unknown usage keeps the reservation
+   conservative.
 7. The general Replit-like surface is intentionally absent in areas such as a
    hosted IDE, arbitrary model shell, teams/RBAC, deployment/preview
    provisioning, and broad collaboration.
@@ -346,12 +348,13 @@ tests include:
 
 Two material limitations remain:
 
-1. `dailyTokenLimit` uses a conservative estimate from serialized caller
-   payload bytes plus fixed prompt and completion reserves. This is not the
-   final provider message/tool payload and is still reserved per outer
-   provider candidate; internal retries and model fallbacks are not separately
-   admitted before each physical request. Per-request transport admission
-   remains open.
+1. Analysis, review, task execution, chat, tool loops, capability preflight,
+   synthesis, provider retries, and internal model fallbacks now reserve before
+   each physical transport and reconcile through that reservation's identity.
+   Focused tests cover transport ordering and model fallback, but a full
+   end-to-end route proof is still outstanding. When provider usage is missing
+   or partial, the charge remains a conservative estimate based on the
+   serialized outbound request rather than exact provider tokenization.
 2. Detailed telemetry persistence is best effort and logs/continues when its
    database write fails. Project-budget accounting remains conservative in
    that case, but the detailed usage projection reports `unknown`.
@@ -390,10 +393,11 @@ source-backed engineering Agent:
    approval, isolated validation, Apply, conflict retry, cancellation/restart
    reload, audit export, and scoped Git delivery need a retained operation
    receipt in one controlled campaign.
-2. **Budget admission correctness:** replace the fixed per-provider reserve
-   with a request-specific conservative estimate; test near-limit payloads,
-   exhaustion, fallback, and restart behavior. Missing-telemetry reservation
-   recovery and single-count accounting now have focused regression tests.
+2. **Budget estimate confidence:** request-specific serialized-payload
+   estimates remain conservative approximations of provider tokenization.
+   Expand near-limit, exhaustion, fallback, and restart tests; missing-telemetry
+   reservation recovery and single-count accounting already have focused
+   regression coverage.
 3. **Repository and graph proof boundaries:** add focused regression coverage
    for graph project scoping, stale graph cleanup/revision changes, and
    oversized/truncated source handling so graph or fallback evidence cannot be
@@ -436,7 +440,7 @@ accepted-evidence reuse, and benchmark work.
 | Gap | Why it matters | Dependency | Observable acceptance criteria |
 |---|---|---|---|
 | **Archive Upload reachability and proof — resolved** | The wizard exposes the existing upload route and passes its returned `uploadId` into discovery. The Clerk-authenticated journey uses real upload, discovery, import, and scan routes. | Existing authenticated upload/discovery routes, OpenAPI operation, generated upload hook, and discovery `uploadId` contract. | The real browser journey reaches a completed scan and deletes its temporary project. API tests verify malformed, unsafe, unsupported, oversized, missing-file, and cross-owner rejection; browser tests cover user-visible validation and retry after simulated 413/422 responses. The broader 50-test browser journey stopped at 21/50 for an undetermined reason; this remains separate. |
-| **Physical provider calls lack separate budget admission** | Caller-payload byte estimates scale reservations for analysis, chat, and synthesis, but admission remains per outer provider candidate rather than each transport request; nested retries and model fallbacks can spend before reconciliation. | Existing `ai-budget.ts` reservation/usage model; add a transport-level admission callback, not a second budget subsystem. | Every outbound provider request, including internal retries/fallbacks, gets a unique reservation before network I/O and reconciles its own known/unknown usage; near-limit and recovery tests show no budget reopening. |
+| **Per-transport budget wiring is implemented; full route proof remains** | The shared ledger now reserves/reconciles analysis, review, task execution, chat/tool loops, capability preflight, synthesis, retries, and model fallbacks by exact reservation identity. Focused tests cover request-before-network ordering, repeated fallback requests, and telemetry/reconciliation failure isolation; a full route campaign remains unverified. | Existing `ai-budget.ts` reservation hook and request-owned execution ledger; no second budget subsystem. | A provider-free isolated route fixture proves exactly one reservation and reconciliation per physical request across all routes, no network after rejected admission, no fabricated attempt IDs, and conservative charging when usage is unknown. |
 | **Graph and scanner freshness are not a complete proof guarantee** | Stale or weak graph/fallback data can mislead navigation or scope selection if later code treats it as source proof. | Existing graph provenance, scanner revision, source-read/evidence acceptance. | A changed/deleted file or graph revision mismatch is surfaced as stale/incomplete; every graph traversal used for project evidence is project-scoped; regex/fallback evidence cannot satisfy a behavioral objective without a complete source read; focused tests cover incoming-edge and cleanup paths. |
 
 ### P1 — operational proof

@@ -42,7 +42,10 @@ import {
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
 import { getPhaseBudget } from "./quality/execution-phases.js";
-import type { ExecutionLedger } from "./execution-ledger.js";
+import {
+  estimateProviderRequestTokens,
+  type ExecutionLedger,
+} from "./execution-ledger.js";
 import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
@@ -386,32 +389,64 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
-function admitProviderAttempt(
+async function admitProviderAttempt(
   ledger: ExecutionLedger | undefined,
   provider: string,
   model: string,
+  payload: unknown,
   operation = "provider_request",
-): number {
-  const startedAt = Date.now();
+): Promise<{ startedAt: number; reservationId?: string }> {
+  if (ledger?.admitProviderRequest) {
+    const admission = await ledger.admitProviderRequest({
+      provider,
+      model,
+      operation,
+      estimatedTokens: estimateProviderRequestTokens(payload),
+    });
+    if (!admission.admitted) {
+      throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
+    }
+    return {
+      startedAt: Date.now(),
+      ...(admission.reservationId ? { reservationId: admission.reservationId } : {}),
+    };
+  }
   if (ledger && !ledger.admit("provider_attempt", { provider, model, operation })) {
     throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
   }
-  return startedAt;
+  return { startedAt: Date.now() };
 }
 
-function completeProviderAttempt(
+async function completeProviderAttempt(
   ledger: ExecutionLedger | undefined,
   provider: string,
   model: string,
-  startedAt: number,
+  attempt: { startedAt: number; reservationId?: string },
   error?: unknown,
   operation = "provider_request",
-): void {
+): Promise<void> {
+  if (ledger?.completeProviderRequest) {
+    await ledger.completeProviderRequest({
+      reservationId: attempt.reservationId,
+      provider,
+      model,
+      operation,
+      startedAt: attempt.startedAt,
+      status: error ? "failed" : "completed",
+      usage: { usageStatus: "unknown" },
+      ...(error
+        ? {
+            reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED",
+          }
+        : {}),
+    });
+    return;
+  }
   ledger?.complete("provider_attempt", {
     provider,
     model,
     operation,
-    startedAt,
+    startedAt: attempt.startedAt,
     status: error ? "failed" : "completed",
     ...(error
       ? {
@@ -1096,10 +1131,18 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
-  const startedAt = admitProviderAttempt(
+  const providerAttempt = await admitProviderAttempt(
     opts.executionLedger,
     opts.providerName,
     model,
+    {
+      messages,
+      model,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      tools: opts.tools,
+      responseFormat: opts.responseFormat,
+    },
     opts.operation,
   );
   let error: unknown;
@@ -1112,11 +1155,11 @@ export async function oacCompleteRaw(
     error = err;
     throw err;
   } finally {
-    completeProviderAttempt(
+    await completeProviderAttempt(
       opts.executionLedger,
       opts.providerName,
       model,
-      startedAt,
+      providerAttempt,
       error,
       opts.operation,
     );
@@ -1291,7 +1334,19 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
-  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+  const providerAttempt = await admitProviderAttempt(
+    opts.executionLedger,
+    opts.providerName,
+    model,
+    {
+      messages,
+      model,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      stream: true,
+    },
+    opts.operation,
+  );
   let error: unknown;
   try {
     yield* oacCompleteStreamUntracked(messages, {
@@ -1302,7 +1357,7 @@ export async function* oacCompleteStream(
     error = err;
     throw err;
   } finally {
-    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+    await completeProviderAttempt(opts.executionLedger, opts.providerName, model, providerAttempt, error, opts.operation);
   }
 }
 
@@ -2172,7 +2227,12 @@ async function geminiCompleteWithTools(
   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): Promise<RawGroqResponse> {
   const model = opts.model ?? "gemini-3-flash-preview";
-  const startedAt = admitProviderAttempt(opts.executionLedger, "Gemini", model);
+  const providerAttempt = await admitProviderAttempt(
+    opts.executionLedger,
+    "Gemini",
+    model,
+    { messages, model, temperature: opts.temperature, maxTokens: opts.maxTokens, tools: opts.tools },
+  );
   let error: unknown;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -2338,7 +2398,7 @@ async function geminiCompleteWithTools(
     );
   } finally {
     cleanup();
-    completeProviderAttempt(opts.executionLedger, "Gemini", model, startedAt, error);
+    await completeProviderAttempt(opts.executionLedger, "Gemini", model, providerAttempt, error);
   }
 }
 

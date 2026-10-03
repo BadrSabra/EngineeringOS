@@ -19,6 +19,7 @@ import { resolveExecutionProvider } from "./model-selection/provider-strategy.js
 import { resolveExecutionModel } from "./model-selection/model-resolver.js";
 import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
 import { getProviderLifecycleSnapshot } from "./provider-lifecycle.js";
+import type { ExecutionLedger } from "./execution-ledger.js";
 
 export type { ProviderId };
 
@@ -32,6 +33,8 @@ export type AgentModelAttempt = {
 export type AgentCompleteOpts = {
   /** Caller-owned cancellation signal for the complete request and retries. */
   signal?: AbortSignal;
+  /** Shared orchestration and physical provider-request budget. */
+  executionLedger?: ExecutionLedger;
   /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
   apiKey?: string;
   /** Which AI provider to use. Defaults to the quality-aware best available provider. */
@@ -224,6 +227,7 @@ export async function agentComplete(
         apiKey,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
+        executionLedger: opts.executionLedger,
       });
       return { content: assertContent(provider, result.content), model: result.model };
     }
@@ -248,6 +252,7 @@ export async function agentComplete(
         onProviderFallback: opts.onProviderFallback,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
+        executionLedger: opts.executionLedger,
       });
       return { content: assertContent(provider, result.content), model: result.model };
     }
@@ -259,6 +264,7 @@ export async function agentComplete(
         apiKey,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
+        executionLedger: opts.executionLedger,
       });
       return { content: assertContent(provider, result.content), model: result.model };
     }
@@ -270,6 +276,7 @@ export async function agentComplete(
         apiKey: apiKey || undefined,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
+        executionLedger: opts.executionLedger,
       });
       return { content: assertContent(provider, result.content), model: result.model };
     }

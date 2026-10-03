@@ -64,7 +64,6 @@ import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js"
 import {
   AiBudgetAdmissionError,
   admitAiProviderAttempt,
-  estimateAiProviderReservationTokens,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
@@ -564,6 +563,8 @@ export async function emitLedgerProviderAttempts(
     previousModel?: string;
   },
   onProviderAttempt?: (attempt: {
+    attemptId?: string;
+    operation?: string;
     provider: ProviderId;
     model?: string | null;
     outcome: "success" | "failure" | "cancelled";
@@ -607,17 +608,25 @@ export async function emitLedgerProviderAttempts(
     state.attemptNumber += 1;
     const outcome = event.status === "failed" ? "failure" : "success";
     if (outcome === "failure") failed += 1;
-    await onProviderAttempt?.({
-      provider,
-      model,
-      ...(event.operation ? { operation: event.operation } : {}),
-      outcome,
-      latencyMs: event.durationMs ?? 0,
-      attemptNumber: state.attemptNumber,
-      fallbackCount: state.fallbackCount,
-      providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
-      ...(newEvents.at(-1) === event && metadata ? metadata : {}),
-    });
+    try {
+      await onProviderAttempt?.({
+        provider,
+        model,
+        ...(event.reservationId ? { attemptId: event.reservationId } : {}),
+        ...(event.operation ? { operation: event.operation } : {}),
+        outcome,
+        latencyMs: event.durationMs ?? 0,
+        attemptNumber: state.attemptNumber,
+        fallbackCount: state.fallbackCount,
+        providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
+        ...(newEvents.at(-1) === event && metadata ? metadata : {}),
+      });
+    } catch (error) {
+      logger.warn(
+        { error, attemptId: event.reservationId },
+        "Provider attempt telemetry callback failed",
+      );
+    }
     state.previousProvider = provider;
     state.previousModel = model ?? undefined;
     emitted += 1;
@@ -640,12 +649,15 @@ export async function runAgentWithFallback<T>(
     provider: ProviderId;
     apiKey: string;
     signal?: AbortSignal;
+    executionLedger: ExecutionLedger;
     onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
   }) => Promise<T>,
   options?: ProviderSelectionOptions & {
     signal?: AbortSignal;
     requestPayload?: unknown;
     onProviderAttempt?: (attempt: {
+      attemptId?: string;
+      operation?: string;
       provider: ProviderId;
        model?: string | null;
       outcome: "success" | "failure" | "cancelled";
@@ -678,10 +690,48 @@ export async function runAgentWithFallback<T>(
   let lastErr: GroqClientError | undefined;
   let logicalAttemptNumber = 0;
   let logicalFallbackCount = 0;
+  let activeAttemptId: string | undefined;
+  let physicalRequestSequence = 0;
+  let physicalRequestAttemptIds: string[] = [];
+  const executionLedger = createExecutionLedger({
+    mode: "simple_chat",
+    signal: options?.signal,
+    ...(options?.telemetryContext
+      ? { id: options.telemetryContext.correlationId.slice(0, 120) }
+      : {}),
+  });
+  if (options?.telemetryContext?.projectId) {
+    executionLedger.setProviderRequestBudgetHooks?.({
+      reserve: async ({ provider, model, estimatedTokens }) => {
+        const physicalAttemptId = `${activeAttemptId ?? executionLedger.id}:model:${++physicalRequestSequence}:${randomUUID()}`;
+        await admitAiProviderAttempt({
+          ownerId: userId,
+          projectId: options.telemetryContext!.projectId!,
+          attemptId: physicalAttemptId,
+          estimatedTokens,
+        });
+        physicalRequestAttemptIds.push(physicalAttemptId);
+        return physicalAttemptId;
+      },
+      reconcile: async ({ reservationId, usage }) => {
+        await reconcileAiBudgetReservation(reservationId, usage);
+      },
+      onReconcileError: ({ reservationId, error }) => {
+        logger.warn({ error, attemptId: reservationId }, "AI provider request reconciliation failed");
+      },
+    });
+  }
 
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (options?.signal?.aborted) {
+      executionLedger.setTerminal("cancelled");
       throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+    }
+    if (
+      providerIndex > 0 &&
+      !executionLedger.admit("provider_change", { provider: providerEntry.provider })
+    ) {
+      break;
     }
     if (lastErr) {
       logger.info(
@@ -692,95 +742,93 @@ export async function runAgentWithFallback<T>(
     const attemptId = options?.telemetryContext
       ? `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
-    if (attemptId && options?.telemetryContext?.projectId) {
-      await admitAiProviderAttempt({
-        ownerId: userId,
-        projectId: options.telemetryContext.projectId,
-        attemptId,
-        ...(options.requestPayload !== undefined
-          ? { estimatedTokens: estimateAiProviderReservationTokens(options.requestPayload) }
-          : {}),
-      });
-    }
-    let modelAttemptCount = 0;
-    const providerStartedAt = Date.now();
+    activeAttemptId = attemptId;
+    physicalRequestSequence = 0;
+    physicalRequestAttemptIds = [];
+    const providerLedgerBefore = executionLedger.snapshot();
+    const completedProviderAttemptsBefore = completedProviderEvents(providerLedgerBefore).length;
+    const recordPhysicalProviderAttempts = async () => {
+      const currentEvents = completedProviderEvents(executionLedger.snapshot());
+      const physicalEvents = currentEvents.slice(completedProviderAttemptsBefore);
+      if (
+        options?.telemetryContext?.projectId &&
+        physicalEvents.length !== physicalRequestAttemptIds.length
+      ) {
+        logger.warn(
+          {
+            provider: providerEntry.provider,
+            reservedRequestCount: physicalRequestAttemptIds.length,
+            completedRequestCount: physicalEvents.length,
+          },
+          "Provider request reservation and transport counts did not match",
+        );
+      }
+      for (const [modelIndex, event] of physicalEvents.entries()) {
+        const reservationId = event.reservationId;
+        const outcome: "cancelled" | "failure" | "success" = event.status === "failed"
+          ? options?.signal?.aborted ? "cancelled" : "failure"
+          : "success";
+        logicalAttemptNumber += 1;
+        logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelIndex);
+        const telemetryAttempt = {
+          ...(reservationId ? { attemptId: reservationId } : {}),
+          ...(event.operation ? { operation: event.operation } : {}),
+          provider: providerEntry.provider,
+          model: event.model ?? null,
+          outcome,
+          latencyMs: event.durationMs ?? 0,
+          attemptNumber: logicalAttemptNumber,
+          fallbackCount: logicalFallbackCount,
+          ...(event.status === "failed"
+            ? { providerFailureKind: event.reason ?? "PROVIDER_REQUEST_FAILED" }
+            : {}),
+          usageStatus: "unknown" as const,
+        };
+        await Promise.resolve(options?.onProviderAttempt?.(telemetryAttempt)).catch((error) => {
+          logger.warn({ error, provider: providerEntry.provider }, "Provider attempt telemetry callback failed");
+        });
+        if (options?.telemetryContext && reservationId) {
+          await recordAiUsageAttempt(options.telemetryContext, {
+            ...telemetryAttempt,
+            attemptId: reservationId,
+          }).catch((error) => {
+            logger.warn({ error, attemptId: reservationId }, "AI usage attempt telemetry write failed");
+          });
+        }
+      }
+    };
     try {
       const result = await run({
         ...providerEntry,
         signal: options?.signal,
+        executionLedger,
         onModelAttempt: async (attempt) => {
-          modelAttemptCount += 1;
           const modelAttempt = {
             ...attempt,
             provider: providerEntry.provider,
           };
-          await options?.onModelAttempt?.(modelAttempt);
-          if (options?.telemetryContext) {
-            logicalAttemptNumber += 1;
-            logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelAttemptCount - 1);
-            await recordAiUsageAttempt(options.telemetryContext, {
-              ...modelAttempt,
-              attemptId: `${attemptId ?? options.telemetryContext.correlationId}:model:${modelAttemptCount}`,
-              attemptNumber: logicalAttemptNumber,
-              fallbackCount: logicalFallbackCount,
-              usageStatus: "unknown",
-            });
+          try {
+            await options?.onModelAttempt?.(modelAttempt);
+          } catch (error) {
+            logger.warn(
+              { error, provider: providerEntry.provider },
+              "Provider model-attempt telemetry callback failed",
+            );
           }
         },
       });
-      const telemetryAttempt = {
-        provider: providerEntry.provider,
-        outcome: "success",
-        latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: ++logicalAttemptNumber,
-        fallbackCount: logicalFallbackCount,
-      } as const;
-      await options?.onProviderAttempt?.(telemetryAttempt);
-      if (options?.telemetryContext && modelAttemptCount === 0) {
-        await recordAiUsageAttempt(options.telemetryContext, {
-          ...telemetryAttempt,
-          attemptId,
-          usageStatus: "unknown",
-        });
-      }
-      if (attemptId) {
-        await reconcileAiBudgetReservation(attemptId).catch((error) => {
-          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
-        });
-      }
+      await recordPhysicalProviderAttempts();
+      executionLedger.setTerminal("completed");
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
+      await recordPhysicalProviderAttempts();
+      if (err instanceof AiBudgetAdmissionError) {
+        executionLedger.setTerminal("failed");
+        throw err;
+      }
       const providerError = normalizeProviderFailure(err);
-      const attemptedModels = providerAttemptModels(providerError);
-      for (const [modelIndex, model] of attemptedModels.entries()) {
-        logicalAttemptNumber += 1;
-        logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelIndex);
-        const telemetryAttempt = {
-          provider: providerEntry.provider,
-          model,
-          outcome: options?.signal?.aborted ? "cancelled" : "failure",
-          latencyMs: Date.now() - providerStartedAt,
-          attemptNumber: logicalAttemptNumber,
-          fallbackCount: logicalFallbackCount,
-          providerFailureKind: providerError.code,
-        } as const;
-        await options?.onProviderAttempt?.(telemetryAttempt);
-        if (options?.telemetryContext) {
-          await recordAiUsageAttempt(options.telemetryContext, {
-            ...telemetryAttempt,
-            attemptId: attemptedModels.length === 1
-              ? attemptId
-              : `${attemptId}:model:${modelIndex + 1}`,
-            usageStatus: "unknown",
-          });
-        }
-      }
-      if (attemptId) {
-        await reconcileAiBudgetReservation(attemptId).catch((error) => {
-          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
-        });
-      }
       if (options?.signal?.aborted) {
+        executionLedger.setTerminal("cancelled");
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
       }
       recordProviderLifecycleOutcome({
@@ -797,10 +845,12 @@ export async function runAgentWithFallback<T>(
         lastErr = providerError;
         continue;
       }
+      executionLedger.setTerminal("failed");
       throw err;
     }
   }
 
+  executionLedger.setTerminal("failed");
   throw lastErr ?? new GroqClientError("EMPTY_RESPONSE", "No AI provider returned a response");
 }
 
@@ -969,7 +1019,6 @@ export async function chatWithFallback(
 
   let lastErr: GroqClientError | undefined;
   let fallbackRefreshUsed = false;
-  let capabilityRecoveryAttemptSerial = 0;
   const capabilityProbePreflightPassed = new Set<ProviderId>();
   // GAP-C1: collect every provider failure so the final error message shows
   // the full cascade, not just the last attempt.
@@ -988,24 +1037,40 @@ export async function chatWithFallback(
     previousProvider: undefined as ProviderId | undefined,
     previousModel: undefined as string | undefined,
   };
+  const notApplicableContractTelemetry: Partial<AiContractTelemetry> = {
+    contractOutcome: "not_applicable",
+    recoveryOutcome: "not_attempted",
+    contractClaimCount: 0,
+    contractCitationMatchCount: 0,
+    contractRecoveryLatencyMs: null,
+    contractFailureKind: null,
+  };
+  const budgetProjectId = baseParams.telemetryContext?.projectId;
+  if (budgetProjectId) {
+    executionLedger.setProviderRequestBudgetHooks?.({
+      reserve: async ({ sequence, estimatedTokens }) => {
+        const reservationId =
+          `${executionLedger.id}:provider:${sequence}:${randomUUID()}`;
+        await admitAiProviderAttempt({
+          ownerId: userId,
+          projectId: budgetProjectId,
+          attemptId: reservationId,
+          estimatedTokens,
+        });
+        return reservationId;
+      },
+      reconcile: async ({ reservationId, usage }) => {
+        await reconcileAiBudgetReservation(reservationId, usage);
+      },
+      onReconcileError: ({ reservationId, error }) => {
+        logger.warn({ error, attemptId: reservationId }, "AI provider request reconciliation failed");
+      },
+    });
+  }
 
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
       break;
-    }
-    const attemptId = baseParams.telemetryContext
-      ? `${baseParams.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
-      : undefined;
-    if (attemptId && baseParams.telemetryContext?.projectId) {
-      await admitAiProviderAttempt({
-        ownerId: userId,
-        projectId: baseParams.telemetryContext.projectId,
-        attemptId,
-        estimatedTokens: estimateAiProviderReservationTokens({
-          message: baseParams.message,
-          retainedEvidence: [...retainedEvidence.values()],
-        }),
-      });
     }
     if (lastErr) {
       logger.info(
@@ -1013,7 +1078,6 @@ export async function chatWithFallback(
         "primary provider error; retrying with fallback provider",
       );
     }
-    const providerStartedAt = Date.now();
     const providerLedgerBefore = executionLedger.snapshot();
     let recoveryStartedAt: number | undefined;
     let recoveryAccepted = false;
@@ -1031,7 +1095,6 @@ export async function chatWithFallback(
     };
     try {
       if (capabilityProbeTurn) {
-        const preflightStartedAt = Date.now();
         const health = await probeProviderHealth({
           provider: providerEntry.provider,
           apiKey: providerEntry.apiKey,
@@ -1046,24 +1109,18 @@ export async function chatWithFallback(
           requireJsonMode: true,
           requireStructuredOutput: true,
         });
-        const preflightAttemptId =
-          `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:preflight:${providerIndex + 1}`;
-        const preflightTelemetry = {
-          provider: providerEntry.provider,
-          model: health.model,
-          latencyMs: Math.max(health.latencyMs, Date.now() - preflightStartedAt),
-          attemptNumber: providerIndex + 1,
-          fallbackCount: providerIndex,
-          operation: "capability_preflight",
-          attemptId: preflightAttemptId,
-          contractOutcome: "not_applicable" as const,
-          recoveryOutcome: "not_attempted" as const,
-          contractClaimCount: 0,
-          contractCitationMatchCount: 0,
-          contractRecoveryLatencyMs: null,
-          contractFailureKind: null,
-          usageStatus: "unknown" as const,
-        };
+        await emitLedgerProviderAttempts(
+          providerLedgerBefore,
+          executionLedger.snapshot(),
+          providerAttemptProjectionState,
+          async (attempt) => {
+            await baseParams.onProviderAttempt?.({
+              ...attempt,
+              ...notApplicableContractTelemetry,
+              usageStatus: attempt.usageStatus ?? "unknown",
+            });
+          },
+        );
 
         if (health.status !== "usable") {
           const failureCode: GroqErrorCode =
@@ -1081,11 +1138,6 @@ export async function chatWithFallback(
             health.failureReason ?? `Capability preflight failed for ${providerEntry.provider}`,
             { context: { providerModel: health.model ?? undefined } },
           );
-          await baseParams.onProviderAttempt?.({
-            ...preflightTelemetry,
-            outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
-            providerFailureKind: health.failureCode ?? failureCode,
-          });
           if (baseParams.signal?.aborted) {
             throw Object.assign(new Error("Execution cancelled"), {
               name: "AbortError",
@@ -1107,10 +1159,6 @@ export async function chatWithFallback(
           continue;
         }
 
-        await baseParams.onProviderAttempt?.({
-          ...preflightTelemetry,
-          outcome: "success",
-        });
         capabilityProbePreflightPassed.add(providerEntry.provider);
       }
 
@@ -1118,7 +1166,6 @@ export async function chatWithFallback(
       // while the orchestrator adds this request-scoped additive option.
       // Keep the compatibility cast at this package boundary only.
       let acceptedSynthesisProvider: ProviderId | undefined;
-      let acceptedSynthesisProviderIndex: number | undefined;
       const result = await chat({
         ...baseParams,
         apiKey: providerEntry.apiKey,
@@ -1178,46 +1225,12 @@ export async function chatWithFallback(
         synthesisFallbackProviders: orderedProviders
           .slice(providerIndex + 1)
           .filter((candidate) => candidate.provider !== providerEntry.provider)
-          .map((candidate, fallbackOffset) => {
-            const synthesisReservationId = attemptId
-              ? `${attemptId}:project-query-synthesis:${candidate.provider}`
-              : undefined;
-            const projectId = baseParams.telemetryContext?.projectId;
-            return {
+          .map((candidate, fallbackOffset) => ({
               provider: candidate.provider,
               apiKey: candidate.apiKey,
               strategy: getStrategy(candidate.provider),
               providerIndex: providerIndex + fallbackOffset + 1,
-              ...(projectId && synthesisReservationId
-                ? {
-                    admitProjectBudget: async () => {
-                      await admitAiProviderAttempt({
-                        ownerId: userId,
-                        projectId,
-                        attemptId: synthesisReservationId,
-                        estimatedTokens: estimateAiProviderReservationTokens({
-                          message: baseParams.message,
-                          retainedEvidence: [...retainedEvidence.values()],
-                        }),
-                      });
-                      return true;
-                    },
-                    reconcileProjectBudget: async (usage: {
-                      promptTokens?: number | null;
-                      completionTokens?: number | null;
-                      usageStatus?: "known" | "partial" | "unknown";
-                    }) => {
-                      await reconcileAiBudgetReservation(synthesisReservationId, usage).catch((error) => {
-                        logger.warn(
-                          { error, attemptId: synthesisReservationId },
-                          "project-query synthesis budget reconciliation failed",
-                        );
-                      });
-                    },
-                  }
-                : {}),
-            };
-          }),
+            })),
         onSynthesisProviderFailure: async ({
           provider,
           code,
@@ -1243,27 +1256,10 @@ export async function chatWithFallback(
         },
         onSynthesisProviderAccepted: ({
           provider,
-          providerIndex: acceptedIndex,
         }: { provider: ProviderId; providerIndex: number; model?: string }) => {
           acceptedSynthesisProvider = provider;
-          acceptedSynthesisProviderIndex = acceptedIndex;
         },
-        onProviderAttempt: capabilityProbeTurn
-          ? async (attempt) => {
-              capabilityRecoveryAttemptSerial += 1;
-              await baseParams.onProviderAttempt?.({
-                ...attempt,
-                attemptId: `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:recovery:${capabilityRecoveryAttemptSerial}`,
-                contractOutcome: "not_applicable",
-                recoveryOutcome: "not_attempted",
-                contractClaimCount: 0,
-                contractCitationMatchCount: 0,
-                contractRecoveryLatencyMs: null,
-                contractFailureKind: null,
-              });
-            }
-          : undefined,
-         executionLedger,
+        executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
       const contractTelemetry = deriveAiContractTelemetry({
@@ -1275,51 +1271,24 @@ export async function chatWithFallback(
           ? null
           : Date.now() - recoveryStartedAt,
       });
-      if (attemptId) {
-        await reconcileAiBudgetReservation(attemptId, {
-          promptTokens: result.usage?.promptTokens ?? null,
-          completionTokens: result.usage?.completionTokens ?? null,
-          usageStatus: result.usage ? "known" : "unknown",
-        }).catch((error) => {
-          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
-        });
-      }
-      const projectedAttempts = capabilityProbeTurn
-        ? { emitted: 0, failed: 0 }
-        : await emitLedgerProviderAttempts(
-            providerLedgerBefore,
-            executionLedger.snapshot(),
-            providerAttemptProjectionState,
-            baseParams.onProviderAttempt,
-            {
-              promptTokens: result.usage?.promptTokens ?? null,
-              completionTokens: result.usage?.completionTokens ?? null,
-              usageStatus: result.usage ? "known" : "unknown",
-              ...contractTelemetry,
-            },
-          );
+      await emitLedgerProviderAttempts(
+        providerLedgerBefore,
+        executionLedger.snapshot(),
+        providerAttemptProjectionState,
+        async (attempt) => {
+          await baseParams.onProviderAttempt?.({
+            ...attempt,
+            ...(capabilityProbeTurn ? notApplicableContractTelemetry : {}),
+            usageStatus: attempt.usageStatus ?? "unknown",
+          });
+        },
+        capabilityProbeTurn
+          ? notApplicableContractTelemetry
+          : contractTelemetry,
+      );
       const resolvedProvider = acceptedSynthesisProvider ?? PROVIDER_PRIORITY.find(
         (candidate) => candidate === result.resolvedModel?.provider,
       );
-      const matchedProviderIndex = resolvedProvider
-        ? orderedProviders.findIndex((candidate) => candidate.provider === resolvedProvider)
-        : -1;
-      const effectiveProviderIndex = acceptedSynthesisProviderIndex ??
-        (matchedProviderIndex >= 0 ? matchedProviderIndex : providerIndex);
-      if (capabilityProbeTurn || projectedAttempts.emitted === 0) {
-        await baseParams.onProviderAttempt?.({
-          provider: resolvedProvider ?? providerEntry.provider,
-          model: result.resolvedModel?.id ?? null,
-          outcome: "success",
-          latencyMs: Date.now() - providerStartedAt,
-          attemptNumber: effectiveProviderIndex + 1,
-          fallbackCount: effectiveProviderIndex,
-          promptTokens: result.usage?.promptTokens,
-          completionTokens: result.usage?.completionTokens,
-          usageStatus: result.usage ? "known" : "unknown",
-          ...contractTelemetry,
-        });
-      }
       return {
         result,
         effectiveProvider: resolvedProvider ?? providerEntry.provider,
@@ -1328,44 +1297,18 @@ export async function chatWithFallback(
     } catch (err) {
       const projectBudgetAdmissionFailed = err instanceof AiBudgetAdmissionError;
       const providerError = normalizeProviderFailure(err);
-      if (attemptId) {
-        await reconcileAiBudgetReservation(attemptId).catch((error) => {
-          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
-        });
-      }
       const providerLedgerAfter = executionLedger.snapshot();
-      const projectedAttempts = capabilityProbeTurn
-        ? { emitted: 0, failed: 0 }
-        : await emitLedgerProviderAttempts(
-            providerLedgerBefore,
-            providerLedgerAfter,
-            providerAttemptProjectionState,
-            baseParams.onProviderAttempt,
-          );
-      if (!projectBudgetAdmissionFailed &&
-        (capabilityProbeTurn || projectedAttempts.emitted === 0 || projectedAttempts.failed === 0)) {
-        // A completed transport event can still lead to a contract-level
-        // failure (for example an unrecoverable malformed response). Keep the
-        // outer failure row for that semantic outcome, but advance the ledger
-        // cursor so a later provider fallback cannot replay the same request.
-        if (!capabilityProbeTurn && projectedAttempts.failed === 0) {
-          await emitLedgerProviderAttempts(
-            providerLedgerBefore,
-            providerLedgerAfter,
-            providerAttemptProjectionState,
-            undefined,
-          );
-        }
-        await baseParams.onProviderAttempt?.({
-        provider: providerEntry.provider,
-        model: providerError.providerModel ?? null,
-        outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
-        latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: providerIndex + 1,
-        fallbackCount: providerIndex,
-        providerFailureKind: providerError.code,
+      await emitLedgerProviderAttempts(
+        providerLedgerBefore,
+        providerLedgerAfter,
+        providerAttemptProjectionState,
+        async (attempt) => {
+          await baseParams.onProviderAttempt?.({
+            ...attempt,
+            ...(capabilityProbeTurn ? notApplicableContractTelemetry : {}),
+            usageStatus: attempt.usageStatus ?? "unknown",
+          });
         });
-      }
       if (projectBudgetAdmissionFailed) throw err;
       if (baseParams.signal?.aborted) throw err;
       recordProviderLifecycleOutcome({

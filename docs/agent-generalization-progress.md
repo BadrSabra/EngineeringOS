@@ -4076,6 +4076,28 @@ G9 Revocation Safety
 - **remaining/blocker:** تقدير الحمولة ليس نص provider النهائي؛ retries/fallbacks الفعلية لا تحصل على reservation منفرد قبل النقل. سبب الإيصالات التاريخية لا يزال مجهولًا لأن execution IDs المشار إليها غير موجودة.
 - **next step:** أضف admission/reconciliation بمعرّف فريد لكل provider transport request، ثم ابنِ fixture قاعدة مؤقتة لتشغيل runner كامل وإثبات replay وقراءة receipt `proven` من جديد.
 
+### 2026-10-03 — حجز كل طلب نقل لمسارات analysis/review/task
+
+- **phase/step:** استكمال admission/reconciliation على مستوى طلب provider الفعلي لمسارات التنفيذ أحادية الاستدعاء.
+- **status:** `partial`; مسارات analysis/review/task تغطي النقل وإعادة المحاولة، بينما chat/tool/synthesis وإثبات replay الإيجابي الكامل ما زالت مفتوحة.
+- **what changed:** أضيف حجز قبل كل طلب transport فعلي وتسوية منفصلة بمعرّف الحجز نفسه عبر retries وmodel fallback. أُوقف retry الداخلي المخفي في Groq ليظل كل طلب مرئيًا للميزانية. أحداث completion تحتفظ بمعرّف الحجز الأصلي، وسجل أحداث bounded يحتفظ بهوية كل محاولة ضمن الحدود الافتراضية. usage المجهول يظل محسوبًا تحفظيًا؛ لم تُخترع معرفات telemetry عند غياب حجز مطابق.
+- **files/schema/contracts touched:** `execution-ledger.ts`، عملاء Groq وOpenAI-compatible/DeepSeek، `agent-complete.ts`، `task-agent.ts`، `ai-route-helpers.ts`، `task-execution-service.ts` واختباراتها؛ جرد الفجوات والتقرير الجنائي ومذكرة عقد ledger. لا تغيير schema.
+- **validation:** API typecheck ناجح؛ اختبارات orchestrator المركزة 89/89 و`ai-route-helpers.test.ts` 25/25 ناجحة؛ `git diff --check` ناجح. أُعيد تشغيل API وبدأ يستمع؛ ظهر تحذير recovery لعملية قديمة مرتبطة بجذر مؤقت غير متاح و409. لا completion calls أو Strategy Replay على قاعدة التطوير/الإنتاج؛ بدء API حدّث كتالوج OpenRouter فقط.
+- **authority/safety impact:** لا صلاحيات أو proof أو promotion جديدة؛ بقيت قواعد Git push اليدوي منفصلة عن `delivery.push.github`؛ لا تغيير لبيانات التطوير أو الإنتاج.
+- **remaining/blocker:** chat/tool/preflight/synthesis ما زالت تستخدم حجز provider-candidate الخارجي؛ لا fixture قاعدة مؤقتة يثبت Strategy Replay إيجابيًا وإعادة تحميل Canonical Proof.
+- **next step:** أكمل حجز chat/tool/synthesis على مستوى كل transport، ثم أنشئ fixture معزولًا بقاعدة مؤقتة فقط لإثبات replay وقراءة Canonical Proof المحفوظ من جديد.
+
+### 2026-10-03 — حجز chat/tool/preflight/synthesis لكل transport
+
+- **phase/step:** إكمال admission/reconciliation لكل طلب provider فعلي عبر مسارات chat المتداخلة.
+- **status:** `partial`; الحجز لكل transport مفعّل في المسارات المحددة، وإثبات Strategy Replay الإيجابي بقاعدة مؤقتة ما زال مفتوحًا.
+- **what changed:** أُضيفت hooks الحجز والتسوية إلى chat وtool-loop وcapability preflight وproject-query synthesis، وأزيل الحجز المكرر على provider candidate الخارجي. كل حدث usage يأخذ هوية حجز النقل نفسها؛ عند غياب الهوية لا تُنشأ telemetry row بديلة. أعطال telemetry والتسوية تُسجل ولا تدخل في تصنيف retry/fallback، ويُسوى طلب DeepSeek بعد اكتمال تحليل الاستجابة والتحقق منها.
+- **files/schema/contracts touched:** `execution-ledger.ts` وعملاء Groq/OpenAI-compatible/DeepSeek؛ `ai-route-helpers.ts` و`routes/ai/chat.ts`؛ اختبارات orchestrator وroute helpers؛ جرد الفجوات والتقرير الجنائي ومذكرة ميزانية AI. لا تغيير schema.
+- **validation:** API typecheck ناجح؛ اختبارات النقل المركزة 92/92 و`ai-route-helpers.test.ts` 26/26 ناجحة؛ `git diff --check` ناجح؛ API أُعيد بناؤه وبدأ الاستماع على 8080. بدء الخدمة حدّث كتالوج OpenRouter فقط ولم ينفذ model completion. لا Strategy Replay على قاعدة التطوير/الإنتاج؛ لم تُشغّل اختبارات قاعدة البيانات المدمجة.
+- **authority/safety impact:** لا صلاحيات أو acceptance أو proof أو promotion جديدة؛ لا إعادة تشغيل إيصالات؛ بقي Git push اليدوي منفصلًا عن `delivery.push.github`. أثناء بدء API رُفضت عملية recovery قديمة لجذر مؤقت غير متاح بـ409.
+- **remaining/blocker:** لا fixture معزول بقاعدة مؤقتة يثبت Strategy Replay إيجابيًا وإعادة تحميل Canonical Proof؛ usage المجهول/الجزئي يبقى تقديرًا محافظًا، وإثبات route-to-durable-usage الشامل ما زال غير منفذ.
+- **next step:** ابنِ fixture قاعدة مؤقتة معزولة لإثبات Strategy Replay وقراءة Canonical Proof المحفوظ من جديد دون لمس صفوف التطوير أو الإنتاج.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

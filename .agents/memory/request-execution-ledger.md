@@ -16,3 +16,9 @@ An admission rejected after the absolute wall-clock deadline must be classified 
 **Why:** A provider response can arrive just after the deadline and still contain a queued tool call. Misclassifying its admission rejection as `tool_budget` turns a time-bounded incomplete analysis into a misleading `TOOL_EXECUTION_FAILED`.
 
 **How to apply:** Check the ledger's terminal reason before converting a rejected tool admission into a failed tool result, and preserve the incomplete evidence state for the route's terminal projection.
+
+Provider-attempt completion events must retain the exact budget reservation ID, and the bounded event history must be sized to cover the ledger's admitted attempt budget. Telemetry projections must read identity from the matching completion event rather than pairing separate arrays by position.
+
+**Why:** Event truncation or out-of-order completion can otherwise detach telemetry from the reservation that paid for the physical request or tempt callers to invent a replacement identity.
+
+**How to apply:** When changing provider-attempt limits, keep event retention large enough for all admitted starts/completions; carry the reservation ID through completion and project it directly into durable telemetry.

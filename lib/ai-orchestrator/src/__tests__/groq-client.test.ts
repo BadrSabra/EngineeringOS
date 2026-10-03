@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MAX_PROVIDER_RESPONSE_BYTES } from "../provider-response-limits.js";
+import type { ProviderRequestBudgetHooks } from "../execution-ledger.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -42,6 +43,40 @@ describe("groq-client", () => {
       model: "openai/gpt-oss-20b",
       usage: { promptTokens: 10, completionTokens: 5 },
     });
+  });
+
+  it("reserves a provider request before transport and reconciles it once", async () => {
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: '{"ok":true}' } }],
+      model: "openai/gpt-oss-20b",
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    const { createExecutionLedger } = await import("../execution-ledger.js");
+    const reserve = vi.fn(async () => "request:1");
+    const reconcile = vi.fn(async (_input: Parameters<ProviderRequestBudgetHooks["reconcile"]>[0]) => undefined);
+    const ledger = createExecutionLedger({
+      providerRequestBudget: { reserve, reconcile },
+    });
+
+    await complete([{ role: "user", content: "hi" }], {
+      maxRetries: 0,
+      executionLedger: ledger,
+    });
+
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(reserve.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0]);
+    expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({
+      reservationId: "request:1",
+      status: "completed",
+      usage: { usageStatus: "unknown" },
+    }));
   });
 
   it("maps a streamed response overflow to INVALID_PROVIDER_RESPONSE", async () => {
@@ -274,15 +309,37 @@ describe("groq-client", () => {
         model: "m",
         usage: {},
       });
+    let sdkMaxRetries: number | undefined;
     vi.doMock("groq-sdk", () => ({
       default: class {
+        constructor(options: { maxRetries?: number }) {
+          sdkMaxRetries = options.maxRetries;
+        }
         chat = { completions: { create } };
       },
     }));
     const { complete } = await import("../groq-client.js");
-    const result = await complete([{ role: "user", content: "hi" }], { maxRetries: 1 });
+    const { createExecutionLedger } = await import("../execution-ledger.js");
+    const reserve = vi.fn(async ({ sequence }: { sequence: number }) => `request:${sequence}`);
+    const reconcile = vi.fn(async (input: Parameters<ProviderRequestBudgetHooks["reconcile"]>[0]) => {
+      void input;
+    });
+    const ledger = createExecutionLedger({
+      providerRequestBudget: { reserve, reconcile },
+    });
+    const result = await complete([{ role: "user", content: "hi" }], {
+      maxRetries: 1,
+      executionLedger: ledger,
+    });
     expect(result.content).toBe('{"ok":true}');
     expect(create).toHaveBeenCalledTimes(2);
+    expect(sdkMaxRetries).toBe(0);
+    expect(reserve).toHaveBeenCalledTimes(2);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile.mock.calls.map(([input]) => input.reservationId)).toEqual([
+      "request:1",
+      "request:2",
+    ]);
   });
 
   it("cancels retry backoff immediately and records only the attempted request", async () => {
