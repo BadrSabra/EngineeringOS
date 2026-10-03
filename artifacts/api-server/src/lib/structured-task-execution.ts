@@ -227,6 +227,9 @@ export type StructuredExecution = {
   started: StructuredExecutionStarted;
   execution: AiExecution;
   workerId: string;
+  signal: AbortSignal;
+  isCurrentOwner: () => Promise<boolean>;
+  isCancellationRequested: () => Promise<boolean>;
   checkpoint: (stage: AiExecutionCheckpoint["stage"], detail?: string) => Promise<void>;
   persistAssistant: (params: {
     content: string;
@@ -439,22 +442,51 @@ export async function startStructuredExecution(params: {
     toolTrace?: string;
   }): Promise<string> => {
     const id = randomUUID();
+    const now = new Date();
     await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          attempt: aiExecutionsTable.attempt,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, execution!.id))
+        .for("update")
+        .limit(1);
+      const allowedState = current?.status === "running"
+        || (current?.status === "cancelling" && message.outcome === "INTERRUPTED");
+      if (
+        !current
+        || !allowedState
+        || current.workerId !== workerId
+        || current.attempt !== execution!.attempt
+        || !current.leaseUntil
+        || current.leaseUntil <= now
+      ) {
+        throw Object.assign(new Error("Execution lease ownership was lost."), {
+          code: "EXECUTION_OWNERSHIP_LOST",
+        });
+      }
       await tx.insert(aiChatMessagesTable).values({
         id,
         sessionId: execution!.sessionId!,
         role: "assistant",
-        content: message.content,
+        // Finalization promotes this staged row to its accepted outcome.
+        // A lease handoff must not leave a success or failure message that
+        // appears canonical before the acceptance transaction commits.
+        content: "",
         toolTrace: message.toolTrace ?? null,
         executionId: execution!.id,
-        outcome: message.outcome,
-        errorCode: message.errorCode ?? null,
-        errorMessage: message.errorMessage ?? null,
+        outcome: "INTERRUPTED",
+        errorCode: null,
+        errorMessage: null,
         turnIntent,
-        createdAt: new Date(),
+        createdAt: now,
       });
       await tx.update(aiChatSessionsTable)
-        .set({ updatedAt: new Date() })
+        .set({ updatedAt: now })
         .where(eq(aiChatSessionsTable.id, execution!.sessionId!));
     });
     return id;
@@ -465,17 +497,61 @@ export async function startStructuredExecution(params: {
     unregisterAiExecutionController(execution!.id, controller);
   };
 
+  const readExecutionState = async () => {
+    const [current] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        attempt: aiExecutionsTable.attempt,
+        leaseUntil: aiExecutionsTable.leaseUntil,
+        cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, execution!.id))
+      .limit(1);
+    return current;
+  };
+  const isCurrentOwner = async () => {
+    const current = await readExecutionState();
+    return current?.status === "running"
+      && current.workerId === workerId
+      && current.attempt === execution!.attempt
+      && current.leaseUntil !== null
+      && current.leaseUntil > new Date();
+  };
+  const isCancellationRequested = async () => {
+    const current = await readExecutionState();
+    return current?.status === "cancelling"
+      && current.workerId === workerId
+      && current.attempt === execution!.attempt
+      && current.cancelRequestedAt !== null
+      && current.leaseUntil !== null
+      && current.leaseUntil > new Date();
+  };
+
   const complete = async (message: { messageId: string; content: string }) => {
     await checkpoint("finalizing", "Persisting structured result");
     terminal = true;
     cleanup();
-    return completeAiExecution({
+    const accepted = await completeAiExecution({
       executionId: execution!.id,
       workerId,
       finalMessageId: message.messageId,
       finalMessageContent: message.content,
       proofRequired: false,
     });
+    if (!accepted && await isCancellationRequested()) {
+      await failAiExecution({
+        executionId: execution!.id,
+        workerId,
+        error: "The task was cancelled.",
+        cancelled: true,
+        resumable: false,
+        finalMessageId: message.messageId,
+        finalMessageErrorCode: "EXECUTION_CANCELLED",
+      });
+    }
+    return accepted;
   };
 
   const fail = async (failure: {
@@ -518,6 +594,9 @@ export async function startStructuredExecution(params: {
     },
     execution,
     workerId,
+    signal: controller.signal,
+    isCurrentOwner,
+    isCancellationRequested,
     checkpoint,
     persistAssistant,
     complete,

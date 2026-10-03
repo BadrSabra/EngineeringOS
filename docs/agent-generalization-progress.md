@@ -6,8 +6,9 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-10-03
-**مراجعة Agent Core code-first:** تقرير `docs/agent-core-forensic-status-report.md` يجمع التدقيق الساكن المؤرخ 2026-10-02 وملحق الحالة الديناميكية المؤرخ 2026-10-03؛ أُغلق فيه E1 على حدود package-root واستيرادات workspace الحالية. حالة قاعدة الإنتاج `UNKNOWN` لعدم وجود قاعدة إنتاج. يظل ملخص المراحل التالي ملخصًا سابقًا للحالة المسجلة في 2026-09-30، ولا يحوّل اختبارًا محدودًا أو وصفًا سابقًا إلى إغلاق شامل.
+**آخر تحديث:** 2026-10-04
+**تدقيق E2 الحالي:** أُضيفت حدود محدودة لـstructured analysis/review وapply recovery، وتحققت اختبارات Git delivery الموجودة؛ ما زالت task وMission repair ونوافذ crash الأخرى مفتوحة. لا يبدأ E3 أو Learning/Transfer/Generalization قبل إغلاق E2.
+**مراجعة Agent Core code-first:** تقرير `docs/agent-core-forensic-status-report.md` يجمع التدقيق الساكن المؤرخ 2026-10-02 وملحق الحالة الديناميكية المؤرخ 2026-10-04؛ أُغلق فيه E1 على حدود package-root واستيرادات workspace الحالية. حالة قاعدة الإنتاج `UNKNOWN` لعدم وجود قاعدة إنتاج. يظل ملخص المراحل التالي ملخصًا سابقًا للحالة المسجلة في 2026-09-30، ولا يحوّل اختبارًا محدودًا أو وصفًا سابقًا إلى إغلاق شامل.
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
@@ -4152,6 +4153,39 @@ G9 Revocation Safety
 - **authority/safety impact:** لا أثر خارجي أو proof أو acceptance جديد؛ الاختبار يحرس فقط إسقاط نتيجة الحد المحلي عند خسارة ملكية الكتابة.
 - **remaining/blocker:** لا يغلق هذا workflow mutation lifecycle؛ يظل جرد terminal writers وfault injection عند W2–W8 عبر الأسطح مفتوحًا.
 - **next step:** متابعة audit/fault injection لمسارات task وstructured-task وMission repair وapply وGit delivery؛ لا يبدأ E3 قبل إغلاق E2.
+
+### 2026-10-04 — منع تسجيل اكتمال التحليل قبل قبول التنفيذ
+
+- **phase/step:** E2 / W8 — إنهاء التحليل والمراجعة المنظّمين بعد فقدان ملكية العامل.
+- **status:** `partial — اختبار API لحد القبول؛ ذرّية audit والأسطح الأخرى ما زالت مفتوحة`.
+- **what changed:** نُقلت كتابة `ai_analyzed` و`AiScanAnalysisCompleted`، وكذلك نظيريهما للمراجعة، إلى ما بعد قبول `completeAiExecution`. عند خسارة الملكية يعود المسار دون `task_done` أو سجلات اكتمال؛ وفشل audit بعد القبول يُسجل في server log ولا يحوّل القبول إلى فشل. اختبار النجاح الآن يتحقق من audit/event بدل افتراض usage غير صادر من analyzer mock.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/analysis.ts`، `artifacts/api-server/src/routes/ai.test.ts`، `docs/agent-core-forensic-status-report.md`، وهذا السجل. لا تغيير في schema أو صلاحيات التنفيذ.
+- **validation:** اختبار API الموجّه للتحليل المتنازع عليه ومساري التحليل/المراجعة المقبولين — 3/3 ناجحة على PostgreSQL مؤقتة محلية؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** الاختبار استخدم قاعدة مؤقتة على loopback مع `DATABASE_URL` صريح وبدون متغيرات `PG*` موروثة؛ لم تُستخدم قاعدة التطوير أو الإنتاج. القبول ما زال server-owned.
+- **remaining/blocker:** audit/event ليستا ذريتين مع acceptance؛ لم تُختبر كل نوافذ W2–W8، وما زالت بقية mutation surfaces غير محصورة.
+- **next step:** متابعة E2 عبر task/structured-task وMission repair وGit delivery؛ لا يبدأ E3 قبل إغلاق E2.
+
+### 2026-10-04 — استعادة apply المرشح الموجود بلا proof
+
+- **phase/step:** E2 / `apply-changes` — نافذة التوقف بعد ترقية المرشح وقبل proof/acceptance.
+- **status:** `partial — استعادة DB fail-closed مثبتة؛ لم يُختبر crash فعلي داخل route`.
+- **what changed:** أضيف اختبار DB-backed ينشئ proposal validated وexecution فاشلًا، ويثبت أن الشجرة الحية والـcandidate workspace يطابقان hash المرشح مع غياب Episode/Effect/Acceptance proof. الاستعادة تسجل `RECOVERY_REQUIRED` لـ`CANDIDATE_TREE_PRESENT`، تبقي proposal غير مقبول، ولا تكتب ملفات. المسح الثاني لا يكرر قرار الاستعادة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/job-reconciliation.test.ts`؛ لا تغيير schema أو سلطة.
+- **validation:** `src/lib/job-reconciliation.test.ts -t "fails closed when the promoted apply candidate has no accepted effect proof"` — 1/1 على PostgreSQL مؤقتة؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** fixture يمر عبر `establishProjectRoot` باستخدام مسار فريد داخل workspace؛ القاعدة المؤقتة loopback-only و`DATABASE_URL` صريح، من دون اتصال dev/prod. الاستعادة تبقى read-only على filesystem.
+- **remaining/blocker:** الاختبار يزرع حالة durable تعادل التوقف ولا يقتل route فعليًا بعد الترقية؛ فرع reconciliation الذي يحرر projection مع proof مقبول لم يُختبر هنا.
+- **next step:** تدقيق E2 على task/structured-task وMission repair وGit delivery؛ لا يبدأ E3 قبل الإغلاق.
+
+### 2026-10-04 — إثبات استعادة Git delivery بعد فقد إيصال remote
+
+- **phase/step:** E2 / Git delivery — نتيجة الدفع الخارجي بعد فقد الإقرار أو إيصال `GitPushed`.
+- **status:** `partial — حدود الاستعادة والـremote identity مغطاة بfixtures محلية`.
+- **what changed:** لم يلزم تعديل runtime. الاختبارات القائمة تثبت حجب branch drift قبل mutation، والتعرف idempotently على remote commit بعد فقد الإيصال فقط عند تطابق commit hash وtree SHA وparent واحد وoperation marker، ورفض commit مختلف حتى مع tree/parent/marker نفسها. كما يثبت recipe replay عدم تكرار الدفع وبقاء acceptance proof مربوطًا بالنتيجة.
+- **files/schema/contracts touched:** تحقق من `github-delivery-service.test.ts` و`routes/git.test.ts` و`recipe-operation-runner.test.ts`؛ لا تغيير schema أو code.
+- **validation:** الاختبارات الثلاثة المركزة نجحت على PostgreSQL مؤقتة loopback؛ الدفع route-level استخدم bare Git fixture محليًا، وفحص GitHub service استخدم HTTP fixture.
+- **authority/safety impact:** لم يحدث اتصال أو mutation على GitHub حي؛ remote المحلي داخل fixture فقط. manual pushes تظل منفصلة عن proposal-bound delivery proof.
+- **remaining/blocker:** لا يثبت ذلك انقطاع عملية حقيقية أمام GitHub production؛ حالات remote غير المتاحة أو divergent تظل blocked/recoverable، ولا تُختلق قبل-state جديدة عند resume.
+- **next step:** تدقيق E2 على task/structured-task وMission repair؛ لا يبدأ E3 قبل الإغلاق.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

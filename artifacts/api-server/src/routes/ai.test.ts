@@ -4628,11 +4628,60 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     };
     expect(executionStarted.executionId).toEqual(expect.any(String));
     expect(executionStarted.resumable).toBe(false);
-    const usageRows = await db
-      .select({ executionId: aiUsageEventsTable.executionId })
-      .from(aiUsageEventsTable)
-      .where(eq(aiUsageEventsTable.executionId, executionStarted.executionId!));
-    expect(usageRows.length).toBeGreaterThan(0);
+    const events = await db
+      .select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "AiScanAnalysisCompleted")).toBe(true);
+    const audits = await db
+      .select({ action: auditLogsTable.action })
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.projectId, projectId));
+    expect(audits.some((audit) => audit.action === "ai_analyzed")).toBe(true);
+  });
+
+  it("does not persist a structured analysis completion event after terminal ownership is lost", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    vi.mocked(mockAnalyzeScan).mockImplementationOnce(async () => {
+      const [execution] = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, projectId),
+          eq(aiExecutionsTable.status, "running"),
+        ))
+        .limit(1);
+      if (!execution) throw new Error("Structured execution was not claimed before analysis.");
+      await db.update(aiExecutionsTable)
+        .set({ workerId: "replacement-structured-worker" })
+        .where(eq(aiExecutionsTable.id, execution.id));
+      return {
+        summary: "Stale analysis result",
+        overallAssessment: "The former worker must not persist completion.",
+        insights: [],
+        topPriority: "Preserve current ownership",
+        estimatedImpact: "High",
+      };
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`);
+
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain('"type":"task_done"');
+    const events = await db
+      .select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "AiScanAnalysisCompleted")).toBe(false);
+    const audits = await db
+      .select({ action: auditLogsTable.action })
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.projectId, projectId));
+    expect(audits.some((audit) => audit.action === "ai_analyzed")).toBe(false);
   });
 
   it("recovers from malformed OpenRouter analysis output and projects one accepted terminal identity", async () => {
@@ -4932,6 +4981,113 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(failures.every((message) => message.outcome === "FAILED")).toBe(true);
     expect(failures.every((message) => message.errorCode === "model_output_invalid")).toBe(true);
     expect(failures.every((message) => message.toolTrace?.includes("structured_task_failure"))).toBe(true);
+  });
+
+  it("cancels streamed structured analysis and records an interrupted terminal message", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    vi.mocked(mockAnalyzeScan).mockImplementationOnce(async () => {
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        userId: aiExecutionsTable.userId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId)).limit(1);
+      expect(execution).toBeDefined();
+      await requestAiExecutionCancel({
+        executionId: execution!.id,
+        userId: execution!.userId,
+      });
+      return {
+        summary: "Late result",
+        overallAssessment: "This result must not be accepted.",
+        insights: [],
+        topPriority: "None",
+        estimatedImpact: "None",
+      };
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`);
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain('"type":"task_done"');
+    expect(lastSseEvent(response.text)).toMatchObject({
+      type: "error",
+      code: "EXECUTION_CANCELLED",
+      failureKind: "CANCELLATION",
+      outcome: "INTERRUPTED",
+      terminalProjection: {
+        status: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+      },
+    });
+
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution?.status).toBe("cancelled");
+    expect(execution?.finalMessageId).toEqual(expect.any(String));
+    const messages = await db.select().from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.executionId, execution!.id));
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]).toMatchObject({
+      id: execution!.finalMessageId,
+      content: "",
+      outcome: "INTERRUPTED",
+      errorCode: "EXECUTION_CANCELLED",
+    });
+    const [acceptance] = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+    expect(acceptance).toMatchObject({
+      outcome: "INTERRUPTED",
+      terminalStatus: "cancelled",
+      reasonCode: "EXECUTION_CANCELLED",
+      messageId: execution!.finalMessageId,
+    });
+  });
+
+  it("does not persist structured success after execution ownership changes", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    vi.mocked(mockAnalyzeScan).mockImplementationOnce(async () => {
+      const [execution] = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId))
+        .limit(1);
+      expect(execution).toBeDefined();
+      await db.update(aiExecutionsTable)
+        .set({ workerId: "replacement-structured-worker" })
+        .where(eq(aiExecutionsTable.id, execution!.id));
+      return {
+        summary: "Late result",
+        overallAssessment: "This result must not be accepted.",
+        insights: [],
+        topPriority: "None",
+        estimatedImpact: "None",
+      };
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`);
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain('"type":"task_done"');
+    expect(lastSseEvent(response.text)).toMatchObject({
+      type: "error",
+      code: "EXECUTION_OWNERSHIP_LOST",
+      outcome: "INTERRUPTED",
+    });
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution?.workerId).toBe("replacement-structured-worker");
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
+    const assistantMessages = await db.select().from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.executionId, execution!.id),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ));
+    expect(assistantMessages).toEqual([]);
   });
 
   it("blocks a structured retry during the durable provider cooldown", async () => {

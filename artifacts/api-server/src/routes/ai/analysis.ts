@@ -73,7 +73,7 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
       | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string; terminalProjection?: AiTerminalProjection }
-        | { type: "error"; code: string; message: string; hint?: string; parseCode?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string; terminalProjection?: AiTerminalProjection })
+         | { type: "error"; code: string; message: string; hint?: string; parseCode?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT" | "CANCELLATION"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string; terminalProjection?: AiTerminalProjection })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -82,7 +82,8 @@ type StructuredFailureKind =
   | "RATE_LIMIT"
   | "CONFIGURATION"
   | "PROVIDER_FAILURE"
-  | "TRANSPORT";
+  | "TRANSPORT"
+  | "CANCELLATION";
 
 function publicQualityFailure(value: {
   score: number;
@@ -112,6 +113,7 @@ function structuredFailureDetails(err: unknown): {
   retryAfterMs?: number;
   retryAfterSource?: StructuredRetryAfterSource;
   providerAttempts?: Array<{ provider: string; code: string }>;
+  cancelled?: boolean;
 } {
   const candidate = err as { code?: unknown };
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
@@ -173,20 +175,40 @@ function structuredDeadlineError(task: StructuredTask): Error {
 async function withStructuredDeadline<T>(
   task: StructuredTask,
   work: (signal: AbortSignal) => Promise<T>,
+  parentSignal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), STRUCTURED_DEADLINE_MS);
+  const abortFromParent = () => {
+    const reason = parentSignal?.reason;
+    controller.abort(
+      reason instanceof Error
+        ? reason
+        : Object.assign(new Error("Structured execution was interrupted."), { name: "AbortError" }),
+    );
+  };
+  if (parentSignal?.aborted) abortFromParent();
+  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(structuredDeadlineError(task)),
+    STRUCTURED_DEADLINE_MS,
+  );
+  let onAbort: (() => void) | undefined;
   try {
     return await Promise.race([
       work(controller.signal),
       new Promise<T>((_, reject) => {
-        const onAbort = () => reject(structuredDeadlineError(task));
+        onAbort = () => {
+          const reason = controller.signal.reason;
+          reject(reason instanceof Error ? reason : structuredDeadlineError(task));
+        };
         if (controller.signal.aborted) onAbort();
         else controller.signal.addEventListener("abort", onAbort, { once: true });
       }),
     ]);
   } finally {
     clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+    if (onAbort) controller.signal.removeEventListener("abort", onAbort);
     controller.abort();
   }
 }
@@ -422,6 +444,15 @@ async function loadStructuredTerminalProjection(params: {
     ))
     .limit(1);
 
+  if (
+    !acceptance
+    && execution.status !== "completed"
+    && execution.status !== "failed"
+    && execution.status !== "cancelled"
+    && execution.status !== "paused"
+  ) {
+    return undefined;
+  }
   const status = acceptance?.terminalStatus === "completed"
       || acceptance?.terminalStatus === "failed"
       || acceptance?.terminalStatus === "cancelled"
@@ -439,7 +470,7 @@ async function loadStructuredTerminalProjection(params: {
     ? acceptance.outcome
     : status === "completed"
       ? "SUCCEEDED"
-      : status === "cancelled"
+      : status === "cancelled" || status === "paused"
         ? "INTERRUPTED"
         : "FAILED";
 
@@ -465,6 +496,36 @@ async function loadStructuredTerminalProjection(params: {
   };
 }
 
+async function closeUnacceptedStructuredExecution(params: {
+  execution: StructuredExecution;
+  emit: (event: StructuredTaskEvent) => void;
+  close: () => void;
+}): Promise<void> {
+  const { execution, emit, close } = params;
+  const terminalProjection = await loadStructuredTerminalProjection({
+    executionId: execution.started.executionId,
+    sessionId: execution.started.sessionId,
+  });
+  const cancelled = terminalProjection?.status === "cancelled";
+  const ownsExecution = await execution.isCurrentOwner();
+  emit({
+    type: "error",
+    code: terminalProjection?.reasonCode
+      ?? (ownsExecution ? "EXECUTION_ACCEPTANCE_REJECTED" : "EXECUTION_OWNERSHIP_LOST"),
+    message: cancelled
+      ? "The task was cancelled."
+      : ownsExecution
+        ? "The result was not accepted as a completed execution."
+        : "This worker no longer owns the execution. Reload to check its current state.",
+    ...(cancelled ? { failureKind: "CANCELLATION" as const, retryable: false } : {}),
+    outcome: terminalProjection?.outcome === "FAILED" ? "FAILED" : "INTERRUPTED",
+    sessionId: execution.started.sessionId,
+    executionId: execution.started.executionId,
+    ...(terminalProjection ? { terminalProjection } : {}),
+  });
+  close();
+}
+
 async function persistStructuredExecutionFailure(params: {
   execution: StructuredExecution;
   task: StructuredTask;
@@ -473,67 +534,143 @@ async function persistStructuredExecutionFailure(params: {
   close: () => void;
 }): Promise<void> {
   const { execution, task, details, emit, close } = params;
-  const content = details.message;
-  const providerName = details.providerAttempts?.[0]?.provider;
-  const retry = details.failureKind === "RATE_LIMIT"
+  execution.cleanup();
+  const cancelled = await execution.isCancellationRequested();
+  const effectiveDetails = cancelled
+    ? {
+        ...details,
+        code: "EXECUTION_CANCELLED",
+        failureKind: "CANCELLATION" as const,
+        message: "The task was cancelled.",
+        retryable: false,
+        cancelled: true,
+        parseCode: undefined,
+        retryAfterMs: undefined,
+        retryAfterSource: undefined,
+        providerAttempts: undefined,
+      }
+    : details;
+  if (!cancelled && !await execution.isCurrentOwner()) {
+    const terminalProjection = await loadStructuredTerminalProjection({
+      executionId: execution.started.executionId,
+      sessionId: execution.started.sessionId,
+    });
+    emit({
+      type: "error",
+      code: terminalProjection?.reasonCode ?? "EXECUTION_OWNERSHIP_LOST",
+      message: "This worker no longer owns the execution. Reload to check its current state.",
+      outcome: terminalProjection?.outcome === "FAILED" ? "FAILED" : "INTERRUPTED",
+      sessionId: execution.started.sessionId,
+      executionId: execution.started.executionId,
+      ...(terminalProjection ? { terminalProjection } : {}),
+    });
+    close();
+    return;
+  }
+  const content = effectiveDetails.message;
+  const providerName = effectiveDetails.providerAttempts?.[0]?.provider;
+  const retry = effectiveDetails.failureKind === "RATE_LIMIT"
     ? await resolveStructuredRetryAfter({
         userId: execution.execution.userId,
         projectId: execution.execution.projectId,
         task,
         providerName,
-        providerRetryAfterMs: details.retryAfterMs,
-        providerRetryAfterSource: details.retryAfterSource,
+        providerRetryAfterMs: effectiveDetails.retryAfterMs,
+        providerRetryAfterSource: effectiveDetails.retryAfterSource,
       })
     : undefined;
-  const retryAfterMs = retry?.retryAfterMs ?? details.retryAfterMs;
-  const retryAfterSource = retry?.source ?? details.retryAfterSource;
+  const retryAfterMs = retry?.retryAfterMs ?? effectiveDetails.retryAfterMs;
+  const retryAfterSource = retry?.source ?? effectiveDetails.retryAfterSource;
   const retryAt = retryAfterMs !== undefined
     ? new Date(Date.now() + retryAfterMs).toISOString()
     : undefined;
-  const messageId = await execution.persistAssistant({
-    content: "",
-    outcome: "FAILED",
-    errorCode: details.code,
-    errorMessage: content,
-    toolTrace: JSON.stringify([{
-      kind: "structured_task_failure",
-      task,
-      failureKind: details.failureKind,
-      ...(details.parseCode ? { parseCode: details.parseCode } : {}),
-      retryable: details.retryable,
-    }]),
-  });
-  await execution.fail({
+  let messageId: string;
+  try {
+    messageId = await execution.persistAssistant({
+      content: "",
+      outcome: effectiveDetails.cancelled ? "INTERRUPTED" : "FAILED",
+      errorCode: effectiveDetails.code,
+      errorMessage: content,
+      toolTrace: JSON.stringify([{
+        kind: "structured_task_failure",
+        task,
+        failureKind: effectiveDetails.failureKind,
+        ...(effectiveDetails.parseCode ? { parseCode: effectiveDetails.parseCode } : {}),
+        retryable: effectiveDetails.retryable,
+      }]),
+    });
+  } catch (error) {
+    if ((error as { code?: unknown })?.code !== "EXECUTION_OWNERSHIP_LOST") throw error;
+    emit({
+      type: "error",
+      code: "EXECUTION_OWNERSHIP_LOST",
+      message: "This worker no longer owns the execution. Reload to check its current state.",
+      outcome: "INTERRUPTED",
+      sessionId: execution.started.sessionId,
+      executionId: execution.started.executionId,
+    });
+    close();
+    return;
+  }
+  let accepted = await execution.fail({
     messageId,
     error: content,
-    errorCode: details.code,
-    providerAttempts: details.providerAttempts,
+    errorCode: effectiveDetails.code,
+    cancelled: effectiveDetails.cancelled,
+    providerAttempts: effectiveDetails.providerAttempts,
     retryAfterMs,
     retryAt,
     disposition: retryAfterSource
       ? { retryAfterSource }
       : undefined,
   });
+  if (!accepted && !effectiveDetails.cancelled && await execution.isCancellationRequested()) {
+    accepted = await execution.fail({
+      messageId,
+      error: "The task was cancelled.",
+      errorCode: "EXECUTION_CANCELLED",
+      cancelled: true,
+    });
+  }
+  if (!accepted) {
+    const terminalProjection = await loadStructuredTerminalProjection({
+      executionId: execution.started.executionId,
+      sessionId: execution.started.sessionId,
+    });
+    emit({
+      type: "error",
+      code: terminalProjection?.reasonCode ?? "EXECUTION_OWNERSHIP_LOST",
+      message: "This worker no longer owns the execution. Reload to check its current state.",
+      outcome: terminalProjection?.outcome === "FAILED" ? "FAILED" : "INTERRUPTED",
+      sessionId: execution.started.sessionId,
+      executionId: execution.started.executionId,
+      ...(terminalProjection ? { terminalProjection } : {}),
+    });
+    close();
+    return;
+  }
   const terminalProjection = await loadStructuredTerminalProjection({
     executionId: execution.started.executionId,
     sessionId: execution.started.sessionId,
   });
   emit({
     type: "error",
-    code: details.code,
+    code: effectiveDetails.code,
     message: content,
-    hint: details.failureKind === "RATE_LIMIT"
+    hint: effectiveDetails.failureKind === "CANCELLATION"
+      ? "You can start a new task when ready."
+      : effectiveDetails.failureKind === "RATE_LIMIT"
       ? "Wait a moment and retry the task."
-      : details.failureKind === "CONFIGURATION"
+      : effectiveDetails.failureKind === "CONFIGURATION"
         ? "Update the AI setup before starting a new task."
         : "You can retry this task without sending another prompt.",
-    retryable: details.retryable,
+    retryable: effectiveDetails.retryable,
     retryAfterMs,
     retryAt,
     retryAfterSource,
-    failureKind: details.failureKind,
-    ...(details.parseCode ? { parseCode: details.parseCode } : {}),
-    outcome: "FAILED",
+    failureKind: effectiveDetails.failureKind,
+    ...(effectiveDetails.parseCode ? { parseCode: effectiveDetails.parseCode } : {}),
+    outcome: effectiveDetails.cancelled ? "INTERRUPTED" : "FAILED",
     sessionId: execution.started.sessionId,
     executionId: execution.started.executionId,
     ...(terminalProjection ? { terminalProjection } : {}),
@@ -937,34 +1074,39 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
-    const { result } = await runAgentWithFallback(
-      req.userId,
-      { provider, apiKey },
-      (opts) => analyzeScan(projectContext, {
-        ...opts,
-        maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
-        retryTransient: false,
-        onProgress: (message) => emit({
-          type: "task_progress",
-          task: "analyze",
-          message,
+    const { result } = await withStructuredDeadline("analyze", (signal) =>
+      runAgentWithFallback(
+        req.userId,
+        { provider, apiKey },
+        (opts) => analyzeScan(projectContext, {
+          ...opts,
+          signal,
+          maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
+          retryTransient: false,
+          onProgress: (message) => emit({
+            type: "task_progress",
+            task: "analyze",
+            message,
+          }),
         }),
-      }),
-      {
-        qualityProfile: "analysis",
-        telemetryContext: {
-          projectId,
-          userId: req.userId,
-          executionId: structuredExecution.started.executionId,
-          operationId: metadata.operationId,
-          correlationId: metadata.operationId,
+        {
+          signal,
+          qualityProfile: "analysis",
+          telemetryContext: {
+            projectId,
+            userId: req.userId,
+            executionId: structuredExecution.started.executionId,
+            operationId: metadata.operationId,
+            correlationId: metadata.operationId,
+          },
+          requestPayload: projectContext,
         },
-        requestPayload: projectContext,
-      },
-    ).then((output) => {
-      effectiveProvider = output.effectiveProvider;
-      return output;
-    });
+      ).then((output) => {
+        effectiveProvider = output.effectiveProvider;
+        return output;
+      }),
+      structuredExecution.signal,
+    );
 
     if (result._parseError) {
       metadata.incomplete = true;
@@ -1003,25 +1145,6 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     recordTrace(metadata, "persisting-result", "completed");
     await structuredExecution.checkpoint("finalizing", "Persisting structured analysis");
     invalidateContextCache(projectId);
-    await db.transaction(async (tx) => {
-      await tx.insert(auditLogsTable).values({
-        id: randomUUID(),
-        entityType: "project",
-        entityId: projectId,
-        action: "ai_analyzed",
-        projectId,
-        actor: req.userId,
-        stateBefore: {},
-        stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
-      });
-      await tx.insert(eventsTable).values({
-        id: randomUUID(),
-        type: "AiScanAnalysisCompleted",
-        projectId,
-        severity: "info",
-        message: `AI scan analysis completed: ${result.summary}`,
-      });
-    });
 
     const content = structuredResultContent("analyze", result as unknown as Record<string, unknown>);
     const messageId = await structuredExecution.persistAssistant({
@@ -1031,8 +1154,34 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     });
     const accepted = await structuredExecution.complete({ messageId, content });
     if (!accepted) {
-      close();
+      await closeUnacceptedStructuredExecution({ execution: structuredExecution, emit, close });
       return;
+    }
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(auditLogsTable).values({
+          id: randomUUID(),
+          entityType: "project",
+          entityId: projectId,
+          action: "ai_analyzed",
+          projectId,
+          actor: req.userId,
+          stateBefore: {},
+          stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+        });
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiScanAnalysisCompleted",
+          projectId,
+          severity: "info",
+          message: `AI scan analysis completed: ${result.summary}`,
+        });
+      });
+    } catch (error) {
+      logger.warn(
+        { error, projectId, executionId: structuredExecution.started.executionId },
+        "Accepted structured analysis audit persistence failed",
+      );
     }
     emit({ type: "stage", stage: "completed" });
     recordTrace(metadata, "analyze", "completed");
@@ -1210,6 +1359,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
           requestPayload: { projectContext, fileContents },
         },
       ),
+      structuredExecution.signal,
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
       return output;
@@ -1252,31 +1402,6 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     recordTrace(metadata, "persisting-result", "completed");
     await structuredExecution.checkpoint("finalizing", "Persisting structured review");
     invalidateContextCache(projectId);
-    await db.transaction(async (tx) => {
-      await tx.insert(auditLogsTable).values({
-        id: randomUUID(),
-        entityType: "project",
-        entityId: projectId,
-        action: "ai_reviewed",
-        projectId,
-        actor: req.userId,
-        stateBefore: {},
-        stateAfter: {
-          verdict: result.verdict,
-          overallScore: result.overallScore,
-          reviewScope: result.reviewScope,
-        },
-        correlationId: metadata.operationId,
-      });
-      await tx.insert(eventsTable).values({
-        id: randomUUID(),
-        type: "AiCodeReviewCompleted",
-        projectId,
-        severity: result.verdict === "approved" ? "success" : "warning",
-        message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
-        correlationId: metadata.operationId,
-      });
-    });
 
     const content = structuredResultContent("review", result as unknown as Record<string, unknown>);
     const messageId = await structuredExecution.persistAssistant({
@@ -1286,8 +1411,40 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     });
     const accepted = await structuredExecution.complete({ messageId, content });
     if (!accepted) {
-      close();
+      await closeUnacceptedStructuredExecution({ execution: structuredExecution, emit, close });
       return;
+    }
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(auditLogsTable).values({
+          id: randomUUID(),
+          entityType: "project",
+          entityId: projectId,
+          action: "ai_reviewed",
+          projectId,
+          actor: req.userId,
+          stateBefore: {},
+          stateAfter: {
+            verdict: result.verdict,
+            overallScore: result.overallScore,
+            reviewScope: result.reviewScope,
+          },
+          correlationId: metadata.operationId,
+        });
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiCodeReviewCompleted",
+          projectId,
+          severity: result.verdict === "approved" ? "success" : "warning",
+          message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+          correlationId: metadata.operationId,
+        });
+      });
+    } catch (error) {
+      logger.warn(
+        { error, projectId, executionId: structuredExecution.started.executionId },
+        "Accepted structured review audit persistence failed",
+      );
     }
     emit({ type: "stage", stage: "completed" });
     recordTrace(metadata, "review", "completed");

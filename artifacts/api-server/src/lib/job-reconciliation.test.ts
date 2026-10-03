@@ -8,6 +8,7 @@ import {
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionsTable,
   db,
   discoverySessionsTable,
   projectsTable,
@@ -23,6 +24,13 @@ import {
   requeueStalePendingJobs,
   STALE_PENDING_TIMEOUT_MS,
 } from "./job-reconciliation.js";
+import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
+import {
+  createDeliveryWorkspace,
+  deliveryWorkspaceExists,
+  DELIVERY_TREE_DIGEST_VERSION,
+  hashDeliveryTree,
+} from "./delivery-workspace.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -794,6 +802,148 @@ describe("dispatchPersistedPendingJobs", () => {
       .from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operationId));
     expect(secondJournal).toEqual(firstJournal);
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+  });
+
+  it("fails closed when the promoted apply candidate has no accepted effect proof", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+    const rootPath = `${workspacePath}/.apply-recovery-no-proof-${randomUUID()}`;
+    deliveryRootCleanup.push(rootPath);
+    await mkdir(join(rootPath, "src"), { recursive: true });
+    const targetPath = "src/recovered.ts";
+    const originalContent = "export const recovered = false;\n";
+    const newContent = "export const recovered = true;\n";
+    await writeFile(join(rootPath, targetPath), originalContent, "utf8");
+    await db.update(projectsTable)
+      .set({ rootPath })
+      .where(eq(projectsTable.id, projectId));
+
+    const operationId = randomUUID();
+    const attemptId = randomUUID();
+    const proposalId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const baseRevision = `test-revision-${randomUUID()}`;
+    const candidate = await createDeliveryWorkspace({
+      rootPath,
+      operationId,
+      baseRevision,
+      changes: [{ path: targetPath, newContent }],
+    });
+    deliveryRootCleanup.push(candidate.workspaceRoot);
+
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Apply recovery after promotion",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Prepared apply candidate",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: targetPath, newContent, originalContent }]),
+      status: "pending",
+      lifecycle: "validated",
+      operationId,
+      workspaceRoot: candidate.workspaceRoot,
+      baseRevision: candidate.baseRevision,
+      changeSetHash: candidate.changeSetHash,
+      baseTreeHash: candidate.baseTreeHash,
+      candidateTreeHash: candidate.candidateTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: randomUUID(),
+      projectId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      resumeTokenHash: `test-resume-${randomUUID()}`,
+      request: JSON.stringify({
+        projectId,
+        proposalId,
+        turnIntent: "APPLY_CHANGES",
+        operationId: attemptId,
+      }),
+      status: "failed",
+      attempt: 1,
+      error: "simulated interruption after promotion",
+      proposalId,
+      workspaceRoot: rootPath,
+      baseRevision,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    await db.insert(aiApplyJournalTable).values({
+      id: randomUUID(),
+      operationId,
+      attemptId,
+      projectId,
+      proposalId,
+      stage: "PROMOTION_INTENT",
+      sequence: 1,
+      payload: {
+        baseTreeHash: candidate.baseTreeHash,
+        candidateTreeHash: candidate.candidateTreeHash,
+      },
+      createdAt: now,
+    });
+
+    // Simulate a process stopping after promotion but before accepted effect proof.
+    await writeFile(join(rootPath, targetPath), newContent, "utf8");
+    expect(candidate.baseTreeHash).not.toBe(candidate.candidateTreeHash);
+    expect(await hashDeliveryTree(rootPath)).toBe(candidate.candidateTreeHash);
+    expect(await hashDeliveryTree(candidate.workspaceRoot)).toBe(candidate.candidateTreeHash);
+    expect(await deliveryWorkspaceExists(candidate.workspaceRoot, operationId)).toBe(true);
+    const firstSweep = await reconcileInterruptedApplyChanges();
+    expect(firstSweep.reconciled).toBe(1);
+    expect(firstSweep.protectedProposalIds.has(proposalId)).toBe(true);
+
+    const [recoveredProposal] = await db.select({
+      status: aiChangeProposalsTable.status,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+      conflictReason: aiChangeProposalsTable.conflictReason,
+    }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+    expect(recoveredProposal?.status).toBe("pending");
+    expect(recoveredProposal?.lifecycle).toBe("conflicted");
+    expect(recoveredProposal?.conflictReason).toContain("candidate tree is present");
+
+    const firstJournal = await db.select({
+      stage: aiApplyJournalTable.stage,
+      sequence: aiApplyJournalTable.sequence,
+      payload: aiApplyJournalTable.payload,
+    }).from(aiApplyJournalTable).where(eq(aiApplyJournalTable.operationId, operationId));
+    expect(firstJournal.map((entry) => entry.stage)).toEqual([
+      "PROMOTION_INTENT",
+      "RECOVERY_REQUIRED",
+    ]);
+    expect(firstJournal[1]?.payload).toMatchObject({
+      recoveryDecision: "CANDIDATE_TREE_PRESENT",
+      noFilesystemWrites: true,
+    });
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+
+    const secondSweep = await reconcileInterruptedApplyChanges();
+    expect(secondSweep.reconciled).toBe(0);
+    expect(await db.select({
+      stage: aiApplyJournalTable.stage,
+      sequence: aiApplyJournalTable.sequence,
+    }).from(aiApplyJournalTable).where(eq(aiApplyJournalTable.operationId, operationId)))
+      .toEqual(firstJournal.map(({ stage, sequence }) => ({ stage, sequence })));
     expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
   });
 

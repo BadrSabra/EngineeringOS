@@ -125,6 +125,45 @@ describe("server-owned execution acceptance", () => {
     });
   });
 
+  it("accepts only a well-formed registered validation receipt as task proof", () => {
+    const validationArtifact = {
+      kind: "registered_validation" as const,
+      version: 1 as const,
+      validatorId: "registered-validation.v1" as const,
+      status: "PROVEN" as const,
+      evidenceId: "mission-validator-evidence",
+      artifactRef: "mission-validator-result",
+      validatorProfile: "workspace-typecheck",
+      executionId: "execution-1",
+      attempt: 2,
+      operationId: "execution-1",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      candidateIdentity: "mission-candidate:candidate-1",
+      environmentRevision: null,
+    };
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [validationArtifact],
+    });
+    expect(snapshot).toMatchObject({
+      complete: true,
+      verdict: "PROVEN",
+      artifacts: [validationArtifact],
+    });
+
+    const malformed = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PROVEN",
+      artifacts: [{ ...validationArtifact, validatorProfile: "unregistered-profile" }],
+    });
+    expect(malformed.complete).toBe(false);
+    expect(malformed.artifacts).toHaveLength(0);
+  });
+
   it("rejects a body over the per-read limit instead of silently accepting a slice", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,

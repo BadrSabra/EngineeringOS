@@ -39,7 +39,7 @@ import {
   deriveApplyChangesProof,
   type ApplyChangesProofArtifact,
 } from "./agent-state/apply-changes-proof.js";
-import { canonicalJsonHash } from "@workspace/ai-orchestrator";
+import { canonicalJsonHash, ValidationProfileSchema } from "@workspace/ai-orchestrator";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -163,6 +163,21 @@ export type EvidenceArtifactInput = {
   operationId: string;
   workspaceRevision: string;
   candidateHash: string;
+} | {
+  kind: "registered_validation";
+  version: 1;
+  validatorId: "registered-validation.v1";
+  status: "PROVEN";
+  evidenceId: string;
+  artifactRef: string;
+  validatorProfile: string;
+  executionId: string;
+  attempt: number;
+  operationId: string;
+  projectId: string;
+  workspaceRevision: string;
+  candidateIdentity: string | null;
+  environmentRevision: string | null;
 };
 
 export type EvidenceSnapshotInput = {
@@ -1612,6 +1627,57 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
         candidateHash: artifact.candidateHash.slice(0, 500),
       }];
     }
+    if (artifact.kind === "registered_validation") {
+      const requiredIds = [
+        artifact.evidenceId,
+        artifact.artifactRef,
+        artifact.executionId,
+        artifact.operationId,
+        artifact.projectId,
+        artifact.workspaceRevision,
+      ];
+      if (
+        artifact.version !== 1
+        || artifact.validatorId !== "registered-validation.v1"
+        || artifact.status !== "PROVEN"
+        || !Number.isSafeInteger(artifact.attempt)
+        || artifact.attempt < 0
+        || requiredIds.some((value) =>
+          typeof value !== "string" || !value.trim() || value.length > 500
+        )
+        || artifact.evidenceId.length > 200
+        || artifact.executionId.length > 160
+        || artifact.operationId.length > 160
+        || artifact.projectId.length > 160
+        || artifact.workspaceRevision.length > 500
+        || typeof artifact.validatorProfile !== "string"
+        || !ValidationProfileSchema.safeParse(artifact.validatorProfile).success
+        || (artifact.candidateIdentity !== null
+          && (typeof artifact.candidateIdentity !== "string"
+            || !artifact.candidateIdentity.trim()
+            || artifact.candidateIdentity.length > 240))
+        || (artifact.environmentRevision !== null
+          && (typeof artifact.environmentRevision !== "string"
+            || !artifact.environmentRevision.trim()
+            || artifact.environmentRevision.length > 500))
+      ) return [];
+      return [{
+        kind: "registered_validation",
+        version: 1,
+        validatorId: "registered-validation.v1",
+        status: "PROVEN",
+        evidenceId: artifact.evidenceId.slice(0, 200),
+        artifactRef: artifact.artifactRef.slice(0, 500),
+        validatorProfile: artifact.validatorProfile,
+        executionId: artifact.executionId.slice(0, 160),
+        attempt: artifact.attempt,
+        operationId: artifact.operationId.slice(0, 160),
+        projectId: artifact.projectId.slice(0, 160),
+        workspaceRevision: artifact.workspaceRevision.slice(0, 500),
+        candidateIdentity: artifact.candidateIdentity?.slice(0, 240) ?? null,
+        environmentRevision: artifact.environmentRevision?.slice(0, 500) ?? null,
+      }];
+    }
     if (
       (artifact.kind !== "png" && artifact.kind !== "pdf")
       || !/^binary-evidence:[a-f0-9]{64}$/i.test(artifact.evidenceId)
@@ -1850,6 +1916,8 @@ export async function finalizeExecutionAcceptance(
       ?? null;
     const runtimeStartProofMode = storedRequest?.recipeProofMode === RUNTIME_START_GATE_C_PROOF_MODE;
     const applyChangesProofMode = storedRequest?.applyChangesProofMode === APPLY_CHANGES_PROOF_MODE;
+    const missionValidationProofMode =
+      storedRequest?.proofEvidenceMode === "mission_validation_v1";
     const runtimeStartProof = runtimeStartProofMode && params.outcome === "SUCCEEDED"
       ? await deriveRuntimeStartGateCProof({
           tx,
@@ -1918,6 +1986,7 @@ export async function finalizeExecutionAcceptance(
       ? false
       : storedProofRequired
         ? storedRequest?.proofEvidenceMode !== "artifact_only"
+          && storedRequest?.proofEvidenceMode !== "mission_validation_v1"
         : params.evidence?.sourceEvidenceRequired ?? evidenceRequired;
     const effectiveEvidence: EvidenceSnapshotInput | undefined = runtimeStartProofMode
       ? runtimeStartProof
@@ -1961,6 +2030,57 @@ export async function finalizeExecutionAcceptance(
           } satisfies EvidenceSnapshotInput
         : params.evidence;
     const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
+    const registeredValidationRequired =
+      params.outcome === "SUCCEEDED"
+      && (missionValidationProofMode
+        || (params.taskFinalization
+          && taskObjective?.validatorIds.includes("registered-validation.v1") === true));
+    if (
+      params.outcome === "SUCCEEDED"
+      && params.taskFinalization
+      && taskObjective
+      && params.taskObjectiveStatus !== "PROVEN"
+    ) {
+      return {
+        accepted: false,
+        duplicate: false,
+        reason: "A successful task objective requires a PROVEN server-owned validator result.",
+      };
+    }
+    if (registeredValidationRequired) {
+      if (
+        !params.taskFinalization
+        || !taskObjective?.validatorIds.includes("registered-validation.v1")
+        || params.taskObjectiveStatus !== "PROVEN"
+      ) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "Mission validation proof requires a proven task objective and registered validator.",
+        };
+      }
+      const expectedOperationId = execution.operationId
+        ?? storedRequest?.operationId
+        ?? execution.id;
+      const boundValidationArtifact = evidence.artifacts.some((artifact) =>
+        artifact.kind === "registered_validation"
+        && artifact.validatorId === "registered-validation.v1"
+        && artifact.status === "PROVEN"
+        && artifact.executionId === execution.id
+        && artifact.attempt === execution.attempt
+        && artifact.operationId === expectedOperationId
+        && artifact.projectId === execution.projectId
+        && artifact.workspaceRevision === expectedRevision
+        && artifact.candidateIdentity === canonicalCandidateIdentity
+      );
+      if (!boundValidationArtifact) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "The task objective validation artifact is missing or not bound to this execution.",
+        };
+      }
+    }
     if (
       params.outcome === "SUCCEEDED"
       && storedProofRequired

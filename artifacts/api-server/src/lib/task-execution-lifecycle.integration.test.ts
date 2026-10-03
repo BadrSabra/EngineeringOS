@@ -1023,6 +1023,7 @@ describe("real durable task execution lifecycle", () => {
       };
       const [execution] = await db
         .select({
+          request: aiExecutionsTable.request,
           checkpoint: aiExecutionsTable.checkpoint,
           checkpointVersion: aiExecutionsTable.checkpointVersion,
         })
@@ -1031,6 +1032,10 @@ describe("real durable task execution lifecycle", () => {
         .limit(1);
       expect(execution).toBeDefined();
       if (!execution) throw new Error("Mission repair checkpoint was not persisted before validation.");
+      expect(JSON.parse(execution.request)).toMatchObject({
+        proofRequired: true,
+        proofEvidenceMode: "mission_validation_v1",
+      });
       const checkpoint = JSON.parse(execution.checkpoint) as { sequence: number; detail: string };
       const detail = JSON.parse(checkpoint.detail) as {
         pendingChanges: Array<{ path: string; newContent: string }>;

@@ -2312,7 +2312,13 @@ async function executeMissionToolLoop(params: {
           },
         )
       : undefined;
+      const hasServerOwnedValidationArtifact = Boolean(
+        validationResult?.evidence.evidenceId?.trim()
+        && validationResult.evidence.artifactRef?.trim()
+        && validationResult.evidence.validatorProfile?.trim(),
+      );
       const receiptStatus = validationResult?.status === "passed"
+        && hasServerOwnedValidationArtifact
         ? "PROVEN" as const
         : validationResult?.status === "unavailable" || validationResult?.status === "blocked"
           ? "UNAVAILABLE" as const
@@ -2326,6 +2332,9 @@ async function executeMissionToolLoop(params: {
         projectId: params.task.projectId,
         workspaceRevision: params.workspaceRevision,
         artifactRef,
+        ...(validationResult?.evidence.validatorProfile
+          ? { validatorProfile: validationResult.evidence.validatorProfile }
+          : {}),
         environmentRevision: validationResult?.evidence.environmentRevision ?? null,
       });
       const objectiveValidation = validateTaskObjectiveContract({
@@ -2344,6 +2353,24 @@ async function executeMissionToolLoop(params: {
         : receiptStatus === "UNAVAILABLE"
           ? "UNAVAILABLE"
           : "INCOMPLETE";
+      const validationArtifact = receiptStatus === "PROVEN" && validationResult
+        ? {
+            kind: "registered_validation" as const,
+            version: 1 as const,
+            validatorId: "registered-validation.v1" as const,
+            status: "PROVEN" as const,
+            evidenceId: validationResult.evidence.evidenceId!,
+            artifactRef: validationResult.evidence.artifactRef!,
+            validatorProfile: validationResult.evidence.validatorProfile!,
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            operationId: params.executionId,
+            projectId: params.task.projectId,
+            workspaceRevision: params.workspaceRevision,
+            candidateIdentity,
+            environmentRevision: validationResult.evidence.environmentRevision ?? null,
+          }
+        : undefined;
       evidence = {
         operationId: params.executionId,
         workspaceRoot: root.canonicalPath,
@@ -2353,6 +2380,7 @@ async function executeMissionToolLoop(params: {
         required: true,
         sourceEvidenceRequired: false,
         reads: [],
+        artifacts: validationArtifact ? [validationArtifact] : [],
       };
     }
 
@@ -2531,7 +2559,7 @@ async function executeMissionToolLoop(params: {
       required: true,
       sourceEvidenceRequired: false,
       reads: [],
-      artifacts: binaryEvidence,
+      artifacts: [...(evidence?.artifacts ?? []), ...binaryEvidence],
     };
   }
   if (effectRequired && !effectObserved) {
@@ -2690,6 +2718,9 @@ export async function executeTaskLifecycle(params: {
     ...(missionGoal && isMissionToolLoopProfile(executionProfile) && executionWorkspaceRevision
       ? {
           proofRequired: true,
+            ...(executionProfile !== "mission_observe"
+              ? { proofEvidenceMode: "mission_validation_v1" as const }
+              : {}),
           taskObjective: buildMissionTaskObjective({
             task: before,
             goal: missionGoal,

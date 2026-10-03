@@ -881,7 +881,7 @@ export type AiExecutionRequestEnvelope = {
   /** Server-owned validator profiles selected by the immutable task contract. */
   validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   proofRequired?: boolean;
-  proofEvidenceMode?: "artifact_only";
+  proofEvidenceMode?: "artifact_only" | "mission_validation_v1";
   recipeProofMode?: "runtime_start_gate_c_v1";
   applyChangesProofMode?: "apply_changes_v1";
   /** Server-owned effect proof requirement, retained for recovery/finalization. */
@@ -1113,7 +1113,9 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       typeof value.modelMessage !== "string" ||
       !Array.isArray(value.validationTargetPaths) ||
       (value.effectRequired !== undefined && typeof value.effectRequired !== "boolean") ||
-      (value.proofEvidenceMode !== undefined && value.proofEvidenceMode !== "artifact_only") ||
+      (value.proofEvidenceMode !== undefined
+        && value.proofEvidenceMode !== "artifact_only"
+        && value.proofEvidenceMode !== "mission_validation_v1") ||
       (value.proofEvidenceMode !== undefined && value.proofRequired !== true) ||
       (value.applyChangesProofMode !== undefined && (
         value.applyChangesProofMode !== "apply_changes_v1"
@@ -3210,6 +3212,7 @@ export async function completeAiExecution(params: {
   const sourceEvidenceRequired = !factInvestigationExecution && (
     (request?.proofRequired === true
       && request.proofEvidenceMode !== "artifact_only"
+      && request.proofEvidenceMode !== "mission_validation_v1"
       && request.applyChangesProofMode !== "apply_changes_v1")
     || projectOrientationAcceptance
     || forensicExecution
