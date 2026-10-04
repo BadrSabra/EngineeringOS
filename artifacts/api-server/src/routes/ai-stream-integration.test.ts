@@ -8673,8 +8673,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         child: ChildProcess;
         exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
       }> = [];
-      let childOutput = "";
-      let childDiagnostics = "";
       const startApiProcess = async (completion?: typeof completionInput) => {
         const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
           cwd: process.cwd(),
@@ -8691,13 +8689,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
           child.once("exit", (code, signal) => resolve({ code, signal }));
         });
-        const diagnostics: string[] = [];
+        let childOutput = "";
+        let childDiagnostics = "";
         child.stdout.on("data", (chunk: string) => {
           childOutput += chunk;
         });
         child.stderr.on("data", (chunk: string) => {
           childDiagnostics += chunk;
-          diagnostics.push(chunk);
         });
         child.stdin.on("error", () => undefined);
         apiChildren.push({ child, exit });

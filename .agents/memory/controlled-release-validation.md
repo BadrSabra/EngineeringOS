@@ -104,3 +104,16 @@ its selected receipt, so an ordinary development environment may not be safe.
 database is disposable, the provider run is explicitly authorized, and receipt
 output is isolated. Do not run real process recovery when any of those boundaries
 is uncertain.
+
+Provider-free HTTP restart tests may run `src/app.ts` in a dedicated API child
+process; do not start `src/index.ts` unless its provider/catalog checks and
+background recovery work are isolated.
+
+**Why:** The operational entrypoint starts provider/catalog validation and
+durable recovery workers. Using it in a provider-free persistence test can add
+external checks and startup side effects; an app-only restart proves HTTP
+history recovery, not operational startup recovery.
+
+**How to apply:** Use a loopback-only temporary database and restart the
+Express app process for provider-free HTTP persistence checks. State explicitly
+when `src/index.ts` startup and Replit-managed workflows were not exercised.
