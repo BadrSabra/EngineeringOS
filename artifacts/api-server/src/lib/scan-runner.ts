@@ -254,6 +254,7 @@ export async function performScan(
         ),
       ),
   ]);
+  checkCancelled();
   if (!project[0]) throw new Error(`Project ${projectId} not found`);
 
   // ── 0. Re-establish the persisted project root before any walk ──────────
@@ -275,6 +276,7 @@ export async function performScan(
   // fails closed (root_unavailable / root_unsafe) and must be re-imported
   // through discovery, which materializes to a durable workspace root.
   const rootResult = await establishProjectRoot(project[0].rootPath);
+  checkCancelled();
   if (!rootResult.ok) {
     throw new ScanRootUnavailableError(project[0].rootPath, rootResult.reason, rootResult.error);
   }
@@ -285,8 +287,9 @@ export async function performScan(
   // ── 1. Walk the project directory ──────────────────────────────────────
   let walkResult;
   try {
-    walkResult = await walkProject(effectiveRootPath);
+    walkResult = await walkProject(effectiveRootPath, signal);
   } catch (error) {
+    if (signal?.aborted) throw error;
     throw new ScanRootUnavailableError(
       project[0].rootPath,
       "root_unavailable",
@@ -316,8 +319,9 @@ export async function performScan(
   // though no DB writes were happening. Moving it here shortens the critical
   // section to inserts/updates only, reducing lock contention and connection
   // pool pressure.
-  const graph = await extractGraph(files);
+  const graph = await extractGraph(files, { signal });
   checkCancelled();
+  const graphIncomplete = graph.incomplete === true;
   const capturedEntities: ExtractedEntity[] = graph.entities.map((e) => ({
     type: e.type,
     name: e.name,
@@ -695,7 +699,9 @@ export async function performScan(
       relationshipsExtracted: relRows.length,
       summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
       projectRevision: walkResult.revision,
-      scanCompleteness: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+      scanCompleteness: walkResult.truncated || graphIncomplete
+        ? "PARTIAL" as const
+        : "COMPLETE" as const,
       sourceProvenance: "filesystem-scan",
       scanCorrelationId: correlationId,
       scannerVersion: SCANNER_VERSION,
@@ -703,7 +709,7 @@ export async function performScan(
         ...walkResult.revisionManifest,
         derivedArtifacts: {
           scanner: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
-          graph: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          graph: walkResult.truncated || graphIncomplete ? "PARTIAL" as const : "COMPLETE" as const,
           metrics: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
         },
       },

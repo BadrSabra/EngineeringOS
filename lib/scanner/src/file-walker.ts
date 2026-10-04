@@ -1,9 +1,11 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, extname, relative } from "node:path";
 
 /** Maximum bytes to read per file for content analysis (512 KB). */
 const MAX_CONTENT_BYTES = 512 * 1024;
+/** Maximum aggregate file content retained for one project scan (64 MiB). */
+const MAX_TOTAL_CONTENT_BYTES = 64 * 1024 * 1024;
 
 /**
  * Soft cap on the number of source files collected in a single walk.
@@ -106,14 +108,14 @@ export interface WalkResult {
   totalFiles: number;
   sourceFiles: number;
   /**
-   * PR-04: True when the walk was stopped early due to a hard cap (file count
-   * or depth limit). Callers should surface this to the user so they know the
-   * scan result is incomplete rather than assuming full coverage.
+    * True when the walk stopped early due to a file-count, depth, or aggregate
+    * content limit. Callers must treat the result as incomplete.
    */
   truncated: boolean;
   /**
-   * PR-04: Human-readable reason for truncation, when `truncated` is true.
-   * Machine-parseable prefix before the colon: "file_limit", "depth_limit".
+    * PR-04: Human-readable reason for truncation, when `truncated` is true.
+    * Machine-parseable prefix before the colon: "file_limit", "depth_limit",
+    * or "content_limit".
    */
   truncationReason?: string;
   /**
@@ -131,7 +133,48 @@ export interface WalkResult {
 /** Mutable walk state — shared across the recursive walkDir calls. */
 interface WalkState {
   aborted: boolean;
+  contentBytes: number;
   truncationReason?: string;
+}
+
+async function readBoundedContent(
+  fileHandle: Awaited<ReturnType<typeof open>>,
+  expectedSize: number,
+  signal?: AbortSignal,
+): Promise<{ content: string; size: number; oversized: boolean }> {
+  const chunks: Buffer[] = [];
+  let bytesReadTotal = 0;
+
+  while (bytesReadTotal <= MAX_CONTENT_BYTES) {
+    signal?.throwIfAborted();
+    const remainingLimit = MAX_CONTENT_BYTES + 1 - bytesReadTotal;
+    const remainingExpected = expectedSize - bytesReadTotal;
+    const length = Math.min(
+      64 * 1024,
+      remainingLimit,
+      Math.max(1, remainingExpected >= 0 ? remainingExpected + 1 : 64 * 1024),
+    );
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await fileHandle.read(buffer, 0, length, bytesReadTotal);
+    signal?.throwIfAborted();
+    if (bytesRead === 0) break;
+    chunks.push(buffer.subarray(0, bytesRead));
+    bytesReadTotal += bytesRead;
+  }
+
+  if (bytesReadTotal > MAX_CONTENT_BYTES) {
+    return {
+      content: "",
+      size: Math.max(expectedSize, bytesReadTotal),
+      oversized: true,
+    };
+  }
+
+  return {
+    content: Buffer.concat(chunks, bytesReadTotal).toString("utf8"),
+    size: expectedSize,
+    oversized: false,
+  };
 }
 
 async function walkDir(
@@ -140,7 +183,9 @@ async function walkDir(
   files: ScannedFile[],
   state: WalkState,
   depth = 0,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   // PR-04: depth cap — record truncation but don't abort the whole walk (other
   // branches at this level may still be within the depth limit).
   if (depth > MAX_DEPTH) {
@@ -164,6 +209,7 @@ async function walkDir(
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (error) {
+    if (signal?.aborted) throw error;
     // A failure at the canonical root is not a partial branch: it means the
     // project disappeared or became inaccessible after the initial stat.
     // Preserve that signal so scan-runner can fail closed instead of
@@ -178,12 +224,13 @@ async function walkDir(
 
   await Promise.all(
     entries.map(async (entry) => {
+      signal?.throwIfAborted();
       if (state.aborted) return; // respect abort in concurrent branches
 
       if (entry.isDirectory()) {
         // Skip dot-directories but allow .github (CI/CD workflows live there).
         if (IGNORE_DIRS.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".github")) return;
-        await walkDir(join(dir, entry.name), rootPath, files, state, depth + 1);
+        await walkDir(join(dir, entry.name), rootPath, files, state, depth + 1, signal);
       } else if (entry.isFile()) {
         if (state.aborted || files.length >= MAX_FILES) {
           state.aborted = true;
@@ -200,30 +247,47 @@ async function walkDir(
         const absPath = join(dir, entry.name);
         const relPath = relative(rootPath, absPath);
 
-        let fileStat;
+        let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
         try {
-          fileStat = await stat(absPath);
-        } catch {
-          return;
-        }
+          fileHandle = await open(absPath, "r");
+          const fileStat = await fileHandle.stat();
+          signal?.throwIfAborted();
+          if (!fileStat.isFile()) return;
 
-        const size = fileStat.size;
-        let content = "";
-        let oversized = false;
+          let size = fileStat.size;
+          let content = "";
+          let oversized = false;
 
-        if (size <= MAX_CONTENT_BYTES) {
-          try {
-            content = await readFile(absPath, "utf8");
-          } catch {
-            content = "";
+          if (size <= MAX_CONTENT_BYTES) {
+            if (state.contentBytes + size > MAX_TOTAL_CONTENT_BYTES) {
+              state.aborted = true;
+              state.truncationReason ??= `content_limit:${MAX_TOTAL_CONTENT_BYTES}`;
+              return;
+            }
+            state.contentBytes += size;
+            try {
+              const bounded = await readBoundedContent(fileHandle, size, signal);
+              content = bounded.content;
+              size = bounded.size;
+              oversized = bounded.oversized;
+              if (oversized) state.contentBytes -= fileStat.size;
+            } catch (error) {
+              state.contentBytes -= fileStat.size;
+              if (signal?.aborted) throw error;
+              content = "";
+            }
+          } else {
+            oversized = true;
           }
-        } else {
-          oversized = true;
+
+          const lines = content ? content.split("\n").length : 0;
+
+          files.push({ path: relPath, absPath, language, size, lines, content, oversized });
+        } catch (error) {
+          if (signal?.aborted) throw error;
+        } finally {
+          await fileHandle?.close().catch(() => undefined);
         }
-
-        const lines = content ? content.split("\n").length : 0;
-
-        files.push({ path: relPath, absPath, language, size, lines, content, oversized });
       }
     }),
   );
@@ -240,13 +304,16 @@ async function walkDir(
  * with the files collected so far, so callers can persist a partial result
  * and surface the truncation to the user.
  */
-export async function walkProject(rootPath: string): Promise<WalkResult> {
+export async function walkProject(rootPath: string, signal?: AbortSignal): Promise<WalkResult> {
+  signal?.throwIfAborted();
   try {
     const s = await stat(rootPath);
+    signal?.throwIfAborted();
     if (!s.isDirectory()) {
       throw new Error(`Path exists but is not a directory: ${rootPath}`);
     }
   } catch (statErr) {
+    if (signal?.aborted) throw statErr;
     if (statErr instanceof Error && statErr.message.startsWith("Path exists but")) {
       throw statErr;
     }
@@ -254,9 +321,10 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
   }
 
   const files: ScannedFile[] = [];
-  const state: WalkState = { aborted: false };
+  const state: WalkState = { aborted: false, contentBytes: 0 };
 
-  await walkDir(rootPath, rootPath, files, state);
+  await walkDir(rootPath, rootPath, files, state, 0, signal);
+  signal?.throwIfAborted();
 
   // GAP-4 fix: sort by relative path for deterministic output.
   // Promise.all over readdir entries produces OS-dependent ordering; sorting
@@ -275,6 +343,7 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
   const revisionHash = createHash("sha256");
   const manifestFiles: RevisionManifestFile[] = [];
   for (const file of files) {
+    signal?.throwIfAborted();
     const contentHash = createHash("sha256")
       .update(file.oversized ? `oversized:${file.size}` : file.content)
       .digest("hex");
@@ -293,6 +362,7 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
   }
 
   const revision = revisionHash.digest("hex");
+  signal?.throwIfAborted();
   return {
     files,
     rootPath,
@@ -301,8 +371,8 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     sourceFiles,
     truncated: state.aborted,
     truncationReason: state.truncationReason,
-    // When aborted by file count, skipped count is unknown (Promise.all
-    // branches were concurrent); signal with -1.
+    // When aborted by a cap, skipped count is unknown (Promise.all branches
+    // were concurrent); signal with -1.
     filesSkipped: state.aborted ? -1 : 0,
     revision,
     revisionManifest: {

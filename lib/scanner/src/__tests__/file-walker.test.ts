@@ -123,6 +123,12 @@ describe("walkProject", () => {
     ).rejects.toThrow("Project root does not exist or is inaccessible");
   });
 
+  it("honors cancellation before filesystem work begins", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(walkProject(TEST_DIR, controller.signal)).rejects.toThrow();
+  });
+
   it("marks files over 512KB as oversized and skips their content", async () => {
     const bigContent = "x".repeat(512 * 1024 + 10);
     await writeFile(join(TEST_DIR, "src", "huge.ts"), bigContent);
@@ -134,6 +140,30 @@ describe("walkProject", () => {
       expect(huge?.content).toBe("");
     } finally {
       await rm(join(TEST_DIR, "src", "huge.ts"), { force: true });
+    }
+  });
+
+  it("caps aggregate retained file content and marks the inventory partial", async () => {
+    const largeDir = join(TEST_DIR, "aggregate-content-limit");
+    await mkdir(largeDir, { recursive: true });
+    const content = "x".repeat(512 * 1024);
+    const paths = Array.from({ length: 129 }, (_, index) =>
+      join(largeDir, `file-${String(index).padStart(3, "0")}.ts`),
+    );
+    await Promise.all(paths.map((filePath) => writeFile(filePath, content)));
+
+    try {
+      const result = await walkProject(TEST_DIR);
+      const retainedBytes = result.files.reduce(
+        (total, file) => total + Buffer.byteLength(file.content, "utf8"),
+        0,
+      );
+      expect(result.truncated).toBe(true);
+      expect(result.truncationReason).toBe("content_limit:67108864");
+      expect(result.revisionManifest.completeness).toBe("PARTIAL");
+      expect(retainedBytes).toBeLessThanOrEqual(64 * 1024 * 1024);
+    } finally {
+      await rm(largeDir, { recursive: true, force: true });
     }
   });
 

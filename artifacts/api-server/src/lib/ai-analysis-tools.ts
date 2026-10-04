@@ -362,6 +362,12 @@ export function createProjectAnalysisToolRunner(
         ) {
           return unavailable("Analysis observed a workspace revision change and was rejected.", "stale_revision");
         }
+        if (result.scanCompleteness !== "COMPLETE") {
+          return unavailable(
+            "Project scan coverage is partial; its results cannot be accepted as complete analysis evidence.",
+            "execution_failure",
+          );
+        }
         if (afterScanRevision && afterScanRevision !== correlationSnapshot.projectRevision) {
           authoritativeCorrelation = {
             ...correlationSnapshot,

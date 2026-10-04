@@ -1,5 +1,9 @@
 import ts from "typescript";
 import type { ScannedFile } from "./file-walker.js";
+import {
+  ScannerSubprocessError,
+  type ScannerSubprocessFailureKind,
+} from "./bounded-subprocess.js";
 import { extractPythonBatch, type PythonImportInfo, type PythonFileResult } from "./python-extractor.js";
 import { extractGoBatch, type GoFileResult } from "./go-extractor.js";
 
@@ -165,6 +169,8 @@ export interface GraphExtractionResult {
   entities: ExtractedEntity[];
   relationships: ExtractedRelationship[];
   languageSupport?: GraphLanguageSupport[];
+  /** True when source inventory or parser coverage was incomplete. */
+  incomplete?: boolean;
 }
 
 export interface GraphLanguageSupport {
@@ -172,6 +178,7 @@ export interface GraphLanguageSupport {
   parserStatus: "available" | "unavailable";
   parsedFiles: number;
   failedFiles: number;
+  failureKind?: ScannerSubprocessFailureKind;
 }
 
 type PartialResult = { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] };
@@ -1287,28 +1294,59 @@ function toPartialResult(file: ScannedFile, parsed: PythonFileResult, knownPaths
  * batch failure shouldn't be all-or-nothing when it's really just one
  * unparseable file) whenever the subprocess is unavailable or errors out.
  */
-async function extractPythonEntities(pythonFiles: ScannedFile[], knownPaths: Set<string>): Promise<PartialResult[]> {
+async function extractPythonEntities(
+  pythonFiles: ScannedFile[],
+  knownPaths: Set<string>,
+  signal?: AbortSignal,
+): Promise<{ results: PartialResult[]; support: GraphLanguageSupport }> {
   let batch: PythonFileResult[];
   try {
-    batch = await extractPythonBatch(pythonFiles.map((f) => ({ path: f.path, content: f.content ?? "" })));
-  } catch {
-    // Interpreter unavailable, subprocess crashed, or output was
-    // unparseable — degrade to the regex heuristic for every file rather
-    // than losing Python coverage for the whole scan.
-    return pythonFiles.map((f) => extractFromPythonRegex(f));
+    batch = await extractPythonBatch(
+      pythonFiles.map((file) => ({ path: file.path, content: file.content ?? "" })),
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    // Keep the explicit regex fallback, but report parser failure so callers
+    // cannot mistake heuristic coverage for a complete AST-derived graph.
+    return {
+      results: pythonFiles.map((file) => {
+        signal?.throwIfAborted();
+        return extractFromPythonRegex(file);
+      }),
+      support: {
+        language: "python",
+        parserStatus: "unavailable",
+        parsedFiles: 0,
+        failedFiles: pythonFiles.length,
+        failureKind: error instanceof ScannerSubprocessError ? error.kind : "process_error",
+      },
+    };
   }
 
   const byPath = new Map(batch.map((r) => [r.path, r]));
-  return pythonFiles.map((file) => {
+  let failedFiles = 0;
+  const results = pythonFiles.map((file) => {
+    signal?.throwIfAborted();
     const parsed = byPath.get(file.path);
     if (!parsed || parsed.error) {
       // Subprocess ran fine overall, but this specific file had a syntax
       // error (or was missing from its output) — same fallback, just
       // scoped to the one file instead of the whole batch.
+      failedFiles += 1;
       return extractFromPythonRegex(file);
     }
     return toPartialResult(file, parsed, knownPaths);
   });
+  return {
+    results,
+    support: {
+      language: "python",
+      parserStatus: "available",
+      parsedFiles: pythonFiles.length - failedFiles,
+      failedFiles,
+    },
+  };
 }
 
 // ─── Go extractor ───────────────────────────────────────────────────────────
@@ -1467,11 +1505,16 @@ function toGoPartialResult(
 async function extractGoEntities(
   goFiles: ScannedFile[],
   allFiles: ScannedFile[],
+  signal?: AbortSignal,
 ): Promise<{ results: PartialResult[]; support: GraphLanguageSupport }> {
   try {
-    const parsed = await extractGoBatch(goFiles.map((file) => ({ path: file.path, content: file.content })));
+    const parsed = await extractGoBatch(
+      goFiles.map((file) => ({ path: file.path, content: file.content })),
+      signal,
+    );
     const byPath = new Map(parsed.map((result) => [result.path, result]));
     const results = goFiles.map((file) => {
+      signal?.throwIfAborted();
       const result = byPath.get(file.path);
       return result
         ? toGoPartialResult(file, result, goFiles, goModulePath(allFiles))
@@ -1489,17 +1532,22 @@ async function extractGoEntities(
         failedFiles: parsed.filter((result) => Boolean(result.error)).length + Math.max(0, goFiles.length - parsed.length),
       },
     };
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return {
-      results: goFiles.map((file) => ({
-        entities: [goFileEntity(file, "go-parser-unavailable", "Go parser is unavailable in this runtime.")],
-        relationships: [],
-      })),
+      results: goFiles.map((file) => {
+        signal?.throwIfAborted();
+        return {
+          entities: [goFileEntity(file, "go-parser-unavailable", "Go parser is unavailable in this runtime.")],
+          relationships: [],
+        };
+      }),
       support: {
         language: "go",
         parserStatus: "unavailable",
         parsedFiles: 0,
-        failedFiles: 0,
+        failedFiles: goFiles.length,
+        failureKind: error instanceof ScannerSubprocessError ? error.kind : "process_error",
       },
     };
   }
@@ -1514,7 +1562,16 @@ async function extractGoEntities(
  * python-extractor.ts) rather than per-file, so this is async — every
  * caller must `await` it.
  */
-export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractionResult> {
+export type GraphExtractionOptions = {
+  signal?: AbortSignal;
+};
+
+export async function extractGraph(
+  files: ScannedFile[],
+  options: GraphExtractionOptions = {},
+): Promise<GraphExtractionResult> {
+  const signal = options.signal;
+  signal?.throwIfAborted();
   const knownPaths = new Set(files.map((f) => f.path));
   const aliasMap = buildWorkspaceAliasMap(files);
 
@@ -1541,6 +1598,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
    */
   function mergeResult(result: PartialResult): void {
     for (const entity of result.entities) {
+      signal?.throwIfAborted();
       const key = `${entity.type}::${entity.name}::${entity.path}`;
       if (!seenEntities.has(key)) {
         seenEntities.add(key);
@@ -1563,6 +1621,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
       }
     }
     for (const rel of result.relationships) {
+      signal?.throwIfAborted();
       const key = `${rel.sourcePath ?? rel.sourceName}→${rel.targetPath ?? rel.targetName}::${rel.relation}`;
       if (!seenRelationships.has(key)) {
         seenRelationships.add(key);
@@ -1588,6 +1647,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
   const goFiles: ScannedFile[] = [];
 
   for (const file of files) {
+    signal?.throwIfAborted();
     if (file.oversized || !file.content) {
       if (file.language === "go") goFiles.push(file);
       mergeResult({
@@ -1601,6 +1661,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
 
     if (file.language === "typescript" || file.language === "javascript") {
       mergeResult(extractFromTsJs(file, knownPaths, aliasMap));
+      signal?.throwIfAborted();
     } else if (file.language === "python") {
       // Batched below, once, after this loop finishes collecting them.
       pythonFiles.push(file);
@@ -1614,21 +1675,29 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
     }
   }
 
+  const languageSupport: GraphLanguageSupport[] = [];
   if (pythonFiles.length > 0) {
-    const pythonResults = await extractPythonEntities(pythonFiles, knownPaths);
-    for (const result of pythonResults) mergeResult(result);
+    const pythonResult = await extractPythonEntities(pythonFiles, knownPaths, signal);
+    for (const result of pythonResult.results) mergeResult(result);
+    languageSupport.push(pythonResult.support);
   }
 
-  let languageSupport: GraphLanguageSupport[] | undefined;
   if (goFiles.length > 0) {
-    const goResult = await extractGoEntities(goFiles, files);
+    const goResult = await extractGoEntities(goFiles, files, signal);
     for (const result of goResult.results) mergeResult(result);
-    languageSupport = [goResult.support];
+    languageSupport.push(goResult.support);
   }
 
+  signal?.throwIfAborted();
+  const incomplete = files.some((file) =>
+    file.oversized && ["typescript", "javascript", "python", "go"].includes(file.language),
+  ) || languageSupport.some((support) =>
+    support.parserStatus !== "available" || support.failedFiles > 0,
+  );
   return {
     entities: allEntities,
     relationships: allRelationships,
-    ...(languageSupport ? { languageSupport } : {}),
+    ...(languageSupport.length > 0 ? { languageSupport } : {}),
+    ...(incomplete ? { incomplete: true } : {}),
   };
 }

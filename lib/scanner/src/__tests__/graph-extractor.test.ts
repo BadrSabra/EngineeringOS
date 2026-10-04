@@ -14,11 +14,29 @@ const makeFile = (path: string, content: string, language = "typescript"): Scann
 });
 
 describe("extractGraph", () => {
+  it("honors cancellation before parsing or producing graph evidence", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      extractGraph([makeFile("src/index.ts", "export const x = 1;")], { signal: controller.signal }),
+    ).rejects.toThrow();
+  });
+
   it("returns empty entities and relationships for an empty file list", async () => {
     const result = await extractGraph([]);
 
     expect(result.entities).toHaveLength(0);
     expect(result.relationships).toHaveLength(0);
+  });
+
+  it("marks the graph incomplete when a supported source file is too large to parse", async () => {
+    const result = await extractGraph([{
+      ...makeFile("src/large.ts", "", "typescript"),
+      size: 512 * 1024 + 1,
+      oversized: true,
+    }]);
+
+    expect(result.incomplete).toBe(true);
   });
 
   it("creates a file entity for each TypeScript source file", async () => {
@@ -576,6 +594,13 @@ describe("extractGraph", () => {
         (e) => e.provenance?.sourceType === "regex-fallback",
       );
       expect(regexEntities.length).toBeGreaterThan(0);
+      expect(result.incomplete).toBe(true);
+      expect(result.languageSupport).toMatchObject([{
+        language: "python",
+        parserStatus: "available",
+        parsedFiles: 0,
+        failedFiles: 1,
+      }]);
 
       for (const entity of regexEntities) {
         expect(entity.provenance!.method).toBe("regex-heuristic" satisfies ExtractionMethod);

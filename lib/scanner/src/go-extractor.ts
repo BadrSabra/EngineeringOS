@@ -1,8 +1,14 @@
-import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { GO_AST_SCRIPT } from "./go-ast-script.js";
+import {
+  parseBoundedJsonArray,
+  runBoundedSubprocess,
+  SCANNER_SUBPROCESS_LIMITS,
+  stringifyBoundedJsonArray,
+  waitForSubprocessWithAbort,
+} from "./bounded-subprocess.js";
 
 export interface GoEntityInfo {
   type: "module" | "function" | "class";
@@ -27,10 +33,10 @@ export interface GoFileResult {
 }
 
 const GO_BINARY = process.env.GO_BIN || "go";
-const SUBPROCESS_TIMEOUT_MS = 30_000;
 
 let cachedScriptPath: string | null = null;
 let cachedBinaryPath: string | null = null;
+let binaryBuild: Promise<string> | undefined;
 
 function getScriptPath(): string {
   if (cachedScriptPath) return cachedScriptPath;
@@ -41,17 +47,34 @@ function getScriptPath(): string {
   return scriptPath;
 }
 
-function getBinaryPath(): string {
+async function getBinaryPath(signal?: AbortSignal): Promise<string> {
   if (cachedBinaryPath) return cachedBinaryPath;
+  signal?.throwIfAborted();
   const scriptPath = getScriptPath();
   const binaryPath = path.join(path.dirname(scriptPath), "ast_extractor");
-  execFileSync(GO_BINARY, ["build", "-o", binaryPath, scriptPath], {
-    env: { ...process.env, GO111MODULE: "off" },
-    timeout: SUBPROCESS_TIMEOUT_MS,
-    maxBuffer: 1_000_000,
-  });
-  cachedBinaryPath = binaryPath;
-  return binaryPath;
+  if (!binaryBuild) {
+    const build = runBoundedSubprocess({
+      command: GO_BINARY,
+      args: ["build", "-o", binaryPath, scriptPath],
+      env: { ...process.env, GO111MODULE: "off" },
+      signal,
+      timeoutMs: SCANNER_SUBPROCESS_LIMITS.timeoutMs,
+      maxInputBytes: 1,
+      maxStdoutBytes: 1_000_000,
+      maxStderrBytes: 64 * 1024,
+    }).then(() => binaryPath);
+    binaryBuild = build;
+    void build.then(
+      (builtPath) => {
+        cachedBinaryPath = builtPath;
+        if (binaryBuild === build) binaryBuild = undefined;
+      },
+      () => {
+        if (binaryBuild === build) binaryBuild = undefined;
+      },
+    );
+  }
+  return waitForSubprocessWithAbort(binaryBuild, signal);
 }
 
 /**
@@ -59,58 +82,25 @@ function getBinaryPath(): string {
  * per file by the helper; process/toolchain failures reject so the caller can
  * mark the language as unavailable instead of manufacturing graph evidence.
  */
-export function extractGoBatch(
+export async function extractGoBatch(
   files: { path: string; content: string }[],
+  signal?: AbortSignal,
 ): Promise<GoFileResult[]> {
   if (files.length === 0) return Promise.resolve([]);
-  const binaryPath = getBinaryPath();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(binaryPath, [], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, GO111MODULE: "off" },
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGKILL");
-      reject(new Error(`go ast extraction timed out after ${SUBPROCESS_TIMEOUT_MS}ms`));
-    }, SUBPROCESS_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(`go ast extraction exited with code ${code}: ${stderr.slice(0, 500)}`));
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout) as GoFileResult[];
-        if (!Array.isArray(parsed)) throw new Error("Go AST helper returned a non-array result.");
-        resolve(parsed);
-      } catch (error) {
-        reject(new Error(`failed to parse go ast extraction output: ${(error as Error).message}`));
-      }
-    });
-
-    child.stdin.write(JSON.stringify(files));
-    child.stdin.end();
+  signal?.throwIfAborted();
+  const binaryPath = await getBinaryPath(signal);
+  const stdin = stringifyBoundedJsonArray(files);
+  const { stdout } = await runBoundedSubprocess({
+    command: binaryPath,
+    args: [],
+    stdin,
+    env: { ...process.env, GO111MODULE: "off" },
+    signal,
+    timeoutMs: SCANNER_SUBPROCESS_LIMITS.timeoutMs,
+    maxInputBytes: SCANNER_SUBPROCESS_LIMITS.maxInputBytes,
+    maxStdoutBytes: SCANNER_SUBPROCESS_LIMITS.maxStdoutBytes,
+    maxStderrBytes: SCANNER_SUBPROCESS_LIMITS.maxStderrBytes,
   });
+  signal?.throwIfAborted();
+  return parseBoundedJsonArray<GoFileResult>(stdout, "Go AST");
 }

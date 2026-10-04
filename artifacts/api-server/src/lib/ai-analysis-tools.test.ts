@@ -1,12 +1,31 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProjectAnalysisToolRunner, classifyAnalysisFailure } from "./ai-analysis-tools.js";
 import { ScanRootUnavailableError } from "./scan-runner.js";
 
-const mockPerformScan = vi.hoisted(() => vi.fn());
+const { mockPerformScan, mockDbSelect } = vi.hoisted(() => ({
+  mockPerformScan: vi.fn(),
+  mockDbSelect: vi.fn(),
+}));
 
 vi.mock("./scan-runner.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./scan-runner.js")>();
   return { ...actual, performScan: mockPerformScan };
+});
+
+vi.mock("@workspace/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@workspace/db")>();
+  return { ...actual, db: { select: mockDbSelect } };
+});
+
+beforeEach(() => {
+  mockPerformScan.mockReset();
+  mockDbSelect.mockReset().mockImplementation(() => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [],
+      }),
+    }),
+  }));
 });
 
 describe("project analysis root failure classification", () => {
@@ -34,6 +53,46 @@ describe("project analysis root failure classification", () => {
     const error = new ScanRootUnavailableError("/tmp/missing-root", "root_not_found", "root disappeared");
     expect(classifyAnalysisFailure(error)).toBe("root_unavailable");
     expect(classifyAnalysisFailure({ outcome: "root_unavailable" })).toBe("root_unavailable");
+  });
+
+  it("does not accept a partial scan as complete analysis evidence", async () => {
+    const projectRevision = "2026-10-04T12:00:00.000Z";
+    const scannedAt = "2026-10-04T12:01:00.000Z";
+    let selectCount = 0;
+    mockDbSelect.mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => [{
+            updatedAt: new Date(selectCount++ === 0 ? projectRevision : scannedAt),
+          }],
+        }),
+      }),
+    }));
+    mockPerformScan.mockResolvedValueOnce({
+      scannedAt,
+      scanCompleteness: "PARTIAL",
+    });
+
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const result = await runner(
+      "refresh_project_scan",
+      {},
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision,
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCategory: "execution_failure",
+    });
+    expect(result.output).toContain("partial");
+    expect(mockPerformScan).toHaveBeenCalledOnce();
   });
 
   it("classifies oversized producer output as incomplete instead of truncating it", () => {

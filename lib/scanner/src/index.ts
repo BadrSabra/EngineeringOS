@@ -9,6 +9,7 @@ export type {
   ExtractedEntity,
   ExtractedRelationship,
   GraphExtractionResult,
+  GraphLanguageSupport,
   EntityType,
   GraphEvidence,
   GraphEdgeType,

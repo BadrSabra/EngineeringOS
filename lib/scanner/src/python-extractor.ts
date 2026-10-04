@@ -1,8 +1,13 @@
-import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PYTHON_AST_SCRIPT } from "./python-ast-script.js";
+import {
+  parseBoundedJsonArray,
+  runBoundedSubprocess,
+  SCANNER_SUBPROCESS_LIMITS,
+  stringifyBoundedJsonArray,
+} from "./bounded-subprocess.js";
 
 export interface PythonImportInfo {
   module: string | null;
@@ -26,7 +31,6 @@ export interface PythonFileResult {
 }
 
 const PYTHON_BINARY = process.env.PYTHON_BIN || "python3";
-const SUBPROCESS_TIMEOUT_MS = 30_000;
 
 let cachedScriptPath: string | null = null;
 
@@ -56,53 +60,27 @@ function getScriptPath(): string {
  * output can't be parsed — callers should catch this and fall back to a
  * degraded extraction path rather than aborting the whole scan.
  */
-export function extractPythonBatch(files: { path: string; content: string }[]): Promise<PythonFileResult[]> {
+export async function extractPythonBatch(
+  files: { path: string; content: string }[],
+  signal?: AbortSignal,
+): Promise<PythonFileResult[]> {
   if (files.length === 0) return Promise.resolve([]);
 
+  signal?.throwIfAborted();
   const scriptPath = getScriptPath();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(PYTHON_BINARY, [scriptPath], { stdio: ["pipe", "pipe", "pipe"] });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGKILL");
-      reject(new Error(`python ast extraction timed out after ${SUBPROCESS_TIMEOUT_MS}ms`));
-    }, SUBPROCESS_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk;
-    });
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (code !== 0) {
-        reject(new Error(`python ast extraction exited with code ${code}: ${stderr.slice(0, 500)}`));
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout) as PythonFileResult[]);
-      } catch (err) {
-        reject(new Error(`failed to parse python ast extraction output: ${(err as Error).message}`));
-      }
-    });
-
-    child.stdin.write(JSON.stringify(files.map((f) => ({ path: f.path, content: f.content }))));
-    child.stdin.end();
+  const stdin = stringifyBoundedJsonArray(
+    files.map((file) => ({ path: file.path, content: file.content })),
+  );
+  const { stdout } = await runBoundedSubprocess({
+    command: PYTHON_BINARY,
+    args: [scriptPath],
+    stdin,
+    signal,
+    timeoutMs: SCANNER_SUBPROCESS_LIMITS.timeoutMs,
+    maxInputBytes: SCANNER_SUBPROCESS_LIMITS.maxInputBytes,
+    maxStdoutBytes: SCANNER_SUBPROCESS_LIMITS.maxStdoutBytes,
+    maxStderrBytes: SCANNER_SUBPROCESS_LIMITS.maxStderrBytes,
   });
+  signal?.throwIfAborted();
+  return parseBoundedJsonArray<PythonFileResult>(stdout, "Python AST");
 }
