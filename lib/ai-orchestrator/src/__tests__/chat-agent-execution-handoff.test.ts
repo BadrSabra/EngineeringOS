@@ -142,7 +142,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }
   });
 
-  it("prefetches only the target, queues replace_text, and does not write to disk", async () => {
+  it("reads only the target, queues replace_text, and does not write to disk", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-"));
     const relativePath = "target.ts";
     const absolutePath = path.join(rootPath, relativePath);
@@ -201,7 +201,12 @@ describe("chat agent — recovered Repair Plan execution", () => {
 
     try {
       const { chat } = await import("../agents/chat-agent.js");
-      const steps: Array<{ kind: string; tool?: string; cached?: boolean }> = [];
+      const readInvocations: string[] = [];
+      const steps: Array<{
+        kind: string;
+        tool?: string;
+        args?: Record<string, string>;
+      }> = [];
       const result = await chat({
         message: "نفذ Repair Plan",
         history: [
@@ -223,17 +228,28 @@ describe("chat agent — recovered Repair Plan execution", () => {
         ],
         projectContext: makeContext(),
         rootPath,
+        onReadOnlyInvocation: async (event) => {
+          readInvocations.push(`${event.phase}:${event.toolName}`);
+        },
         onStep: (step) => {
           if (step.kind === "tool_call") {
-            steps.push({ kind: step.kind, tool: step.tool, cached: step.cached });
+            steps.push({
+              kind: step.kind,
+              tool: step.tool,
+              args: step.args,
+            });
           }
         },
       });
 
-      // The target file is loaded by the execution prefetch before the model
-      // loop. The execution tool list therefore starts at the edit step and
-      // ignores unrelated session-memory paths.
+      // The receipt-backed prefetch satisfies the model's repeated read, so
+      // only the target edit appears as a new execution step.
       expect(steps.map((step) => step.tool)).toEqual(["replace_text"]);
+      expect(steps.every((step) => step.args?.path === relativePath)).toBe(true);
+      expect(readInvocations).toEqual([
+        "requested:read_file",
+        "recorded:read_file",
+      ]);
       expect(result.pendingChanges).toHaveLength(1);
       expect(result.pendingChanges[0]?.path).toBe(relativePath);
       expect(result.pendingChanges[0]?.newContent).toContain("enabled = false");
