@@ -15489,6 +15489,244 @@ router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
 
 // ── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
 
+async function replayAcceptedApplyResponse(params: {
+  proposal: typeof aiChangeProposalsTable.$inferSelect;
+  projectId: string;
+  projectRoot: string;
+  changes: ServerPendingChange[];
+}): Promise<Record<string, unknown> | null> {
+  const { proposal, projectId, projectRoot, changes } = params;
+  const rejectReplay = (reason: string): null => {
+    logger.warn({ projectId, proposalId: proposal.id, reason }, "apply response replay refused");
+    return null;
+  };
+  if (
+    proposal.status !== "applied"
+    || (proposal.lifecycle !== "applied" && proposal.lifecycle !== "blocked")
+    || !proposal.operationId
+    || !proposal.baseRevision
+    || !proposal.baseTreeHash
+    || !proposal.candidateTreeHash
+    || proposal.promotedTreeHash !== proposal.candidateTreeHash
+    || !proposal.changeSetHash
+    || !proposal.treeDigestVersion
+  ) return rejectReplay("proposal_state_or_identity_mismatch");
+
+  const storedChanges = parseStoredJson(proposal.changes);
+  if (!Array.isArray(storedChanges)) return rejectReplay("proposal_changes_missing");
+  if (authorizeChangeSubset(changes, storedChanges as ServerPendingChange[])) {
+    return rejectReplay("proposal_change_subset_mismatch");
+  }
+
+  const parsedAppliedChanges = parseStoredJson(proposal.appliedChanges);
+  if (!Array.isArray(parsedAppliedChanges)) return rejectReplay("applied_changes_missing");
+  const appliedChanges = parsedAppliedChanges.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const change = value as Record<string, unknown>;
+    return typeof change.path === "string" && typeof change.newContent === "string"
+      ? [{ path: change.path, newContent: change.newContent }]
+      : [];
+  });
+  if (
+    appliedChanges.length !== parsedAppliedChanges.length
+    || hashChangeSet(appliedChanges) !== hashChangeSet(changes)
+    || hashChangeSet(appliedChanges) !== proposal.changeSetHash
+  ) return rejectReplay("applied_change_hash_mismatch");
+
+  const [execution] = await db.select({
+    id: aiExecutionsTable.id,
+    attempt: aiExecutionsTable.attempt,
+    operationId: aiExecutionsTable.operationId,
+    request: aiExecutionsTable.request,
+  }).from(aiExecutionsTable).where(and(
+    eq(aiExecutionsTable.proposalId, proposal.id),
+    eq(aiExecutionsTable.projectId, projectId),
+  )).orderBy(desc(aiExecutionsTable.updatedAt)).limit(1);
+  const executionRequestValue = parseStoredJson(execution?.request);
+  if (!execution || !execution.operationId || !executionRequestValue
+    || typeof executionRequestValue !== "object" || Array.isArray(executionRequestValue)) {
+    return rejectReplay("execution_binding_missing");
+  }
+  const executionRequest = executionRequestValue as Record<string, unknown>;
+  if (
+    executionRequest.turnIntent !== "APPLY_CHANGES"
+    || executionRequest.proofRequired !== true
+    || executionRequest.applyChangesProofMode !== APPLY_CHANGES_PROOF_MODE
+  ) return rejectReplay("execution_request_mismatch");
+
+  const [journal] = await db.select({
+    operationId: aiApplyJournalTable.operationId,
+    attemptId: aiApplyJournalTable.attemptId,
+    stage: aiApplyJournalTable.stage,
+    payload: aiApplyJournalTable.payload,
+  }).from(aiApplyJournalTable).where(and(
+    eq(aiApplyJournalTable.operationId, proposal.operationId),
+    eq(aiApplyJournalTable.attemptId, execution.operationId),
+    eq(aiApplyJournalTable.proposalId, proposal.id),
+    eq(aiApplyJournalTable.projectId, projectId),
+  )).orderBy(desc(aiApplyJournalTable.sequence)).limit(1);
+  const journalPayloadValue = parseStoredJson(journal?.payload);
+  if (!journal || !journalPayloadValue || typeof journalPayloadValue !== "object"
+    || Array.isArray(journalPayloadValue)) return rejectReplay("apply_journal_missing_or_invalid");
+  const journalPayload = journalPayloadValue as Record<string, unknown>;
+  if (!Array.isArray(journalPayload.appliedFiles)
+    || !Array.isArray(journalPayload.rollbackFailures)
+    || !Array.isArray(journalPayload.validationRepairDecisions)) {
+    return rejectReplay("apply_journal_payload_incomplete");
+  }
+  const journalFiles = journalPayload.appliedFiles
+    .filter((value): value is string => typeof value === "string");
+  const appliedPaths = appliedChanges.map((change) => change.path);
+  if (
+    journal.stage !== "APPLIED"
+    || journal.operationId !== proposal.operationId
+    || journal.attemptId !== execution.operationId
+    || journalFiles.length !== journalPayload.appliedFiles.length
+    || JSON.stringify([...journalFiles].sort())
+      !== JSON.stringify([...appliedPaths].sort())
+    || journalPayload.integrityOutcome !== "verified"
+    || journalPayload.lifecycleStage !== "DELIVERED"
+    || journalPayload.baseTreeHash !== proposal.baseTreeHash
+    || journalPayload.candidateHash !== proposal.candidateTreeHash
+    || journalPayload.candidateTreeHash !== proposal.candidateTreeHash
+    || journalPayload.promotedTreeHash !== proposal.promotedTreeHash
+    || journalPayload.changeSetHash !== proposal.changeSetHash
+    || journalPayload.treeDigestVersion !== proposal.treeDigestVersion
+    || journalPayload.rollbackFailures.length !== 0
+  ) return rejectReplay("apply_journal_identity_mismatch");
+
+  const validationEvidence = parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence));
+  const replayResults = appliedChanges.map((change) => {
+    const submittedChange = changes.find((candidate) => candidate.path === change.path);
+    const validation = validationEvidence.find(
+      (receipt) => receipt.profile === submittedChange?.validationProfile,
+    );
+    if (
+      !validation
+      || validation.status !== "passed"
+      || validation.evidence.operationId !== proposal.operationId
+      || validation.evidence.projectRevision !== proposal.baseRevision
+      || validation.evidence.candidateHash !== proposal.candidateTreeHash
+      || validation.evidence.changeSetHash !== proposal.changeSetHash
+      || validation.evidence.promotedHash !== proposal.promotedTreeHash
+      || validation.evidence.treeDigestVersion !== proposal.treeDigestVersion
+    ) return null;
+    return {
+      path: change.path,
+      ok: true,
+      writeStatus: "written",
+      persistenceVerified: true,
+      behavioralVerification: {
+        status: validation.status,
+        profile: validation.profile,
+        scenario: validation.scenario,
+        detail: validation.scenario,
+      },
+    };
+  });
+  if (replayResults.some((result) => result === null)) {
+    return rejectReplay("validation_receipt_mismatch");
+  }
+
+  const finalizationKey = `apply:${execution.id}:attempt:${execution.attempt}:final`;
+  const [priorAcceptance] = await db.select({
+    attempt: aiExecutionAcceptancesTable.attempt,
+    outcome: aiExecutionAcceptancesTable.outcome,
+    terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+    reasonCode: aiExecutionAcceptancesTable.reasonCode,
+    evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+    evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+    effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+    candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+  }).from(aiExecutionAcceptancesTable).where(and(
+    eq(aiExecutionAcceptancesTable.executionId, execution.id),
+    eq(aiExecutionAcceptancesTable.projectId, projectId),
+    eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    eq(aiExecutionAcceptancesTable.finalizationKey, finalizationKey),
+  )).limit(1);
+  const candidateIdentity = `${proposal.id}:${proposal.candidateTreeHash}`;
+  if (
+    !priorAcceptance
+    || priorAcceptance.outcome !== "SUCCEEDED"
+    || priorAcceptance.terminalStatus !== "completed"
+    || priorAcceptance.reasonCode !== "ACCEPTED"
+    || priorAcceptance.evidenceRequired !== 1
+    || priorAcceptance.evidenceComplete !== 1
+    || !priorAcceptance.effectBundleId
+    || priorAcceptance.sourceRevision !== proposal.baseRevision
+    || priorAcceptance.candidateIdentity !== candidateIdentity
+  ) return rejectReplay("prior_acceptance_missing_or_mismatched");
+
+  const replayFinalization = await finalizeExecutionAcceptance({
+    executionId: execution.id,
+    expectedAttempt: execution.attempt,
+    finalizationKey,
+    outcome: "SUCCEEDED",
+    terminalStatus: "completed",
+    reasonCode: "ACCEPTED",
+    recoveryState: "NONE",
+    proposalId: proposal.id,
+    workspaceRoot: projectRoot,
+    sourceRevision: proposal.baseRevision,
+    candidateIdentity,
+    effectRequired: true,
+    effectBundleId: priorAcceptance.effectBundleId,
+    evidence: {
+      operationId: proposal.operationId,
+      workspaceRoot: projectRoot,
+      sourceRevision: proposal.baseRevision,
+      candidateIdentity,
+      verdict: "PROVEN",
+      required: true,
+      sourceEvidenceRequired: false,
+      reads: [],
+    },
+  });
+  if (!replayFinalization.accepted || !replayFinalization.duplicate) {
+    return rejectReplay(replayFinalization.reason ?? "canonical_proof_rejected");
+  }
+
+  if (proposal.lifecycle === "blocked") {
+    const [releasedProposal] = await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "applied" })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposal.id),
+        eq(aiChangeProposalsTable.projectId, projectId),
+        eq(aiChangeProposalsTable.status, "applied"),
+        eq(aiChangeProposalsTable.lifecycle, "blocked"),
+        eq(aiChangeProposalsTable.candidateTreeHash, proposal.candidateTreeHash),
+        eq(aiChangeProposalsTable.promotedTreeHash, proposal.candidateTreeHash),
+      ))
+      .returning({ id: aiChangeProposalsTable.id });
+    if (!releasedProposal) return rejectReplay("proposal_release_failed");
+  }
+
+  return {
+    results: replayResults,
+    correlationId: proposal.operationId,
+    applyStatus: "APPLIED",
+    alreadyApplied: true,
+    automaticPromotion: journalPayload.automaticPromotion === true,
+    integrityOutcome: "verified",
+    lifecycle: {
+      stage: "DELIVERED",
+      operationId: proposal.operationId,
+      revision: proposal.baseRevision,
+      validationRequired: true,
+      approvalRequired: false,
+      validationRepairDecisions: journalPayload.validationRepairDecisions,
+    },
+    baseTreeHash: proposal.baseTreeHash,
+    candidateTreeHash: proposal.candidateTreeHash,
+    promotedTreeHash: proposal.promotedTreeHash,
+    changeSetHash: proposal.changeSetHash,
+    treeDigestVersion: proposal.treeDigestVersion,
+    rollbackFailures: [],
+    validationEvidence,
+  };
+}
+
 async function applyChangesHandler(req: Request, res: Response) {
   const ChangeItemSchema = z.object({
     path:         z.string().min(1, "each change must have a non-empty path"),
@@ -15641,6 +15879,42 @@ async function applyChangesHandler(req: Request, res: Response) {
       return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
     }
     if (proposal.status !== "pending") {
+      if (proposal.status === "applied" && proposal.operationId
+        && (proposal.lifecycle === "applied" || proposal.lifecycle === "blocked")) {
+        if (operationId && operationId !== proposal.operationId) {
+          return res.status(409).json({
+            error: "Operation identity does not match the server-owned execution",
+            code: "OPERATION_ID_MISMATCH",
+          });
+        }
+        const storedChanges = parseStoredJson(proposal.changes);
+        if (!Array.isArray(storedChanges)) {
+          return res.status(409).json({
+            error: "The applied proposal cannot be replayed without its original change set.",
+            code: "APPLY_REPLAY_UNVERIFIED",
+          });
+        }
+        const replaySubsetError = authorizeChangeSubset(changes, storedChanges as ServerPendingChange[]);
+        if (replaySubsetError) {
+          return res.status(409).json({
+            error: `Submitted changes are not an authorized subset of the proposal: ${replaySubsetError}`,
+            code: "PROPOSAL_MISMATCH",
+          });
+        }
+        const replayResponse = await replayAcceptedApplyResponse({
+          proposal,
+          projectId,
+          projectRoot: resolvedRoot,
+          changes,
+        });
+        if (replayResponse) return res.status(200).json(replayResponse);
+        return res.status(409).json({
+          error: "The applied proposal has no matching current-attempt acceptance to replay.",
+          code: "APPLY_REPLAY_UNVERIFIED",
+          lifecycle: proposal.lifecycle,
+          recoveryState: "required",
+        });
+      }
       return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
     }
     // A proposal left in an intermediate recovery state must not be replayed

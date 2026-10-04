@@ -7,6 +7,7 @@ import {
   createAiExecution,
   createAutonomousOperationContract,
   failAiExecution,
+  hasSuccessfulAiExecutionAcceptance,
   parseAiExecutionCheckpoint,
   transitionAutonomousOperation,
   type AutonomousOperationContract,
@@ -22,11 +23,10 @@ export type WorkflowPhaseExecutionResult = {
 /**
  * Record one workflow phase through the shared autonomous operation loop.
  *
- * Workflow definitions intentionally describe phase work rather than providing
- * arbitrary shell text. The phase boundary is therefore the server-owned
- * executable unit: the transition route has already applied the workflow
- * guard, and this function records the inspected revision, policy, attempt,
- * dependency, checkpoint, and retained transition evidence in ai_executions.
+ * Workflow definitions describe phase work rather than arbitrary shell text.
+ * Empty phases are durable no-op boundaries. Non-empty phase steps are not
+ * executed here and cannot be accepted without substantive, revision-bound
+ * evidence.
  *
  * The idempotency key is stable for an execution/phase pair. A retry after a
  * response timeout consequently observes the same terminal operation.
@@ -89,7 +89,8 @@ export async function executeWorkflowPhase(params: {
   }
 
   const workerId = `workflow-phase:${randomUUID()}`;
-  const nodes = [{
+  const noOpPhase = params.phaseSteps.length === 0;
+  const nodes = noOpPhase ? [] : [{
     id: `${nodeId}:boundary`,
     title: "Record workflow phase boundary",
     kind: "inspect" as const,
@@ -101,7 +102,9 @@ export async function executeWorkflowPhase(params: {
     validationProfile: "api-ai-tests" as const,
     evidenceRefs: [],
   }];
-  let operation: AutonomousOperationContract = existingCheckpoint?.operation
+  let operation: AutonomousOperationContract | undefined = noOpPhase
+    ? undefined
+    : existingCheckpoint?.operation
     ? {
         ...existingCheckpoint.operation,
         nodes: existingCheckpoint.operation.nodes.length > 0
@@ -132,7 +135,7 @@ export async function executeWorkflowPhase(params: {
 
   let completionFinalizationInFlight = false;
   try {
-    operation = transitionAutonomousOperation(operation, "inspecting");
+    if (operation) operation = transitionAutonomousOperation(operation, "inspecting");
     const checkpointed = await checkpointAiExecution({
       executionId: claimed.id,
       expectedAttempt: claimed.attempt,
@@ -140,11 +143,11 @@ export async function executeWorkflowPhase(params: {
       checkpoint: {
         stage: "model_call",
         sequence: Math.max(1, durable.execution.checkpointVersion + 1),
-        operation,
-        nodeStates: nodes,
-        currentNode: nodeId,
-        detail: `Workflow phase "${params.phaseName}" claimed at revision ${params.revision}; `
-          + `${params.completedPhaseNames.length} prerequisite phase(s) already complete.`,
+        ...(operation ? { operation, nodeStates: nodes, currentNode: nodeId } : {}),
+        detail: noOpPhase
+          ? `Workflow phase "${params.phaseName}" has no declared steps; recording a no-op boundary.`
+          : `Workflow phase "${params.phaseName}" claimed at revision ${params.revision}; `
+            + `${params.completedPhaseNames.length} prerequisite phase(s) already complete.`,
         updatedAt: new Date().toISOString(),
       },
     });
@@ -152,82 +155,110 @@ export async function executeWorkflowPhase(params: {
     // An empty phase is a valid no-op boundary. For non-empty phase definitions,
     // this routine does not execute the declared work; it only records the
     // boundary and verifies that the configured project root remains available.
-    if (params.rootPath) {
+    if (!noOpPhase && params.rootPath) {
       const rootStat = await stat(params.rootPath);
       if (!rootStat.isDirectory()) throw new Error("Workflow project root is not a directory");
       await access(params.rootPath);
     }
-    const completedNodes = nodes.map((node) => ({
+    const completedNodes = operation ? nodes.map((node) => ({
       ...node,
       status: "passed" as const,
       attempts: 1,
       validationAttempts: 1,
-    }));
-    operation = {
-      ...operation,
-      nodes: completedNodes,
-      updatedAt: new Date().toISOString(),
-    };
-    operation = transitionAutonomousOperation(operation, "validating");
-    operation = transitionAutonomousOperation(operation, "succeeded");
+    })) : [];
+    if (operation) {
+      operation = {
+        ...operation,
+        nodes: completedNodes,
+        updatedAt: new Date().toISOString(),
+      };
+      operation = transitionAutonomousOperation(operation, "validating");
+      operation = transitionAutonomousOperation(operation, "succeeded");
+    }
     completionFinalizationInFlight = true;
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
-      operation,
-      nodeStates: completedNodes,
-      goalProjection: params.goalId
+      ...(operation ? { operation, nodeStates: completedNodes } : {}),
+      ...(operation && params.goalId
         ? {
+            goalProjection: {
             goalId: params.goalId,
             workflowId: params.workflowId,
             workflowExecutionId: params.workflowExecutionId,
             phase: params.phaseName,
             finalPhase: params.isFinalPhase === true,
+            },
           }
-        : undefined,
+        : {}),
     });
     completionFinalizationInFlight = false;
     if (!completed) throw new Error("Workflow phase lease was lost before completion");
     return {
       executionId: claimed.id,
-      operationId: operation.operationId,
+      operationId: operation?.operationId ?? durable.execution.operationId ?? durable.execution.id,
       created: true,
       status: "completed",
     };
   } catch (error) {
+    if (completionFinalizationInFlight) {
+      try {
+        const accepted = await hasSuccessfulAiExecutionAcceptance({
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          operationId: durable.execution.operationId ?? durable.execution.id,
+        });
+        if (accepted) {
+          return {
+            executionId: claimed.id,
+            operationId: durable.execution.operationId ?? durable.execution.id,
+            created: true,
+            status: "completed",
+          };
+        }
+      } catch {
+        // If durable acceptance cannot be reloaded, continue with the fenced
+        // failure path rather than inferring success from the local operation.
+      }
+    }
     const shouldPersistFailure = completionFinalizationInFlight
+      || !operation
       || !["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state);
     if (shouldPersistFailure) {
       // If the terminal acceptance transaction throws, retry failure finalization
       // under the same worker fence. It cannot overwrite a success that committed
       // before an uncertain response; otherwise it records the failed attempt.
-      const failureOperation = operation.state === "succeeded"
-        ? {
+      const failureOperation = !operation
+        ? undefined
+        : operation.state === "succeeded"
+          ? {
             ...operation,
             state: "failed" as const,
             updatedAt: new Date().toISOString(),
           }
-        : transitionAutonomousOperation(operation, "failed");
+          : transitionAutonomousOperation(operation, "failed");
       await failAiExecution({
         executionId: claimed.id,
         workerId,
         error: error instanceof Error ? error.message : "Workflow phase execution failed",
         operation: failureOperation,
         nodeStates: nodes,
-        goalProjection: params.goalId
+        ...(operation && params.goalId
           ? {
-              goalId: params.goalId,
-              workflowId: params.workflowId,
-              workflowExecutionId: params.workflowExecutionId,
-              phase: params.phaseName,
-              finalPhase: params.isFinalPhase === true,
+              goalProjection: {
+                goalId: params.goalId,
+                workflowId: params.workflowId,
+                workflowExecutionId: params.workflowExecutionId,
+                phase: params.phaseName,
+                finalPhase: params.isFinalPhase === true,
+              },
             }
-          : undefined,
+          : {}),
       });
     }
     return {
       executionId: claimed.id,
-      operationId: operation.operationId,
+      operationId: operation?.operationId ?? durable.execution.operationId ?? durable.execution.id,
       created: true,
       status: "failed",
     };

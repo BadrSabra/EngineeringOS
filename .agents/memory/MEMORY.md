@@ -10,6 +10,7 @@
 - [Discovery lease ownership](discovery-lease-ownership.md) — every discovery progress and terminal write must remain fenced by the current worker lease.
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
+- [E1–E8 stage gates](e1-e8-gates.md) — preserve the requested order; E2 stays open and E3 cannot begin until E2's explicit gate passes.
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
 - [Chat turn lifecycle contracts](chat-turn-lifecycle-index.md) — grouped pointers for persistence, cancellation, reconnect, provenance, and terminal response/acceptance boundaries.
 - [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.

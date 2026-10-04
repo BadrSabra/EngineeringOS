@@ -1791,6 +1791,103 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it("W9 keeps a workflow no-op phase successful when its acceptance response is lost", async () => {
+    const projectId = randomUUID();
+    const userId = `workflow-phase-post-acceptance-${projectId}`;
+    const workflowId = randomUUID();
+    const workflowExecutionId = randomUUID();
+    const now = new Date();
+    let acceptedBeforeInjectedError: boolean | undefined;
+    const realCompleteAiExecution = aiExecutionState.completeAiExecution;
+    const completionSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `workflow-phase-post-acceptance-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/workflow-phase-post-acceptance-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      completionSpy.mockImplementationOnce(async (params) => {
+        acceptedBeforeInjectedError = await realCompleteAiExecution(params);
+        throw new Error("fixture_workflow_phase_response_lost_after_acceptance");
+      });
+
+      const result = await executeWorkflowPhase({
+        userId,
+        projectId,
+        workflowId,
+        workflowExecutionId,
+        workflowName: "Workflow no-op response recovery",
+        phaseName: "prepare",
+        phaseSteps: [],
+        revision: now.toISOString(),
+        completedPhaseNames: [],
+      });
+
+      expect(acceptedBeforeInjectedError).toBe(true);
+      expect(result).toMatchObject({ created: true, status: "completed" });
+
+      const replayResult = await executeWorkflowPhase({
+        userId,
+        projectId,
+        workflowId,
+        workflowExecutionId,
+        workflowName: "Workflow no-op response recovery",
+        phaseName: "prepare",
+        phaseSteps: [],
+        revision: now.toISOString(),
+        completedPhaseNames: [],
+      });
+      expect(replayResult).toEqual({
+        executionId: result.executionId,
+        operationId: result.operationId,
+        created: false,
+        status: "already_completed",
+      });
+      expect(completionSpy).toHaveBeenCalledOnce();
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          operationId: aiExecutionsTable.operationId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, result.executionId));
+      expect(execution).toMatchObject({
+        status: "completed",
+        attempt: 0,
+        operationId: result.operationId,
+      });
+
+      const acceptances = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, result.executionId));
+      expect(acceptances).toEqual([{
+        attempt: 0,
+        operationId: result.operationId,
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+      }]);
+    } finally {
+      completionSpy.mockRestore();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("W8 rolls back a workflow Goal success projection and records the failed attempt", async () => {
     const projectId = randomUUID();
     const missionId = randomUUID();

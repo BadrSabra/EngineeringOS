@@ -7633,12 +7633,37 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .mockImplementation(() => undefined);
 
     try {
+      const interruptedResponse = await (async () => {
+        const responseJsonSpy = vi.spyOn(app.response, "json").mockImplementationOnce(() => {
+          throw new Error("simulated_apply_response_loss");
+        });
+        try {
+          return await request(app)
+            .post("/api/ai/chat/apply-changes")
+            .send({ projectId, proposalId, changes: [change] });
+        } finally {
+          responseJsonSpy.mockRestore();
+        }
+      })();
+      expect(interruptedResponse.status).toBe(500);
+
       const response = await request(app)
         .post("/api/ai/chat/apply-changes")
         .send({ projectId, proposalId, changes: [change] });
 
       expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.alreadyApplied).toBe(true);
       expect(response.body.results[0]).toMatchObject({ ok: true });
+      expect(await fs.readFile(`${rootPath}/${fileName}`, "utf-8")).toBe(change.newContent);
+      const mismatchedRequest = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId,
+          proposalId,
+          changes: [{ ...change, newContent: "export const changedRetry = true;\n" }],
+        });
+      expect(mismatchedRequest.status).toBe(409);
+      expect(mismatchedRequest.body.code).toBe("PROPOSAL_MISMATCH");
 
       const [execution] = await db.select({
         id: aiExecutionsTable.id,
@@ -7648,6 +7673,9 @@ describe("POST /api/ai/chat/apply-changes", () => {
       }).from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.proposalId, proposalId)).limit(1);
       expect(execution).toBeDefined();
+      expect(await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.proposalId, proposalId))).toHaveLength(1);
       expect(JSON.parse(execution!.request)).toMatchObject({
         proofRequired: true,
         effectRequired: true,
@@ -7665,6 +7693,9 @@ describe("POST /api/ai/chat/apply-changes", () => {
         disposition: aiExecutionAcceptancesTable.disposition,
       }).from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id)).limit(1);
+      expect(await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toHaveLength(1);
       expect(acceptance).toMatchObject({
         outcome: "SUCCEEDED",
         reasonCode: "ACCEPTED",
@@ -7711,6 +7742,13 @@ describe("POST /api/ai/chat/apply-changes", () => {
         }).from(aiGoalsTable).where(eq(aiGoalsTable.id, applyGoalId)).limit(1),
       };
       expect(transitions, JSON.stringify(transitionDiagnostics)).toHaveLength(1);
+      expect(await db.select({ id: aiApplyJournalTable.id })
+        .from(aiApplyJournalTable)
+        .where(and(
+          eq(aiApplyJournalTable.operationId, response.body.correlationId),
+          eq(aiApplyJournalTable.proposalId, proposalId),
+          eq(aiApplyJournalTable.stage, "APPLIED"),
+        ))).toHaveLength(1);
       expect(transitions[0]).toMatchObject({
         status: "materialized",
         effectBundleId: acceptance!.effectBundleId,
@@ -7878,6 +7916,12 @@ describe("POST /api/ai/chat/apply-changes", () => {
         }));
         expect(mismatchedProof.accepted).toBe(false);
         expect(mismatchedProof.failureReasons).toContain("apply_changes_proof_mismatch");
+        const rejectedReplay = await request(app)
+          .post("/api/ai/chat/apply-changes")
+          .send({ projectId, proposalId, changes: [change] });
+        expect(rejectedReplay.status).toBe(409);
+        expect(rejectedReplay.body.code).toBe("APPLY_REPLAY_UNVERIFIED");
+        expect(await fs.readFile(`${rootPath}/${fileName}`, "utf-8")).toBe(change.newContent);
       } finally {
         await db.update(aiExecutionEvidenceSnapshotsTable)
           .set({ artifactRefs: originalArtifactRefs })

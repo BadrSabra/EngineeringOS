@@ -2108,6 +2108,42 @@ export async function getAiExecutionForUser(
   return execution;
 }
 
+export async function hasSuccessfulAiExecutionAcceptance(params: {
+  executionId: string;
+  attempt: number;
+  operationId: string;
+}): Promise<boolean> {
+  const [record] = await db
+    .select({
+      executionStatus: aiExecutionsTable.status,
+      executionAttempt: aiExecutionsTable.attempt,
+      acceptanceAttempt: aiExecutionAcceptancesTable.attempt,
+      acceptanceOperationId: aiExecutionAcceptancesTable.operationId,
+      acceptanceTerminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      acceptanceOutcome: aiExecutionAcceptancesTable.outcome,
+    })
+    .from(aiExecutionsTable)
+    .leftJoin(aiExecutionAcceptancesTable, and(
+      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+      eq(aiExecutionAcceptancesTable.attempt, params.attempt),
+    ))
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.attempt),
+    ))
+    .limit(1);
+
+  return Boolean(
+    record
+    && record.executionStatus === "completed"
+    && record.executionAttempt === params.attempt
+    && record.acceptanceAttempt === params.attempt
+    && record.acceptanceOperationId === params.operationId
+    && record.acceptanceTerminalStatus === "completed"
+    && record.acceptanceOutcome === "SUCCEEDED",
+  );
+}
+
 export type RecipeNodeAuthorizationPhase = "start" | "completion" | "retry";
 
 export async function authorizeRecipeNodeExecution(params: {

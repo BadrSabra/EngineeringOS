@@ -4374,6 +4374,50 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يُختبر startup/reconciliation من `src/index.ts` أو workflow W9؛ بقية أسطح E2 غير مثبتة.
 - **next step:** إذا استمر E2، اختبر startup/reconciliation فقط ضمن harness provider-free ومعزول؛ لا تستخدم workflow المُدار ولا تبدأ E3–E8.
 
+### 2026-10-04 — workflow no-op وقبول W9 بعد فقد الرد
+
+- **phase/step:** E2 / W9 — إكمال حد workflow الفارغ بعد commit.
+- **status:** `partial — no-op service path and durable acceptance reload tested; non-empty phase execution remains unsupported`
+- **what changed:** صُحح الحكم السابق بأن workflow W9 غير قابل للاختبار مطلقًا. `phaseSteps=[]` يسجل no-op دائمًا بلا `AutonomousOperationContract` أو Goal/Mission projection أو Canonical Proof. بعد أن يلتزم `completeAiExecution` بقبول SUCCEEDED ثم يرمي الاختبار استثناءً، يعيد helper تحميل قبول نفس execution/attempt/operation ويرجع `completed`. الخطوات غير الفارغة لا تُنفذ هنا وتظل fail-closed حتى يتوفر دليل جوهري مربوط بالمراجعة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workflow-phase-execution.ts` واختباراه، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وذاكرة عقد workflow؛ لا schema change.
+- **validation:** `workflow-phase-execution.test.ts` — 4/4؛ اختبار W9 المركّز — 1/1 على PostgreSQL مؤقتة loopback `127.0.0.1:55432`؛ `cd artifacts/api-server && pnpm run typecheck` و`git diff --check` ناجحان.
+- **authority/safety impact:** لا تخفيف لبوابة evidence؛ no-op لا ينشئ Canonical Proof ولا يحدّث Goal/Mission؛ لا providers حية أو ملفات مشروع أو production، والاختبار استخدم قاعدة محلية مؤقتة.
+- **remaining/blocker:** لا يوجد تنفيذ فعلي للخطوات غير الفارغة؛ نجاح no-op لا يغطي response loss على route أو process crash أو كل أسطح E2.
+- **next step:** تشغيل اختبار `RUN_E2_API_PROCESS_RESTART=1` المعزول لبدء `src/index.ts` والتحقق من startup reconciliation؛ يبقى E2 مفتوحًا ولا يبدأ E3–E8.
+
+### 2026-10-04 — تصحيح تغطية E2 بعد تشغيل `src/index.ts`
+
+- **phase/step:** E2 / W9 — startup reconciliation ثم process restart بعد قبول project-query.
+- **status:** `partial — the existing full-index process test passed for project-query only`
+- **what changed:** شُغّل الاختبار الاختياري الموجود الذي يستورد `src/index.ts` في child process، ويقتل العملية بعد commit، ثم يعيد تشغيل API ويحمّل history. هذا يصحح إدخال التقدم السابق الذي قال إن `src/index.ts` لم يُختبر؛ يبقى الاختبار محصورًا في project-query وليس workflow أو جميع mutation surfaces. أُعيد أيضًا اختبار workflow W9 بعد إضافة assertion أن الاستدعاء اللاحق يعيد `already_completed` بلا acceptance ثانية.
+- **files/schema/contracts touched:** اختبار workflow integration أضاف assertion replay؛ `artifacts/api-server/src/routes/ai-stream-integration.test.ts` لم يتغير؛ تقرير الحالة وسجل التقدم؛ لا schema change.
+- **validation:** اختبار workflow W9 — 1/1؛ واختبار `RUN_E2_API_PROCESS_RESTART=1 pnpm exec vitest run src/routes/ai-stream-integration.test.ts -t "recovers accepted project analysis after full API startup and process restart"` — 1/1 (111 skipped)، على PostgreSQL مؤقتة بـ`127.0.0.1:55432` مع provider egress disabled.
+- **authority/safety impact:** لا provider حي أو ملف مشروع أو delivery خارجي أو production؛ قاعدة loopback المؤقتة فقط.
+- **remaining/blocker:** process restart مثبت لمسار project-query وحده؛ workflow no-op يملك acceptance/retry service-level لكن ليس process restart خاصًا به؛ بقية W0–W9 والأسطح مفتوحة.
+- **next step:** اختيار فجوة E2 غير مغطاة في mutation/recovery matrix وإثباتها بعقدة DB-backed معزولة؛ لا يبدأ E3–E8.
+
+### 2026-10-04 — E2 استعادة Git push بعد فقد الإقرار
+
+- **phase/step:** E2 / W9 — مصالحة الأثر البعيد عند فقد إقرار push أو receipt.
+- **status:** `partial — local route retry and exact remote commit reconciliation passed; process-crash and World Transition coverage remain open`
+- **what changed:** شُغّل اختبار route يستخدم bare remote محليًا: ينفذ push فعليًا إلى bare repo، ثم يحاكي ضياع الإقرار؛ يسجل route `GitPushRecoveryRequired`، ويقبل retry، ويثبت duplicate idempotency وأن remote HEAD هو commit المعتمد. كما شُغّل اختبار `executeVerifiedGitHubDelivery` مع request fixture بعد فقد `GitPushed`: يطابق commit hash وGit tree SHA والـsingle parent وoperation marker، ويرفض remote drift أو commit مختلف.
+- **files/schema/contracts touched:** اختبارات `artifacts/api-server/src/routes/git.test.ts` و`artifacts/api-server/src/lib/github-delivery-service.test.ts`؛ تقرير الحالة وهذا السجل؛ لا runtime/schema change.
+- **validation:** اختبار route المركّز 1/1 (5 skipped) واختبار الخدمة 1/1 (3 skipped) على PostgreSQL مؤقتة loopback `127.0.0.1:55433` بعد `pnpm run schema:apply`؛ `AI_PROVIDER_EGRESS_DISABLED=1`، ولم يُستخدم اتصال GitHub.
+- **authority/safety impact:** لا تغيير لحدود الصلاحية أو proof؛ المشروع وbare remote والـdatabase كلها fixtures محلية مؤقتة، ولا production أو network delivery.
+- **remaining/blocker:** لا يوجد process-kill test بين الأثر البعيد والكتابة المحلية، ولا World Transition عام لمسار Git؛ بقية E2 surfaces وW0–W8 لم تُغلق.
+- **next step:** فحص فجوة `apply-changes` route-level response loss بعد أثر workspace والقبول، باستخدام Git root وDB مؤقتين فقط؛ لا يبدأ E3–E8.
+
+### 2026-10-05 — E2 استعادة رد apply-changes بعد القبول
+
+- **phase/step:** E2 / W9 — استعادة طلب Apply بعد فقد الإقرار النهائي.
+- **status:** `partial — final HTTP response-loss replay passed; process-crash and cross-surface recovery remain open`
+- **what changed:** حُقن فشل مرة واحدة في `res.json` بعد اكتمال تطبيق المرشح والقبول وD2/handoff؛ الطلب الأول رجع 500، وإعادة الطلب المطابقة رجعت `alreadyApplied` بعد فحص سجل `APPLIED` المرتبط بهوية الاقتراح والمحاولة، وربط التغييرات المنفذة، وإعادة التحقق من القبول Canonical Proof عبر duplicate finalization. الطلب المعدل والإثبات المتلاعب به رُفضا بـ409.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/chat.ts` و`artifacts/api-server/src/routes/ai.test.ts`؛ تقرير الحالة وهذا السجل؛ لا تغيير schema.
+- **validation:** اختبار `accepts a Mission-linked apply through D2 and dispatches its successor` — 1/1 (193 skipped) على PostgreSQL مؤقتة loopback `127.0.0.1:55433` مع `AI_PROVIDER_EGRESS_DISABLED=1`؛ API typecheck و`git diff --check` نجحا.
+- **authority/safety impact:** لا يعاد تنفيذ الكتابة أو إنشاء acceptance أو World Transition أو dispatch؛ replay لا ينجح إلا بعد مطابقة الطلب وفحص acceptance الحالي للمحاولة نفسها. لم يُخفّف proof أو حدود الموافقة.
+- **remaining/blocker:** حقن `res.json` يختبر فقد الرد بعد اكتمال المسار، لا انهيار process قبل اكتمال الإسقاطات؛ بقية E2 surfaces ونوافذ التعافي ما زالت مفتوحة.
+- **next step:** مواصلة جرد فجوات E2 واختبارها؛ لا يبدأ E3–E8 قبل اجتياز بوابة E2 صراحة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

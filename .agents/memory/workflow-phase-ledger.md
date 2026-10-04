@@ -3,8 +3,8 @@ name: Workflow phase ledger
 description: Durable workflow phases use the shared AI execution ledger rather than a parallel worker state.
 ---
 
-Each workflow execution/phase pair has one idempotent operation identity. The current phase helper supplies no substantive evidence, so the shared autonomous operation gate rejects its success; its mocked unit test does not exercise that durable boundary. A separate non-final Goal projection can map `evidenceComplete` to `PROVEN` if it receives a successful acceptance, but the current helper cannot reach that branch.
+Each workflow execution/phase pair has one idempotent operation identity. An empty `phaseSteps` array is a true no-op: it may be durably recorded with `proofRequired=false`, but must not create an `AutonomousOperationContract`, Canonical Proof, or Goal/Mission projection. A non-empty phase remains fail-closed until substantive, revision-bound evidence exists. If completion throws after its transaction may have committed, reload acceptance for the same execution, attempt, and operation before persisting failure.
 
-**Why:** A root-directory check and server-authored node status are not substantive evidence that workflow work was performed, and the generic operation acceptance contract requires operation-bound evidence. Weakening that gate to make the phase helper succeed could turn a bookkeeping boundary into proof.
+**Why:** A root-directory check and server-authored node status do not prove declared work was performed. Keeping empty phases outside the proof-bearing operation gate preserves legacy no-op boundaries without weakening evidence requirements for real work.
 
-**How to apply:** Test phase execution through real durable acceptance, not only mocked completion. Do not infer that a phase succeeded from its local projection or relax the shared evidence gate; first define the phase success contract and add substantive, revision-bound evidence before allowing it to contribute to Goal/Mission completion.
+**How to apply:** Use DB-backed acceptance tests for no-op response-loss recovery and verify no Goal/Mission projection occurs. For non-empty phases, require substantive revision-bound evidence before acceptance or Goal/Mission completion; do not treat local phase status as proof.
