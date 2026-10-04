@@ -4231,6 +4231,17 @@ G9 Revocation Safety
 - **remaining/blocker:** اكتشاف lease لا يثبت بقاء PID أو اعتماد جلسة بعد restart ولا يعيد قبول runtime transition؛ نوافذ W0–W9 وبقية أسطح E2 ما زالت جزئية.
 - **next step:** متابعة E2 على نوافذ التعافي المتبقية دون بدء E3–E8 أو اختبار كتابة ملفات/delivery/commit/push.
 
+### 2026-10-04 — retry لإسقاط `runtime.start` بعد فشل عابر
+
+- **phase/step:** E2 / `runtime.start` — إعادة إسقاط World State بعد قبول Gate C.
+- **status:** `partial — التعافي DB-backed بعد خطأ materializer مثبت؛ adoption الفعلي للعملية وبقية نوافذ E2 مفتوحة`.
+- **what changed:** أضيف اختبار يستخدم execution acceptance ناجحًا وملاحظات before/after وchild-process attestation صالحة؛ يحقن فشلًا واحدًا عند materializer، ويتحقق من انتقال السجل إلى `retrying` دون facts أو تغيير acceptance، ثم يقدّم موعد retry ويثبت `materialized` مع المراجع نفسها ومن دون تكرار facts في المسح التالي.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/agent-state/runtime-start-transition.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** الاختبار المركّز 1/1 على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** materializer failure محقون داخل fixture؛ لا process runtime أو provider أو filesystem project write أو Git/delivery أو قاعدة dev/prod.
+- **remaining/blocker:** هذا يثبت retry لدليل مقبول داخل قاعدة الاختبار، ولا يثبت تعافي process حي أو إعادة attestation بعد restart؛ W0–W9 والتكافؤ بين بقية الأسطح ما زالا جزئيين.
+- **next step:** متابعة E2 بفرع تعافٍ آخر لا ينفذ كتابة ملفات أو delivery/commit/push؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

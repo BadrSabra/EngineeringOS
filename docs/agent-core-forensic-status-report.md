@@ -146,7 +146,7 @@
 | Task / structured task | task IDs and execution acceptance on covered paths; `executeTaskLifecycle` renews execution and task leases atomically under attempt/worker/status/live-lease fences | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | DB-backed lease-loss tests cover both task renewal fences; rejected structured heartbeats abort provider work; broader path parity remains `UNKNOWN` |
 | Workflow phase | phase/lease state on covered paths | phase node statuses and operation state; substantive execution of every declared node is not established | final Goal completion uses Canonical Proof; phase-local `PROVEN` is not acceptance | prior integration evidence shows missing required evidence can fail acceptance; broad resume/crash parity `UNKNOWN` |
 | Recipe / Mission | durable execution, attempt, Episode, lease, plan revision on covered paths | recipe-specific runner may perform local or external action; runtime.start has direct process attestation | Goal/Mission reload Canonical Proof; the declared artifact-only recipe path persists a non-empty snapshot whose node evidence must match receipt, execution/attempt, operation, revision, and candidate | positive current-attempt and negative stale-attempt tests pass for candidate validation; broader recipe-family and recovery parity remain `PARTIAL` |
-| `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; Gate C builds a bound evidence artifact | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding; Canonical loader re-derives the artifact | DB-backed stale-lease discovery and single recovery claim are tested; actual persisted process adoption, proof replay, and all crash windows remain open |
+| `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; Gate C builds a bound evidence artifact | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding; Canonical loader re-derives the artifact | DB-backed stale-lease discovery/single claim and accepted-transition retry after an injected transient projection failure are tested; actual persisted process adoption and all crash windows remain open |
 | `apply-changes` | proposal, Goal/Mission, active plan revision, execution/attempt/Episode | candidate promotion plus fresh direct before/after tree observations and EffectBundle | acceptance and transition are separately gated; transition derives `changedFactRefs` from materialized facts sourced by the selected before/after observations | no-proof recovery stays fail-closed; accepted-proof projection release and idempotency are now tested; route-level response-loss and full cross-surface recovery remain open |
 | Git commit/push | project write permission; AI commit additionally checks applied proposal/operation and promoted-tree identity | local commit and remote push are separate effects; GitHub push records remote commit metadata and a Git event | inspected AI commit path blocks missing/stale Apply proof and unrelated tree changes; the Git route has no explicit World Transition writer | external push reconciliation and World State linkage `UNKNOWN`; receipt/event do not substitute for a transition |
 
@@ -175,11 +175,14 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاعدة دائمة ولا يغطي W2–W8 لبقية
 الأسطح.
 
-**حد استعادة ملكية runtime (2026-10-04):** اختبار DB-backed على PostgreSQL
-مؤقت يثبت أن lease الحية لا تظهر كقابلة للاستعادة، وأن lease المنتهية تظهر ثم
-يستولي عليها عامل واحد فقط عبر `claimRecovery`. الاختبار لا يشغّل process ولا
-يثبت بقاء PID أو إعادة attest للعملية أو استعادة proof/transition؛ هذه النوافذ
-ما زالت جزئية.
+**حد استعادة runtime (2026-10-04):** اختبار DB-backed على PostgreSQL مؤقت يثبت
+أن lease الحية لا تظهر كقابلة للاستعادة، وأن المنتهية تظهر ثم يستولي عليها عامل
+واحد فقط عبر `claimRecovery`. واختبار آخر يحقن فشلًا عابرًا في materializer بعد
+قبول Gate C وربط الملاحظات المباشرة وchild-process attestation؛ يعيد worker
+المحاولة لاحقًا حتى `materialized` مع بقاء acceptance ناجحًا ومن دون facts
+مكررة. الفشل العابر محقون عند حد materializer، وليس عطل PostgreSQL فعليًا.
+الاختباران لا يشغّلان process ولا يثبتان بقاء PID أو adoption بعد restart؛
+استعادة العملية والـproof replay وبقية crash windows ما زالت جزئية.
 
 **حد إكمال workflow (2026-10-04):** اختبار وحدة لـ`executeWorkflowPhase` يحاكي
 خسارة حاجز `completeAiExecution` بعد وصول الحالة المحلية إلى `succeeded`؛ يجب

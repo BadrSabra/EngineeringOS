@@ -41,6 +41,7 @@ import {
   getProjectWorldState,
   materializeWorldStateForProject,
 } from "./world-state.js";
+import * as worldStateModule from "./world-state.js";
 import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
 
 const createdProjects: string[] = [];
@@ -828,6 +829,88 @@ describe("runtime.start transition retry scheduling", () => {
       outcome: "SUCCEEDED",
       effectBundleId: expect.any(String),
     });
+  });
+
+  it("recovers a transient projection failure without changing Gate C acceptance", async () => {
+    const fixture = await transitionFixture();
+    await insertValidRuntimeStartObservations(fixture);
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject")
+      .mockRejectedValueOnce(new Error("world_state_materialization_failed"));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [afterFailure] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(afterFailure).toMatchObject({
+      status: "retrying",
+      failureCode: "world_state_materialization_failed",
+      retryCount: 1,
+    });
+    expect(afterFailure?.nextRetryAt).toBeInstanceOf(Date);
+
+    const [acceptanceAfterFailure] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptanceAfterFailure).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+    const factsAfterFailure = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterFailure).toHaveLength(0);
+
+    await db.update(aiWorldTransitionsTable)
+      .set({ nextRetryAt: new Date(Date.now() - 1_000) })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    materializer.mockRestore();
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [recovered] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(recovered).toMatchObject({
+      status: "materialized",
+      failureCode: null,
+      retryCount: 1,
+      materializedObservationIds: [
+        fixture.beforeObservationId,
+        fixture.afterObservationId,
+        fixture.statusObservationId,
+        fixture.childProcessObservationId,
+      ],
+    });
+    expect(recovered?.resultingWorldRevision).toMatch(/^[a-f0-9]{64}$/);
+
+    const [acceptanceAfterRecovery] = await db.select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    expect(acceptanceAfterRecovery).toMatchObject({
+      outcome: "SUCCEEDED",
+      effectBundleId: fixture.effectBundleId,
+    });
+
+    const factsAfterRecovery = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(0);
+    const factsAfterDuplicateScan = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable)
+      .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterDuplicateScan).toEqual(factsAfterRecovery);
   });
 
   it("dispatches one Mission successor only after the exact runtime.start transition materializes", async () => {
