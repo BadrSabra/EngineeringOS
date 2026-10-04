@@ -8272,7 +8272,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(await fs.readdir(project!.rootPath)).toEqual([]);
   }, 60_000);
 
-  it("preserves proof-bearing PROJECT_QUERY acceptance when the SSE caller loses the post-commit result", async () => {
+  it("preserves proof-bearing PROJECT_QUERY acceptance after a post-commit SSE error and client disconnect", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const message = "Analyze my project architecture.";
@@ -8311,8 +8311,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       ],
     ]);
     let finalResponse = "";
+    let deliveryMode: "error" | "disconnect" = "error";
+    let disconnectExecutionId: string | undefined;
+    let signalPostCommitForDisconnect!: () => void;
+    const postCommitForDisconnect = new Promise<void>((resolve) => {
+      signalPostCommitForDisconnect = resolve;
+    });
+    let releaseFinalizer!: () => void;
+    const finalizerRelease = new Promise<void>((resolve) => {
+      releaseFinalizer = resolve;
+    });
+    let signalDisconnectRouteFinished!: () => void;
+    const disconnectRouteFinished = new Promise<void>((resolve) => {
+      signalDisconnectRouteFinished = resolve;
+    });
 
-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
       const input = args[1] as {
         objective?: {
           objectiveType?: string;
@@ -8411,11 +8425,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution")
       .mockImplementation(async (...args) => {
         const accepted = await realCompleteAiExecution(...args);
-        if (accepted) {
+        if (accepted && deliveryMode === "error") {
           acceptedBeforeInjectedError = true;
           throw new Error("fixture_response_lost_after_acceptance");
         }
+        if (accepted && deliveryMode === "disconnect") {
+          disconnectExecutionId = args[0].executionId;
+          signalPostCommitForDisconnect();
+          await finalizerRelease;
+        }
         return accepted;
+      });
+    const realUnregisterController = aiExecutionState.unregisterAiExecutionController;
+    const unregisterSpy = vi.spyOn(aiExecutionState, "unregisterAiExecutionController")
+      .mockImplementation((executionId, controller) => {
+        realUnregisterController(executionId, controller);
+        if (disconnectExecutionId === executionId) signalDisconnectRouteFinished();
       });
 
     const stream = await request(app)
@@ -8424,7 +8449,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, message });
     expect(acceptedBeforeInjectedError).toBe(true);
     expect(completeSpy).toHaveBeenCalled();
-    completeSpy.mockRestore();
 
     const [execution] = await db
       .select({
@@ -8466,6 +8490,76 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
     expect(stream.status).toBe(200);
     expect(parseSseEvents(stream.text).some((event) => event.type === "error")).toBe(true);
+
+    const disconnectProjectId = await insertProject();
+    projectIds.push(disconnectProjectId);
+    deliveryMode = "disconnect";
+    let disconnectError: Error | null = null;
+    const disconnectingStream = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId: disconnectProjectId, message });
+    const disconnectRequestFinished = new Promise<void>((resolve) => {
+      disconnectingStream.end((error) => {
+        disconnectError = error;
+        resolve();
+      });
+    });
+
+    await postCommitForDisconnect;
+    try {
+      disconnectingStream.abort();
+      await disconnectRequestFinished;
+    } finally {
+      releaseFinalizer();
+    }
+    await disconnectRouteFinished;
+    const finalizerCompletion = completeSpy.mock.results.at(-1)?.value;
+    if (finalizerCompletion) await finalizerCompletion;
+    expect(disconnectError).toBeTruthy();
+    expect(disconnectExecutionId).toEqual(expect.any(String));
+    completeSpy.mockRestore();
+    unregisterSpy.mockRestore();
+
+    const [disconnectedExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, disconnectProjectId))
+      .limit(1);
+    expect(disconnectedExecution).toMatchObject({
+      id: disconnectExecutionId,
+      sessionId: expect.any(String),
+      status: "completed",
+      finalMessageId: expect.any(String),
+    });
+    const [disconnectedAcceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, disconnectedExecution!.id))
+      .limit(1);
+    expect(disconnectedAcceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+      messageId: disconnectedExecution!.finalMessageId,
+    });
+    const disconnectedHistory = await request(app)
+      .get(`/api/ai/chat/${disconnectedExecution!.sessionId}/messages`)
+      .expect(200);
+    expect(disconnectedHistory.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: message }),
+      expect.objectContaining({
+        role: "assistant",
+        content: finalResponse,
+        outcome: "SUCCEEDED",
+      }),
+    ]));
   }, 60_000);
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {

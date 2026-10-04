@@ -167,7 +167,7 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 | W6 قبل effect persistence | قد توجد observation دون EffectBundle/credit | حدود atomicity الدقيقة لكل سطح وcrash test عندها `UNKNOWN` |
 | W7 بعد effect | bundle/refs/verdict المحفوظة قابلة لإعادة القراءة | effect ليس acceptance؛ لا يثبت وحده terminal success |
 | W8 قبل acceptance | في task ومرحلة workflow غير النهائية وstructured analyze، فشل DB بعد إدخال acceptance وأثناء إسقاط task/Goal/رسالة المساعد يثبت rollback ثم قبول `FAILED`؛ استثناء finalization يُعاد إنهاؤه تحت lease العامل نفسها، والعامل القديم لا يسجل فشلًا بعد نقل lease أو رفض `completeAiExecution` | لا يختبر process crash أو response loss بعد commit أو effect حي؛ سلامة recovery/finalize للأسطح الأخرى ما زالت `UNKNOWN` |
-| W9 بعد acceptance | task lifecycle وstructured وproject-query SSE تحفظ قبول `SUCCEEDED` بعد استثناء محقون بعد commit؛ في project-query تبقى الرسالة الدائمة والتاريخ ناجحين | اختبار SSE يعرض `error` رغم دوام القبول؛ هذا استثناء داخل العملية لا انقطاع اتصال أو موت process. workflow W9 غير مختبر لغياب evidence صالح، وبقية الأسطح ما زالت `UNKNOWN` |
+| W9 بعد acceptance | task lifecycle وstructured وproject-query SSE تحفظ قبول `SUCCEEDED` بعد استثناء محقون، واختبار SSE يقطع اتصال العميل فعليًا بعد commit ثم يستعيد الرسالة الناجحة من history | الانقطاع الفعلي لا يثبت موت process أو restart؛ workflow W9 غير مختبر لغياب evidence صالح، وبقية الأسطح ما زالت `UNKNOWN` |
 
 **تحقق محدود لـruntime.start (2026-10-04):** يكرر اختبار `workspace-runtime.test.ts`
 استدعاء `start` عبر مدير ثانٍ بعد تشغيل العملية وقبل قبول after-state، ويتحقق من
