@@ -49,7 +49,13 @@ describe("executeFileTool — search_code error handling", () => {
     };
     const originalOpendir = fs.opendir.bind(fs);
     const opendirSpy = vi.spyOn(fs, "opendir").mockImplementation(async (requestedPath, options) => {
-      if (path.resolve(String(requestedPath)) === root) {
+      let resolvedDirectory: string | undefined;
+      try {
+        resolvedDirectory = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedDirectory = undefined;
+      }
+      if (resolvedDirectory === root) {
         return fakeDirectory as unknown as Awaited<ReturnType<typeof fs.opendir>>;
       }
       return originalOpendir(requestedPath, options);
@@ -365,14 +371,25 @@ describe("executeFileTool — bounded source reads", () => {
       bytesReturned += bytesRead;
       return { bytesRead, buffer };
     });
-    const fakeHandle = { read, close: vi.fn(async () => undefined) };
     const originalOpen = fs.open.bind(fs);
     const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
       requestedPath: any,
       ...options: any[]
     ) => {
-      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
-      return originalOpen(requestedPath, ...options);
+      const handle = await originalOpen(requestedPath, ...options);
+      let resolvedPath: string | undefined;
+      try {
+        resolvedPath = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedPath = undefined;
+      }
+      if (resolvedPath !== filePath) return handle;
+      return {
+        fd: handle.fd,
+        stat: handle.stat.bind(handle),
+        read,
+        close: handle.close.bind(handle),
+      } as any;
     });
 
     try {
@@ -454,7 +471,13 @@ describe("executeFileTool — bounded source reads", () => {
       requestedPath: any,
       ...options: any[]
     ) => {
-      if (path.resolve(String(requestedPath)) === directoryPath) return fakeDirectory as any;
+      let resolvedDirectory: string | undefined;
+      try {
+        resolvedDirectory = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedDirectory = undefined;
+      }
+      if (resolvedDirectory === directoryPath) return fakeDirectory as any;
       return originalOpendir(requestedPath, ...options);
     });
 
@@ -666,14 +689,25 @@ describe("executeFileTool — read_file_range (SR-003)", () => {
       bytesReturned += bytesRead;
       return { bytesRead, buffer };
     });
-    const fakeHandle = { read, close: vi.fn(async () => undefined) };
     const originalOpen = fs.open.bind(fs);
     const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
       requestedPath: any,
       ...options: any[]
     ) => {
-      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
-      return originalOpen(requestedPath, ...options);
+      const handle = await originalOpen(requestedPath, ...options);
+      let resolvedPath: string | undefined;
+      try {
+        resolvedPath = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedPath = undefined;
+      }
+      if (resolvedPath !== filePath) return handle;
+      return {
+        fd: handle.fd,
+        stat: handle.stat.bind(handle),
+        read,
+        close: handle.close.bind(handle),
+      } as any;
     });
 
     try {
@@ -983,14 +1017,25 @@ describe("executeFileTool — safe source editing", () => {
       bytesReturned += bytesRead;
       return { bytesRead, buffer };
     });
-    const fakeHandle = { read, close: vi.fn(async () => undefined) };
     const originalOpen = fs.open.bind(fs);
     const openSpy = vi.spyOn(fs, "open").mockImplementation(async (
       requestedPath: any,
       ...options: any[]
     ) => {
-      if (path.resolve(String(requestedPath)) === filePath) return fakeHandle as any;
-      return originalOpen(requestedPath, ...options);
+      const handle = await originalOpen(requestedPath, ...options);
+      let resolvedPath: string | undefined;
+      try {
+        resolvedPath = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedPath = undefined;
+      }
+      if (resolvedPath !== filePath) return handle;
+      return {
+        fd: handle.fd,
+        stat: handle.stat.bind(handle),
+        read,
+        close: handle.close.bind(handle),
+      } as any;
     });
 
     try {
@@ -1065,7 +1110,13 @@ describe("executeFileTool — safe source editing", () => {
       ...options: any[]
     ) => {
       const handle = await originalOpen(requestedPath, ...options);
-      if (path.resolve(String(requestedPath)) !== filePath) return handle;
+      let resolvedPath: string | undefined;
+      try {
+        resolvedPath = await fs.realpath(String(requestedPath));
+      } catch {
+        resolvedPath = undefined;
+      }
+      if (resolvedPath !== filePath) return handle;
       const originalRead = handle.read.bind(handle);
       const read = vi.fn(async (...readArgs: any[]) => {
         notifyReadStarted?.();
@@ -1073,6 +1124,8 @@ describe("executeFileTool — safe source editing", () => {
         return originalRead(...readArgs);
       });
       return {
+        fd: handle.fd,
+        stat: handle.stat.bind(handle),
         read,
         close: handle.close.bind(handle),
       } as any;

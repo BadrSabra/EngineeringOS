@@ -935,7 +935,7 @@ export async function chatWithFallback(
      /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
      onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
       /** Server-owned audit lifecycle for model-dispatched tool calls. */
-      onToolInvocation?: import("@workspace/ai-orchestrator").ToolInvocationLifecycleCallback;
+      onToolInvocation: import("@workspace/ai-orchestrator").ToolInvocationLifecycleCallback;
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
     browserValidationContext?: { operationId?: string; revision?: string };
     approvedValidationProfiles?: readonly string[];

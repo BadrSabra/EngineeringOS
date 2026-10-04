@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
-import { createReadStream, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isSensitiveProjectPath, type ToolDefinition } from "./file-tools.js";
+import {
+  isSensitiveProjectPath,
+  openVerifiedProjectFile,
+  safePath,
+  type ToolDefinition,
+} from "./file-tools.js";
 
 const MAX_HASH_BYTES = 32 * 1024 * 1024;
 const MAX_HEADER_BYTES = 1_048_576;
@@ -133,22 +138,19 @@ type BinaryToolContext = {
   signal?: AbortSignal;
 };
 
-async function readHeader(filePath: string, signal?: AbortSignal): Promise<Buffer> {
+async function readHeader(
+  handle: Awaited<ReturnType<typeof fs.open>>,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   signal?.throwIfAborted();
-  const handle = await fs.open(filePath, "r");
-  try {
-    signal?.throwIfAborted();
-    const buffer = Buffer.alloc(MAX_HEADER_BYTES);
-    const { bytesRead } = await handle.read(buffer, 0, MAX_HEADER_BYTES, 0);
-    signal?.throwIfAborted();
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
+  const buffer = Buffer.alloc(MAX_HEADER_BYTES);
+  const { bytesRead } = await handle.read(buffer, 0, MAX_HEADER_BYTES, 0);
+  signal?.throwIfAborted();
+  return buffer.subarray(0, bytesRead);
 }
 
 async function hashFile(
-  filePath: string,
+  handle: Awaited<ReturnType<typeof fs.open>>,
   sizeBytes: number,
   header: Buffer,
   signal?: AbortSignal,
@@ -163,10 +165,20 @@ async function hashFile(
     signal?.throwIfAborted();
     return { digest: hash.digest("hex"), complete: false };
   }
-  const stream = createReadStream(filePath, { signal });
-  for await (const chunk of stream) {
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let position = 0;
+  while (position < sizeBytes) {
     signal?.throwIfAborted();
-    hash.update(chunk as Buffer);
+    const { bytesRead } = await handle.read(
+      buffer,
+      0,
+      Math.min(buffer.length, sizeBytes - position),
+      position,
+    );
+    signal?.throwIfAborted();
+    if (bytesRead === 0) return { digest: hash.digest("hex"), complete: false };
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
   }
   signal?.throwIfAborted();
   return { digest: hash.digest("hex"), complete: true };
@@ -283,20 +295,16 @@ export async function executeBinaryTool(
     });
   }
   const normalizedPath = normalizeProjectPath(requestedPath);
+  let fileHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     const root = await fs.realpath(path.resolve(rootPath));
-    const candidate = path.resolve(root, requestedPath);
-    if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
-      throw new Error("outside-root");
-    }
-    const realPath = await fs.realpath(candidate);
-    if (realPath !== root && !realPath.startsWith(`${root}${path.sep}`)) {
-      throw new Error("outside-root");
-    }
-    const stat = await fs.stat(realPath);
+    const realPath = await safePath(root, requestedPath);
+    if (!realPath) throw new Error("outside-root");
+    fileHandle = await openVerifiedProjectFile(root, realPath, context.signal);
+    const stat = await fileHandle.stat();
     context.signal?.throwIfAborted();
     if (!stat.isFile()) throw new Error("not-file");
-    const headerBytes = await readHeader(realPath, context.signal);
+    const headerBytes = await readHeader(fileHandle, context.signal);
     context.signal?.throwIfAborted();
     const metadata = detectFormat(headerBytes, requestedPath);
     const supportedKind = metadata.mediaType === "image/png"
@@ -315,7 +323,7 @@ export async function executeBinaryTool(
         workspaceRevision: context.revision,
       });
     }
-    const hash = await hashFile(realPath, stat.size, headerBytes, context.signal);
+    const hash = await hashFile(fileHandle, stat.size, headerBytes, context.signal);
     if (!hash.complete) {
       return JSON.stringify({
         tool: name,
@@ -372,5 +380,7 @@ export async function executeBinaryTool(
       operationId: context.operationId,
       workspaceRevision: context.revision,
     });
+  } finally {
+    await fileHandle?.close().catch(() => undefined);
   }
 }

@@ -1,6 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { isSensitiveProjectPath, type ToolDefinition } from "./file-tools.js";
+import {
+  isSensitiveProjectPath,
+  openVerifiedProjectFile,
+  safePath,
+  type ToolDefinition,
+} from "./file-tools.js";
 
 const MAX_MANIFEST_BYTES = 512_000;
 const ALLOWED_MANIFESTS = new Set(["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"]);
@@ -43,18 +48,33 @@ async function readProjectFile(
 ): Promise<string | undefined> {
   signal?.throwIfAborted();
   if (!ALLOWED_MANIFESTS.has(relativePath) || isSensitiveProjectPath(relativePath)) return undefined;
-  const absolutePath = path.resolve(root, relativePath);
-  if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) return undefined;
+  const absolutePath = await safePath(root, relativePath);
+  if (!absolutePath) return undefined;
   try {
-    const realPath = await fs.realpath(absolutePath);
-    signal?.throwIfAborted();
-    if (realPath !== root && !realPath.startsWith(`${root}${path.sep}`)) return undefined;
-    const stat = await fs.stat(realPath);
-    signal?.throwIfAborted();
-    if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) return undefined;
-    const text = await fs.readFile(realPath, { encoding: "utf8", signal });
-    signal?.throwIfAborted();
-    return text;
+    const handle = await openVerifiedProjectFile(root, absolutePath, signal);
+    try {
+      const stat = await handle.stat();
+      signal?.throwIfAborted();
+      if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) return undefined;
+      const buffer = Buffer.allocUnsafe(MAX_MANIFEST_BYTES + 1);
+      let totalBytesRead = 0;
+      while (totalBytesRead < buffer.length) {
+        signal?.throwIfAborted();
+        const { bytesRead } = await handle.read(
+          buffer,
+          totalBytesRead,
+          buffer.length - totalBytesRead,
+          totalBytesRead,
+        );
+        signal?.throwIfAborted();
+        if (bytesRead === 0) break;
+        totalBytesRead += bytesRead;
+      }
+      if (totalBytesRead > MAX_MANIFEST_BYTES) return undefined;
+      return buffer.subarray(0, totalBytesRead).toString("utf8");
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
   } catch (error) {
     if (signal?.aborted) throw error;
     return undefined;

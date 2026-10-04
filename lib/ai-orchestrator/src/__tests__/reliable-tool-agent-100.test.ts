@@ -935,12 +935,14 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       surface: "tool_body",
     });
     expect(TOOL_OPERATIONAL_METADATA.run_validation.outputBound).toMatchObject({
-      kind: "unspecified",
-      reason: expect.stringContaining("2,000,000 bytes"),
+      kind: "fixed_bytes",
+      maxBytes: 1_000_000,
+      surface: "serialized_result",
     });
     expect(TOOL_OPERATIONAL_METADATA.run_browser_validation.outputBound).toMatchObject({
-      kind: "unspecified",
-      reason: expect.stringContaining("profile-derived evidence fields"),
+      kind: "fixed_bytes",
+      maxBytes: 1_000_000,
+      surface: "serialized_result",
     });
     expect(TOOL_OPERATIONAL_METADATA.refresh_project_scan.replay.durableRecovery)
       .toBe("block_after_prior_marker");
@@ -1345,7 +1347,7 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
   it.each(["run_validation", "run_browser_validation", "run_command"] as const)(
     "$name rejects oversized runner output before JSON serialization",
     async (name) => {
-      const oversized = "T8_RUNNER_OUTPUT_LIMIT".repeat(180_000);
+      const oversized = "T8_RUNNER_OUTPUT_LIMIT".repeat(60_000);
       const overrides: Partial<SingleToolOpts> = {};
       if (name === "run_validation") {
         overrides.validationRunner = async (profile) => ({

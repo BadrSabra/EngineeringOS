@@ -9,6 +9,7 @@ import type {
 import path from "node:path";
 import { runBoundedCommand, EXECUTION_LIMITS, type BoundedCommandResult } from "../execution-kernel.js";
 import {
+  MAX_VALIDATION_TOOL_RESULT_BYTES,
   MAX_TOOL_OUTPUT_SERIALIZATION_BYTES,
   stringifyJsonWithinByteLimit,
 } from "../tool-output-bounds.js";
@@ -355,7 +356,10 @@ export async function executeBrowserValidationTool(
   if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
     throw new BrowserValidationDeadlineExceededError();
   }
-  return stringifyJsonWithinByteLimit({ tool: name, ...result });
+  return stringifyJsonWithinByteLimit(
+    { tool: name, ...result },
+    MAX_VALIDATION_TOOL_RESULT_BYTES,
+  );
 }
 
 function commandResultCode(status: BoundedCommandResult["status"]): string {
@@ -490,5 +494,8 @@ export async function executeValidationTool(
         : await runner(profile, targetPaths, signal, pendingChanges);
   const result = normalizeValidationResult(profile, rawResult);
   signal?.throwIfAborted();
-  return stringifyJsonWithinByteLimit({ tool: name, ...result });
+  return stringifyJsonWithinByteLimit(
+    { tool: name, ...result },
+    MAX_VALIDATION_TOOL_RESULT_BYTES,
+  );
 }

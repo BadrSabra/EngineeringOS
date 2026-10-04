@@ -168,6 +168,9 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
 
 const VALIDATION_OUTPUT_LIMIT = 12_000;
 const VALIDATION_DETAIL_LIMIT = 4_000;
+export const VALIDATION_WORKSPACE_MAX_ENTRIES = 50_000;
+export const VALIDATION_WORKSPACE_MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const VALIDATION_WORKSPACE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 // Validation workspaces are disposable execution sandboxes, not durable
 // project roots. Do not use os.tmpdir() here: TMPDIR can be redirected into
 // .engineeringos-delivery, where the host discovers copied artifact metadata
@@ -217,7 +220,9 @@ export async function createValidationWorkspace(
   rootPath: string,
   pendingChanges: readonly PendingValidationChange[],
   prepare?: (workspaceRootPath: string) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
+  if (signal?.aborted) throw new Error("validation_workspace_cancelled");
   if (pendingChanges.length === 0 && !prepare) {
     return { rootPath, cleanup: async () => {} };
   }
@@ -229,15 +234,37 @@ export async function createValidationWorkspace(
   const sourceRoot = await fs.realpath(rootPath);
   const workspaceRoot = await createHostDisposableTempDirectory("engineeringos-validation-");
   try {
+    let copiedEntries = 0;
+    let copiedBytes = 0;
     await fs.cp(sourceRoot, workspaceRoot, {
       recursive: true,
       dereference: false,
-      filter: (source) => {
+      filter: async (source) => {
+        if (signal?.aborted) throw new Error("validation_workspace_cancelled");
         const relative = path.relative(sourceRoot, source);
+        if (!relative) return true;
         const firstSegment = relative.split(path.sep)[0];
-        return !VALIDATION_COPY_OMIT.has(firstSegment);
+        if (VALIDATION_COPY_OMIT.has(firstSegment)) return false;
+
+        const stat = await fs.lstat(source);
+        if (signal?.aborted) throw new Error("validation_workspace_cancelled");
+        copiedEntries += 1;
+        if (copiedEntries > VALIDATION_WORKSPACE_MAX_ENTRIES) {
+          throw new Error("validation_workspace_entry_limit_exceeded");
+        }
+        if (stat.isFile()) {
+          if (stat.size > VALIDATION_WORKSPACE_MAX_FILE_BYTES) {
+            throw new Error("validation_workspace_file_limit_exceeded");
+          }
+          copiedBytes += stat.size;
+          if (copiedBytes > VALIDATION_WORKSPACE_MAX_TOTAL_BYTES) {
+            throw new Error("validation_workspace_total_limit_exceeded");
+          }
+        }
+        return true;
       },
     });
+    if (signal?.aborted) throw new Error("validation_workspace_cancelled");
 
     const originalModules = path.join(sourceRoot, "node_modules");
     const overlayModules = path.join(workspaceRoot, "node_modules");
@@ -268,9 +295,12 @@ export async function createValidationWorkspace(
       }
     }
 
+    if (signal?.aborted) throw new Error("validation_workspace_cancelled");
     await prepare?.(workspaceRoot);
+    if (signal?.aborted) throw new Error("validation_workspace_cancelled");
 
     for (const change of pendingChanges) {
+      if (signal?.aborted) throw new Error("validation_workspace_cancelled");
       const relative = change.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
       const target = path.resolve(workspaceRoot, relative);
       if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
@@ -711,7 +741,12 @@ async function runRepairValidationCore(
 
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   try {
-    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+    validationWorkspace = await createValidationWorkspace(
+      rootPath,
+      pendingChanges,
+      undefined,
+      signal,
+    );
     for (const requiredFile of definition.requiredFiles) {
       await fs.access(path.resolve(validationWorkspace.rootPath, requiredFile));
     }
@@ -1086,7 +1121,12 @@ async function runRepairRuntimeValidationOperation(
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   let environmentRevision: string | null = null;
   try {
-    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
+    validationWorkspace = await createValidationWorkspace(
+      rootPath,
+      pendingChanges,
+      prepare,
+      signal,
+    );
     const validatorEnvironment = { ...process.env };
     const resolvedCommand = await resolveRegisteredValidatorCommand(
       command.command,
@@ -1192,10 +1232,13 @@ async function runRepairRuntimeValidationOperation(
           : "Review the bounded runtime failure before requesting a scoped repair.",
     });
   } catch (error) {
-    const detail = boundedDetail(error instanceof Error ? error.message : String(error));
+    const cancelled = signal.aborted;
+    const detail = cancelled
+      ? "Runtime behavioral oracle was cancelled before validation completed."
+      : boundedDetail(error instanceof Error ? error.message : String(error));
     return withValidationFailureKind({
       profile: "runtime-oracle",
-      status: "unavailable",
+      status: cancelled ? "blocked" : "unavailable",
       scenario: "Run the server-registered runtime oracle against the isolated candidate.",
       command: [command.command, ...command.args].join(" ").slice(0, 240),
       exitCode: null,
@@ -1206,19 +1249,21 @@ async function runRepairRuntimeValidationOperation(
       evidence: {
         evidenceId,
         observedAt: new Date().toISOString(),
-        artifactRef: "runtime-oracle:error",
+        artifactRef: cancelled ? "runtime-oracle:cancelled" : "runtime-oracle:error",
         environmentRevision: null,
         ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
         ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
         ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),
       },
       detail,
-      terminalState: "unavailable",
+      terminalState: cancelled ? "blocked" : "unavailable",
       processBudgetMs: config.validationProcessTimeoutMs,
       overallBudgetMs: config.validationOverallTimeoutMs,
       elapsedMs: Date.now() - startedAt,
       remainingMs: Math.max(0, config.validationOverallTimeoutMs - (Date.now() - startedAt)),
-      nextAction: "Restore the registered runtime oracle or workspace, then rerun validation.",
+      nextAction: cancelled
+        ? "Resume the cancelled operation before attempting repair."
+        : "Restore the registered runtime oracle or workspace, then rerun validation.",
     });
   } finally {
     await validationWorkspace?.cleanup();

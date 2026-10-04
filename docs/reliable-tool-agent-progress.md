@@ -97,6 +97,14 @@
 - امتد فحص AST في `reliable-tool-agent-100.test.ts` ليشمل raw file/Git/command/package/binary calls، ويثبت استعمال executors داخل `executeSingleTool` فقط ضمن ملفات orchestrator الإنتاجية. فحص آخر يسمح باستيراد server-internal subpath من `ai-repair-validation.ts` و`routes/ai/chat.ts` فقط في API source.
 - التحقق: boundary suite **4/4**؛ `ai-repair-validation.test.ts` **15/15**؛ Orchestrator وAPI typechecks ناجحان. أُعيد بناء وتشغيل API workflow وظهر `Server listening` على 8080. هذا يغلق E1 على حدود الاستيراد الحالية فقط؛ لا يغلق حدود الموارد والمهلة والإلغاء وreplay لكل أداة، ولا Reliable Tool Agent ككل.
 
+### إغلاق سباق فتح الملفات والمجلدات (2026-10-04)
+
+- لم يعد `safePath` وحده هو حاجز القراءة: تفتح أدوات الملفات والتنقل والحزم والثنائيات المسار عبر مقبض جذر المشروع، ثم تتحقق من المسار الفعلي للمقبض قبل قراءة المحتوى. فتح الملفات والمجلدات يرفض الرابط الرمزي النهائي، وتُجرى قراءة الملف وفهرسة المجلد من المقابض المفتوحة نفسها. يشمل ذلك `read_file`, `read_file_range`, `search_code`, `list_directory`, شجرة المشروع، AST navigation، manifests، وبيانات PNG/PDF.
+- بقي Git مثبتًا إلى مقبض جذر مفتوح طوال الأمر، مع بيئة Git منقّاة ومسارات diff حرفية. `git_diff` ما زال path-based وليس inode-pinned؛ اختبار adversarial عبر Git الحقيقي يستبدل الملف المختار ثم المجلد الأب برابطين رمزيين إلى خارج المشروع، ولا يظهر محتوى الهدف الخارجي في النتيجة.
+- التحقق الحالي: اختبارات مسارات الملفات والتنقل والحزم والثنائيات **59/59**؛ T8 ومحرك الأدوات والسياسة وGit timeout **475/475**؛ `ai-repair-validation.test.ts` **17/17**؛ workspace وOrchestrator typechecks و`git diff --check` نجحت.
+- بناء API نجح، لكن تشغيله توقف عند schema readiness gate بسبب جدول وعمود وenum وفهارس ناقصة في قاعدة البيانات الحالية. لم أشغّل `schema:apply` أو أي DDL دون موافقة؛ لذلك تحقق التشغيل الحي محجوب على هذه البيئة.
+- لم تُشغّل اختبارات lifecycle التي تكتب إلى قاعدة البيانات أو DDL، ولم يُتحقق Chromium الحقيقي. يظل Reliable Tool Agent ككل **PARTIAL / UNDER VERIFICATION** بسبب إثباتات audit/Episode الشاملة وحدود runners المفوضة؛ لا يُستنتج إغلاق عام من نجاح هذه المجموعات.
+
 ### تدقيق احتواء مسار Git (2026-10-04)
 
 - `git_diff` يتحقق الآن من المسار عبر root canonical وrealpath guard المشترك مع file tools، ويرفض symlink الذي يصل إلى خارج المشروع.

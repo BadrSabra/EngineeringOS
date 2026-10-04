@@ -215,6 +215,7 @@ import {
 import {
   launchPreviewBrowser,
   PreviewSessionManager,
+  validateRegisteredBrowserProfile,
   type PreviewBrowser,
   type PreviewStep,
 } from "../../lib/browser-preview-verification.js";
@@ -10424,13 +10425,40 @@ export async function handleChatStream(req: Request, res: Response) {
                   : "ownership") as BrowserValidationBlockReason,
             };
           }
-          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+          let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
           let browser: PreviewBrowser | undefined;
           try {
+            validateRegisteredBrowserProfile({
+              name: browserValidationProfile.name,
+              revision: browserValidationProfile.revision,
+              permittedOrigin: browserValidationProfile.permittedOrigin,
+              steps: browserValidationProfile.steps as PreviewStep[],
+              timeoutMs: browserValidationProfile.timeoutMs,
+            });
+            const expectedRevision = request.revision ?? analysisCorrelation.projectRevision;
+            if (browserValidationProfile.revision !== expectedRevision) {
+              throw new Error("Browser validation profile revision is stale.");
+            }
             if (request.signal?.aborted) throw new Error("Browser validation was cancelled.");
+            if (
+              request.deadlineAt !== undefined
+              && (!Number.isFinite(request.deadlineAt) || Date.now() >= request.deadlineAt)
+            ) {
+              throw new Error("Browser validation request deadline exceeded.");
+            }
+            workspace = await createValidationWorkspace(
+              request.rootPath,
+              request.pendingChanges ?? [],
+              undefined,
+              request.signal,
+            );
+            if (request.signal?.aborted) throw new Error("Browser validation was cancelled.");
+            if (request.deadlineAt !== undefined && Date.now() >= request.deadlineAt) {
+              throw new Error("Browser validation request deadline exceeded.");
+            }
             const session = await browserValidationManager!.start({
               projectRoot: workspace.rootPath,
-              revision: request.revision ?? analysisCorrelation.projectRevision,
+              revision: expectedRevision,
               port: 4300,
               lifetimeMs: 60_000,
               signal: request.signal,
@@ -10459,9 +10487,9 @@ export async function handleChatStream(req: Request, res: Response) {
               operationId: request.operationId ?? analysisCorrelation.operationId,
               executionId: request.executionId ?? aiExecution?.id ?? "browser-validation",
               executionAttempt: request.executionAttempt ?? aiExecution?.attempt,
-              revision: request.revision ?? analysisCorrelation.projectRevision,
+              revision: expectedRevision,
               contract: {
-                revision: request.revision ?? analysisCorrelation.projectRevision,
+                revision: expectedRevision,
                 permittedOrigin: browserValidationProfile.permittedOrigin,
                 steps: browserValidationProfile.steps as PreviewStep[],
                 timeoutMs: browserValidationProfile.timeoutMs,
@@ -10490,7 +10518,7 @@ export async function handleChatStream(req: Request, res: Response) {
               detail: "Preview browser validation was unavailable.",
               reasonCode: (error instanceof Error && /stale/i.test(error.message)
                 ? "stale_revision"
-                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+                : error instanceof Error && /limit|timeout|deadline|steps|selector|screenshot/i.test(error.message)
                   ? "resource_limit"
                   : "invalid_profile") as BrowserValidationBlockReason,
             };
@@ -10503,7 +10531,7 @@ export async function handleChatStream(req: Request, res: Response) {
             try {
               await browserValidationManager!.stop();
             } finally {
-              await workspace.cleanup();
+              await workspace?.cleanup();
             }
           }
         }

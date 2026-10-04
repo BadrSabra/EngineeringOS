@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { executeBrowserValidationTool, executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
 import { executeSingleTool } from "../tool-execution-engine.js";
+import { MAX_VALIDATION_TOOL_RESULT_BYTES, ToolOutputLimitExceeded } from "../tool-output-bounds.js";
 
 describe("execution tools", () => {
   it("runs only a server-owned browser profile and returns structured evidence", async () => {
@@ -145,6 +146,46 @@ describe("execution tools", () => {
       code: "VALIDATION_PROFILE_REQUIRED",
     });
   });
+
+  it.each(["run_validation", "run_browser_validation"] as const)(
+    "%s rejects a result above the shared serialized-result ceiling before JSON serialization",
+    async (name) => {
+      const oversized = "bounded-result".repeat(
+        Math.ceil((MAX_VALIDATION_TOOL_RESULT_BYTES + 1) / "bounded-result".length),
+      );
+      const runValidation = () => executeValidationTool(
+        "run_validation",
+        { profile: "workspace-typecheck" },
+        [],
+        async (profile) => ({ status: "passed", profile, stdout: oversized }),
+      );
+      const runBrowserValidation = () => executeBrowserValidationTool(
+        "run_browser_validation",
+        { profile: "dashboard-preview" },
+        "/project",
+        async ({ profile }) => ({
+          profile,
+          status: "passed",
+          scenario: "Preview checks",
+          command: "browser-preview",
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            evidenceId: "browser-evidence",
+            observedAt: "2026-01-01T00:00:00.000Z",
+            artifactRef: "browser-preview:session:operation",
+          },
+          detail: oversized,
+        }),
+      );
+
+      await expect(name === "run_validation" ? runValidation() : runBrowserValidation())
+        .rejects.toBeInstanceOf(ToolOutputLimitExceeded);
+    },
+  );
 
   it("blocks dispatcher execution outside Build mode", async () => {
     const runner = vi.fn().mockResolvedValue({ status: "passed", profile: "workspace-typecheck" });

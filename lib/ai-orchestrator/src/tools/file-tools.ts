@@ -5,9 +5,13 @@
  * model read and write access to the actual project source files.
  *
  * Security contract:
- *   - rootPath is resolved with fs.realpath once per executeFileTool call.
- *   - All caller-supplied paths are checked lexically first, then with
- *     fs.realpath so that symlinks pointing outside the root are caught.
+ *   - rootPath is canonicalized, then reads/listings pin and verify an open
+ *     project-root descriptor for each operation.
+ *   - safePath is a scope check, not a read capability: actual file and
+ *     directory access goes through verified open descriptors before bytes or
+ *     entries are exposed.
+ *   - Caller-supplied paths are checked lexically and with fs.realpath so
+ *     stable symlinks pointing outside the root are rejected early.
  *   - Null bytes are rejected explicitly before any path operation.
  *   - read_file / list_directory / search_code execute immediately.
  *   - write_file / replace_text NEVER write to disk — they queue a PendingChange that the
@@ -15,7 +19,7 @@
  *   - search_code walks a bounded project file set, passes capped file bytes to
  *     grep over stdin, and supplies the pattern as a plain argv entry (no shell).
  */
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { type PendingChange } from "../schemas/chat.schema.js";
@@ -439,6 +443,139 @@ export async function safePath(resolvedRoot: string, filePath: string): Promise<
   return real;
 }
 
+type OpenFileHandle = Awaited<ReturnType<typeof fs.open>>;
+
+function isPathWithinRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === ""
+    || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
+}
+
+function procFileDescriptorPath(handle: OpenFileHandle): string {
+  return `/proc/${process.pid}/fd/${handle.fd}`;
+}
+
+export function projectDirectoryDescriptorPath(handle: OpenFileHandle): string {
+  return procFileDescriptorPath(handle);
+}
+
+async function openPinnedProjectRoot(rootPath: string): Promise<{
+  canonicalPath: string;
+  handle: OpenFileHandle;
+}> {
+  const canonicalPath = await fs.realpath(path.resolve(rootPath));
+  const before = await fs.lstat(canonicalPath);
+  if (!before.isDirectory() || before.isSymbolicLink()) {
+    throw new Error("project_root_not_directory");
+  }
+  const handle = await fs.open(
+    canonicalPath,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+  );
+  try {
+    const opened = await handle.stat();
+    const openedPath = await fs.realpath(procFileDescriptorPath(handle));
+    if (
+      !opened.isDirectory()
+      || opened.dev !== before.dev
+      || opened.ino !== before.ino
+      || openedPath !== canonicalPath
+    ) {
+      throw new Error("project_root_identity_changed");
+    }
+    return { canonicalPath, handle };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Open a previously validated project file through a pinned root descriptor,
+ * then verify the opened inode's real path before any content is read. This
+ * closes the safePath check-then-open window for symlink and parent swaps.
+ */
+export async function openVerifiedProjectFile(
+  rootPath: string,
+  absolutePath: string,
+  signal?: AbortSignal,
+): Promise<OpenFileHandle> {
+  assertFileOperationActive(signal);
+  const root = await openPinnedProjectRoot(rootPath);
+  let fileHandle: OpenFileHandle | undefined;
+  try {
+    const candidate = path.resolve(absolutePath);
+    if (!isPathWithinRoot(root.canonicalPath, candidate)) {
+      throw new Error("project_file_path_outside_root");
+    }
+    const relative = path.relative(root.canonicalPath, candidate);
+    const rootDescriptorPath = procFileDescriptorPath(root.handle);
+    const anchoredPath = relative ? path.join(rootDescriptorPath, relative) : `${rootDescriptorPath}/.`;
+    fileHandle = await fs.open(
+      anchoredPath,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    );
+    assertFileOperationActive(signal);
+    const openedRootPath = await fs.realpath(procFileDescriptorPath(root.handle));
+    const openedFilePath = await fs.realpath(procFileDescriptorPath(fileHandle));
+    const stat = await fileHandle.stat();
+    if (
+      openedRootPath !== root.canonicalPath
+      || !isPathWithinRoot(openedRootPath, openedFilePath)
+      || !stat.isFile()
+    ) {
+      throw new Error("project_file_identity_changed");
+    }
+    return fileHandle;
+  } catch (error) {
+    await fileHandle?.close().catch(() => undefined);
+    throw error;
+  } finally {
+    await root.handle.close().catch(() => undefined);
+  }
+}
+
+/** Open and pin a project directory before enumerating any of its entries. */
+export async function openVerifiedProjectDirectory(
+  rootPath: string,
+  absolutePath: string,
+  signal?: AbortSignal,
+): Promise<OpenFileHandle> {
+  assertFileOperationActive(signal);
+  const root = await openPinnedProjectRoot(rootPath);
+  let directoryHandle: OpenFileHandle | undefined;
+  try {
+    const candidate = path.resolve(absolutePath);
+    if (!isPathWithinRoot(root.canonicalPath, candidate)) {
+      throw new Error("project_directory_path_outside_root");
+    }
+    const relative = path.relative(root.canonicalPath, candidate);
+    const rootDescriptorPath = procFileDescriptorPath(root.handle);
+    const anchoredPath = relative ? path.join(rootDescriptorPath, relative) : `${rootDescriptorPath}/.`;
+    directoryHandle = await fs.open(
+      anchoredPath,
+      fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+    );
+    assertFileOperationActive(signal);
+    const openedRootPath = await fs.realpath(procFileDescriptorPath(root.handle));
+    const openedDirectoryPath = await fs.realpath(procFileDescriptorPath(directoryHandle));
+    const stat = await directoryHandle.stat();
+    if (
+      openedRootPath !== root.canonicalPath
+      || !isPathWithinRoot(openedRootPath, openedDirectoryPath)
+      || !stat.isDirectory()
+    ) {
+      throw new Error("project_directory_identity_changed");
+    }
+    return directoryHandle;
+  } catch (error) {
+    await directoryHandle?.close().catch(() => undefined);
+    throw error;
+  } finally {
+    await root.handle.close().catch(() => undefined);
+  }
+}
+
 /**
  * Strip the `File: <path>\n```\n<content>\n```\n` wrapper that executeFileTool
  * prepends to a read_file result, leaving only the raw file body.
@@ -478,48 +615,40 @@ async function listManagedProjectTree(rootPath: string, signal?: AbortSignal): P
   let scannedEntries = 0;
   let truncated = false;
 
-  const verifyDirectory = async (absolutePath: string): Promise<void> => {
-    signal?.throwIfAborted();
-    const stat = await fs.lstat(absolutePath);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new Error("project_tree_directory_changed");
-    }
-    const realPath = await fs.realpath(absolutePath);
-    if (
-      realPath !== absolutePath
-      || (realPath !== canonicalRoot && !realPath.startsWith(`${canonicalRoot}${path.sep}`))
-    ) {
-      throw new Error("project_tree_path_outside_root");
-    }
-  };
-
   const walk = async (relativeDirectory: string, depth: number): Promise<void> => {
     signal?.throwIfAborted();
     const absoluteDirectory = relativeDirectory
       ? path.join(canonicalRoot, ...relativeDirectory.split("/"))
       : canonicalRoot;
-    await verifyDirectory(absoluteDirectory);
-
-    const directory = await fs.opendir(absoluteDirectory);
+    const directoryHandle = await openVerifiedProjectDirectory(
+      canonicalRoot,
+      absoluteDirectory,
+      signal,
+    );
     const children: Array<{ name: string; kind: "directory" | "file" }> = [];
     try {
-      for await (const item of directory) {
-        signal?.throwIfAborted();
-        scannedEntries += 1;
-        if (
-          scannedEntries > MAX_PROJECT_TREE_SCANNED_ENTRIES
-          || children.length >= MAX_PROJECT_TREE_DIRECTORY_ENTRIES
-        ) {
-          throw new Error("project_tree_scan_limit_exceeded");
+      const directory = await fs.opendir(procFileDescriptorPath(directoryHandle));
+      try {
+        for await (const item of directory) {
+          signal?.throwIfAborted();
+          scannedEntries += 1;
+          if (
+            scannedEntries > MAX_PROJECT_TREE_SCANNED_ENTRIES
+            || children.length >= MAX_PROJECT_TREE_DIRECTORY_ENTRIES
+          ) {
+            throw new Error("project_tree_scan_limit_exceeded");
+          }
+          if (item.isSymbolicLink() || (!item.isDirectory() && !item.isFile())) continue;
+          if (item.isDirectory() && SKIP_DIRS.has(item.name)) continue;
+          const childPath = relativeDirectory ? `${relativeDirectory}/${item.name}` : item.name;
+          if (isSensitiveTreePath(childPath)) continue;
+          children.push({ name: item.name, kind: item.isDirectory() ? "directory" : "file" });
         }
-        if (item.isSymbolicLink() || (!item.isDirectory() && !item.isFile())) continue;
-        if (item.isDirectory() && SKIP_DIRS.has(item.name)) continue;
-        const childPath = relativeDirectory ? `${relativeDirectory}/${item.name}` : item.name;
-        if (isSensitiveTreePath(childPath)) continue;
-        children.push({ name: item.name, kind: item.isDirectory() ? "directory" : "file" });
+      } finally {
+        await directory.close().catch(() => undefined);
       }
     } finally {
-      await directory.close().catch(() => undefined);
+      await directoryHandle.close().catch(() => undefined);
     }
 
     children.sort((left, right) =>
@@ -537,9 +666,19 @@ async function listManagedProjectTree(rootPath: string, signal?: AbortSignal): P
         ? `${relativeDirectory}/${child.name}`
         : child.name;
       const childAbsolutePath = path.join(canonicalRoot, ...childRelativePath.split("/"));
-      const childStat = await fs.lstat(childAbsolutePath);
-      if (childStat.isSymbolicLink()) continue;
       if (child.kind === "directory") {
+        let childDirectory: OpenFileHandle;
+        try {
+          childDirectory = await openVerifiedProjectDirectory(
+            canonicalRoot,
+            childAbsolutePath,
+            signal,
+          );
+        } catch {
+          continue;
+        }
+        const childStat = await childDirectory.stat();
+        await childDirectory.close().catch(() => undefined);
         if (!childStat.isDirectory()) continue;
         entries.push({ path: childRelativePath, kind: "directory" });
         if (depth + 1 < MAX_PROJECT_TREE_DEPTH) {
@@ -550,6 +689,18 @@ async function listManagedProjectTree(rootPath: string, signal?: AbortSignal): P
           }
         }
       } else {
+        let childFile: OpenFileHandle;
+        try {
+          childFile = await openVerifiedProjectFile(
+            canonicalRoot,
+            childAbsolutePath,
+            signal,
+          );
+        } catch {
+          continue;
+        }
+        const childStat = await childFile.stat();
+        await childFile.close().catch(() => undefined);
         if (!childStat.isFile()) continue;
         entries.push({
           path: childRelativePath,
@@ -640,8 +791,11 @@ async function readBoundedFilePrefix(
   filePath: string,
   maxBytes: number,
   signal?: AbortSignal,
+  rootPath?: string,
 ): Promise<{ bytes: Buffer; truncated: boolean; bytesRead: number }> {
-  const handle = await fs.open(filePath, "r");
+  const handle = rootPath
+    ? await openVerifiedProjectFile(rootPath, filePath, signal)
+    : await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
     assertFileOperationActive(signal);
     const buffer = Buffer.allocUnsafe(maxBytes + 1);
@@ -824,7 +978,11 @@ async function collectBoundedSearchFiles(
       continue;
     }
 
-    const directory = await fs.opendir(realDirectoryPath);
+    const directoryHandle = await openVerifiedProjectDirectory(
+      rootPath,
+      realDirectoryPath,
+      signal,
+    );
     const children: Array<{
       absolutePath: string;
       relativePath: string;
@@ -832,40 +990,40 @@ async function collectBoundedSearchFiles(
       kind: "directory" | "file";
     }> = [];
     try {
-      for await (const entry of directory) {
-        assertFileOperationActive(signal);
-        scannedEntries += 1;
-        if (scannedEntries > MAX_SEARCH_SCANNED_ENTRIES) {
-          truncated = true;
-          break;
-        }
-        if (entry.isSymbolicLink()) continue;
-        if (!entry.isDirectory() && !entry.isFile()) continue;
+      const directory = await fs.opendir(procFileDescriptorPath(directoryHandle));
+      try {
+        for await (const entry of directory) {
+          assertFileOperationActive(signal);
+          scannedEntries += 1;
+          if (scannedEntries > MAX_SEARCH_SCANNED_ENTRIES) {
+            truncated = true;
+            break;
+          }
+          if (entry.isSymbolicLink()) continue;
+          if (!entry.isDirectory() && !entry.isFile()) continue;
 
-        const relativePath = current.relativePath
-          ? `${current.relativePath}/${entry.name}`
-          : entry.name;
-        if (isSensitiveTreePath(relativePath)) continue;
-        if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
-        if (entry.isDirectory() && current.depth >= MAX_SEARCH_DIRECTORY_DEPTH) {
-          truncated = true;
-          continue;
+          const relativePath = current.relativePath
+            ? `${current.relativePath}/${entry.name}`
+            : entry.name;
+          if (isSensitiveTreePath(relativePath)) continue;
+          if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+          if (entry.isDirectory() && current.depth >= MAX_SEARCH_DIRECTORY_DEPTH) {
+            truncated = true;
+            continue;
+          }
+          if (entry.isFile() && !matchesSearchGlob(relativePath, fileGlob)) continue;
+          children.push({
+            absolutePath: path.join(realDirectoryPath, entry.name),
+            relativePath,
+            name: entry.name,
+            kind: entry.isDirectory() ? "directory" : "file",
+          });
         }
-        if (
-          entry.isFile()
-          && !matchesSearchGlob(relativePath, fileGlob)
-        ) {
-          continue;
-        }
-        children.push({
-          absolutePath: path.join(realDirectoryPath, entry.name),
-          relativePath,
-          name: entry.name,
-          kind: entry.isDirectory() ? "directory" : "file",
-        });
+      } finally {
+        await directory.close().catch(() => undefined);
       }
     } finally {
-      await directory.close().catch(() => undefined);
+      await directoryHandle.close().catch(() => undefined);
     }
 
     children.sort((left, right) =>
@@ -1006,8 +1164,11 @@ async function readBoundedLineRange(
   startLine: number,
   endLine: number,
   signal?: AbortSignal,
+  rootPath?: string,
 ): Promise<BoundedLineRangeResult> {
-  const handle = await fs.open(filePath, "r");
+  const handle = rootPath
+    ? await openVerifiedProjectFile(rootPath, filePath, signal)
+    : await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
     const selectedLines: string[] = [];
     let selectedBytes = 0;
@@ -1144,7 +1305,7 @@ export async function executeFileTool(
           args.complete === "true" ||
           (args.complete as unknown) === true;
         const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
-        const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal);
+        const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal, resolvedRoot);
         if (complete) {
           const text = bytes.toString("utf-8");
           const content = truncated ? text + FORENSIC_READ_TRUNCATION_MARKER : text;
@@ -1180,7 +1341,13 @@ export async function executeFileTool(
         return `Error: requested range exceeds the ${MAX_TARGETED_READ_LINES}-line targeted read window. Narrow the range around the symbol you need.`;
       }
       try {
-        const result = await readBoundedLineRange(abs, startLine, endLine, signal);
+        const result = await readBoundedLineRange(
+          abs,
+          startLine,
+          endLine,
+          signal,
+          resolvedRoot,
+        );
         if (result.kind === "scan_limit") {
           return `Error: finding the requested range exceeded the ${MAX_TARGETED_READ_SCAN_BYTES}-byte scan budget. Narrow the range or search for a closer anchor.`;
         }
@@ -1222,7 +1389,12 @@ export async function executeFileTool(
             args.complete === "true" ||
             (args.complete as unknown) === true;
           const limit = complete ? MAX_FORENSIC_READ_BYTES : MAX_READ_BYTES;
-          const { bytes, truncated } = await readBoundedFilePrefix(abs, limit, signal);
+          const { bytes, truncated } = await readBoundedFilePrefix(
+            abs,
+            limit,
+            signal,
+            resolvedRoot,
+          );
           assertFileOperationActive(signal);
           const text = bytes.toString("utf-8");
           const content = truncated
@@ -1233,8 +1405,14 @@ export async function executeFileTool(
         const entries: Array<{ name: string; isDirectory: boolean }> = [];
         let scannedEntries = 0;
         let truncated = false;
-        const directory = await fs.opendir(abs);
+        const directoryHandle = await openVerifiedProjectDirectory(
+          resolvedRoot,
+          abs,
+          signal,
+        );
+        let directory: Awaited<ReturnType<typeof fs.opendir>> | undefined;
         try {
+          directory = await fs.opendir(procFileDescriptorPath(directoryHandle));
           for await (const entry of directory) {
             assertFileOperationActive(signal);
             scannedEntries += 1;
@@ -1246,7 +1424,8 @@ export async function executeFileTool(
             entries.push({ name: entry.name, isDirectory: entry.isDirectory() });
           }
         } finally {
-          await directory.close().catch(() => undefined);
+          await directory?.close().catch(() => undefined);
+          await directoryHandle.close().catch(() => undefined);
         }
         assertFileOperationActive(signal);
         entries.sort((left, right) => {
@@ -1358,7 +1537,12 @@ export async function executeFileTool(
             truncated = true;
             continue;
           }
-          const read = await readBoundedFilePrefix(safeFilePath, maxFileBytes, signal);
+          const read = await readBoundedFilePrefix(
+            safeFilePath,
+            maxFileBytes,
+            signal,
+            resolvedRoot,
+          );
           bytesRead += read.bytesRead;
           if (read.truncated) truncated = true;
           if (read.bytes.includes(0)) {
@@ -1545,6 +1729,7 @@ export async function executeFileTool(
           abs,
           MAX_FULL_REPLACEMENT_BYTES,
           signal,
+          resolvedRoot,
         );
         if (current.truncated) {
           return (
@@ -1631,6 +1816,7 @@ export async function executeFileTool(
           abs,
           MAX_REPLACE_TEXT_SOURCE_BYTES,
           signal,
+          resolvedRoot,
         );
         if (current.truncated) {
           return (

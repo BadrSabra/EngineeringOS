@@ -5,7 +5,10 @@ import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { FILE_TOOL_DEFINITIONS } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS } from "./tools/git-tools.js";
 import { PACKAGE_TOOL_DEFINITIONS } from "./tools/package-tools.js";
-import { MAX_ANALYSIS_TOOL_RESULT_BYTES } from "./tool-output-bounds.js";
+import {
+  MAX_ANALYSIS_TOOL_RESULT_BYTES,
+  MAX_VALIDATION_TOOL_RESULT_BYTES,
+} from "./tool-output-bounds.js";
 
 export type ToolExecutorFamily =
   | "file"
@@ -315,8 +318,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "approved_validation_profile",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "Registered profiles cap captured command output at 2,000,000 bytes and bound returned strings/counts; the dispatcher rejects serialized results over 1,000,000 bytes, but there is no single pre-serialization result byte cap.",
+      kind: "fixed_bytes",
+      maxBytes: MAX_VALIDATION_TOOL_RESULT_BYTES,
+      surface: "serialized_result",
+      notes: "The executor measures the complete result before JSON.stringify; the dispatcher enforces the same ceiling.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -333,8 +338,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "approved_validation_profile",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "Preview limits bound steps, summaries, console count/text, and screenshots; profile-derived evidence fields have no single pre-serialization byte cap, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      kind: "fixed_bytes",
+      maxBytes: MAX_VALIDATION_TOOL_RESULT_BYTES,
+      surface: "serialized_result",
+      notes: "The executor measures the complete result before JSON.stringify; the dispatcher enforces the same ceiling.",
     },
     cancellation: {
       signal: "runner_delegated",

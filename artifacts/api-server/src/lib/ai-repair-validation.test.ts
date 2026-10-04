@@ -9,6 +9,7 @@ import {
   runRepairRuntimeValidation,
   runRepairValidation,
   validateRepairValidationScope,
+  VALIDATION_WORKSPACE_MAX_FILE_BYTES,
 } from "./ai-repair-validation.js";
 import { config } from "../config.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
@@ -184,6 +185,41 @@ describe("AI repair validation registry", () => {
 
     expect(workspace).toBeDefined();
     await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
+  });
+
+  it("rejects oversized source files before copying them into a validation workspace", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-copy-limit-"));
+    try {
+      const oversizedPath = path.join(sourceRoot, "large.bin");
+      await fs.writeFile(oversizedPath, "");
+      await fs.truncate(oversizedPath, VALIDATION_WORKSPACE_MAX_FILE_BYTES + 1);
+
+      await expect(
+        createValidationWorkspace(sourceRoot, [
+          { path: "src.ts", newContent: "export const value = 2;\n" },
+        ]),
+      ).rejects.toThrow(/validation_workspace_file_limit_exceeded/);
+    } finally {
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("stops validation workspace creation when the caller is already cancelled", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-copy-cancel-"));
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      await expect(
+        createValidationWorkspace(
+          sourceRoot,
+          [{ path: "src.ts", newContent: "export const value = 2;\n" }],
+          undefined,
+          controller.signal,
+        ),
+      ).rejects.toThrow(/validation_workspace_cancelled/);
+    } finally {
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
   });
 
   it("runs validation against pending content in an isolated workspace", async () => {

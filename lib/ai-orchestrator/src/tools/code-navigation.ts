@@ -1,9 +1,16 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import * as ts from "typescript";
-import { isSensitiveProjectPath, type ToolDefinition } from "./file-tools.js";
+import {
+  isSensitiveProjectPath,
+  openVerifiedProjectDirectory,
+  openVerifiedProjectFile,
+  projectDirectoryDescriptorPath,
+  type ToolDefinition,
+} from "./file-tools.js";
 
 const MAX_FILES = 200;
+const MAX_SCANNED_ENTRIES = 20_000;
 const MAX_RESULTS = 80;
 const MAX_FILE_BYTES = 512_000;
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]);
@@ -97,22 +104,50 @@ async function collectSourceFiles(
   const stat = await fs.stat(scope);
   signal?.throwIfAborted();
   if (stat.isFile()) {
-    return SOURCE_EXTENSIONS.has(path.extname(scope).toLowerCase()) ? [scope] : [];
+    if (!SOURCE_EXTENSIONS.has(path.extname(scope).toLowerCase())) return [];
+    const handle = await openVerifiedProjectFile(root, scope, signal);
+    try {
+      return (await handle.stat()).isFile() ? [scope] : [];
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
   }
+  if (!stat.isDirectory()) return [];
+
   const files: string[] = [];
+  let scannedEntries = 0;
+  let scanLimitReached = false;
   const walk = async (directory: string): Promise<void> => {
     signal?.throwIfAborted();
-    if (files.length >= MAX_FILES) return;
-    const entries = await fs.readdir(directory, { withFileTypes: true });
-    signal?.throwIfAborted();
-    for (const entry of entries) {
-      signal?.throwIfAborted();
-      if (files.length >= MAX_FILES) return;
-      if (entry.isDirectory() && !SKIP_DIRECTORIES.has(entry.name)) {
-        await walk(path.join(directory, entry.name));
-      } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        files.push(path.join(directory, entry.name));
+    if (files.length >= MAX_FILES || scanLimitReached) return;
+    const handle = await openVerifiedProjectDirectory(root, directory, signal);
+    try {
+      const entries = await fs.opendir(projectDirectoryDescriptorPath(handle));
+      try {
+        for await (const entry of entries) {
+          signal?.throwIfAborted();
+          scannedEntries += 1;
+          if (scannedEntries > MAX_SCANNED_ENTRIES) {
+            scanLimitReached = true;
+            break;
+          }
+          if (files.length >= MAX_FILES) break;
+          if (entry.isSymbolicLink()) continue;
+          if (entry.isDirectory() && !SKIP_DIRECTORIES.has(entry.name)) {
+            await walk(path.join(directory, entry.name));
+            if (scanLimitReached) break;
+          } else if (
+            entry.isFile()
+            && SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
+          ) {
+            files.push(path.join(directory, entry.name));
+          }
+        }
+      } finally {
+        await entries.close().catch(() => undefined);
       }
+    } finally {
+      await handle.close().catch(() => undefined);
     }
   };
   await walk(scope);
@@ -132,12 +167,29 @@ async function parseSources(
   const units: SourceUnit[] = [];
   for (const relativePath of relativeFiles) {
     signal?.throwIfAborted();
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
     try {
       const absolutePath = path.join(root, relativePath);
-      const stat = await fs.stat(absolutePath);
+      handle = await openVerifiedProjectFile(root, absolutePath, signal);
+      const stat = await handle.stat();
       signal?.throwIfAborted();
       if (stat.size > MAX_FILE_BYTES) continue;
-      const text = await fs.readFile(absolutePath, { encoding: "utf8", signal });
+      const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
+      let totalBytesRead = 0;
+      while (totalBytesRead < buffer.length) {
+        signal?.throwIfAborted();
+        const { bytesRead } = await handle.read(
+          buffer,
+          totalBytesRead,
+          buffer.length - totalBytesRead,
+          totalBytesRead,
+        );
+        signal?.throwIfAborted();
+        if (bytesRead === 0) break;
+        totalBytesRead += bytesRead;
+      }
+      if (totalBytesRead > MAX_FILE_BYTES) continue;
+      const text = buffer.subarray(0, totalBytesRead).toString("utf8");
       signal?.throwIfAborted();
       const extension = path.extname(relativePath).toLowerCase();
       const scriptKind = extension === ".tsx"
@@ -154,6 +206,8 @@ async function parseSources(
     } catch (error) {
       if (signal?.aborted) throw error;
       // A disappearing or unreadable file is not accepted as navigation evidence.
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   }
   return units;
