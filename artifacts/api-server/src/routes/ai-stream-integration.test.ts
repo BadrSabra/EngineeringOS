@@ -8272,6 +8272,202 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(await fs.readdir(project!.rootPath)).toEqual([]);
   }, 60_000);
 
+  it("preserves proof-bearing PROJECT_QUERY acceptance when the SSE caller loses the post-commit result", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const message = "Analyze my project architecture.";
+    const sources = [
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/project-query-target.ts",
+      "lib/ai-orchestrator/src/evidence-integrity.ts",
+    ];
+    const claimIds = [
+      "generic-project-routing",
+      "generic-project-evidence-gate",
+      "generic-project-bounded-read",
+    ];
+    const sourceBodies = new Map<string, string>([
+      [
+        sources[0]!,
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  const kind = message ? 'PROJECT_QUERY' : 'CHAT';",
+          "  const projectReadOnly = 'project-read-only';",
+          "  const requiresTools = true;",
+          "  return { kind, projectReadOnly, requiresTools };",
+          "}",
+        ].join("\n"),
+      ],
+      [sources[1]!, "export const genericTargetFixture = true;"],
+      [
+        sources[2]!,
+        [
+          "export const objectiveCompletionGate = true;",
+          "export function validateFinalAnswer() {",
+          "  const requiredEvidencePaths = [];",
+          "  return requiredEvidencePaths;",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+    let finalResponse = "";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as {
+        objective?: {
+          objectiveType?: string;
+          requiredEvidencePaths?: string[];
+          requiredClaims?: Array<{ claimId?: string; text?: string }>;
+        };
+        retainedEvidence?: Map<string, string>;
+        retainedReadStatuses?: Map<string, string>;
+      };
+      expect(input.objective).toMatchObject({
+        objectiveType: "PROJECT_QUERY_GENERIC-PROJECT",
+        requiredEvidencePaths: sources,
+        requiredClaims: claimIds.map((claimId) => expect.objectContaining({ claimId })),
+      });
+      finalResponse = (input.objective?.requiredClaims ?? [])
+        .map((claim) => claim.text)
+        .filter((text): text is string => Boolean(text))
+        .join("\n\n");
+
+      for (const source of sources) {
+        const body = sourceBodies.get(source)!;
+        input.retainedEvidence?.set(source, body);
+        input.retainedReadStatuses?.set(source, "READ_COMPLETE");
+        args[6]?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source, complete: true },
+          cached: false,
+        } as never);
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: body.length,
+        } as never);
+      }
+      args[6]?.({
+        kind: "forensic_status",
+        readStatuses: sources.map((path) => ({ path, status: "READ_COMPLETE" })),
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: sources.length,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: sources,
+        acceptedClaimCount: claimIds.length,
+        completedClaims: claimIds,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+        missingClaims: [],
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: sources.length,
+          claim: "bounded generic project architecture",
+          validator: "project-query",
+          rejectionReason: [],
+          recoveryAttempt: 0,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      } as never);
+      args[6]?.({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_SOURCE",
+        details: ["source=deterministic_fallback", "fallbackReason=synthesis_failed"],
+      });
+      args[3]?.(finalResponse);
+      return {
+        result: {
+          response: finalResponse,
+          sources,
+          pendingChanges: [],
+          projectQueryResponseSource: "deterministic_fallback",
+          projectQueryResponseFallbackReason: "synthesis_failed",
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const realCompleteAiExecution = aiExecutionState.completeAiExecution;
+    let acceptedBeforeInjectedError = false;
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution")
+      .mockImplementation(async (...args) => {
+        const accepted = await realCompleteAiExecution(...args);
+        if (accepted) {
+          acceptedBeforeInjectedError = true;
+          throw new Error("fixture_response_lost_after_acceptance");
+        }
+        return accepted;
+      });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(acceptedBeforeInjectedError).toBe(true);
+    expect(completeSpy).toHaveBeenCalled();
+    completeSpy.mockRestore();
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({
+      sessionId: expect.any(String),
+      status: "completed",
+      finalMessageId: expect.any(String),
+    });
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+      messageId: execution!.finalMessageId,
+    });
+    const history = await request(app)
+      .get(`/api/ai/chat/${execution!.sessionId}/messages`)
+      .expect(200);
+    expect(history.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: message }),
+      expect.objectContaining({
+        role: "assistant",
+        content: finalResponse,
+        outcome: "SUCCEEDED",
+      }),
+    ]));
+    expect(stream.status).toBe(200);
+    expect(parseSseEvents(stream.text).some((event) => event.type === "error")).toBe(true);
+  }, 60_000);
+
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

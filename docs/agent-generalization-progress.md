@@ -4341,6 +4341,17 @@ G9 Revocation Safety
 - **remaining/blocker:** W9 لمسار workflow يظل `UNKNOWN` حتى يوجد تنفيذ phase فعلي مع دليل revision-bound؛ route-level response loss وprocess crash غير مختبرين.
 - **next step:** مواصلة جرد E2 على مسار read-only ذي evidence fixture؛ لا يبدأ E3–E8 ولا تُختبر مسارات كتابة الملفات أو delivery/Git.
 
+### 2026-10-04 — W9 لمسار project-query SSE بعد commit
+
+- **phase/step:** E2 / W9 — استثناء route بعد قبول project-query proof وقبل إكمال استجابة SSE.
+- **status:** `partial — القبول الدائم والتاريخ يظلان SUCCEEDED؛ المستدعي يتلقى SSE error`.
+- **what changed:** اختبار route يستعمل `chatWithFallback` fixture وأجسام مصادر محلية في الذاكرة فقط؛ `completeAiExecution` الحقيقي يلتزم بقبول proof، ثم يحقن wrapper الاختبار استثناءً. يبقى execution مكتملًا والقبول `SUCCEEDED` والـhistory برسالة assistant ناجحة، بينما يظهر `error` في SSE.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** اختبار W9 المركّز 1/1 نجح (110 اختبارات أخرى skipped)؛ API typecheck و`git diff --check` ناجحان. استُخدمت PostgreSQL 17.6 مؤقتة على `127.0.0.1:56329` مع schema الحالي؛ أُوقف الخادم وحُذف مجلده المؤقت.
+- **authority/safety impact:** لا provider حي أو أدوات قراءة/كتابة ملفات؛ أحداث القراءة وبيانات المصدر fixtures فقط. قاعدة محلية مؤقتة؛ لا production أو delivery/commit/push.
+- **remaining/blocker:** الاختبار يحقن استثناءً بعد commit داخل العملية؛ لا يثبت انقطاع اتصال فعليًا أو موت process. workflow W9 ما زال غير قابل للوصول بقبول نجاح صالح دون دليل phase جوهري.
+- **next step:** متابعة E2 فقط على crash/reconnect أو سطح read-only آخر، مع قاعدة مؤقتة وأدلة حقيقية أو fixtures آمنة؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
