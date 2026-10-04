@@ -4187,6 +4187,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لا يثبت ذلك انقطاع عملية حقيقية أمام GitHub production؛ حالات remote غير المتاحة أو divergent تظل blocked/recoverable، ولا تُختلق قبل-state جديدة عند resume.
 - **next step:** تدقيق E2 على task/structured-task وMission repair؛ لا يبدأ E3 قبل الإغلاق.
 
+### 2026-10-04 — ربط تجديد مهلة task بملكية التنفيذ
+
+- **phase/step:** E2 / تجديد lease التنفيذ ومهمة task أثناء handoff.
+- **status:** `partial — تجديد atomic وخسارة كل fence اختُبرا؛ structured-task وMission repair وبقية الأسطح ما زالت مفتوحة`.
+- **what changed:** يجدد `executeTaskLifecycle` lease التنفيذ وصف المهمة داخل معاملة واحدة مع شروط attempt وworker وstatus والـlease الحي. إذا فشل أي شرط تتراجع المعاملة كاملة، ويُلغى signal العامل، وتعود الخدمة بـ`conflict` دون قبول طرفي. حالتا الاختبار تفقدان lease التنفيذ أو lease المهمة كلٌّ على حدة، وتتحققان من عدم تجديد الـlease المقابل أو إنشاء acceptance.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-service.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، وذاكرة lifecycle؛ لا تغيير schema.
+- **validation:** الاختبار المركّز للحالتين — 2/2 على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان. تشغيل أوسع سابق أثناء التعديل سجّل 14 نجاحًا و4 إخفاقات في اختبارات Mission التي توقعت `completed` بينما عادت `verifying`؛ لم تعمل heartbeat في ذلك التشغيل (100 ثانية مقابل 9.15 ثانية)، وتبقى هذه المطابقة غير محلولة.
+- **authority/safety impact:** لم تُستخدم قاعدة dev أو production ولم يحدث provider أو filesystem أو Git خارجي؛ قاعدة الاختبار كانت مؤقتة على loopback وأزيلت بعد الاختبارات.
+- **remaining/blocker:** structured-task يوقف العامل عند heartbeat يعيد `false`، لكن رفض heartbeat كـexception لا يوقفه حاليًا؛ تغطية crash/recovery الخاصة بـMission repair وبقية أسطح E2 ما زالت جزئية.
+- **next step:** استكمال fault injection لمسار structured-task وMission repair، والتحقيق في اختبارات Mission ذات mismatch؛ لا يبدأ E3 قبل إغلاق E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

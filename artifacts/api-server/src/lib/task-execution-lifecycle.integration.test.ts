@@ -224,6 +224,7 @@ import {
 } from "./task-execution-service.js";
 import { executeWorkflowPhase } from "./workflow-phase-execution.js";
 import {
+  AI_EXECUTION_LEASE_MS,
   checkpointAiExecution,
   requestAiExecutionCancel,
 } from "./ai-execution-state.js";
@@ -491,6 +492,173 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
+
+  it.each([
+    { lostLease: "execution", errorCode: "execution_lease_lost" },
+    { lostLease: "task", errorCode: "task_lease_lost" },
+  ] as const)(
+    "does not renew either lease or terminalize after losing the $lostLease lease",
+    async ({ lostLease, errorCode }) => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-lease-loss-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Lease-loss lifecycle fixture",
+      prompt: "Wait for lease ownership to be withdrawn",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    let resolveProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      resolveProviderStarted = resolve;
+    });
+    let providerSignal: AbortSignal | undefined;
+    let executionPromise: ReturnType<typeof executeTaskLifecycle> | undefined;
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+    const intervalCallStart = intervalSpy.mock.calls.length;
+
+    runAgentWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const options = args[3] as { signal?: AbortSignal } | undefined;
+      const signal = options?.signal;
+      providerSignal = signal;
+      if (!signal) throw new Error("Task execution did not forward its lease signal.");
+      resolveProviderStarted();
+      return new Promise<never>((_resolve, reject) => {
+        const rejectAfterLeaseLoss = () => {
+          const error = new Error("Fixture execution lost its lease.");
+          error.name = "AbortError";
+          reject(error);
+        };
+        if (signal.aborted) {
+          rejectAfterLeaseLoss();
+          return;
+        }
+        signal.addEventListener("abort", rejectAfterLeaseLoss, { once: true });
+      });
+    });
+
+    try {
+      executionPromise = executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+      await providerStarted;
+
+      const [execution] = await db
+        .select({
+          id: aiExecutionsTable.id,
+          workerId: aiExecutionsTable.workerId,
+          attempt: aiExecutionsTable.attempt,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.linkedTaskId, taskId),
+          eq(aiExecutionsTable.projectId, projectId),
+        ))
+        .limit(1);
+      expect(execution?.workerId).toEqual(expect.any(String));
+      const [taskBeforeHeartbeat] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          leaseUntil: tasksTable.leaseUntil,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(taskBeforeHeartbeat).toMatchObject({
+        status: "running",
+        workerId: execution?.workerId,
+      });
+
+      const expiredLease = new Date(Date.now() - 1_000);
+      if (lostLease === "execution") {
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: expiredLease })
+          .where(eq(aiExecutionsTable.id, execution!.id));
+      } else {
+        await db.update(tasksTable)
+          .set({ leaseUntil: expiredLease })
+          .where(eq(tasksTable.id, taskId));
+      }
+
+      const heartbeatIntervalMs = Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3));
+      const heartbeatCall = intervalSpy.mock.calls
+        .slice(intervalCallStart)
+        .find(([, delay]) => delay === heartbeatIntervalMs);
+      const heartbeatCallback = heartbeatCall?.[0];
+      expect(typeof heartbeatCallback).toBe("function");
+      const aborted = new Promise<void>((resolve) => {
+        if (providerSignal!.aborted) {
+          resolve();
+          return;
+        }
+        providerSignal!.addEventListener("abort", () => resolve(), { once: true });
+      });
+      heartbeatCallback!();
+      await aborted;
+
+      const outcome = await executionPromise;
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        executionId: execution!.id,
+        errorCode,
+      });
+      const [taskAfterHeartbeat] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          leaseUntil: tasksTable.leaseUntil,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(taskAfterHeartbeat).toEqual(
+        lostLease === "task"
+          ? { ...taskBeforeHeartbeat, leaseUntil: expiredLease }
+          : taskBeforeHeartbeat,
+      );
+      const [executionAfterHeartbeat] = await db
+        .select({ leaseUntil: aiExecutionsTable.leaseUntil })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, execution!.id));
+      expect(executionAfterHeartbeat?.leaseUntil).toEqual(
+        lostLease === "execution" ? expiredLease : execution!.leaseUntil,
+      );
+      const [acceptance] = await db
+        .select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      expect(acceptance).toBeUndefined();
+    } finally {
+      intervalSpy.mockRestore();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+    },
+  );
 
   it("persists active execution cancellation and restores the task state", async () => {
     const projectId = randomUUID();

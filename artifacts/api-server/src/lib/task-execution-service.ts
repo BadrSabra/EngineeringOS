@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { posix as posixPath } from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
+  aiExecutionsTable,
   aiGoalsTable,
   projectsTable,
   taskLogsTable,
@@ -28,7 +29,6 @@ import {
   checkpointAiExecution,
   claimAiExecution,
   failAiExecution,
-  heartbeatAiExecution,
   AI_EXECUTION_LEASE_MS,
   buildAiExecutionResumeContext,
   parseAiExecutionCheckpoint,
@@ -132,6 +132,59 @@ const RECEIPT_MAX_BYTES = 8_000;
 const RECEIPT_MAX_STAGES = 12;
 const RECEIPT_MAX_STEPS = 24;
 const RECEIPT_MAX_TEXT = 480;
+
+type TaskExecutionHeartbeatFailure = "execution_lease_lost" | "task_lease_lost";
+
+class TaskExecutionHeartbeatRejected extends Error {
+  constructor(readonly code: TaskExecutionHeartbeatFailure) {
+    super(code);
+    this.name = "TaskExecutionHeartbeatRejected";
+  }
+}
+
+async function heartbeatTaskExecution(params: {
+  executionId: string;
+  expectedAttempt: number;
+  workerId: string;
+  taskId: string;
+}): Promise<TaskExecutionHeartbeatFailure | null> {
+  try {
+    await db.transaction(async (tx) => {
+      const now = new Date();
+      const leaseUntil = new Date(now.getTime() + AI_EXECUTION_LEASE_MS);
+      const [execution] = await tx.update(aiExecutionsTable)
+        .set({ lastHeartbeatAt: now, leaseUntil, updatedAt: now })
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.attempt, params.expectedAttempt),
+          eq(aiExecutionsTable.workerId, params.workerId),
+          eq(aiExecutionsTable.status, "running"),
+          gt(aiExecutionsTable.leaseUntil, now),
+        ))
+        .returning({ id: aiExecutionsTable.id });
+      if (!execution) {
+        throw new TaskExecutionHeartbeatRejected("execution_lease_lost");
+      }
+
+      const [task] = await tx.update(tasksTable)
+        .set({ lastHeartbeatAt: now, leaseUntil, updatedAt: now })
+        .where(and(
+          eq(tasksTable.id, params.taskId),
+          eq(tasksTable.workerId, params.workerId),
+          eq(tasksTable.status, "running"),
+          gt(tasksTable.leaseUntil, now),
+        ))
+        .returning({ id: tasksTable.id });
+      if (!task) {
+        throw new TaskExecutionHeartbeatRejected("task_lease_lost");
+      }
+    });
+    return null;
+  } catch (error) {
+    if (error instanceof TaskExecutionHeartbeatRejected) return error.code;
+    throw error;
+  }
+}
 
 export type AiTaskExecutionReceipt = {
   kind: "AI_TASK_EXECUTION_RECEIPT";
@@ -2945,20 +2998,33 @@ export async function executeTaskLifecycle(params: {
     }
     return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
   }
-  const heartbeat = setInterval(() => {
-    void heartbeatAiExecution({ executionId, expectedAttempt: executionAttempt, workerId });
-    void db.update(tasksTable).set({
-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      updatedAt: new Date(),
-    }).where(and(
-      eq(tasksTable.id, before.id),
-      eq(tasksTable.workerId, workerId),
-      eq(tasksTable.status, "running"),
-    ));
-  }, Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3)));
   const executionAbortController = new AbortController();
+  let heartbeatFailureCode:
+    | "execution_lease_lost"
+    | "task_lease_lost"
+    | "heartbeat_renewal_failed"
+    | undefined;
   await registerAiExecutionController(executionId, executionAbortController);
+  const heartbeat = setInterval(() => {
+    if (executionAbortController.signal.aborted) return;
+    void heartbeatTaskExecution({
+      executionId,
+      expectedAttempt: executionAttempt,
+      workerId,
+      taskId: before.id,
+    }).then((failureCode) => {
+      if (!failureCode) return;
+      heartbeatFailureCode = failureCode;
+      executionAbortController.abort();
+    }).catch((error: unknown) => {
+      heartbeatFailureCode = "heartbeat_renewal_failed";
+      logger.warn(
+        { executionId, taskId: before.id, error },
+        "Task execution stopped after lease renewal failed",
+      );
+      executionAbortController.abort();
+    });
+  }, Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3)));
 
   try {
     stage = "context";
@@ -3332,6 +3398,14 @@ export async function executeTaskLifecycle(params: {
     invalidateContextCache(before.projectId);
     return { ok: true, status: finalStatus, task: updated, executionId };
   } catch (error) {
+    if (heartbeatFailureCode) {
+      return {
+        ok: false,
+        status: "conflict",
+        executionId,
+        errorCode: heartbeatFailureCode,
+      };
+    }
     const cancelled = executionAbortController.signal.aborted
       || (error instanceof Error && error.name === "AbortError");
     const classification = classifyTaskExecutionFailure({ stage, cancelled, error });

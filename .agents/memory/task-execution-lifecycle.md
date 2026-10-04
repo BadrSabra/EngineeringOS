@@ -20,3 +20,9 @@ During Mission recovery, a `started` marker for a tool classified `block_after_p
 **Why:** The marker is persisted before the tool result, so replay or synthetic success can misstate an external effect. Observation-only terminalization and lost/late acceptance also make execution status insufficient evidence of success.
 
 **How to apply:** Classify recovery from the operational registry, persist a durable non-retryable uncertainty result without routing it through cancellation, and make terminal projections derive `SUCCEEDED` only from the matching acceptance row.
+
+Task-level lease renewal must follow successful renewal of the authoritative AI execution lease. If either renewal fails or the task row is no longer owned, stop the local worker and leave terminalization to the current owner or reconciliation.
+
+**Why:** Extending only the task projection after the execution lease expires makes stale work appear live and delays recovery; continuing its provider call can also produce a result after ownership has moved.
+
+**How to apply:** Renew the execution first, extend the task lease only while its current worker/status/live lease still match, abort the local signal on a failed fence, and do not write a terminal acceptance from that attempt.

@@ -143,7 +143,7 @@
 | Surface | Durable identity / ownership | Side effect and observation | Acceptance / terminal boundary | Recovery and coverage |
 |---|---|---|---|---|
 | Chat read/project query | request/execution context exists on selected paths | retained source reads and claim validation; not a project mutation | some chat observation executions can be terminal `completed` without acceptance; projection reports `UNKNOWN` rather than success | chat lifecycle is not a common mutation lifecycle |
-| Task / structured task | task IDs and execution acceptance on covered paths | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | task verification does not itself accept Goal/Mission; structured path parity `UNKNOWN` |
+| Task / structured task | task IDs and execution acceptance on covered paths; `executeTaskLifecycle` renews execution and task leases atomically under attempt/worker/status/live-lease fences | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | DB-backed lease-loss tests cover both renewal fences; structured heartbeat-error handling and broader path parity remain `UNKNOWN` |
 | Workflow phase | phase/lease state on covered paths | phase node statuses and operation state; substantive execution of every declared node is not established | final Goal completion uses Canonical Proof; phase-local `PROVEN` is not acceptance | prior integration evidence shows missing required evidence can fail acceptance; broad resume/crash parity `UNKNOWN` |
 | Recipe / Mission | durable execution, attempt, Episode, lease, plan revision on covered paths | recipe-specific runner may perform local or external action; runtime.start has direct process attestation | Goal/Mission reload Canonical Proof; the declared artifact-only recipe path persists a non-empty snapshot whose node evidence must match receipt, execution/attempt, operation, revision, and candidate | positive current-attempt and negative stale-attempt tests pass for candidate validation; broader recipe-family and recovery parity remain `PARTIAL` |
 | `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; Gate C builds a bound evidence artifact | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding; Canonical loader re-derives the artifact | specialized producer/consumer path tested; full replay recovery and all crash windows remain open |
@@ -187,6 +187,12 @@ runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاع�
 المسار الإيجابي يؤكدان بقاءهما بعد القبول. اختُبرت المسارات على PostgreSQL مؤقتة
 محلية. فشل كتابة audit بعد القبول يُسجل في server log ولا يقلب execution المقبول؛
 ذرّية audit مع acceptance غير مضمونة، وبقية نوافذ E2 والأسطح ما زالت مفتوحة.
+
+**حد تجديد lease للـtask (2026-10-04):** اختبار DB-backed يفقد lease التنفيذ ثم
+يفقد lease صف المهمة في حالتين منفصلتين. في كل حالة يجب أن تتراجع معاملة تجديد
+الـleaseين معًا، ويتوقف العامل، وتعود الخدمة بـ`conflict` دون acceptance طرفية.
+يثبت ذلك handoff عند heartbeat فقط؛ لا يغلق crash recovery عند W2–W9 ولا يغطي
+تكافؤ structured-task أو Mission repair.
 
 **حد استعادة `apply-changes` (2026-10-04):** اختبار DB-backed يزرع حالة durable
 تمثل توقفًا بعد الترقية: الشجرة الحية تطابق المرشح والـworkspace المحفوظ، لكن
