@@ -212,7 +212,12 @@ import {
   type PendingValidationChange,
   type RepairVerificationResult,
 } from "../../lib/ai-repair-validation.js";
-import { PreviewSessionManager, type PreviewBrowser, type PreviewStep } from "../../lib/browser-preview-verification.js";
+import {
+  launchPreviewBrowser,
+  PreviewSessionManager,
+  type PreviewBrowser,
+  type PreviewStep,
+} from "../../lib/browser-preview-verification.js";
 import {
   AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT,
   AI_EXECUTION_HEARTBEAT_INTERVAL_MS,
@@ -10399,7 +10404,7 @@ export async function handleChatStream(req: Request, res: Response) {
     const browserValidationProfileName = requestedBrowserValidationProfile;
     const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
     const browserValidationRunner = browserValidationProfileName && validRootPath
-        ? async (request: { profile: string; rootPath: string; projectId?: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; executionId?: string; executionAttempt?: number; revision?: string; signal?: AbortSignal }) => {
+        ? async (request: { profile: string; rootPath: string; projectId?: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; executionId?: string; executionAttempt?: number; revision?: string; deadlineAt?: number; signal?: AbortSignal }) => {
           if (!browserValidationProfile || request.profile !== browserValidationProfile.name) {
             return {
               profile: request.profile, status: "unavailable" as const,
@@ -10420,16 +10425,34 @@ export async function handleChatStream(req: Request, res: Response) {
             };
           }
           const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
-          const session = await browserValidationManager!.start({
-            projectRoot: workspace.rootPath,
-            revision: request.revision ?? analysisCorrelation.projectRevision,
-            port: 4300,
-            lifetimeMs: 60_000,
-          });
           let browser: PreviewBrowser | undefined;
           try {
+            if (request.signal?.aborted) throw new Error("Browser validation was cancelled.");
+            const session = await browserValidationManager!.start({
+              projectRoot: workspace.rootPath,
+              revision: request.revision ?? analysisCorrelation.projectRevision,
+              port: 4300,
+              lifetimeMs: 60_000,
+              signal: request.signal,
+            });
+            if (request.signal?.aborted) throw new Error("Browser validation was cancelled.");
+            if (session.status !== "running") {
+              throw new Error(session.error ?? "Preview did not become available.");
+            }
             const playwright = await import("playwright");
-            browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
+            const launchTimeoutMs = request.deadlineAt === undefined
+              ? 30_000
+              : Math.min(30_000, request.deadlineAt - Date.now());
+            if (!Number.isFinite(launchTimeoutMs) || launchTimeoutMs < 1) {
+              throw new Error("Browser validation request deadline exceeded.");
+            }
+            browser = await launchPreviewBrowser(
+              () => playwright.chromium.launch({
+                headless: true,
+                timeout: launchTimeoutMs,
+              }) as unknown as Promise<PreviewBrowser>,
+              request.signal,
+            );
             return await runRepairPreviewValidation({
               projectId: request.projectId ?? projectId,
               session,
@@ -10446,9 +10469,14 @@ export async function handleChatStream(req: Request, res: Response) {
               steps: browserValidationProfile.steps as PreviewStep[],
               browser,
               profileName: browserValidationProfile.name,
-               signal: request.signal,
+              signal: request.signal,
             });
           } catch (error) {
+            const deadlineReached = request.deadlineAt !== undefined
+              && (!Number.isFinite(request.deadlineAt) || Date.now() >= request.deadlineAt);
+            if (request.signal?.aborted || deadlineReached) {
+              throw new Error("Browser validation did not complete before cancellation or its request deadline.");
+            }
             return {
               profile: "browser-preview", status: "unavailable" as const,
               scenario: "Run the registered browser checks against the project Preview.",
@@ -10467,8 +10495,16 @@ export async function handleChatStream(req: Request, res: Response) {
                   : "invalid_profile") as BrowserValidationBlockReason,
             };
           } finally {
-            await browserValidationManager!.stop();
-            await workspace.cleanup();
+            try {
+              await browser?.close();
+            } catch {
+              // Preserve workspace and preview cleanup even if Chromium failed to close.
+            }
+            try {
+              await browserValidationManager!.stop();
+            } finally {
+              await workspace.cleanup();
+            }
           }
         }
       : undefined;

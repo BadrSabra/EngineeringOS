@@ -1599,6 +1599,71 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     },
   );
 
+  it("run_browser_validation terminalizes when its runner ignores the shared request deadline", async () => {
+    const deadlineAt = Date.now() + 30;
+    let enteredRunner!: () => void;
+    const runnerEntered = new Promise<void>((resolve) => {
+      enteredRunner = resolve;
+    });
+    let runnerSignal: AbortSignal | undefined;
+    const call = makeCall("run_browser_validation", SAFE_ARGS.run_browser_validation!, {
+      browserValidationDeadlineAt: deadlineAt,
+      browserValidationRunner: async (request) => {
+        runnerSignal = request.signal;
+        expect(request.deadlineAt).toBe(deadlineAt);
+        enteredRunner();
+        return new Promise<never>(() => {});
+      },
+    });
+
+    const pending = executeSingleTool(call.options);
+    await runnerEntered;
+    const result = await pending;
+
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") {
+      expect(result.diagnosticCode).toBe("TOOL_EXECUTION_FAILED");
+      expect(result.safeMessage).toContain("request deadline");
+    }
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "failed",
+    ]);
+  });
+
+  it("run_browser_validation releases dispatch when its runner ignores cancellation", async () => {
+    const controller = new AbortController();
+    let enteredRunner!: () => void;
+    const runnerEntered = new Promise<void>((resolve) => {
+      enteredRunner = resolve;
+    });
+    let runnerSignal: AbortSignal | undefined;
+    const call = makeCall("run_browser_validation", SAFE_ARGS.run_browser_validation!, {
+      signal: controller.signal,
+      browserValidationRunner: async (request) => {
+        runnerSignal = request.signal;
+        enteredRunner();
+        return new Promise<never>(() => {});
+      },
+    });
+
+    const pending = executeSingleTool(call.options);
+    await runnerEntered;
+    controller.abort();
+    const result = await pending;
+
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") expect(result.diagnosticCode).toBe("TOOL_CANCELLED");
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(call.lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "cancelled",
+    ]);
+  });
+
   it.each(analysisToolCases)(
     "$name releases dispatch when its runner ignores cancellation",
     async (name) => {

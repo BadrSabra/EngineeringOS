@@ -56,8 +56,95 @@ export type BrowserValidationRunner = (request: {
   executionId?: string;
   executionAttempt?: number;
   revision?: string;
+  deadlineAt?: number;
   signal?: AbortSignal;
 }) => Promise<ValidationResult>;
+
+export class BrowserValidationDeadlineExceededError extends Error {
+  constructor() {
+    super("Browser validation exceeded the request deadline.");
+    this.name = "BrowserValidationDeadlineExceededError";
+  }
+}
+
+type BrowserValidationRunnerOutcome =
+  | { kind: "result"; result: ValidationResult }
+  | { kind: "error"; error: unknown }
+  | { kind: "cancelled" }
+  | { kind: "timeout" };
+
+async function runBrowserValidationWithinRequestDeadline(
+  run: (signal: AbortSignal) => Promise<ValidationResult>,
+  callerSignal: AbortSignal | undefined,
+  deadlineAt: number | undefined,
+): Promise<ValidationResult> {
+  if (callerSignal?.aborted) throw new Error("Browser validation was cancelled.");
+  if (
+    deadlineAt !== undefined
+    && (!Number.isFinite(deadlineAt) || Date.now() >= deadlineAt)
+  ) {
+    throw new BrowserValidationDeadlineExceededError();
+  }
+
+  const runnerController = new AbortController();
+  const relayCallerAbort = (): void => runnerController.abort(callerSignal?.reason);
+  if (callerSignal) {
+    callerSignal.addEventListener("abort", relayCallerAbort, { once: true });
+    if (callerSignal.aborted) relayCallerAbort();
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let removeRunnerAbortListener: (() => void) | undefined;
+  let deadlineExpired = false;
+  try {
+    const runnerPromise: Promise<BrowserValidationRunnerOutcome> = Promise.resolve().then(async () => {
+      if (callerSignal?.aborted) return { kind: "cancelled" };
+      if (deadlineAt !== undefined && Date.now() >= deadlineAt) return { kind: "timeout" };
+      try {
+        return { kind: "result", result: await run(runnerController.signal) };
+      } catch (error) {
+        return { kind: "error", error };
+      }
+    });
+    const cancellationPromise: Promise<BrowserValidationRunnerOutcome> =
+      new Promise((resolve) => {
+        const onAbort = (): void => resolve({ kind: "cancelled" });
+        runnerController.signal.addEventListener("abort", onAbort, { once: true });
+        removeRunnerAbortListener = () => runnerController.signal.removeEventListener("abort", onAbort);
+        if (runnerController.signal.aborted) onAbort();
+      });
+    const timeoutPromise: Promise<BrowserValidationRunnerOutcome> | undefined =
+      deadlineAt === undefined
+        ? undefined
+        : new Promise((resolve) => {
+            timeoutHandle = setTimeout(() => {
+              deadlineExpired = true;
+              runnerController.abort(new Error("Browser validation request deadline exceeded."));
+              resolve({ kind: "timeout" });
+            }, Math.max(0, deadlineAt - Date.now()));
+          });
+    const contenders = [runnerPromise, cancellationPromise];
+    if (timeoutPromise) contenders.push(timeoutPromise);
+    const outcome = await Promise.race(contenders);
+
+    if (callerSignal?.aborted) throw new Error("Browser validation was cancelled.");
+    if (
+      deadlineExpired
+      || outcome.kind === "timeout"
+      || (deadlineAt !== undefined && Date.now() >= deadlineAt)
+    ) {
+      runnerController.abort(new Error("Browser validation request deadline exceeded."));
+      throw new BrowserValidationDeadlineExceededError();
+    }
+    if (outcome.kind === "cancelled") throw new Error("Browser validation was cancelled.");
+    if (outcome.kind === "error") throw outcome.error;
+    return outcome.result;
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    removeRunnerAbortListener?.();
+    if (callerSignal) callerSignal.removeEventListener("abort", relayCallerAbort);
+  }
+}
 
 /** Default adapter used by the API layer after it has selected a profile. */
 export const runRegisteredCommand: CommandRunner = async ({
@@ -235,7 +322,7 @@ export async function executeBrowserValidationTool(
   rootPath: string,
   runner: BrowserValidationRunner | undefined,
   signal?: AbortSignal,
-  context?: { operationId?: string; revision?: string },
+  context?: { operationId?: string; revision?: string; deadlineAt?: number },
   pendingChanges?: readonly PendingChange[],
 ): Promise<string> {
   if (name !== "run_browser_validation") throw new Error(`Unknown execution tool "${name}".`);
@@ -252,8 +339,22 @@ export async function executeBrowserValidationTool(
       detail: "Browser validation is not enabled for this approved operation.",
     });
   }
-  const result = await runner({ profile, rootPath, signal, pendingChanges, ...context });
+  const deadlineAt = context?.deadlineAt;
+  const result = await runBrowserValidationWithinRequestDeadline(
+    (runnerSignal) => runner({
+      profile,
+      rootPath,
+      pendingChanges,
+      ...context,
+      signal: runnerSignal,
+    }),
+    signal,
+    deadlineAt,
+  );
   signal?.throwIfAborted();
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new BrowserValidationDeadlineExceededError();
+  }
   return stringifyJsonWithinByteLimit({ tool: name, ...result });
 }
 

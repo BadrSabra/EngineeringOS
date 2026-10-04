@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import {
+  launchPreviewBrowser,
   PreviewSessionManager,
   PREVIEW_LIMITS,
   verifyBrowserPreview,
@@ -55,6 +56,54 @@ function browserFactory(options?: {
 }
 
 describe("browser preview verification", () => {
+  it("closes a browser that finishes launching after cancellation", async () => {
+    const controller = new AbortController();
+    const browser = browserFactory();
+    let resolveLaunch!: (value: PreviewBrowser) => void;
+    const launch = launchPreviewBrowser(
+      () => new Promise<PreviewBrowser>((resolve) => { resolveLaunch = resolve; }),
+      controller.signal,
+    );
+
+    controller.abort();
+    await expect(launch).rejects.toThrow("cancelled");
+    resolveLaunch(browser);
+    await vi.waitFor(() => expect(browser.close).toHaveBeenCalledOnce());
+  });
+
+  it("aborts preview startup and stops its process when the request is cancelled", async () => {
+    const child = fakeChild();
+    const kill = child.kill as ReturnType<typeof vi.fn>;
+    kill.mockImplementation(() => {
+      queueMicrotask(() => child.emit("exit", 0, null));
+      return true;
+    });
+    let processSignal: AbortSignal | undefined;
+    const factory = vi.fn(async (_root: string, _port: number, signal: AbortSignal): Promise<PreviewProcess> => {
+      processSignal = signal;
+      return {
+        child,
+        waitUntilReady: async () => new Promise<void>(() => {}),
+      };
+    });
+    const manager = new PreviewSessionManager({ processFactory: factory });
+    const controller = new AbortController();
+    const startup = manager.start({
+      projectRoot: process.cwd(),
+      revision: "rev-cancel",
+      port: 4316,
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce());
+    controller.abort();
+    const session = await startup;
+
+    expect(session.status).toBe("unavailable");
+    expect(processSignal?.aborted).toBe(true);
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
   it("starts and stops an isolated project preview", async () => {
     const child = fakeChild();
     const factory = processFactory({ child });
@@ -271,6 +320,40 @@ describe("browser preview verification", () => {
     expect(page.close).toHaveBeenCalledOnce();
     expect(browser.close).toHaveBeenCalledOnce();
     expect(gotoSettled).toBe(true);
+  });
+
+  it("closes a page that resolves after cancellation during page creation", async () => {
+    const session = {
+      id: "session-page-cancel", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+      startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
+      status: "running" as const,
+    };
+    const latePage = await browserFactory().newPage();
+    let resolvePage!: (page: PreviewPage) => void;
+    const newPage = vi.fn(() => new Promise<PreviewPage>((resolve) => { resolvePage = resolve; }));
+    const browser: PreviewBrowser = {
+      newPage,
+      close: vi.fn(async () => undefined),
+    };
+    const controller = new AbortController();
+    const verification = verifyBrowserPreview({
+      session,
+      operationId: "op-page-cancel",
+      executionId: "exec-page-cancel",
+      steps: [{ type: "assert_visible", selector: "body" }],
+      browser,
+      signal: controller.signal,
+    });
+
+    await vi.waitFor(() => expect(newPage).toHaveBeenCalledOnce());
+    controller.abort();
+    const evidence = await verification;
+
+    expect(evidence.status).toBe("failed");
+    expect(evidence.summary).toContain("cancelled");
+    expect(browser.close).toHaveBeenCalledOnce();
+    resolvePage(latePage);
+    await vi.waitFor(() => expect(latePage.close).toHaveBeenCalledOnce());
   });
 
   it("settles real Chromium navigation after caller cancellation", async () => {

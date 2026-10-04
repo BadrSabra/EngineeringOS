@@ -71,6 +71,7 @@ import {
 } from "./tools/binary-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
+  BrowserValidationDeadlineExceededError,
   executeCommandTool,
   executeBrowserValidationTool,
   executeValidationTool,
@@ -789,6 +790,7 @@ export type SingleToolOpts = {
   /** Server-owned browser contract runner; model selects a profile only. */
   browserValidationRunner?: BrowserValidationRunner;
   browserValidationContext?: { operationId?: string; revision?: string };
+  browserValidationDeadlineAt?: number;
   /** Server-owned command profiles and runner; no model-supplied executable is accepted. */
   commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
   commandRunner?: import("./tools/execution-tools.js").CommandRunner;
@@ -1514,7 +1516,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               rootPath,
               opts.browserValidationRunner,
               opts.signal,
-              opts.browserValidationContext,
+              {
+                ...opts.browserValidationContext,
+                deadlineAt: opts.browserValidationDeadlineAt,
+              },
               pendingChanges,
             ));
 
@@ -1651,6 +1656,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     const cancelled = opts.signal?.aborted === true;
     const outputLimitError = isToolOutputLimitExceeded(error) ? error : undefined;
+    const browserDeadlineExceeded = error instanceof BrowserValidationDeadlineExceededError;
     const gitPathRejected = error instanceof GitToolPathRejectedError;
     const diagnosticCode = cancelled
       ? "TOOL_CANCELLED"
@@ -1709,6 +1715,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       diagnosticCode,
       safeMessage: cancelled
         ? `Tool "${name}" was cancelled; the operation did not complete.`
+        : browserDeadlineExceeded
+          ? `Tool "${name}" exceeded the request deadline; the operation did not complete.`
         : gitPathRejected
           ? "Git diff was rejected because its path could not be verified within the project root."
         : outputLimitError
@@ -7075,6 +7083,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           analysisToolRunner: opts.analysisToolRunner,
           analysisCorrelation: opts.analysisCorrelation,
           analysisDeadlineAt: executionLedger?.deadlineAt,
+          browserValidationDeadlineAt: executionLedger?.deadlineAt,
           signal,
           onMutationInvocation: opts.onMutationInvocation,
           onReadOnlyInvocation: opts.onReadOnlyInvocation,

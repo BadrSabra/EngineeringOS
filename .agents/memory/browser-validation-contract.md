@@ -14,3 +14,9 @@ Caller abort and timeout cannot be passed directly to Playwright page operations
 **Why:** Racing a timeout against navigation can return while the Playwright operation is still pending; cleanup must not leave detached browser work or hang task finalization indefinitely.
 
 **How to apply:** Use bounded best-effort settlement after resource closure, and keep a real Chromium stalled-response cancellation test alongside fake-runner tests; mocks alone cannot establish driver behavior.
+
+The API-server browser preview suite also needs the Playwright Chromium executable; installing the Node package alone does not guarantee that the real-browser test can launch.
+
+**Why:** The workspace's real cancellation test failed at `chromium.launch()` because its executable was absent, while the fake-runner lifecycle tests passed.
+
+**How to apply:** Check the browser executable prerequisite separately from app assertions, and keep the fake cancellation/cleanup tests runnable without Chromium.

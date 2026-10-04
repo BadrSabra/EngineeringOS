@@ -162,6 +162,61 @@ export type PreviewBrowser = {
   close(): Promise<void>;
 };
 
+export async function launchPreviewBrowser(
+  launch: () => Promise<PreviewBrowser>,
+  signal?: AbortSignal,
+): Promise<PreviewBrowser> {
+  if (signal?.aborted) throw new Error("Preview browser launch was cancelled.");
+  const closeOnce = (browser: PreviewBrowser): PreviewBrowser => {
+    let closePromise: Promise<void> | undefined;
+    return {
+      newPage: () => browser.newPage(),
+      close: () => {
+        closePromise ??= Promise.resolve().then(() => browser.close());
+        return closePromise;
+      },
+    };
+  };
+  if (!signal) return closeOnce(await launch());
+
+  type LaunchOutcome =
+    | { kind: "launched"; browser: PreviewBrowser }
+    | { kind: "failed"; error: unknown }
+    | { kind: "cancelled" };
+  const launchOutcome = Promise.resolve()
+    .then(launch)
+    .then<LaunchOutcome, LaunchOutcome>(
+      (browser) => ({ kind: "launched", browser }),
+      (error: unknown) => ({ kind: "failed", error }),
+    );
+  let resolveCancelled!: () => void;
+  const cancellation = new Promise<LaunchOutcome>((resolve) => {
+    resolveCancelled = () => resolve({ kind: "cancelled" });
+  });
+  const onAbort = (): void => resolveCancelled();
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    if (signal.aborted) onAbort();
+    const outcome = await Promise.race([launchOutcome, cancellation]);
+    if (outcome.kind === "cancelled" || signal.aborted) {
+      void launchOutcome.then(async (late) => {
+        if (late.kind === "launched") {
+          try {
+            await late.browser.close();
+          } catch {
+            // A browser that resolves after cancellation is cleanup-only.
+          }
+        }
+      });
+      throw new Error("Preview browser launch was cancelled.");
+    }
+    if (outcome.kind === "failed") throw outcome.error;
+    return closeOnce(outcome.browser);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export type PreviewProcess = {
   child: ChildProcess;
   waitUntilReady: (port: number, timeoutMs: number) => Promise<void>;
@@ -214,6 +269,22 @@ function validateContract(contract: PreviewValidationContract, session: PreviewS
   return permitted;
 }
 
+async function waitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw new Error("Preview startup was cancelled.");
+  let rejectAbort!: (error: Error) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const onAbort = (): void => rejectAbort(new Error("Preview startup was cancelled."));
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    if (signal.aborted) onAbort();
+    return await Promise.race([operation, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 async function defaultProcessFactory(projectRoot: string, port: number, signal: AbortSignal): Promise<PreviewProcess> {
   const child = spawn("pnpm", ["run", "dev"], {
     cwd: projectRoot,
@@ -225,11 +296,13 @@ async function defaultProcessFactory(projectRoot: string, port: number, signal: 
   const waitUntilReady = async (readyPort: number, timeoutMs: number): Promise<void> => {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+      if (signal.aborted) throw new Error("Preview startup was cancelled.");
       if (child.exitCode !== null) throw new Error(`Preview process exited with code ${child.exitCode}.`);
       try {
         const response = await fetch(`http://127.0.0.1:${readyPort}/`, { signal });
         if (response.ok || response.status < 500) return;
-      } catch {
+      } catch (error) {
+        if (signal.aborted) throw new Error("Preview startup was cancelled.");
         // The server is still starting.
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -264,8 +337,10 @@ export class PreviewSessionManager {
     revision: string;
     port: number;
     lifetimeMs?: number;
+    signal?: AbortSignal;
   }): Promise<PreviewSession> {
     validatePort(input.port);
+    if (input.signal?.aborted) throw new Error("Preview startup was cancelled.");
     const lifetimeMs = input.lifetimeMs ?? 120_000;
     validateLifetime(lifetimeMs);
     const projectRoot = await fs.realpath(input.projectRoot);
@@ -282,10 +357,15 @@ export class PreviewSessionManager {
     };
     this.session = session;
     const controller = new AbortController();
+    const abortFromCaller = (): void => controller.abort();
+    input.signal?.addEventListener("abort", abortFromCaller, { once: true });
     this.startupController = controller;
     try {
       this.process = await this.processFactory(projectRoot, input.port, controller.signal);
-      await this.process.waitUntilReady(input.port, this.startupTimeoutMs);
+      if (input.signal?.aborted) throw new Error("Preview startup was cancelled.");
+      const readiness = this.process.waitUntilReady(input.port, this.startupTimeoutMs);
+      if (input.signal) await waitWithAbort(readiness, input.signal);
+      else await readiness;
       if (this.session?.id !== session.id) throw new Error("Preview session was superseded.");
       session.status = "running";
       this.timer = setTimeout(() => { void this.expire(session.id); }, lifetimeMs);
@@ -295,6 +375,8 @@ export class PreviewSessionManager {
       session.error = bounded(error instanceof Error ? error.message : String(error), 500);
       await this.stopProcess();
       return { ...session };
+    } finally {
+      input.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
 
@@ -392,6 +474,16 @@ export async function verifyBrowserPreview(input: {
       })
     : undefined;
   void callerAbortPromise?.catch(() => undefined);
+  const timeoutMs = input.contract?.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
+  let rejectValidationTimeout!: (error: Error) => void;
+  const validationTimeoutPromise = new Promise<never>((_resolve, reject) => {
+    rejectValidationTimeout = reject;
+  });
+  const raceWithValidationStop = async <T>(operation: Promise<T>): Promise<T> => {
+    const raceInputs: Promise<unknown>[] = [operation, validationTimeoutPromise];
+    if (callerAbortPromise) raceInputs.push(callerAbortPromise);
+    return await Promise.race(raceInputs) as T;
+  };
   const abortFromCaller = (): void => {
     timeoutController.abort();
     rejectCallerAbort?.();
@@ -399,7 +491,26 @@ export async function verifyBrowserPreview(input: {
   if (input.signal?.aborted) abortFromCaller();
   else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
-    page = await input.browser.newPage();
+    timeout = setTimeout(() => {
+      timeoutController.abort();
+      rejectValidationTimeout(new Error("Preview validation timed out."));
+    }, timeoutMs);
+    const pagePromise = Promise.resolve().then(() => {
+      if (timeoutController.signal.aborted) throw new Error("Preview validation was cancelled.");
+      return input.browser.newPage();
+    });
+    try {
+      page = await raceWithValidationStop(pagePromise);
+    } catch (error) {
+      void pagePromise.then(async (latePage) => {
+        try {
+          await latePage.close();
+        } catch {
+          // A page created after cancellation is cleanup-only.
+        }
+      }, () => undefined);
+      throw error;
+    }
     const activePage = page;
     page.onConsole?.((message) => {
       if (message.type() === "error" && consoleErrors.length < PREVIEW_LIMITS.maxConsoleMessages) {
@@ -443,17 +554,8 @@ export async function verifyBrowserPreview(input: {
       }
     }
     };
-    const timeoutMs = input.contract?.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
     runStepsPromise = runSteps();
-    const raceInputs: Promise<unknown>[] = [runStepsPromise];
-    if (callerAbortPromise) raceInputs.push(callerAbortPromise);
-    raceInputs.push(new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => {
-        timeoutController.abort();
-        reject(new Error("Preview validation timed out."));
-      }, timeoutMs);
-    }));
-    await Promise.race(raceInputs);
+    await raceWithValidationStop(runStepsPromise);
     if (timeout) clearTimeout(timeout);
     if (consoleErrors.length > 0) {
       return {

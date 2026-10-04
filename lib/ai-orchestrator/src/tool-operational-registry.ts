@@ -338,7 +338,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     },
     cancellation: {
       signal: "runner_delegated",
-      timeout: { kind: "runner_defined" },
+      timeout: {
+        kind: "request_deadline",
+        source: "executionLedger.deadlineAt is enforced by dispatch and aborted runner signals reach preview startup and browser launch",
+      },
     },
     replay: BLOCKED_ACTION_REPLAY,
   },
