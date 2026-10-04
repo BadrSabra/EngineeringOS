@@ -4418,6 +4418,17 @@ G9 Revocation Safety
 - **remaining/blocker:** حقن `res.json` يختبر فقد الرد بعد اكتمال المسار، لا انهيار process قبل اكتمال الإسقاطات؛ بقية E2 surfaces ونوافذ التعافي ما زالت مفتوحة.
 - **next step:** مواصلة جرد فجوات E2 واختبارها؛ لا يبدأ E3–E8 قبل اجتياز بوابة E2 صراحة.
 
+### 2026-10-05 — E2 انهيار Apply في W0–W3 وحد recovery القديم
+
+- **phase/step:** E2 / Apply W0–W4 process-kill + W5–W8 durable-state boundaries.
+- **status:** `partial — Apply W0–W4 startup crash-state checks and W4–W8 durable-state fixtures pass; HTTP route crashes and remaining windows are open`
+- **what changed:** child process أنشأ تنفيذ W0 ثم قُتل قبل claim؛ W1 طالب بالتنفيذ وثبّت lease منتهيًا ثم قُتل قبل Episode/action؛ حالة إضافية ضمن W1 كتبت `PROMOTION_INTENT` وقُتلت قبل bytes؛ W2 كتب intent ثم غيّر الملف الأول من تغييرين ذريًا أثناء الأثر وقُتل قبل إكمال الشجرة؛ W3 كتب كل bytes المرشح وقُتل قبل observation/proof. أضيف W4 child له before-only observation وbytes كاملة و`WRITTEN` ثم `SIGKILL`؛ بعده بدأ API الحقيقي بالمصالحة. لم تكتب W0/W1/W1-intent ملفات المشروع، وانتهى W1/W1-intent بقبول `FAILED` وسجل `BLOCKED`؛ W2 أبقى الشجرة المختلطة، وW3/W4 أبقيا candidate tree وسجّل recovery `RECOVERY_REQUIRED`. لا `SUCCEEDED`/`APPLIED`/World Transition/`AiChangesApplied` أو dispatch. W1-intent/W2/W3/W4 ليست crashes داخل HTTP Apply route. أضيفت ثلاثة DB state fixtures لمسار Apply: before-only بعد كتابة الملفات، before/after مع `ACTION_COMMITTED` قبل transaction الأثر، و`EffectBundle` مرصود قبل القبول؛ كلها تبقى `RECOVERY_REQUIRED` وتحافظ على البايتات. حللنا أن effect/bundle/Episode update في transaction واحدة، والـobservations سابقة لها.
+- **files/schema/contracts touched:** `ai-stream-integration.test.ts`؛ `delivery-workspace.ts` و`job-reconciliation.ts`؛ اختبارات workspace/reconciliation؛ تقريري الحالة. لا schema change أو primitive جديدة.
+- **validation:** `delivery-workspace.test.ts` — 7/7؛ `job-reconciliation.test.ts` — 27/27 على PostgreSQL مؤقتة loopback؛ اختبار API process restart W0–W4 — 1/1 (111 skipped) على PostgreSQL مؤقتة loopback مع provider egress disabled؛ API typecheck و`git diff --check` نجحا.
+- **authority/safety impact:** startup يميز بين عدم حدوث الكتابة (W2) ووجود bytes بلا proof (W3) ولا يصطنع نجاحًا. جُعل legacy promotion fail-closed عند تعذر تأسيس الجذر أو عبور symlink؛ اختبار recovery يتحقق من بقاء الملف الخارجي دون تغيير. فحص symlink path-based وليس inode-bound ولا يغلق سباق TOCTOU.
+- **remaining/blocker:** W1-intent/W2/W3/W4 child harnesses لا تقتل HTTP Apply route نفسه؛ W5–W8 لا تزال DB-seeded fixtures فقط. W6 effect/bundle transaction ذرية، لكن crash بعد after-observation وقبل بدء المعاملة غير محقون. بقية الأسطح وWorld Transition/dispatch غير محصورة؛ جرد الأسطح bounded لا exhaustive، وworkflow recovery والسطوح الخارجية مفتوحة. W9 response-loss دليل منفصل.
+- **next step:** إثبات W4–W8 داخل route حيث يمكن، واستكمال جرد كل mutation surface وربط الأثر بالقبول وWorld Transition/dispatch؛ لا يبدأ E3 قبل اجتياز بوابة E2 صراحة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

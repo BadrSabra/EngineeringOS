@@ -75,6 +75,7 @@ import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
 import { recoverPromotion } from "./delivery-workspace.js";
+import { establishProjectRoot } from "./project-root.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 import {
   dispatchPendingMissionRecipes,
@@ -92,11 +93,10 @@ const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
 
 /**
- * An apply is deliberately not replayed after a process crash: its file
- * snapshots live in memory and replaying an unknown write could overwrite
- * user edits. Instead, convert any non-terminal journal into a durable,
- * visible conflict. This makes the post-crash state known and prevents a
- * partially promoted tree from being reported as successful.
+ * Legacy delivery journals may complete a recorded promotion only when each
+ * target still matches its persisted base bytes. Proof-bound Apply executions
+ * are protected and use the separate observation-only reconciler instead.
+ * Missing roots, symlinks, and unexpected bytes become visible conflicts.
  */
 async function reconcileInterruptedDeliveries(
   protectedApplyProposalIds: ReadonlySet<string> = new Set(),
@@ -140,6 +140,15 @@ async function reconcileInterruptedDeliveries(
         .from(projectsTable)
         .where(eq(projectsTable.id, proposal.projectId))
         .limit(1);
+      const establishedRoot = project?.rootPath
+        ? await establishProjectRoot(project.rootPath)
+        : undefined;
+      if (!establishedRoot?.ok) {
+        logger.warn({
+          proposalId: proposal.id,
+          rootReason: establishedRoot?.reason ?? "project_root_missing",
+        }, "legacy promotion recovery could not establish the persisted project root");
+      }
       let recovery: "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED" = "RECOVERY_REQUIRED";
       try {
         const proposalChanges = JSON.parse(proposal.changes) as Array<{
@@ -159,9 +168,9 @@ async function reconcileInterruptedDeliveries(
               return result;
             }, [])
           : proposalChanges;
-        if (project && proposal.operationId && Array.isArray(changes)) {
+        if (establishedRoot?.ok && proposal.operationId && Array.isArray(changes)) {
           recovery = await recoverPromotion({
-            rootPath: project.rootPath,
+            rootPath: establishedRoot.canonicalPath,
             changes,
             operationId: proposal.operationId,
           });

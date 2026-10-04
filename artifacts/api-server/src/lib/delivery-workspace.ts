@@ -61,10 +61,45 @@ export async function recoverPromotion(params: {
   changes: readonly { path: string; newContent: string; originalContent?: string | null }[];
   operationId: string;
 }): Promise<PromotionRecoveryResult> {
+  let rootPath: string;
+  try {
+    rootPath = await realpath(params.rootPath);
+  } catch {
+    return "RECOVERY_REQUIRED";
+  }
+  const targetIsSafe = async (target: string): Promise<boolean> => {
+    const relativePath = path.relative(rootPath, target);
+    if (
+      !relativePath
+      || path.isAbsolute(relativePath)
+      || relativePath === ".."
+      || relativePath.startsWith(`..${path.sep}`)
+    ) return false;
+    const segments = relativePath.split(path.sep);
+    let cursor = rootPath;
+    for (let index = 0; index < segments.length; index++) {
+      cursor = path.join(cursor, segments[index]!);
+      try {
+        const entry = await lstat(cursor);
+        if (entry.isSymbolicLink()) return false;
+        if (index < segments.length - 1 && !entry.isDirectory()) return false;
+        if (index === segments.length - 1 && !entry.isFile()) return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+        return false;
+      }
+    }
+    return true;
+  };
+
   let changed = false;
   for (const change of params.changes) {
-    const target = path.resolve(params.rootPath, change.path);
-    if (target !== path.resolve(params.rootPath) && !target.startsWith(`${path.resolve(params.rootPath)}${path.sep}`)) {
+    const target = path.resolve(rootPath, change.path);
+    if (
+      target === rootPath
+      || !target.startsWith(`${rootPath}${path.sep}`)
+      || !(await targetIsSafe(target))
+    ) {
       return "RECOVERY_REQUIRED";
     }
     let current: string | null = null;
@@ -81,6 +116,12 @@ export async function recoverPromotion(params: {
     }
     if (current !== base) return "RECOVERY_REQUIRED";
     await mkdir(path.dirname(target), { recursive: true });
+    if (!(await targetIsSafe(target))) return "RECOVERY_REQUIRED";
+    const realParent = await realpath(path.dirname(target)).catch(() => null);
+    if (
+      !realParent
+      || (realParent !== rootPath && !realParent.startsWith(`${rootPath}${path.sep}`))
+    ) return "RECOVERY_REQUIRED";
     await atomicallyPromoteFile(target, expected, params.operationId);
     changed = true;
   }

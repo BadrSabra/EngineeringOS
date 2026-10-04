@@ -109,6 +109,31 @@ describe("delivery workspaces", () => {
     }
   });
 
+  it("fails closed when interrupted promotion traverses a live-root symlink", async () => {
+    const fixture = `/tmp/delivery-recovery-symlink-${randomUUID()}`;
+    const outside = `/tmp/delivery-recovery-outside-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(fixture, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "payload.txt"), "base\n", "utf8");
+    try {
+      await symlink(outside, join(fixture, "escape"));
+      await expect(recoverPromotion({
+        rootPath: fixture,
+        operationId,
+        changes: [{
+          path: "escape/payload.txt",
+          originalContent: "base\n",
+          newContent: "must-not-write\n",
+        }],
+      })).resolves.toBe("RECOVERY_REQUIRED");
+      await expect(readFile(join(outside, "payload.txt"), "utf8")).resolves.toBe("base\n");
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a mixed promotion only from exact base bytes", async () => {
     const fixture = `/tmp/delivery-recovery-${randomUUID()}`;
     await mkdir(fixture, { recursive: true });

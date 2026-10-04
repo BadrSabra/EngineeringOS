@@ -36,12 +36,16 @@ import {
   aiExecutionsTable,
   aiAgentEpisodesTable,
   aiAgentEpisodeEventsTable,
+  aiAgentObservationsTable,
+  aiAgentEffectsTable,
+  aiAgentEffectBundlesTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionEvidenceReadsTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
+  aiWorldTransitionsTable,
   eventsTable,
   auditLogsTable,
   tasksTable,
@@ -53,6 +57,10 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
+import {
+  buildApplyChangeAction,
+  buildApplyChangeEffectContract,
+} from "../lib/agent-state/apply-change-effect.js";
 import { chatWithFallback, requireProvider } from "../lib/ai-route-helpers.js";
 import {
   buildPatchHunks,
@@ -89,6 +97,10 @@ import {
 import { loadReusableEvidenceReads } from "../lib/ai-execution-acceptance.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import { loadCanonicalProof } from "../lib/proof-foundation.js";
+import {
+  createDeliveryWorkspace,
+  DELIVERY_TREE_DIGEST_VERSION,
+} from "../lib/delivery-workspace.js";
 import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
 
@@ -8564,7 +8576,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   }, 60_000);
 
   it.runIf(process.env.RUN_E2_API_PROCESS_RESTART === "1")(
-    "recovers accepted project analysis after full API startup and process restart",
+    "recovers accepted analysis and keeps W0-W4 Apply crashes unaccepted after API restart",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -8644,6 +8656,220 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           finalAnswerType: "BEHAVIORAL_ANSWER" as const,
         },
       };
+
+      const createApplyCrashSnapshot = async (
+        phase: "W0" | "W1" | "W1I" | "W2" | "W3" | "W4",
+      ) => {
+        const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+        const projectParent = await fs.mkdtemp(
+          `${workspacePath}/.apply-startup-${phase.toLowerCase()}-`,
+        );
+        rootPaths.push(projectParent);
+        const rootPath = path.join(projectParent, "project");
+        const targetPath = `src/${phase.toLowerCase()}-recovery.ts`;
+        const originalContent = `export const ${phase.toLowerCase()} = false;\n`;
+        const newContent = `export const ${phase.toLowerCase()} = true;\n`;
+        const additionalChange = phase === "W2"
+          ? {
+            path: `src/${phase.toLowerCase()}-recovery-extra.ts`,
+            originalContent: "export const extra = false;\n",
+            newContent: "export const extra = true;\n",
+          }
+          : undefined;
+        const changes = [
+          { path: targetPath, originalContent, newContent },
+          ...(additionalChange ? [additionalChange] : []),
+        ];
+        await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+        await fs.writeFile(path.join(rootPath, targetPath), originalContent, "utf8");
+        if (additionalChange) {
+          await fs.writeFile(
+            path.join(rootPath, additionalChange.path),
+            additionalChange.originalContent,
+            "utf8",
+          );
+        }
+
+        const projectId = await insertProject(rootPath);
+        projectIds.push(projectId);
+        const sessionId = await insertChatSession(projectId, `${phase} Apply recovery`);
+        const proposalId = randomUUID();
+        const messageId = randomUUID();
+        const deliveryOperationId = randomUUID();
+        const attemptOperationId = randomUUID();
+        const baseRevision = `test-revision-${randomUUID()}`;
+        const now = new Date();
+        const deliveryWorkspace = await createDeliveryWorkspace({
+          rootPath,
+          operationId: deliveryOperationId,
+          baseRevision,
+          changes: changes.map(({ path: changePath, newContent: content }) => ({
+            path: changePath,
+            newContent: content,
+          })),
+        });
+        rootPaths.push(deliveryWorkspace.workspaceRoot);
+        await db.insert(aiChatMessagesTable).values({
+          id: messageId,
+          sessionId,
+          role: "assistant",
+          content: `Prepared ${phase} Apply recovery candidate`,
+          createdAt: now,
+        });
+        await db.insert(aiChangeProposalsTable).values({
+          id: proposalId,
+          projectId,
+          sessionId,
+          messageId,
+          changes: JSON.stringify(changes),
+          status: "pending",
+          lifecycle: "validated",
+          operationId: deliveryOperationId,
+          workspaceRoot: deliveryWorkspace.workspaceRoot,
+          baseRevision: deliveryWorkspace.baseRevision,
+          changeSetHash: deliveryWorkspace.changeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          createdAt: now,
+        });
+
+        const executionInput = {
+          userId: "test-user",
+          request: {
+            projectId,
+            sessionId,
+            proposalId,
+            turnIntent: "APPLY_CHANGES" as const,
+            operationId: attemptOperationId,
+            message: `Recover ${phase} Apply Changes after process restart.`,
+            modelMessage: `Recover ${phase} Apply Changes after process restart.`,
+            validationTargetPaths: [targetPath],
+            proofRequired: true,
+            effectRequired: true,
+            applyChangesProofMode: "apply_changes_v1" as const,
+            workspaceRevision: deliveryWorkspace.baseRevision,
+            workspaceRoot: rootPath,
+          },
+          idempotencyKey: randomUUID(),
+          projectId,
+          sessionId,
+          proposalId,
+          workspaceRoot: rootPath,
+        };
+        const createdExecution = phase !== "W0"
+          ? await createAiExecution(executionInput)
+          : undefined;
+        return {
+          phase,
+          projectId,
+          rootPath,
+          targetPath,
+          originalContent,
+          newContent,
+          changes,
+          proposalId,
+          deliveryWorkspace,
+          executionInput,
+          executionId: createdExecution?.execution.id,
+        };
+      };
+      const w0Apply = await createApplyCrashSnapshot("W0");
+      const w1Apply = await createApplyCrashSnapshot("W1");
+      const w1IntentApply = await createApplyCrashSnapshot("W1I");
+      const w2Apply = await createApplyCrashSnapshot("W2");
+      const w3Apply = await createApplyCrashSnapshot("W3");
+      const w4Apply = await createApplyCrashSnapshot("W4");
+      const w4ExecutionId = w4Apply.executionId!;
+      const w4Attempt = 1;
+      const w4EpisodeId = randomUUID();
+      const w4WorkerId = `e2-w4-crash-worker-${randomUUID()}`;
+      const w4BeforeObservationId = `apply:${w4ExecutionId}:${w4Attempt}:before:tree`;
+      const w4BeforeEvidenceRef = `apply:${w4ExecutionId}:${w4Attempt}:before`;
+      const w4AfterEvidenceRef = `apply:${w4ExecutionId}:${w4Attempt}:after`;
+      const w4EffectSubject =
+        `project:${w4Apply.proposalId}:${w4Apply.deliveryWorkspace.candidateTreeHash}`;
+      const w4Action = buildApplyChangeAction({
+        actionId: `action:${w4ExecutionId}:${w4Attempt}:apply`,
+        episodeId: w4EpisodeId,
+        projectId: w4Apply.projectId,
+        operationId: w4Apply.deliveryWorkspace.operationId,
+        proposalId: w4Apply.proposalId,
+        attemptId: w4Apply.executionInput.request.operationId,
+        sourceRevision: w4Apply.deliveryWorkspace.baseRevision,
+        baseTreeHash: w4Apply.deliveryWorkspace.baseTreeHash,
+        candidateTreeHash: w4Apply.deliveryWorkspace.candidateTreeHash,
+        changeSetHash: w4Apply.deliveryWorkspace.changeSetHash,
+        approvedPaths: w4Apply.changes.map(({ path: changePath }) => changePath),
+      });
+      const w4EffectContract = buildApplyChangeEffectContract({
+        candidateIdentity:
+          `${w4Apply.proposalId}:${w4Apply.deliveryWorkspace.candidateTreeHash}`,
+        candidateTreeHash: w4Apply.deliveryWorkspace.candidateTreeHash,
+        beforeEvidenceRef: w4BeforeEvidenceRef,
+        afterEvidenceRef: w4AfterEvidenceRef,
+      });
+      const w4ActionPayload = { action: w4Action, effectContract: w4EffectContract };
+      const w4Now = new Date();
+      await db.insert(aiAgentEpisodesTable).values({
+        id: w4EpisodeId,
+        projectId: w4Apply.projectId,
+        executionId: w4ExecutionId,
+        attempt: w4Attempt,
+        projectRevision: w4Apply.deliveryWorkspace.baseRevision,
+        intentKind: "APPLY_CHANGES",
+        scope: {
+          kind: "proposal",
+          proposalId: w4Apply.proposalId,
+          operationId: w4Apply.deliveryWorkspace.operationId,
+        },
+        state: "running",
+        workerId: w4WorkerId,
+        leaseUntil: new Date(w4Now.getTime() - 60_000),
+        idempotencyKey: `e2-w4-episode-${w4ExecutionId}`,
+        createdAt: w4Now,
+        updatedAt: w4Now,
+      });
+      await db.insert(aiAgentEpisodeEventsTable).values({
+        id: randomUUID(),
+        episodeId: w4EpisodeId,
+        projectId: w4Apply.projectId,
+        executionId: w4ExecutionId,
+        attempt: w4Attempt,
+        sequence: 1,
+        eventType: "ACTION_REQUESTED",
+        payload: w4ActionPayload,
+        payloadHash: createHash("sha256")
+          .update(JSON.stringify(w4ActionPayload))
+          .digest("hex"),
+        actorType: "worker",
+        actorId: w4WorkerId,
+        correlationId: w4Apply.executionInput.request.operationId,
+        createdAt: w4Now,
+      });
+      await db.insert(aiAgentObservationsTable).values({
+        id: w4BeforeObservationId,
+        projectId: w4Apply.projectId,
+        executionId: w4ExecutionId,
+        episodeId: w4EpisodeId,
+        kind: "workspace_tree_hash",
+        provenance: "DIRECT_OBSERVATION",
+        observationRole: "before",
+        sourceType: "filesystem",
+        sourceId: w4BeforeObservationId,
+        subject: w4EffectSubject,
+        predicate: "workspace.tree_hash",
+        value: w4Apply.deliveryWorkspace.baseTreeHash,
+        valueHash: createHash("sha256")
+          .update(JSON.stringify(w4Apply.deliveryWorkspace.baseTreeHash))
+          .digest("hex"),
+        observedAt: w4Now,
+        projectRevision: w4Apply.deliveryWorkspace.baseRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        sequence: 1,
+      });
+
       const childSource = [
         "(async () => {",
         '  const { isProviderEgressDisabled } = await import("@workspace/ai-orchestrator");',
@@ -8771,8 +8997,396 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         return { child, port, exit, commit };
       };
 
+      const crashAfterMarker = async (
+        source: string,
+        marker: RegExp,
+        extraEnv: Record<string, string>,
+      ): Promise<string> => {
+        const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+          cwd: process.cwd(),
+          env: {
+            DATABASE_URL: databaseUrl!,
+            NODE_ENV: "test",
+            PATH: process.env.PATH ?? "",
+            AI_PROVIDER_EGRESS_DISABLED: "1",
+            ...extraEnv,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        let childOutput = "";
+        let childDiagnostics = "";
+        child.stdout.on("data", (chunk: string) => {
+          childOutput += chunk;
+        });
+        child.stderr.on("data", (chunk: string) => {
+          childDiagnostics += chunk;
+        });
+        const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+          child.once("exit", (code, signal) => resolve({ code, signal }));
+        });
+        apiChildren.push({ child, exit });
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const cleanup = () => {
+            clearTimeout(timeout);
+            child.stdout.off("data", inspect);
+            child.off("error", onError);
+            child.off("exit", onExit);
+          };
+          const finishError = (error: Error) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error);
+          };
+          const inspect = () => {
+            if (settled || !marker.test(childOutput)) return;
+            settled = true;
+            cleanup();
+            resolve();
+          };
+          const onError = (error: Error) => finishError(error);
+          const onExit = (code: number | null, signal: NodeJS.Signals | null) =>
+            finishError(new Error(
+              `Crash-boundary process exited before ${marker}; `
+              + `code=${code}; signal=${signal}; stderr=${childDiagnostics}; stdout=${childOutput}`,
+            ));
+          const timeout = setTimeout(() => finishError(new Error(
+            `Timed out waiting for crash-boundary process marker ${marker}; `
+            + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+          )), 30_000);
+          child.stdout.on("data", inspect);
+          child.once("error", onError);
+          child.once("exit", onExit);
+          inspect();
+        });
+        expect(child.kill("SIGKILL")).toBe(true);
+        expect(await exit).toMatchObject({ code: null, signal: "SIGKILL" });
+        return childOutput;
+      };
+
+      const assertApplyCrashRecovery = async (
+        snapshot:
+          | typeof w0Apply
+          | typeof w1Apply
+          | typeof w2Apply
+          | typeof w3Apply
+          | typeof w4Apply,
+      ) => {
+        expect(snapshot.executionId).toBeTruthy();
+        const executionId = snapshot.executionId!;
+        const [execution] = await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId)).limit(1);
+        expect(execution).toBeDefined();
+        expect(execution!.status).not.toBe("completed");
+        expect(execution!.finalMessageId).toBeNull();
+
+        const acceptances = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          outcome: aiExecutionAcceptancesTable.outcome,
+        }).from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(acceptances.some(({ outcome }) => outcome === "SUCCEEDED")).toBe(false);
+        expect(acceptances.filter(({ attempt, outcome }) =>
+          attempt === execution!.attempt && outcome === "SUCCEEDED",
+        )).toHaveLength(0);
+
+        const [proposal] = await db.select({
+          status: aiChangeProposalsTable.status,
+          lifecycle: aiChangeProposalsTable.lifecycle,
+        }).from(aiChangeProposalsTable)
+          .where(eq(aiChangeProposalsTable.id, snapshot.proposalId))
+          .limit(1);
+        expect(proposal).toBeDefined();
+        expect(proposal!.status).not.toBe("applied");
+        expect(proposal!.lifecycle).not.toBe("applied");
+
+        const journal = await db.select({
+          stage: aiApplyJournalTable.stage,
+          sequence: aiApplyJournalTable.sequence,
+        }).from(aiApplyJournalTable)
+          .where(eq(aiApplyJournalTable.proposalId, snapshot.proposalId))
+          .orderBy(aiApplyJournalTable.sequence);
+        expect(journal.some(({ stage }) => stage === "APPLIED" || stage === "PROMOTED"))
+          .toBe(false);
+        const transitions = await db.select({ id: aiWorldTransitionsTable.id })
+          .from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.executionId, executionId));
+        expect(transitions).toEqual([]);
+        const episodes = await db.select({ id: aiAgentEpisodesTable.id })
+          .from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.executionId, executionId));
+        if (snapshot.phase === "W4") {
+          expect(episodes).toHaveLength(1);
+          const observations = await db.select({
+            observationRole: aiAgentObservationsTable.observationRole,
+          }).from(aiAgentObservationsTable)
+            .where(eq(aiAgentObservationsTable.executionId, executionId));
+          expect(observations).toEqual([{ observationRole: "before" }]);
+          expect(await db.select({ id: aiAgentEffectsTable.id })
+            .from(aiAgentEffectsTable)
+            .where(eq(aiAgentEffectsTable.executionId, executionId))).toEqual([]);
+          expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+            .from(aiAgentEffectBundlesTable)
+            .where(eq(aiAgentEffectBundlesTable.executionId, executionId))).toEqual([]);
+        } else {
+          expect(episodes).toEqual([]);
+        }
+        const projectEvents = await db.select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.projectId, snapshot.projectId));
+        expect(projectEvents.some(({ type }) =>
+          type === "AiChangesApplied" || type === "AiGoalDispatchRequested",
+        )).toBe(false);
+        for (const [index, change] of snapshot.changes.entries()) {
+          const expectedLiveContent = snapshot.phase === "W3" || snapshot.phase === "W4"
+            || (snapshot.phase === "W2" && index === 0)
+            ? change.newContent
+            : change.originalContent;
+          expect(await fs.readFile(path.join(snapshot.rootPath, change.path), "utf8"))
+            .toBe(expectedLiveContent);
+          expect(await fs.readFile(
+            path.join(snapshot.deliveryWorkspace.workspaceRoot, change.path),
+            "utf8",
+          )).toBe(change.newContent);
+        }
+
+        if (
+          snapshot.phase === "W1"
+          || snapshot.phase === "W1I"
+          || snapshot.phase === "W2"
+          || snapshot.phase === "W3"
+          || snapshot.phase === "W4"
+        ) {
+          expect(execution!.status).toBe("paused");
+          expect(acceptances.map(({ outcome }) => outcome)).toEqual(["FAILED"]);
+        }
+        if (snapshot.phase === "W1" || snapshot.phase === "W1I") {
+          expect(journal.map(({ stage }) => stage)).toContain("BLOCKED");
+        }
+        if (
+          snapshot.phase === "W1I"
+          || snapshot.phase === "W2"
+          || snapshot.phase === "W3"
+          || snapshot.phase === "W4"
+        ) {
+          expect(journal.map(({ stage }) => stage)).toContain("PROMOTION_INTENT");
+        }
+        if (snapshot.phase === "W2" || snapshot.phase === "W3") {
+          expect(journal.map(({ stage }) => stage)).toEqual([
+            "PROMOTION_INTENT",
+            "RECOVERY_REQUIRED",
+          ]);
+        }
+        if (snapshot.phase === "W4") {
+          expect(journal.map(({ stage }) => stage)).toEqual([
+            "PROMOTION_INTENT",
+            "WRITTEN",
+            "RECOVERY_REQUIRED",
+          ]);
+        }
+        return {
+          status: execution!.status,
+          acceptanceOutcomes: acceptances.map(({ outcome }) => outcome),
+          proposalStatus: proposal!.status,
+          proposalLifecycle: proposal!.lifecycle,
+          journalStages: journal.map(({ stage }) => stage),
+        };
+      };
+
       try {
+        const w0CreatorSource = [
+          "(async () => {",
+          "  const input = JSON.parse(process.env.E2_APPLY_EXECUTION_INPUT || 'null');",
+          '  const { createAiExecution } = await import("./src/lib/ai-execution-state.ts");',
+          "  const created = await createAiExecution(input);",
+          '  if (!created.created) throw new Error("W0 execution was not newly created.");',
+          '  process.stdout.write("E2_APPLY_W0_CREATED:" + created.execution.id + "\\n");',
+          "  await new Promise(() => {});",
+          "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        ].join("\n");
+        const w0Output = await crashAfterMarker(
+          w0CreatorSource,
+          /E2_APPLY_W0_CREATED:[0-9a-f-]{36}/i,
+          { E2_APPLY_EXECUTION_INPUT: JSON.stringify(w0Apply.executionInput) },
+        );
+        const w0CreatedMatch = w0Output.match(/E2_APPLY_W0_CREATED:([0-9a-f-]{36})/i);
+        expect(w0CreatedMatch).toBeTruthy();
+        w0Apply.executionId = w0CreatedMatch![1]!;
+        const [w0BeforeRecovery] = await db.select({
+          status: aiExecutionsTable.status,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, w0Apply.executionId))
+          .limit(1);
+        expect(w0BeforeRecovery?.status).toBe("queued");
+
+        const w1ClaimSource = [
+          "(async () => {",
+          '  const { claimAiExecution } = await import("./src/lib/ai-execution-state.ts");',
+          '  const { db, aiExecutionsTable } = await import("@workspace/db");',
+          '  const { eq } = await import("drizzle-orm");',
+          "  const executionId = process.env.E2_APPLY_EXECUTION_ID;",
+          "  const claimed = await claimAiExecution({",
+          "    executionId,",
+          '    userId: "test-user",',
+          "    workerId: process.env.E2_APPLY_WORKER_ID,",
+          "  });",
+          '  if (claimed?.status !== "running") throw new Error("W1 execution was not claimed.");',
+          "  await db.update(aiExecutionsTable)",
+          "    .set({ leaseUntil: new Date(Date.now() - 1000), updatedAt: new Date() })",
+          "    .where(eq(aiExecutionsTable.id, executionId));",
+          '  process.stdout.write("E2_APPLY_W1_CLAIMED:" + executionId + "\\n");',
+          "  await new Promise(() => {});",
+          "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        ].join("\n");
+        const w1Output = await crashAfterMarker(
+          w1ClaimSource,
+          /E2_APPLY_W1_CLAIMED:[0-9a-f-]{36}/i,
+          {
+            E2_APPLY_EXECUTION_ID: w1Apply.executionId!,
+            E2_APPLY_WORKER_ID: `e2-w1-crash-worker-${randomUUID()}`,
+          },
+        );
+        expect(w1Output).toContain(`E2_APPLY_W1_CLAIMED:${w1Apply.executionId}`);
+        const [w1BeforeRecovery] = await db.select({
+          status: aiExecutionsTable.status,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, w1Apply.executionId!))
+          .limit(1);
+        expect(w1BeforeRecovery?.status).toBe("running");
+        expect(w1BeforeRecovery?.leaseUntil?.getTime()).toBeLessThan(Date.now());
+
+        const makeApplyPromotionIntent = (
+          snapshot: typeof w1IntentApply | typeof w2Apply | typeof w3Apply | typeof w4Apply,
+        ) => ({
+          operationId: snapshot.deliveryWorkspace.operationId,
+          attemptId: snapshot.executionInput.request.operationId,
+          projectId: snapshot.projectId,
+          proposalId: snapshot.proposalId,
+          projectRoot: snapshot.rootPath,
+          journalPayload: {
+            operationId: snapshot.deliveryWorkspace.operationId,
+            candidateWorkspace: snapshot.deliveryWorkspace.workspaceRoot,
+            candidateHash: snapshot.deliveryWorkspace.candidateTreeHash,
+            baseRevision: snapshot.deliveryWorkspace.baseRevision,
+            changeSetHash: snapshot.deliveryWorkspace.changeSetHash,
+            files: snapshot.changes.map(({ path: changePath, originalContent, newContent }) => ({
+              path: changePath,
+              originalContent,
+              newContent,
+            })),
+          },
+        });
+        const applyPromotionIntentCrashSource = [
+          "(async () => {",
+          '  const { join } = await import("node:path");',
+          '  const { randomUUID } = await import("node:crypto");',
+          '  const { claimAiExecution } = await import("./src/lib/ai-execution-state.ts");',
+          '  const { db, aiApplyJournalTable, aiExecutionsTable } = await import("@workspace/db");',
+          '  const { eq } = await import("drizzle-orm");',
+          "  const executionId = process.env.E2_APPLY_EXECUTION_ID;",
+          "  const claimed = await claimAiExecution({",
+          "    executionId,",
+          '    userId: "test-user",',
+          "    workerId: process.env.E2_APPLY_WORKER_ID,",
+          "  });",
+          '  if (claimed?.status !== "running") throw new Error("Apply execution was not claimed.");',
+          "  const intent = JSON.parse(process.env.E2_APPLY_PROMOTION_INTENT || 'null');",
+          "  await db.insert(aiApplyJournalTable).values({",
+          "    id: randomUUID(),",
+          "    operationId: intent.operationId,",
+          "    attemptId: intent.attemptId,",
+          "    projectId: intent.projectId,",
+          "    proposalId: intent.proposalId,",
+          '    stage: "PROMOTION_INTENT",',
+          "    sequence: 1,",
+          "    payload: intent.journalPayload,",
+          "    createdAt: new Date(),",
+          "  });",
+          "  const phase = process.env.E2_APPLY_CRASH_PHASE;",
+          "  if (phase === 'W2' || phase === 'W3' || phase === 'W4') {",
+          '    const { atomicallyPromoteFile } = await import("./src/lib/delivery-workspace.ts");',
+          "    const files = phase === 'W2'",
+          "      ? intent.journalPayload.files.slice(0, 1)",
+          "      : intent.journalPayload.files;",
+          "    for (const file of files) {",
+          "      await atomicallyPromoteFile(join(intent.projectRoot, file.path), file.newContent, intent.operationId);",
+          "    }",
+          "  }",
+          "  if (phase === 'W4') {",
+          "    await db.insert(aiApplyJournalTable).values({",
+          "      id: randomUUID(),",
+          "      operationId: intent.operationId,",
+          "      attemptId: intent.attemptId,",
+          "      projectId: intent.projectId,",
+          "      proposalId: intent.proposalId,",
+          '      stage: "WRITTEN",',
+          "      sequence: 2,",
+          "      payload: {",
+          "        files: intent.journalPayload.files.map((file) => file.path),",
+          '        promotionState: "PROMOTED",',
+          "      },",
+          "      createdAt: new Date(),",
+          "    });",
+          "  }",
+          "  await db.update(aiExecutionsTable)",
+          "    .set({ leaseUntil: new Date(Date.now() - 1000), updatedAt: new Date() })",
+          "    .where(eq(aiExecutionsTable.id, executionId));",
+          '  process.stdout.write("E2_APPLY_" + phase + "_READY:" + executionId + "\\n");',
+          "  await new Promise(() => {});",
+          "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+        ].join("\n");
+        for (const snapshot of [w1IntentApply, w2Apply, w3Apply, w4Apply]) {
+          const phase = snapshot.phase;
+          const workerId = phase === "W4"
+            ? w4WorkerId
+            : `e2-${phase.toLowerCase()}-crash-worker-${randomUUID()}`;
+          const crashOutput = await crashAfterMarker(
+            applyPromotionIntentCrashSource,
+            new RegExp(`E2_APPLY_${phase}_READY:[0-9a-f-]{36}`, "i"),
+            {
+              E2_APPLY_EXECUTION_ID: snapshot.executionId!,
+              E2_APPLY_WORKER_ID: workerId,
+              E2_APPLY_CRASH_PHASE: phase,
+              E2_APPLY_PROMOTION_INTENT: JSON.stringify(makeApplyPromotionIntent(snapshot)),
+            },
+          );
+          expect(crashOutput).toContain(`E2_APPLY_${phase}_READY:${snapshot.executionId}`);
+          const intentRows = await db.select({
+            stage: aiApplyJournalTable.stage,
+            sequence: aiApplyJournalTable.sequence,
+          }).from(aiApplyJournalTable)
+            .where(eq(aiApplyJournalTable.proposalId, snapshot.proposalId))
+            .orderBy(aiApplyJournalTable.sequence);
+          expect(intentRows).toEqual(phase === "W4"
+            ? [
+                { stage: "PROMOTION_INTENT", sequence: 1 },
+                { stage: "WRITTEN", sequence: 2 },
+              ]
+            : [{ stage: "PROMOTION_INTENT", sequence: 1 }]);
+          for (const [index, change] of snapshot.changes.entries()) {
+            const expectedLiveContent = phase === "W3" || phase === "W4"
+              || (phase === "W2" && index === 0)
+              ? change.newContent
+              : change.originalContent;
+            expect(await fs.readFile(path.join(snapshot.rootPath, change.path), "utf8"))
+              .toBe(expectedLiveContent);
+          }
+        }
+
         const committingApi = await startApiProcess();
+        const firstW0Recovery = await assertApplyCrashRecovery(w0Apply);
+        const firstW1Recovery = await assertApplyCrashRecovery(w1Apply);
+        const firstW1IntentRecovery = await assertApplyCrashRecovery(w1IntentApply);
+        const firstW2Recovery = await assertApplyCrashRecovery(w2Apply);
+        const firstW3Recovery = await assertApplyCrashRecovery(w3Apply);
+        const firstW4Recovery = await assertApplyCrashRecovery(w4Apply);
         const [startupReconciledExecution] = await db
           .select({
             status: aiExecutionsTable.status,
@@ -8809,6 +9423,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         expect(await committingApi.exit).toMatchObject({ code: null, signal: "SIGKILL" });
 
         const restartedApi = await startApiProcess();
+        expect(await assertApplyCrashRecovery(w0Apply)).toEqual(firstW0Recovery);
+        expect(await assertApplyCrashRecovery(w1Apply)).toEqual(firstW1Recovery);
+        expect(await assertApplyCrashRecovery(w1IntentApply)).toEqual(firstW1IntentRecovery);
+        expect(await assertApplyCrashRecovery(w2Apply)).toEqual(firstW2Recovery);
+        expect(await assertApplyCrashRecovery(w3Apply)).toEqual(firstW3Recovery);
+        expect(await assertApplyCrashRecovery(w4Apply)).toEqual(firstW4Recovery);
         const historyResponse = await fetch(
           `http://127.0.0.1:${restartedApi.port}/api/ai/chat/${sessionId}/messages`,
         );
