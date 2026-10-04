@@ -4264,6 +4264,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يُحقن فشل readback فعليًا، وحقن progress بعد commit ليس انقطاع HTTP أو قتل route؛ استعادة response-loss والتكافؤ عند W9 لبقية الأسطح ما زالا غير مثبتين.
 - **next step:** مواصلة E2 فقط على حد DB-only غير مغطى، مع إبقاء اختبارات كتابة الملفات وdelivery وcommit وpush خارج النطاق.
 
+### 2026-10-04 — اختبار rollback لقبول task عند فشل الإسقاط (W8)
+
+- **phase/step:** E2 / W8 — فشل داخل معاملة إتمام task بعد إدخال acceptance.
+- **status:** `partial — atomic rollback على task غير معدّل مثبت بقاعدة مؤقتة؛ process crash وتعافي mutation effects غير مختبرين`.
+- **what changed:** يحقن الاختبار فشلًا في كتابة سجل الإتمام بعد إدخال acceptance وتحديث task داخل المعاملة نفسها. يتحقق من rollback لنجاح المهمة (بقاء task قابلة لإعادة المحاولة، غياب سجل/حدث الإتمام، وعدم بقاء قبول نجاح) ثم تسجيل acceptance فشل واحدة للمحاولة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** 4 اختبارات task مركّزة نجحت على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** provider وهمي ومسار task غير معدّل؛ trigger محصور في قاعدة الاختبار المؤقتة. لا كتابة ملفات مشروع أو delivery/commit/push ولا استخدام قاعدة dev/prod.
+- **remaining/blocker:** حقن DB داخل transaction لا يثبت موت process أو فقد HTTP بعد القبول؛ W8 عبر mutation surfaces وبقية أسطح E2 ما زالت مفتوحة.
+- **next step:** مواصلة E2 فقط على حد DB-only غير مغطى؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

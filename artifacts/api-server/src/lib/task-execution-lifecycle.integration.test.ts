@@ -27,8 +27,10 @@ import {
   aiMissionsTable,
   aiUsageEventsTable,
   db,
+  eventsTable,
   operatorAlertsTable,
   projectsTable,
+  taskLogsTable,
   tasksTable,
   workflowExecutionsTable,
   workflowsTable,
@@ -502,6 +504,137 @@ describe("real durable task execution lifecycle", () => {
         resumable: 0,
       });
     } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("rolls back task success projections when finalization fails after acceptance insert", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const now = new Date();
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-w8-rollback-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "W8 finalization rollback fixture",
+      prompt: "Return the deterministic fixture result",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      await db.execute(sql`
+        CREATE OR REPLACE FUNCTION fixture_fail_success_task_completion_log()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.message LIKE 'AI task completed:%' THEN
+            RAISE EXCEPTION 'fixture_success_task_log_failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `);
+      await db.execute(sql`
+        CREATE TRIGGER fixture_fail_success_task_completion_log
+        BEFORE INSERT ON task_logs
+        FOR EACH ROW EXECUTE FUNCTION fixture_fail_success_task_completion_log()
+      `);
+
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "failed",
+        errorCode: "execution_finalize_failed",
+      });
+      expect(outcome.executionId).toEqual(expect.any(String));
+      expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED"]);
+
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          completedAt: tasksTable.completedAt,
+          verificationResult: tasksTable.verificationResult,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        workerId: null,
+        completedAt: null,
+        verificationResult: { passed: false, decision: "failed" },
+      });
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, outcome.executionId!));
+      expect(execution).toMatchObject({
+        status: "failed",
+        recipeReceipt: {
+          terminalStatus: "FAILED",
+          terminalReason: "execution_finalize_failed",
+        },
+      });
+
+      const acceptances = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!));
+      expect(acceptances).toEqual([{
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_FINALIZATION_FAILED",
+      }]);
+
+      const taskLogs = await db
+        .select({ message: taskLogsTable.message })
+        .from(taskLogsTable)
+        .where(eq(taskLogsTable.taskId, taskId));
+      expect(taskLogs.some(({ message }) => message.startsWith("AI task completed:"))).toBe(false);
+
+      const completionEvents = await db
+        .select({ type: eventsTable.type })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.taskId, taskId),
+        ));
+      expect(completionEvents.some(({ type }) => type === "TaskCompleted")).toBe(false);
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_success_task_completion_log ON task_logs`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_success_task_completion_log()`);
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
