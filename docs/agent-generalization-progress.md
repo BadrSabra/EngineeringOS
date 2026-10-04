@@ -4363,6 +4363,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يُقتل أو يُعاد تشغيل process بعد commit؛ لا تزال أسطح E2 الأخرى وworkflow W9 غير مثبتة.
 - **next step:** مواصلة E2 على حد تعافي process أو سطح read-only آخر؛ لا يبدأ E3–E8 ولا تُختبر مسارات كتابة الملفات أو delivery/Git.
 
+### 2026-10-04 — E2 crash boundary بعد قبول project-query
+
+- **phase/step:** E2 / W9 — قتل عملية finalizer بعد commit وقبل إعادة نتيجة الاختبار.
+- **status:** `partial — finalizer child process مات بعد commit؛ خادم API لم يُقتل أو يُعد تشغيله`.
+- **what changed:** اختبار اختياري provider-free يشغّل `completeAiExecution` الحقيقي في child process؛ بعد إشارة commit يُرسل `SIGKILL`، ثم تتحقق العملية الأم من execution مكتمل، وcheckpoint `PROVEN`، وقبول `SUCCEEDED` للمحاولة الحالية، وevidence snapshot، ورسالة assistant المستعادة من history. يظل هذا اختبارًا لحد finalizer child فقط، لا تعافي API server كامل.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** الاختبار المركّز 1/1 ناجح (111 skipped)؛ API typecheck و`git diff --check` ناجحان. استُخدمت PostgreSQL 17.6 مؤقتة على `127.0.0.1:56329`؛ أُوقفت وحُذف جذرها المحدد.
+- **authority/safety impact:** fixtures محلية فقط؛ لا provider أو file tools أو delivery/Git أو production.
+- **remaining/blocker:** لم يُقتل أو يُعاد تشغيل API server؛ workflow W9 وبقية أسطح E2 غير مثبتة.
+- **next step:** مواصلة E2 فقط بحد process restart لـAPI server على قاعدة مؤقتة، دون provider حي أو عمليات ملفات/delivery/Git؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

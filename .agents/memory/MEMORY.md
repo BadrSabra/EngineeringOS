@@ -64,7 +64,7 @@
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
-- [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate the immutable acceptance attempt when the resume token is claimed, not when the token is merely issued.
+- [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate on claim and verify acceptance against the current attempt, not a stale row.
 - [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.
 - [Evidence scheduler contract](evidence-scheduler-contract.md) — required source paths need complete/targeted reads; stalled loops force the next missing path, not repeated first-file reads.
 - [Short imperative routing](short-imperative-routing.md) — detect short execution commands before simple-chat fast paths so provider success cannot mask zero-tool non-execution.

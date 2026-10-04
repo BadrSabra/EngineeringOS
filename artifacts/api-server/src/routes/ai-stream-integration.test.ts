@@ -8562,6 +8562,221 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   }, 60_000);
 
+  it.runIf(process.env.RUN_E2_PROOF_PROCESS_CRASH === "1")(
+    "retains proof acceptance after the finalizer process is killed immediately after commit",
+    async () => {
+      const databaseUrl = process.env.DATABASE_URL;
+      expect(databaseUrl).toBeTruthy();
+      expect(new URL(databaseUrl!).hostname).toBe("127.0.0.1");
+
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const sessionId = await insertChatSession(projectId, "Finalizer process crash recovery");
+      const operationId = `process-crash-operation-${randomUUID()}`;
+      const message = "Explain the accepted project analysis after recovery.";
+      const finalResponse = "Verified project analysis recovered from durable history.";
+      const fixture = await createReconnectedProofFixture({
+        projectId,
+        sessionId,
+        operationId,
+        message,
+      });
+      const finalMessageId = randomUUID();
+      await db.insert(aiChatMessagesTable).values([
+        {
+          id: randomUUID(),
+          sessionId,
+          role: "user",
+          content: message,
+          createdAt: new Date(),
+        },
+        {
+          id: finalMessageId,
+          sessionId,
+          executionId: fixture.created.execution.id,
+          role: "assistant",
+          content: finalResponse,
+          outcome: null,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const completionInput = {
+        executionId: fixture.created.execution.id,
+        workerId: fixture.workerId!,
+        finalMessageId,
+        operation: {
+          ...fixture.operation,
+          state: "validating" as const,
+        },
+        proofRequired: true,
+        operationId,
+        evidenceVerdict: "PROVEN" as const,
+        objectiveValidated: true,
+        evidenceReads: [{
+          path: "src/proof-fixture.ts",
+          readType: "source" as const,
+          body: PROOF_FIXTURE_BODY,
+          complete: true,
+          truncated: false,
+        }],
+        analysisEvidence: {
+          operationId,
+          sourceRevision: fixture.request.workspaceRevision,
+          requiredPaths: ["src/proof-fixture.ts"],
+          completedReadFiles: ["src/proof-fixture.ts"],
+          acceptedEvidenceFiles: ["src/proof-fixture.ts"],
+          readManifest: [{
+            path: "src/proof-fixture.ts",
+            status: "READ_COMPLETE" as const,
+            operationId,
+            sourceRevision: fixture.request.workspaceRevision,
+            contentHash: createHash("sha256").update(PROOF_FIXTURE_BODY).digest("hex"),
+            byteLength: Buffer.byteLength(PROOF_FIXTURE_BODY, "utf8"),
+          }],
+          acceptedClaimCount: 1,
+          evidenceConsistent: true,
+          completionGateResult: "PROVEN" as const,
+          objectiveVerdict: "ANSWER_COMPLETE" as const,
+          finalState: "VERIFIED" as const,
+          finalAnswerType: "BEHAVIORAL_ANSWER" as const,
+        },
+      };
+      const childSource = [
+        "(async () => {",
+        '  const { completeAiExecution } = await import("./src/lib/ai-execution-state.ts");',
+        '  let input = "";',
+        "  for await (const chunk of process.stdin) input += chunk;",
+        "  const accepted = await completeAiExecution(JSON.parse(input));",
+        '  process.stdout.write("E2_ACCEPTED:" + accepted + "\\n");',
+        "  await new Promise(() => {});",
+        "})().catch((error) => {",
+        "  console.error(error);",
+        "  process.exitCode = 1;",
+        "});",
+      ].join("\n");
+      const child = spawn(
+        process.execPath,
+        ["--import", "tsx", "-e", childSource],
+        {
+          cwd: process.cwd(),
+          env: {
+            DATABASE_URL: databaseUrl!,
+            NODE_ENV: "test",
+            PATH: process.env.PATH ?? "",
+          },
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      let childOutput = "";
+      let childDiagnostics = "";
+      let resultSettled = false;
+      let resultTimeout: ReturnType<typeof setTimeout> | undefined;
+      let resolveResult!: (result: { accepted?: boolean; error?: Error }) => void;
+      const resultPromise = new Promise<{ accepted?: boolean; error?: Error }>((resolve) => {
+        resolveResult = resolve;
+      });
+      const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      const settleResult = (result: { accepted?: boolean; error?: Error }) => {
+        if (resultSettled) return;
+        resultSettled = true;
+        if (resultTimeout) clearTimeout(resultTimeout);
+        resolveResult(result);
+      };
+      resultTimeout = setTimeout(() => {
+        settleResult({ error: new Error(
+          `Finalizer child did not report a commit. stderr=${childDiagnostics}; stdout=${childOutput}`,
+        ) });
+      }, 30_000);
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        childOutput += chunk;
+        const match = childOutput.match(/(?:^|\r?\n)E2_ACCEPTED:(true|false)\r?\n/);
+        if (match) settleResult({ accepted: match[1] === "true" });
+      });
+      child.stderr.on("data", (chunk: string) => {
+        childDiagnostics += chunk;
+      });
+      child.once("error", (error) => settleResult({ error }));
+      child.once("exit", (code, signal) => {
+        if (!resultSettled) {
+          settleResult({ error: new Error(
+            `Finalizer child exited before reporting acceptance (code=${code}, signal=${signal}). `
+            + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+          ) });
+        }
+      });
+      child.stdin.on("error", (error) => settleResult({ error }));
+
+      try {
+        child.stdin.end(JSON.stringify(completionInput));
+        const childResult = await resultPromise;
+        if (childResult.error) throw childResult.error;
+        expect(childResult.accepted).toBe(true);
+        expect(child.kill("SIGKILL")).toBe(true);
+        expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
+      } finally {
+        if (resultTimeout) clearTimeout(resultTimeout);
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+          await childExit;
+        }
+      }
+
+      const [execution] = await db
+        .select({
+          id: aiExecutionsTable.id,
+          sessionId: aiExecutionsTable.sessionId,
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+          attempt: aiExecutionsTable.attempt,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+        .limit(1);
+      expect(execution).toMatchObject({
+        status: "completed",
+        finalMessageId,
+      });
+      expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+        stage: "completed",
+        evidenceVerdict: "PROVEN",
+        operation: { operationId, state: "succeeded" },
+      });
+      const [acceptance] = await db
+        .select()
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.created.execution.id),
+          eq(aiExecutionAcceptancesTable.attempt, execution!.attempt),
+        ))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+        messageId: finalMessageId,
+      });
+      const history = await request(app)
+        .get(`/api/ai/chat/${sessionId}/messages`)
+        .expect(200);
+      expect(history.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: "user", content: message }),
+        expect.objectContaining({
+          role: "assistant",
+          content: finalResponse,
+          outcome: "SUCCEEDED",
+        }),
+      ]));
+    },
+    60_000,
+  );
+
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
