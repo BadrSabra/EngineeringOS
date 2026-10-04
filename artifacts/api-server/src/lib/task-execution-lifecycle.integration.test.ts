@@ -1435,6 +1435,155 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it("W8 rolls back a workflow Goal success projection and records the failed attempt", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const workflowId = randomUUID();
+    const workflowExecutionId = randomUUID();
+    const now = new Date();
+    const userId = "workflow-phase-w8-rollback-user";
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `workflow-phase-w8-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/workflow-phase-w8-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId,
+      title: "Workflow W8 fixture",
+      intent: "Record a phase boundary without running file-changing work",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {},
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Complete the workflow",
+      description: "Keep the non-final phase projection bound to its transaction.",
+      status: "running",
+      priority: "p1",
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: { w8_fault_injection: "workflow_success_projection" },
+      nextAction: { kind: "workflow", workflowId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workflowsTable).values({
+      id: workflowId,
+      projectId,
+      goalId,
+      name: "Workflow W8 fixture",
+      status: "running",
+      phases: [
+        { name: "prepare", steps: [] },
+        { name: "deliver", steps: [] },
+      ],
+      currentPhase: "prepare",
+      executionCount: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workflowExecutionsTable).values({
+      id: workflowExecutionId,
+      workflowId,
+      status: "running",
+      currentPhase: "prepare",
+      completedPhases: [],
+      startedAt: now,
+    });
+
+    try {
+      await db.execute(sql`
+        CREATE OR REPLACE FUNCTION fixture_fail_workflow_success_goal_projection()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.outcome_contract->>'w8_fault_injection' = 'workflow_success_projection'
+            AND NEW.outcome_contract->'acceptance'->>'outcome' = 'SUCCEEDED' THEN
+            RAISE EXCEPTION 'fixture_workflow_success_goal_projection_failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `);
+      await db.execute(sql`
+        CREATE TRIGGER fixture_fail_workflow_success_goal_projection
+        BEFORE UPDATE OF outcome_contract ON ai_goals
+        FOR EACH ROW EXECUTE FUNCTION fixture_fail_workflow_success_goal_projection()
+      `);
+
+      const result = await executeWorkflowPhase({
+        userId,
+        projectId,
+        workflowId,
+        workflowExecutionId,
+        workflowName: "Workflow W8 fixture",
+        phaseName: "prepare",
+        phaseSteps: [],
+        revision: now.toISOString(),
+        completedPhaseNames: [],
+        goalId,
+        isFinalPhase: false,
+      });
+      expect(result).toMatchObject({ created: true, status: "failed" });
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, result.executionId));
+      expect(execution).toEqual({ status: "failed", workerId: null });
+
+      const acceptances = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, result.executionId));
+      expect(acceptances).toEqual([{ outcome: "FAILED", terminalStatus: "failed" }]);
+
+      const [goal] = await db
+        .select({
+          status: aiGoalsTable.status,
+          outcomeContract: aiGoalsTable.outcomeContract,
+        })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId));
+      const projection = (goal?.outcomeContract as Record<string, unknown>).acceptance as Record<string, unknown>;
+      expect(goal?.status).toBe("running");
+      expect(projection).toMatchObject({
+        executionId: result.executionId,
+        outcome: "FAILED",
+        verdict: "FAILED",
+      });
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_workflow_success_goal_projection ON ai_goals`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_workflow_success_goal_projection()`);
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.id, workflowExecutionId));
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("requires a directly observed candidate effect for an approved Mission repair", async () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "execute",

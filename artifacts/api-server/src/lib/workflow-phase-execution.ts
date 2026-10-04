@@ -130,6 +130,7 @@ export async function executeWorkflowPhase(params: {
     };
   }
 
+  let completionFinalizationInFlight = false;
   try {
     operation = transitionAutonomousOperation(operation, "inspecting");
     const checkpointed = await checkpointAiExecution({
@@ -169,6 +170,7 @@ export async function executeWorkflowPhase(params: {
     };
     operation = transitionAutonomousOperation(operation, "validating");
     operation = transitionAutonomousOperation(operation, "succeeded");
+    completionFinalizationInFlight = true;
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -184,6 +186,7 @@ export async function executeWorkflowPhase(params: {
           }
         : undefined,
     });
+    completionFinalizationInFlight = false;
     if (!completed) throw new Error("Workflow phase lease was lost before completion");
     return {
       executionId: claimed.id,
@@ -192,12 +195,24 @@ export async function executeWorkflowPhase(params: {
       status: "completed",
     };
   } catch (error) {
-    if (!["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state)) {
+    const shouldPersistFailure = completionFinalizationInFlight
+      || !["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state);
+    if (shouldPersistFailure) {
+      // If the terminal acceptance transaction throws, retry failure finalization
+      // under the same worker fence. It cannot overwrite a success that committed
+      // before an uncertain response; otherwise it records the failed attempt.
+      const failureOperation = operation.state === "succeeded"
+        ? {
+            ...operation,
+            state: "failed" as const,
+            updatedAt: new Date().toISOString(),
+          }
+        : transitionAutonomousOperation(operation, "failed");
       await failAiExecution({
         executionId: claimed.id,
         workerId,
         error: error instanceof Error ? error.message : "Workflow phase execution failed",
-        operation: transitionAutonomousOperation(operation, "failed"),
+        operation: failureOperation,
         nodeStates: nodes,
         goalProjection: params.goalId
           ? {

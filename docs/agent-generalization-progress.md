@@ -4275,6 +4275,17 @@ G9 Revocation Safety
 - **remaining/blocker:** حقن DB داخل transaction لا يثبت موت process أو فقد HTTP بعد القبول؛ W8 عبر mutation surfaces وبقية أسطح E2 ما زالت مفتوحة.
 - **next step:** مواصلة E2 فقط على حد DB-only غير مغطى؛ لا يبدأ E3–E8.
 
+### 2026-10-04 — rollback لإسقاط Goal في workflow عند W8
+
+- **phase/step:** E2 / W8 — قبول مرحلة workflow وإسقاط Goal ضمن المعاملة نفسها.
+- **status:** `partial — rollback ومعالجة فشل DB لمرحلة غير نهائية مثبتان؛ crash وresponse loss بعد commit غير مختبرين`.
+- **what changed:** يرفض trigger مؤقت تحديث `outcome_contract` الذي يحمل قبول نجاح للـGoal بعد إدخال acceptance. تتراجع معاملة نجاح workflow؛ ثم يُنهى التنفيذ كـ`FAILED` تحت lease العامل نفسه، وتُحفظ إسقاطات الفشل فقط مع بقاء Goal غير نهائي. أُبقي سلوك فقدان terminal fence صريحًا: `completeAiExecution=false` لا يكتب فشلًا متأخرًا. المرحلة fixture فارغة، بلا provider أو `rootPath`.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workflow-phase-execution.ts`، اختباره، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير schema أو صلاحيات.
+- **validation:** اختبار unit واختبار DB-backed (2/2) نجحا على PostgreSQL مؤقتة loopback؛ API typecheck نجح؛ workflow API أُعيد تشغيله ووصل إلى `Server listening`. `git diff --check` سيُعاد بعد تحديث هذا السجل.
+- **authority/safety impact:** DB مؤقتة مع trigger يستهدف marker خاصًا بالـfixture فقط؛ لا provider أو كتابة ملفات مشروع أو delivery/commit/push، ولا قاعدة production. سجّل restart محليًا محاولتي chat recovery قديمتين مرفوضتين `409` بسبب جذور غير متاحة؛ لم أعد تشغيلهما أو أعدّل بياناتهما.
+- **remaining/blocker:** trigger DB لا يثبت موت process أو فقد استجابة بعد commit؛ الإسقاط النهائي لـGoal/Mission والأسطح الأخرى ما زالت خارج هذا الاختبار.
+- **next step:** مواصلة E2 على حد DB-only آخر؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

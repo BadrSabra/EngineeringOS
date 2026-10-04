@@ -105,4 +105,38 @@ describe("executeWorkflowPhase", () => {
     expect(mocks.completeAiExecution).toHaveBeenCalledOnce();
     expect(mocks.failAiExecution).not.toHaveBeenCalled();
   });
+
+  it("records a terminal failure when workflow acceptance throws after local success", async () => {
+    mocks.completeAiExecution.mockRejectedValueOnce(new Error("fixture_goal_projection_transaction_failed"));
+
+    const result = await executeWorkflowPhase({
+      userId: "user-1",
+      projectId: "project-1",
+      workflowId: "workflow-1",
+      workflowExecutionId: "workflow-execution-1",
+      workflowName: "Example",
+      phaseName: "prepare",
+      phaseSteps: [],
+      revision: "revision-1",
+      completedPhaseNames: [],
+      goalId: "goal-1",
+      isFinalPhase: false,
+    });
+
+    expect(result).toMatchObject({
+      executionId: "execution-1",
+      status: "failed",
+    });
+    expect(mocks.failAiExecution).toHaveBeenCalledOnce();
+    expect(mocks.failAiExecution).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ state: "failed" }),
+      goalProjection: expect.objectContaining({
+        goalId: "goal-1",
+        workflowId: "workflow-1",
+        workflowExecutionId: "workflow-execution-1",
+        phase: "prepare",
+        finalPhase: false,
+      }),
+    }));
+  });
 });
