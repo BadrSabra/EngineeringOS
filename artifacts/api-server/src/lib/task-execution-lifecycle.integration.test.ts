@@ -1049,6 +1049,257 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it("does not let a replaced structured worker record a stale failure", async () => {
+    const projectId = randomUUID();
+    const userId = `structured-fence-${projectId}`;
+    const now = new Date();
+    let structuredExecution: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+    const completionSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `structured-fence-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/structured-fence-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      structuredExecution = await startStructuredExecution({
+        userId,
+        projectId,
+        projectRevision: "b".repeat(64),
+        task: "analyze",
+        prompt: "Exercise the structured execution lease fence.",
+      });
+      const assistantMessageId = await structuredExecution.persistAssistant({
+        content: "Fixture result; no provider or project files are used.",
+        outcome: "SUCCEEDED",
+        toolTrace: "structured_lease_replacement_fixture",
+      });
+      const replacementWorkerId = randomUUID();
+
+      completionSpy.mockImplementationOnce(async ({ executionId }) => {
+        await db.update(aiExecutionsTable)
+          .set({
+            workerId: replacementWorkerId,
+            leaseUntil: new Date(Date.now() + 60_000),
+            updatedAt: new Date(),
+          })
+          .where(eq(aiExecutionsTable.id, executionId));
+        throw new Error("fixture_completion_failed_after_ownership_transfer");
+      });
+
+      await expect(structuredExecution.complete({
+        messageId: assistantMessageId,
+        content: "Fixture result; no provider or project files are used.",
+      })).rejects.toThrow("fixture_completion_failed_after_ownership_transfer");
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, structuredExecution.started.executionId));
+      expect(execution).toEqual({
+        status: "running",
+        workerId: replacementWorkerId,
+      });
+
+      const acceptances = await db
+        .select({ outcome: aiExecutionAcceptancesTable.outcome })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, structuredExecution.started.executionId));
+      expect(acceptances).toEqual([]);
+
+      const [assistantMessage] = await db
+        .select({
+          outcome: aiChatMessagesTable.outcome,
+          errorCode: aiChatMessagesTable.errorCode,
+          content: aiChatMessagesTable.content,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, assistantMessageId));
+      expect(assistantMessage).toEqual({
+        outcome: "INTERRUPTED",
+        errorCode: null,
+        content: "",
+      });
+    } finally {
+      structuredExecution?.cleanup();
+      completionSpy.mockRestore();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("returns unaccepted when structured completion loses its lease without recording failure", async () => {
+    const projectId = randomUUID();
+    const userId = `structured-false-fence-${projectId}`;
+    const now = new Date();
+    let structuredExecution: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `structured-false-fence-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/structured-false-fence-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      structuredExecution = await startStructuredExecution({
+        userId,
+        projectId,
+        projectRevision: "d".repeat(64),
+        task: "analyze",
+        prompt: "Exercise explicit terminal-fence rejection.",
+      });
+      const assistantMessageId = await structuredExecution.persistAssistant({
+        content: "Fixture result; no provider or project files are used.",
+        outcome: "SUCCEEDED",
+        toolTrace: "structured_false_fence_fixture",
+      });
+      const replacementWorkerId = randomUUID();
+      await db.update(aiExecutionsTable)
+        .set({
+          workerId: replacementWorkerId,
+          leaseUntil: new Date(Date.now() + 60_000),
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, structuredExecution.started.executionId));
+
+      const accepted = await structuredExecution.complete({
+        messageId: assistantMessageId,
+        content: "Fixture result; no provider or project files are used.",
+      });
+      expect(accepted).toBe(false);
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, structuredExecution.started.executionId));
+      expect(execution).toEqual({
+        status: "running",
+        workerId: replacementWorkerId,
+      });
+
+      const acceptances = await db
+        .select({ outcome: aiExecutionAcceptancesTable.outcome })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, structuredExecution.started.executionId));
+      expect(acceptances).toEqual([]);
+
+      const [assistantMessage] = await db
+        .select({
+          outcome: aiChatMessagesTable.outcome,
+          content: aiChatMessagesTable.content,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, assistantMessageId));
+      expect(assistantMessage).toEqual({
+        outcome: "INTERRUPTED",
+        content: "",
+      });
+    } finally {
+      structuredExecution?.cleanup();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("keeps structured success durable when the finalizer reports an error after commit", async () => {
+    const projectId = randomUUID();
+    const userId = `structured-post-acceptance-${projectId}`;
+    const now = new Date();
+    let structuredExecution: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+    let acceptedBeforeInjectedError: boolean | undefined;
+    const realCompleteAiExecution = aiExecutionState.completeAiExecution;
+    const completionSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `structured-post-acceptance-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/structured-post-acceptance-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      structuredExecution = await startStructuredExecution({
+        userId,
+        projectId,
+        projectRevision: "c".repeat(64),
+        task: "analyze",
+        prompt: "Exercise post-acceptance structured recovery.",
+      });
+      const acceptedContent = "Structured fixture accepted.";
+      const assistantMessageId = await structuredExecution.persistAssistant({
+        content: acceptedContent,
+        outcome: "SUCCEEDED",
+        toolTrace: "structured_post_acceptance_fixture",
+      });
+
+      completionSpy.mockImplementationOnce(async (params) => {
+        acceptedBeforeInjectedError = await realCompleteAiExecution(params);
+        throw new Error("fixture_structured_error_after_acceptance_commit");
+      });
+
+      await expect(structuredExecution.complete({
+        messageId: assistantMessageId,
+        content: acceptedContent,
+      })).rejects.toThrow("fixture_structured_error_after_acceptance_commit");
+      expect(acceptedBeforeInjectedError).toBe(true);
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, structuredExecution.started.executionId));
+      expect(execution).toEqual({ status: "completed", workerId: null });
+
+      const acceptances = await db
+        .select({ outcome: aiExecutionAcceptancesTable.outcome })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, structuredExecution.started.executionId));
+      expect(acceptances).toEqual([{ outcome: "SUCCEEDED" }]);
+
+      const [assistantMessage] = await db
+        .select({
+          outcome: aiChatMessagesTable.outcome,
+          errorCode: aiChatMessagesTable.errorCode,
+          content: aiChatMessagesTable.content,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, assistantMessageId));
+      expect(assistantMessage).toEqual({
+        outcome: "SUCCEEDED",
+        errorCode: null,
+        content: acceptedContent,
+      });
+    } finally {
+      structuredExecution?.cleanup();
+      completionSpy.mockRestore();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("persists active execution cancellation and restores the task state", async () => {
     const projectId = randomUUID();
     const taskId = randomUUID();

@@ -4297,6 +4297,50 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يثبت خطأ DB قبل commit فقط، لا انقطاع process أو ضياع رد بعد commit؛ مسارات structured review وبقية أسطح E2 ما زالت غير محسومة.
 - **next step:** متابعة E2 على حد DB-only آخر؛ لا يبدأ E3–E8.
 
+### 2026-10-04 — منع تسجيل فشل قديم بعد نقل lease في structured
+
+- **phase/step:** E2 / W8 — نقل ملكية structured execution بين خطأ الإنهاء ومحاولة تسجيل الفشل.
+- **status:** `partial — حارس الملكية يمنع كتابة العامل القديم؛ crash وresponse loss بعد commit غير مختبرين`.
+- **what changed:** يحقن الاختبار خطأً من محاولة الإكمال وينقل `workerId` في قاعدة fixture إلى عامل بديل قبل مسار التعافي. `failAiExecution` يرفض كتابة العامل القديم؛ يبقى التنفيذ مملوكًا للعامل الجديد، ولا يظهر قبول فشل أو رسالة مساعد نهائية.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** اختبار lease-fence المركّز 1/1 نجح على PostgreSQL مؤقتة loopback؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** لا provider أو `rootPath` أو أدوات ملفات؛ محاكاة تبديل الملكية وفشل الإنهاء داخل fixture DB مؤقتة فقط. لا قاعدة production أو delivery/commit/push.
+- **remaining/blocker:** الاختبار يثبت رفض الكتابة المتأخرة بعد نقل الملكية، لا موت process أو ضياع رد بعد commit؛ أسطح E2 الأخرى ما زالت بحاجة إلى حصر.
+- **next step:** مراجعة خريطة E2 وتحديد حد DB-only آمن تالٍ؛ لا يبدأ E3–E8.
+
+### 2026-10-04 — بقاء structured success بعد خطأ عقب commit (W9)
+
+- **phase/step:** E2 / W9 — خطأ عند حد استدعاء finalizer بعد قبول structured execution.
+- **status:** `partial — قبول النجاح وإسقاط الرسالة يظلان دائمين بعد استثناء محقون عقب commit؛ HTTP وprocess crash غير مختبرين`.
+- **what changed:** يستدعي الاختبار `completeAiExecution` الحقيقي حتى ينجح commit، ثم يجعل wrapper الاختبار يرمي خطأً. يرفض `failAiExecution` محاولة إعادة إنهاء execution مكتمل؛ ويبقى execution `completed`، وقبول `SUCCEEDED` واحد، ورسالة المساعد الناجحة بمحتواها.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** اختبار W9 المركّز 1/1 نجح على PostgreSQL مؤقتة loopback؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** structured analyze صناعي بلا provider أو `rootPath` أو أدوات ملفات؛ قاعدة fixture مؤقتة فقط. لا قاعدة production أو delivery/commit/push.
+- **remaining/blocker:** الخطأ محقون عند حد الدالة بعد commit، وليس فقد HTTP فعليًا أو قتل process؛ تعافي structured route وبقية أسطح E2 ما زال `UNKNOWN`.
+- **next step:** مواصلة E2 فقط على حدّ آمن آخر؛ لا يبدأ E3–E8.
+
+### 2026-10-04 — رفض structured completion عند فقدان fence الصريح
+
+- **phase/step:** E2 / W8 — رفض `completeAiExecution` الصريح بعد نقل lease.
+- **status:** `partial — لا تُكتب نتيجة فشل قديمة عند رفض القبول؛ التعافي بعد crash غير مختبر`.
+- **what changed:** ينقل fixture DB الملكية إلى عامل بديل قبل الإنهاء. يرجع `completeAiExecution` رفضًا صريحًا؛ ويعيد `structuredExecution.complete` `false` دون تسجيل قبول فشل أو تعديل رسالة المساعد المرحلية، مع بقاء التنفيذ مملوكًا للعامل الجديد.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** مجموعة structured W8/W9 المركزة نجحت 4/4 على PostgreSQL مؤقتة loopback؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** لا provider أو `rootPath` أو أدوات ملفات؛ fixtures قاعدة مؤقتة فقط. لا قاعدة production أو delivery/commit/push.
+- **remaining/blocker:** الاختبارات تغطي rollback والخطأ بعد commit وحواجز ownership على حد الدالة، لا route-level response loss أو process crash؛ بقية E2 ما زالت غير مكتملة.
+- **next step:** مراجعة باقي حدود E2 وتحديد اختبارات DB-only آمنة؛ لا يبدأ E3–E8.
+
+### 2026-10-04 — workflow W9 غير قابل للاختبار كنجاح حقيقي حاليًا
+
+- **phase/step:** E2 / W9 — حد قبول نجاح workflow phase بعد commit.
+- **status:** `partial — لم يُشغّل اختبار قبول مصطنع؛ لا يوجد حاليًا مسار phase helper ينتج دليلًا جوهريًا صالحًا`.
+- **what changed:** فُحص `executeWorkflowPhase`: المراحل الفارغة no-op، والمراحل غير الفارغة لا تنفذ العمل المعلن؛ لذلك لا يقدّم helper دليلًا جوهريًا لقبول نجاح عبر البوابة المشتركة. لم أحقن نجاحًا وهميًا أو أضعف شرط الإثبات لتصنيع اختبار W9.
+- **files/schema/contracts touched:** تقرير الحالة وهذا السجل فقط؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** فحص ساكن لمسار finalization واختبار W8 الموجود؛ لم يُشغّل اختبار W9 جديدًا.
+- **authority/safety impact:** لا provider أو ملفات أو effects أو DB mutation؛ لا production. بقيت بوابة الإثبات دون تغيير.
+- **remaining/blocker:** W9 لمسار workflow يظل `UNKNOWN` حتى يوجد تنفيذ phase فعلي مع دليل revision-bound؛ route-level response loss وprocess crash غير مختبرين.
+- **next step:** مواصلة جرد E2 على مسار read-only ذي evidence fixture؛ لا يبدأ E3–E8 ولا تُختبر مسارات كتابة الملفات أو delivery/Git.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
