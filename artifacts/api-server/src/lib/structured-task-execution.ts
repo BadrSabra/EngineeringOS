@@ -24,6 +24,7 @@ import {
   type AiExecutionRequestEnvelope,
   type AiProviderAttemptCheckpoint,
 } from "./ai-execution-state.js";
+import { logger } from "./logger.js";
 
 export type StructuredTask = "analyze" | "review";
 export type StructuredRetryAfterSource =
@@ -431,6 +432,13 @@ export async function startStructuredExecution(params: {
       workerId,
     }).then((renewed) => {
       if (!renewed && !terminal) controller.abort();
+    }).catch((error: unknown) => {
+      if (terminal) return;
+      logger.warn(
+        { executionId: execution!.id, workerId, error },
+        "Structured execution stopped after lease renewal failed",
+      );
+      controller.abort();
     });
   }, AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
 

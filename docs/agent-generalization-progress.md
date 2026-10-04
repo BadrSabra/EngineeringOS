@@ -4198,6 +4198,39 @@ G9 Revocation Safety
 - **remaining/blocker:** structured-task يوقف العامل عند heartbeat يعيد `false`، لكن رفض heartbeat كـexception لا يوقفه حاليًا؛ تغطية crash/recovery الخاصة بـMission repair وبقية أسطح E2 ما زالت جزئية.
 - **next step:** استكمال fault injection لمسار structured-task وMission repair، والتحقيق في اختبارات Mission ذات mismatch؛ لا يبدأ E3 قبل إغلاق E2.
 
+### 2026-10-04 — إيقاف structured-task عند فشل heartbeat وإكمال fixtures إثبات Mission
+
+- **phase/step:** E2 / ملكية structured-task واستعادة Mission بعد handoff.
+- **status:** `partial — heartbeat المرفوض يوقف العمل؛ suite lifecycle كاملة ناجحة؛ إغلاق كل نوافذ E2 ما زال مفتوحًا`.
+- **what changed:** أضيف catch لرفض `heartbeatAiExecution` في structured-task؛ يسجل تحذيرًا server-side ويلغي signal ما لم تكن العملية terminal. أكملت fixtures اختبارات Mission التي كانت ترجع `verifying` بإضافة حقول إيصال validator المطلوبة (`evidenceId`, `artifactRef`, `validatorProfile`) بدل تخفيف بوابة proof. تضمّن ذلك اختبار validation read-only وثلاثة durable tool-marker handoffs.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/structured-task-execution.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة وهذا السجل، وذاكرة lifecycle؛ لا تغيير schema أو صلاحيات.
+- **validation:** PostgreSQL مؤقتة loopback و`DATABASE_URL` صريح: اختبارات structured heartbeat وMission recovery المحددة 5/5، ثم ملف lifecycle كامل 20/20؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** اختبارات lease/recovery استخدمت fixtures محلية فقط؛ لا قاعدة dev/prod ولا provider حي ولا كتابة مشروع حي أو delivery/commit/push. ملفات الجذر المؤقتة أنشأتها fixtures وأزيلت بعد الاختبار.
+- **remaining/blocker:** هذا يثبت فروع الاختبار المغطاة فقط؛ لا يثبت قتل route فعليًا عند كل W0–W9 ولا يغلق parity لجميع mutation surfaces.
+- **next step:** مواصلة E2 audit/fault injection للأسطح والنوافذ غير المغطاة؛ لا يبدأ E3–E8 قبل إغلاق E2.
+
+### 2026-10-04 — استعادة إسقاط Apply بعد proof مقبول
+
+- **phase/step:** E2 / `apply-changes` — نافذة ما بعد acceptance وقبل تحرير lifecycle.
+- **status:** `partial — إثبات projection بعد proof مقبول وidempotency ناجحان؛ تعافي route وكل أسطح E2 ما زال مفتوحًا`.
+- **what changed:** أضيف fixture DB-backed يربط acceptance بالمحاولة وEpisode و`OBSERVED` EffectBundle والملاحظات المباشرة قبل/بعد وحدث `AiChangesApplied`. تستعيد `reconcileInterruptedApplyChanges` lifecycle إلى `applied` وتضيف `APPLIED` بلا كتابة ملفات؛ المسح الثاني لا يكرر الإسقاط أو journal. بقي اختبار غياب proof fail-closed قائمًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/job-reconciliation.test.ts`، `docs/agent-core-forensic-status-report.md`، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** اختبار الفرع الجديد 1/1 ثم ملف `job-reconciliation.test.ts` كاملًا 24/24 على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** لا قاعدة dev/prod ولا provider أو Git remote حي. الكتابة الوحيدة كانت إعداد شجرة fixture معزولة لمحاكاة ما بعد الترقية؛ recovery نفسه أكد `noFilesystemWrites: true`، ثم أزيلت قاعدة الاختبار وجذورها المؤقتة.
+- **remaining/blocker:** الاختبارات تثبت reconciliation من durable state ولا تقتل route فعليًا؛ crash/race parity عند W0–W9 عبر runtime وtask وstructured-task وMission repair وworkflow وGit delivery ما زالت جزئية.
+- **next step:** مواصلة E2 audit/fault injection للأسطح والنوافذ غير المغطاة؛ لا يبدأ E3–E8 قبل إغلاق E2.
+
+### 2026-10-04 — استعادة lease runtime من التخزين الدائم
+
+- **phase/step:** E2 / `runtime.start` — اكتشاف الجلسات ذات lease منتهية بعد فقد worker.
+- **status:** `partial — اكتشاف السجل وclaim العامل الواحد مثبتان على DB؛ بقاء العملية وproof replay غير مثبتين`.
+- **what changed:** أضيف اختبار DB-backed يثبت أن lease الحية لا تظهر في `listRecoverable`، وأن lease المنتهية تظهر ويمكن لعامل واحد فقط أخذ `claimRecovery`. الاختبار لا يشغّل process ولا ينفّذ كتابة في جذر المشروع.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime-store.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير runtime أو schema أو صلاحيات.
+- **validation:** الاختبار المركّز 1/1 على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** لا قاعدة dev/prod ولا process حي أو provider أو Git خارجي؛ fixture في DB مؤقتة فقط، ثم أُوقفت القاعدة وأزيل جذرها.
+- **remaining/blocker:** اكتشاف lease لا يثبت بقاء PID أو اعتماد جلسة بعد restart ولا يعيد قبول runtime transition؛ نوافذ W0–W9 وبقية أسطح E2 ما زالت جزئية.
+- **next step:** متابعة E2 على نوافذ التعافي المتبقية دون بدء E3–E8 أو اختبار كتابة ملفات/delivery/commit/push.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -143,11 +143,11 @@
 | Surface | Durable identity / ownership | Side effect and observation | Acceptance / terminal boundary | Recovery and coverage |
 |---|---|---|---|---|
 | Chat read/project query | request/execution context exists on selected paths | retained source reads and claim validation; not a project mutation | some chat observation executions can be terminal `completed` without acceptance; projection reports `UNKNOWN` rather than success | chat lifecycle is not a common mutation lifecycle |
-| Task / structured task | task IDs and execution acceptance on covered paths; `executeTaskLifecycle` renews execution and task leases atomically under attempt/worker/status/live-lease fences | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | DB-backed lease-loss tests cover both renewal fences; structured heartbeat-error handling and broader path parity remain `UNKNOWN` |
+| Task / structured task | task IDs and execution acceptance on covered paths; `executeTaskLifecycle` renews execution and task leases atomically under attempt/worker/status/live-lease fences | local task state/checks; a phase-less Goal-linked Task can complete locally without completing Goal/Mission | local Task acceptance is not Goal Canonical Proof | DB-backed lease-loss tests cover both task renewal fences; rejected structured heartbeats abort provider work; broader path parity remains `UNKNOWN` |
 | Workflow phase | phase/lease state on covered paths | phase node statuses and operation state; substantive execution of every declared node is not established | final Goal completion uses Canonical Proof; phase-local `PROVEN` is not acceptance | prior integration evidence shows missing required evidence can fail acceptance; broad resume/crash parity `UNKNOWN` |
 | Recipe / Mission | durable execution, attempt, Episode, lease, plan revision on covered paths | recipe-specific runner may perform local or external action; runtime.start has direct process attestation | Goal/Mission reload Canonical Proof; the declared artifact-only recipe path persists a non-empty snapshot whose node evidence must match receipt, execution/attempt, operation, revision, and candidate | positive current-attempt and negative stale-attempt tests pass for candidate validation; broader recipe-family and recovery parity remain `PARTIAL` |
-| `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; Gate C builds a bound evidence artifact | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding; Canonical loader re-derives the artifact | specialized producer/consumer path tested; full replay recovery and all crash windows remain open |
-| `apply-changes` | proposal, Goal/Mission, active plan revision, execution/attempt/Episode | candidate promotion plus fresh direct before/after tree observations and EffectBundle | acceptance and transition are separately gated; transition derives `changedFactRefs` from materialized facts sourced by the selected before/after observations | regression test checks exact fact references; all mutation surfaces and full response-loss recovery remain open |
+| `runtime.start` | execution/attempt/Episode/operation and environment revision binding | child process start is checked by direct before/after observations and child-process attestation; Gate C builds a bound evidence artifact | transition requires matching successful acceptance, effect bundle, fresh observations, and identity binding; Canonical loader re-derives the artifact | DB-backed stale-lease discovery and single recovery claim are tested; actual persisted process adoption, proof replay, and all crash windows remain open |
+| `apply-changes` | proposal, Goal/Mission, active plan revision, execution/attempt/Episode | candidate promotion plus fresh direct before/after tree observations and EffectBundle | acceptance and transition are separately gated; transition derives `changedFactRefs` from materialized facts sourced by the selected before/after observations | no-proof recovery stays fail-closed; accepted-proof projection release and idempotency are now tested; route-level response-loss and full cross-surface recovery remain open |
 | Git commit/push | project write permission; AI commit additionally checks applied proposal/operation and promoted-tree identity | local commit and remote push are separate effects; GitHub push records remote commit metadata and a Git event | inspected AI commit path blocks missing/stale Apply proof and unrelated tree changes; the Git route has no explicit World Transition writer | external push reconciliation and World State linkage `UNKNOWN`; receipt/event do not substitute for a transition |
 
 This is the known-surface matrix from the bounded source audit, not a claim that every mutation-capable entry point in every package has been found.
@@ -167,7 +167,7 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 | W6 قبل effect persistence | قد توجد observation دون EffectBundle/credit | حدود atomicity الدقيقة لكل سطح وcrash test عندها `UNKNOWN` |
 | W7 بعد effect | bundle/refs/verdict المحفوظة قابلة لإعادة القراءة | effect ليس acceptance؛ لا يثبت وحده terminal success |
 | W8 قبل acceptance | قد يكون effect محفوظًا والقبول غائبًا | يمكن تمييز السجلين إن استُعلما؛ سلامة recovery/finalize لكل سطح `UNKNOWN` |
-| W9 بعد acceptance | transaction المقبولة والإسقاطات الدائمة قابلة للاستعادة | قد يضيع response بعد commit؛ يمكن للعميل إعادة القراءة، لكن response-loss coverage المحدد `UNKNOWN` |
+| W9 بعد acceptance | transaction المقبولة والإسقاطات الدائمة قابلة للاستعادة | اختبار reconciliation يغطي إسقاط proposal لـApply بعد proof مقبول؛ route-level response-loss عبر بقية الأسطح ما زال `UNKNOWN` |
 
 **تحقق محدود لـruntime.start (2026-10-04):** يكرر اختبار `workspace-runtime.test.ts`
 استدعاء `start` عبر مدير ثانٍ بعد تشغيل العملية وقبل قبول after-state، ويتحقق من
@@ -175,11 +175,20 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاعدة دائمة ولا يغطي W2–W8 لبقية
 الأسطح.
 
+**حد استعادة ملكية runtime (2026-10-04):** اختبار DB-backed على PostgreSQL
+مؤقت يثبت أن lease الحية لا تظهر كقابلة للاستعادة، وأن lease المنتهية تظهر ثم
+يستولي عليها عامل واحد فقط عبر `claimRecovery`. الاختبار لا يشغّل process ولا
+يثبت بقاء PID أو إعادة attest للعملية أو استعادة proof/transition؛ هذه النوافذ
+ما زالت جزئية.
+
 **حد إكمال workflow (2026-10-04):** اختبار وحدة لـ`executeWorkflowPhase` يحاكي
 خسارة حاجز `completeAiExecution` بعد وصول الحالة المحلية إلى `succeeded`؛ يجب
 أن تعود الخدمة بـ`failed` دون محاولة كتابة `failAiExecution` بواسطة العامل القديم.
 هذا الاختبار يستخدم mocks ولا يثبت سباق قاعدة بيانات حقيقيًا أو تنفيذ خطوات phase
-المعلنة؛ helper الحالي يسجل حدًا محليًا فقط.
+المعلنة. ويغطي اختبار DB-backed في `task-execution-lifecycle.integration.test.ts`
+الحد السلبي منفصلًا: phase غير نهائية بلا دليل تُرفض، execution والـacceptance
+ينتهيان بـ`FAILED`، وتبقى حالة Goal `running` وMission `active`. لا يثبت هذا
+نجاحًا إيجابيًا لمرحلة أو تعافي route/crash؛ helper الحالي يسجل حدًا محليًا فقط.
 
 **حد W8 للتحليل/المراجعة المنظّمين (2026-10-04):** سجلا audit وevent اللذان
 يعلنان الاكتمال لا يُكتبان إلا بعد قبول `completeAiExecution`. اختبار API ينقل
@@ -194,13 +203,24 @@ runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاع�
 يثبت ذلك handoff عند heartbeat فقط؛ لا يغلق crash recovery عند W2–W9 ولا يغطي
 تكافؤ structured-task أو Mission repair.
 
-**حد استعادة `apply-changes` (2026-10-04):** اختبار DB-backed يزرع حالة durable
-تمثل توقفًا بعد الترقية: الشجرة الحية تطابق المرشح والـworkspace المحفوظ، لكن
-لا توجد Episode/Effect/Acceptance proof. تعيد `reconcileInterruptedApplyChanges`
-قرار `RECOVERY_REQUIRED` لـ`CANDIDATE_TREE_PRESENT` بلا كتابة ملفات، وتبقي
-proposal غير مقبول والشجرة كما هي؛ المسح الثاني لا يضيف قرارًا أو أثرًا. يثبت
-هذا حد الاستعادة fail-closed من سجلات قائمة، لا قتل العملية داخل مسار route ولا
-فرع الاستعادة ذي proof مكتمل.
+**حد heartbeat لـstructured-task وإثبات Mission (2026-10-04):** اختبار DB-backed
+يجعل `heartbeatAiExecution` يرفض وعد التجديد ويتحقق من إلغاء signal العامل.
+أُكملت fixtures الخاصة بتعافي أدوات Mission والتحقق read-only بإيصالات validator
+تتضمن evidence ID وartifact وprofile؛ بقيت بوابات proof في runtime كما هي. تشغيل
+`task-execution-lifecycle.integration.test.ts` على PostgreSQL مؤقتة loopback نجح
+20/20، ويغطي markers `started` و`completed` للقراءة والتحقق، واستعادة repair عند
+`candidate_ready` و`committed` و`effect_classified`. هذا لا يثبت crash فعلي داخل
+route أو تعافي كل أسطح E2.
+
+**حد استعادة `apply-changes` (2026-10-04):** اختبارات DB-backed تغطي حالتين
+مقابلتين. عند وجود المرشح الحي دون Episode/Effect/Acceptance proof، تسجل
+`reconcileInterruptedApplyChanges` قرار `RECOVERY_REQUIRED` لـ
+`CANDIDATE_TREE_PRESENT` وتبقي proposal غير مقبول بلا كتابة ملفات؛ المسح الثاني
+لا يكرر القرار. وعند وجود acceptance ناجح مربوط بالمحاولة نفسها وEpisode و
+`OBSERVED` EffectBundle والملاحظتين المباشرتين المطابقتين وحدث `AiChangesApplied`,
+تحرر الاستعادة lifecycle المحجوب، وتضيف `APPLIED` مع `noFilesystemWrites: true`؛
+المسح الثاني لا يكرر الإسقاط أو journal entry. الحالتان تزرعان durable state
+تمثل نافذة التعافي ولا تقتلان route فعليًا، ولا تثبتان تعافي كل نافذة أو سطح E2.
 
 **الخلاصة:** DB يعيد بناء الحالة المسجلة، لا الحقيقة الفيزيائية لحدث في W2–W4 لم تُحفظ له ملاحظة/أثر. توجد اختبارات لحدود محددة (`effect-observer.test.ts`, `runtime-start-transition.test.ts`) لكن لا توجد أدلة على crash injection لكل W0–W9.
 
@@ -371,7 +391,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 | invariant | Unit | Integration/API | Cross-surface | Crash/race | E2E | الوضع |
 |---|---|---|---|---|---|---|
 | dispatcher policy/bounds | T8 + engine + Git timeout suites شُغّلت من الحزمة: 457/457؛ سجل سابق 4/4 boundary | ai-repair-validation 15/15 سابقًا؛ Orchestrator وAPI typechecks ناجحة | AST allowlist للـserver-internal callers ناجح | لا coverage لكل timeout/replay/runtime executor أو root race | غير مثبت هنا | `E1 IMPORT BOUNDARY PASS`; operational closure ما زالت جزئية |
-| durable execution/acceptance | موجودة | `ai-execution-retry.integration.test.ts`, acceptance suites؛ 39 اختبارًا شُغّلت | مجموعة surfaces كاملة غير مثبتة | بعض lease/recovery tests موجودة؛ W0-W9 جميعها غير مغطاة | لا إثبات شامل | `INTEGRATION-TESTED` لمسارات محددة |
+| durable execution/acceptance | موجودة | `ai-execution-retry.integration.test.ts`, acceptance suites؛ 39 اختبارًا شُغّلت | مجموعة surfaces كاملة غير مثبتة | lease/recovery tests تغطي نوافذ محددة، ومنها إسقاط Apply بعد acceptance؛ W0-W9 عبر الأسطح غير مغطاة | لا إثبات شامل | `INTEGRATION-TESTED` لمسارات محددة |
 | optional evidence/Canonical Proof | `ai-execution-acceptance.test.ts`, `proof-foundation.test.ts`؛ شُغّلت ضمن 39 | D2 duplicate legacy test ناجح | global producer/consumer map غير مكتمل | resume tests موجودة؛ لا تعميم | لا | `TESTED / INTEGRATION-TESTED` محدود |
 | runtime World transition | suite الحالية شُغّلت ضمن API: transition/materialization tests ناجحة | runtime-start transition tests موجودة | apply/runtime غير موحدين في decision proof | بعض stale/retry/rollback؛ لا كل W0-W9 | لا planner-decision E2E مثبت | `TESTED` لمسارات محددة |
 | recipe/Mission canonical completion | `recipe-operation-runner.test.ts` و`routes/ai/missions.test.ts` مسجلان 29/29 لكل منهما؛ Gate C targeted test مسجل 2/2؛ `routes/ai.test.ts` الحالية 191/191 | مجموعات proof/mission/effect/reconciliation المرتبطة 111/111؛ API typecheck و`git diff --check` ناجحان | Mission-linked Apply acceptance وD2 ناجحان للمسار المختبر؛ ذلك لا يثبت universal E2/E3 | full replay recovery / كل crash windows غير مغطاة؛ full API suite انتهت مهلة الأداة بلا نتيجة | لا | `TESTED on scoped path; E2/E3 remain PARTIAL` |

@@ -1,16 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
+  aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
+  aiAgentObservationsTable,
   aiApplyJournalTable,
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionsTable,
+  aiExecutionAcceptancesTable,
   db,
   discoverySessionsTable,
+  eventsTable,
   projectsTable,
   scanJobsTable,
   taskLogsTable,
@@ -936,6 +943,354 @@ describe("dispatchPersistedPendingJobs", () => {
       noFilesystemWrites: true,
     });
     expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+
+    const secondSweep = await reconcileInterruptedApplyChanges();
+    expect(secondSweep.reconciled).toBe(0);
+    expect(await db.select({
+      stage: aiApplyJournalTable.stage,
+      sequence: aiApplyJournalTable.sequence,
+    }).from(aiApplyJournalTable).where(eq(aiApplyJournalTable.operationId, operationId)))
+      .toEqual(firstJournal.map(({ stage, sequence }) => ({ stage, sequence })));
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+  });
+
+  it("releases a blocked applied proposal after recovering its accepted effect proof", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+    const rootPath = `${workspacePath}/.apply-recovery-accepted-${randomUUID()}`;
+    deliveryRootCleanup.push(rootPath);
+    const targetPath = "src/recovered.ts";
+    const originalContent = "export const recovered = false;\n";
+    const newContent = "export const recovered = true;\n";
+    await mkdir(join(rootPath, "src"), { recursive: true });
+    await writeFile(join(rootPath, targetPath), originalContent, "utf8");
+    await db.update(projectsTable)
+      .set({ rootPath })
+      .where(eq(projectsTable.id, projectId));
+
+    const operationId = randomUUID();
+    const attemptId = randomUUID();
+    const executionId = randomUUID();
+    const episodeId = randomUUID();
+    const proposalId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const baseRevision = `test-revision-${randomUUID()}`;
+    const candidate = await createDeliveryWorkspace({
+      rootPath,
+      operationId,
+      baseRevision,
+      changes: [{ path: targetPath, newContent }],
+    });
+    deliveryRootCleanup.push(candidate.workspaceRoot);
+
+    const now = new Date();
+    const attempt = 1;
+    const actionId = `apply:${executionId}:${attempt}`;
+    const effectId = randomUUID();
+    const effectBundleId = randomUUID();
+    const effectSubject = `project:${proposalId}:${candidate.candidateTreeHash}`;
+    const expectedEffect = {
+      subject: effectSubject,
+      predicate: "workspace.tree_hash",
+      expectedValue: candidate.candidateTreeHash,
+    };
+    const effectContract = {
+      effectId: "approved-source-promotion-tree",
+      observationProfile: "WORKSPACE",
+      allowedResult: "OBSERVED",
+      expectedStateChanges: [expectedEffect],
+    };
+    const action = {
+      capabilityId: "approved.source-promotion",
+      actionId,
+      episodeId,
+      scope: {
+        projectId,
+        proposalId,
+        operationId,
+        candidateTreeHash: candidate.candidateTreeHash,
+        baseTreeHash: candidate.baseTreeHash,
+        sourceRevision: baseRevision,
+        attemptId,
+        changeSetHash: candidate.changeSetHash,
+        approvedPaths: [targetPath],
+      },
+      expectedEffects: [effectContract.effectId],
+    };
+    const actionPayload = { action, effectContract };
+    const effectContractHash = createHash("sha256")
+      .update(JSON.stringify(effectContract))
+      .digest("hex");
+    const beforeObservationId = `apply:${executionId}:${attempt}:before:tree`;
+    const afterObservationId = `apply:${executionId}:${attempt}:after:tree`;
+    const beforeValueHash = createHash("sha256")
+      .update(JSON.stringify(candidate.baseTreeHash))
+      .digest("hex");
+    const afterValueHash = createHash("sha256")
+      .update(JSON.stringify(candidate.candidateTreeHash))
+      .digest("hex");
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Accepted apply recovery",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Applied the validated candidate",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: targetPath, newContent, originalContent }]),
+      status: "applied",
+      lifecycle: "blocked",
+      conflictReason: "Accepted effect proof exists; projection release was interrupted.",
+      operationId,
+      workspaceRoot: candidate.workspaceRoot,
+      baseRevision: candidate.baseRevision,
+      changeSetHash: candidate.changeSetHash,
+      baseTreeHash: candidate.baseTreeHash,
+      candidateTreeHash: candidate.candidateTreeHash,
+      promotedTreeHash: candidate.candidateTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      operationId: attemptId,
+      idempotencyKey: randomUUID(),
+      resumeTokenHash: `test-resume-${randomUUID()}`,
+      request: JSON.stringify({
+        projectId,
+        proposalId,
+        turnIntent: "APPLY_CHANGES",
+        operationId: attemptId,
+      }),
+      status: "failed",
+      attempt,
+      error: "simulated interruption after accepted proof",
+      proposalId,
+      workspaceRoot: rootPath,
+      baseRevision,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    await db.insert(aiAgentEpisodesTable).values({
+      id: episodeId,
+      projectId,
+      executionId,
+      attempt,
+      projectRevision: baseRevision,
+      intentKind: "APPLY_CHANGES",
+      scope: { kind: "proposal", proposalId },
+      state: "completed",
+      verdict: "achieved",
+      workerId: "fixture-apply-worker",
+      leaseUntil: new Date(now.getTime() + 60_000),
+      idempotencyKey: `apply-episode-${executionId}`,
+      createdAt: now,
+      updatedAt: now,
+      closedAt: now,
+    });
+    await db.insert(aiAgentEpisodeEventsTable).values({
+      id: randomUUID(),
+      episodeId,
+      projectId,
+      executionId,
+      attempt,
+      sequence: 1,
+      eventType: "ACTION_REQUESTED",
+      payload: actionPayload,
+      payloadHash: createHash("sha256").update(JSON.stringify(actionPayload)).digest("hex"),
+      actorType: "server",
+      actorId: "fixture-apply-worker",
+      correlationId: operationId,
+      createdAt: now,
+    });
+    await db.insert(aiAgentObservationsTable).values([
+      {
+        id: beforeObservationId,
+        projectId,
+        executionId,
+        episodeId,
+        kind: "workspace_tree_hash",
+        provenance: "DIRECT_OBSERVATION",
+        observationRole: "before",
+        sourceType: "filesystem",
+        sourceId: beforeObservationId,
+        subject: effectSubject,
+        predicate: "workspace.tree_hash",
+        value: candidate.baseTreeHash,
+        valueHash: beforeValueHash,
+        observedAt: now,
+        projectRevision: baseRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        sequence: 1,
+      },
+      {
+        id: afterObservationId,
+        projectId,
+        executionId,
+        episodeId,
+        kind: "workspace_tree_hash",
+        provenance: "DIRECT_OBSERVATION",
+        observationRole: "after",
+        sourceType: "filesystem",
+        sourceId: afterObservationId,
+        subject: effectSubject,
+        predicate: "workspace.tree_hash",
+        value: candidate.candidateTreeHash,
+        valueHash: afterValueHash,
+        observedAt: now,
+        projectRevision: baseRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        sequence: 2,
+      },
+    ]);
+    await db.insert(aiAgentEffectsTable).values({
+      id: effectId,
+      projectId,
+      executionId,
+      episodeId,
+      attempt,
+      actionId,
+      capabilityId: "approved.source-promotion",
+      effectContractHash,
+      beforeObservationIds: [beforeObservationId],
+      afterObservationIds: [afterObservationId],
+      expectedEffects: [expectedEffect],
+      status: "observed",
+    });
+    await db.insert(aiAgentEffectBundlesTable).values({
+      id: effectBundleId,
+      projectId,
+      executionId,
+      attempt,
+      episodeId,
+      effectIds: [effectId],
+      effectContractHashes: [effectContractHash],
+      verdict: "OBSERVED",
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt,
+      finalizationKey: `apply-recovery-${attemptId}`,
+      operationId: attemptId,
+      workerId: "fixture-apply-worker",
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE",
+      sourceRevision: baseRevision,
+      candidateIdentity: `${proposalId}:${candidate.candidateTreeHash}`,
+      effectBundleId,
+      createdAt: now,
+    });
+    await db.insert(aiApplyJournalTable).values([
+      {
+        id: randomUUID(),
+        operationId,
+        attemptId,
+        projectId,
+        proposalId,
+        stage: "PROMOTION_INTENT",
+        sequence: 1,
+        payload: {
+          operationId,
+          attemptId,
+          candidateWorkspace: candidate.workspaceRoot,
+          candidateHash: candidate.candidateTreeHash,
+          baseRevision,
+          changeSetHash: candidate.changeSetHash,
+          files: [{ path: targetPath, originalContent, newContent }],
+        },
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        operationId,
+        attemptId,
+        projectId,
+        proposalId,
+        stage: "PROMOTED",
+        sequence: 2,
+        payload: { promotedTreeHash: candidate.candidateTreeHash },
+        createdAt: now,
+      },
+    ]);
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiChangesApplied",
+      projectId,
+      payload: {
+        proposalId,
+        operationId,
+        applyStatus: "APPLIED",
+        baseTreeHash: candidate.baseTreeHash,
+        candidateTreeHash: candidate.candidateTreeHash,
+        promotedTreeHash: candidate.candidateTreeHash,
+        changeSetHash: candidate.changeSetHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+      message: "Apply fixture promoted",
+      timestamp: now,
+      correlationId: operationId,
+    });
+
+    // The live fixture already matches the promoted candidate; recovery must
+    // only repair durable projection state and must not write the tree again.
+    await writeFile(join(rootPath, targetPath), newContent, "utf8");
+    expect(await hashDeliveryTree(rootPath)).toBe(candidate.candidateTreeHash);
+    const firstSweep = await reconcileInterruptedApplyChanges();
+    expect(firstSweep.reconciled).toBe(1);
+    expect(firstSweep.protectedProposalIds.has(proposalId)).toBe(true);
+
+    const [recoveredProposal] = await db.select({
+      status: aiChangeProposalsTable.status,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+      conflictReason: aiChangeProposalsTable.conflictReason,
+    }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+    expect(recoveredProposal).toEqual({
+      status: "applied",
+      lifecycle: "applied",
+      conflictReason: null,
+    });
+    expect(await readFile(join(rootPath, targetPath), "utf8")).toBe(newContent);
+    const firstJournal = await db.select({
+      stage: aiApplyJournalTable.stage,
+      sequence: aiApplyJournalTable.sequence,
+      payload: aiApplyJournalTable.payload,
+    }).from(aiApplyJournalTable).where(eq(aiApplyJournalTable.operationId, operationId));
+    expect(firstJournal.map((entry) => entry.stage)).toEqual([
+      "PROMOTION_INTENT",
+      "PROMOTED",
+      "APPLIED",
+    ]);
+    expect(firstJournal[2]?.payload).toMatchObject({
+      recoveryDecision: "ACCEPTED_PROOF_RECONCILED",
+      executionId,
+      executionAttempt: attempt,
+      effectBundleId,
+      liveTreeHash: candidate.candidateTreeHash,
+      noFilesystemWrites: true,
+    });
 
     const secondSweep = await reconcileInterruptedApplyChanges();
     expect(secondSweep.reconciled).toBe(0);

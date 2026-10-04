@@ -78,6 +78,62 @@ describe("database workspace runtime store", () => {
     expect(takeover?.workerId).toBe("worker-b");
     expect(takeover?.sessionId).toBe("session-b");
   });
+
+  it("rediscovers an expired runtime lease and grants only one recovery claim", async () => {
+    const projectId = randomUUID();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "runtime-store-recovery-test-owner",
+      name: `Runtime recovery ${projectId.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+    });
+
+    const now = new Date();
+    const sessionId = `session-${randomUUID()}`;
+    const first = await databaseWorkspaceRuntimeStore.begin({
+      projectId,
+      projectRoot: "/tmp",
+      sessionId,
+      revision: "revision-recovery",
+      environmentRevision: null,
+      workerId: "worker-before-restart",
+      now,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
+    });
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Runtime fixture was not persisted.");
+    expect(await databaseWorkspaceRuntimeStore.listRecoverable(now)).toEqual([]);
+
+    const leaseExpiredAt = new Date(now.getTime() - 1);
+    expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
+      projectId,
+      sessionId,
+      "worker-before-restart",
+      { leaseUntil: leaseExpiredAt },
+    )).toBe(true);
+    const recoverable = await databaseWorkspaceRuntimeStore.listRecoverable(now);
+    expect(recoverable.map((runtime) => runtime.projectId)).toEqual([projectId]);
+
+    const recovered = await databaseWorkspaceRuntimeStore.claimRecovery({
+      id: first.id,
+      sessionId,
+      workerId: "worker-after-restart",
+      now,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
+    });
+    expect(recovered?.workerId).toBe("worker-after-restart");
+    expect(await databaseWorkspaceRuntimeStore.claimRecovery({
+      id: first.id,
+      sessionId,
+      workerId: "worker-late-contender",
+      now: new Date(now.getTime() + 1),
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS + 1),
+    })).toBeUndefined();
+    expect(await databaseWorkspaceRuntimeStore.listRecoverable(new Date(now.getTime() + 1))).toEqual([]);
+  });
 });
 
 describe("in-memory workspace runtime store session fencing", () => {

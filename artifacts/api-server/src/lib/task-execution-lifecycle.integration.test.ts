@@ -228,6 +228,8 @@ import {
   checkpointAiExecution,
   requestAiExecutionCancel,
 } from "./ai-execution-state.js";
+import * as aiExecutionState from "./ai-execution-state.js";
+import { startStructuredExecution } from "./structured-task-execution.js";
 import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
 
@@ -659,6 +661,57 @@ describe("real durable task execution lifecycle", () => {
     }
     },
   );
+
+  it("aborts structured provider work when heartbeat renewal rejects", async () => {
+    const projectId = randomUUID();
+    const userId = `structured-heartbeat-${projectId}`;
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `structured-heartbeat-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/structured-heartbeat-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution")
+      .mockRejectedValueOnce(new Error("Fixture heartbeat storage failure."));
+    let structuredExecution: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+    try {
+      structuredExecution = await startStructuredExecution({
+        userId,
+        projectId,
+        projectRevision: "a".repeat(64),
+        task: "analyze",
+        prompt: "Wait for the heartbeat ownership check.",
+      });
+
+      const heartbeatCall = intervalSpy.mock.calls
+        .find(([, delay]) => delay === aiExecutionState.AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
+      const heartbeatCallback = heartbeatCall?.[0];
+      expect(typeof heartbeatCallback).toBe("function");
+      const aborted = new Promise<void>((resolve) => {
+        if (structuredExecution!.signal.aborted) {
+          resolve();
+          return;
+        }
+        structuredExecution!.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      heartbeatCallback!();
+      await aborted;
+      expect(structuredExecution.signal.aborted).toBe(true);
+    } finally {
+      structuredExecution?.cleanup();
+      heartbeatSpy.mockRestore();
+      intervalSpy.mockRestore();
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
 
   it("persists active execution cancellation and restores the task state", async () => {
     const projectId = randomUUID();
@@ -1471,6 +1524,15 @@ describe("real durable task execution lifecycle", () => {
         ? { prompt: "Run the server-authorized validation profile workspace-typecheck and report its status." }
         : {}),
     });
+    const validationEvidenceId = randomUUID();
+    runRepairValidation.mockImplementation(async (...args: unknown[]) => ({
+      status: "passed" as const,
+      evidence: {
+        evidenceId: validationEvidenceId,
+        artifactRef: `mission-tool-handoff-validation:${validationEvidenceId}`,
+        validatorProfile: String(args[1]),
+      },
+    }));
     let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
     let resumedHelperResult: unknown;
     const resumedStepKinds: string[] = [];
@@ -2646,10 +2708,14 @@ describe("real durable task execution lifecycle", () => {
         effectiveProvider: "groq" as const,
       };
     });
-    runRepairValidation.mockResolvedValue({
-      status: "passed",
-      evidence: { artifactRef: "mission-validate-only-receipt" },
-    });
+    runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => ({
+      status: "passed" as const,
+      evidence: {
+        evidenceId: "mission-validate-only-evidence",
+        artifactRef: "mission-validate-only-receipt",
+        validatorProfile: String(args[1]),
+      },
+    }));
 
     try {
       const outcome = await executeTaskLifecycle({

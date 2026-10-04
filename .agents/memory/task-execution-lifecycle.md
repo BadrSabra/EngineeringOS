@@ -26,3 +26,9 @@ Task-level lease renewal must follow successful renewal of the authoritative AI 
 **Why:** Extending only the task projection after the execution lease expires makes stale work appear live and delays recovery; continuing its provider call can also produce a result after ownership has moved.
 
 **How to apply:** Renew the execution first, extend the task lease only while its current worker/status/live lease still match, abort the local signal on a failed fence, and do not write a terminal acceptance from that attempt.
+
+Structured execution heartbeat rejections must abort the same provider signal as an explicit lost-lease result; terminal state is decided only by the existing owner-aware finalization path.
+
+**Why:** A persistence or transport error makes lease renewal uncertain. Leaving provider work active can produce output after the worker can no longer establish durable ownership.
+
+**How to apply:** Catch rejected heartbeat promises in the timer callback, stop non-terminal provider work, and retain the existing durable ownership checks for any later failure or completion write.
