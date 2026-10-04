@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import app from "../app.js";
 import {
   aiChangeProposalsTable,
@@ -700,4 +700,338 @@ process.exit(result.status ?? 1);
       else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCryptoKey;
     }
   });
+
+  it.runIf(process.env.RUN_E2_GIT_ROUTE_PROCESS_RESTART === "1")(
+    "reconciles a remote push after the route process dies before GitPushed persistence",
+    async () => {
+      const fixture = await createFixture();
+      const operationId = randomUUID();
+      const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-crash-"));
+      rootPaths.push(remoteRoot);
+      const remotePath = path.join(remoteRoot, "remote.git");
+      const wrapperDir = await mkdtemp(path.join(tmpdir(), "engineeringos-git-wrapper-"));
+      rootPaths.push(wrapperDir);
+      const wrapperPath = path.join(wrapperDir, "git");
+      const pushCountPath = path.join(wrapperDir, "push-count");
+      const realGit = (await execFileAsync("sh", ["-c", "command -v git"])).stdout.trim();
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) throw new Error("This process-restart test requires a disposable DATABASE_URL.");
+
+      const savedEnvironment = new Map<string, string | undefined>([
+        ["PATH", process.env.PATH],
+        ["ENGINEERINGOS_TEST_REAL_GIT", process.env.ENGINEERINGOS_TEST_REAL_GIT],
+        ["ENGINEERINGOS_TEST_PUSH_REMOTE", process.env.ENGINEERINGOS_TEST_PUSH_REMOTE],
+        ["ENGINEERINGOS_TEST_PUSH_COUNT", process.env.ENGINEERINGOS_TEST_PUSH_COUNT],
+        ["AI_CREDENTIALS_ENCRYPTION_KEY", process.env.AI_CREDENTIALS_ENCRYPTION_KEY],
+      ]);
+      const children: Array<{
+        child: ChildProcess;
+        exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+        port: number;
+      }> = [];
+      let releaseAuditLock: (() => void) | undefined;
+      let auditLockTransaction: Promise<unknown> | undefined;
+      const restoreEnvironment = () => {
+        for (const [key, value] of savedEnvironment) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      };
+      const waitUntil = async (check: () => Promise<boolean>, label: string) => {
+        const deadline = Date.now() + 20_000;
+        while (Date.now() < deadline) {
+          if (await check()) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error(`Timed out waiting for ${label}.`);
+      };
+      const appSource = [
+        'import app from "./src/app.ts";',
+        'const server = app.listen(0, "127.0.0.1", () => {',
+        "  const address = server.address();",
+        '  if (!address || typeof address === "string") throw new Error("No API port.");',
+        '  process.stdout.write("E2_GIT_READY:" + address.port + "\\n");',
+        "});",
+      ].join("\n");
+      const startApi = async () => {
+        const applicationName = `e2_git_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+        const childDatabaseUrl = new URL(databaseUrl);
+        childDatabaseUrl.searchParams.set("application_name", applicationName);
+        const child = spawn(process.execPath, ["--import", "tsx", "-e", appSource], {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            DATABASE_URL: childDatabaseUrl.toString(),
+            NODE_ENV: "test",
+            AI_PROVIDER_EGRESS_DISABLED: "1",
+            DASHBOARD_E2_TEST_MODE: "fixture",
+            PGAPPNAME: applicationName,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+          child.once("exit", (code, signal) => resolve({ code, signal }));
+        });
+        const entry = { child, exit, port: 0 };
+        children.push(entry);
+        entry.port = await new Promise<number>((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error(`Git API did not start: ${stdout}`)), 20_000);
+          child.stdout?.on("data", (chunk: string) => {
+            stdout += chunk;
+            const match = stdout.match(/E2_GIT_READY:(\d+)/);
+            if (match) {
+              clearTimeout(timeout);
+              resolve(Number(match[1]));
+            }
+          });
+          child.once("exit", (code, signal) => {
+            clearTimeout(timeout);
+            reject(new Error(`Git API exited before listening: ${code}/${signal}; ${stdout}`));
+          });
+        });
+        return { ...entry, applicationName };
+      };
+      const pushRequest = async (port: number) => {
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/projects/${fixture.projectId}/git/push`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ proposalId: fixture.proposalId, operationId }),
+            signal: AbortSignal.timeout(30_000),
+          },
+        );
+        return { status: response.status, body: await response.json() as Record<string, unknown> };
+      };
+
+      try {
+        await git(remoteRoot, ["init", "--bare", "-q", remotePath]);
+        await git(fixture.rootPath, ["branch", "-M", "main"]);
+        await db.update(projectsTable)
+          .set({ gitRemoteUrl: FIXTURE_REMOTE, gitDefaultBranch: "main" })
+          .where(eq(projectsTable.id, fixture.projectId));
+        await db.update(eventsTable)
+          .set({
+            correlationId: operationId,
+            payload: {
+              proposalId: fixture.proposalId,
+              operationId,
+              applyStatus: "APPLIED",
+              appliedFiles: ["verified.ts"],
+              baseTreeHash: fixture.baseTreeHash,
+              candidateTreeHash: fixture.promotedTreeHash,
+              promotedTreeHash: fixture.promotedTreeHash,
+              changeSetHash: fixture.changeSetHash,
+              treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+            },
+          })
+          .where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.type, "AiChangesApplied"),
+          ));
+        await db.update(aiChangeProposalsTable)
+          .set({ operationId })
+          .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+
+        process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+        const encryptedApiKey = encryptApiKey("fixture-token");
+        await db.insert(aiProviderCredentialsTable).values({
+          id: randomUUID(),
+          ownerId: "test-user",
+          provider: "github",
+          encryptedApiKey,
+          last4: "oken",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }).onConflictDoUpdate({
+          target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+          set: { encryptedApiKey, last4: "oken", updatedAt: new Date() },
+        });
+        const [credential] = await db.select({ id: aiProviderCredentialsTable.id })
+          .from(aiProviderCredentialsTable)
+          .where(and(
+            eq(aiProviderCredentialsTable.ownerId, "test-user"),
+            eq(aiProviderCredentialsTable.provider, "github"),
+          ))
+          .limit(1);
+        if (credential) credentialIds.push(credential.id);
+
+        await writeFile(wrapperPath, `#!${process.execPath}
+const { existsSync, readFileSync, writeFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+const realGit = process.env.ENGINEERINGOS_TEST_REAL_GIT;
+const remote = process.env.ENGINEERINGOS_TEST_PUSH_REMOTE;
+const countPath = process.env.ENGINEERINGOS_TEST_PUSH_COUNT;
+const pushIndex = args.indexOf("push");
+if (pushIndex >= 0 && args[pushIndex + 1]?.startsWith("https://x-access-token:")) {
+  const result = spawnSync(realGit, ["-C", args[1], "push", "file://" + remote, args[pushIndex + 2]], {
+    stdio: "inherit", env: process.env,
+  });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+  const count = Number(existsSync(countPath) ? readFileSync(countPath, "utf8") : "0") + 1;
+  writeFileSync(countPath, String(count));
+  process.exit(0);
+}
+const result = spawnSync(realGit, args, { stdio: "inherit", env: process.env });
+process.exit(result.status ?? 1);
+`, "utf8");
+        await chmod(wrapperPath, 0o755);
+        process.env.PATH = `${wrapperDir}:${process.env.PATH ?? ""}`;
+        process.env.ENGINEERINGOS_TEST_REAL_GIT = realGit;
+        process.env.ENGINEERINGOS_TEST_PUSH_REMOTE = remotePath;
+        process.env.ENGINEERINGOS_TEST_PUSH_COUNT = pushCountPath;
+
+        const commit = await request(app)
+          .post(`/api/projects/${fixture.projectId}/git/commit`)
+          .send({ message: "Apply verified AI changes", proposalId: fixture.proposalId, operationId });
+        expect(commit.status).toBe(200);
+        const commitHash = commit.body.commitHash as string;
+        const auditCountBeforePush = await db.select({ id: auditLogsTable.id })
+          .from(auditLogsTable)
+          .where(eq(auditLogsTable.projectId, fixture.projectId));
+        const firstApi = await startApi();
+
+        let signalLockAcquired!: () => void;
+        const lockAcquired = new Promise<void>((resolve) => { signalLockAcquired = resolve; });
+        let releaseLock!: () => void;
+        const lockReleased = new Promise<void>((resolve) => { releaseLock = resolve; });
+        releaseAuditLock = releaseLock;
+        let lockError: unknown;
+        auditLockTransaction = db.transaction(async (tx) => {
+          await tx.execute(sql.raw('LOCK TABLE "audit_logs" IN SHARE MODE'));
+          signalLockAcquired();
+          await lockReleased;
+        }).catch((error) => {
+          lockError = error;
+          signalLockAcquired();
+          throw error;
+        });
+        await lockAcquired;
+        if (lockError) throw lockError;
+
+        const interruptedRequest = pushRequest(firstApi.port).then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error: String(error) }),
+        );
+        await waitUntil(async () => {
+          const count = await readFile(pushCountPath, "utf8").catch(() => "");
+          if (count.trim() !== "1") return false;
+          const head = await execFileAsync(realGit, [
+            "--git-dir", remotePath, "rev-parse", "refs/heads/main",
+          ]).catch(() => undefined);
+          return head?.stdout.trim() === commitHash;
+        }, "the remote branch to reach the commit");
+        await waitUntil(async () => {
+          const activity = await db.execute(sql`
+            SELECT wait_event_type, query
+            FROM pg_stat_activity
+            WHERE application_name = ${firstApi.applicationName} AND state = 'active'
+          `);
+          return activity.rows.some((row) =>
+            row.wait_event_type === "Lock"
+            && /insert\s+into\s+"?audit_logs"?/i.test(String(row.query ?? "")));
+        }, "the route to block before its audit and GitPushed records");
+
+        expect(firstApi.child.kill("SIGKILL")).toBe(true);
+        expect(await firstApi.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+        releaseAuditLock();
+        releaseAuditLock = undefined;
+        await auditLockTransaction;
+        auditLockTransaction = undefined;
+        await interruptedRequest;
+
+        const pushedBeforeRetry = await db.select({ id: eventsTable.id })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.type, "GitPushed"),
+            eq(eventsTable.correlationId, operationId),
+          ));
+        const recoveryBeforeRetry = await db.select({ id: eventsTable.id })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.type, "GitPushRecoveryRequired"),
+            eq(eventsTable.correlationId, operationId),
+          ));
+        expect(pushedBeforeRetry).toHaveLength(0);
+        expect(recoveryBeforeRetry).toHaveLength(0);
+        expect(await db.select({ id: auditLogsTable.id })
+          .from(auditLogsTable)
+          .where(eq(auditLogsTable.projectId, fixture.projectId)))
+          .toHaveLength(auditCountBeforePush.length);
+
+        const retryApi = await startApi();
+        try {
+          const retry = await pushRequest(retryApi.port);
+          expect(retry.status).toBe(200);
+          expect(retry.body).toMatchObject({
+            ok: true,
+            correlationId: operationId,
+            commitHash,
+            remoteCommitHash: commitHash,
+          });
+          expect(await readFile(pushCountPath, "utf8")).toBe("2");
+          const pushedAfterRetry = await db.select({ payload: eventsTable.payload })
+            .from(eventsTable)
+            .where(and(
+              eq(eventsTable.projectId, fixture.projectId),
+              eq(eventsTable.type, "GitPushed"),
+              eq(eventsTable.correlationId, operationId),
+            ));
+          expect(pushedAfterRetry).toHaveLength(1);
+          expect(pushedAfterRetry[0]?.payload).toMatchObject({
+            proposalId: fixture.proposalId,
+            operationId,
+            commitHash,
+            remoteCommitHash: commitHash,
+            branch: "main",
+          });
+          const auditCountAfterRetry = await db.select({ id: auditLogsTable.id })
+            .from(auditLogsTable)
+            .where(eq(auditLogsTable.projectId, fixture.projectId));
+          expect(auditCountAfterRetry.length).toBeGreaterThan(auditCountBeforePush.length);
+
+          const duplicate = await pushRequest(retryApi.port);
+          expect(duplicate.status).toBe(200);
+          expect(duplicate.body).toMatchObject({
+            ok: true,
+            idempotent: true,
+            correlationId: operationId,
+            commitHash,
+          });
+          expect(await readFile(pushCountPath, "utf8")).toBe("2");
+          expect(await db.select({ id: auditLogsTable.id })
+            .from(auditLogsTable)
+            .where(eq(auditLogsTable.projectId, fixture.projectId)))
+            .toHaveLength(auditCountAfterRetry.length);
+          const remoteLog = await execFileAsync(realGit, [
+            "--git-dir", remotePath, "log", "--format=%s", "main",
+          ]);
+          expect(remoteLog.stdout.trim().split(/\r?\n/)).toEqual([
+            "Apply verified AI changes",
+            "fixture",
+          ]);
+        } finally {
+          if (retryApi.child.exitCode === null && retryApi.child.signalCode === null) {
+            retryApi.child.kill("SIGKILL");
+          }
+          await retryApi.exit;
+        }
+      } finally {
+        releaseAuditLock?.();
+        await auditLockTransaction?.catch(() => undefined);
+        for (const api of children) {
+          if (api.child.exitCode === null && api.child.signalCode === null) {
+            api.child.kill("SIGKILL");
+          }
+          await api.exit;
+        }
+        restoreEnvironment();
+      }
+    },
+    120_000,
+  );
 });
