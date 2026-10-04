@@ -939,6 +939,10 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       maxBytes: 1_000_000,
       surface: "serialized_result",
     });
+    expect(TOOL_OPERATIONAL_METADATA.run_validation.cancellation).toMatchObject({
+      signal: "runner_delegated",
+      timeout: { kind: "fixed_ms", maxMs: 900_000 },
+    });
     expect(TOOL_OPERATIONAL_METADATA.run_browser_validation.outputBound).toMatchObject({
       kind: "fixed_bytes",
       maxBytes: 1_000_000,
@@ -2204,40 +2208,29 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
     );
   });
 
-  it("emits the default lifecycle with execution and scope bindings without raw arguments", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    try {
-      const run = await runT8ToolLoop("read_file", SAFE_ARGS.read_file);
-      expect(run.result.kind).toBe("response");
+  it("records lifecycle bindings only through the explicit invocation sink", async () => {
+    const events: ToolInvocationLifecycleEvent[] = [];
+    const run = await runT8ToolLoop("read_file", SAFE_ARGS.read_file, {
+      onToolInvocation: async (event) => {
+        events.push(event);
+      },
+    });
+    expect(run.result.kind).toBe("response");
 
-      const events = info.mock.calls
-        .map(([message]) => {
-          if (typeof message !== "string") return undefined;
-          try {
-            return JSON.parse(message) as Record<string, unknown>;
-          } catch {
-            return undefined;
-          }
-        })
-        .filter((event) =>
-          event?.scope === "tool-execution-engine"
-          && event.code === "TOOL_INVOCATION_LIFECYCLE",
-        );
-
-      expect(events.map((event) => event?.phase)).toEqual([
-        "requested",
-        "started",
-        "completed",
-      ]);
-      expect(events.every((event) => typeof event?.executionId === "string" && event.executionId.length > 0))
-        .toBe(true);
-      expect(events.every((event) => typeof event?.toolCallId === "string" && event.toolCallId.length > 0))
-        .toBe(true);
-      expect(events.every((event) => typeof event?.scopeHash === "string" && /^[a-f0-9]{64}$/u.test(event.scopeHash)))
-        .toBe(true);
-      expect(JSON.stringify(events)).not.toContain("src/index.ts");
-    } finally {
-      info.mockRestore();
-    }
+    expect(events.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "completed",
+    ]);
+    expect(events.every((event) =>
+      typeof event.executionId === "string" && event.executionId.length > 0,
+    )).toBe(true);
+    expect(events.every((event) =>
+      typeof event.toolCallId === "string" && event.toolCallId.length > 0,
+    )).toBe(true);
+    expect(events.every((event) =>
+      typeof event.scopeHash === "string" && /^[a-f0-9]{64}$/u.test(event.scopeHash),
+    )).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("src/index.ts");
   });
 });

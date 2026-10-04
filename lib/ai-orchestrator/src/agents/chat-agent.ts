@@ -7917,7 +7917,12 @@ export async function chat(opts: {
     await opts.onToolInvocation?.(event);
   };
   const dispatchServerRead: ServerScopedReadDispatcher = async (request) => {
-    if (!rootPath || !serverReadManifestHash || !opts.onReadOnlyInvocation) {
+    if (
+      !rootPath
+      || !serverReadManifestHash
+      || !opts.onReadOnlyInvocation
+      || !opts.onToolInvocation
+    ) {
       return {
         kind: "failed",
         failureKind: "unavailable",

@@ -757,14 +757,6 @@ function toolInputHash(args: Record<string, string>): string {
     .digest("hex");
 }
 
-function logToolInvocationLifecycle(event: ToolInvocationLifecycleEvent): void {
-  console.info(JSON.stringify({
-    scope: "tool-execution-engine",
-    code: "TOOL_INVOCATION_LIFECYCLE",
-    ...event,
-  }));
-}
-
 function normalizeMissionScopedReadPath(value: unknown): string | undefined {
   if (typeof value !== "string" || !value || value.includes("\0")) return undefined;
   const slashPath = value.replaceAll("\\", "/");
@@ -6020,10 +6012,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           manifestHash,
         };
       };
-      const lifecycleCallback = opts.onToolInvocation ?? logToolInvocationLifecycle;
+      const lifecycleCallback = opts.onToolInvocation;
       const recordLoopPreflightFailure = async (
         diagnosticCode: "TOOL_EXECUTION_FAILED" | "TOOL_UNAVAILABLE" = "TOOL_UNAVAILABLE",
       ): Promise<boolean> => {
+        if (!lifecycleCallback) return true;
         if (!validateToolArguments(tc.function.name, rawArgs)) return true;
         const binding = createLoopLifecycleBinding();
         if (!binding) return false;
@@ -6055,6 +6048,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
       };
       const recordCachedToolLifecycle = async (output: string): Promise<boolean> => {
+        if (!lifecycleCallback) return true;
         const binding = createLoopLifecycleBinding();
         if (!binding) return false;
         let requestAttempted = false;
@@ -7178,8 +7172,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         preflightFailure,
         onMutationInvocation: opts.onMutationInvocation,
         onReadOnlyInvocation: opts.onReadOnlyInvocation,
-        onToolInvocation: opts.onToolInvocation ?? logToolInvocationLifecycle,
-        executionId: executionLedger.id,
+        onToolInvocation: opts.onToolInvocation,
+        ...(opts.onToolInvocation ? { executionId: executionLedger.id } : {}),
         scopeHash: cacheContextHash,
         toolManifestHash: hashProviderToolManifest(toolManifest ?? opts.tools),
       });

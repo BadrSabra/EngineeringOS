@@ -991,6 +991,9 @@ export async function chatWithFallback(
   effectiveProvider: ProviderId;
   executionLedger?: ExecutionLedger;
 }> {
+  if (typeof baseParams.onToolInvocation !== "function") {
+    throw new Error("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
+  }
   const executionLedger =
     baseParams.executionLedger ??
     createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });

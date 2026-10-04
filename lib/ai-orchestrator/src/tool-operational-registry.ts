@@ -325,7 +325,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     },
     cancellation: {
       signal: "runner_delegated",
-      timeout: { kind: "runner_defined" },
+      timeout: { kind: "fixed_ms", maxMs: 900_000 },
     },
     replay: {
       cache: "validation_attempt",

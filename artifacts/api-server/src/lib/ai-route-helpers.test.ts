@@ -15,6 +15,7 @@ import {
   normalizeProviderFailure,
   providerAttemptModels,
   emitLedgerProviderAttempts,
+  chatWithFallback,
 } from "./ai-route-helpers.js";
 import type { ExecutionLedgerSnapshot } from "@workspace/ai-orchestrator";
 
@@ -27,6 +28,18 @@ describe("requestLooksToolBound", () => {
   it("does not over-trigger on simple greetings", () => {
     expect(requestLooksToolBound("hello there")).toBe(false);
     expect(requestLooksToolBound("شكراً جزيلاً")).toBe(false);
+  });
+});
+
+describe("chatWithFallback tool lifecycle contract", () => {
+  it("rejects a chat request with no durable tool lifecycle sink before provider work", async () => {
+    const baseParams = {
+      onToolInvocation: undefined,
+    } as unknown as Parameters<typeof chatWithFallback>[1];
+
+    await expect(
+      chatWithFallback("test-user", baseParams, {} as never),
+    ).rejects.toThrow("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
   });
 });
 
