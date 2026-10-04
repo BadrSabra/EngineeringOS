@@ -18,6 +18,7 @@ import type {
   AgentStep,
   MutationToolInvocation,
   ReadOnlyToolInvocation,
+  ToolInvocationLifecycleEvent,
 } from "../tool-execution-engine.js";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 import { GroqClientError } from "../errors.js";
@@ -4896,6 +4897,10 @@ describe("executeToolLoop", () => {
     ]);
     const messages = makeMessages();
     const cache = new Map<string, string>();
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+    const ownershipChecks = vi.fn();
+    let ownershipChecksAtRequest = 0;
+    let ownershipChecksAtStart = 0;
     cache.set(toolCacheKey("read_file", { path: "src/auth.ts" }), "pre-fetched content");
 
     const result = await executeToolLoop({
@@ -4908,11 +4913,159 @@ describe("executeToolLoop", () => {
       rootPath: "/project",
       pendingChanges: [],
       cache,
+      maxToolCalls: 0,
+      assertExecutionOwned: ownershipChecks,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+        if (event.phase === "requested") ownershipChecksAtRequest = ownershipChecks.mock.calls.length;
+        if (event.phase === "started") ownershipChecksAtStart = ownershipChecks.mock.calls.length;
+      },
     });
 
     expect(result.kind).toBe("response");
     // The file tool should never have been called — cache hit.
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "completed",
+    ]);
+    expect(lifecycleEvents[0]).toMatchObject({
+      toolCallId: "tc1",
+      executionId: expect.any(String),
+      scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      toolName: "read_file",
+      inputHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      manifestHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect(lifecycleEvents[2]?.outputHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(ownershipChecksAtStart).toBe(ownershipChecksAtRequest + 1);
+    expect(JSON.stringify(lifecycleEvents)).not.toContain("src/auth.ts");
+  });
+
+  it("does not return cached output when cancellation arrives during lifecycle persistence", async () => {
+    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+    const controller = new AbortController();
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("cancelled-cache", "read_file", { path: "src/private.ts" })]),
+      makeResponse("must not be reached"),
+    ]);
+    const cache = new Map<string, string>([
+      [toolCacheKey("read_file", { path: "src/private.ts" }), "cached-only-secret"],
+    ]);
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      cache,
+      signal: controller.signal,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+        if (event.phase === "requested") controller.abort();
+      },
+    });
+
+    expect(result.kind).toBe("cancelled");
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual(["requested", "cancelled"]);
+    expect(JSON.stringify(result)).not.toContain("cached-only-secret");
+    expect(JSON.stringify(lifecycleEvents)).not.toContain("src/private.ts");
+  });
+
+  it("fails closed when a cached invocation lifecycle write fails", async () => {
+    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("failed-cache", "read_file", { path: "src/private.ts" })]),
+    ]);
+    const cache = new Map<string, string>([
+      [toolCacheKey("read_file", { path: "src/private.ts" }), "cached-only-secret"],
+    ]);
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      cache,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+        if (event.phase === "started") throw new Error("lifecycle persistence unavailable");
+      },
+    });
+
+    expect(result.kind).toBe("failed");
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "failed",
+    ]);
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(JSON.stringify(result)).not.toContain("cached-only-secret");
+  });
+
+  it("records an identity-bound failure when a loop-level allow-list rejects a tool call", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("blocked-call", "read_file", { path: "../outside.ts" })]),
+      makeResponse("done"),
+    ]);
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+    const ownershipChecks = vi.fn();
+    let ownershipChecksAtRequest = 0;
+    let ownershipChecksAtFailure = 0;
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: [],
+      assertExecutionOwned: ownershipChecks,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+        if (event.phase === "requested") ownershipChecksAtRequest = ownershipChecks.mock.calls.length;
+        if (event.phase === "failed") ownershipChecksAtFailure = ownershipChecks.mock.calls.length;
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual(["requested", "failed"]);
+    expect(lifecycleEvents[0]).toMatchObject({
+      toolCallId: "blocked-call",
+      executionId: expect.any(String),
+      scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      toolName: "read_file",
+      inputHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      manifestHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect(lifecycleEvents[1]).toMatchObject({
+      phase: "failed",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(ownershipChecksAtFailure).toBe(ownershipChecksAtRequest + 1);
+    expect(JSON.stringify(lifecycleEvents)).not.toContain("../outside.ts");
   });
 
   it("reports total tool-call telemetry across prefetch, cached results, and synthesis escalation", async () => {

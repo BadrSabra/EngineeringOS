@@ -5987,6 +5987,112 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // Malformed arguments — leave args empty; handler returns an error string.
       }
 
+      const createLoopLifecycleBinding = (): Pick<
+        ToolInvocationLifecycleEvent,
+        "toolCallId" | "executionId" | "scopeHash" | "toolName" | "inputHash" | "manifestHash"
+      > | undefined => {
+        const validatedArgs = validateToolArguments(tc.function.name, rawArgs);
+        const toolCallId = tc.id.trim();
+        const executionId = executionLedger.id.trim();
+        const scopeHash = cacheContextHash;
+        const manifestHash = hashProviderToolManifest(toolManifest ?? opts.tools);
+        if (
+          !validatedArgs
+          || !toolCallId
+          || toolCallId.length > 160
+          || !executionId
+          || !/^[a-f0-9]{64}$/u.test(scopeHash)
+          || !manifestHash
+          || !/^[a-f0-9]{64}$/u.test(manifestHash)
+        ) {
+          return undefined;
+        }
+        const effectiveArgs =
+          opts.completeReads && tc.function.name === "read_file"
+            ? { ...validatedArgs, complete: "true" }
+            : validatedArgs;
+        return {
+          toolCallId,
+          executionId,
+          scopeHash,
+          toolName: tc.function.name,
+          inputHash: toolInputHash(effectiveArgs),
+          manifestHash,
+        };
+      };
+      const lifecycleCallback = opts.onToolInvocation ?? logToolInvocationLifecycle;
+      const recordLoopPreflightFailure = async (
+        diagnosticCode: "TOOL_EXECUTION_FAILED" | "TOOL_UNAVAILABLE" = "TOOL_UNAVAILABLE",
+      ): Promise<boolean> => {
+        if (!validateToolArguments(tc.function.name, rawArgs)) return true;
+        const binding = createLoopLifecycleBinding();
+        if (!binding) return false;
+        let requestAttempted = false;
+        try {
+          requestAttempted = true;
+          await lifecycleCallback({ phase: "requested", ...binding });
+          signal?.throwIfAborted();
+          await assertExecutionOwned?.();
+          const cancelled = signal?.aborted === true;
+          await lifecycleCallback({
+            phase: cancelled ? "cancelled" : "failed",
+            ...binding,
+            diagnosticCode: cancelled ? "TOOL_CANCELLED" : diagnosticCode,
+          });
+          return !cancelled;
+        } catch {
+          if (requestAttempted) {
+            try {
+              const cancelled = signal?.aborted === true;
+              await lifecycleCallback({
+                phase: cancelled ? "cancelled" : "failed",
+                ...binding,
+                diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_UNAVAILABLE",
+              });
+            } catch { /* the tool remains blocked if lifecycle persistence is unavailable */ }
+          }
+          return false;
+        }
+      };
+      const recordCachedToolLifecycle = async (output: string): Promise<boolean> => {
+        const binding = createLoopLifecycleBinding();
+        if (!binding) return false;
+        let requestAttempted = false;
+        try {
+          requestAttempted = true;
+          await lifecycleCallback({ phase: "requested", ...binding });
+          signal?.throwIfAborted();
+          await assertExecutionOwned?.();
+          await lifecycleCallback({ phase: "started", ...binding });
+          await lifecycleCallback({
+            phase: "completed",
+            ...binding,
+            outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
+          });
+          return true;
+        } catch {
+          if (requestAttempted) {
+            try {
+              await lifecycleCallback({
+                phase: signal?.aborted ? "cancelled" : "failed",
+                ...binding,
+                diagnosticCode: signal?.aborted ? "TOOL_CANCELLED" : "TOOL_UNAVAILABLE",
+              });
+            } catch { /* do not expose cached output without a terminal lifecycle record */ }
+          }
+          return false;
+        }
+      };
+      const failClosedOnLifecycleWrite = () =>
+        signal?.aborted
+          ? cancelledResult()
+          : failedToolResult(
+              tc.function.name,
+              "unavailable",
+              "TOOL_UNAVAILABLE",
+              "The server could not record this tool invocation; no tool result was returned.",
+            );
+
       // Objective evidence windows are server-owned. A provider may identify
       // the right required file but still request an arbitrary head range
       // such as 1..200, which can contain only imports or declarations while
@@ -6002,6 +6108,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       ) {
         const targetedRange = objectiveTargetedReadRange(args.path);
         if (targetedRange && "unavailable" in targetedRange) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           try {
             onStep?.({
               kind: "diagnostic",
@@ -6086,6 +6193,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           priorToolCallMap.get(toolCacheKey(tc.function.name, args))
         : undefined;
       if (priorToolCall && nonIdempotentTools.has(tc.function.name)) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         try {
           onStep?.({
             kind: "tool_call",
@@ -6119,6 +6227,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // This is limited to forensic collection; repair-plan validation calls
       // intentionally retain their existing retry semantics.
       if (executionMode === "forensic" && forensicBatchKeys.has(key)) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6131,6 +6240,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (executionMode === "forensic") forensicBatchKeys.add(key);
 
       if (synthesisOnly) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6142,6 +6252,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (forensicBatchStopped) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6153,6 +6264,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (isValidationCall && validationAttempt! > boundedMaxValidationAttempts) {
+        if (!(await recordLoopPreflightFailure("TOOL_EXECUTION_FAILED"))) {
+          return failClosedOnLifecycleWrite();
+        }
         const blockedOutput = JSON.stringify({
           tool: tc.function.name,
           status: "blocked",
@@ -6196,6 +6310,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         && validationFingerprint
         && failedValidationFingerprints.get(validationProfile ?? "") === validationFingerprint
       ) {
+        if (!(await recordLoopPreflightFailure("TOOL_EXECUTION_FAILED"))) {
+          return failClosedOnLifecycleWrite();
+        }
         const detail =
           "Validation was not rerun because the pending changes are identical to the last failed attempt. " +
           "Make a bounded patch change or return BLOCKED; repeated validation without progress is incomplete.";
@@ -6244,6 +6361,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         !isValidationCall &&
         !isForcedTargetRead(tc.function.name, typeof args.path === "string" ? args.path : undefined)
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6259,6 +6377,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (phase && !isToolAllowedInPhase(phase, tc.function.name)) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         const rejectedTool = tc.function.name.slice(0, 120);
         messages.push({
           role: "tool",
@@ -6280,6 +6399,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (allowedTools && !allowedTools.has(tc.function.name)) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6308,6 +6428,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           tc.function.name === "search_code"
           && (typeof args.path !== "string" || !args.path.trim())
         ) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -6343,6 +6464,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               ],
             });
           } catch { /* ignore */ }
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -6367,6 +6489,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             )
           ))
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6389,6 +6512,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const requestedPath = typeof args.path === "string" && args.path.trim() ? args.path : ".";
         const requestedRoot = rootIndexForPath(requestedPath);
         if (requestedRoot < 0) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -6407,6 +6531,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
         if (highestOrderedRoot < 0) {
           if (requestedRoot !== 0) {
+            if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
             messages.push({
               role: "tool",
               tool_call_id: tc.id,
@@ -6417,6 +6542,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }
           highestOrderedRoot = 0;
         } else if (requestedRoot < highestOrderedRoot) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -6501,6 +6627,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           !isServerDeclaredEvidenceTarget &&
           depPath !== ""
         ) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           try {
             onStep?.({
               kind: "diagnostic",
@@ -6532,6 +6659,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         typeof args.path === "string" &&
         isForensicTestSourcePath(args.path)
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6551,6 +6679,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         tc.function.name === "read_file" &&
         !iterationTools?.some((tool) => tool.function.name === "read_file")
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6567,6 +6696,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         tc.function.name !== "replace_text" &&
         !(isValidationCall && !compoundWriteMode)
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -6584,6 +6714,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         tc.function.name === "search_code" &&
         searchBudgetExhausted
       ) {
+        if (!(await recordLoopPreflightFailure("TOOL_EXECUTION_FAILED"))) {
+          return failClosedOnLifecycleWrite();
+        }
         forceSynthesisNext = true;
         messages.push({
           role: "tool",
@@ -6614,6 +6747,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         isTruncatedPath(args.path) &&
         !shouldUpgradeCachedRead
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         sourceRetrieval.redundantReads += 1;
         console.warn(
           JSON.stringify({
@@ -6651,6 +6785,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         nextMissingServerOwnedEvidencePath() !== null &&
         canonicalRel(args.path) !== nextMissingServerOwnedEvidencePath()
       ) {
+        if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         const nextRequiredPath = nextMissingServerOwnedEvidencePath()!;
         sourceRetrieval.redundantReads += 1;
         forcedEvidenceTarget = nextRequiredPath;
@@ -6686,6 +6821,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
         shouldBlockBroadForensicRead(tc.function.name, args.path, args)
       ) {
+        if (!(await recordLoopPreflightFailure("TOOL_EXECUTION_FAILED"))) {
+          return failClosedOnLifecycleWrite();
+        }
         const reason =
           sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT
             ? "attempt_limit"
@@ -6757,6 +6895,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         }
 
         if (executionMode === "repair_plan" && duplicateCount > REPAIR_PLAN_DUPLICATE_TOOL_LIMIT) {
+          if (!(await recordLoopPreflightFailure("TOOL_EXECUTION_FAILED"))) {
+            return failClosedOnLifecycleWrite();
+          }
           const message =
             `Repeated identical tool call detected for "${tc.function.name}". ` +
             "Execution stopped before another duplicate read. " +
@@ -6804,6 +6945,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           };
         }
 
+        if (!(await recordCachedToolLifecycle(cached))) {
+          return failClosedOnLifecycleWrite();
+        }
         loopToolCalls++;
         // A cached/replayed call is still a planning iteration in the FEG-008
         // sense: it consumed a model turn. Only a call that actually surfaces
