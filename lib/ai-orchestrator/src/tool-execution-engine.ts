@@ -819,6 +819,14 @@ export type SingleToolOpts = {
   missionReadPathScope?: readonly string[];
   /** Cancellation signal owned by the durable execution controller. */
   signal?: AbortSignal;
+  /** Ownership is checked after the durable request marker and before any tool work. */
+  assertExecutionOwned?: () => void | Promise<void>;
+  /** A server-side gate rejected a valid call before the executor started. */
+  preflightFailure?: {
+    failureKind: "execution" | "unavailable" | "cancelled";
+    diagnosticCode: "TOOL_EXECUTION_FAILED" | "TOOL_UNAVAILABLE" | "TOOL_CANCELLED";
+    safeMessage: string;
+  };
   /** Server-owned action lifecycle hook for specifically authorized file mutations. */
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission read tools. */
@@ -1200,6 +1208,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       lifecycleRequested = true;
       await emitToolLifecycle("requested");
     }
+    opts.signal?.throwIfAborted();
+    if (opts.assertExecutionOwned) await opts.assertExecutionOwned();
     if (isExecutionTool && !opts.allowExecutionTools) {
       return {
         kind: "failed",
@@ -1322,6 +1332,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           safeMessage: "The requested source path is outside the server-approved read manifest.",
         };
       }
+    }
+    if (opts.preflightFailure) {
+      const failure = opts.preflightFailure;
+      await emitTerminalToolLifecycle(
+        failure.failureKind === "cancelled" ? "cancelled" : "failed",
+        { diagnosticCode: failure.diagnosticCode },
+      );
+      return {
+        kind: "failed",
+        failureKind: failure.failureKind,
+        diagnosticCode: failure.diagnosticCode,
+        safeMessage: failure.safeMessage,
+      };
     }
     const observableReadOnlyToolNames = opts.missionReadPathScope !== undefined
       ? MISSION_READ_ONLY_TOOL_NAMES
@@ -6961,6 +6984,46 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         continue;
       }
 
+      const dispatchToolCall = (
+        preflightFailure?: SingleToolOpts["preflightFailure"],
+      ) => executeSingleTool({
+        name: tc.function.name,
+        args: rawArgs,
+        toolCallId: tc.id,
+        rootPath,
+        pendingChanges,
+        completeReads: opts.completeReads,
+        allowExecutionTools,
+        validationRunner,
+        browserValidationRunner,
+        browserValidationContext,
+        commandProfiles,
+        commandRunner,
+        commandContext,
+        validationTargetPaths,
+        approvalState,
+        compoundWriteMode,
+        approvedFilePaths,
+        approvedValidationProfiles,
+        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+        allowedReadPaths,
+        objectiveScopePolicy,
+        missionReadPathScope: opts.missionReadPathScope,
+        analysisToolRunner: opts.analysisToolRunner,
+        analysisCorrelation: opts.analysisCorrelation,
+        analysisDeadlineAt: executionLedger?.deadlineAt,
+        browserValidationDeadlineAt: executionLedger?.deadlineAt,
+        signal,
+        assertExecutionOwned,
+        preflightFailure,
+        onMutationInvocation: opts.onMutationInvocation,
+        onReadOnlyInvocation: opts.onReadOnlyInvocation,
+        onToolInvocation: opts.onToolInvocation ?? logToolInvocationLifecycle,
+        executionId: executionLedger.id,
+        scopeHash: cacheContextHash,
+        toolManifestHash: hashProviderToolManifest(toolManifest ?? opts.tools),
+      });
+
       // Guard 2: Budget exhausted for fresh calls.
       if (totalToolCalls >= maxToolCalls) {
         console.warn(
@@ -6972,12 +7035,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             totalToolCalls,
           }),
         );
+        const budgetMessage =
+          "Tool call budget exhausted for this request. " +
+          "Synthesize your answer from the information already gathered — do not call further tools.";
+        await dispatchToolCall({
+          failureKind: "execution",
+          diagnosticCode: "TOOL_EXECUTION_FAILED",
+          safeMessage: budgetMessage,
+        });
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content:
-            "Tool call budget exhausted for this request. " +
-            "Synthesize your answer from the information already gathered — do not call further tools.",
+          content: budgetMessage,
         });
         continue;
       }
@@ -6985,6 +7054,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // Guard 3: Registry check + dispatch via executeSingleTool.
       if (!executionLedger.admit("tool", { operation: tc.function.name })) {
         const ledgerSnapshot = executionLedger.snapshot();
+        const preflightFailure = ledgerSnapshot.terminalReason === "cancelled"
+          ? {
+              failureKind: "cancelled" as const,
+              diagnosticCode: "TOOL_CANCELLED" as const,
+              safeMessage: `Tool "${tc.function.name}" was cancelled; the operation did not complete.`,
+            }
+          : ledgerSnapshot.terminalReason === "deadline"
+            ? {
+                failureKind: "execution" as const,
+                diagnosticCode: "TOOL_EXECUTION_FAILED" as const,
+                safeMessage: `Tool "${tc.function.name}" exceeded the request deadline; the operation did not complete.`,
+              }
+            : {
+                failureKind: "execution" as const,
+                diagnosticCode: "TOOL_EXECUTION_FAILED" as const,
+                safeMessage: "Tool call budget exhausted for this request.",
+              };
+        await dispatchToolCall(preflightFailure);
         if (ledgerSnapshot.terminalReason === "cancelled") {
           return cancelledResult();
         }
@@ -6994,7 +7081,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: "Tool call budget exhausted for this request. Synthesize your answer from the information already gathered.",
+          content: preflightFailure.safeMessage,
         });
         return failedToolResult(
           tc.function.name,
@@ -7052,46 +7139,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // a later repair attempt.
         validationAttemptPatches.set(validationProfile ?? "", currentPatch);
       }
-      if (assertExecutionOwned) await assertExecutionOwned();
       const toolStartedAt = Date.now();
       let toolCompleted = false;
       let toolResult: SingleToolResult;
       try {
-        toolResult = await executeSingleTool({
-          name: tc.function.name,
-          args: rawArgs,
-          toolCallId: tc.id,
-          rootPath,
-          pendingChanges,
-          completeReads: opts.completeReads,
-          allowExecutionTools,
-          validationRunner,
-          browserValidationRunner,
-          browserValidationContext,
-           commandProfiles,
-           commandRunner,
-           commandContext,
-          validationTargetPaths,
-          approvalState,
-          compoundWriteMode,
-          approvedFilePaths,
-          approvedValidationProfiles,
-          allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
-          allowedReadPaths,
-          objectiveScopePolicy,
-          missionReadPathScope: opts.missionReadPathScope,
-          analysisToolRunner: opts.analysisToolRunner,
-          analysisCorrelation: opts.analysisCorrelation,
-          analysisDeadlineAt: executionLedger?.deadlineAt,
-          browserValidationDeadlineAt: executionLedger?.deadlineAt,
-          signal,
-          onMutationInvocation: opts.onMutationInvocation,
-          onReadOnlyInvocation: opts.onReadOnlyInvocation,
-          onToolInvocation: opts.onToolInvocation ?? logToolInvocationLifecycle,
-          executionId: executionLedger.id,
-          scopeHash: cacheContextHash,
-          toolManifestHash: hashProviderToolManifest(toolManifest ?? opts.tools),
-        });
+        toolResult = await dispatchToolCall();
         toolCompleted = toolResult.kind === "ok";
       } finally {
         executionLedger.complete("tool", {

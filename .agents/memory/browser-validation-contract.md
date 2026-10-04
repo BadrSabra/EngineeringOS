@@ -15,8 +15,8 @@ Caller abort and timeout cannot be passed directly to Playwright page operations
 
 **How to apply:** Use bounded best-effort settlement after resource closure, and keep a real Chromium stalled-response cancellation test alongside fake-runner tests; mocks alone cannot establish driver behavior.
 
-The API-server browser preview suite also needs the Playwright Chromium executable; installing the Node package alone does not guarantee that the real-browser test can launch.
+When the Playwright browser cache is empty in this workspace, reuse system Chromium at `/repl/tools/bin/chromium` through a temporary `PLAYWRIGHT_BROWSERS_PATH`. Map both the normal Chromium and headless-shell executable paths from `playwright-core/browsers.json`; headless launch uses a separate cache entry.
 
-**Why:** The workspace's real cancellation test failed at `chromium.launch()` because its executable was absent, while the fake-runner lifecycle tests passed.
+**Why:** Linking only the normal Chromium path did not satisfy Playwright's headless launch. The real cancellation test passed when both expected slots pointed to system Chromium, without installing a browser or changing workspace files.
 
-**How to apply:** Check the browser executable prerequisite separately from app assertions, and keep the fake cancellation/cleanup tests runnable without Chromium.
+**How to apply:** Read the revision and directory layout from the installed Playwright registry, create temporary cache links, run the real test, and remove the cache afterward. Check browser availability separately from app assertions, and keep fake cancellation/cleanup tests runnable without Chromium.

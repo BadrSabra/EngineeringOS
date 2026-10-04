@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createExecutionLedger } from "../execution-ledger.js";
 import {
   executeSingleTool,
   executeToolLoop,
@@ -1721,7 +1722,6 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       }
       expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
         "requested",
-        "started",
         "cancelled",
       ]);
     },
@@ -2101,6 +2101,77 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       "started",
       "failed",
     ]);
+  });
+
+  it("records an ownership denial during preflight as a terminal tool attempt", async () => {
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+    let ownershipChecks = 0;
+    const run = await runT8ToolLoop("run_command", SAFE_ARGS.run_command, {
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+      },
+      assertExecutionOwned: async () => {
+        ownershipChecks += 1;
+        if (ownershipChecks === 3) throw new Error("execution ownership lost");
+      },
+    });
+
+    expect(run.result.kind).toBe("failed");
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "failed",
+    ]);
+    expect(lifecycleEvents[1]).toMatchObject({
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+  });
+
+  it("records a tool-call budget denial without starting the executor", async () => {
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+    const run = await runT8ToolLoop("run_command", SAFE_ARGS.run_command, {
+      maxToolCalls: 0,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
+
+    expect(run.result.kind).toBe("response");
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "failed",
+    ]);
+    expect(lifecycleEvents[1]).toMatchObject({
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+  });
+
+  it("records a rejected execution-ledger admission as a terminal tool attempt", async () => {
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+    const executionLedger = createExecutionLedger({
+      budget: { toolCalls: 0 },
+    });
+    const run = await runT8ToolLoop("run_command", SAFE_ARGS.run_command, {
+      executionLedger,
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+      },
+    });
+
+    expect(run.result.kind).toBe("failed");
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual([
+      "requested",
+      "failed",
+    ]);
+    expect(lifecycleEvents[0]).toMatchObject({
+      toolCallId: "t8-run_command",
+      executionId: expect.any(String),
+      toolName: "run_command",
+      scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      manifestHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect(JSON.stringify(lifecycleEvents)).not.toContain(
+      JSON.stringify(SAFE_ARGS.run_command),
+    );
   });
 
   it("emits the default lifecycle with execution and scope bindings without raw arguments", async () => {
