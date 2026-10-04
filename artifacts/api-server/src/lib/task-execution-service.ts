@@ -3,6 +3,7 @@ import { posix as posixPath } from "node:path";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiExecutionsTable,
   aiGoalsTable,
   projectsTable,
@@ -1669,6 +1670,18 @@ async function executeMissionToolLoop(params: {
       || recoveryManifest.validationProfile !== policy.validationProfile
     ) {
       throw new Error("mission_repair_recovery_identity_mismatch");
+    }
+    const [recoveryEpisode] = await db
+      .select({ id: aiAgentEpisodesTable.id })
+      .from(aiAgentEpisodesTable)
+      .where(and(
+        eq(aiAgentEpisodesTable.projectId, params.task.projectId),
+        eq(aiAgentEpisodesTable.executionId, params.executionId),
+        eq(aiAgentEpisodesTable.attempt, params.expectedAttempt),
+      ))
+      .limit(1);
+    if (!recoveryEpisode || recoveryEpisode.id !== recoveryManifest.episodeId) {
+      throw new Error("mission_repair_recovery_episode_mismatch");
     }
     const currentBaseTreeHash = await hashDeliveryTree(root.canonicalPath);
     if (

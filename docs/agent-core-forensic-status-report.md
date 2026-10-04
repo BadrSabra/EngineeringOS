@@ -184,6 +184,14 @@ runtime store داخل الذاكرة؛ لا يثبت تعافي crash بقاع�
 الاختباران لا يشغّلان process ولا يثبتان بقاء PID أو adoption بعد restart؛
 استعادة العملية والـproof replay وبقية crash windows ما زالت جزئية.
 
+**حد handoff لـMission repair (2026-10-04):** اختبارات قاعدة البيانات القائمة
+تغطي استعادة manifest عند `candidate_ready` و`committed` و`effect_classified`
+بعد handoff، مع رفض manifest الغائب أو المشوه. أضيف الآن ربط `episodeId`
+المستعاد بصف Episode الدائم للمشروع والتنفيذ والمحاولة قبل hash أو إعادة بناء
+المرشح؛ الاختبار يغيّر checkpoint في fixture معزول ويتأكد من عدم إضافة ملاحظة
+شجرة أثناء رفض الاستعادة وبقاء جذر المشروع كما هو. هذا لا يقتل route حقيقيًا ولا
+يثبت تغطية W0–W9 لكل الأسطح.
+
 **حد إكمال workflow (2026-10-04):** اختبار وحدة لـ`executeWorkflowPhase` يحاكي
 خسارة حاجز `completeAiExecution` بعد وصول الحالة المحلية إلى `succeeded`؛ يجب
 أن تعود الخدمة بـ`failed` دون محاولة كتابة `failAiExecution` بواسطة العامل القديم.

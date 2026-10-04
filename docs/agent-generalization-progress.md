@@ -4242,6 +4242,17 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يثبت retry لدليل مقبول داخل قاعدة الاختبار، ولا يثبت تعافي process حي أو إعادة attestation بعد restart؛ W0–W9 والتكافؤ بين بقية الأسطح ما زالا جزئيين.
 - **next step:** متابعة E2 بفرع تعافٍ آخر لا ينفذ كتابة ملفات أو delivery/commit/push؛ لا يبدأ E3–E8.
 
+### 2026-10-04 — تقييد handoff لـMission repair بهوية Episode
+
+- **phase/step:** E2 / Mission repair — رفض checkpoint recovery المرتبط بـEpisode غير المطابق.
+- **status:** `partial — ربط Episode قبل إعادة بناء المرشح مثبت؛ crash route وتكافؤ W0–W9 ما زالا مفتوحين`.
+- **what changed:** يطابق recovery manifest الآن `episodeId` مع صف Episode الدائم للمشروع والتنفيذ والمحاولة قبل hash أو إعادة بناء المرشح. يغيّر اختبار DB-backed معرف Episode في checkpoint معزول، ويتحقق من رفض الاستعادة قبل materializing ملاحظة `workspace.tree_hash` إضافية، وبقاء ملف جذر fixture دون تغيير.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-service.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير schema أو صلاحيات.
+- **validation:** الاختبار المركّز 1/1 على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** قاعدة fixture مؤقتة فقط؛ provider وهمي، ولا تعديل لجذر المشروع أو اتصال Git/delivery أو قاعدة dev/prod. أوقفت قاعدة الاختبار وأزلت جذرها المؤقت.
+- **remaining/blocker:** الاختبار يثبت الرفض المبكر من durable state ولا يقتل route فعليًا؛ crash/recovery parity الكاملة عند W0–W9 ما زالت جزئية.
+- **next step:** متابعة E2 على نافذة DB-only غير مغطاة؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
