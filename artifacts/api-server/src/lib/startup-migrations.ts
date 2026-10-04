@@ -184,6 +184,26 @@ export function scrubHistoricalValidationRecord(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => scrubHistoricalValidationRecord(item));
   if (!value || typeof value !== "object") return value;
   const record = value as HistoricalJsonRecord;
+  const acceptanceCheckId = record.id;
+  const acceptanceCheckKind = record.kind;
+  const acceptanceCheckDescription = record.description;
+  const acceptanceCheckRequired = record.required;
+  if (
+    typeof acceptanceCheckId === "string"
+    && typeof acceptanceCheckKind === "string"
+    && ["scope", "behavior", "validation", "evidence"].includes(acceptanceCheckKind)
+    && typeof acceptanceCheckDescription === "string"
+    && typeof acceptanceCheckRequired === "boolean"
+  ) {
+    // Autonomous-operation acceptance checks use kind="validation" too, but
+    // are contract metadata rather than raw validation-result details.
+    return {
+      id: acceptanceCheckId.slice(0, 120),
+      kind: acceptanceCheckKind,
+      description: acceptanceCheckDescription.slice(0, 500),
+      required: acceptanceCheckRequired,
+    };
+  }
   const isValidation = record.kind === "validation";
   const nestedValidation = record.validation;
 

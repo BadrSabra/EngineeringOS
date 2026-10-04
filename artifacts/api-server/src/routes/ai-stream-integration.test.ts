@@ -8831,7 +8831,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           status: "completed",
           finalMessageId,
         });
-        const recoveredCheckpoint = JSON.parse(execution!.checkpoint) as Record<string, unknown>;
+        const recoveredCheckpoint = parseAiExecutionCheckpoint(execution!.checkpoint);
         expect(recoveredCheckpoint).toMatchObject({
           stage: "completed",
           evidenceVerdict: "PROVEN",

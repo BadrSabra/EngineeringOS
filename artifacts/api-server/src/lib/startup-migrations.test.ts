@@ -153,6 +153,45 @@ describe("scrubHistoricalValidationRecord", () => {
     });
   });
 
+  it("preserves typed operation acceptance checks while scrubbing validation results", () => {
+    const scrubbed = scrubHistoricalValidationRecord({
+      operation: {
+        acceptanceChecks: [{
+          id: "validation-passed",
+          kind: "validation",
+          description: "Registered validation passes for the approved scope.",
+          required: true,
+          command: "must-not-persist",
+        }],
+      },
+      validationResult: {
+        kind: "validation",
+        status: "failed",
+        exitCode: 1,
+        command: "private test command",
+        stdout: "raw validation output",
+      },
+    });
+
+    expect(scrubbed).toEqual({
+      operation: {
+        acceptanceChecks: [{
+          id: "validation-passed",
+          kind: "validation",
+          description: "Registered validation passes for the approved scope.",
+          required: true,
+        }],
+      },
+      validationResult: {
+        kind: "validation",
+        validation: {
+          status: "failed",
+          exitCode: 1,
+        },
+      },
+    });
+  });
+
   it("recursively scrubs validation steps without changing unrelated trace entries", () => {
     const scrubbed = scrubHistoricalValidationRecord([
       { kind: "tool_result", tool: "read_file", resultSummary: "safe summary" },

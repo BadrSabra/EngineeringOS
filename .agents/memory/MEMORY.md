@@ -32,6 +32,7 @@
 - [Workflow phase ledger](workflow-phase-ledger.md) — phase-local status is bookkeeping, not Canonical Proof; real workflow work needs substantive bound evidence.
 - [Release pipeline hardening](release-pipeline-hardening.md) — nested checks reuse parent locks; stale locks are verified before waiting or reclamation.
 - [Controlled release validation](controlled-release-validation.md) — live recovery needs a disposable DB and isolated receipts; provider-free full-index tests need egress guard and isolated startup effects.
+- [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks; Preview is blocking by default while live providers stay opt-in.
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
