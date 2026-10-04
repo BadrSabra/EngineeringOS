@@ -4286,6 +4286,17 @@ G9 Revocation Safety
 - **remaining/blocker:** trigger DB لا يثبت موت process أو فقد استجابة بعد commit؛ الإسقاط النهائي لـGoal/Mission والأسطح الأخرى ما زالت خارج هذا الاختبار.
 - **next step:** مواصلة E2 على حد DB-only آخر؛ لا يبدأ E3–E8.
 
+### 2026-10-04 — rollback لقبول structured execution عند W8
+
+- **phase/step:** E2 / W8 — معاملة قبول structured analyze وإسقاط رسالة المساعد.
+- **status:** `partial — rollback وقبول الفشل في fixture DB-only مثبتان؛ crash وresponse loss بعد commit غير مختبرين`.
+- **what changed:** يرفض trigger مؤقت تحديث رسالة المساعد إلى `SUCCEEDED` بعد إدخال acceptance. تتراجع معاملة النجاح؛ و`structuredExecution.complete` يسجل `FAILED` تحت lease العامل نفسها. يتحقق الاختبار من غياب قبول النجاح، terminal execution الفاشل، ورسالة مساعدة `FAILED` بمحتوى فارغ، لا نجاح جزئي.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/structured-task-execution.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير schema أو صلاحيات.
+- **validation:** اختبار W8 المركّز 1/1 نجح على PostgreSQL مؤقتة loopback؛ API typecheck و`git diff --check` ناجحان؛ workflow API أُعيد تشغيله ووصل إلى `Server listening`.
+- **authority/safety impact:** structured analyze صناعي، بلا provider أو `rootPath` أو أدوات قراءة/كتابة ملفات؛ trigger وبيانات fixture في قاعدة مؤقتة فقط. لم تُستخدم قاعدة production أو delivery/commit/push. سجلات restart تضمنت رفض recoveries موجودة مسبقًا بسبب جذور غير متاحة (`409`) ومحاولة أخرى مرفوضة (`429`)؛ لم أعد تشغيلها أو أعدلها.
+- **remaining/blocker:** هذا يثبت خطأ DB قبل commit فقط، لا انقطاع process أو ضياع رد بعد commit؛ مسارات structured review وبقية أسطح E2 ما زالت غير محسومة.
+- **next step:** متابعة E2 على حد DB-only آخر؛ لا يبدأ E3–E8.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

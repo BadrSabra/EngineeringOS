@@ -541,13 +541,27 @@ export async function startStructuredExecution(params: {
     await checkpoint("finalizing", "Persisting structured result");
     terminal = true;
     cleanup();
-    const accepted = await completeAiExecution({
-      executionId: execution!.id,
-      workerId,
-      finalMessageId: message.messageId,
-      finalMessageContent: message.content,
-      proofRequired: false,
-    });
+    let accepted: boolean;
+    try {
+      accepted = await completeAiExecution({
+        executionId: execution!.id,
+        workerId,
+        finalMessageId: message.messageId,
+        finalMessageContent: message.content,
+        proofRequired: false,
+      });
+    } catch (error) {
+      const failureRecorded = await failAiExecution({
+        executionId: execution!.id,
+        workerId,
+        error: error instanceof Error ? error.message : "Structured execution finalization failed",
+        resumable: false,
+        finalMessageId: message.messageId,
+        finalMessageErrorCode: "EXECUTION_FINALIZATION_FAILED",
+      });
+      if (!failureRecorded) throw error;
+      return false;
+    }
     if (!accepted && await isCancellationRequested()) {
       await failAiExecution({
         executionId: execution!.id,

@@ -22,6 +22,8 @@ import {
   aiExecutionAcceptancesTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -940,6 +942,109 @@ describe("real durable task execution lifecycle", () => {
       heartbeatSpy.mockRestore();
       intervalSpy.mockRestore();
       await cleanupProjectExecutionData(projectId);
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("W8 rolls back structured success acceptance when the assistant projection fails", async () => {
+    const projectId = randomUUID();
+    const userId = `structured-w8-${projectId}`;
+    const now = new Date();
+    let structuredExecution: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `structured-w8-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/structured-w8-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      structuredExecution = await startStructuredExecution({
+        userId,
+        projectId,
+        projectRevision: "a".repeat(64),
+        task: "analyze",
+        prompt: "Persist a DB-only structured result fixture.",
+      });
+      const assistantMessageId = await structuredExecution.persistAssistant({
+        content: "Fixture result; no provider or project files are used.",
+        outcome: "SUCCEEDED",
+        toolTrace: "w8_structured_finalization_fixture",
+      });
+
+      await db.execute(sql`
+        CREATE OR REPLACE FUNCTION fixture_fail_structured_success_message_projection()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF OLD.tool_trace = 'w8_structured_finalization_fixture'
+            AND NEW.outcome = 'SUCCEEDED' THEN
+            RAISE EXCEPTION 'fixture_structured_success_message_projection_failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `);
+      await db.execute(sql`
+        CREATE TRIGGER fixture_fail_structured_success_message_projection
+        BEFORE UPDATE OF outcome ON ai_chat_messages
+        FOR EACH ROW EXECUTE FUNCTION fixture_fail_structured_success_message_projection()
+      `);
+
+      const accepted = await structuredExecution.complete({
+        messageId: assistantMessageId,
+        content: "Fixture result; no provider or project files are used.",
+      });
+      expect(accepted).toBe(false);
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, structuredExecution.started.executionId));
+      expect(execution).toEqual({ status: "failed", workerId: null });
+
+      const acceptances = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, structuredExecution.started.executionId));
+      expect(acceptances).toEqual([{
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_FAILED",
+      }]);
+
+      const [assistantMessage] = await db
+        .select({
+          outcome: aiChatMessagesTable.outcome,
+          errorCode: aiChatMessagesTable.errorCode,
+          content: aiChatMessagesTable.content,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, assistantMessageId));
+      expect(assistantMessage).toEqual({
+        outcome: "FAILED",
+        errorCode: "EXECUTION_FINALIZATION_FAILED",
+        content: "",
+      });
+    } finally {
+      structuredExecution?.cleanup();
+      await db.execute(sql`
+        DROP TRIGGER IF EXISTS fixture_fail_structured_success_message_projection ON ai_chat_messages
+      `);
+      await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_structured_success_message_projection()`);
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
