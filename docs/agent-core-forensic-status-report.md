@@ -167,7 +167,7 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 | W6 قبل effect persistence | قد توجد observation دون EffectBundle/credit | حدود atomicity الدقيقة لكل سطح وcrash test عندها `UNKNOWN` |
 | W7 بعد effect | bundle/refs/verdict المحفوظة قابلة لإعادة القراءة | effect ليس acceptance؛ لا يثبت وحده terminal success |
 | W8 قبل acceptance | قد يكون effect محفوظًا والقبول غائبًا | يمكن تمييز السجلين إن استُعلما؛ سلامة recovery/finalize لكل سطح `UNKNOWN` |
-| W9 بعد acceptance | transaction المقبولة والإسقاطات الدائمة قابلة للاستعادة | اختبار reconciliation يغطي إسقاط proposal لـApply بعد proof مقبول؛ route-level response-loss عبر بقية الأسطح ما زال `UNKNOWN` |
+| W9 بعد acceptance | transaction المقبولة والإسقاطات الدائمة قابلة للاستعادة؛ اختبارات task lifecycle تحقن فشل terminal-progress بعد قبول نجاح أو فشل retryable وتتحقق من بقاء النتيجة والإسقاط | لا تختبر انقطاع HTTP أو قتل process؛ route-level response-loss عبر بقية الأسطح ما زال `UNKNOWN` |
 
 **تحقق محدود لـruntime.start (2026-10-04):** يكرر اختبار `workspace-runtime.test.ts`
 استدعاء `start` عبر مدير ثانٍ بعد تشغيل العملية وقبل قبول after-state، ويتحقق من

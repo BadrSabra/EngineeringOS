@@ -583,6 +583,40 @@ async function finalizeTaskExecutionAcceptance(params: {
   return { accepted: finalized.accepted, duplicate: false };
 }
 
+async function emitAcceptedTaskTerminalProgress(params: {
+  progress: ReturnType<typeof createTaskProgressEmitter>;
+  executionId: string;
+  terminalOutcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+  terminalMessage: string;
+  finish?: {
+    status: "completed" | "failed";
+    message: string;
+  };
+}): Promise<void> {
+  try {
+    if (params.finish) {
+      await params.progress.finish(
+        "finalization",
+        params.finish.status,
+        params.finish.message,
+        92,
+        7,
+      );
+    }
+    await params.progress.terminal(params.terminalOutcome, params.terminalMessage);
+  } catch (error) {
+    logger.warn(
+      {
+        scope: "task-execution",
+        code: "accepted_progress_delivery_failed",
+        executionId: params.executionId,
+        error,
+      },
+      "Task execution was accepted but terminal progress delivery failed",
+    );
+  }
+}
+
 type MissionToolLoopExecution = {
   result: Awaited<ReturnType<typeof executeTask>>;
   effectiveProvider: ProviderId;
@@ -3006,8 +3040,16 @@ export async function executeTaskLifecycle(params: {
       logMetadata: { stage: "claim", code: "checkpoint_persistence_failed" },
     });
     if (finalized.accepted) {
-      await progress.finish("finalization", "failed", "Saving the execution checkpoint failed.", 92, 7);
-      await progress.terminal("FAILED", "Task execution failed before model work began.");
+      await emitAcceptedTaskTerminalProgress({
+        progress,
+        executionId,
+        finish: {
+          status: "failed",
+          message: "Saving the execution checkpoint failed.",
+        },
+        terminalOutcome: "FAILED",
+        terminalMessage: "Task execution failed before model work began.",
+      });
     }
     return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
   }
@@ -3189,8 +3231,16 @@ export async function executeTaskLifecycle(params: {
         logMetadata: { stage: "parse", code: result._parseError.code },
       });
       if (finalized.accepted) {
-        await progress.finish("finalization", "completed", "The failed execution was recorded.", 92, 7);
-        await progress.terminal("FAILED", "Task execution failed validation.");
+        await emitAcceptedTaskTerminalProgress({
+          progress,
+          executionId,
+          finish: {
+            status: "completed",
+            message: "The failed execution was recorded.",
+          },
+          terminalOutcome: "FAILED",
+          terminalMessage: "Task execution failed validation.",
+        });
       }
       return {
         ok: false,
@@ -3246,8 +3296,16 @@ export async function executeTaskLifecycle(params: {
         },
       });
       if (finalized.accepted) {
-        await progress.finish("finalization", "completed", "The failed execution was recorded.", 92, 7);
-        await progress.terminal("FAILED", "Task execution did not pass quality checks.");
+        await emitAcceptedTaskTerminalProgress({
+          progress,
+          executionId,
+          finish: {
+            status: "completed",
+            message: "The failed execution was recorded.",
+          },
+          terminalOutcome: "FAILED",
+          terminalMessage: "Task execution did not pass quality checks.",
+        });
       }
       return {
         ok: false,
@@ -3384,32 +3442,51 @@ export async function executeTaskLifecycle(params: {
         "Server-owned observation materialization failed after acceptance",
       );
     });
-    await progress.finish(
-      "finalization",
-      "completed",
-      missionProofPending
-        ? "Execution recorded without objective proof; the Mission remains open."
-        : finalStatus === "verifying"
-          ? "Execution accepted; review remains open."
-          : "Execution accepted.",
-      92,
-      7,
-    );
-    await progress.terminal(
-      missionProofPending ? "FAILED" : "SUCCEEDED",
-      missionProofPending
+    await emitAcceptedTaskTerminalProgress({
+      progress,
+      executionId,
+      finish: {
+        status: "completed",
+        message: missionProofPending
+          ? "Execution recorded without objective proof; the Mission remains open."
+          : finalStatus === "verifying"
+            ? "Execution accepted; review remains open."
+            : "Execution accepted.",
+      },
+      terminalOutcome: missionProofPending ? "FAILED" : "SUCCEEDED",
+      terminalMessage: missionProofPending
         ? "Mission execution needs a new proof-directed attempt."
         : finalStatus === "verifying"
           ? "Task finished and is awaiting verification."
           : "Task completed successfully.",
-    );
-    const [updated] = await db
-      .select()
-      .from(tasksTable)
-      .where(eq(tasksTable.id, before.id))
-      .limit(1);
-    invalidateContextCache(before.projectId);
-    return { ok: true, status: finalStatus, task: updated, executionId };
+    });
+    let updated: typeof before | undefined;
+    try {
+      [updated] = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, before.id))
+        .limit(1);
+    } catch (error) {
+      logger.warn(
+        { scope: "task-execution", code: "accepted_task_readback_failed", executionId, error },
+        "Task execution was accepted but task readback failed",
+      );
+    }
+    try {
+      invalidateContextCache(before.projectId);
+    } catch (error) {
+      logger.warn(
+        { scope: "task-execution", code: "accepted_context_cache_invalidation_failed", executionId, error },
+        "Task execution was accepted but context cache invalidation failed",
+      );
+    }
+    return {
+      ok: true,
+      status: finalStatus,
+      ...(updated ? { task: updated } : {}),
+      executionId,
+    };
   } catch (error) {
     if (heartbeatFailureCode) {
       return {
@@ -3466,10 +3543,14 @@ export async function executeTaskLifecycle(params: {
       },
     });
     if (finalized.accepted) {
-      await progress.terminal(
-        cancelled ? "INTERRUPTED" : "FAILED",
-        cancelled ? "Task execution was cancelled." : "Task execution failed.",
-      );
+      await emitAcceptedTaskTerminalProgress({
+        progress,
+        executionId,
+        terminalOutcome: cancelled ? "INTERRUPTED" : "FAILED",
+        terminalMessage: cancelled
+          ? "Task execution was cancelled."
+          : "Task execution failed.",
+      });
     }
     invalidateContextCache(before.projectId);
     return {

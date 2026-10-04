@@ -4253,6 +4253,17 @@ G9 Revocation Safety
 - **remaining/blocker:** الاختبار يثبت الرفض المبكر من durable state ولا يقتل route فعليًا؛ crash/recovery parity الكاملة عند W0–W9 ما زالت جزئية.
 - **next step:** متابعة E2 على نافذة DB-only غير مغطاة؛ لا يبدأ E3–E8.
 
+### 2026-10-04 — حفظ قبول task عند تعطل progress بعد الإنهاء
+
+- **phase/step:** E2 / W9 — فشل توصيل terminal progress بعد قبول المهمة.
+- **status:** `partial — نتيجة task المقبولة تبقى authoritative عند فشل progress أو readback اللاحق؛ انقطاع HTTP وcrash process غير مختبرين`.
+- **what changed:** بعد قبول execution داخل المعاملة، أصبحت كتابة progress النهائية وقراءة task وإبطال cache حدودًا best-effort؛ لا يستطيع فشلها تحويل النتيجة المقبولة إلى نتيجة متعارضة. اختبار النجاح يحقن فشل terminal progress بعد القبول ويتحقق من outcome الناجح وtask/execution المكتملين والقبول العام؛ واختبار provider failure يثبت بقاء تصنيف الفشل القابل لإعادة المحاولة رغم فشل إشعار `FAILED`.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-service.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، تقرير الحالة، وهذا السجل؛ لا تغيير schema أو صلاحيات.
+- **validation:** ثلاثة اختبارات مركّزة نجحت على PostgreSQL مؤقتة loopback مع `DATABASE_URL` صريح؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** provider وهمي وfixture غير معدّل؛ لا كتابة ملفات مشروع أو delivery/commit/push ولا استخدام قاعدة dev/prod. تم إيقاف قاعدة الاختبار وإزالة جذرها المؤقت.
+- **remaining/blocker:** لم يُحقن فشل readback فعليًا، وحقن progress بعد commit ليس انقطاع HTTP أو قتل route؛ استعادة response-loss والتكافؤ عند W9 لبقية الأسطح ما زالا غير مثبتين.
+- **next step:** مواصلة E2 فقط على حد DB-only غير مغطى، مع إبقاء اختبارات كتابة الملفات وdelivery وcommit وpush خارج النطاق.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

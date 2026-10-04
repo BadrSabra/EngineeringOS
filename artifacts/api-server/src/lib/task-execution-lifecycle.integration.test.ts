@@ -73,6 +73,10 @@ const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) =
   evidence: { artifactRef: "fixture-validation-receipt" },
 })));
 const pendingObservationMaterializations = vi.hoisted(() => [] as Promise<unknown>[]);
+const taskProgressFixture = vi.hoisted(() => ({
+  failTerminalOutcome: null as "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null,
+  terminalOutcomes: [] as Array<"SUCCEEDED" | "FAILED" | "INTERRUPTED">,
+}));
 
 vi.mock("./ai-route-helpers.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-route-helpers.js")>("./ai-route-helpers.js");
@@ -190,7 +194,13 @@ vi.mock("./task-progress.js", () => ({
   createTaskProgressEmitter: vi.fn(() => ({
     start: vi.fn(async () => undefined),
     finish: vi.fn(async () => undefined),
-    terminal: vi.fn(async () => undefined),
+    terminal: vi.fn(async (outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED") => {
+      taskProgressFixture.terminalOutcomes.push(outcome);
+      if (taskProgressFixture.failTerminalOutcome === outcome) {
+        taskProgressFixture.failTerminalOutcome = null;
+        throw new Error("fixture_terminal_progress_write_failed");
+      }
+    }),
   })),
 }));
 
@@ -232,6 +242,7 @@ import * as aiExecutionState from "./ai-execution-state.js";
 import { startStructuredExecution } from "./structured-task-execution.js";
 import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
 import { createValidationWorkspace } from "./ai-repair-validation.js";
+import { getPublicTaskExecutionAcceptance } from "./ai-execution-acceptance.js";
 
 async function waitForEpisode(executionId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -388,6 +399,8 @@ async function createMissionToolLoopFixture(input: {
 describe("real durable task execution lifecycle", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    taskProgressFixture.failTerminalOutcome = null;
+    taskProgressFixture.terminalOutcomes = [];
     runAgentWithFallback.mockReset().mockImplementation(async (..._args: unknown[]) => ({
       result: {
         summary: "Fixture execution completed.",
@@ -489,6 +502,91 @@ describe("real durable task execution lifecycle", () => {
         resumable: 0,
       });
     } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("keeps accepted task success authoritative when terminal progress delivery fails", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const now = new Date();
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-post-acceptance-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Post-acceptance response-loss fixture",
+      prompt: "Return the deterministic fixture result",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    taskProgressFixture.failTerminalOutcome = "SUCCEEDED";
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+
+      expect(outcome).toMatchObject({
+        ok: true,
+        status: "completed",
+        executionId: expect.any(String),
+      });
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(1);
+      expect(taskProgressFixture.terminalOutcomes).toEqual(["SUCCEEDED"]);
+
+      const [task] = await db
+        .select({ status: tasksTable.status, workerId: tasksTable.workerId })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(task).toEqual({ status: "completed", workerId: null });
+
+      const [execution] = await db
+        .select({ status: aiExecutionsTable.status, workerId: aiExecutionsTable.workerId })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, outcome.executionId!));
+      expect(execution).toEqual({ status: "completed", workerId: null });
+
+      const acceptances = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId!));
+      expect(acceptances).toEqual([{
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+        reasonCode: "ACCEPTED",
+      }]);
+      expect(await getPublicTaskExecutionAcceptance(taskId)).toMatchObject({
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+        reasonCode: "ACCEPTED",
+      });
+    } finally {
+      taskProgressFixture.failTerminalOutcome = null;
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
@@ -921,6 +1019,7 @@ describe("real durable task execution lifecycle", () => {
     runAgentWithFallback.mockImplementationOnce(async (..._args: unknown[]) => {
       throw new Error(privateProviderFailure);
     });
+    taskProgressFixture.failTerminalOutcome = "FAILED";
 
     try {
       const outcome = await executeTaskLifecycle({
@@ -988,6 +1087,7 @@ describe("real durable task execution lifecycle", () => {
         reasonCode: "EXECUTION_PROVIDER_FAILURE",
         resumable: 1,
       });
+      expect(taskProgressFixture.terminalOutcomes).toEqual(["FAILED"]);
     } finally {
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
