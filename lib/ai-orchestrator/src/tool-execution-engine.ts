@@ -2031,7 +2031,6 @@ export async function executeScopedReadTool(
   const lifecycleCallback = opts.onToolInvocation;
   const lifecycleBinding =
     validatedArgs
-    && requestedPath
     && invocationId
     && invocationId.length <= 160
     && /^[a-f0-9]{64}$/u.test(manifestHash)
@@ -2091,6 +2090,23 @@ export async function executeScopedReadTool(
     return failBeforeExecution(
       "The server read request did not contain a valid project-relative path.",
     );
+  }
+  if (opts.missionReadPathScope !== undefined) {
+    if (opts.name !== "read_file" && opts.name !== "read_file_range") {
+      return failBeforeExecution(
+        "Generic directory listing and project-wide search are not authorized for this Mission read scope.",
+      );
+    }
+    const missionScope = new Set(
+      opts.missionReadPathScope
+        .map(normalizeMissionScopedReadPath)
+        .filter((value): value is string => Boolean(value)),
+    );
+    if (!missionScope.has(requestedPath)) {
+      return failBeforeExecution(
+        "The requested source path is outside the server-approved Mission read scope.",
+      );
+    }
   }
   const exactScope = new Set(
     (opts.allowedReadPaths ?? [])

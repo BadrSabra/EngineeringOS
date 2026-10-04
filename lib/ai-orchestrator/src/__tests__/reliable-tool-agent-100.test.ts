@@ -305,6 +305,7 @@ describe("canonical executor dispatcher boundary", () => {
       } as unknown as Parameters<typeof executeScopedReadTool>[0]["executionLedger"];
       const readPhases: string[] = [];
       const lifecyclePhases: string[] = [];
+      const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
       const manifestHash = hashProviderToolManifest(FILE_TOOL_DEFINITIONS);
       expect(manifestHash).toMatch(/^[a-f0-9]{64}$/u);
       const common = {
@@ -319,6 +320,7 @@ describe("canonical executor dispatcher boundary", () => {
           readPhases.push(event.phase);
         },
         onToolInvocation: async (event: ToolInvocationLifecycleEvent) => {
+          lifecycleEvents.push(event);
           lifecyclePhases.push(event.phase);
         },
         executionLedger,
@@ -342,6 +344,29 @@ describe("canonical executor dispatcher boundary", () => {
       expect(missingScope.kind).toBe("failed");
       expect(admit).not.toHaveBeenCalled();
 
+      const beforeTraversalAttempt = lifecycleEvents.length;
+      const traversalDenied = await executeScopedReadTool({
+        ...common,
+        args: { path: "../outside.ts" },
+        toolCallId: "6".repeat(64),
+        allowedReadPaths: ["src/index.ts"],
+      });
+      expect(traversalDenied.kind).toBe("failed");
+      expect(admit).not.toHaveBeenCalled();
+      const traversalEvents = lifecycleEvents.slice(beforeTraversalAttempt);
+      expect(traversalEvents.map((event) => event.phase)).toEqual([
+        "requested",
+        "failed",
+      ]);
+      expect(traversalEvents[0]).toMatchObject({
+        toolCallId: "6".repeat(64),
+        toolName: "read_file",
+        executionId: "scoped-read-test",
+        scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        manifestHash,
+      });
+      expect(JSON.stringify(traversalEvents)).not.toContain("../outside.ts");
+
       const missionDenied = await executeScopedReadTool({
         ...common,
         toolCallId: "4".repeat(64),
@@ -350,6 +375,7 @@ describe("canonical executor dispatcher boundary", () => {
       });
       expect(missionDenied.kind).toBe("failed");
       expect(readPhases).toEqual([]);
+      expect(admit).not.toHaveBeenCalled();
 
       const cancelledController = new AbortController();
       cancelledController.abort();
@@ -369,10 +395,12 @@ describe("canonical executor dispatcher boundary", () => {
       });
       expect(result.kind).toBe("ok");
       if (result.kind === "ok") expect(result.output).toContain("answer = 42");
-      expect(admit).toHaveBeenCalledTimes(2);
-      expect(complete).toHaveBeenCalledTimes(2);
+      expect(admit).toHaveBeenCalledTimes(1);
+      expect(complete).toHaveBeenCalledTimes(1);
       expect(readPhases).toEqual(["requested", "recorded"]);
       expect(lifecyclePhases).toEqual([
+        "requested",
+        "failed",
         "requested",
         "failed",
         "requested",
