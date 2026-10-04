@@ -19,6 +19,7 @@
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI tests fail closed; chat history tests isolate ledger persistence without weakening lease checks.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
+- [Analysis deadline race](analysis-deadline-race.md) — timeout-triggered abort can win as cancellation; classify expiry from a timer-owned flag.
 - [Reliable Tool Agent scope](reliable-tool-agent-scope.md) — preserve delegation/approval boundaries; durably terminalize bound attempts denied before start, not just console-log them.
 - [Tool I/O resource bounds](tool-input-resource-bounds.md) — preserve grep semantics, cap provider inputs, and fail closed on oversized serialized outputs before proof.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.

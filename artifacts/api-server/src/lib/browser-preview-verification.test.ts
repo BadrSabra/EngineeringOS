@@ -26,7 +26,12 @@ function processFactory(options?: { fail?: boolean; child?: ChildProcess }) {
   }));
 }
 
-function browserFactory(options?: { consoleError?: boolean; externalUrl?: boolean }): PreviewBrowser {
+function browserFactory(options?: {
+  consoleError?: boolean;
+  consoleErrorCount?: number;
+  consoleErrorText?: string;
+  externalUrl?: boolean;
+}): PreviewBrowser {
   const page: PreviewPage = {
     goto: async () => undefined,
     url: () => options?.externalUrl ? "https://attacker.example/" : "http://127.0.0.1:4312/",
@@ -37,7 +42,13 @@ function browserFactory(options?: { consoleError?: boolean; externalUrl?: boolea
     screenshot: async () => Buffer.from("png"),
     close: vi.fn(async () => undefined),
     onConsole: (listener) => {
-      if (options?.consoleError) listener({ type: () => "error", text: () => "secret=do-not-persist" });
+      const count = options?.consoleErrorCount ?? (options?.consoleError ? 1 : 0);
+      for (let index = 0; index < count; index += 1) {
+        listener({
+          type: () => "error",
+          text: () => options?.consoleErrorText ?? "secret=do-not-persist",
+        });
+      }
     },
   };
   return { newPage: async () => page, close: vi.fn(async () => undefined) };
@@ -130,6 +141,23 @@ describe("browser preview verification", () => {
     });
     expect(consoleFailure.status).toBe("failed");
     expect(consoleFailure.consoleErrors.join(" ")).not.toContain("secret=do-not-persist");
+
+    const boundedConsoleFailure = await verifyBrowserPreview({
+      session,
+      operationId: "op",
+      executionId: "exec",
+      steps: [],
+      browser: browserFactory({
+        consoleErrorCount: PREVIEW_LIMITS.maxConsoleMessages + 10,
+        consoleErrorText: `secret=do-not-persist ${"x".repeat(2_000)}`,
+      }),
+    });
+    expect(boundedConsoleFailure.consoleErrors).toHaveLength(PREVIEW_LIMITS.maxConsoleMessages);
+    expect(boundedConsoleFailure.consoleErrors.every((message) => message.length <= 500)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(boundedConsoleFailure.consoleErrors), "utf8"))
+      .toBeLessThan(26_000);
+    expect(boundedConsoleFailure.consoleErrors.join(" "))
+      .not.toContain("secret=do-not-persist");
   });
 
   it("rejects a contract whose revision or origin is not server-approved", async () => {

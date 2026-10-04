@@ -895,6 +895,24 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
       maxBytes: 24_000,
       surface: "serialized_result",
     });
+    expect(TOOL_OPERATIONAL_METADATA.write_file.outputBound).toMatchObject({
+      kind: "fixed_bytes",
+      maxBytes: 16_384,
+      surface: "tool_body",
+    });
+    expect(TOOL_OPERATIONAL_METADATA.replace_text.outputBound).toMatchObject({
+      kind: "fixed_bytes",
+      maxBytes: 16_384,
+      surface: "tool_body",
+    });
+    expect(TOOL_OPERATIONAL_METADATA.run_validation.outputBound).toMatchObject({
+      kind: "unspecified",
+      reason: expect.stringContaining("2,000,000 bytes"),
+    });
+    expect(TOOL_OPERATIONAL_METADATA.run_browser_validation.outputBound).toMatchObject({
+      kind: "unspecified",
+      reason: expect.stringContaining("profile-derived evidence fields"),
+    });
     expect(TOOL_OPERATIONAL_METADATA.refresh_project_scan.replay.durableRecovery)
       .toBe("block_after_prior_marker");
 
@@ -930,6 +948,10 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
           "committed",
         ]);
         expect(call.pendingChanges.length, name).toBeGreaterThan(0);
+        expect(Buffer.byteLength(visibleOutput(result), "utf8"), name)
+          .toBeLessThanOrEqual(16_384);
+        const proposedContent = name === "write_file" ? args.content : args.new_text;
+        expect(visibleOutput(result), name).not.toContain(proposedContent);
       }
       if (before !== undefined) {
         expect(await readFile(path.join(fixtureRoot, "src", "index.ts"), "utf8")).toBe(before);
@@ -1530,6 +1552,82 @@ describe("Reliable Tool Agent T8 adversarial acceptance matrix", () => {
         expect(result.failureKind, name).toBe("cancelled");
         expect(result.diagnosticCode, name).toBe("TOOL_CANCELLED");
       }
+      expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "cancelled",
+      ]);
+    },
+  );
+
+  const analysisToolCases = ANALYSIS_TOOL_DEFINITIONS.map(({ function: tool }) => tool.name);
+
+  it.each(analysisToolCases)(
+    "$name terminalizes a runner that ignores the shared request deadline",
+    async (name) => {
+      const deadlineAt = Date.now() + 30;
+      let enteredRunner!: () => void;
+      const runnerEntered = new Promise<void>((resolve) => {
+        enteredRunner = resolve;
+      });
+      let runnerSignal: AbortSignal | undefined;
+      const call = makeCall(name, SAFE_ARGS[name]!, {
+        analysisDeadlineAt: deadlineAt,
+        analysisToolRunner: async (_toolName, _args, signal, _correlation, receivedDeadlineAt) => {
+          runnerSignal = signal;
+          expect(receivedDeadlineAt).toBe(deadlineAt);
+          enteredRunner();
+          return new Promise<never>(() => {});
+        },
+      });
+
+      const pending = executeSingleTool(call.options);
+      await runnerEntered;
+      const result = await pending;
+
+      expect(result.kind, name).toBe("failed");
+      if (result.kind === "failed") {
+        expect(result.diagnosticCode, name).toBe("TOOL_EXECUTION_FAILED");
+        expect(result.safeMessage, name).toContain("request deadline");
+      }
+      expect(runnerSignal?.aborted, name).toBe(true);
+      expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
+        "requested",
+        "started",
+        "failed",
+      ]);
+    },
+  );
+
+  it.each(analysisToolCases)(
+    "$name releases dispatch when its runner ignores cancellation",
+    async (name) => {
+      const controller = new AbortController();
+      let enteredRunner!: () => void;
+      const runnerEntered = new Promise<void>((resolve) => {
+        enteredRunner = resolve;
+      });
+      let runnerSignal: AbortSignal | undefined;
+      const call = makeCall(name, SAFE_ARGS[name]!, {
+        signal: controller.signal,
+        analysisToolRunner: async (_toolName, _args, signal) => {
+          runnerSignal = signal;
+          enteredRunner();
+          return new Promise<never>(() => {});
+        },
+      });
+
+      const pending = executeSingleTool(call.options);
+      await runnerEntered;
+      controller.abort();
+      const result = await pending;
+
+      expect(result.kind, name).toBe("failed");
+      if (result.kind === "failed") {
+        expect(result.failureKind, name).toBe("cancelled");
+        expect(result.diagnosticCode, name).toBe("TOOL_CANCELLED");
+      }
+      expect(runnerSignal?.aborted, name).toBe(true);
       expect(call.lifecycleEvents.map((event) => event.phase), name).toEqual([
         "requested",
         "started",

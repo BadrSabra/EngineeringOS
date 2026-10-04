@@ -111,12 +111,124 @@ function safeStatusMessage(
   status: Exclude<AnalysisToolStatus, "complete">,
   failureCategory?: AnalysisFailureCategory,
 ): string {
+  if (failureCategory === "timeout") {
+    return `Analysis tool "${name}" exceeded its request deadline; the operation did not complete.`;
+  }
+  if (failureCategory === "cancellation") {
+    return `Analysis tool "${name}" was cancelled; the operation did not complete.`;
+  }
   if (failureCategory === "output_limit") {
     return `Analysis tool "${name}" exceeded the server output limit; the operation did not complete.`;
   }
   return status === "unavailable"
     ? `Analysis tool "${name}" was unavailable; the operation did not complete.`
     : `Analysis tool "${name}" failed; the operation did not complete.`;
+}
+
+type AnalysisRunnerOutcome =
+  | { kind: "result"; result: AnalysisToolResult }
+  | { kind: "error"; error: unknown }
+  | { kind: "cancelled" }
+  | { kind: "timeout" };
+
+async function runAnalysisRunnerWithinRequestBudget(
+  name: string,
+  args: Record<string, string>,
+  runner: AnalysisToolRunner,
+  signal: AbortSignal | undefined,
+  correlation: AnalysisCorrelation,
+  deadlineAt: number | undefined,
+): Promise<AnalysisToolResult> {
+  const cancelledResult: AnalysisToolResult = {
+    status: "unavailable",
+    output: safeStatusMessage(name, "unavailable", "cancellation"),
+    correlation,
+    failureCategory: "cancellation",
+  };
+  const timeoutResult: AnalysisToolResult = {
+    status: "failed",
+    output: safeStatusMessage(name, "failed", "timeout"),
+    correlation,
+    failureCategory: "timeout",
+  };
+
+  if (signal?.aborted) return cancelledResult;
+  if (deadlineAt !== undefined && (!Number.isFinite(deadlineAt) || Date.now() >= deadlineAt)) {
+    return timeoutResult;
+  }
+
+  const deadlineController = deadlineAt === undefined ? undefined : new AbortController();
+  const runnerSignal = deadlineController?.signal ?? signal;
+  const relayCallerAbort = (): void => deadlineController?.abort(signal?.reason);
+  if (deadlineController && signal) {
+    signal.addEventListener("abort", relayCallerAbort, { once: true });
+    if (signal.aborted) relayCallerAbort();
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let removeRunnerAbortListener: (() => void) | undefined;
+  let deadlineExpired = false;
+  try {
+    const runnerPromise: Promise<AnalysisRunnerOutcome> = Promise.resolve().then(async () => {
+      if (signal?.aborted) return { kind: "cancelled" };
+      if (deadlineAt !== undefined && Date.now() >= deadlineAt) return { kind: "timeout" };
+      try {
+        // Do not let runner code mutate the request-owned correlation envelope.
+        const runnerCorrelation = { ...correlation };
+        return {
+          kind: "result",
+          result: await runner(name, args, runnerSignal, runnerCorrelation, deadlineAt),
+        };
+      } catch (error) {
+        return { kind: "error", error };
+      }
+    });
+
+    const cancellationPromise: Promise<AnalysisRunnerOutcome> | undefined = runnerSignal
+      ? new Promise((resolve) => {
+          const onAbort = (): void => resolve({ kind: "cancelled" });
+          runnerSignal.addEventListener("abort", onAbort, { once: true });
+          removeRunnerAbortListener = () => runnerSignal.removeEventListener("abort", onAbort);
+          if (runnerSignal.aborted) onAbort();
+        })
+      : undefined;
+    const timeoutPromise: Promise<AnalysisRunnerOutcome> | undefined = deadlineAt !== undefined
+      ? new Promise((resolve) => {
+          timeoutHandle = setTimeout(() => {
+            deadlineExpired = true;
+            deadlineController?.abort(new Error("Analysis request deadline exceeded."));
+            resolve({ kind: "timeout" });
+          }, Math.max(0, deadlineAt - Date.now()));
+        })
+      : undefined;
+
+    const contenders: Promise<AnalysisRunnerOutcome>[] = [runnerPromise];
+    if (cancellationPromise) contenders.push(cancellationPromise);
+    if (timeoutPromise) contenders.push(timeoutPromise);
+    const outcome = await Promise.race(contenders);
+
+    if (signal?.aborted) {
+      deadlineController?.abort(signal.reason);
+      return cancelledResult;
+    }
+    if (
+      deadlineExpired
+      || outcome.kind === "timeout"
+      || (deadlineAt !== undefined && Date.now() >= deadlineAt)
+    ) {
+      deadlineController?.abort(new Error("Analysis request deadline exceeded."));
+      return timeoutResult;
+    }
+    if (outcome.kind === "cancelled") return cancelledResult;
+    if (outcome.kind === "error") throw outcome.error;
+    return outcome.result;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    removeRunnerAbortListener?.();
+    if (deadlineController && signal) {
+      signal.removeEventListener("abort", relayCallerAbort);
+    }
+  }
 }
 
 export async function executeAnalysisTool(
@@ -168,9 +280,14 @@ export async function executeAnalysisTool(
         output: "Analysis correlation is unavailable for this project turn; do not present its result as completed evidence.",
       };
     }
-    // Do not let an implementation mutate the request-owned envelope.
-    const runnerCorrelation = { ...correlation };
-    let result = await runner(name, args, signal, runnerCorrelation, deadlineAt);
+    let result = await runAnalysisRunnerWithinRequestBudget(
+      name,
+      args,
+      runner,
+      signal,
+      correlation,
+      deadlineAt,
+    );
     if (result.status !== "complete") {
       console.error(JSON.stringify({
         scope: "analysis-tools",

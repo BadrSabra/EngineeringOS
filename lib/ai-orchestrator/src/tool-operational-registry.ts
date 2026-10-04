@@ -184,8 +184,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "approved_write_path",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "The proposed-change receipt has no independent byte cap; input content is separately capped at 128,000 bytes.",
+      kind: "fixed_bytes",
+      maxBytes: 16_384,
+      surface: "tool_body",
+      notes: "The receipt contains bounded path/reason metadata, never proposed file contents; the dispatcher enforces this body limit.",
     },
     cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: BLOCKED_ACTION_REPLAY,
@@ -196,8 +198,10 @@ export const TOOL_OPERATIONAL_METADATA = {
     scope: "approved_write_path",
     missionPathScope: "not_applicable",
     outputBound: {
-      kind: "unspecified",
-      reason: "The proposed-change receipt has no independent byte cap; input fragments and source reads have separate limits.",
+      kind: "fixed_bytes",
+      maxBytes: 16_384,
+      surface: "tool_body",
+      notes: "The receipt contains bounded path metadata, never proposed file contents; the dispatcher enforces this body limit.",
     },
     cancellation: COOPERATIVE_NO_TIMEOUT,
     replay: BLOCKED_ACTION_REPLAY,
@@ -312,7 +316,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      reason: "Registered profiles cap captured command output at 2,000,000 bytes and bound returned strings/counts; the dispatcher rejects serialized results over 1,000,000 bytes, but there is no single pre-serialization result byte cap.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -330,7 +334,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     missionPathScope: "not_applicable",
     outputBound: {
       kind: "unspecified",
-      reason: "Output size is runner-owned, and the dispatcher rejects serialized results over 1,000,000 bytes.",
+      reason: "Preview limits bound steps, summaries, console count/text, and screenshots; profile-derived evidence fields have no single pre-serialization byte cap, and the dispatcher rejects serialized results over 1,000,000 bytes.",
     },
     cancellation: {
       signal: "runner_delegated",
@@ -374,7 +378,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     },
     cancellation: {
       signal: "runner_delegated",
-      timeout: { kind: "request_deadline", source: "analysisDeadlineAt; enforcement is delegated to the analysis runner" },
+      timeout: { kind: "request_deadline", source: "analysisDeadlineAt is enforced by dispatch and passed to the runner; runner must honor abort to stop work" },
     },
     replay: BLOCKED_ACTION_REPLAY,
   },
@@ -391,7 +395,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     },
     cancellation: {
       signal: "runner_delegated",
-      timeout: { kind: "request_deadline", source: "analysisDeadlineAt; enforcement is delegated to the analysis runner" },
+      timeout: { kind: "request_deadline", source: "analysisDeadlineAt is enforced by dispatch and passed to the runner; runner must honor abort to stop work" },
     },
     replay: CONTEXTUAL_READ_REPLAY,
   },
@@ -408,7 +412,7 @@ export const TOOL_OPERATIONAL_METADATA = {
     },
     cancellation: {
       signal: "runner_delegated",
-      timeout: { kind: "request_deadline", source: "analysisDeadlineAt; enforcement is delegated to the analysis runner" },
+      timeout: { kind: "request_deadline", source: "analysisDeadlineAt is enforced by dispatch and passed to the runner; runner must honor abort to stop work" },
     },
     replay: CONTEXTUAL_READ_REPLAY,
   },
