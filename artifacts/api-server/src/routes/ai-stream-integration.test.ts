@@ -25,7 +25,7 @@ import path from "node:path";
 import * as ts from "typescript";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import app from "../app.js";
 import {
   db,
@@ -8576,7 +8576,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   }, 60_000);
 
   it.runIf(process.env.RUN_E2_API_PROCESS_RESTART === "1")(
-    "recovers accepted analysis and keeps W0-W4 Apply crashes unaccepted after API restart",
+    "recovers accepted analysis and proves W0-W4 startup plus W5-W8 Apply-route crash boundaries",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -8884,7 +8884,26 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         '  if (!address || typeof address === "string") throw new Error("Port reservation has no TCP address.");',
         "  await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));",
         "  process.env.PORT = String(address.port);",
-        '  await import("./src/index.ts");',
+        "  if (process.env.E2_HOLD_APPLY_RESPONSE === '1') {",
+        '    const { createRequire } = await import("node:module");',
+        '    const require = createRequire(process.cwd() + "/package.json");',
+        '    const response = require("express/lib/response");',
+        "    const originalJson = response.json;",
+        "    response.json = function(body) {",
+        "      const responsePath = this.req?.originalUrl ?? this.req?.path ?? '';",
+        "      if (responsePath.includes('/apply-changes') && this.statusCode === 200) {",
+        '        process.stdout.write("E2_APPLY_RESPONSE_TERMINALIZED\\n");',
+        "        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
+        "      }",
+        "      return originalJson.call(this, body);",
+        "    };",
+        "  }",
+        "  if (process.env.E2_APP_ONLY === '1') {",
+        '    const { default: app } = await import("./src/app.ts");',
+        '    app.listen(address.port, "127.0.0.1");',
+        "  } else {",
+        '    await import("./src/index.ts");',
+        "  }",
         "  const startupDeadline = Date.now() + 45000;",
         "  let ready = false;",
         "  while (!ready && Date.now() < startupDeadline) {",
@@ -8915,7 +8934,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         child: ChildProcess;
         exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
       }> = [];
-      const startApiProcess = async () => {
+      const startApiProcess = async (extraEnv: Record<string, string> = {}) => {
         const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
           cwd: process.cwd(),
           env: {
@@ -8925,6 +8944,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
             AI_PROVIDER_EGRESS_DISABLED: "1",
             RUN_CONTROLLED_RELEASE_VALIDATION: "1",
             DASHBOARD_E2E_TEST_MODE: "fixture",
+            PGAPPNAME: "e2-apply-route",
+            ...extraEnv,
           },
           stdio: ["pipe", "pipe", "pipe"],
         });
@@ -8994,7 +9015,266 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
             `completeAiExecution returned false; stderr=${childDiagnostics}; stdout=${childOutput}`,
           ).toBe("true");
         };
-        return { child, port, exit, commit };
+        return { child, port, exit, commit, waitForMarker };
+      };
+
+      const createApplyRouteFixture = async (phase: "W5" | "W6" | "W7" | "W8") => {
+        const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+        const projectParent = await fs.mkdtemp(
+          `${workspacePath}/.apply-route-${phase.toLowerCase()}-`,
+        );
+        rootPaths.push(projectParent);
+        const rootPath = path.join(projectParent, "project");
+        const targetPath = `src/${phase.toLowerCase()}-route.ts`;
+        const originalContent = `export const ${phase.toLowerCase()}Route = false;\n`;
+        const newContent = `export const ${phase.toLowerCase()}Route = true;\n`;
+        await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+        await fs.writeFile(path.join(rootPath, "package.json"), JSON.stringify({
+          name: `e2-${phase.toLowerCase()}-route-fixture`,
+          scripts: {
+            typecheck: "node -e \"process.stdout.write('fixture typecheck passed')\"",
+          },
+        }), "utf8");
+        await fs.writeFile(path.join(rootPath, targetPath), originalContent, "utf8");
+
+        const projectId = await insertProject(rootPath);
+        projectIds.push(projectId);
+        const sessionId = await insertChatSession(projectId, `${phase} Apply route crash`);
+        const proposalId = randomUUID();
+        const messageId = randomUUID();
+        const operationId = randomUUID();
+        const baseRevision = `test-revision-${randomUUID()}`;
+        const change = {
+          path: targetPath,
+          absolutePath: path.join(rootPath, targetPath),
+          originalContent,
+          baseHash: hashPatchBase(originalContent),
+          newContent,
+          reason: `Exercise the real Apply route at ${phase}.`,
+          validationProfile: "workspace-typecheck" as const,
+        };
+        const deliveryWorkspace = await createDeliveryWorkspace({
+          rootPath,
+          operationId,
+          baseRevision,
+          changes: [{ path: targetPath, newContent }],
+        });
+        rootPaths.push(deliveryWorkspace.workspaceRoot);
+        await db.insert(aiChatMessagesTable).values({
+          id: messageId,
+          sessionId,
+          role: "assistant",
+          content: `Prepared ${phase} Apply route fixture`,
+          createdAt: new Date(),
+        });
+        await db.insert(aiChangeProposalsTable).values({
+          id: proposalId,
+          projectId,
+          sessionId,
+          messageId,
+          changes: JSON.stringify([change]),
+          status: "pending",
+          lifecycle: "validated",
+          operationId,
+          workspaceRoot: deliveryWorkspace.workspaceRoot,
+          baseRevision: deliveryWorkspace.baseRevision,
+          changeSetHash: deliveryWorkspace.changeSetHash,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          createdAt: new Date(),
+        });
+        return {
+          phase,
+          projectId,
+          rootPath,
+          targetPath,
+          originalContent,
+          newContent,
+          change,
+          proposalId,
+        };
+      };
+
+      const acquireShareLock = async (
+        tableName: "ai_agent_effect_bundles" | "ai_execution_acceptances" | "ai_executions",
+      ) => {
+        let signalLockAcquired!: () => void;
+        let releaseLock!: () => void;
+        const lockAcquired = new Promise<void>((resolve) => {
+          signalLockAcquired = resolve;
+        });
+        const releaseGate = new Promise<void>((resolve) => {
+          releaseLock = resolve;
+        });
+        const transaction = db.transaction(async (tx) => {
+          await tx.execute(sql.raw(`LOCK TABLE "${tableName}" IN SHARE MODE`));
+          signalLockAcquired();
+          await releaseGate;
+        });
+        await lockAcquired;
+        let released = false;
+        return async () => {
+          if (released) return;
+          released = true;
+          releaseLock();
+          await transaction;
+        };
+      };
+
+      const waitForBlockedStatement = async (queryFragment: string) => {
+        const deadline = Date.now() + 60_000;
+        let lastRows: Array<{ application_name: string; wait_event_type: string | null; query: string }> = [];
+        while (Date.now() < deadline) {
+          const result = await db.execute(sql`
+            SELECT application_name, wait_event_type, query
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = 'e2-apply-route'
+              AND state = 'active'
+              AND wait_event_type = 'Lock'
+              AND lower(query) LIKE ${`%${queryFragment.toLowerCase()}%`}
+          `);
+          lastRows = (result as unknown as {
+            rows: Array<{ application_name: string; wait_event_type: string | null; query: string }>;
+          }).rows ?? [];
+          if (lastRows.length > 0) return lastRows[0]!;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        throw new Error(
+          `Timed out waiting for the real Apply route to block on ${queryFragment}; `
+          + `last pg_stat_activity rows=${JSON.stringify(lastRows)}`,
+        );
+      };
+
+      const sendApplyRouteRequest = (port: number, fixture: Awaited<ReturnType<typeof createApplyRouteFixture>>) =>
+        fetch(`http://127.0.0.1:${port}/api/ai/chat/apply-changes`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: fixture.projectId,
+            proposalId: fixture.proposalId,
+            changes: [fixture.change],
+          }),
+        });
+
+      const interruptedApplyBoundaries: Array<{
+        phase: "W5" | "W6" | "W7";
+        fixture: Awaited<ReturnType<typeof createApplyRouteFixture>>;
+        executionId: string;
+        attempt: number;
+      }> = [];
+
+      const runBlockedApplyBoundary = async (
+        phase: "W5" | "W6" | "W7",
+        tableName: "ai_agent_effect_bundles" | "ai_execution_acceptances" | "ai_executions",
+        queryFragment: string,
+      ) => {
+        const fixture = await createApplyRouteFixture(phase);
+        let releaseLock: (() => Promise<void>) | undefined;
+        let api: Awaited<ReturnType<typeof startApiProcess>> | undefined;
+        let pendingRequest: Promise<unknown> | undefined;
+        try {
+          api = await startApiProcess({ E2_APP_ONLY: "1" });
+          const firstTableName = phase === "W7" ? "ai_execution_acceptances" : tableName;
+          const firstQueryFragment = phase === "W7" ? "ai_execution_acceptances" : queryFragment;
+          releaseLock = await acquireShareLock(firstTableName);
+          pendingRequest = sendApplyRouteRequest(api.port, fixture)
+            .then(async (response) => ({ status: response.status, body: await response.json() }))
+            .catch((error) => ({ error: String(error) }));
+          await waitForBlockedStatement(firstQueryFragment);
+          if (phase === "W7") {
+            const releaseTerminalLock = await acquireShareLock("ai_executions");
+            await releaseLock();
+            releaseLock = releaseTerminalLock;
+            await waitForBlockedStatement(queryFragment);
+          }
+
+          const [executionBeforeKill] = await db.select({
+            id: aiExecutionsTable.id,
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          }).from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.proposalId, fixture.proposalId))
+            .limit(1);
+          expect(executionBeforeKill).toMatchObject({ status: "running" });
+          expect(await fs.readFile(path.join(fixture.rootPath, fixture.targetPath), "utf8"))
+            .toBe(fixture.newContent);
+
+          const observations = await db.select({
+            sourceId: aiAgentObservationsTable.sourceId,
+          }).from(aiAgentObservationsTable)
+            .where(eq(aiAgentObservationsTable.executionId, executionBeforeKill!.id));
+          expect(observations.some(({ sourceId }) => sourceId.includes(":before:")))
+            .toBe(true);
+          expect(observations.some(({ sourceId }) => sourceId.includes(":after:")))
+            .toBe(true);
+
+          if (phase === "W5") {
+            expect(await db.select({ id: aiAgentEffectsTable.id })
+              .from(aiAgentEffectsTable)
+              .where(eq(aiAgentEffectsTable.executionId, executionBeforeKill!.id))).toEqual([]);
+            expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+              .from(aiAgentEffectBundlesTable)
+              .where(eq(aiAgentEffectBundlesTable.executionId, executionBeforeKill!.id))).toEqual([]);
+            expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+              .where(and(
+                eq(eventsTable.projectId, fixture.projectId),
+                eq(eventsTable.type, "AiChangesApplied"),
+              ))).toEqual([]);
+          } else {
+            expect(await db.select({ id: aiAgentEffectsTable.id })
+              .from(aiAgentEffectsTable)
+              .where(eq(aiAgentEffectsTable.executionId, executionBeforeKill!.id))).toHaveLength(1);
+            expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+              .from(aiAgentEffectBundlesTable)
+              .where(eq(aiAgentEffectBundlesTable.executionId, executionBeforeKill!.id))).toHaveLength(1);
+            const [proposalBeforeKill] = await db.select({
+              status: aiChangeProposalsTable.status,
+              lifecycle: aiChangeProposalsTable.lifecycle,
+            }).from(aiChangeProposalsTable)
+              .where(eq(aiChangeProposalsTable.id, fixture.proposalId))
+              .limit(1);
+            expect(proposalBeforeKill).toEqual({ status: "applied", lifecycle: "blocked" });
+            expect(await db.select({ id: aiExecutionAcceptancesTable.id })
+              .from(aiExecutionAcceptancesTable)
+              .where(and(
+                eq(aiExecutionAcceptancesTable.executionId, executionBeforeKill!.id),
+                eq(aiExecutionAcceptancesTable.attempt, executionBeforeKill!.attempt),
+              ))).toEqual([]);
+          }
+          expect(await db.select({ id: aiWorldTransitionsTable.id })
+            .from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.executionId, executionBeforeKill!.id))).toEqual([]);
+
+          expect(api.child.kill("SIGKILL")).toBe(true);
+          expect(await api.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+          await pendingRequest;
+        } finally {
+          if (api && api.child.exitCode === null && api.child.signalCode === null) {
+            api.child.kill("SIGKILL");
+            await api.exit;
+          }
+          await releaseLock?.();
+        }
+
+        const [interruptedExecution] = await db.select({
+          id: aiExecutionsTable.id,
+          attempt: aiExecutionsTable.attempt,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.proposalId, fixture.proposalId))
+          .limit(1);
+        expect(interruptedExecution).toBeDefined();
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+          .where(eq(aiExecutionsTable.id, interruptedExecution!.id));
+
+        interruptedApplyBoundaries.push({
+          phase,
+          fixture,
+          executionId: interruptedExecution!.id,
+          attempt: interruptedExecution!.attempt,
+        });
       };
 
       const crashAfterMarker = async (
@@ -9498,6 +9778,122 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         ]));
         expect(restartedApi.child.kill("SIGKILL")).toBe(true);
         await restartedApi.exit;
+
+        await runBlockedApplyBoundary("W5", "ai_agent_effect_bundles", "ai_agent_effect_bundles");
+        await runBlockedApplyBoundary("W6", "ai_execution_acceptances", "ai_execution_acceptances");
+        await runBlockedApplyBoundary("W7", "ai_executions", "update \"ai_executions\"");
+
+        const w8 = await createApplyRouteFixture("W8");
+        const responseGatedApi = await startApiProcess({
+          E2_APP_ONLY: "1",
+          E2_HOLD_APPLY_RESPONSE: "1",
+        });
+        const responsePending = sendApplyRouteRequest(responseGatedApi.port, w8)
+          .then(async (response) => ({ status: response.status, body: await response.json() }))
+          .catch((error) => ({ error: String(error) }));
+        await responseGatedApi.waitForMarker(
+          /(?:^|\r?\n)E2_APPLY_RESPONSE_TERMINALIZED\r?\n/,
+          "terminalized Apply response boundary",
+        );
+        const [w8Execution] = await db.select({
+          id: aiExecutionsTable.id,
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.proposalId, w8.proposalId))
+          .limit(1);
+        expect(w8Execution).toMatchObject({ status: "completed" });
+        const [w8Acceptance] = await db.select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          attempt: aiExecutionAcceptancesTable.attempt,
+        }).from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, w8Execution!.id))
+          .limit(1);
+        expect(w8Acceptance).toMatchObject({
+          attempt: w8Execution!.attempt,
+          outcome: "SUCCEEDED",
+        });
+        expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+          .from(aiAgentEffectBundlesTable)
+          .where(eq(aiAgentEffectBundlesTable.executionId, w8Execution!.id))).toHaveLength(1);
+        expect(await db.select({ id: eventsTable.id, severity: eventsTable.severity })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, w8.projectId),
+            eq(eventsTable.type, "AiChangesApplied"),
+          ))).toEqual([{ id: expect.any(String), severity: "success" }]);
+        expect(await db.select({ id: aiWorldTransitionsTable.id })
+          .from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.executionId, w8Execution!.id))).toEqual([]);
+        expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, w8.projectId),
+            eq(eventsTable.type, "AiGoalDispatchRequested"),
+          ))).toEqual([]);
+
+        expect(responseGatedApi.child.kill("SIGKILL")).toBe(true);
+        expect(await responseGatedApi.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+        await responsePending;
+
+        const recoveryApi = await startApiProcess();
+        try {
+          for (const boundary of interruptedApplyBoundaries) {
+            const [recoveredExecution] = await db.select({
+              status: aiExecutionsTable.status,
+              attempt: aiExecutionsTable.attempt,
+            }).from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, boundary.executionId))
+              .limit(1);
+            expect(recoveredExecution?.status).not.toBe("completed");
+            const recoveredAcceptances = await db.select({
+              attempt: aiExecutionAcceptancesTable.attempt,
+              outcome: aiExecutionAcceptancesTable.outcome,
+            }).from(aiExecutionAcceptancesTable)
+              .where(eq(aiExecutionAcceptancesTable.executionId, boundary.executionId));
+            expect(recoveredAcceptances.some(({ outcome }) => outcome === "SUCCEEDED")).toBe(false);
+            const recoveryJournal = await db.select({ stage: aiApplyJournalTable.stage })
+              .from(aiApplyJournalTable)
+              .where(eq(aiApplyJournalTable.proposalId, boundary.fixture.proposalId))
+              .orderBy(aiApplyJournalTable.sequence);
+            expect(recoveryJournal.map(({ stage }) => stage)).toContain("RECOVERY_REQUIRED");
+            expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+              .where(and(
+                eq(eventsTable.projectId, boundary.fixture.projectId),
+                eq(eventsTable.type, "AiGoalDispatchRequested"),
+              ))).toEqual([]);
+          }
+
+          const replay = await sendApplyRouteRequest(recoveryApi.port, w8);
+          expect(replay.status).toBe(200);
+          await replay.json();
+          expect(await db.select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.proposalId, w8.proposalId))).toHaveLength(1);
+          expect(await db.select({ id: aiExecutionAcceptancesTable.id })
+            .from(aiExecutionAcceptancesTable)
+            .where(and(
+              eq(aiExecutionAcceptancesTable.executionId, w8Execution!.id),
+              eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+            ))).toHaveLength(1);
+          expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+            .from(aiAgentEffectBundlesTable)
+            .where(eq(aiAgentEffectBundlesTable.executionId, w8Execution!.id))).toHaveLength(1);
+          expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+            .where(and(
+              eq(eventsTable.projectId, w8.projectId),
+              eq(eventsTable.type, "AiChangesApplied"),
+            ))).toHaveLength(1);
+          expect(await db.select({ id: eventsTable.id }).from(eventsTable)
+            .where(and(
+              eq(eventsTable.projectId, w8.projectId),
+              eq(eventsTable.type, "AiGoalDispatchRequested"),
+            ))).toEqual([]);
+        } finally {
+          if (recoveryApi.child.exitCode === null && recoveryApi.child.signalCode === null) {
+            recoveryApi.child.kill("SIGKILL");
+          }
+          await recoveryApi.exit;
+        }
       } finally {
         for (const { child, exit } of apiChildren) {
           if (child.exitCode === null && child.signalCode === null) {
@@ -9507,7 +9903,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         }
       }
     },
-    180_000,
+    300_000,
   );
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {

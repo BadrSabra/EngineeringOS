@@ -4429,6 +4429,17 @@ G9 Revocation Safety
 - **remaining/blocker:** W1-intent/W2/W3/W4 child harnesses لا تقتل HTTP Apply route نفسه؛ W5–W8 لا تزال DB-seeded fixtures فقط. W6 effect/bundle transaction ذرية، لكن crash بعد after-observation وقبل بدء المعاملة غير محقون. بقية الأسطح وWorld Transition/dispatch غير محصورة؛ جرد الأسطح bounded لا exhaustive، وworkflow recovery والسطوح الخارجية مفتوحة. W9 response-loss دليل منفصل.
 - **next step:** إثبات W4–W8 داخل route حيث يمكن، واستكمال جرد كل mutation surface وربط الأثر بالقبول وWorld Transition/dispatch؛ لا يبدأ E3 قبل اجتياز بوابة E2 صراحة.
 
+### 2026-10-05 — E2 Apply-route W5–W8 and effect-to-dispatch matrix
+
+- **phase/step:** E2 / Apply route crash windows and mutation-surface matrix
+- **status:** `partial — Apply-route W5–W8 cases pass; E2 remains open`
+- **what changed:** أُثبتت حالات HTTP route محلية W5–W7 بقتل child عند effect-bundle insert، وacceptance insert بعد دوام effect/bundle، وterminal execution update. بعد جمع الحالات شغّل الاختبار `src/index.ts` الحقيقي للمصالحة؛ الحالات الثلاث انتهت بلا `SUCCEEDED` أو World Transition أو `AiGoalDispatchRequested`، وسجلت `RECOVERY_REQUIRED`. W7 acceptance insert والـterminal update في transaction واحدة؛ لذلك يزيل `SIGKILL` القبول غير الملتزم ولا توجد acceptance durable قبل terminal state. حالة route W8 قتلت العملية بعد commit وقبل `res.json` ثم أعادت الطلب المطابق بعد startup دون تكرار execution أو acceptance أو EffectBundle أو event. اكتمل جدول bounded للأسطح مع أعمدة صريحة للأثر والملاحظة والقبول وWorld Transition والـsuccessor dispatch؛ اختبار D2 المنفصل هو الدليل الإيجابي على dispatch بعد Mission-linked Apply مقبول. أسماء حالات route W5–W8 محلية ولا تعيد ترقيم نوافذ W0–W9 العامة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai-stream-integration.test.ts`; `docs/agent-core-forensic-status-report.md`; this progress report. No schema or production-authority changes.
+- **validation:** focused process-restart test — 1/1 (111 skipped) on a disposable PostgreSQL database bound to loopback with provider egress disabled; API typecheck and `git diff --check` passed.
+- **authority/safety impact:** W5–W7 remain fail-closed through startup recovery; W8 exact replay is idempotent. The unlinked route fixture creates no World Transition or Goal dispatch; Mission-linked dispatch remains separately tested. No new execution primitive or approval authority was added.
+- **remaining/blocker:** E2 is not closed. The matrix is a bounded known-surface inventory, not proof of completeness; the observation-to-effect-transaction gap and crash/recovery parity for task, workflow, Mission repair, runtime, Git, and external surfaces remain open. W1-intent/W2/W3/W4 are still child-state crashes rather than HTTP Apply-route crashes.
+- **next step:** Continue E2 only: close remaining mutation-surface and crash/recovery gaps, then require an explicit E2 pass before starting E3.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
