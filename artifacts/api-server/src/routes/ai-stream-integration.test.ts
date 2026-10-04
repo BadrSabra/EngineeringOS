@@ -35,6 +35,7 @@ import {
   aiChangeProposalsTable,
   aiExecutionsTable,
   aiAgentEpisodesTable,
+  aiAgentEpisodeEventsTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionEvidenceReadsTable,
@@ -6376,6 +6377,155 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       evidenceRequired: 0,
       evidenceSnapshotId: null,
     });
+  });
+
+  it("release-smoke-tool-lifecycle-episode-binding: persists tool phases on the bound Episode", async () => {
+    // The test route uses requireAuth's synthetic NODE_ENV=test identity and a
+    // provider-free callback fixture. It verifies route-to-ledger binding, not
+    // Clerk authentication or model-side tool selection.
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const toolCallId = `e1-tool-call-${randomUUID()}`;
+    const toolLoopExecutionId = `e1-tool-loop-${randomUUID()}`;
+    const toolName = "read_file";
+    const inputHash = createHash("sha256").update(JSON.stringify({
+      path: "src/verified.ts",
+    })).digest("hex");
+    const manifestHash = createHash("sha256").update(`manifest:${projectId}`).digest("hex");
+    const scopeHash = createHash("sha256").update(JSON.stringify({
+      projectId,
+      turnIntent: "PROJECT_QUERY",
+    })).digest("hex");
+    const outputHash = createHash("sha256").update("export const verified = true;\n").digest("hex");
+    let callbacks = 0;
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as {
+        onToolInvocation?: (event: {
+          phase: "requested" | "started" | "completed";
+          toolCallId: string;
+          executionId: string;
+          scopeHash: string;
+          toolName: string;
+          inputHash: string;
+          manifestHash: string;
+          outputHash?: string;
+        }) => void | Promise<void>;
+      };
+      expect(input.onToolInvocation).toEqual(expect.any(Function));
+      const onToolInvocation = input.onToolInvocation!;
+      const identity = {
+        toolCallId,
+        executionId: toolLoopExecutionId,
+        scopeHash,
+        toolName,
+        inputHash,
+        manifestHash,
+      };
+
+      for (const phase of ["requested", "started", "completed"] as const) {
+        await onToolInvocation({
+          ...identity,
+          phase,
+          ...(phase === "completed" ? { outputHash } : {}),
+        });
+        callbacks += 1;
+      }
+
+      args[3]?.("Verified tool result");
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 1,
+        toolCalls: 1,
+        prefetchToolCalls: 0,
+        loopToolCalls: 1,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: "The project query completed.",
+          sources: ["src/verified.ts"],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "ما اسم المشروع" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const done = events.find((event) => event.type === "done");
+    const executionId = (done?.message as { executionId?: string } | undefined)?.executionId;
+    expect(executionId).toEqual(expect.any(String));
+    expect(callbacks).toBe(3);
+
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId!))
+      .limit(1);
+    expect(execution).toMatchObject({ id: executionId, projectId });
+
+    const [episode] = await db
+      .select()
+      .from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, executionId!))
+      .limit(1);
+    expect(episode).toMatchObject({
+      projectId,
+      executionId,
+      attempt: execution!.attempt,
+      workerId: expect.any(String),
+      projectRevision: expect.any(String),
+      intentKind: "CHAT_TURN",
+      scope: { kind: "chat", turnIntent: "PROJECT_QUERY" },
+    });
+
+    const episodeEvents = await db
+      .select()
+      .from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.executionId, executionId!));
+    const toolEvents = episodeEvents
+      .filter((event) => event.eventType === "TOOL_INVOCATION_RECORDED")
+      .sort((left, right) => left.sequence - right.sequence);
+    expect(toolEvents).toHaveLength(3);
+    expect(toolEvents.map((event) =>
+      (event.payload as Record<string, unknown>).phase,
+    )).toEqual(["requested", "started", "completed"]);
+
+    const payloads = toolEvents.map((event) =>
+      event.payload as Record<string, unknown>,
+    );
+    expect(new Set(payloads.map((payload) => payload.invocationId)).size).toBe(1);
+    for (const [index, event] of toolEvents.entries()) {
+      expect(event).toMatchObject({
+        episodeId: episode!.id,
+        projectId,
+        executionId,
+        attempt: execution!.attempt,
+        actorType: "worker",
+        actorId: episode!.workerId,
+        correlationId: execution!.operationId ?? execution!.id,
+      });
+      expect(payloads[index]).toMatchObject({
+        toolLoopExecutionId,
+        toolCallId,
+        toolName,
+        inputHash,
+        manifestHash,
+        scopeHash,
+        projectRevision: episode!.projectRevision,
+      });
+    }
+    expect(payloads[2]).toMatchObject({ outputHash });
   });
 
   it("binds the execution objective from PROJECT_QUERY before keyword inference", async () => {
