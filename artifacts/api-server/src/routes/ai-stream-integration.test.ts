@@ -456,6 +456,7 @@ async function createReconnectedProofFixture(params: {
   reclaimAfterReconciliation?: boolean;
   proofRequired?: boolean;
   projectOrientation?: boolean;
+  projectQuery?: boolean;
   message?: string;
 }) {
   const [project] = await db
@@ -504,7 +505,7 @@ async function createReconnectedProofFixture(params: {
     workspaceRoot,
     validationTargetPaths: ["src/proof-fixture.ts"],
     proofRequired,
-    ...(params.projectOrientation ? { turnIntent: "PROJECT_QUERY" } : {}),
+    ...(params.projectOrientation || params.projectQuery ? { turnIntent: "PROJECT_QUERY" } : {}),
     ...(params.projectOrientation ? { projectOrientation: true } : {}),
   };
   const created = await createAiExecution({
@@ -8562,8 +8563,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   }, 60_000);
 
-  it.runIf(process.env.RUN_E2_PROOF_PROCESS_CRASH === "1")(
-    "retains proof acceptance after the finalizer process is killed immediately after commit",
+  it.runIf(process.env.RUN_E2_API_PROCESS_RESTART === "1")(
+    "retains accepted project analysis after the API process is killed and restarted",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -8579,6 +8580,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         projectId,
         sessionId,
         operationId,
+        projectQuery: true,
         message,
       });
       const finalMessageId = randomUUID();
@@ -8644,137 +8646,180 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       };
       const childSource = [
         "(async () => {",
-        '  const { completeAiExecution } = await import("./src/lib/ai-execution-state.ts");',
-        '  let input = "";',
-        "  for await (const chunk of process.stdin) input += chunk;",
-        "  const accepted = await completeAiExecution(JSON.parse(input));",
-        '  process.stdout.write("E2_ACCEPTED:" + accepted + "\\n");',
+        '  const { default: app } = await import("./src/app.ts");',
+        '  const { createServer } = await import("node:http");',
+        "  const server = createServer(app);",
+        "  await new Promise((resolve, reject) => {",
+        "    server.once('error', reject);",
+        '    server.listen(0, "127.0.0.1", resolve);',
+        "  });",
+        "  const address = server.address();",
+        '  if (!address || typeof address === "string") throw new Error("API listener has no TCP address.");',
+        '  process.stdout.write("E2_API_READY:" + address.port + "\\n");',
+        '  if (process.env.E2_API_COMMIT === "1") {',
+        '    let input = "";',
+        "    for await (const chunk of process.stdin) input += chunk;",
+        '    const { completeAiExecution } = await import("./src/lib/ai-execution-state.ts");',
+        "    const accepted = await completeAiExecution(JSON.parse(input));",
+        '    process.stdout.write("E2_API_ACCEPTED:" + accepted + "\\n");',
+        "  }",
         "  await new Promise(() => {});",
         "})().catch((error) => {",
         "  console.error(error);",
         "  process.exitCode = 1;",
         "});",
       ].join("\n");
-      const child = spawn(
-        process.execPath,
-        ["--import", "tsx", "-e", childSource],
-        {
+      const apiChildren: Array<{
+        child: ChildProcess;
+        exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+      }> = [];
+      let childOutput = "";
+      let childDiagnostics = "";
+      const startApiProcess = async (completion?: typeof completionInput) => {
+        const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
           cwd: process.cwd(),
           env: {
             DATABASE_URL: databaseUrl!,
             NODE_ENV: "test",
             PATH: process.env.PATH ?? "",
+            E2_API_COMMIT: completion ? "1" : "0",
           },
           stdio: ["pipe", "pipe", "pipe"],
-        },
-      );
-      let childOutput = "";
-      let childDiagnostics = "";
-      let resultSettled = false;
-      let resultTimeout: ReturnType<typeof setTimeout> | undefined;
-      let resolveResult!: (result: { accepted?: boolean; error?: Error }) => void;
-      const resultPromise = new Promise<{ accepted?: boolean; error?: Error }>((resolve) => {
-        resolveResult = resolve;
-      });
-      const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-        child.once("exit", (code, signal) => resolve({ code, signal }));
-      });
-      const settleResult = (result: { accepted?: boolean; error?: Error }) => {
-        if (resultSettled) return;
-        resultSettled = true;
-        if (resultTimeout) clearTimeout(resultTimeout);
-        resolveResult(result);
-      };
-      resultTimeout = setTimeout(() => {
-        settleResult({ error: new Error(
-          `Finalizer child did not report a commit. stderr=${childDiagnostics}; stdout=${childOutput}`,
-        ) });
-      }, 30_000);
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) => {
-        childOutput += chunk;
-        const match = childOutput.match(/(?:^|\r?\n)E2_ACCEPTED:(true|false)\r?\n/);
-        if (match) settleResult({ accepted: match[1] === "true" });
-      });
-      child.stderr.on("data", (chunk: string) => {
-        childDiagnostics += chunk;
-      });
-      child.once("error", (error) => settleResult({ error }));
-      child.once("exit", (code, signal) => {
-        if (!resultSettled) {
-          settleResult({ error: new Error(
-            `Finalizer child exited before reporting acceptance (code=${code}, signal=${signal}). `
-            + `stderr=${childDiagnostics}; stdout=${childOutput}`,
-          ) });
+        });
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+          child.once("exit", (code, signal) => resolve({ code, signal }));
+        });
+        const diagnostics: string[] = [];
+        child.stdout.on("data", (chunk: string) => {
+          childOutput += chunk;
+        });
+        child.stderr.on("data", (chunk: string) => {
+          childDiagnostics += chunk;
+          diagnostics.push(chunk);
+        });
+        child.stdin.on("error", () => undefined);
+        apiChildren.push({ child, exit });
+
+        const waitForMarker = (pattern: RegExp, label: string) =>
+          new Promise<RegExpMatchArray>((resolve, reject) => {
+            let settled = false;
+            const cleanup = () => {
+              clearTimeout(timeout);
+              child.stdout.off("data", inspect);
+              child.off("error", onError);
+              child.off("exit", onExit);
+            };
+            const finishError = (error: Error) => {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              reject(error);
+            };
+            const inspect = () => {
+              const match = childOutput.match(pattern);
+              if (!match || settled) return;
+              settled = true;
+              cleanup();
+              resolve(match);
+            };
+            const onError = (error: Error) => finishError(error);
+            const onExit = (code: number | null, signal: NodeJS.Signals | null) =>
+              finishError(new Error(
+                `API child exited before ${label} (code=${code}, signal=${signal}); `
+                + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+              ));
+            const timeout = setTimeout(() => finishError(new Error(
+              `Timed out waiting for API child ${label}; stderr=${childDiagnostics}; stdout=${childOutput}`,
+            )), 30_000);
+            child.stdout.on("data", inspect);
+            child.once("error", onError);
+            child.once("exit", onExit);
+            inspect();
+          });
+
+        const ready = await waitForMarker(/(?:^|\r?\n)E2_API_READY:(\d+)\r?\n/, "readiness");
+        const port = Number(ready[1]);
+        if (completion) {
+          child.stdin.end(JSON.stringify(completion));
+          const committed = await waitForMarker(
+            /(?:^|\r?\n)E2_API_ACCEPTED:(true|false)\r?\n/,
+            "the accepted completion",
+          );
+          expect(committed[1]).toBe("true");
         }
-      });
-      child.stdin.on("error", (error) => settleResult({ error }));
+        return { child, port, exit };
+      };
 
       try {
-        child.stdin.end(JSON.stringify(completionInput));
-        const childResult = await resultPromise;
-        if (childResult.error) throw childResult.error;
-        expect(childResult.accepted).toBe(true);
-        expect(child.kill("SIGKILL")).toBe(true);
-        expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
+        const committingApi = await startApiProcess(completionInput);
+        expect(committingApi.child.kill("SIGKILL")).toBe(true);
+        expect(await committingApi.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+
+        const restartedApi = await startApiProcess();
+        const historyResponse = await fetch(
+          `http://127.0.0.1:${restartedApi.port}/api/ai/chat/${sessionId}/messages`,
+        );
+        expect(historyResponse.status).toBe(200);
+        const history = await historyResponse.json();
+
+        const [execution] = await db
+          .select({
+            id: aiExecutionsTable.id,
+            sessionId: aiExecutionsTable.sessionId,
+            status: aiExecutionsTable.status,
+            finalMessageId: aiExecutionsTable.finalMessageId,
+            attempt: aiExecutionsTable.attempt,
+            checkpoint: aiExecutionsTable.checkpoint,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+          .limit(1);
+        expect(execution).toMatchObject({
+          status: "completed",
+          finalMessageId,
+        });
+        expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+          stage: "completed",
+          evidenceVerdict: "PROVEN",
+          operation: { operationId, state: "succeeded" },
+        });
+        const [acceptance] = await db
+          .select()
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, fixture.created.execution.id),
+            eq(aiExecutionAcceptancesTable.attempt, execution!.attempt),
+          ))
+          .limit(1);
+        expect(acceptance).toMatchObject({
+          outcome: "SUCCEEDED",
+          evidenceRequired: 1,
+          evidenceComplete: 1,
+          evidenceSnapshotId: expect.any(String),
+          messageId: finalMessageId,
+        });
+        expect(history).toEqual(expect.arrayContaining([
+          expect.objectContaining({ role: "user", content: message }),
+          expect.objectContaining({
+            role: "assistant",
+            content: finalResponse,
+            outcome: "SUCCEEDED",
+          }),
+        ]));
+        expect(restartedApi.child.kill("SIGTERM")).toBe(true);
+        await restartedApi.exit;
       } finally {
-        if (resultTimeout) clearTimeout(resultTimeout);
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill("SIGKILL");
-          await childExit;
+        for (const { child, exit } of apiChildren) {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+          }
+          await exit;
         }
       }
-
-      const [execution] = await db
-        .select({
-          id: aiExecutionsTable.id,
-          sessionId: aiExecutionsTable.sessionId,
-          status: aiExecutionsTable.status,
-          finalMessageId: aiExecutionsTable.finalMessageId,
-          attempt: aiExecutionsTable.attempt,
-          checkpoint: aiExecutionsTable.checkpoint,
-        })
-        .from(aiExecutionsTable)
-        .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
-        .limit(1);
-      expect(execution).toMatchObject({
-        status: "completed",
-        finalMessageId,
-      });
-      expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
-        stage: "completed",
-        evidenceVerdict: "PROVEN",
-        operation: { operationId, state: "succeeded" },
-      });
-      const [acceptance] = await db
-        .select()
-        .from(aiExecutionAcceptancesTable)
-        .where(and(
-          eq(aiExecutionAcceptancesTable.executionId, fixture.created.execution.id),
-          eq(aiExecutionAcceptancesTable.attempt, execution!.attempt),
-        ))
-        .limit(1);
-      expect(acceptance).toMatchObject({
-        outcome: "SUCCEEDED",
-        evidenceRequired: 1,
-        evidenceComplete: 1,
-        evidenceSnapshotId: expect.any(String),
-        messageId: finalMessageId,
-      });
-      const history = await request(app)
-        .get(`/api/ai/chat/${sessionId}/messages`)
-        .expect(200);
-      expect(history.body).toEqual(expect.arrayContaining([
-        expect.objectContaining({ role: "user", content: message }),
-        expect.objectContaining({
-          role: "assistant",
-          content: finalResponse,
-          outcome: "SUCCEEDED",
-        }),
-      ]));
     },
-    60_000,
+    120_000,
   );
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
