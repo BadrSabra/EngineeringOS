@@ -20,6 +20,13 @@ the full create, edit, and delete reload assertions intact. A saved-state
 APIRequestContext returned 401 when tied to a localhost origin, but succeeded
 when tied to the external origin that issued the Clerk session.
 
+The cached Playwright Firefox can still fail before tests run when its shared
+libraries are absent from the one-off shell process. Installing GTK through the
+Nix dependency flow and restarting workflows did not populate that shell's
+`LD_LIBRARY_PATH`; Firefox also needed the existing ALSA and X11-xcb library
+directories. A narrowly scoped library path let the headless version check and
+browser launch succeed without changing the app workflows.
+
 **Why:** Repeatedly increasing Playwright timeouts or changing reload semantics
 can mask a browser-runtime failure rather than fix an application defect. A
 different browser engine can still provide valid persistence evidence. Playwright
@@ -35,3 +42,8 @@ independent APIRequestContext on the same origin as the Clerk session; verify
 its auth before depending on it for cleanup. If the browser is gone, verify the
 exact project ID and owner, then use the normal owner-scoped API delete so server
 safeguards remove the row and root. Avoid broad SQL or filesystem deletion.
+For Firefox startup failures, identify each missing shared-library name and
+check the Nix store before installing anything else. Build a command-scoped
+`LD_LIBRARY_PATH` from only the Firefox bundle and the required existing
+library directories, then verify `firefox --headless --version` before running
+the journey; do not export that broad path into managed app workflows.
