@@ -20,3 +20,9 @@ For the recipe-only World State projection, persist a direct remote-branch obser
 **Why:** A remote branch mutation cannot be reconstructed from local workspace revision, and retries may change Episode attempt identity without changing the original pre-mutation fact.
 
 **How to apply:** Keep this transition path inside `delivery.push.github`. Missing or uncertain remote state remains recoverable; manual pushes receive no synthetic execution, Episode, or transition identities.
+
+For process-crash tests, exercise the production delivery service through a local HTTP fixture, acknowledge the branch `PATCH`, then hold the immediate post-push commit read and kill the child before it can write `GitPushed`. Do not gate the crash by locking the receipt insert: a receipt appeared after the killed client and later lock release in the test harness, which can be mistaken for startup recovery.
+
+**Why:** Startup recovery must be distinguished from a database write that was already in flight when the client process died.
+
+**How to apply:** Verify the remote ref advanced before killing the service, verify full API startup does or does not resolve the missing receipt, then exact-replay and duplicate-replay against the fixture. Keep this separate from live GitHub network tests.

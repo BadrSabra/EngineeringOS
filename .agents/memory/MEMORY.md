@@ -93,7 +93,7 @@
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [Read-only invocation telemetry](recipe-read-only-classification.md) — use explicit allowlists, full-manifest hashes, and durable Episode bindings; never infer read-only safety from a mutation flag.
-- [GitHub delivery recovery](github-delivery-recovery.md) — exact remote commit proof; recipe retries preserve the original remote before-state when rebinding acceptance.
+- [GitHub delivery recovery](github-delivery-recovery.md) — require exact remote proof; crash tests check startup after acknowledged mutation and explicit replay.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
