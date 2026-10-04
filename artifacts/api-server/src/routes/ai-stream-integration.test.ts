@@ -8564,7 +8564,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   }, 60_000);
 
   it.runIf(process.env.RUN_E2_API_PROCESS_RESTART === "1")(
-    "retains accepted project analysis after the API process is killed and restarted",
+    "recovers accepted project analysis after full API startup and process restart",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -8572,7 +8572,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
       const projectId = await insertProject();
       projectIds.push(projectId);
-      const sessionId = await insertChatSession(projectId, "Finalizer process crash recovery");
+      const sessionId = await insertChatSession(projectId, "Full API process restart recovery");
       const operationId = `process-crash-operation-${randomUUID()}`;
       const message = "Explain the accepted project analysis after recovery.";
       const finalResponse = "Verified project analysis recovered from durable history.";
@@ -8608,7 +8608,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         workerId: fixture.workerId!,
         finalMessageId,
         operation: {
-          ...fixture.operation,
+          ...fixture.checkpoint.operation!,
           state: "validating" as const,
         },
         proofRequired: true,
@@ -8646,19 +8646,35 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       };
       const childSource = [
         "(async () => {",
-        '  const { default: app } = await import("./src/app.ts");',
-        '  const { createServer } = await import("node:http");',
-        "  const server = createServer(app);",
+        '  const { isProviderEgressDisabled } = await import("@workspace/ai-orchestrator");',
+        "  if (!isProviderEgressDisabled()) throw new Error('Provider egress guard is not active.');",
+        '  const { createServer, createConnection } = await import("node:net");',
+        "  const reservation = createServer();",
         "  await new Promise((resolve, reject) => {",
-        "    server.once('error', reject);",
-        '    server.listen(0, "127.0.0.1", resolve);',
+        "    reservation.once('error', reject);",
+        '    reservation.listen(0, "127.0.0.1", resolve);',
         "  });",
-        "  const address = server.address();",
-        '  if (!address || typeof address === "string") throw new Error("API listener has no TCP address.");',
-        '  process.stdout.write("E2_API_READY:" + address.port + "\\n");',
-        '  if (process.env.E2_API_COMMIT === "1") {',
-        '    let input = "";',
-        "    for await (const chunk of process.stdin) input += chunk;",
+        "  const address = reservation.address();",
+        '  if (!address || typeof address === "string") throw new Error("Port reservation has no TCP address.");',
+        "  await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));",
+        "  process.env.PORT = String(address.port);",
+        '  await import("./src/index.ts");',
+        "  const startupDeadline = Date.now() + 45000;",
+        "  let ready = false;",
+        "  while (!ready && Date.now() < startupDeadline) {",
+        "    ready = await new Promise((resolve) => {",
+        "      const socket = createConnection({ host: '127.0.0.1', port: address.port });",
+        "      socket.setTimeout(1000, () => { socket.destroy(); resolve(false); });",
+        "      socket.once('connect', () => { socket.destroy(); resolve(true); });",
+        "      socket.once('error', () => { socket.destroy(); resolve(false); });",
+        "    });",
+        "    if (!ready) await new Promise((resolve) => setTimeout(resolve, 100));",
+        "  }",
+        '  if (!ready) throw new Error("API index did not listen before the startup deadline.");',
+        '  process.stdout.write("E2_INDEX_READY:" + address.port + "\\n");',
+        '  let input = "";',
+        "  for await (const chunk of process.stdin) input += chunk;",
+        "  if (input.trim()) {",
         '    const { completeAiExecution } = await import("./src/lib/ai-execution-state.ts");',
         "    const accepted = await completeAiExecution(JSON.parse(input));",
         '    process.stdout.write("E2_API_ACCEPTED:" + accepted + "\\n");',
@@ -8673,14 +8689,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         child: ChildProcess;
         exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
       }> = [];
-      const startApiProcess = async (completion?: typeof completionInput) => {
+      const startApiProcess = async () => {
         const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
           cwd: process.cwd(),
           env: {
             DATABASE_URL: databaseUrl!,
             NODE_ENV: "test",
             PATH: process.env.PATH ?? "",
-            E2_API_COMMIT: completion ? "1" : "0",
+            AI_PROVIDER_EGRESS_DISABLED: "1",
+            RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+            DASHBOARD_E2E_TEST_MODE: "fixture",
           },
           stdio: ["pipe", "pipe", "pipe"],
         });
@@ -8730,28 +8748,63 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
               ));
             const timeout = setTimeout(() => finishError(new Error(
               `Timed out waiting for API child ${label}; stderr=${childDiagnostics}; stdout=${childOutput}`,
-            )), 30_000);
+            )), 60_000);
             child.stdout.on("data", inspect);
             child.once("error", onError);
             child.once("exit", onExit);
             inspect();
           });
 
-        const ready = await waitForMarker(/(?:^|\r?\n)E2_API_READY:(\d+)\r?\n/, "readiness");
+        const ready = await waitForMarker(/(?:^|\r?\n)E2_INDEX_READY:(\d+)\r?\n/, "API index startup");
         const port = Number(ready[1]);
-        if (completion) {
+        const commit = async (completion: typeof completionInput) => {
           child.stdin.end(JSON.stringify(completion));
           const committed = await waitForMarker(
             /(?:^|\r?\n)E2_API_ACCEPTED:(true|false)\r?\n/,
             "the accepted completion",
           );
-          expect(committed[1]).toBe("true");
-        }
-        return { child, port, exit };
+          expect(
+            committed[1],
+            `completeAiExecution returned false; stderr=${childDiagnostics}; stdout=${childOutput}`,
+          ).toBe("true");
+        };
+        return { child, port, exit, commit };
       };
 
       try {
-        const committingApi = await startApiProcess(completionInput);
+        const committingApi = await startApiProcess();
+        const [startupReconciledExecution] = await db
+          .select({
+            status: aiExecutionsTable.status,
+            attempt: aiExecutionsTable.attempt,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+          .limit(1);
+        expect(startupReconciledExecution).toMatchObject({ status: "paused" });
+        const [startupInterruption] = await db
+          .select({ outcome: aiExecutionAcceptancesTable.outcome })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, fixture.created.execution.id),
+            eq(aiExecutionAcceptancesTable.attempt, startupReconciledExecution!.attempt),
+          ))
+          .limit(1);
+        expect(startupInterruption?.outcome).toBe("FAILED");
+
+        const recoveredWorkerId = randomUUID();
+        const recoveredExecution = await claimAiExecution({
+          executionId: fixture.created.execution.id,
+          userId: "test-user",
+          workerId: recoveredWorkerId,
+          resumeToken: fixture.created.resumeToken,
+        });
+        expect(recoveredExecution).toMatchObject({
+          status: "running",
+          workerId: recoveredWorkerId,
+        });
+        completionInput.workerId = recoveredWorkerId;
+        await committingApi.commit(completionInput);
         expect(committingApi.child.kill("SIGKILL")).toBe(true);
         expect(await committingApi.exit).toMatchObject({ code: null, signal: "SIGKILL" });
 
@@ -8778,7 +8831,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           status: "completed",
           finalMessageId,
         });
-        expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+        const recoveredCheckpoint = JSON.parse(execution!.checkpoint) as Record<string, unknown>;
+        expect(recoveredCheckpoint).toMatchObject({
           stage: "completed",
           evidenceVerdict: "PROVEN",
           operation: { operationId, state: "succeeded" },
@@ -8798,6 +8852,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           evidenceSnapshotId: expect.any(String),
           messageId: finalMessageId,
         });
+        const [evidenceSnapshot] = await db
+          .select({
+            id: aiExecutionEvidenceSnapshotsTable.id,
+            complete: aiExecutionEvidenceSnapshotsTable.complete,
+            verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+            readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+          })
+          .from(aiExecutionEvidenceSnapshotsTable)
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+          .limit(1);
+        expect(evidenceSnapshot).toMatchObject({
+          id: acceptance!.evidenceSnapshotId,
+          complete: 1,
+          verdict: "PROVEN",
+          readCount: 1,
+        });
         expect(history).toEqual(expect.arrayContaining([
           expect.objectContaining({ role: "user", content: message }),
           expect.objectContaining({
@@ -8806,7 +8876,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
             outcome: "SUCCEEDED",
           }),
         ]));
-        expect(restartedApi.child.kill("SIGTERM")).toBe(true);
+        expect(restartedApi.child.kill("SIGKILL")).toBe(true);
         await restartedApi.exit;
       } finally {
         for (const { child, exit } of apiChildren) {
@@ -8817,7 +8887,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         }
       }
     },
-    120_000,
+    180_000,
   );
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {

@@ -105,15 +105,24 @@ database is disposable, the provider run is explicitly authorized, and receipt
 output is isolated. Do not run real process recovery when any of those boundaries
 is uncertain.
 
-Provider-free HTTP restart tests may run `src/app.ts` in a dedicated API child
-process; do not start `src/index.ts` unless its provider/catalog checks and
-background recovery work are isolated.
+Provider-free HTTP restart tests may run `src/app.ts` for route/history
+persistence. A test may start `src/index.ts` only in a dedicated child with a
+loopback-only disposable database, an ephemeral loopback port, no provider
+credentials in its environment, and the complete egress-disable guard:
+`AI_PROVIDER_EGRESS_DISABLED=1`, `RUN_CONTROLLED_RELEASE_VALIDATION=1`, and
+`DASHBOARD_E2E_TEST_MODE=fixture`. Confirm `isProviderEgressDisabled()` before
+importing the operational entrypoint; never replace or restart a Replit-managed
+workflow for this test.
 
 **Why:** The operational entrypoint starts provider/catalog validation and
-durable recovery workers. Using it in a provider-free persistence test can add
-external checks and startup side effects; an app-only restart proves HTTP
-history recovery, not operational startup recovery.
+durable recovery workers, and startup reconciliation pauses every running
+execution it finds. An egress guard blocks provider calls but does not make
+startup side effects harmless; after reconciliation, the test must assert the
+failed prior attempt and reclaim with the current resume token before completing
+under a new worker lease.
 
-**How to apply:** Use a loopback-only temporary database and restart the
-Express app process for provider-free HTTP persistence checks. State explicitly
-when `src/index.ts` startup and Replit-managed workflows were not exercised.
+**How to apply:** Keep the `src/app.ts` test for isolated HTTP persistence and use
+the guarded `src/index.ts` child only when startup reconciliation is part of the
+acceptance boundary. Stop the test PostgreSQL process and remove only its
+dedicated temporary data root after verification; state explicitly that managed
+workflows and live providers were not exercised.
