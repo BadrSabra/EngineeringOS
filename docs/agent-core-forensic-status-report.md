@@ -261,7 +261,7 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:301-3
 
 ### 7.1 World State
 
-`world-state.ts:73-115,432-492` يوفر materialization وrevision وscoping facts؛ والـmaterializer ينشئ/يحدّث facts من observations موثوقة ويستعمل حالات مثل `believed` و`contradicted` و`superseded`. مسار القراءة التخطيطي يقيّد facts إلى project/episode/task scope ومراجعة المشروع والبيئة ومصادر observations كاملة وحديثة، ثم يحدّ النتيجة إلى ثمانية facts. لقطة التطوير الحالية تحتوي 164 World Fact. هذا يثبت belief-like storage قائمًا على الملاحظة في حدود المسار، لا أن World State هو مصدر قرار authoritative عام أو نظام belief/learning مكتمل.
+`world-state.ts:73-115,432-492` يوفر materialization وrevision وscoping facts؛ والـmaterializer ينشئ/يحدّث facts من observations موثوقة ويستعمل حالات مثل `believed` و`contradicted` و`superseded`. مسار القراءة التخطيطي يقيّد facts إلى project/episode/task scope ومراجعة المشروع والبيئة ومصادر observations كاملة وحديثة، ثم يحدّ النتيجة إلى ثمانية facts. لقطة التطوير الحالية تحتوي 102 World Fact، وكلها `believed` في إسقاط الحالة. هذا يثبت belief-like storage قائمًا على الملاحظة في حدود المسار، لا أن World State هو مصدر قرار authoritative عام أو نظام belief/learning مكتمل.
 
 ### 7.2 World Transitions
 
@@ -274,7 +274,7 @@ Canonical verifier يرفض `evidenceRequired=false` (`proof-foundation.ts:301-3
 
 - `runtime-start-transition.ts:599-630` يستنتج `changedFactRefs` من materialized facts ذات `sourceObservationIds` المطابقة للـobservations المختارة.
 - Apply: `finalizeApplyChangesTransition` يشتق `changedFactRefs` من facts materialized المرتبطة بملاحظات before/after المختارة. الاختبار يتحقق من أن القائمة غير فارغة وتطابق refs الفعلية، ومن وجود fact مرتبط بملاحظة after. الادعاء التاريخي بأن finalizer يكتب قائمة فارغة لم يعد صحيحًا؛ بقيت دلالة intent وتأثيرها على قرار planner غير مثبتة.
-- لقطة قاعدة التطوير الحالية: 8 transitions `materialized/fresh` وواحد `terminal_failed/unknown`. لم يُحدّث هذا الاستعلام دلالات delta أو يثبت أي صف منها كمسار runtime/apply بعينه.
+- لقطة قاعدة التطوير الحالية: 5 transitions، كلها `materialized/fresh` ومرتبطة بمسار `runtime.start` وفق الربط مع EffectBundles؛ لا يوجد Apply Transition في هذه اللقطة. لا يثبت العدد وحده دلالات delta لكل صف.
 
 ### 7.4 Accepted Effect → World State
 
@@ -287,9 +287,9 @@ runtime.start يربط effect bundle وملاحظات مستقلة بالtransit
 - `runtime-start-transition.test.ts:797-868` يثبت أن successor ينتظر materialization للـtransition؛ لا يثبت أن planner اختار قرارًا مختلفًا بسبب facts جديدة.
 - `apply-change-mission-gate.ts:438-453` يتحقق من transition/resulting revision/requirement/plan؛ لا يثبت أن planner استهلك World State الجديدة أو غيّر القرار.
 
-الحكم على الادعاء القديم أن planner integration advisory: `PARTIALLY CONFIRMED`؛ بعض السياق advisory، لكن توجد revision/effect gates وsuccessor gates أقوى على runtime.start/apply. **التغيير الفعلي للقرار/action عمومًا `UNKNOWN`.**
+توجد revision/effect/successor gates على `runtime.start` وApply، لكنها شروط اتساق وتسلسل وليست دليلًا على أن World State اختارت action. في auto-replan، facts الممررة advisory. اختبار `mission-planning.test.ts` اجتاز 6/6 ويثبت أن تغيير fact يغيّر replan revision والـtask prompt مع بقاء plan steps كما هي. **تغيير القرار/action بسبب fact ذي صلة غير مثبت؛ والتغيير السببي للقرار عمومًا `UNKNOWN`.**
 
-في auto-replan، `buildMissionPlanPreview` يبني intent/plan أولًا من الرسالة والهدف، ثم يsanitize ويضيف `worldStatePlanningRead` إلى `replanContext`. بصمة القراءة تدخل هوية/revision الخطة في مسار replan، لكن لا يظهر في هذا المسار أن facts تُمرر إلى `buildGeneralTaskPlan` كمدخل يغيّر اختيار العقدة أو action؛ لذا freshness/revision binding موجود جزئيًا، وcausal decision change غير مثبت.
+في auto-replan، `buildMissionPlanPreview` يبني intent/plan أولًا من الرسالة والهدف، ثم يsanitize ويضيف `worldStatePlanningRead` إلى `replanContext`. بصمة القراءة تدخل هوية/revision الخطة في مسار replan، وتصل facts إلى task prompt؛ لكن الاختبار المتاح يثبت بقاء plan steps ثابتة عند تغيير fact. لذا freshness/revision/prompt binding موجودة في المسار المختبر، وcausal decision change غير مثبت.
 
 ### 7.6 Belief Update
 
@@ -305,7 +305,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 
 ### 7.9 100% Gate
 
-اشتقاق/تفسير `changedFactRefs` لـapply changes، وإثبات planner input bound إلى revision/freshness/scope، واختبار أن relevant world delta يغيّر القرار بينما irrelevant delta لا يغيره، ثم belief/replay cross-operation مستقل. لا يبدأ التعلم قبل هذا.
+استكمال عقد معنى `changedFactRefs` لـApply beyond source-observation attribution، وإثبات planner input bound إلى revision/freshness/scope، واختبار أن relevant world delta يغيّر القرار بينما irrelevant delta لا يغيره، ثم belief/replay cross-operation مستقل. لا يبدأ التعلم قبل هذا.
 
 ## 8. Cross-Layer Trace
 
