@@ -83,12 +83,75 @@ const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] 
 const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type GoalDependencyState = {
+export type GoalDependencyState = {
   planRevision?: string;
   dependencies: Array<{ dependsOnGoalId: string }>;
   dependencyGoals: Array<typeof aiGoalsTable.$inferSelect>;
   unprovenDependencies: Array<{ id: string; title: string }>;
 };
+
+async function findGoalDependencyGraphIssue(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: Pick<typeof aiGoalsTable.$inferSelect, "id" | "title" | "outcomeContract">,
+  path = new Set<string>(),
+  visited = new Set<string>(),
+): Promise<{ id: string; title: string } | undefined> {
+  if (path.has(goal.id)) return { id: goal.id, title: "Dependency cycle" };
+  if (visited.has(goal.id)) return undefined;
+  if (visited.size >= 256) {
+    return { id: goal.id, title: "Dependency graph exceeds validation limit" };
+  }
+  visited.add(goal.id);
+  const nextPath = new Set(path);
+  nextPath.add(goal.id);
+  const planRevision = goalPlanRevision(goal);
+  const edges = await tx
+    .select({ dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId })
+    .from(aiGoalDependenciesTable)
+    .where(and(
+      eq(aiGoalDependenciesTable.goalId, goal.id),
+      eq(aiGoalDependenciesTable.missionId, mission.id),
+      eq(aiGoalDependenciesTable.projectId, mission.projectId),
+      ...(planRevision ? [eq(aiGoalDependenciesTable.planRevision, planRevision)] : []),
+    ))
+    .for("update");
+  const dependencyIds = [...new Set(edges.map((edge) => edge.dependsOnGoalId))];
+  if (dependencyIds.length === 0) return undefined;
+
+  const dependencyGoals = await tx
+    .select({
+      id: aiGoalsTable.id,
+      title: aiGoalsTable.title,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, mission.id),
+      eq(aiGoalsTable.projectId, mission.projectId),
+      inArray(aiGoalsTable.id, dependencyIds),
+    ))
+    .for("update");
+  const goalsById = new Map(dependencyGoals.map((dependency) => [dependency.id, dependency]));
+  for (const dependencyId of dependencyIds) {
+    const dependencyGoal = goalsById.get(dependencyId);
+    if (!dependencyGoal) {
+      return { id: dependencyId, title: "Missing dependency Goal" };
+    }
+    if (nextPath.has(dependencyGoal.id)) {
+      return { id: dependencyGoal.id, title: "Dependency cycle" };
+    }
+    const issue = await findGoalDependencyGraphIssue(
+      tx,
+      mission,
+      dependencyGoal,
+      nextPath,
+      visited,
+    );
+    if (issue) return issue;
+  }
+  return undefined;
+}
 
 function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract">): string | undefined {
   const contract = goal.outcomeContract;
@@ -333,8 +396,24 @@ async function loadGoalDependencyState(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
   goal: typeof aiGoalsTable.$inferSelect,
+  options: {
+    targetExecutionId?: string;
+    ancestorPath?: Set<string>;
+  } = {},
 ): Promise<GoalDependencyState> {
   const planRevision = goalPlanRevision(goal);
+  const ancestorPath = options.ancestorPath ?? new Set<string>();
+  if (ancestorPath.has(goal.id)) {
+    return {
+      planRevision,
+      dependencies: [],
+      dependencyGoals: [],
+      unprovenDependencies: [{ id: goal.id, title: goal.title }],
+    };
+  }
+  const nextAncestorPath = new Set(ancestorPath);
+  nextAncestorPath.add(goal.id);
+
   const dependencyRows = await tx
     .select({ dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId })
     .from(aiGoalDependenciesTable)
@@ -351,6 +430,7 @@ async function loadGoalDependencyState(
   if (dependencies.length === 0) {
     return { planRevision, dependencies, dependencyGoals: [], unprovenDependencies: [] };
   }
+  const graphIssue = await findGoalDependencyGraphIssue(tx, mission, goal);
   const dependencyGoals = await tx
     .select()
     .from(aiGoalsTable)
@@ -360,19 +440,110 @@ async function loadGoalDependencyState(
       inArray(aiGoalsTable.id, dependencies.map((dependency) => dependency.dependsOnGoalId)),
     ))
     .for("update");
-  const unprovenDependencies: GoalDependencyState["unprovenDependencies"] = [];
-  for (const dependencyGoal of dependencyGoals) {
-    if (
-      dependencyGoal.status === "completed"
-      && !await hasCurrentGoalDependencyProof(tx, mission, dependencyGoal, planRevision)
-    ) {
-      unprovenDependencies.push({ id: dependencyGoal.id, title: dependencyGoal.title });
+  const unprovenDependencies: GoalDependencyState["unprovenDependencies"] =
+    graphIssue ? [graphIssue] : [];
+  const dependencyGoalsById = new Map(dependencyGoals.map((dependency) => [dependency.id, dependency]));
+  for (const dependency of dependencies) {
+    if (!dependencyGoalsById.has(dependency.dependsOnGoalId)) {
+      unprovenDependencies.push({
+        id: dependency.dependsOnGoalId,
+        title: "Missing dependency Goal",
+      });
     }
   }
-  return { planRevision, dependencies, dependencyGoals, unprovenDependencies };
+
+  const [targetExecution] = options.targetExecutionId
+    ? await tx
+      .select({
+        id: aiExecutionsTable.id,
+        createdAt: aiExecutionsTable.createdAt,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, options.targetExecutionId),
+        eq(aiExecutionsTable.projectId, goal.projectId),
+        eq(aiExecutionsTable.goalId, goal.id),
+      ))
+      .for("update")
+    : [];
+  if (options.targetExecutionId && !targetExecution) {
+    unprovenDependencies.push({ id: goal.id, title: goal.title });
+  }
+
+  for (const dependencyGoal of dependencyGoals) {
+    if (dependencyGoal.status !== "completed") continue;
+    if (!await hasCurrentGoalDependencyProof(tx, mission, dependencyGoal, planRevision)) {
+      unprovenDependencies.push({ id: dependencyGoal.id, title: dependencyGoal.title });
+      continue;
+    }
+
+    const dependencyAcceptance = jsonRecord(
+      jsonRecord(dependencyGoal.outcomeContract).acceptance,
+    );
+    const dependencyExecutionId = typeof dependencyAcceptance.executionId === "string"
+      ? dependencyAcceptance.executionId
+      : "";
+    const [dependencyExecution] = dependencyExecutionId
+      ? await tx
+        .select({
+          id: aiExecutionsTable.id,
+          createdAt: aiExecutionsTable.createdAt,
+          completedAt: aiExecutionsTable.completedAt,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, dependencyExecutionId),
+          eq(aiExecutionsTable.projectId, dependencyGoal.projectId),
+          eq(aiExecutionsTable.goalId, dependencyGoal.id),
+        ))
+        .for("update")
+      : [];
+    if (
+      !dependencyExecution
+      || !dependencyExecution.completedAt
+      || (
+        targetExecution
+        && dependencyExecution.completedAt.getTime() >= targetExecution.createdAt.getTime()
+      )
+    ) {
+      unprovenDependencies.push({ id: dependencyGoal.id, title: dependencyGoal.title });
+      continue;
+    }
+
+    const ancestorState = await loadGoalDependencyState(tx, mission, dependencyGoal, {
+      targetExecutionId: dependencyExecution.id,
+      ancestorPath: nextAncestorPath,
+    });
+    const ancestorPending =
+      ancestorState.dependencies.length !== ancestorState.dependencyGoals.length
+      || ancestorState.dependencyGoals.some((ancestor) => ancestor.status !== "completed");
+    if (ancestorPending || ancestorState.unprovenDependencies.length > 0) {
+      unprovenDependencies.push(
+        ancestorState.unprovenDependencies[0]
+        ?? { id: dependencyGoal.id, title: dependencyGoal.title },
+      );
+    }
+  }
+  return {
+    planRevision,
+    dependencies,
+    dependencyGoals,
+    unprovenDependencies: [...new Map(
+      unprovenDependencies.map((dependency) => [dependency.id, dependency]),
+    ).values()],
+  };
 }
 
-async function persistGoalDependencyProofBlocked(
+export async function evaluateGoalDependencyState(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  options: { targetExecutionId?: string } = {},
+): Promise<GoalDependencyState> {
+  return loadGoalDependencyState(tx, mission, goal, options);
+}
+
+export async function persistGoalDependencyProofBlocked(
   tx: MissionTransaction,
   input: {
     goal: typeof aiGoalsTable.$inferSelect;
@@ -1502,12 +1673,15 @@ export async function runMissionGoal(params: {
   delegation?: MissionDelegationBinding;
 }): Promise<MissionGoalRunResult> {
   const decision = await db.transaction(async (tx) => {
-    const [goal] = await tx
-      .select()
+    const [goalIdentity] = await tx
+      .select({
+        missionId: aiGoalsTable.missionId,
+        projectId: aiGoalsTable.projectId,
+      })
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.id, params.goalId))
-      .for("update");
-    if (!goal) {
+      .limit(1);
+    if (!goalIdentity) {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
     }
 
@@ -1515,13 +1689,26 @@ export async function runMissionGoal(params: {
       .select()
       .from(aiMissionsTable)
       .where(and(
-        eq(aiMissionsTable.id, goal.missionId),
-        eq(aiMissionsTable.projectId, goal.projectId),
+        eq(aiMissionsTable.id, goalIdentity.missionId),
+        eq(aiMissionsTable.projectId, goalIdentity.projectId),
         eq(aiMissionsTable.userId, params.userId),
       ))
       .for("update");
     if (!mission) {
-      return { status: "conflict" as const, goalId: goal.id, reason: "mission_not_found" };
+      return { status: "conflict" as const, goalId: params.goalId, reason: "mission_not_found" };
+    }
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, params.goalId),
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, mission.projectId),
+      ))
+      .for("update");
+    if (!goal) {
+      return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
     }
 
     const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
@@ -1603,6 +1790,20 @@ export async function runMissionGoal(params: {
         });
         return { status: "blocked" as const, goalId: goal.id, reason: "dependency_failed" };
       }
+      const unprovenDependency = dependencyState.unprovenDependencies[0];
+      if (unprovenDependency) {
+        await persistGoalDependencyProofBlocked(tx, {
+          goal,
+          mission,
+          planRevision: dependencyState.planRevision,
+          dependency: unprovenDependency,
+        });
+        return {
+          status: "blocked" as const,
+          goalId: goal.id,
+          reason: "dependency_proof_unproven",
+        };
+      }
       const allDependenciesCompleted =
         dependencyState.dependencies.length === dependencyState.dependencyGoals.length
         && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
@@ -1622,20 +1823,6 @@ export async function runMissionGoal(params: {
             .where(eq(aiMissionsTable.id, mission.id));
         }
         return { status: "waiting" as const, goalId: goal.id, reason: "dependencies_pending" };
-      }
-      const unprovenDependency = dependencyState.unprovenDependencies[0];
-      if (unprovenDependency) {
-        await persistGoalDependencyProofBlocked(tx, {
-          goal,
-          mission,
-          planRevision: dependencyState.planRevision,
-          dependency: unprovenDependency,
-        });
-        return {
-          status: "blocked" as const,
-          goalId: goal.id,
-          reason: "dependency_proof_unproven",
-        };
       }
       if (goal.status === "waiting_for_event" && goal.blockedReason === "dependencies_pending") {
         await tx.update(aiGoalsTable)
@@ -2184,6 +2371,15 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
   let woken = 0;
   for (const candidate of candidates) {
     const ready = await db.transaction(async (tx) => {
+      const [mission] = await tx
+        .select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, candidate.missionId),
+          eq(aiMissionsTable.projectId, candidate.projectId),
+        ))
+        .for("update");
+      if (!mission) return undefined;
       const [goal] = await tx
         .select()
         .from(aiGoalsTable)
@@ -2196,21 +2392,7 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
         ))
         .for("update");
       if (!goal) return undefined;
-      const [mission] = await tx
-        .select()
-        .from(aiMissionsTable)
-        .where(and(
-          eq(aiMissionsTable.id, goal.missionId),
-          eq(aiMissionsTable.projectId, goal.projectId),
-        ))
-        .for("update");
-      if (!mission) return undefined;
       const dependencyState = await loadGoalDependencyState(tx, mission, goal);
-      const allDependenciesCompleted =
-        dependencyState.dependencies.length > 0
-        && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
-      if (!allDependenciesCompleted) return undefined;
       const unprovenDependency = dependencyState.unprovenDependencies[0];
       if (unprovenDependency) {
         await persistGoalDependencyProofBlocked(tx, {
@@ -2221,6 +2403,11 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
         });
         return undefined;
       }
+      const allDependenciesCompleted =
+        dependencyState.dependencies.length > 0
+        && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+      if (!allDependenciesCompleted) return undefined;
       await tx.update(aiGoalsTable)
         .set({
           status: "queued",
@@ -2311,6 +2498,15 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
   let woken = 0;
   for (const candidate of candidates) {
     const decision = await db.transaction(async (tx) => {
+      const [mission] = await tx
+        .select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, candidate.missionId),
+          eq(aiMissionsTable.projectId, candidate.projectId),
+        ))
+        .for("update");
+      if (!mission) return undefined;
       const [goal] = await tx
         .select()
         .from(aiGoalsTable)
@@ -2323,15 +2519,6 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
         ))
         .for("update");
       if (!goal) return undefined;
-      const [mission] = await tx
-        .select()
-        .from(aiMissionsTable)
-        .where(and(
-          eq(aiMissionsTable.id, goal.missionId),
-          eq(aiMissionsTable.projectId, goal.projectId),
-        ))
-        .for("update");
-      if (!mission) return undefined;
       const activePlanRevision = typeof jsonRecord(mission.autonomyPolicy).activePlanRevision === "string"
         ? jsonRecord(mission.autonomyPolicy).activePlanRevision as string
         : undefined;
@@ -2346,10 +2533,6 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
         transitionState = "failed";
       } else {
         const dependencyState = await loadGoalDependencyState(tx, mission, goal);
-        const dependenciesComplete =
-          dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-          && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
-        if (!dependenciesComplete) return undefined;
         const unprovenDependency = dependencyState.unprovenDependencies[0];
         if (unprovenDependency) {
           await persistGoalDependencyProofBlocked(tx, {
@@ -2360,6 +2543,10 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
           });
           return undefined;
         }
+        const dependenciesComplete =
+          dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+          && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+        if (!dependenciesComplete) return undefined;
         const transitionResult = await evaluateRuntimeStartTransitionGate(tx, {
           goal,
           activePlanRevision,

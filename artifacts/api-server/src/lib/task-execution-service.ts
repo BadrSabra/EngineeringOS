@@ -7,6 +7,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionsTable,
   projectsTable,
   taskLogsTable,
   tasksTable,
@@ -129,6 +130,139 @@ export type TaskExecutionOutcome = {
 };
 
 type Provider = { provider: ProviderId; apiKey: string };
+type TaskExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+type MissionTaskAdmission =
+  | { allowed: true }
+  | {
+      allowed: false;
+      errorCode:
+        | "mission_goal_not_found"
+        | "mission_goal_not_executable"
+        | "mission_plan_revision_stale"
+        | "mission_dependencies_pending"
+        | "mission_dependency_failed"
+        | "mission_dependency_proof_unproven";
+    };
+
+async function inspectMissionTaskAdmission(
+  tx: TaskExecutionTransaction,
+  input: { goalId: string; projectId: string; userId: string },
+): Promise<MissionTaskAdmission> {
+  const [goalIdentity] = await tx
+    .select({ missionId: aiGoalsTable.missionId })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!goalIdentity) return { allowed: false, errorCode: "mission_goal_not_found" };
+
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goalIdentity.missionId),
+      eq(aiMissionsTable.projectId, input.projectId),
+      eq(aiMissionsTable.userId, input.userId),
+    ))
+    .for("update");
+  if (!mission) return { allowed: false, errorCode: "mission_goal_not_found" };
+
+  const [goal] = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.missionId, mission.id),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .for("update");
+  if (!goal) return { allowed: false, errorCode: "mission_goal_not_found" };
+
+  if (
+    mission.status === "blocked"
+    || mission.status === "cancelled"
+    || mission.status === "completed"
+    || goal.status === "blocked"
+    || goal.status === "cancelled"
+    || goal.status === "completed"
+    || goal.status === "waiting_for_approval"
+    || (
+      goal.status === "waiting_for_event"
+      && goal.blockedReason !== "dependencies_pending"
+    )
+  ) {
+    return { allowed: false, errorCode: "mission_goal_not_executable" };
+  }
+
+  const policy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object"
+    ? mission.autonomyPolicy as Record<string, unknown>
+    : {};
+  const activePlanRevision = typeof policy.activePlanRevision === "string"
+    ? policy.activePlanRevision
+    : undefined;
+  const goalRevision = missionPlanRevisionHash(goal);
+  if (activePlanRevision && goalRevision && activePlanRevision !== goalRevision) {
+    return { allowed: false, errorCode: "mission_plan_revision_stale" };
+  }
+
+  const missionRuntime = await import("./mission-runtime.js");
+  const dependencyState = await missionRuntime.evaluateGoalDependencyState(tx, mission, goal);
+  const unprovenDependency = dependencyState.unprovenDependencies[0];
+  if (unprovenDependency) {
+    await missionRuntime.persistGoalDependencyProofBlocked(tx, {
+      goal,
+      mission,
+      planRevision: dependencyState.planRevision,
+      dependency: unprovenDependency,
+    });
+    return { allowed: false, errorCode: "mission_dependency_proof_unproven" };
+  }
+
+  const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
+    dependency.status === "failed"
+    || dependency.status === "cancelled"
+    || dependency.status === "blocked"
+    || dependency.status === "needs_replan",
+  );
+  if (failedDependency) {
+    const now = new Date();
+    await tx.update(aiGoalsTable)
+      .set({
+        status: "needs_replan",
+        blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
+        nextWakeAt: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+    await tx.update(aiMissionsTable)
+      .set({ status: "needs_replan", updatedAt: now })
+      .where(eq(aiMissionsTable.id, mission.id));
+    return { allowed: false, errorCode: "mission_dependency_failed" };
+  }
+
+  const dependenciesCompleted =
+    dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+  if (dependencyState.dependencies.length > 0 && !dependenciesCompleted) {
+    const now = new Date();
+    await tx.update(aiGoalsTable)
+      .set({
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        nextWakeAt: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+    await tx.update(aiMissionsTable)
+      .set({ status: "waiting", updatedAt: now })
+      .where(eq(aiMissionsTable.id, mission.id));
+    return { allowed: false, errorCode: "mission_dependencies_pending" };
+  }
+  return { allowed: true };
+}
 
 const RECEIPT_MAX_BYTES = 8_000;
 const RECEIPT_MAX_STAGES = 12;
@@ -2919,6 +3053,20 @@ export async function executeTaskLifecycle(params: {
         ))
         .limit(1)
     : [];
+  if (missionGoal) {
+    const admission = await db.transaction((tx) => inspectMissionTaskAdmission(tx, {
+      goalId: missionGoal.id,
+      projectId: before.projectId,
+      userId: params.userId,
+    }));
+    if (!admission.allowed) {
+      return {
+        ok: false,
+        status: "conflict",
+        errorCode: admission.errorCode,
+      };
+    }
+  }
   const executionProfile = readMissionExecutionProfile(
     missionGoal?.outcomeContract,
     before.phase,
@@ -3110,21 +3258,59 @@ export async function executeTaskLifecycle(params: {
     ? buildAiExecutionResumeContext(claimedCheckpoint)
     : "";
 
-  const [claimedTask] = await db.update(tasksTable)
-    .set({
-      status: "running",
+  const claimedTask = missionGoal
+    ? await db.transaction(async (tx) => {
+        const admission = await inspectMissionTaskAdmission(tx, {
+          goalId: missionGoal.id,
+          projectId: before.projectId,
+          userId: params.userId,
+        });
+        if (!admission.allowed) return { task: undefined, errorCode: admission.errorCode };
+        const [task] = await tx.update(tasksTable)
+          .set({
+            status: "running",
+            workerId,
+            leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+            lastHeartbeatAt: new Date(),
+            correlationId,
+            idempotencyKey,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(tasksTable.id, before.id),
+            eq(tasksTable.projectId, before.projectId),
+            inArray(tasksTable.status, allowed),
+          ))
+          .returning();
+        return { task, errorCode: task ? undefined : "task_state_changed" as const };
+      })
+    : await (async () => {
+        const [task] = await db.update(tasksTable)
+          .set({
+            status: "running",
+            workerId,
+            leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+            lastHeartbeatAt: new Date(),
+            correlationId,
+            idempotencyKey,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+          .returning();
+        return { task, errorCode: task ? undefined : "task_state_changed" as const };
+      })();
+  if (!claimedTask.task) {
+    await failAiExecution({
+      executionId,
       workerId,
-      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-      lastHeartbeatAt: new Date(),
-      correlationId,
-      idempotencyKey,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
-    .returning();
-  if (!claimedTask) {
-    await failAiExecution({ executionId, workerId, error: "Task state changed before claim." });
-    return { ok: false, status: "conflict", executionId, errorCode: "task_state_changed" };
+      error: claimedTask.errorCode ?? "Task state changed before claim.",
+    });
+    return {
+      ok: false,
+      status: "conflict",
+      executionId,
+      errorCode: claimedTask.errorCode ?? "task_state_changed",
+    };
   }
   const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
   if (claimConflict) {

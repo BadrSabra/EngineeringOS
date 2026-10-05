@@ -238,6 +238,21 @@ export async function evaluateMissionCompletion(
   const missingGoalIds = proofs
     .filter((proof) => !proof.accepted)
     .map((proof) => proof.goalId);
+  if (missingGoalIds.length === 0) {
+    const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
+    for (const proof of proofs) {
+      const goal = active.find((candidate) => candidate.id === proof.goalId);
+      if (!goal) continue;
+      const dependencyState = await evaluateGoalDependencyState(tx, mission, goal, {
+        targetExecutionId: proof.executionId ?? undefined,
+      });
+      const dependenciesProven =
+        dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
+        && dependencyState.unprovenDependencies.length === 0;
+      if (!dependenciesProven) missingGoalIds.push(goal.id);
+    }
+  }
   if (missingGoalIds.length > 0) {
     return {
       allowed: false,
@@ -284,5 +299,12 @@ export async function evaluateGoalCompletion(
     .for("update");
   if (!goal) return false;
   const [proof] = await composeGoalProofs(tx, mission, [goal]);
-  return proof?.accepted === true;
+  if (!proof?.accepted) return false;
+  const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
+  const dependencyState = await evaluateGoalDependencyState(tx, mission, goal, {
+    targetExecutionId: proof.executionId ?? undefined,
+  });
+  return dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
+    && dependencyState.unprovenDependencies.length === 0;
 }

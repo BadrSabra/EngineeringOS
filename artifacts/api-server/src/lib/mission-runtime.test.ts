@@ -26,6 +26,10 @@ import {
   wakeDueMissionGoals,
   wakeMissionGoalsForEvent,
 } from "./mission-runtime.js";
+import {
+  evaluateGoalCompletion,
+  evaluateMissionCompletion,
+} from "./mission-completion-gate.js";
 import { createMissionEventEnvelope } from "./mission-events.js";
 import { buildMissionDelegationBinding } from "./mission-delegation.js";
 import { createHash } from "node:crypto";
@@ -509,6 +513,104 @@ async function createDependencyProofFixture(
   };
 }
 
+async function insertCanonicalGoalProof(
+  fixture: Awaited<ReturnType<typeof createDependencyProofFixture>>,
+  goalId: string,
+): Promise<void> {
+  const executionId = randomUUID();
+  const evidenceSnapshotId = randomUUID();
+  const operationId = `operation:${executionId}`;
+  const now = new Date(Date.now() + 5_000);
+  const proof = buildExecutionProofProjection({
+    outcome: "SUCCEEDED",
+    evidenceRequired: true,
+    evidenceComplete: true,
+    evidenceSnapshotId,
+    sourceRevision: fixture.sourceRevision,
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId: fixture.projectId,
+    goalId,
+    operationId,
+    userId: "test-user",
+    idempotencyKey: `execution:${executionId}`,
+    resumeTokenHash: "test-hash",
+    request: "{}",
+    checkpoint: "{}",
+    status: "completed",
+    attempt: 0,
+    baseRevision: fixture.sourceRevision,
+    completedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+    id: evidenceSnapshotId,
+    executionId,
+    projectId: fixture.projectId,
+    attempt: 0,
+    operationId,
+    sourceRevision: fixture.sourceRevision,
+    verdict: "PROVEN",
+    complete: 1,
+    readCount: 1,
+    totalBytes: 64,
+    createdAt: now,
+  });
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: randomUUID(),
+    executionId,
+    projectId: fixture.projectId,
+    attempt: 0,
+    finalizationKey: `final:${executionId}`,
+    operationId,
+    terminalStatus: "completed",
+    outcome: "SUCCEEDED",
+    reasonCode: "CANONICAL_PROOF_PROVEN",
+    nextActionCode: "NONE",
+    disposition: { proof },
+    evidenceSnapshotId,
+    evidenceRequired: 1,
+    evidenceComplete: 1,
+    resumable: 0,
+    sourceRevision: fixture.sourceRevision,
+    createdAt: now,
+  });
+  const [goal] = await db.select({
+    outcomeContract: aiGoalsTable.outcomeContract,
+  }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+  await db.update(aiGoalsTable).set({
+    status: "completed",
+    completedAt: now,
+    outcomeContract: {
+      ...(goal?.outcomeContract && typeof goal.outcomeContract === "object"
+        ? goal.outcomeContract as Record<string, unknown>
+        : {}),
+      planRevision: { hash: fixture.planRevision },
+      acceptance: {
+        executionId,
+        attempt: 0,
+        outcome: "SUCCEEDED",
+        verdict: "PROVEN",
+        sourceRevision: fixture.sourceRevision,
+        evidenceSnapshotId,
+        evidenceRequired: true,
+        evidenceComplete: true,
+        scope: {
+          projectId: fixture.projectId,
+          missionId: fixture.missionId,
+          goalId,
+          operationId,
+          planRevision: fixture.planRevision,
+        },
+        disposition: { proof },
+      },
+    },
+    updatedAt: now,
+  }).where(eq(aiGoalsTable.id, goalId));
+}
+
 async function expectDependencyProofBlocked(fixture: {
   goalId: string;
 }): Promise<void> {
@@ -604,6 +706,117 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "resume",
     })).resolves.toMatchObject({ status: "waiting", goalId: fixture.goalId });
+  });
+
+  it("requires every transitive ancestor proof before releasing a dependent Goal", async () => {
+    const fixture = await createDependencyProofFixture();
+    const ancestorGoalId = randomUUID();
+    const now = new Date();
+    await db.insert(aiGoalsTable).values({
+      id: ancestorGoalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      title: "Unproven transitive prerequisite",
+      status: "completed",
+      successCriteria: { planRevision: { hash: fixture.planRevision } },
+      outcomeContract: { planRevision: { hash: fixture.planRevision } },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.sourceGoalId,
+      dependsOnGoalId: ancestorGoalId,
+      planRevision: fixture.planRevision,
+      createdAt: now,
+    });
+
+    await expectDependencyProofBlocked(fixture);
+  });
+
+  it("blocks dependency release when a prerequisite reference leaves the Mission", async () => {
+    const fixture = await createDependencyProofFixture();
+    const foreign = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    await db.update(aiGoalDependenciesTable)
+      .set({ dependsOnGoalId: foreign.goalId })
+      .where(eq(aiGoalDependenciesTable.goalId, fixture.goalId));
+
+    await expectDependencyProofBlocked(fixture);
+  });
+
+  it("blocks dependency release when the plan contains a cycle", async () => {
+    const fixture = await createDependencyProofFixture();
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+      goalId: fixture.sourceGoalId,
+      dependsOnGoalId: fixture.goalId,
+      planRevision: fixture.planRevision,
+      createdAt: new Date(),
+    });
+
+    await expectDependencyProofBlocked(fixture);
+  });
+
+  it("rejects a predecessor proof completed after the dependent execution started", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+    const currentResult = await db.transaction((tx) => evaluateGoalCompletion(tx, {
+      goalId: fixture.goalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+    expect(currentResult).toBe(true);
+
+    const [dependentGoal] = await db.select({
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    const dependentAcceptance = (
+      dependentGoal?.outcomeContract as { acceptance?: { executionId?: unknown } } | undefined
+    )?.acceptance;
+    const dependentExecutionId = typeof dependentAcceptance?.executionId === "string"
+      ? dependentAcceptance.executionId
+      : "";
+    const [dependentExecution] = await db.select({
+      createdAt: aiExecutionsTable.createdAt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, dependentExecutionId));
+    if (!dependentExecution) throw new Error("Dependent execution was not persisted");
+    await db.update(aiExecutionsTable)
+      .set({ completedAt: dependentExecution.createdAt })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    const staleResult = await db.transaction((tx) => evaluateGoalCompletion(tx, {
+      goalId: fixture.goalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+    expect(staleResult).toBe(false);
+  });
+
+  it("rejects Goal and Mission completion when a predecessor's World State proof is stale", async () => {
+    const fixture = await createDependencyProofFixture({ staleWorldState: true });
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+
+    const goalAllowed = await db.transaction((tx) => evaluateGoalCompletion(tx, {
+      goalId: fixture.goalId,
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+    expect(goalAllowed).toBe(false);
+
+    const missionEvaluation = await db.transaction((tx) => evaluateMissionCompletion(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+    expect(missionEvaluation.allowed).toBe(false);
+    expect(missionEvaluation.missingGoalIds).toContain(fixture.goalId);
   });
 
   it("accepts an observation only when its exact Episode scope and revision are current", async () => {

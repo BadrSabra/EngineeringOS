@@ -694,11 +694,25 @@ async function syncLinkedObjectiveState(
         deliveryReceipt: params.acceptanceProjection.deliveryReceipt,
       })
     : null;
+  const dependencyState = canonicalProof?.accepted
+    ? await (async () => {
+        const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
+        return evaluateGoalDependencyState(tx, mission, goal, {
+          targetExecutionId: params.executionId,
+        });
+      })()
+    : null;
+  const dependencyProofReady = !dependencyState || (
+    dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
+    && dependencyState.unprovenDependencies.length === 0
+  );
+  const goalProofAccepted = canonicalProof?.accepted === true && dependencyProofReady;
   const acceptanceProjection = params.acceptanceProjection
     ? {
         ...params.acceptanceProjection,
         verdict: params.outcome === "SUCCEEDED"
-          ? canonicalProof?.accepted === true ? "PROVEN" as const : "INCOMPLETE" as const
+          ? goalProofAccepted ? "PROVEN" as const : "INCOMPLETE" as const
           : params.acceptanceProjection.verdict,
       }
     : undefined;
@@ -710,17 +724,20 @@ async function syncLinkedObjectiveState(
     });
   }
 
-  const nextGoalStatus: ObjectiveGoalStatus = deriveLinkedGoalStatus({
-    outcome: params.outcome,
-    taskStatus: params.taskStatus,
-    retryable: params.retryable,
-    siblingTaskStatuses: siblingTasks
-      .filter((task) => task.id !== params.task.id)
-      .map((task) => task.status),
-    deliveryRequired,
-    deliveryReceipt: acceptanceProjection?.deliveryReceipt,
-    canonicalProofAccepted: canonicalProof?.accepted === true,
-  });
+  const nextGoalStatus: ObjectiveGoalStatus =
+    params.outcome === "SUCCEEDED" && canonicalProof?.accepted && !dependencyProofReady
+      ? "needs_replan"
+      : deriveLinkedGoalStatus({
+          outcome: params.outcome,
+          taskStatus: params.taskStatus,
+          retryable: params.retryable,
+          siblingTaskStatuses: siblingTasks
+            .filter((task) => task.id !== params.task.id)
+            .map((task) => task.status),
+          deliveryRequired,
+          deliveryReceipt: acceptanceProjection?.deliveryReceipt,
+          canonicalProofAccepted: goalProofAccepted,
+        });
 
   // A manually blocked/cancelled goal remains operator-owned. Automatic
   // execution may advance an active/recoverable goal but must not reopen it.
@@ -732,7 +749,9 @@ async function syncLinkedObjectiveState(
         status: nextGoalStatus,
         completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
         blockedReason: nextGoalStatus === "needs_replan"
-          ? params.acceptanceProjection?.reasonCode
+          ? !dependencyProofReady
+            ? "dependency_proof_unproven"
+            : params.acceptanceProjection?.reasonCode
             ? `Server-owned acceptance ${params.acceptanceProjection.reasonCode}; proof is not complete.`
             : `Execution ${params.outcome === "INTERRUPTED" ? "was cancelled" : "did not complete"}; review or retry the task.`
           : null,
@@ -927,6 +946,20 @@ async function syncWorkflowGoalProjection(
         deliveryRequired: goalRequiresDelivery(goal.outcomeContract, goal.nextAction),
       })
     : null;
+  const dependencyState = canonicalProof?.accepted && params.projection.finalPhase && missionForProof
+    ? await (async () => {
+        const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
+        return evaluateGoalDependencyState(tx, missionForProof, goal, {
+          targetExecutionId: params.executionId,
+        });
+      })()
+    : null;
+  const dependencyProofReady = !dependencyState || (
+    dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
+    && dependencyState.unprovenDependencies.length === 0
+  );
+  const goalProofAccepted = canonicalProof?.accepted === true && dependencyProofReady;
   await projectGoalAcceptance(tx, {
     goalId: goal.id,
     projectId: params.projectId,
@@ -936,7 +969,7 @@ async function syncWorkflowGoalProjection(
       outcome: params.acceptance.outcome as GoalAcceptanceProjection["outcome"],
       verdict: params.acceptance.outcome === "SUCCEEDED"
         && (params.projection.finalPhase
-          ? canonicalProof?.accepted === true
+          ? goalProofAccepted
           : evidenceComplete)
         ? "PROVEN"
         : params.acceptance.outcome === "FAILED"
@@ -969,7 +1002,11 @@ async function syncWorkflowGoalProjection(
   if (!params.projection.finalPhase) return;
 
   const nextGoalStatus: ObjectiveGoalStatus = params.acceptance.outcome === "SUCCEEDED"
-    ? canonicalProof?.accepted === true ? "completed" : "verifying"
+    ? goalProofAccepted
+      ? "completed"
+      : canonicalProof?.accepted && !dependencyProofReady
+        ? "needs_replan"
+        : "verifying"
     : params.acceptance.outcome === "INTERRUPTED"
       ? "needs_replan"
       : "failed";
@@ -980,7 +1017,11 @@ async function syncWorkflowGoalProjection(
       .set({
         status: nextGoalStatus,
         completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
-        blockedReason: nextGoalStatus === "completed" ? null : "Final workflow phase did not complete.",
+        blockedReason: nextGoalStatus === "completed"
+          ? null
+          : !dependencyProofReady
+            ? "dependency_proof_unproven"
+            : "Final workflow phase did not complete.",
         updatedAt: params.now,
       })
       .where(eq(aiGoalsTable.id, goal.id));

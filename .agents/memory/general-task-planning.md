@@ -38,6 +38,25 @@ parentage with execution prerequisites and make replan/recovery ambiguous.
 Goals in the existing waiting state, wake them through the durable dispatcher,
 and preserve old revision rows when a new replan Goal is created.
 
+Runtime eligibility must revalidate the complete active-revision dependency
+chain, not just direct edges or insertion-time validity. Every reference must
+resolve within the same Mission, the graph must be acyclic, each completed
+predecessor must retain current Canonical Proof, and its proof execution must
+complete strictly before the dependent execution starts. Invalid or stale
+chains block release and completion; a genuinely pending Goal remains a
+separate waiting state.
+
+**Why:** Foreign-Mission references, cycles, and stale predecessor proof can
+survive outside the normal edge-write path. A direct prerequisite's old
+completed status is not evidence that the full dependency chain was current
+when its dependent execution began.
+
+**How to apply:** Re-evaluate the chain under the Mission/Goal lock at dispatch,
+linked task start, Goal completion, Mission completion, and acceptance
+projection. Preserve existing attempt, scope, revision, Episode, and World
+State proof checks. Report an invalid chain as `dependency_proof_unproven`;
+never turn it into ordinary waiting or accepted completion.
+
 Chat-to-Mission conversion is an explicit server endpoint and UI action. It
 recomputes the server-owned preview, optionally binds to an owned user chat
 message, rejects stale plan hashes, and only then creates an active Mission.

@@ -22,6 +22,7 @@ import {
   aiExecutionAcceptancesTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
+  aiGoalDependenciesTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionsTable,
@@ -1986,7 +1987,7 @@ describe("real durable task execution lifecycle", () => {
         workflowExecutionId,
         workflowName: "Workflow W8 fixture",
         phaseName: "prepare",
-        phaseSteps: [],
+        phaseSteps: ["record phase boundary"],
         revision: now.toISOString(),
         completedPhaseNames: [],
         goalId,
@@ -4003,7 +4004,7 @@ describe("real durable task execution lifecycle", () => {
     try {
       await executeTaskLifecycle({
         taskId: fixture.taskId,
-        userId: "mission-revision-drift-test-user",
+        userId: "mission-effect-test-user",
         provider: { provider: "groq", apiKey: "fixture-provider" },
         trigger: "reconciliation",
         expectedStatuses: ["verifying"],
@@ -4227,6 +4228,124 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("does not start a linked task when its completed Goal dependency has no current proof", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const sourceGoalId = randomUUID();
+    const goalId = randomUUID();
+    const taskId = randomUUID();
+    const planRevision = "mission-dependency-admission-v1";
+    const now = new Date();
+    const rootPath = await mkdtemp(join("/tmp", "mission-dependency-admission-"));
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "mission-dependency-test-user",
+      name: `mission-dependency-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "mission-dependency-test-user",
+      title: "Dependency admission fixture",
+      intent: "Do not execute a dependent task without current ancestor proof",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: sourceGoalId,
+        missionId,
+        projectId,
+        title: "Completed but unproven prerequisite",
+        status: "completed",
+        successCriteria: { planRevision: { hash: planRevision } },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: goalId,
+        missionId,
+        projectId,
+        title: "Dependent Goal",
+        status: "queued",
+        successCriteria: { planRevision: { hash: planRevision } },
+        outcomeContract: { planRevision: { hash: planRevision } },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId,
+      projectId,
+      goalId,
+      dependsOnGoalId: sourceGoalId,
+      planRevision,
+      createdAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Dependent task",
+      prompt: "Run only after the prerequisite proof is current",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const executionCountBefore = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId: "mission-dependency-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "mission_dependency_proof_unproven",
+      });
+      const executionCountAfter = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      expect(executionCountAfter).toHaveLength(executionCountBefore.length);
+      const [task] = await db.select({ status: tasksTable.status })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId));
+      expect(task?.status).toBe("verifying");
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.missionId, missionId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
     }
   });
 });
