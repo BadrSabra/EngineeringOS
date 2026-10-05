@@ -9,6 +9,12 @@ Complete the remaining gap sequence in order: E1, then E2 through E8. Do not dec
 
 **How to apply:** Keep each stage's findings and validation scoped and recorded. If E2 remains partial, continue only E2 work and do not present E3–E8 as started.
 
+As of 2026-10-05, E2 is closed for the proof-bound World State materialization invariant: a pending transition reservation is allowed, but it must produce no fact, materialized transition, or WorldRevision before the complete bound proof chain passes. E3 begins with a forensic entry audit; this does not authorize implementation before its invariant and failure matrix are settled.
+
+**Why:** The user explicitly qualified the E2 boundary: durable pending work is not a materialized World State transition, while proof and revision authority remain fail-closed.
+
+**How to apply:** Do not reopen E2 because a pending reservation row exists. Keep manual `/git/push` receipt-only. For E3, first audit Canonical Proof producers and consumers, then scope a minimal implementation only after the failure matrix is reviewed.
+
 For Apply route crash tests, acceptance insertion and terminal execution update share one transaction. Killing the process while terminalization is blocked rolls back the inserted acceptance; do not describe a durable acceptance-before-terminal window. To isolate the terminal boundary, pause at acceptance insertion, acquire the execution-table lock from a second transaction, then release the acceptance pause so only the terminal update blocks. An earlier execution-table lock can block the request claim instead. Run the HTTP route in app-only child processes, stage the crash states, then use one full API startup to test recovery.
 
 **Why:** The transaction boundary makes acceptance atomic with terminal success, while early table locks can intercept unrelated claim writes and produce a false crash point. A single full startup after staging the cases tests real recovery without mixing startup workers into each route scenario.
