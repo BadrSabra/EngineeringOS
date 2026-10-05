@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
@@ -10,6 +11,7 @@ import {
   aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionHandoffsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
   db,
@@ -94,7 +96,10 @@ export type GoalDependencyState = {
 };
 export type MissionGoalContinuationDenial =
   | "mission_operator_owned"
+  | "mission_not_active"
+  | "mission_needs_replan"
   | "goal_operator_owned"
+  | "goal_needs_replan"
   | "goal_terminal"
   | "stale_plan_revision"
   | "dependency_failed"
@@ -567,23 +572,36 @@ export async function authorizeMissionGoalContinuation(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
   goal: typeof aiGoalsTable.$inferSelect,
-  options: { targetExecutionId?: string } = {},
+  options: {
+    targetExecutionId?: string;
+    allowDraftDependencyWait?: boolean;
+  } = {},
 ): Promise<MissionGoalContinuationAuthorization> {
   const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
     ? mission.autonomyPolicy.activePlanRevision
     : undefined;
   const goalRevision = goalPlanRevision(goal);
-  if (activePlanRevision && goalRevision && goalRevision !== activePlanRevision) {
-    return { allowed: false, reason: "stale_plan_revision" };
-  }
+  const draftDependencyWait = mission.status === "draft" && options.allowDraftDependencyWait === true;
   if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) {
     return { allowed: false, reason: "mission_operator_owned" };
+  }
+  if (mission.status === "draft" && !draftDependencyWait) {
+    return { allowed: false, reason: "mission_not_active" };
+  }
+  if (mission.status === "needs_replan") {
+    return { allowed: false, reason: "mission_needs_replan" };
   }
   if (["blocked", "waiting_for_approval"].includes(goal.status)) {
     return { allowed: false, reason: "goal_operator_owned" };
   }
+  if (goal.status === "needs_replan") {
+    return { allowed: false, reason: "goal_needs_replan" };
+  }
   if (["cancelled", "completed", "failed"].includes(goal.status)) {
     return { allowed: false, reason: "goal_terminal" };
+  }
+  if (activePlanRevision && goalRevision !== activePlanRevision) {
+    return { allowed: false, reason: "stale_plan_revision" };
   }
 
   const dependencyState = await loadGoalDependencyState(tx, mission, goal, options);
@@ -620,6 +638,15 @@ export async function authorizeMissionGoalContinuation(
       reason: "dependency_proof_unproven",
       dependencyState,
       dependency: dependencyState.unprovenDependencies[0],
+    };
+  }
+  if (draftDependencyWait) {
+    return {
+      allowed: false,
+      reason: dependencyState.dependencyGoals.some((dependency) => dependency.status !== "completed")
+        ? "dependencies_pending"
+        : "mission_not_active",
+      dependencyState,
     };
   }
   if (dependencyState.dependencyGoals.some((dependency) => dependency.status !== "completed")) {
@@ -1195,7 +1222,12 @@ async function recipeOperationIdentity(
 
 async function authorizeMissionRecipeDispatch(
   dispatch: RecipeDispatch,
-  execution?: { id: string; attempt?: number; sourceRevision?: string },
+  execution?: {
+    id: string;
+    attempt?: number;
+    sourceRevision?: string;
+    candidateWorkspace?: string | null;
+  },
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
   return db.transaction(async (tx) => {
     const [mission] = await tx
@@ -1281,14 +1313,67 @@ async function authorizeMissionRecipeDispatch(
     }
     const checkpoint = parseAiExecutionCheckpoint(durableExecution.checkpoint);
     const binding = checkpoint?.recipeBinding;
+    let persistedRequest: Record<string, unknown> = {};
+    try {
+      persistedRequest = jsonRecord(JSON.parse(durableExecution.request));
+    } catch {
+      return { allowed: false, reason: "execution_request_invalid" };
+    }
     if (
       !binding
       || binding.projectId !== dispatch.projectId
       || binding.operationId !== dispatch.operationId
       || (binding.candidateIdentity ?? null) !== (dispatch.action.candidateIdentity ?? null)
       || JSON.stringify(binding.approvedPaths) !== JSON.stringify(dispatch.action.approvedPaths)
+      || !["planned", "queued"].includes(binding.phase)
+      || persistedRequest.projectId !== dispatch.projectId
+      || persistedRequest.operationId !== dispatch.operationId
+      || persistedRequest.message !== `recipe:${dispatch.operationId}`
+      || persistedRequest.workspaceRevision !== binding.sourceRevision
+      || (
+        durableExecution.baseRevision
+        && durableExecution.baseRevision !== binding.sourceRevision
+      )
     ) {
       return { allowed: false, reason: "recipe_binding_changed" };
+    }
+    if (dispatch.action.candidateIdentity) {
+      const requestWorkspaceRoot = typeof persistedRequest.workspaceRoot === "string"
+        ? persistedRequest.workspaceRoot
+        : undefined;
+      if (
+        typeof binding.candidateWorkspace !== "string"
+        || !binding.candidateWorkspace
+        || !requestWorkspaceRoot
+        || (
+          execution?.candidateWorkspace !== undefined
+          && execution.candidateWorkspace !== binding.candidateWorkspace
+        )
+      ) {
+        return { allowed: false, reason: "candidate_workspace_changed" };
+      }
+      try {
+        const [checkpointCandidateRoot, requestWorkspace] = await Promise.all([
+          realpath(binding.candidateWorkspace),
+          realpath(requestWorkspaceRoot),
+        ]);
+        if (checkpointCandidateRoot !== requestWorkspace) {
+          return { allowed: false, reason: "candidate_workspace_changed" };
+        }
+      } catch {
+        return { allowed: false, reason: "candidate_workspace_unavailable" };
+      }
+    } else if ((binding.candidateWorkspace ?? null) !== null) {
+      return { allowed: false, reason: "candidate_workspace_changed" };
+    }
+    if (
+      execution?.sourceRevision
+      && (
+        binding.sourceRevision !== execution.sourceRevision
+        || persistedRequest.workspaceRevision !== execution.sourceRevision
+      )
+    ) {
+      return { allowed: false, reason: "execution_revision_changed" };
     }
     if (
       execution.sourceRevision
@@ -1783,6 +1868,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           id: executionId,
           attempt,
           sourceRevision,
+          candidateWorkspace: candidate?.candidateWorkspace ?? null,
         });
         return authorization.allowed;
       },
@@ -1991,6 +2077,13 @@ export async function runMissionGoal(params: {
   userId: string;
   trigger: MissionGoalRunTrigger;
   delegation?: MissionDelegationBinding;
+  expectedHandoffBinding?: {
+    handoffId: string;
+    missionId: string;
+    projectId: string;
+    planRevision: string;
+    dispatchGoalIds: string[];
+  };
 }): Promise<MissionGoalRunResult> {
   const decision = await db.transaction(async (tx) => {
     const [goalIdentity] = await tx
@@ -2031,10 +2124,82 @@ export async function runMissionGoal(params: {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
     }
 
+    if (params.expectedHandoffBinding) {
+      const [handoff] = await tx
+        .select()
+        .from(aiMissionHandoffsTable)
+        .where(and(
+          eq(aiMissionHandoffsTable.id, params.expectedHandoffBinding.handoffId),
+          eq(aiMissionHandoffsTable.dispatchStatus, "pending"),
+        ))
+        .for("update");
+      const planGoals = handoff?.activationPlan?.goals;
+      const validPlanGoals = Array.isArray(planGoals)
+        && planGoals.every((planGoal) => (
+          Boolean(planGoal)
+          && typeof planGoal.goalId === "string"
+          && Boolean(planGoal.goalId.trim())
+          && Array.isArray(planGoal.dependencies)
+          && planGoal.dependencies.every((dependency) => typeof dependency === "string")
+        ));
+      const durableRootGoalIds = validPlanGoals
+        ? planGoals
+          .filter((planGoal) => planGoal.dependencies.length === 0)
+          .map((planGoal) => planGoal.goalId)
+        : [];
+      if (
+        !handoff
+        || handoff.missionId !== params.expectedHandoffBinding.missionId
+        || handoff.projectId !== params.expectedHandoffBinding.projectId
+        || handoff.userId !== params.userId
+        || handoff.planHash !== params.expectedHandoffBinding.planRevision
+        || handoff.activationPlan.revision !== params.expectedHandoffBinding.planRevision
+        || !validPlanGoals
+        || JSON.stringify(handoff.dispatchGoalIds)
+          !== JSON.stringify(params.expectedHandoffBinding.dispatchGoalIds)
+        || JSON.stringify(durableRootGoalIds)
+          !== JSON.stringify(params.expectedHandoffBinding.dispatchGoalIds)
+        || !durableRootGoalIds.includes(goal.id)
+      ) {
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: "handoff_identity_changed",
+        };
+      }
+    }
+
     const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
       ? mission.autonomyPolicy.activePlanRevision
       : undefined;
     const goalRevision = goalPlanRevision(goal);
+    if (
+      params.expectedHandoffBinding
+      && (
+        mission.id !== params.expectedHandoffBinding.missionId
+        || mission.projectId !== params.expectedHandoffBinding.projectId
+      )
+    ) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        reason: "handoff_mission_identity_changed",
+      };
+    }
+    if (
+      params.expectedHandoffBinding
+      && (
+        !params.expectedHandoffBinding.planRevision
+        || activePlanRevision !== params.expectedHandoffBinding.planRevision
+        || goalRevision !== params.expectedHandoffBinding.planRevision
+      )
+    ) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        reason: "handoff_plan_revision_changed",
+      };
+    }
 
     const delegation = buildMissionDelegationBinding({
       missionId: mission.id,
@@ -2056,7 +2221,15 @@ export async function runMissionGoal(params: {
       }
     }
 
-    const continuation = await authorizeMissionGoalContinuation(tx, mission, goal);
+    const draftWaitAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    const allowDraftDependencyWait = params.trigger === "resume"
+      && draftWaitAction.success
+      && draftWaitAction.data.kind === "recipe"
+      && draftWaitAction.data.recipeId === "delivery.push.github"
+      && typeof draftWaitAction.data.proposalId === "string";
+    const continuation = await authorizeMissionGoalContinuation(tx, mission, goal, {
+      allowDraftDependencyWait,
+    });
     if (!continuation.allowed) {
       const dependencyState = continuation.dependencyState;
       if (continuation.reason === "stale_plan_revision") {
@@ -2073,6 +2246,13 @@ export async function runMissionGoal(params: {
           : { status: "completed" as const, goalId: goal.id, reason: continuation.reason };
       }
       if (continuation.reason === "goal_operator_owned") {
+        return { status: "blocked" as const, goalId: goal.id, reason: continuation.reason };
+      }
+      if (
+        continuation.reason === "mission_not_active"
+        || continuation.reason === "mission_needs_replan"
+        || continuation.reason === "goal_needs_replan"
+      ) {
         return { status: "blocked" as const, goalId: goal.id, reason: continuation.reason };
       }
       if (continuation.reason === "dependency_failed" && dependencyState) {

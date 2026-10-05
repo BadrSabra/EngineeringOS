@@ -21,12 +21,50 @@ export async function dispatchMissionChatHandoff(handoffId: string) {
   ) {
     throw new Error("Mission handoff outbox contains invalid Goal identities.");
   }
+  const activationPlan = handoff.activationPlan;
+  const activationGoals = activationPlan?.goals;
+  if (
+    !handoff.missionId
+    || !handoff.projectId
+    || !handoff.planHash?.trim()
+    || !activationPlan
+    || activationPlan.revision !== handoff.planHash
+    || !Array.isArray(activationGoals)
+    || activationGoals.length === 0
+    || activationGoals.some((goal) => (
+      !goal
+      || typeof goal.goalId !== "string"
+      || !goal.goalId.trim()
+      || !Array.isArray(goal.dependencies)
+      || goal.dependencies.some((dependency) => typeof dependency !== "string")
+    ))
+  ) {
+    throw new Error("Mission handoff does not contain a valid persisted activation plan.");
+  }
+  const expectedGoalIds = activationGoals
+    .filter((goal) => goal.dependencies.length === 0)
+    .map((goal) => goal.goalId);
+  if (
+    expectedGoalIds.length === 0
+    || new Set(expectedGoalIds).size !== expectedGoalIds.length
+    || new Set(handoff.dispatchGoalIds).size !== handoff.dispatchGoalIds.length
+    || JSON.stringify(handoff.dispatchGoalIds) !== JSON.stringify(expectedGoalIds)
+  ) {
+    throw new Error("Mission handoff outbox no longer matches its persisted activation plan.");
+  }
 
   const runs = await Promise.all(handoff.dispatchGoalIds.map((goalId) =>
     runMissionGoal({
       goalId,
       userId: handoff.userId,
       trigger: "activation",
+      expectedHandoffBinding: {
+        handoffId: handoff.id,
+        missionId: handoff.missionId,
+        projectId: handoff.projectId,
+        planRevision: handoff.planHash,
+        dispatchGoalIds: expectedGoalIds,
+      },
     }),
   ));
 
