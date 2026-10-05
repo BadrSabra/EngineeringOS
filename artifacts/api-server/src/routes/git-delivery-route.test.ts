@@ -78,6 +78,7 @@ async function createCommittedDeliveryFixture() {
   ]);
   const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
   const parentHash = (await git(rootPath, ["rev-parse", `${commitHash}^`])).stdout.trim();
+  const parentTreeHash = (await git(rootPath, ["rev-parse", `${parentHash}^{tree}`])).stdout.trim();
   const gitTreeHash = (await git(rootPath, ["rev-parse", `${commitHash}^{tree}`])).stdout.trim();
 
   await db.insert(projectsTable).values({
@@ -151,6 +152,7 @@ async function createCommittedDeliveryFixture() {
     rootPath,
     commitHash,
     parentHash,
+    parentTreeHash,
     gitTreeHash,
     committedTreeHash,
   };
@@ -189,12 +191,19 @@ describe("GitHub-shaped Git push route", () => {
       remoteCommitHash: fixture.commitHash,
       changedPaths: ["verified.ts"],
     });
-    branchState.mockResolvedValue({
-      commitHash: fixture.commitHash,
-      treeHash: fixture.gitTreeHash,
-      message: `EngineeringOS: main\n\nEngineeringOS-Operation: ${fixture.operationId}`,
-      parentHashes: [fixture.parentHash],
-    });
+    branchState
+      .mockResolvedValueOnce({
+        commitHash: fixture.parentHash,
+        treeHash: fixture.parentTreeHash,
+        message: "initial",
+        parentHashes: [],
+      })
+      .mockResolvedValue({
+        commitHash: fixture.commitHash,
+        treeHash: fixture.gitTreeHash,
+        message: `EngineeringOS: main\n\nEngineeringOS-Operation: ${fixture.operationId}`,
+        parentHashes: [fixture.parentHash],
+      });
 
     const first = await request(app)
       .post(`/api/projects/${fixture.projectId}/git/push`)
@@ -208,7 +217,7 @@ describe("GitHub-shaped Git push route", () => {
       remoteCommitHash: fixture.commitHash,
     });
     expect(pushed).toHaveBeenCalledTimes(1);
-    expect(branchState).toHaveBeenCalledTimes(1);
+    expect(branchState).toHaveBeenCalledTimes(2);
     expect(pushed.mock.calls[0]?.[0]).toMatchObject({
       branch: "main",
       commitHash: fixture.commitHash,
@@ -267,12 +276,19 @@ describe("GitHub-shaped Git push route", () => {
       "GITHUB_PUSH_REMOTE_DRIFT",
       409,
     ));
-    branchState.mockResolvedValue({
-      commitHash: "unrelated-remote-commit",
-      treeHash: "unrelated-remote-tree",
-      message: "Unrelated remote work",
-      parentHashes: ["unrelated-parent"],
-    });
+    branchState
+      .mockResolvedValueOnce({
+        commitHash: fixture.parentHash,
+        treeHash: fixture.parentTreeHash,
+        message: "initial",
+        parentHashes: [],
+      })
+      .mockResolvedValue({
+        commitHash: "unrelated-remote-commit",
+        treeHash: "unrelated-remote-tree",
+        message: "Unrelated remote work",
+        parentHashes: ["unrelated-parent"],
+      });
 
     const response = await request(app)
       .post(`/api/projects/${fixture.projectId}/git/push`)
@@ -286,7 +302,7 @@ describe("GitHub-shaped Git push route", () => {
       commitHash: fixture.commitHash,
     });
     expect(pushed).toHaveBeenCalledTimes(1);
-    expect(branchState).toHaveBeenCalledTimes(1);
+    expect(branchState).toHaveBeenCalledTimes(2);
 
     const receipts = await db
       .select({ id: eventsTable.id })

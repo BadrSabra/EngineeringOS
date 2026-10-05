@@ -50,6 +50,8 @@ export const LockNamespace = {
   DISCOVERY_SESSION: 1004,
   /** Guards competing phase transitions on the same workflow. */
   WORKFLOW_TRANSITION: 1005,
+  /** Guards one verified GitHub delivery operation during its remote mutation. */
+  GITHUB_DELIVERY: 1006,
 } as const;
 
 /**

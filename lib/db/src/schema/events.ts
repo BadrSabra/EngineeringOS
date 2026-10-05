@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, jsonb, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { tasksTable } from "./tasks.js";
 import { workflowsTable } from "./workflows.js";
@@ -56,6 +57,17 @@ export const eventsTable = pgTable("events", {
   // Single-column correlationId index — kept for cross-project audit trail
   // lookups (e.g. "show me everything from correlation X regardless of project").
   index("idx_events_correlation_id").on(t.correlationId),
+  // Partial uniqueness is intentionally limited to verified GitHub delivery
+  // records; generic/manual activity events may share the same correlation ID.
+  uniqueIndex("uq_events_github_delivery_attempt")
+    .on(t.projectId, t.correlationId)
+    .where(sql`${t.type} = 'GitPushAttemptStarted' AND ${t.correlationId} IS NOT NULL`),
+  uniqueIndex("uq_events_github_delivery_receipt")
+    .on(t.projectId, t.correlationId)
+    .where(sql`${t.type} = 'GitPushed' AND ${t.correlationId} IS NOT NULL AND ${t.payload}->>'operationMarker' IS NOT NULL`),
+  uniqueIndex("uq_events_github_delivery_recovery")
+    .on(t.projectId, t.correlationId)
+    .where(sql`${t.type} = 'GitPushRecoveryRequired' AND ${t.correlationId} IS NOT NULL`),
 ]);
 
 export type InsertEvent = typeof eventsTable.$inferInsert;

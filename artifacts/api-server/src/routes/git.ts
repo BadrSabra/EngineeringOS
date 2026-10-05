@@ -26,7 +26,7 @@ import {
   auditLogsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { runScanJob } from "../lib/scan-runner.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
@@ -1148,6 +1148,9 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
             recoveryState: "REQUIRED",
             recoveryReason: "ROUTE_CAUGHT_UNCONFIRMED_PUSH",
           },
+        }).onConflictDoNothing({
+          target: [eventsTable.projectId, eventsTable.correlationId],
+          where: sql`${eventsTable.type} = 'GitPushRecoveryRequired' AND ${eventsTable.correlationId} IS NOT NULL`,
         }).catch((persistError) => {
           logger.error({ err: persistError, projectId: project.id, correlationId }, "failed to persist Git push recovery receipt");
         });

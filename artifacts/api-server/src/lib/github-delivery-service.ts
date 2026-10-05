@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   db,
@@ -15,6 +15,8 @@ import {
   pushLocalCommitToGitHub,
 } from "./github-connector.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
+import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 2 * 1024 * 1024;
@@ -237,7 +239,7 @@ async function recordGitHubPush(params: {
   changedPaths: string[];
   deliveryProof?: DeliveryProof;
 }): Promise<void> {
-  const receiptId = crypto.randomUUID();
+  let receiptId: string = crypto.randomUUID();
   const receiptPayload = {
     proposalId: params.proposalId,
     operationId: params.operationId,
@@ -264,16 +266,77 @@ async function recordGitHubPush(params: {
         eq(eventsTable.type, "GitPushAttemptStarted"),
         eq(eventsTable.correlationId, params.operationId),
       ))
+      .orderBy(eventsTable.id)
       .for("update");
-    await tx.insert(eventsTable).values({
-      id: receiptId,
-      type: "GitPushed",
-      projectId: params.projectId,
-      severity: "info",
-      message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
-      correlationId: params.operationId,
-      payload: receiptPayload,
+
+    const readVerifiedReceipts = () => tx
+      .select({ id: eventsTable.id, payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, params.projectId),
+        eq(eventsTable.type, "GitPushed"),
+        eq(eventsTable.correlationId, params.operationId),
+      ));
+    const receiptMatches = (candidate: Record<string, unknown> | undefined) => {
+      if (!candidate) return false;
+      return Object.entries(receiptPayload)
+        .filter(([key]) => key !== "changedPaths")
+        .every(([key, value]) => candidate[key] === value);
+    };
+    const verifiedReceipt = (await readVerifiedReceipts()).find((row) => {
+      const candidate = row.payload && typeof row.payload === "object"
+        ? row.payload as Record<string, unknown>
+        : undefined;
+      return candidate?.operationMarker === operationMarker(params.operationId);
     });
+
+    if (verifiedReceipt) {
+      const existingPayload = verifiedReceipt.payload && typeof verifiedReceipt.payload === "object"
+        ? verifiedReceipt.payload as Record<string, unknown>
+        : undefined;
+      if (!receiptMatches(existingPayload)) {
+        throw new GitHubConnectorError(
+          "GitHub delivery receipt identity conflicts with the verified operation.",
+          "GITHUB_DELIVERY_RECEIPT_CONFLICT",
+          409,
+        );
+      }
+      receiptId = verifiedReceipt.id;
+    } else {
+      const [insertedReceipt] = await tx.insert(eventsTable).values({
+        id: receiptId,
+        type: "GitPushed",
+        projectId: params.projectId,
+        severity: "info",
+        message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
+        correlationId: params.operationId,
+        payload: receiptPayload,
+      }).onConflictDoNothing({
+        target: [eventsTable.projectId, eventsTable.correlationId],
+        where: sql`${eventsTable.type} = 'GitPushed' AND ${eventsTable.correlationId} IS NOT NULL AND ${eventsTable.payload}->>'operationMarker' IS NOT NULL`,
+      }).returning({ id: eventsTable.id });
+      if (insertedReceipt) {
+        receiptId = insertedReceipt.id;
+      } else {
+        const racedReceipt = (await readVerifiedReceipts()).find((row) => {
+          const candidate = row.payload && typeof row.payload === "object"
+            ? row.payload as Record<string, unknown>
+            : undefined;
+          return candidate?.operationMarker === operationMarker(params.operationId);
+        });
+        const racedPayload = racedReceipt?.payload && typeof racedReceipt.payload === "object"
+          ? racedReceipt.payload as Record<string, unknown>
+          : undefined;
+        if (!racedReceipt || !receiptMatches(racedPayload)) {
+          throw new GitHubConnectorError(
+            "GitHub delivery receipt identity conflicts with the verified operation.",
+            "GITHUB_DELIVERY_RECEIPT_CONFLICT",
+            409,
+          );
+        }
+        receiptId = racedReceipt.id;
+      }
+    }
 
     const recoveryMarkers = await tx
       .select({ id: eventsTable.id, payload: eventsTable.payload })
@@ -349,6 +412,20 @@ async function recordGitHubPushAttempt(params: {
     remoteParentCountBefore: params.remoteParentCountBefore,
     operationMarker: operationMarker(params.operationId),
   };
+  const persistAttempt = async () => db.insert(eventsTable).values({
+    id: crypto.randomUUID(),
+    type: "GitPushAttemptStarted",
+    projectId: params.projectId,
+    severity: "info",
+    message: "Verified GitHub delivery attempt recorded before remote mutation.",
+    correlationId: params.operationId,
+    payload,
+  }).onConflictDoNothing({
+    target: [eventsTable.projectId, eventsTable.correlationId],
+    where: sql`${eventsTable.type} = 'GitPushAttemptStarted' AND ${eventsTable.correlationId} IS NOT NULL`,
+  });
+  await persistAttempt();
+
   const existing = await findOperationEvent(
     params.projectId,
     "GitPushAttemptStarted",
@@ -370,16 +447,11 @@ async function recordGitHubPushAttempt(params: {
       409,
     );
   }
-
-  await db.insert(eventsTable).values({
-    id: crypto.randomUUID(),
-    type: "GitPushAttemptStarted",
-    projectId: params.projectId,
-    severity: "info",
-    message: "Verified GitHub delivery attempt recorded before remote mutation.",
-    correlationId: params.operationId,
-    payload,
-  });
+  throw new GitHubConnectorError(
+    "GitHub delivery attempt could not be durably recorded.",
+    "GITHUB_DELIVERY_ATTEMPT_NOT_PERSISTED",
+    503,
+  );
 }
 
 function assertRemoteAfterState(
@@ -512,6 +584,7 @@ export async function executeVerifiedGitHubDelivery(
     return blocked("GitHub delivery requires recorded commit evidence for this proposal.");
   }
 
+  let deliveryLock: Awaited<ReturnType<typeof tryAdvisoryLock>> | undefined;
   try {
     if (params.signal?.aborted) return blocked("GitHub delivery was cancelled before the remote mutation.");
     const liveTree = await hashDeliveryTree(params.rootPath);
@@ -573,6 +646,17 @@ export async function executeVerifiedGitHubDelivery(
       || remoteBeforeState.treeHash !== localIdentity.parentTreeHash
     ) {
       return blocked("The GitHub branch changed after the verified delivery parent was recorded.");
+    }
+    // Serialize only the operation's mutation/finalization section. This is a
+    // PostgreSQL session advisory lock, not a transaction held over GitHub I/O.
+    // A competing retry may still perform read-only remote verification above,
+    // but only the lock owner may create remote objects or update the ref.
+    deliveryLock = await tryAdvisoryLock(
+      LockNamespace.GITHUB_DELIVERY,
+      `${params.projectId}:${params.operationId}`,
+    );
+    if (!deliveryLock.acquired) {
+      return blocked("A verified GitHub delivery for this operation is already in progress; retry after it finishes.");
     }
     if (params.executionId || params.executionAttempt !== undefined) {
       if (
@@ -741,5 +825,16 @@ export async function executeVerifiedGitHubDelivery(
       };
     }
     return { status: "unavailable", detail: "GitHub delivery could not be completed." };
+  } finally {
+    if (deliveryLock?.acquired) {
+      try {
+        await deliveryLock.release();
+      } catch (error) {
+        logger.error(
+          { err: error, projectId: params.projectId, operationId: params.operationId },
+          "failed to release verified GitHub delivery advisory lock",
+        );
+      }
+    }
   }
 }

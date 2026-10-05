@@ -66,7 +66,7 @@ import {
   aiChangeProposalsTable,
   eventsTable,
 } from "@workspace/db";
-import { and, eq, inArray, isNull, lt, or, count } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, count, sql } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -385,6 +385,9 @@ async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
             recoveryState: "REQUIRED",
             recoveryReason: "STARTUP_FOUND_ATTEMPT_WITHOUT_EXACT_RECEIPT",
           },
+        }).onConflictDoNothing({
+          target: [eventsTable.projectId, eventsTable.correlationId],
+          where: sql`${eventsTable.type} = 'GitPushRecoveryRequired' AND ${eventsTable.correlationId} IS NOT NULL`,
         });
         return true;
       });

@@ -32,3 +32,9 @@ For verified GitHub delivery, persist the operation-bound attempt identity befor
 **Why:** A durable pre-mutation intent closes the crash window without blind startup retries, while the shared row lock keeps concurrent startup and delivery completion from contradicting each other.
 
 **How to apply:** Keep startup recovery decision-only and reuse the existing recovery event. Preserve exact remote verification in the service; never let the attempt event or the recovery marker act as delivery proof.
+
+Concurrent delivery needs separate operation serialization and durable event uniqueness. Keep remote mutation and receipt finalization within an operation-scoped PostgreSQL session lock, but outside a database transaction that spans GitHub I/O. Use semantic partial uniqueness for attempts, receipts, and recovery markers; verified receipt uniqueness is keyed by the operation marker so manual Git events remain independent.
+
+**Why:** Lookup-then-insert races can duplicate remote object creation, attempts, or receipts, while the shared events table also stores unrelated manual activity.
+
+**How to apply:** Add concurrency protection only to the verified delivery path. Preserve the expected-parent fence, make receipt finalization idempotent, and avoid broad uniqueness on all correlated events.
