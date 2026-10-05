@@ -38,3 +38,9 @@ Canonical Apply acceptance is a separate artifact derived from the durable `ACTI
 **Why:** The Apply effect proves that the approved candidate was promoted; it does not prove live project state or Mission D2. A lost HTTP response can trigger an exact retry, but proposal status and journal rows are bookkeeping, not proof; trusting either alone can turn a retry into false success or repeat a side effect.
 
 **How to apply:** Reconstruct and compare the artifact from durable rows during acceptance and every Canonical Proof load. For response replay, match the request and applied change set, bind journal correlation separately from execution-attempt identity, reload the prior acceptance, and use duplicate finalization. Keep D2 on its separate path through direct live-project observations and the transition bound to the active Mission plan.
+
+Before materializing or recovering an Apply Changes World Transition, re-establish the persisted project root and hash its current tree against the promoted candidate. Fresh observation flags do not prove that the workspace stayed unchanged after those observations.
+
+**Why:** A later workspace edit can coexist with an accepted effect bundle; trusting retained observations alone could materialize unrelated bytes as part of the approved change.
+
+**How to apply:** Recheck the live candidate tree on every finalization attempt before the World State transaction. Retry transient database transaction failures while preserving acceptance/effect evidence and rolling back facts; keep binding, attempt, Episode, observation, and live-tree mismatches fail-closed.

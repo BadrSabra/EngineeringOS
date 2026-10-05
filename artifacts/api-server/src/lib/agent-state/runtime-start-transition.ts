@@ -10,6 +10,7 @@ import {
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  projectsTable,
   aiWorldFactsTable,
   aiWorldTransitionsTable,
   db,
@@ -19,6 +20,8 @@ import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
 import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
 import { logger } from "../logger.js";
+import { establishProjectRoot } from "../project-root.js";
+import { hashDeliveryTree } from "../delivery-workspace.js";
 
 export type RuntimeStartTransitionIntent = {
   projectId: string;
@@ -1301,6 +1304,27 @@ function applyRequirementMatches(value: unknown, expected: {
     && requirement.to === "applied";
 }
 
+function hasRetryablePostgresTransactionError(error: unknown): boolean {
+  const retryableSqlStates = new Set([
+    "40001", // serialization_failure
+    "40P01", // deadlock_detected
+    "55P03", // lock_not_available
+    "57P01", // admin_shutdown
+    "57P02", // crash_shutdown
+    "57P03", // cannot_connect_now
+    "08000", // connection_exception
+    "08003", // connection_does_not_exist
+    "08006", // connection_failure
+  ]);
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    const wrapped = current as { code?: unknown; cause?: unknown };
+    if (typeof wrapped.code === "string" && retryableSqlStates.has(wrapped.code)) return true;
+    current = wrapped.cause;
+  }
+  return false;
+}
+
 type ApplyTransitionClaim =
   | { kind: "claimed"; transition: typeof aiWorldTransitionsTable.$inferSelect; leaseUntil: Date; binding: ApplyBinding }
   | { kind: "materialized"; worldRevision: string }
@@ -1451,16 +1475,22 @@ async function claimApplyChangesTransition(input: {
       }).where(eq(aiWorldTransitionsTable.id, transition.id));
       return { kind: "terminal_failed", failureCode: code };
     }
+    const leaseUntil = new Date(now.getTime() + 60_000);
     const claimed = await tx.update(aiWorldTransitionsTable).set({
       status: "retrying",
-      nextRetryAt: new Date(now.getTime() + 60_000),
+      nextRetryAt: leaseUntil,
       updatedAt: now,
     }).where(and(
       eq(aiWorldTransitionsTable.id, transition.id),
       inArray(aiWorldTransitionsTable.status, ["pending", "retrying"]),
-    )).returning({ id: aiWorldTransitionsTable.id });
+    )).returning({
+      id: aiWorldTransitionsTable.id,
+      leaseUntil: aiWorldTransitionsTable.nextRetryAt,
+    });
     if (claimed.length === 0) return { kind: "pending" };
-    return { kind: "claimed", transition, leaseUntil: new Date(now.getTime() + 60_000), binding };
+    const claimedLeaseUntil = claimed[0]?.leaseUntil;
+    if (!claimedLeaseUntil) return { kind: "pending" };
+    return { kind: "claimed", transition, leaseUntil: claimedLeaseUntil, binding };
   });
 }
 
@@ -1515,6 +1545,22 @@ export async function finalizeApplyChangesTransition(input: {
         changeSetHash: proposal.changeSetHash ?? "",
       })) {
       throw new Error("apply_transition_goal_or_proposal_mismatch");
+    }
+    const [project] = await db.select({ rootPath: projectsTable.rootPath })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, input.projectId))
+      .limit(1);
+    if (!project) throw new Error("apply_transition_project_missing");
+    const root = await establishProjectRoot(project.rootPath);
+    if (!root.ok) throw new Error("apply_transition_project_root_unavailable");
+    let liveTreeHash: string;
+    try {
+      liveTreeHash = await hashDeliveryTree(root.canonicalPath);
+    } catch {
+      throw new Error("apply_transition_live_tree_unavailable");
+    }
+    if (liveTreeHash !== binding.promotedTreeHash) {
+      throw new Error("apply_transition_live_tree_mismatch");
     }
     const beforeIds = unique(transition.beforeObservationIds as string[]);
     const afterIds = unique(transition.afterObservationIds as string[]);
@@ -1630,7 +1676,8 @@ export async function finalizeApplyChangesTransition(input: {
     const message = error instanceof Error ? error.message : "";
     const retryable = message.includes("parent_revision_mismatch")
       || message.includes("world_state_materialization_failed")
-      || message.includes("owner_stale");
+      || message.includes("owner_stale")
+      || hasRetryablePostgresTransactionError(error);
     const code = message.startsWith("apply_transition_") ? message.slice(0, 100) : "world_state_materialization_failed";
     if (retryable && transition.retryCount < 8) {
       const scheduled = await markRetryableFailure(transition.id, code, leaseUntil, transition.retryCount);

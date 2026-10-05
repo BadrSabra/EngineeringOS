@@ -1,4 +1,6 @@
 import { and, eq } from "drizzle-orm";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   aiAgentEffectBundlesTable,
@@ -43,6 +45,7 @@ import {
   materializeWorldStateForProject,
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
+import { hashDeliveryTree } from "../delivery-workspace.js";
 import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
 import {
   APPLY_CHANGE_CAPABILITY_ID,
@@ -51,9 +54,13 @@ import {
 
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
+const createdWorkspaceRoots: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  for (const rootPath of createdWorkspaceRoots.splice(0)) {
+    await rm(rootPath, { recursive: true, force: true });
+  }
   for (const executionId of createdExecutionIds.splice(0)) {
     await db.delete(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
@@ -432,8 +439,18 @@ describe("runtime.start transition retry scheduling", () => {
     const reportGoalId = crypto.randomUUID();
     const planRevision = "f".repeat(64);
     const baseRevision = fixture.sourceRevision;
-    const baseTreeHash = "e".repeat(64);
-    const candidateTreeHash = "b".repeat(64);
+    const rootPath = path.join(
+      process.cwd(),
+      ".runtime-start-transition-test",
+      fixture.projectId,
+    );
+    await mkdir(path.join(rootPath, "src"), { recursive: true });
+    const promotedFile = path.join(rootPath, "src", "target.ts");
+    await writeFile(promotedFile, "export const value = 'before';\n", "utf8");
+    const baseTreeHash = await hashDeliveryTree(rootPath);
+    await writeFile(promotedFile, "export const value = 'after';\n", "utf8");
+    const candidateTreeHash = await hashDeliveryTree(rootPath);
+    createdWorkspaceRoots.push(rootPath);
     const changeSetHash = "d".repeat(64);
     const beforeObservationId = crypto.randomUUID();
     const afterObservationId = crypto.randomUUID();
