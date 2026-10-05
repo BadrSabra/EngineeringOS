@@ -27,6 +27,7 @@ import {
   buildApplyChangeEffectProofExpectation,
 } from "./agent-state/apply-change-effect.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
+import { getProjectWorldState } from "./agent-state/world-state.js";
 
 const { scheduleTaskExecution } = vi.hoisted(() => ({
   scheduleTaskExecution: vi.fn(),
@@ -73,6 +74,8 @@ async function createApplyChangesFixture() {
   const resultingWorldRevision = "2".repeat(64);
   const operationId = `operation:${executionId}`;
   const evidenceSnapshotId = `apply-evidence:${executionId}`;
+  const episodeScope = { kind: "project" };
+  const taskScope = "project";
   const sourceBody = "Source retained before the approved change.\n";
   const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
   const applyEffectExpectation = buildApplyChangeEffectProofExpectation({
@@ -288,12 +291,16 @@ async function createApplyChangesFixture() {
     worldRevision: parentWorldRevision,
     planRevision,
     intentKind: "recipe",
-    scope: { kind: "project" },
+    scope: episodeScope,
+    observationRefs: [effectBeforeObservationId, effectAfterObservationId],
     workerId: "test-worker",
     leaseUntil: new Date(Date.now() + 60_000),
     idempotencyKey: `episode:${episodeId}`,
+    state: "completed",
+    verdict: "achieved",
     createdAt: now,
     updatedAt: now,
+    closedAt: now,
   });
   await db.insert(aiAgentEffectBundlesTable).values({
     id: effectBundleId,
@@ -356,7 +363,7 @@ async function createApplyChangesFixture() {
       projectId,
       executionId,
       episodeId,
-      taskScope: "project",
+      taskScope,
       environmentRevisionKey: `revision:${environmentRevision}`,
       kind: "direct_observation",
       provenance: "DIRECT_OBSERVATION",
@@ -390,7 +397,7 @@ async function createApplyChangesFixture() {
       projectId,
       executionId,
       episodeId,
-      taskScope: "project",
+      taskScope,
       environmentRevisionKey: `revision:${environmentRevision}`,
       kind: "direct_observation",
       provenance: "DIRECT_OBSERVATION",
@@ -424,7 +431,7 @@ async function createApplyChangesFixture() {
     effectBundleId,
     parentWorldRevision,
     resultingWorldRevision,
-    taskScope: "project",
+    taskScope,
     environmentRevisionKey: `revision:${environmentRevision}`,
     environmentRevision,
     freshness: "fresh",
@@ -447,6 +454,13 @@ async function createApplyChangesFixture() {
     createdAt: now,
     updatedAt: now,
   });
+  const resultingWorldState = await getProjectWorldState(projectId, {
+    taskScope,
+    environmentRevision,
+  });
+  await db.update(aiWorldTransitionsTable)
+    .set({ resultingWorldRevision: resultingWorldState.worldRevision, updatedAt: now })
+    .where(eq(aiWorldTransitionsTable.id, transitionId));
 
   return {
     projectId,

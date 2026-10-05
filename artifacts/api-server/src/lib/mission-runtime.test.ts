@@ -5,9 +5,11 @@ import {
   aiWorldFactsTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiAgentEpisodesTable,
   aiAgentEffectBundlesTable,
   aiAgentObservationsTable,
+  aiGoalDependenciesTable,
   aiGoalsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
@@ -28,6 +30,8 @@ import { createMissionEventEnvelope } from "./mission-events.js";
 import { buildMissionDelegationBinding } from "./mission-delegation.js";
 import { createHash } from "node:crypto";
 import { getProjectWorldState } from "./agent-state/world-state.js";
+import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
+import { buildExecutionProofProjection } from "./execution-proof.js";
 import { heavyJobQueue } from "./job-queue.js";
 
 const projectIds: string[] = [];
@@ -240,6 +244,293 @@ async function createRuntimeTransitionFixture(
   };
 }
 
+type DependencyProofFixtureOptions = {
+  proof?: boolean;
+  currentAttempt?: number;
+  rotateToAttempt?: number;
+  executionStatus?: "completed" | "running";
+  proofExecutionId?: string;
+  proofContractVersion?: number;
+  episode?: "missing" | "wrong_goal" | "wrong_project_revision" | "wrong_plan_revision" | "running";
+  observation?:
+    | "valid"
+    | "missing"
+    | "wrong_scope"
+    | "wrong_environment_revision"
+    | "wrong_project_revision"
+    | "stale";
+  staleWorldState?: boolean;
+};
+
+async function createDependencyProofFixture(
+  options: DependencyProofFixtureOptions = {},
+) {
+  const fixture = await createMissionFixture({
+    kind: "wait",
+    reason: "event",
+    wakeAt: null,
+  });
+  const sourceGoalId = randomUUID();
+  const executionId = randomUUID();
+  const episodeId = randomUUID();
+  const evidenceSnapshotId = randomUUID();
+  const observationId = randomUUID();
+  const operationId = `operation:${executionId}`;
+  const planRevision = "plan-e3.1";
+  const sourceRevision = "a".repeat(40);
+  const attempt = options.currentAttempt ?? 0;
+  const now = new Date();
+  const scope = { kind: "mission_goal" };
+  const episodeIdentity = {
+    id: episodeId,
+    projectId: fixture.projectId,
+    missionId: fixture.missionId,
+    goalId: sourceGoalId,
+    scope,
+  };
+  const taskScope = taskScopeIdentity(episodeIdentity);
+
+  await db.update(aiMissionsTable)
+    .set({ autonomyPolicy: { activePlanRevision: planRevision }, updatedAt: now })
+    .where(eq(aiMissionsTable.id, fixture.missionId));
+  await db.update(aiGoalsTable)
+    .set({
+      successCriteria: { planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      updatedAt: now,
+    })
+    .where(eq(aiGoalsTable.id, fixture.goalId));
+  await db.insert(aiGoalsTable).values({
+    id: sourceGoalId,
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    title: "Proof prerequisite",
+    status: "completed",
+    nextAction: { kind: "wait", reason: "event", wakeAt: null },
+    successCriteria: { planRevision: { hash: planRevision } },
+    outcomeContract: {
+      planRevision: { hash: planRevision },
+      acceptance: {
+        executionId: options.proofExecutionId ?? executionId,
+        outcome: "SUCCEEDED",
+        verdict: "PROVEN",
+        acceptedRefs: [evidenceSnapshotId],
+        scope: {
+          projectId: fixture.projectId,
+          missionId: fixture.missionId,
+          goalId: sourceGoalId,
+          operationId,
+          planRevision,
+        },
+      },
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalDependenciesTable).values({
+    id: randomUUID(),
+    missionId: fixture.missionId,
+    projectId: fixture.projectId,
+    goalId: fixture.goalId,
+    dependsOnGoalId: sourceGoalId,
+    planRevision,
+    createdAt: now,
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId: fixture.projectId,
+    goalId: sourceGoalId,
+    operationId,
+    userId: "test-user",
+    idempotencyKey: `execution:${executionId}`,
+    resumeTokenHash: "test-hash",
+    request: "{}",
+    checkpoint: "{}",
+    status: options.executionStatus ?? "completed",
+    attempt,
+    baseRevision: sourceRevision,
+    completedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (options.proof !== false) {
+    const baseProof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId,
+      sourceRevision,
+    });
+    const proof = options.proofContractVersion === undefined
+      ? baseProof
+      : {
+          ...baseProof,
+          contractVersion: options.proofContractVersion,
+          trajectoryDigest: {
+            ...baseProof.trajectoryDigest,
+            contractVersion: options.proofContractVersion,
+          },
+        };
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: evidenceSnapshotId,
+      executionId,
+      projectId: fixture.projectId,
+      attempt,
+      operationId,
+      sourceRevision,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId: fixture.projectId,
+      attempt,
+      finalizationKey: `final:${executionId}:${attempt}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "CANONICAL_PROOF_PROVEN",
+      nextActionCode: "NONE",
+      disposition: { proof },
+      evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      createdAt: now,
+    });
+  }
+
+  const worldState = await getProjectWorldState(fixture.projectId, {
+    taskScope,
+    environmentRevision: null,
+  });
+  const episodeKind = options.episode ?? "valid";
+  const observationKind = options.observation;
+  if (episodeKind !== "missing") {
+    await db.insert(aiAgentEpisodesTable).values({
+      id: episodeId,
+      projectId: fixture.projectId,
+      executionId,
+      attempt,
+      missionId: fixture.missionId,
+      goalId: episodeKind === "wrong_goal" ? fixture.goalId : sourceGoalId,
+      projectRevision: episodeKind === "wrong_project_revision"
+        ? "c".repeat(40)
+        : sourceRevision,
+      worldRevision: worldState.worldRevision,
+      planRevision: episodeKind === "wrong_plan_revision" ? "stale-plan" : planRevision,
+      intentKind: "recipe",
+      scope,
+      observationRefs: observationKind ? [observationId] : [],
+      workerId: "test-worker",
+      leaseUntil: new Date(Date.now() + 60_000),
+      idempotencyKey: `episode:${episodeId}`,
+      state: episodeKind === "running" ? "running" : "completed",
+      verdict: episodeKind === "running" ? null : "achieved",
+      createdAt: now,
+      updatedAt: now,
+      closedAt: episodeKind === "running" ? null : now,
+    });
+  }
+  if (observationKind && observationKind !== "missing") {
+    const value = { state: "observed" };
+    await db.insert(aiAgentObservationsTable).values({
+      id: observationId,
+      projectId: fixture.projectId,
+      executionId,
+      episodeId,
+      taskScope: observationKind === "wrong_scope" ? "unrelated-task-scope" : taskScope,
+      environmentRevisionKey: observationKind === "wrong_environment_revision"
+        ? "revision:other"
+        : "unknown",
+      kind: "direct_observation",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "dependency_current",
+      sourceType: "direct_observation",
+      sourceId: observationId,
+      sourceVersion: sourceRevision,
+      subject: `dependency:${fixture.projectId}`,
+      predicate: "verification.current",
+      value,
+      valueHash: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: observationKind === "wrong_project_revision"
+        ? "c".repeat(40)
+        : sourceRevision,
+      environmentRevision: null,
+      completeness: "complete",
+      freshness: observationKind === "stale" ? "stale" : "fresh",
+      environmentFreshness: "fresh",
+      evidenceRefs: [],
+      sequence: 1,
+      createdAt: now,
+    });
+  }
+
+  if (options.rotateToAttempt !== undefined) {
+    await db.update(aiExecutionsTable)
+      .set({ attempt: options.rotateToAttempt, updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, executionId));
+  }
+  if (options.staleWorldState) {
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId: fixture.projectId,
+      taskScope,
+      subject: `dependency:${fixture.projectId}`,
+      predicate: "verification.state",
+      value: "changed",
+      valueHash: createHash("sha256").update("changed").digest("hex"),
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: sourceRevision,
+    });
+  }
+
+  return {
+    ...fixture,
+    sourceGoalId,
+    executionId,
+    episodeId,
+    evidenceSnapshotId,
+    operationId,
+    planRevision,
+    sourceRevision,
+    taskScope,
+    initialWorldRevision: worldState.worldRevision,
+  };
+}
+
+async function expectDependencyProofBlocked(fixture: {
+  goalId: string;
+}): Promise<void> {
+  await expect(runMissionGoal({
+    goalId: fixture.goalId,
+    userId: "test-user",
+    trigger: "resume",
+  })).resolves.toMatchObject({
+    status: "blocked",
+    goalId: fixture.goalId,
+    reason: "dependency_proof_unproven",
+  });
+  const [goal] = await db.select({
+    status: aiGoalsTable.status,
+    blockedReason: aiGoalsTable.blockedReason,
+  }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+  expect(goal).toEqual({
+    status: "needs_replan",
+    blockedReason: "dependency_proof_unproven",
+  });
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const projectId of projectIds.splice(0)) {
@@ -248,6 +539,170 @@ afterEach(async () => {
 });
 
 describe("Mission goal runtime", () => {
+  it("releases a dependent Goal only from the matching current-attempt Canonical Proof", async () => {
+    const fixture = await createDependencyProofFixture();
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toEqual({
+      status: "waiting",
+      goalId: fixture.goalId,
+    });
+
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(goal).toEqual({ status: "waiting_for_event", blockedReason: null });
+  });
+
+  it.each([
+    ["a stored PROVEN projection without durable acceptance", { proof: false }],
+    ["an unknown execution pointer", { proofExecutionId: "missing-execution" }],
+    ["a rotated execution attempt", { rotateToAttempt: 1 }],
+    ["a missing Episode", { episode: "missing" }],
+    ["an Episode for another Goal", { episode: "wrong_goal" }],
+    ["an Episode from another workspace revision", { episode: "wrong_project_revision" }],
+    ["an Episode from another plan revision", { episode: "wrong_plan_revision" }],
+    ["an Episode that has not completed", { episode: "running" }],
+    ["an unsupported proof protocol version", { proofContractVersion: 99 }],
+    ["an execution that is no longer terminal", { executionStatus: "running" }],
+    ["a changed World State in the proof's task scope", { staleWorldState: true }],
+    ["an observation that is missing from its Episode", { observation: "missing" }],
+    ["an observation from another task scope", { observation: "wrong_scope" }],
+    ["an observation from another environment revision", { observation: "wrong_environment_revision" }],
+    ["an observation from another workspace revision", { observation: "wrong_project_revision" }],
+    ["an observation that is stale", { observation: "stale" }],
+  ] as Array<[string, DependencyProofFixtureOptions]>)(
+    "blocks dependency release when the proof has %s",
+    async (_description, options) => {
+      const fixture = await createDependencyProofFixture(options);
+      await expectDependencyProofBlocked(fixture);
+    },
+  );
+
+  it("does not treat another task scope's World State as stale proof input", async () => {
+    const fixture = await createDependencyProofFixture();
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId: fixture.projectId,
+      taskScope: "unrelated-task-scope",
+      subject: `unrelated:${fixture.projectId}`,
+      predicate: "status",
+      value: "changed",
+      valueHash: createHash("sha256").update("changed").digest("hex"),
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: fixture.sourceRevision,
+    });
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({ status: "waiting", goalId: fixture.goalId });
+  });
+
+  it("accepts an observation only when its exact Episode scope and revision are current", async () => {
+    const fixture = await createDependencyProofFixture({ observation: "valid" });
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({ status: "waiting", goalId: fixture.goalId });
+  });
+
+  it("rejects a dependency proof pointer that resolves to another project", async () => {
+    const fixture = await createDependencyProofFixture();
+    const foreign = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const foreignExecutionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiExecutionsTable).values({
+      id: foreignExecutionId,
+      projectId: foreign.projectId,
+      goalId: foreign.goalId,
+      userId: "test-user",
+      idempotencyKey: `execution:${foreignExecutionId}`,
+      resumeTokenHash: "test-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+      attempt: 0,
+      baseRevision: fixture.sourceRevision,
+      completedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [sourceGoal] = await db.select({
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.sourceGoalId));
+    const contract = sourceGoal?.outcomeContract as Record<string, unknown> | undefined;
+    const acceptance = contract?.acceptance as Record<string, unknown> | undefined;
+    await db.update(aiGoalsTable).set({
+      outcomeContract: {
+        ...contract,
+        acceptance: { ...acceptance, executionId: foreignExecutionId },
+      },
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, fixture.sourceGoalId));
+
+    await expectDependencyProofBlocked(fixture);
+  });
+
+  it("serializes dependency release against a concurrent attempt rotation", async () => {
+    const fixture = await createDependencyProofFixture();
+    let releaseRotation!: () => void;
+    let acquiredExecutionLock!: () => void;
+    const executionLocked = new Promise<void>((resolve) => {
+      acquiredExecutionLock = resolve;
+    });
+    const allowRotationCommit = new Promise<void>((resolve) => {
+      releaseRotation = resolve;
+    });
+    const rotation = db.transaction(async (tx) => {
+      await tx.update(aiExecutionsTable)
+        .set({ attempt: 1, updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      acquiredExecutionLock();
+      await allowRotationCommit;
+    });
+    await executionLocked;
+
+    const runPromise = runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    const waitedForInvalidation = await Promise.race([
+      runPromise.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
+    ]);
+    releaseRotation();
+    await rotation;
+
+    expect(waitedForInvalidation).toBe(true);
+    await expect(runPromise).resolves.toMatchObject({
+      status: "blocked",
+      reason: "dependency_proof_unproven",
+    });
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(goal).toEqual({
+      status: "needs_replan",
+      blockedReason: "dependency_proof_unproven",
+    });
+  });
+
   it("dispatches the transition-bound successor despite unrelated project World State changes", async () => {
     const fixture = await createRuntimeTransitionFixture("materialized", true);
     await db.insert(aiWorldFactsTable).values({

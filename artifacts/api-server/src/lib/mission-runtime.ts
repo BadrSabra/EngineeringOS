@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiGoalDependenciesTable,
@@ -45,7 +46,13 @@ import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
-import { loadCanonicalProof } from "./proof-foundation.js";
+import {
+  CANONICAL_PROOF_CONTRACT_VERSION,
+  loadCanonicalProof,
+} from "./proof-foundation.js";
+import { EXECUTION_PROOF_CONTRACT_VERSION } from "./execution-proof.js";
+import { getProjectWorldState } from "./agent-state/world-state.js";
+import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
@@ -79,11 +86,8 @@ type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type GoalDependencyState = {
   planRevision?: string;
   dependencies: Array<{ dependsOnGoalId: string }>;
-  dependencyGoals: Array<{
-    id: string;
-    title: string;
-    status: typeof aiGoalsTable.$inferSelect["status"];
-  }>;
+  dependencyGoals: Array<typeof aiGoalsTable.$inferSelect>;
+  unprovenDependencies: Array<{ id: string; title: string }>;
 };
 
 function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract">): string | undefined {
@@ -112,39 +116,297 @@ function goalCandidateIdentity(goal: typeof aiGoalsTable.$inferSelect): string |
       : null;
 }
 
+async function hasCurrentGoalDependencyProof(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  dependencyGoal: typeof aiGoalsTable.$inferSelect,
+  dependencyPlanRevision: string | undefined,
+): Promise<boolean> {
+  const contract = jsonRecord(dependencyGoal.outcomeContract);
+  const acceptanceProjection = jsonRecord(contract.acceptance);
+  const acceptanceScope = jsonRecord(acceptanceProjection.scope);
+  const executionId = typeof acceptanceProjection.executionId === "string"
+    ? acceptanceProjection.executionId.trim()
+    : "";
+  const activePlanRevision =
+    typeof mission.autonomyPolicy.activePlanRevision === "string"
+      ? mission.autonomyPolicy.activePlanRevision
+      : undefined;
+
+  if (
+    dependencyGoal.status !== "completed"
+    || !dependencyPlanRevision
+    || goalPlanRevision(dependencyGoal) !== dependencyPlanRevision
+    || (activePlanRevision && activePlanRevision !== dependencyPlanRevision)
+    || !executionId
+    || acceptanceProjection.outcome !== "SUCCEEDED"
+    || acceptanceProjection.verdict !== "PROVEN"
+  ) return false;
+
+  const expectedProjectionScope: Record<string, string> = {
+    projectId: dependencyGoal.projectId,
+    missionId: mission.id,
+    goalId: dependencyGoal.id,
+    planRevision: dependencyPlanRevision,
+  };
+  for (const [key, expectedValue] of Object.entries(expectedProjectionScope)) {
+    if (acceptanceScope[key] !== undefined
+      && acceptanceScope[key] !== null
+      && acceptanceScope[key] !== expectedValue
+    ) return false;
+  }
+
+  const [execution] = await tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, dependencyGoal.projectId),
+      eq(aiExecutionsTable.goalId, dependencyGoal.id),
+    ))
+    .for("update");
+  if (
+    !execution
+    || execution.status !== "completed"
+    || !execution.operationId
+    || !execution.baseRevision
+  ) return false;
+  if (
+    acceptanceScope.operationId !== undefined
+    && acceptanceScope.operationId !== null
+    && acceptanceScope.operationId !== execution.operationId
+  ) return false;
+
+  const [episode] = await tx
+    .select()
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.projectId, dependencyGoal.projectId),
+      eq(aiAgentEpisodesTable.executionId, execution.id),
+      eq(aiAgentEpisodesTable.attempt, execution.attempt),
+    ))
+    .for("update");
+  if (
+    !episode
+    || episode.projectId !== dependencyGoal.projectId
+    || episode.missionId !== mission.id
+    || episode.goalId !== dependencyGoal.id
+    || episode.executionId !== execution.id
+    || episode.attempt !== execution.attempt
+    || episode.state !== "completed"
+    || episode.verdict !== "achieved"
+    || !episode.closedAt
+    || episode.planRevision !== dependencyPlanRevision
+    || episode.projectRevision !== execution.baseRevision
+    || !episode.worldRevision
+  ) return false;
+
+  const candidateIdentity = goalCandidateIdentity(dependencyGoal);
+  const canonicalProof = await loadCanonicalProof({
+    tx,
+    executionId: execution.id,
+    scope: {
+      projectId: dependencyGoal.projectId,
+      missionId: mission.id,
+      goalId: dependencyGoal.id,
+      executionId: execution.id,
+      operationId: execution.operationId,
+      planRevision: dependencyPlanRevision,
+      activePlanRevision: activePlanRevision ?? dependencyPlanRevision,
+      sourceRevisionBinding: "execution",
+      candidateIdentityBinding: candidateIdentity ? "required" : "not_applicable",
+      candidateIdentity,
+    },
+    goalStatus: dependencyGoal.status,
+    deliveryRequired: jsonRecord(dependencyGoal.outcomeContract).deliveryRequired === true
+      && jsonRecord(dependencyGoal.nextAction).recipeId !== "candidate.verify",
+  });
+  if (
+    !canonicalProof.accepted
+    || canonicalProof.contractVersion !== CANONICAL_PROOF_CONTRACT_VERSION
+    || canonicalProof.verdict !== "PROVEN"
+    || canonicalProof.executionId !== execution.id
+    || canonicalProof.attempt !== execution.attempt
+    || canonicalProof.operationId !== execution.operationId
+    || canonicalProof.sourceRevision !== episode.projectRevision
+    || canonicalProof.projection?.contractVersion !== EXECUTION_PROOF_CONTRACT_VERSION
+  ) return false;
+
+  if (acceptanceProjection.reasonCode === "APPLY_CHANGES_D2_PROVEN") {
+    const applyProof = await evaluateApplyChangesD2(tx, {
+      goal: dependencyGoal,
+      mission,
+      activePlanRevision,
+    });
+    const stateProjection = jsonRecord(acceptanceProjection.stateProjection);
+    return applyProof.state === "proven"
+      && applyProof.executionId === execution.id
+      && applyProof.attempt === execution.attempt
+      && applyProof.acceptanceId === canonicalProof.acceptanceId
+      && applyProof.operationId === execution.operationId
+      && applyProof.planRevision === dependencyPlanRevision
+      && applyProof.requirement.baseRevision === canonicalProof.sourceRevision
+      && applyProof.candidateIdentity === candidateIdentity
+      && stateProjection.transitionId === applyProof.transitionId
+      && stateProjection.worldRevision === applyProof.resultingWorldRevision
+      && stateProjection.environmentRevision === applyProof.environmentRevision;
+  }
+
+  const taskScope = taskScopeIdentity(episode);
+  if (taskScope.startsWith("unscoped:")) return false;
+  const rawObservationRefs = episode.observationRefs;
+  if (!Array.isArray(rawObservationRefs) || rawObservationRefs.length > 128) return false;
+  const observationRefs = rawObservationRefs.filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  if (
+    observationRefs.length !== rawObservationRefs.length
+    || new Set(observationRefs).size !== observationRefs.length
+  ) return false;
+  if (observationRefs.length > 0) {
+    const expectedEnvironmentRevisionKey = episode.environmentRevision
+      ? `revision:${episode.environmentRevision}`
+      : "unknown";
+    const observations = await tx
+      .select()
+      .from(aiAgentObservationsTable)
+      .where(and(
+        eq(aiAgentObservationsTable.projectId, episode.projectId),
+        eq(aiAgentObservationsTable.executionId, episode.executionId),
+        eq(aiAgentObservationsTable.episodeId, episode.id),
+        inArray(aiAgentObservationsTable.id, observationRefs),
+      ))
+      .for("update");
+    if (
+      observations.length !== observationRefs.length
+      || observations.some((observation) => (
+        observation.taskScope !== taskScope
+        || observation.environmentRevisionKey !== expectedEnvironmentRevisionKey
+        || observation.projectRevision !== episode.projectRevision
+        || observation.environmentRevision !== episode.environmentRevision
+        || observation.completeness !== "complete"
+        || observation.freshness !== "fresh"
+        || observation.environmentFreshness === "stale"
+      ))
+    ) return false;
+  }
+
+  const [transition] = await tx
+    .select({
+      status: aiWorldTransitionsTable.status,
+      parentWorldRevision: aiWorldTransitionsTable.parentWorldRevision,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+    })
+    .from(aiWorldTransitionsTable)
+    .where(and(
+      eq(aiWorldTransitionsTable.projectId, episode.projectId),
+      eq(aiWorldTransitionsTable.executionId, episode.executionId),
+      eq(aiWorldTransitionsTable.attempt, episode.attempt),
+      eq(aiWorldTransitionsTable.episodeId, episode.id),
+    ))
+    .orderBy(desc(aiWorldTransitionsTable.createdAt), desc(aiWorldTransitionsTable.id))
+    .limit(1)
+    .for("update");
+  if (
+    transition
+    && (
+      transition.status !== "materialized"
+      || !transition.resultingWorldRevision
+      || transition.parentWorldRevision !== episode.worldRevision
+    )
+  ) return false;
+
+  const expectedWorldRevision = transition?.resultingWorldRevision ?? episode.worldRevision;
+  const currentWorldState = await getProjectWorldState(
+    episode.projectId,
+    {
+      taskScope,
+      environmentRevision: episode.environmentRevision,
+      ...(transition ? {} : { excludeEpisodeIds: [episode.id] }),
+    },
+    tx,
+  );
+  return currentWorldState.worldRevision === expectedWorldRevision;
+}
+
 async function loadGoalDependencyState(
   tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
   goal: typeof aiGoalsTable.$inferSelect,
 ): Promise<GoalDependencyState> {
   const planRevision = goalPlanRevision(goal);
-  if (!planRevision) {
-    return {
-      planRevision,
-      dependencies: [],
-      dependencyGoals: [],
-    };
-  }
-  const dependencies = await tx
+  const dependencyRows = await tx
     .select({ dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId })
     .from(aiGoalDependenciesTable)
     .where(and(
       eq(aiGoalDependenciesTable.goalId, goal.id),
       eq(aiGoalDependenciesTable.missionId, goal.missionId),
       eq(aiGoalDependenciesTable.projectId, goal.projectId),
-      eq(aiGoalDependenciesTable.planRevision, planRevision),
-    ));
+      ...(planRevision ? [eq(aiGoalDependenciesTable.planRevision, planRevision)] : []),
+    ))
+    .for("update");
+  const dependencies = [...new Map(
+    dependencyRows.map((dependency) => [dependency.dependsOnGoalId, dependency]),
+  ).values()];
   if (dependencies.length === 0) {
-    return { planRevision, dependencies, dependencyGoals: [] };
+    return { planRevision, dependencies, dependencyGoals: [], unprovenDependencies: [] };
   }
   const dependencyGoals = await tx
-    .select({ id: aiGoalsTable.id, title: aiGoalsTable.title, status: aiGoalsTable.status })
+    .select()
     .from(aiGoalsTable)
     .where(and(
       eq(aiGoalsTable.missionId, goal.missionId),
       eq(aiGoalsTable.projectId, goal.projectId),
       inArray(aiGoalsTable.id, dependencies.map((dependency) => dependency.dependsOnGoalId)),
-    ));
-  return { planRevision, dependencies, dependencyGoals };
+    ))
+    .for("update");
+  const unprovenDependencies: GoalDependencyState["unprovenDependencies"] = [];
+  for (const dependencyGoal of dependencyGoals) {
+    if (
+      dependencyGoal.status === "completed"
+      && !await hasCurrentGoalDependencyProof(tx, mission, dependencyGoal, planRevision)
+    ) {
+      unprovenDependencies.push({ id: dependencyGoal.id, title: dependencyGoal.title });
+    }
+  }
+  return { planRevision, dependencies, dependencyGoals, unprovenDependencies };
+}
+
+async function persistGoalDependencyProofBlocked(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    mission: typeof aiMissionsTable.$inferSelect;
+    planRevision?: string;
+    dependency: { id: string; title: string };
+  },
+): Promise<void> {
+  const now = new Date();
+  await tx.update(aiGoalsTable)
+    .set({
+      status: "needs_replan",
+      blockedReason: "dependency_proof_unproven",
+      nextWakeAt: null,
+      updatedAt: now,
+    })
+    .where(eq(aiGoalsTable.id, input.goal.id));
+  await tx.update(aiMissionsTable)
+    .set({ status: "needs_replan", updatedAt: now })
+    .where(eq(aiMissionsTable.id, input.mission.id));
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiGoalDependencyProofBlocked",
+    projectId: input.goal.projectId,
+    goalId: input.goal.id,
+    severity: "warning",
+    message: `AI goal "${input.goal.title}" requires a replan because a dependency proof is not current`,
+    payload: {
+      missionId: input.mission.id,
+      planRevision: input.planRevision,
+      dependencyGoalId: input.dependency.id,
+      reasonCode: "dependency_proof_unproven",
+    },
+  });
 }
 
 type RuntimeStartTransitionRequirement = {
@@ -1304,7 +1566,7 @@ export async function runMissionGoal(params: {
       return { status: "blocked" as const, goalId: goal.id, reason: "goal_operator_owned" };
     }
 
-    const dependencyState = await loadGoalDependencyState(tx, goal);
+    const dependencyState = await loadGoalDependencyState(tx, mission, goal);
     if (dependencyState.dependencies.length > 0) {
       const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
         dependency.status === "failed"
@@ -1360,6 +1622,20 @@ export async function runMissionGoal(params: {
             .where(eq(aiMissionsTable.id, mission.id));
         }
         return { status: "waiting" as const, goalId: goal.id, reason: "dependencies_pending" };
+      }
+      const unprovenDependency = dependencyState.unprovenDependencies[0];
+      if (unprovenDependency) {
+        await persistGoalDependencyProofBlocked(tx, {
+          goal,
+          mission,
+          planRevision: dependencyState.planRevision,
+          dependency: unprovenDependency,
+        });
+        return {
+          status: "blocked" as const,
+          goalId: goal.id,
+          reason: "dependency_proof_unproven",
+        };
       }
       if (goal.status === "waiting_for_event" && goal.blockedReason === "dependencies_pending") {
         await tx.update(aiGoalsTable)
@@ -1921,7 +2197,7 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
         .for("update");
       if (!goal) return undefined;
       const [mission] = await tx
-        .select({ userId: aiMissionsTable.userId })
+        .select()
         .from(aiMissionsTable)
         .where(and(
           eq(aiMissionsTable.id, goal.missionId),
@@ -1929,12 +2205,22 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
         ))
         .for("update");
       if (!mission) return undefined;
-      const dependencyState = await loadGoalDependencyState(tx, goal);
+      const dependencyState = await loadGoalDependencyState(tx, mission, goal);
       const allDependenciesCompleted =
         dependencyState.dependencies.length > 0
         && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
         && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
       if (!allDependenciesCompleted) return undefined;
+      const unprovenDependency = dependencyState.unprovenDependencies[0];
+      if (unprovenDependency) {
+        await persistGoalDependencyProofBlocked(tx, {
+          goal,
+          mission,
+          planRevision: dependencyState.planRevision,
+          dependency: unprovenDependency,
+        });
+        return undefined;
+      }
       await tx.update(aiGoalsTable)
         .set({
           status: "queued",
@@ -2059,11 +2345,21 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
       if (requirementState.kind !== "valid") {
         transitionState = "failed";
       } else {
-        const dependencyState = await loadGoalDependencyState(tx, goal);
+        const dependencyState = await loadGoalDependencyState(tx, mission, goal);
         const dependenciesComplete =
           dependencyState.dependencies.length === dependencyState.dependencyGoals.length
           && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
         if (!dependenciesComplete) return undefined;
+        const unprovenDependency = dependencyState.unprovenDependencies[0];
+        if (unprovenDependency) {
+          await persistGoalDependencyProofBlocked(tx, {
+            goal,
+            mission,
+            planRevision: dependencyState.planRevision,
+            dependency: unprovenDependency,
+          });
+          return undefined;
+        }
         const transitionResult = await evaluateRuntimeStartTransitionGate(tx, {
           goal,
           activePlanRevision,
