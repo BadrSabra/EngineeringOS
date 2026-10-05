@@ -28,6 +28,7 @@
 - [Recovery candidate binding](recovery-candidate-binding.md) — bind acceptances to the execution attempt; never compare workspace hashes to project timestamps; partial orientation checkpoints can resume.
 - [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
+- [Engineering Agent control-plane scope](engineering-agent-control-plane.md) — unify product continuity over the existing Mission Runtime; preserve scoped approval and delivery gates.
 - [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.
 - [Workflow phase ledger](workflow-phase-ledger.md) — phase-local status is bookkeeping, not Canonical Proof; real workflow work needs substantive bound evidence.
