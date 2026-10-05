@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
@@ -52,6 +53,7 @@ export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
 export const AI_EXECUTION_TRACE_LIMIT = 80;
 export const AI_EXECUTION_NODE_LIMIT = 24;
 export const AI_EXECUTION_NODE_FILES_LIMIT = 48;
+const MAX_RECOVERABLE_TOOL_LOOP_DETAIL_BYTES = 50 * 1024 * 1024;
 const activeControllers = new Map<string, AbortController>();
 
 /**
@@ -3727,7 +3729,35 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
   );
   let count = 0;
   for (const execution of running) {
-    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    let checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    let checkpointSafeToRewrite = true;
+    if (checkpoint?.stage === "tool_loop") {
+      let rawDetail: string | undefined;
+      try {
+        const rawCheckpoint = JSON.parse(execution.checkpoint) as unknown;
+        if (rawCheckpoint && typeof rawCheckpoint === "object" && !Array.isArray(rawCheckpoint)) {
+          const candidate = rawCheckpoint as Record<string, unknown>;
+          if (
+            candidate.stage === checkpoint.stage
+            && candidate.sequence === checkpoint.sequence
+            && candidate.updatedAt === checkpoint.updatedAt
+            && typeof candidate.detail === "string"
+            && Buffer.byteLength(candidate.detail, "utf8") <= MAX_RECOVERABLE_TOOL_LOOP_DETAIL_BYTES
+          ) {
+            rawDetail = candidate.detail;
+          }
+        }
+      } catch {
+        // Keep the bounded projection for inspection, but do not replace the
+        // persisted tool-loop detail with it: nested Mission recovery state
+        // must remain either intact or fail closed in its original form.
+      }
+      if (rawDetail === undefined) {
+        checkpointSafeToRewrite = false;
+      } else {
+        checkpoint = { ...checkpoint, detail: rawDetail };
+      }
+    }
     if (execution.status === "cancelling") {
       const terminalCheckpoint = mergeTerminalCheckpoint(execution, {
         cancelled: true,
@@ -3760,7 +3790,7 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
     const uncertainOperation = operation
       ? { ...operation, state: "uncertain" as const, updatedAt: now.toISOString() }
       : undefined;
-    const nextCheckpoint = checkpoint
+    const nextCheckpoint = checkpoint && checkpointSafeToRewrite
       ? {
           ...checkpoint,
           ...(uncertainOperation ? { operation: uncertainOperation } : {}),

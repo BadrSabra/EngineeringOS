@@ -4484,6 +4484,17 @@ G9 Revocation Safety
 - **remaining/blocker:** Other mutation surfaces and the manual Git route's World Transition remain unproven; this bounded matrix does not close E2.
 - **next step:** Continue E2 only. Do not start E3 until the full E2 closure matrix and a fresh no-code-change audit pass.
 
+### 2026-10-05 — E2 Task/Mission restart recovery and manual Git transition audit
+
+- **phase/step:** E2 / Task and Mission attempt-rotation recovery; manual Git effect-to-World-Transition residual; final forensic closure check.
+- **status:** `partial — candidate-ready startup recovery and forensic process-recovery passed; manual Git route remains receipt-only; E2 overall remains OPEN`
+- **what changed:** Startup reconciliation now preserves the full bounded `tool_loop` detail instead of overwriting nested Mission state with the truncated projection. Mission repair recovery can rotate exactly one attempt only when the prior attempt has a resumable `FAILED` acceptance and matching prior Episode; it creates current-attempt Episode/action bindings, discards prior validation/effect evidence, and requires fresh validation and observations. The manual `/git/push` path was audited but not changed: `GitPushed` is an activity/delivery receipt, not a World Transition.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`, `task-execution-service.ts`, `task-execution-lifecycle.integration.test.ts`, and this progress log; no schema or Git-route behavior change.
+- **validation:** Five focused Mission recovery tests passed; API typecheck and `git diff --check` passed. The API workflow rebuilt and restarted successfully. The real forensic process-recovery test passed 1/1 on disposable loopback PostgreSQL using the existing free OpenRouter model; it verified same-execution resume, a successful read-only forensic response, unchanged source bytes, and full teardown. Its receipt and the disposable PostgreSQL data root were removed after validation.
+- **authority/safety impact:** Recovery does not reuse prior-attempt validation/effect proof. The manual route provides no execution/attempt/Episode/action/effect-bundle or direct before/after observation bindings, so no World Transition is inferred from `GitPushed`. No live GitHub or production database was used. E2.4 remains PASS; E2 remains OPEN; E3 remains STOPPED.
+- **remaining/blocker:** The manual Git route still lacks a proof-bound effect-to-World-Transition chain. Other E2 residual surfaces and the explicit full E2 gate remain open.
+- **next step:** Continue E2 only; do not start E3 until the full E2 gate passes and a fresh no-code-change audit confirms closure.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

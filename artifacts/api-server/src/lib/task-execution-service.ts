@@ -4,6 +4,7 @@ import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
   projectsTable,
@@ -1603,6 +1604,141 @@ function buildMissionTaskObjective(params: {
   });
 }
 
+async function rebindRotatedMissionRepairRecoveryManifest(params: {
+  manifest: MissionRepairRecoveryManifest;
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect;
+  executionId: string;
+  attempt: number;
+  workerId: string;
+  sourceRevision: string;
+  rootPath: string;
+  pendingChanges: readonly PendingChange[];
+  approvedPaths: readonly string[];
+  validationProfile: string;
+}): Promise<MissionRepairRecoveryManifest> {
+  const { manifest } = params;
+  const priorAttempt = manifest.attempt;
+  if (
+    params.attempt !== priorAttempt + 1
+    || manifest.projectId !== params.task.projectId
+    || manifest.taskId !== params.task.id
+    || manifest.executionId !== params.executionId
+    || manifest.actionId !== `mission-repair:${params.executionId}:${priorAttempt}`
+    || manifest.sourceRevision !== params.sourceRevision
+    || manifest.pendingChangesHash !== hashMissionRepairPendingChanges(params.pendingChanges)
+    || manifest.approvedPathsHash !== hashMissionRepairApprovedPaths(params.approvedPaths)
+    || manifest.validationProfile !== params.validationProfile
+  ) {
+    throw new Error("mission_repair_recovery_identity_mismatch");
+  }
+
+  const [priorAcceptance] = await db
+    .select({
+      outcome: aiExecutionAcceptancesTable.outcome,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      resumable: aiExecutionAcceptancesTable.resumable,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, params.executionId),
+      eq(aiExecutionAcceptancesTable.projectId, params.task.projectId),
+      eq(aiExecutionAcceptancesTable.attempt, priorAttempt),
+    ))
+    .limit(1);
+  if (
+    !priorAcceptance
+    || priorAcceptance.outcome !== "FAILED"
+    || priorAcceptance.nextActionCode !== "RESUME_ALLOWED"
+    || priorAcceptance.resumable !== 1
+  ) {
+    throw new Error("mission_repair_recovery_attempt_not_authorized");
+  }
+
+  const [priorEpisode] = await db
+    .select({
+      id: aiAgentEpisodesTable.id,
+      executionId: aiAgentEpisodesTable.executionId,
+      attempt: aiAgentEpisodesTable.attempt,
+    })
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.id, manifest.episodeId),
+      eq(aiAgentEpisodesTable.projectId, params.task.projectId),
+    ))
+    .limit(1);
+  if (
+    !priorEpisode
+    || priorEpisode.executionId !== params.executionId
+    || priorEpisode.attempt !== priorAttempt
+  ) {
+    throw new Error("mission_repair_recovery_episode_mismatch");
+  }
+
+  if (
+    MISSION_REPAIR_RECOVERY_PHASE_RANK[manifest.phase]
+    >= MISSION_REPAIR_RECOVERY_PHASE_RANK.committed
+  ) {
+    const commitEvents = await db
+      .select({ payload: aiAgentEpisodeEventsTable.payload })
+      .from(aiAgentEpisodeEventsTable)
+      .where(and(
+        eq(aiAgentEpisodeEventsTable.projectId, params.task.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, params.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, priorAttempt),
+        eq(aiAgentEpisodeEventsTable.episodeId, manifest.episodeId),
+        eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+      ));
+    const matchingCommitEvents = commitEvents.filter((event) =>
+      jsonRecord(event.payload).actionId === manifest.actionId
+    );
+    if (matchingCommitEvents.length !== 1) {
+      throw new Error(
+        matchingCommitEvents.length === 0
+          ? "mission_repair_recovery_commit_event_missing"
+          : "mission_repair_aggregate_commit_duplicate",
+      );
+    }
+    const commit = jsonRecord(matchingCommitEvents[0]?.payload);
+    if (
+      commit.candidateIdentity !== manifest.candidateIdentity
+      || commit.baseTreeHash !== manifest.baseTreeHash
+      || commit.candidateTreeHash !== manifest.candidateTreeHash
+      || commit.liveTreeUnchanged !== true
+      || commit.validationStatus !== manifest.validatorStatus
+    ) {
+      throw new Error("mission_repair_recovery_commit_event_conflict");
+    }
+  }
+
+  const episode = await startMissionRepairEpisode({
+    task: params.task,
+    goal: params.goal,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    sourceRevision: params.sourceRevision,
+    rootPath: params.rootPath,
+  });
+  const {
+    validatorEvidenceId: _validatorEvidenceId,
+    validatorStatus: _validatorStatus,
+    validatorProfile: _validatorProfile,
+    validatorEnvironmentRevision: _validatorEnvironmentRevision,
+    afterObservationId: _afterObservationId,
+    effectBundleId: _effectBundleId,
+    effectObserved: _effectObserved,
+    ...candidateBinding
+  } = manifest;
+  return {
+    ...candidateBinding,
+    attempt: params.attempt,
+    episodeId: episode.episodeId,
+    actionId: `mission-repair:${params.executionId}:${params.attempt}`,
+    phase: "candidate_ready",
+  };
+}
+
 async function executeMissionToolLoop(params: {
   task: typeof tasksTable.$inferSelect;
   goal: typeof aiGoalsTable.$inferSelect;
@@ -1650,7 +1786,7 @@ async function executeMissionToolLoop(params: {
     goal: params.goal,
     profile: params.profile,
   });
-  const recoveryManifest = params.profile === "mission_repair"
+  let recoveryManifest = params.profile === "mission_repair"
     ? params.resumeState?.missionRepairRecovery
     : undefined;
   const approvalState = policy.approvalRequired ? "PENDING_APPROVAL" : "APPROVED";
@@ -1688,6 +1824,24 @@ async function executeMissionToolLoop(params: {
     ? resumedChanges.changes as PendingChange[]
     : [];
   if (recoveryManifest) {
+    if (recoveryManifest.attempt !== params.expectedAttempt) {
+      if (!params.isRecovery || !policy.validationProfile) {
+        throw new Error("mission_repair_recovery_identity_mismatch");
+      }
+      recoveryManifest = await rebindRotatedMissionRepairRecoveryManifest({
+        manifest: recoveryManifest,
+        task: params.task,
+        goal: params.goal,
+        executionId: params.executionId,
+        attempt: params.expectedAttempt,
+        workerId: params.workerId,
+        sourceRevision: params.workspaceRevision,
+        rootPath: root.canonicalPath,
+        pendingChanges,
+        approvedPaths: policy.targetPaths,
+        validationProfile: policy.validationProfile,
+      });
+    }
     if (
       !params.isRecovery
       || !resumedChanges.valid
