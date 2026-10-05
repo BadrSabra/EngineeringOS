@@ -1,6 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
@@ -15,6 +17,7 @@ import {
   GoalNextActionSchema,
   type ApplyChangesRequirement,
 } from "@workspace/ai-orchestrator";
+import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Goal = typeof aiGoalsTable.$inferSelect;
@@ -376,6 +379,20 @@ export async function evaluateApplyChangesD2(
     || transition.environmentRevisionKey !== `revision:${transition.environmentRevision}`
   ) return { state: "failed", reason: "apply_transition_not_materialized" };
 
+  const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.id, transition.episodeId),
+      eq(aiAgentEpisodesTable.projectId, input.goal.projectId),
+      eq(aiAgentEpisodesTable.executionId, execution.id),
+      eq(aiAgentEpisodesTable.attempt, execution.attempt),
+    ))
+    .for("update")
+    .limit(1);
+  if (!episode) {
+    return { state: "failed", reason: "apply_transition_episode_invalid" };
+  }
+
   const beforeIds = ids(transition.beforeObservationIds);
   const afterIds = ids(transition.afterObservationIds);
   const materializedIds = new Set(ids(transition.materializedObservationIds));
@@ -431,7 +448,32 @@ export async function evaluateApplyChangesD2(
       eq(aiAgentEffectBundlesTable.episodeId, transition.episodeId),
     ))
     .for("update");
-  if (!bundle || bundle.verdict !== "OBSERVED") {
+  const effectIds = Array.isArray(bundle?.effectIds)
+    ? bundle.effectIds.filter((id): id is string => typeof id === "string")
+    : [];
+  const effects = effectIds.length > 0
+    ? await tx.select()
+      .from(aiAgentEffectsTable)
+      .where(and(
+        eq(aiAgentEffectsTable.projectId, input.goal.projectId),
+        eq(aiAgentEffectsTable.executionId, execution.id),
+        eq(aiAgentEffectsTable.attempt, execution.attempt),
+        eq(aiAgentEffectsTable.episodeId, transition.episodeId),
+        inArray(aiAgentEffectsTable.id, effectIds),
+      ))
+      .for("update")
+    : [];
+  if (!bundle || !isBoundApplyChangeEffectBundle({
+    bundle,
+    effects,
+    projectId: input.goal.projectId,
+    executionId: execution.id,
+    attempt: execution.attempt,
+    episodeId: transition.episodeId,
+    actionId: transition.actionId,
+    proposalId: requirement.proposalId,
+    candidateTreeHash: requirement.candidateTreeHash,
+  })) {
     return { state: "failed", reason: "apply_effect_unproven" };
   }
 

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiChangeProposalsTable,
@@ -21,6 +22,10 @@ import {
   projectsTable,
   tasksTable,
 } from "@workspace/db";
+import {
+  APPLY_CHANGE_CAPABILITY_ID,
+  buildApplyChangeEffectProofExpectation,
+} from "./agent-state/apply-change-effect.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 
 const { scheduleTaskExecution } = vi.hoisted(() => ({
@@ -50,9 +55,12 @@ async function createApplyChangesFixture() {
   const executionId = randomUUID();
   const episodeId = randomUUID();
   const effectBundleId = randomUUID();
+  const effectId = randomUUID();
   const transitionId = randomUUID();
   const beforeObservationId = randomUUID();
   const afterObservationId = randomUUID();
+  const effectBeforeObservationId = randomUUID();
+  const effectAfterObservationId = randomUUID();
   const now = new Date();
   const baseRevision = "a".repeat(40);
   const baseTreeHash = "b".repeat(64);
@@ -60,12 +68,19 @@ async function createApplyChangesFixture() {
   const changeSetHash = "d".repeat(64);
   const planRevision = "e".repeat(64);
   const environmentRevision = `env-v1:${"f".repeat(64)}`;
+  const applyActionId = `action:${executionId}:0:apply`;
   const parentWorldRevision = "1".repeat(64);
   const resultingWorldRevision = "2".repeat(64);
   const operationId = `operation:${executionId}`;
   const evidenceSnapshotId = `apply-evidence:${executionId}`;
   const sourceBody = "Source retained before the approved change.\n";
   const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
+  const applyEffectExpectation = buildApplyChangeEffectProofExpectation({
+    executionId,
+    attempt: 0,
+    proposalId,
+    candidateTreeHash,
+  });
   const requirement = {
     kind: "apply.changes" as const,
     version: 1 as const,
@@ -286,9 +301,27 @@ async function createApplyChangesFixture() {
     executionId,
     attempt: 0,
     episodeId,
-    effectIds: [],
-    effectContractHashes: [],
+    effectIds: [effectId],
+    effectContractHashes: [applyEffectExpectation.effectContractHash],
     verdict: "OBSERVED",
+    createdAt: now,
+  });
+  await db.insert(aiAgentEffectsTable).values({
+    id: effectId,
+    projectId,
+    executionId,
+    episodeId,
+    attempt: 0,
+    actionId: applyActionId,
+    capabilityId: APPLY_CHANGE_CAPABILITY_ID,
+    effectContractHash: applyEffectExpectation.effectContractHash,
+    beforeObservationIds: [effectBeforeObservationId],
+    afterObservationIds: [effectAfterObservationId],
+    expectedEffects: applyEffectExpectation.contract.expectedStateChanges,
+    status: "observed",
+    missingEffects: [],
+    contradictionRefs: [],
+    evidenceRefs: ["apply-effect-proof"],
     createdAt: now,
   });
   await db.insert(aiExecutionAcceptancesTable).values({
@@ -347,13 +380,47 @@ async function createApplyChangesFixture() {
       createdAt: now,
     });
   }
+  for (const [id, treeHash, sequence, evidenceRef] of [
+    [effectBeforeObservationId, baseTreeHash, 2, `apply:${executionId}:0:before`],
+    [effectAfterObservationId, candidateTreeHash, 3, `apply:${executionId}:0:after`],
+  ] as const) {
+    const valueHash = createHash("sha256").update(JSON.stringify(treeHash)).digest("hex");
+    await db.insert(aiAgentObservationsTable).values({
+      id,
+      projectId,
+      executionId,
+      episodeId,
+      taskScope: "project",
+      environmentRevisionKey: `revision:${environmentRevision}`,
+      kind: "direct_observation",
+      provenance: "DIRECT_OBSERVATION",
+      observationRole: "workspace.tree_hash",
+      sourceType: "direct_observation",
+      sourceId: id,
+      sourceVersion: baseRevision,
+      subject: `project:${candidateIdentity}`,
+      predicate: "workspace.tree_hash",
+      value: treeHash,
+      valueHash,
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: baseRevision,
+      environmentRevision,
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      evidenceRefs: [evidenceRef],
+      sequence,
+      createdAt: now,
+    });
+  }
   await db.insert(aiWorldTransitionsTable).values({
     id: transitionId,
     projectId,
     executionId,
     attempt: 0,
     episodeId,
-    actionId: `apply:${executionId}`,
+    actionId: applyActionId,
     effectBundleId,
     parentWorldRevision,
     resultingWorldRevision,
@@ -384,12 +451,15 @@ async function createApplyChangesFixture() {
   return {
     projectId,
     missionId,
+    episodeId,
     applyGoalId,
     reportGoalId,
     reportTaskId,
     proposalId,
     executionId,
     effectBundleId,
+    effectId,
+    applyActionId,
     transitionId,
     beforeObservationId,
     afterObservationId,
@@ -402,6 +472,7 @@ type ApplyChangesFixture = Awaited<ReturnType<typeof createApplyChangesFixture>>
 const invalidApplyProofCases: Array<{
   name: string;
   expectedReason: string;
+  expectedAcceptanceOutcome?: "SUCCEEDED" | "FAILED";
   mutate: (fixture: ApplyChangesFixture) => Promise<void>;
 }> = [
   {
@@ -429,6 +500,95 @@ const invalidApplyProofCases: Array<{
       await db.update(aiAgentObservationsTable)
         .set({ value: "8".repeat(64) })
         .where(eq(aiAgentObservationsTable.id, fixture.afterObservationId));
+    },
+  },
+  {
+    name: "stale after observation",
+    expectedReason: "apply_transition_observations_invalid",
+    mutate: async (fixture) => {
+      await db.update(aiAgentObservationsTable)
+        .set({ freshness: "stale" })
+        .where(eq(aiAgentObservationsTable.id, fixture.afterObservationId));
+    },
+  },
+  {
+    name: "wrong transition attempt",
+    expectedReason: "apply_transition_missing",
+    mutate: async (fixture) => {
+      await db.update(aiWorldTransitionsTable)
+        .set({ attempt: 1 })
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    },
+  },
+  {
+    name: "Episode belongs to a different attempt",
+    expectedReason: "apply_transition_episode_invalid",
+    mutate: async (fixture) => {
+      const wrongEpisodeId = randomUUID();
+      const now = new Date();
+      await db.insert(aiAgentEpisodesTable).values({
+        id: wrongEpisodeId,
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 1,
+        projectRevision: "a".repeat(40),
+        intentKind: "recipe",
+        scope: { kind: "project" },
+        workerId: "test-worker",
+        leaseUntil: new Date(now.getTime() + 60_000),
+        idempotencyKey: `episode:${wrongEpisodeId}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.update(aiWorldTransitionsTable)
+        .set({ episodeId: wrongEpisodeId })
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    },
+  },
+  {
+    name: "failed Gate-C acceptance",
+    expectedReason: "apply_acceptance_missing",
+    expectedAcceptanceOutcome: "FAILED",
+    mutate: async (fixture) => {
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ outcome: "FAILED" })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    },
+  },
+  {
+    name: "prior-attempt acceptance after recovery rotation",
+    expectedReason: "apply_acceptance_missing",
+    mutate: async (fixture) => {
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 1 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+    },
+  },
+  {
+    name: "empty observed effect bundle",
+    expectedReason: "apply_effect_unproven",
+    mutate: async (fixture) => {
+      await db.update(aiAgentEffectBundlesTable)
+        .set({ effectIds: [], effectContractHashes: [] })
+        .where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId));
+    },
+  },
+  {
+    name: "effect class mismatch",
+    expectedReason: "apply_effect_unproven",
+    mutate: async (fixture) => {
+      await db.update(aiAgentEffectsTable)
+        .set({ capabilityId: "unrelated.capability" })
+        .where(eq(aiAgentEffectsTable.id, fixture.effectId));
+    },
+  },
+  {
+    name: "effect action mismatch",
+    expectedReason: "apply_effect_unproven",
+    mutate: async (fixture) => {
+      await db.update(aiAgentEffectsTable)
+        .set({ actionId: "action:unrelated" })
+        .where(eq(aiAgentEffectsTable.id, fixture.effectId));
     },
   },
   {
@@ -473,7 +633,12 @@ describe("Apply Changes Mission D2 dispatch", () => {
   it("dispatches the report-applied task once after live proof, including on repeated wake", async () => {
     const fixture = await createApplyChangesFixture();
 
-    expect(await wakeApplyChangesMissionGoals()).toBe(1);
+    const concurrentWakes = await Promise.all([
+      wakeApplyChangesMissionGoals(),
+      wakeApplyChangesMissionGoals(),
+    ]);
+    expect(concurrentWakes.every((count) => count <= 1)).toBe(true);
+    expect(concurrentWakes.some((count) => count === 1)).toBe(true);
     expect(await wakeApplyChangesMissionGoals()).toBe(0);
 
     const [applyGoal] = await db.select({
@@ -531,7 +696,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
 
   it.each(invalidApplyProofCases)(
     "blocks dispatch and preserves Gate-C acceptance for $name",
-    async ({ mutate, expectedReason }) => {
+    async ({ mutate, expectedReason, expectedAcceptanceOutcome = "SUCCEEDED" }) => {
       const fixture = await createApplyChangesFixture();
       await mutate(fixture);
 
@@ -577,7 +742,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
       }).from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       expect(acceptance).toEqual({
-        outcome: "SUCCEEDED",
+        outcome: expectedAcceptanceOutcome,
         terminalStatus: "completed",
         effectBundleId: fixture.effectBundleId,
       });

@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiChatSessionsTable,
@@ -43,6 +44,10 @@ import {
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
 import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
+import {
+  APPLY_CHANGE_CAPABILITY_ID,
+  buildApplyChangeEffectProofExpectation,
+} from "./apply-change-effect.js";
 
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
@@ -597,20 +602,60 @@ describe("runtime.start transition retry scheduling", () => {
     await expect(createPendingApplyChangesTransition({ ...input, goalId: "" }))
       .rejects.toThrow("apply_transition_goal_required");
 
+    const applyEffect = buildApplyChangeEffectProofExpectation({
+      executionId: fixture.executionId,
+      attempt: 0,
+      proposalId,
+      candidateTreeHash,
+    });
+    const applyEffectId = crypto.randomUUID();
+    await db.insert(aiAgentEffectsTable).values({
+      id: applyEffectId,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      attempt: 0,
+      actionId: input.actionId,
+      capabilityId: APPLY_CHANGE_CAPABILITY_ID,
+      effectContractHash: applyEffect.effectContractHash,
+      beforeObservationIds: input.beforeObservationIds,
+      afterObservationIds: input.afterObservationIds,
+      expectedEffects: applyEffect.contract.expectedStateChanges,
+      status: "observed",
+      missingEffects: [],
+      contradictionRefs: [],
+      evidenceRefs: ["apply-effect-proof"],
+      createdAt: new Date(),
+    });
+    await db.update(aiAgentEffectBundlesTable).set({
+      effectIds: [applyEffectId],
+      effectContractHashes: [applyEffect.effectContractHash],
+      verdict: "OBSERVED",
+    }).where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId));
+
     await acceptTransitionFixture({
       projectId: fixture.projectId,
       executionId: fixture.executionId,
       operationId: fixture.operationId,
       effectBundleId: fixture.effectBundleId,
     });
-    const finalized = await finalizeApplyChangesTransition({
+    const finalizeInput = {
       projectId: fixture.projectId,
       executionId: fixture.executionId,
       attempt: 0,
       episodeId: fixture.episodeId,
       actionId: input.actionId,
       effectBundleId: fixture.effectBundleId,
-    });
+    };
+    const concurrentFinalizations = await Promise.all([
+      finalizeApplyChangesTransition(finalizeInput),
+      finalizeApplyChangesTransition(finalizeInput),
+    ]);
+    expect(concurrentFinalizations.every((result) =>
+      result.status === "materialized" || result.status === "pending",
+    )).toBe(true);
+    const finalized = concurrentFinalizations.find((result) => result.status === "materialized");
+    if (!finalized) throw new Error("apply transition was not materialized by either concurrent owner");
     expect(finalized.status).toBe("materialized");
     const [materializedTransition] = await db.select({
       changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
@@ -675,6 +720,16 @@ describe("runtime.start transition retry scheduling", () => {
       planRevision,
       candidateIdentity: `${proposalId}:${candidateTreeHash}`,
     });
+
+    const factsBeforeRetry = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    await expect(finalizeApplyChangesTransition(finalizeInput)).resolves.toMatchObject({
+      status: "materialized",
+      worldRevision: finalized.worldRevision,
+    });
+    const factsAfterRetry = await db.select({ id: aiWorldFactsTable.id })
+      .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+    expect(factsAfterRetry).toEqual(factsBeforeRetry);
   });
 
   it("leaves an active transition pending without consuming retries before acceptance", async () => {

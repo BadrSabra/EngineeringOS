@@ -91,3 +91,17 @@ independent state change.
 commit identity to execution, attempt, and tool-call identity; exact retries return
 the original event and semantic reuse fails closed. Leave effect classification and
 acceptance attached to the aggregate candidate verification path.
+
+Apply Changes World Transition materialization and Mission D2 must not trust an
+aggregate `OBSERVED` bundle verdict by itself. Revalidate nonempty unique effect
+IDs, the exact contract-hash set, the approved source-promotion action/capability
+and candidate-tree contract, observed effect rows, and the referenced Episode's
+project/execution/attempt identity at both boundaries.
+
+**Why:** Ordinary acceptance checks establish the expected path, but persisted
+bundle or identity mismatches must not bypass the downstream materialization and
+Mission-completion boundaries.
+
+**How to apply:** Lock and validate the bundle and effect rows inside the
+World State materialization transaction; repeat the identity/effect check at D2
+and load the Episode row using the current execution attempt.

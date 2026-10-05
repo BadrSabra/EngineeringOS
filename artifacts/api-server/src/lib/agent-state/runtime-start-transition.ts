@@ -4,6 +4,7 @@ import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -13,11 +14,10 @@ import {
   aiWorldTransitionsTable,
   db,
 } from "@workspace/db";
-import {
-  invalidateContextSlice,
-} from "@workspace/ai-orchestrator";
+import { invalidateContextSlice } from "@workspace/ai-orchestrator";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
+import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
 import { logger } from "../logger.js";
 
 export type RuntimeStartTransitionIntent = {
@@ -1431,6 +1431,26 @@ async function claimApplyChangesTransition(input: {
       }).where(eq(aiWorldTransitionsTable.id, transition.id));
       return { kind: "terminal_failed", failureCode: code };
     }
+    const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
+      .from(aiAgentEpisodesTable)
+      .where(and(
+        eq(aiAgentEpisodesTable.id, input.episodeId),
+        eq(aiAgentEpisodesTable.projectId, input.projectId),
+        eq(aiAgentEpisodesTable.executionId, input.executionId),
+        eq(aiAgentEpisodesTable.attempt, input.attempt),
+      ))
+      .for("update")
+      .limit(1);
+    if (!episode) {
+      const code = "apply_transition_episode_identity_mismatch";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: code,
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: code };
+    }
     const claimed = await tx.update(aiWorldTransitionsTable).set({
       status: "retrying",
       nextRetryAt: new Date(now.getTime() + 60_000),
@@ -1496,15 +1516,6 @@ export async function finalizeApplyChangesTransition(input: {
       })) {
       throw new Error("apply_transition_goal_or_proposal_mismatch");
     }
-    const [bundle] = await db.select({ id: aiAgentEffectBundlesTable.id, verdict: aiAgentEffectBundlesTable.verdict })
-      .from(aiAgentEffectBundlesTable).where(and(
-        eq(aiAgentEffectBundlesTable.id, input.effectBundleId),
-        eq(aiAgentEffectBundlesTable.projectId, input.projectId),
-        eq(aiAgentEffectBundlesTable.executionId, input.executionId),
-        eq(aiAgentEffectBundlesTable.attempt, input.attempt),
-        eq(aiAgentEffectBundlesTable.episodeId, input.episodeId),
-      )).limit(1);
-    if (!bundle || bundle.verdict !== "OBSERVED") throw new Error("apply_transition_effect_unproven");
     const beforeIds = unique(transition.beforeObservationIds as string[]);
     const afterIds = unique(transition.afterObservationIds as string[]);
     if (!transition.environmentRevision || beforeIds.length === 0 || afterIds.length === 0) {
@@ -1545,6 +1556,43 @@ export async function finalizeApplyChangesTransition(input: {
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: [input.episodeId],
     }, async (tx, result) => {
+      const [bundle] = await tx.select()
+        .from(aiAgentEffectBundlesTable)
+        .where(and(
+          eq(aiAgentEffectBundlesTable.id, input.effectBundleId),
+          eq(aiAgentEffectBundlesTable.projectId, input.projectId),
+          eq(aiAgentEffectBundlesTable.executionId, input.executionId),
+          eq(aiAgentEffectBundlesTable.attempt, input.attempt),
+          eq(aiAgentEffectBundlesTable.episodeId, input.episodeId),
+        ))
+        .for("update")
+        .limit(1);
+      const effectIds = Array.isArray(bundle?.effectIds)
+        ? bundle.effectIds.filter((id): id is string => typeof id === "string")
+        : [];
+      const effects = effectIds.length > 0
+        ? await tx.select().from(aiAgentEffectsTable)
+          .where(and(
+            eq(aiAgentEffectsTable.projectId, input.projectId),
+            eq(aiAgentEffectsTable.executionId, input.executionId),
+            eq(aiAgentEffectsTable.attempt, input.attempt),
+            eq(aiAgentEffectsTable.episodeId, input.episodeId),
+            inArray(aiAgentEffectsTable.id, effectIds),
+          ))
+          .for("update")
+        : [];
+      if (!bundle || !isBoundApplyChangeEffectBundle({
+        bundle,
+        effects,
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        episodeId: input.episodeId,
+        actionId: input.actionId,
+        proposalId: binding.proposalId,
+        candidateTreeHash: binding.promotedTreeHash,
+      })) throw new Error("apply_transition_effect_unproven");
+
       const materializedObservationIds = unique([...beforeIds, ...afterIds]);
       const selectedObservationIds = new Set(materializedObservationIds);
       const facts = await tx.select({

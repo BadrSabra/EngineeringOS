@@ -4495,6 +4495,17 @@ G9 Revocation Safety
 - **remaining/blocker:** The manual Git route still lacks a proof-bound effect-to-World-Transition chain. Other E2 residual surfaces and the explicit full E2 gate remain open.
 - **next step:** Continue E2 only; do not start E3 until the full E2 gate passes and a fresh no-code-change audit confirms closure.
 
+### 2026-10-05 — E2 Apply Changes effect-to-World Transition proof revalidation
+
+- **phase/step:** E2 / Task-Mission accepted effect → independent observation → World Transition → D2 gate.
+- **status:** `partial — durable effect-binding gap closed with focused regressions; E2 remains OPEN`
+- **what changed:** Replaced trust in `bundle.verdict === OBSERVED` with exact effect-row validation at World State materialization and Mission D2. The bundle must contain nonempty unique effect IDs and matching contract hashes; every effect must be observed and bound to the same project, execution, attempt, Episode, action, approved source-promotion capability, and candidate-tree contract. Both consumers also verify that the referenced Episode row belongs to the current project/execution/attempt. Added regressions for empty/wrong effects, stale or mismatched observations, wrong attempt/Episode, failed or prior-attempt acceptance, concurrent finalization/wake, and duplicate materialization.
+- **files/schema/contracts touched:** `apply-change-effect.ts`, `apply-changes-mission-gate.ts`, `runtime-start-transition.ts`, and focused API tests; no schema changes.
+- **validation:** Six focused API test files passed 66/66 on a disposable loopback PostgreSQL cluster; the API typecheck and `git diff --check` passed. The API workflow rebuilt and restarted successfully. The temporary database was stopped and removed. No production database or live GitHub access was used.
+- **authority/safety impact:** Pending World Transitions remain non-accepting. Materialization rechecks and locks the exact effect records inside the World State transaction; D2 independently rechecks effect, Episode, acceptance, and observation identities. E2 remains OPEN and E3 remains STOPPED; the manual Git route was not changed and no transition is inferred from `GitPushed`.
+- **remaining/blocker:** A direct Apply Changes failure-injection test for transaction rollback and process-restart replay of an already accepted pending transition remain unproven. Generic World State rollback and same-process concurrent/duplicate materialization are covered, but they do not replace those targeted crash tests.
+- **next step:** Close or explicitly disposition the Apply Changes crash/rollback test gaps, then run a fresh E2 closure audit. Do not start E3 before the explicit E2 gate passes.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
