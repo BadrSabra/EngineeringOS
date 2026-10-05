@@ -53,6 +53,7 @@ import {
   persistCancelledRecipeReceipt,
   recoverAiExecutionResumeToken,
   reconcileExecutionNodeCheckpoint,
+  requestAiExecutionCancel,
   registerAiExecutionController,
   unregisterAiExecutionController,
   type RecipeOperationBinding,
@@ -1127,6 +1128,12 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   goalId?: string;
   sessionId?: string;
   idempotencyKey: string;
+  expectedExecutionId?: string;
+  beforeClaim?: (input: {
+    executionId: string;
+    attempt: number;
+    status: string;
+  }) => Promise<boolean>;
   executionProfile?: string;
   planRevision?: string;
   /** Test seam for the bounded, read-only P7.5 resume continuation. */
@@ -1822,6 +1829,27 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     parentExecutionId: params.parentExecutionId,
     delegationBudget: params.delegationBudget,
   });
+  if (
+    params.expectedExecutionId
+    && created.execution.id !== params.expectedExecutionId
+  ) {
+    throw new Error("Recipe execution identity does not match its queued Mission execution.");
+  }
+  if (
+    params.beforeClaim
+    && (created.execution.status === "queued" || created.execution.status === "paused")
+    && !await params.beforeClaim({
+      executionId: created.execution.id,
+      attempt: created.execution.attempt,
+      status: created.execution.status,
+    })
+  ) {
+    await requestAiExecutionCancel({
+      executionId: created.execution.id,
+      userId: params.userId,
+    }).catch(() => undefined);
+    throw new Error("Recipe continuation authorization was denied before execution claim.");
+  }
   const workerId = `recipe:${params.operationId}:${randomUUID()}`;
   const recovery = created.execution.status === "paused"
     ? await recoverAiExecutionResumeToken({

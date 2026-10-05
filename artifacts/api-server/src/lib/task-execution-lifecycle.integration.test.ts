@@ -1793,8 +1793,10 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("W9 keeps a workflow no-op phase successful when its acceptance response is lost", async () => {
+  it("W9 keeps a successful no-op workflow phase incomplete for a Goal when acceptance response is lost", async () => {
     const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
     const userId = `workflow-phase-post-acceptance-${projectId}`;
     const workflowId = randomUUID();
     const workflowExecutionId = randomUUID();
@@ -1814,9 +1816,66 @@ describe("real durable task execution lifecycle", () => {
         createdAt: now,
         updatedAt: now,
       });
+      await db.insert(aiMissionsTable).values({
+        id: missionId,
+        projectId,
+        userId,
+        title: "Workflow no-op projection fixture",
+        intent: "Keep a non-final workflow phase from proving its Goal",
+        status: "active",
+        scope: { kind: "project", projectId },
+        autonomyPolicy: {},
+        budget: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiGoalsTable).values({
+        id: goalId,
+        missionId,
+        projectId,
+        title: "Complete the workflow",
+        description: "A successful intermediate phase is not a completed Goal.",
+        status: "running",
+        priority: "p1",
+        successCriteria: {},
+        evidenceContract: {},
+        outcomeContract: {},
+        nextAction: { kind: "workflow", workflowId },
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(workflowsTable).values({
+        id: workflowId,
+        projectId,
+        goalId,
+        name: "Workflow no-op response recovery",
+        status: "running",
+        phases: [{ name: "prepare", steps: [] }],
+        currentPhase: "prepare",
+        executionCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(workflowExecutionsTable).values({
+        id: workflowExecutionId,
+        workflowId,
+        status: "running",
+        currentPhase: "prepare",
+        completedPhases: [],
+        startedAt: now,
+      });
 
       completionSpy.mockImplementationOnce(async (params) => {
-        acceptedBeforeInjectedError = await realCompleteAiExecution(params);
+        acceptedBeforeInjectedError = await realCompleteAiExecution({
+          ...params,
+          goalProjection: {
+            goalId,
+            workflowId,
+            workflowExecutionId,
+            phase: "prepare",
+            finalPhase: false,
+          },
+        });
         throw new Error("fixture_workflow_phase_response_lost_after_acceptance");
       });
 
@@ -1830,6 +1889,8 @@ describe("real durable task execution lifecycle", () => {
         phaseSteps: [],
         revision: now.toISOString(),
         completedPhaseNames: [],
+        goalId,
+        isFinalPhase: false,
       });
 
       expect(acceptedBeforeInjectedError).toBe(true);
@@ -1883,9 +1944,23 @@ describe("real durable task execution lifecycle", () => {
         terminalStatus: "completed",
         outcome: "SUCCEEDED",
       }]);
+      const [goal] = await db.select({
+        status: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      expect(goal?.status).toBe("running");
+      expect((goal?.outcomeContract as Record<string, unknown>).acceptance).toMatchObject({
+        executionId: result.executionId,
+        outcome: "SUCCEEDED",
+        verdict: "INCOMPLETE",
+      });
     } finally {
       completionSpy.mockRestore();
       await cleanupProjectExecutionData(projectId);
+      await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.id, workflowExecutionId));
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
@@ -1898,6 +1973,8 @@ describe("real durable task execution lifecycle", () => {
     const workflowExecutionId = randomUUID();
     const now = new Date();
     const userId = "workflow-phase-w8-rollback-user";
+    const realCompleteAiExecution = aiExecutionState.completeAiExecution;
+    const completionSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
 
     await db.insert(projectsTable).values({
       id: projectId,
@@ -1962,12 +2039,15 @@ describe("real durable task execution lifecycle", () => {
     });
 
     try {
+      await db.execute(sql`DROP SEQUENCE IF EXISTS fixture_w8_goal_projection_attempts`);
+      await db.execute(sql`CREATE SEQUENCE fixture_w8_goal_projection_attempts`);
       await db.execute(sql`
         CREATE OR REPLACE FUNCTION fixture_fail_workflow_success_goal_projection()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
           IF OLD.outcome_contract->>'w8_fault_injection' = 'workflow_success_projection'
             AND NEW.outcome_contract->'acceptance'->>'outcome' = 'SUCCEEDED' THEN
+            PERFORM nextval('fixture_w8_goal_projection_attempts');
             RAISE EXCEPTION 'fixture_workflow_success_goal_projection_failure';
           END IF;
           RETURN NEW;
@@ -1980,6 +2060,17 @@ describe("real durable task execution lifecycle", () => {
         FOR EACH ROW EXECUTE FUNCTION fixture_fail_workflow_success_goal_projection()
       `);
 
+      completionSpy.mockImplementationOnce((params) => realCompleteAiExecution({
+        ...params,
+        goalProjection: {
+          goalId,
+          workflowId,
+          workflowExecutionId,
+          phase: "prepare",
+          finalPhase: false,
+        },
+      }));
+
       const result = await executeWorkflowPhase({
         userId,
         projectId,
@@ -1987,13 +2078,18 @@ describe("real durable task execution lifecycle", () => {
         workflowExecutionId,
         workflowName: "Workflow W8 fixture",
         phaseName: "prepare",
-        phaseSteps: ["record phase boundary"],
+        phaseSteps: [],
         revision: now.toISOString(),
         completedPhaseNames: [],
         goalId,
         isFinalPhase: false,
       });
       expect(result).toMatchObject({ created: true, status: "failed" });
+      const triggerHits = await db.execute(sql`
+        SELECT last_value, is_called FROM fixture_w8_goal_projection_attempts
+      `);
+      expect(triggerHits.rows[0]?.is_called).toBe(true);
+      expect(Number(triggerHits.rows[0]?.last_value)).toBe(1);
 
       const [execution] = await db
         .select({
@@ -2022,14 +2118,12 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiGoalsTable.id, goalId));
       const projection = (goal?.outcomeContract as Record<string, unknown>).acceptance as Record<string, unknown>;
       expect(goal?.status).toBe("running");
-      expect(projection).toMatchObject({
-        executionId: result.executionId,
-        outcome: "FAILED",
-        verdict: "FAILED",
-      });
+      expect(projection).toBeUndefined();
     } finally {
+      completionSpy.mockRestore();
       await db.execute(sql`DROP TRIGGER IF EXISTS fixture_fail_workflow_success_goal_projection ON ai_goals`);
       await db.execute(sql`DROP FUNCTION IF EXISTS fixture_fail_workflow_success_goal_projection()`);
+      await db.execute(sql`DROP SEQUENCE IF EXISTS fixture_w8_goal_projection_attempts`);
       await cleanupProjectExecutionData(projectId);
       await db.delete(workflowExecutionsTable).where(eq(workflowExecutionsTable.id, workflowExecutionId));
       await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));

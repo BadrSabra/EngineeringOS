@@ -658,6 +658,18 @@ async function syncLinkedObjectiveState(
     ))
     .for("update");
   if (!goal) return;
+  const missionIsOperatorOwned =
+    mission.status === "blocked"
+    || mission.status === "cancelled"
+    || mission.status === "completed"
+    || mission.status === "failed";
+  const goalIsOperatorOwned =
+    goal.status === "blocked"
+    || goal.status === "cancelled"
+    || goal.status === "waiting_for_approval"
+    || goal.status === "completed"
+    || goal.status === "failed";
+  if (missionIsOperatorOwned || goalIsOperatorOwned) return;
 
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
@@ -694,23 +706,24 @@ async function syncLinkedObjectiveState(
         deliveryReceipt: params.acceptanceProjection.deliveryReceipt,
       })
     : null;
-  const dependencyState = canonicalProof?.accepted
+  const continuation = canonicalProof?.accepted
     ? await (async () => {
-        const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
-        return evaluateGoalDependencyState(tx, mission, goal, {
+        const { authorizeMissionGoalContinuation } = await import("./mission-runtime.js");
+        return authorizeMissionGoalContinuation(tx, mission, goal, {
           targetExecutionId: params.executionId,
         });
       })()
     : null;
-  const dependencyProofReady = !dependencyState || (
-    dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
-    && dependencyState.unprovenDependencies.length === 0
-  );
+  const dependencyProofReady = !continuation || continuation.allowed;
   const goalProofAccepted = canonicalProof?.accepted === true && dependencyProofReady;
   const acceptanceProjection = params.acceptanceProjection
     ? {
         ...params.acceptanceProjection,
+        scope: {
+          ...(params.acceptanceProjection.scope ?? {}),
+          projectId: params.task.projectId,
+          ...(params.operationId ? { operationId: params.operationId } : {}),
+        },
         verdict: params.outcome === "SUCCEEDED"
           ? goalProofAccepted ? "PROVEN" as const : "INCOMPLETE" as const
           : params.acceptanceProjection.verdict,
@@ -741,7 +754,6 @@ async function syncLinkedObjectiveState(
 
   // A manually blocked/cancelled goal remains operator-owned. Automatic
   // execution may advance an active/recoverable goal but must not reopen it.
-  const goalIsOperatorOwned = goal.status === "blocked" || goal.status === "cancelled";
   const goalChanged = !goalIsOperatorOwned && goal.status !== nextGoalStatus;
   if (goalChanged) {
     await tx.update(aiGoalsTable)
@@ -812,18 +824,20 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  const missionIsOperatorOwned =
-    mission.status === "blocked"
-    || mission.status === "cancelled"
-    || mission.status === "completed";
   const effectiveGoalStatuses = selectActiveMissionGoals({
     mission,
     goals,
   }).map((item) =>
     item.id === goal.id && goalChanged ? nextGoalStatus : item.status,
   );
-  const nextMissionStatus = deriveMissionStatusFromGoals(effectiveGoalStatuses);
-  if (missionIsOperatorOwned || mission.status === nextMissionStatus) return;
+  const derivedMissionStatus = deriveMissionStatusFromGoals(effectiveGoalStatuses);
+  const nextMissionStatus = derivedMissionStatus === "completed"
+    ? await (async () => {
+        const { deriveProofGatedMissionStatus } = await import("./mission-runtime.js");
+        return deriveProofGatedMissionStatus(tx, mission, goals);
+      })()
+    : derivedMissionStatus;
+  if (mission.status === nextMissionStatus) return;
 
   await tx.update(aiMissionsTable)
     .set({
@@ -878,16 +892,15 @@ async function syncWorkflowGoalProjection(
     .limit(1);
   if (!goalIdentity) return;
 
-  const [missionForProof] = params.projection.finalPhase
-    ? await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, goalIdentity.missionId),
-        eq(aiMissionsTable.projectId, params.projectId),
-      ))
-      .for("update")
-    : [];
+  const [missionForProof] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goalIdentity.missionId),
+      eq(aiMissionsTable.projectId, params.projectId),
+    ))
+    .for("update");
+  if (!missionForProof) return;
   const [goal] = await tx
     .select()
     .from(aiGoalsTable)
@@ -898,6 +911,12 @@ async function syncWorkflowGoalProjection(
     ))
     .for("update");
   if (!goal) return;
+  if (
+    ["blocked", "cancelled", "completed", "failed"].includes(missionForProof.status)
+    || ["blocked", "cancelled", "completed", "failed", "waiting_for_approval"].includes(goal.status)
+  ) {
+    return;
+  }
   const [workflow] = await tx
     .select({ id: workflowsTable.id, goalId: workflowsTable.goalId })
     .from(workflowsTable)
@@ -946,19 +965,15 @@ async function syncWorkflowGoalProjection(
         deliveryRequired: goalRequiresDelivery(goal.outcomeContract, goal.nextAction),
       })
     : null;
-  const dependencyState = canonicalProof?.accepted && params.projection.finalPhase && missionForProof
+  const continuation = canonicalProof?.accepted && params.projection.finalPhase && missionForProof
     ? await (async () => {
-        const { evaluateGoalDependencyState } = await import("./mission-runtime.js");
-        return evaluateGoalDependencyState(tx, missionForProof, goal, {
+        const { authorizeMissionGoalContinuation } = await import("./mission-runtime.js");
+        return authorizeMissionGoalContinuation(tx, missionForProof, goal, {
           targetExecutionId: params.executionId,
         });
       })()
     : null;
-  const dependencyProofReady = !dependencyState || (
-    dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-    && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed")
-    && dependencyState.unprovenDependencies.length === 0
-  );
+  const dependencyProofReady = !continuation || continuation.allowed;
   const goalProofAccepted = canonicalProof?.accepted === true && dependencyProofReady;
   await projectGoalAcceptance(tx, {
     goalId: goal.id,
@@ -968,9 +983,8 @@ async function syncWorkflowGoalProjection(
       executionId: params.executionId,
       outcome: params.acceptance.outcome as GoalAcceptanceProjection["outcome"],
       verdict: params.acceptance.outcome === "SUCCEEDED"
-        && (params.projection.finalPhase
-          ? goalProofAccepted
-          : evidenceComplete)
+        && params.projection.finalPhase
+        && goalProofAccepted
         ? "PROVEN"
         : params.acceptance.outcome === "FAILED"
           ? "FAILED"
@@ -979,7 +993,12 @@ async function syncWorkflowGoalProjection(
       evidenceRequired: params.acceptance.evidenceRequired === 1,
       evidenceComplete,
       sourceRevision: params.acceptance.sourceRevision,
-      scope: { projectId: params.projectId },
+      scope: {
+        projectId: params.projectId,
+        ...(params.acceptance.operationId
+          ? { operationId: params.acceptance.operationId }
+          : {}),
+      },
       acceptedRefs: [
         params.acceptance.evidenceSnapshotId,
         params.executionId,
@@ -1059,16 +1078,21 @@ async function syncWorkflowGoalProjection(
     ))
     .for("update");
   const mission = missionForProof;
-  if (!mission) return;
   const missionOperatorOwned =
     mission.status === "blocked"
     || mission.status === "cancelled"
     || mission.status === "completed";
-  const nextMissionStatus = deriveMissionStatusFromGoals(
+  const derivedMissionStatus = deriveMissionStatusFromGoals(
     selectActiveMissionGoals({ mission, goals }).map((item) =>
       item.id === goal.id && goalChanged ? nextGoalStatus : item.status,
     ),
   );
+  const nextMissionStatus = derivedMissionStatus === "completed"
+    ? await (async () => {
+        const { deriveProofGatedMissionStatus } = await import("./mission-runtime.js");
+        return deriveProofGatedMissionStatus(tx, mission, goals);
+      })()
+    : derivedMissionStatus;
   if (missionOperatorOwned || mission.status === nextMissionStatus) return;
 
   await tx.update(aiMissionsTable)

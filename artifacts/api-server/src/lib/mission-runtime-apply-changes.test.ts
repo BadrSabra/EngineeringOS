@@ -26,6 +26,7 @@ import {
   APPLY_CHANGE_CAPABILITY_ID,
   buildApplyChangeEffectProofExpectation,
 } from "./agent-state/apply-change-effect.js";
+import * as applyChangesMissionGate from "./agent-state/apply-changes-mission-gate.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 
@@ -40,7 +41,7 @@ vi.mock("../routes/ai/tasks.js", async () => {
   return { ...actual, scheduleAiTaskExecution: scheduleTaskExecution };
 });
 
-import { wakeApplyChangesMissionGoals } from "./mission-runtime.js";
+import { runMissionGoal, wakeApplyChangesMissionGoals } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
 
@@ -482,6 +483,31 @@ async function createApplyChangesFixture() {
 }
 
 type ApplyChangesFixture = Awaited<ReturnType<typeof createApplyChangesFixture>>;
+type ApplyChangesTransaction = Parameters<
+  typeof applyChangesMissionGate.evaluateApplyChangesD2
+>[0];
+
+async function runApplyGoalAfterD2Mutation(
+  fixture: ApplyChangesFixture,
+  mutate: (tx: ApplyChangesTransaction) => Promise<void>,
+) {
+  const evaluateD2 = applyChangesMissionGate.evaluateApplyChangesD2;
+  const d2Spy = vi.spyOn(applyChangesMissionGate, "evaluateApplyChangesD2")
+    .mockImplementation(async (tx, params) => {
+      const result = await evaluateD2(tx, params);
+      if (result.state === "proven") await mutate(tx);
+      return result;
+    });
+  try {
+    return await runMissionGoal({
+      goalId: fixture.applyGoalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+  } finally {
+    d2Spy.mockRestore();
+  }
+}
 
 const invalidApplyProofCases: Array<{
   name: string;
@@ -644,6 +670,61 @@ afterEach(async () => {
 });
 
 describe("Apply Changes Mission D2 dispatch", () => {
+  it("rechecks the current Goal state before projecting live proof", async () => {
+    const fixture = await createApplyChangesFixture();
+
+    const result = await runApplyGoalAfterD2Mutation(fixture, async (tx) => {
+      await tx.update(aiGoalsTable)
+        .set({ status: "blocked", blockedReason: "operator_blocked_fixture" })
+        .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    });
+
+    expect(result).toMatchObject({
+      status: "conflict",
+      reason: "mission_goal_continuation_goal_operator_owned",
+    });
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    expect(goal?.status).toBe("blocked");
+    expect((goal?.outcomeContract as Record<string, unknown>).acceptance).toBeUndefined();
+  });
+
+  it("rechecks the dependency chain before projecting live proof", async () => {
+    const fixture = await createApplyChangesFixture();
+
+    const result = await runApplyGoalAfterD2Mutation(fixture, async (tx) => {
+      await tx.insert(aiGoalDependenciesTable).values({
+        id: randomUUID(),
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        goalId: fixture.applyGoalId,
+        dependsOnGoalId: fixture.reportGoalId,
+        planRevision: fixture.planRevision,
+        createdAt: new Date(),
+      });
+    });
+
+    expect(result).toMatchObject({
+      status: "conflict",
+      reason: "mission_goal_continuation_dependency_invalid",
+    });
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    const [mission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      blockedReason: "dependency_proof_unproven",
+    });
+    expect((goal?.outcomeContract as Record<string, unknown>).acceptance).toBeUndefined();
+    expect(mission?.status).toBe("needs_replan");
+  });
+
   it("dispatches the report-applied task once after live proof, including on repeated wake", async () => {
     const fixture = await createApplyChangesFixture();
 

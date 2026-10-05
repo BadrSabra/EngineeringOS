@@ -45,7 +45,10 @@ import {
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
-import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
+import {
+  parseAiExecutionCheckpoint,
+  requestAiExecutionCancel,
+} from "./ai-execution-state.js";
 import {
   CANONICAL_PROOF_CONTRACT_VERSION,
   loadCanonicalProof,
@@ -89,6 +92,23 @@ export type GoalDependencyState = {
   dependencyGoals: Array<typeof aiGoalsTable.$inferSelect>;
   unprovenDependencies: Array<{ id: string; title: string }>;
 };
+export type MissionGoalContinuationDenial =
+  | "mission_operator_owned"
+  | "goal_operator_owned"
+  | "goal_terminal"
+  | "stale_plan_revision"
+  | "dependency_failed"
+  | "dependency_invalid"
+  | "dependency_proof_unproven"
+  | "dependencies_pending";
+export type MissionGoalContinuationAuthorization =
+  | { allowed: true; reason: "authorized"; dependencyState: GoalDependencyState }
+  | {
+      allowed: false;
+      reason: MissionGoalContinuationDenial;
+      dependencyState?: GoalDependencyState;
+      dependency?: { id: string; title: string };
+    };
 
 async function findGoalDependencyGraphIssue(
   tx: MissionTransaction,
@@ -541,6 +561,96 @@ export async function evaluateGoalDependencyState(
   options: { targetExecutionId?: string } = {},
 ): Promise<GoalDependencyState> {
   return loadGoalDependencyState(tx, mission, goal, options);
+}
+
+export async function authorizeMissionGoalContinuation(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+  options: { targetExecutionId?: string } = {},
+): Promise<MissionGoalContinuationAuthorization> {
+  const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
+    ? mission.autonomyPolicy.activePlanRevision
+    : undefined;
+  const goalRevision = goalPlanRevision(goal);
+  if (activePlanRevision && goalRevision && goalRevision !== activePlanRevision) {
+    return { allowed: false, reason: "stale_plan_revision" };
+  }
+  if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) {
+    return { allowed: false, reason: "mission_operator_owned" };
+  }
+  if (["blocked", "waiting_for_approval"].includes(goal.status)) {
+    return { allowed: false, reason: "goal_operator_owned" };
+  }
+  if (["cancelled", "completed", "failed"].includes(goal.status)) {
+    return { allowed: false, reason: "goal_terminal" };
+  }
+
+  const dependencyState = await loadGoalDependencyState(tx, mission, goal, options);
+  const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
+    ["failed", "cancelled", "blocked", "needs_replan"].includes(dependency.status),
+  );
+  if (failedDependency) {
+    return {
+      allowed: false,
+      reason: "dependency_failed",
+      dependencyState,
+      dependency: { id: failedDependency.id, title: failedDependency.title },
+    };
+  }
+  if (dependencyState.dependencies.length !== dependencyState.dependencyGoals.length) {
+    return { allowed: false, reason: "dependency_invalid", dependencyState };
+  }
+  const invalidDependency = dependencyState.unprovenDependencies.find((dependency) =>
+    dependency.title === "Missing dependency Goal"
+    || dependency.title === "Dependency cycle"
+    || dependency.title === "Dependency graph exceeds validation limit",
+  );
+  if (invalidDependency) {
+    return {
+      allowed: false,
+      reason: "dependency_invalid",
+      dependencyState,
+      dependency: invalidDependency,
+    };
+  }
+  if (dependencyState.unprovenDependencies.length > 0) {
+    return {
+      allowed: false,
+      reason: "dependency_proof_unproven",
+      dependencyState,
+      dependency: dependencyState.unprovenDependencies[0],
+    };
+  }
+  if (dependencyState.dependencyGoals.some((dependency) => dependency.status !== "completed")) {
+    return { allowed: false, reason: "dependencies_pending", dependencyState };
+  }
+  return { allowed: true, reason: "authorized", dependencyState };
+}
+
+type MissionGoalStatusRow = Pick<
+  typeof aiGoalsTable.$inferSelect,
+  "id" | "status" | "successCriteria" | "outcomeContract"
+>;
+
+export async function deriveProofGatedMissionStatus(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goals: MissionGoalStatusRow[],
+): Promise<ReturnType<typeof deriveMissionStatusFromGoals>> {
+  if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) {
+    return mission.status;
+  }
+  const proposedStatus = deriveMissionStatusFromGoals(
+    selectActiveMissionGoals({ mission, goals }).map((goal) => goal.status),
+  );
+  if (proposedStatus !== "completed") return proposedStatus;
+  const { evaluateMissionCompletion } = await import("./mission-completion-gate.js");
+  const completion = await evaluateMissionCompletion(tx, {
+    missionId: mission.id,
+    projectId: mission.projectId,
+  });
+  return completion.allowed ? "completed" : "needs_replan";
 }
 
 export async function persistGoalDependencyProofBlocked(
@@ -1018,6 +1128,8 @@ type RecipeDispatch = {
   missionId: string;
   operationId: string;
   idempotencyKey: string;
+  expectedExecutionId?: string;
+  expectedAttempt?: number;
   action: RecipeGoalAction;
   delegation: MissionDelegationBinding;
 };
@@ -1079,6 +1191,114 @@ async function recipeOperationIdentity(
     operationId: `mission-goal-${goalId}-${digest.slice(0, 16)}`,
     idempotencyKey: `mission-goal:${goalId}:${digest.slice(0, 32)}`,
   };
+}
+
+async function authorizeMissionRecipeDispatch(
+  dispatch: RecipeDispatch,
+  execution?: { id: string; attempt?: number; sourceRevision?: string },
+): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+  return db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, dispatch.missionId),
+        eq(aiMissionsTable.projectId, dispatch.projectId),
+        eq(aiMissionsTable.userId, dispatch.userId),
+      ))
+      .for("update");
+    if (!mission) return { allowed: false, reason: "mission_not_found" };
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, dispatch.goalId),
+        eq(aiGoalsTable.missionId, dispatch.missionId),
+        eq(aiGoalsTable.projectId, dispatch.projectId),
+      ))
+      .for("update");
+    if (!goal) return { allowed: false, reason: "goal_not_found" };
+
+    const authorization = await authorizeMissionGoalContinuation(
+      tx,
+      mission,
+      goal,
+      execution?.id ? { targetExecutionId: execution.id } : {},
+    );
+    if (!authorization.allowed) return authorization;
+
+    const currentAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    if (!currentAction.success || currentAction.data.kind !== "recipe") {
+      return { allowed: false, reason: "recipe_action_changed" };
+    }
+    const currentIdentity = await recipeOperationIdentity(
+      tx,
+      dispatch.projectId,
+      dispatch.goalId,
+      currentAction.data,
+    );
+    if (
+      !currentIdentity
+      || currentIdentity.operationId !== dispatch.operationId
+      || currentIdentity.idempotencyKey !== dispatch.idempotencyKey
+    ) {
+      return { allowed: false, reason: "recipe_identity_changed" };
+    }
+    if (!execution?.id) return { allowed: true };
+    if (
+      dispatch.expectedExecutionId
+      && dispatch.expectedExecutionId !== execution.id
+    ) {
+      return { allowed: false, reason: "execution_identity_changed" };
+    }
+
+    const [durableExecution] = await tx
+      .select()
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, execution.id),
+        eq(aiExecutionsTable.projectId, dispatch.projectId),
+        eq(aiExecutionsTable.userId, dispatch.userId),
+        eq(aiExecutionsTable.goalId, dispatch.goalId),
+        eq(aiExecutionsTable.operationId, dispatch.operationId),
+        eq(aiExecutionsTable.idempotencyKey, dispatch.idempotencyKey),
+      ))
+      .for("update");
+    if (
+      !durableExecution
+      || durableExecution.status !== "queued"
+      || durableExecution.cancelRequestedAt
+      || (
+        execution.attempt !== undefined
+        && durableExecution.attempt !== execution.attempt
+      )
+      || (
+        dispatch.expectedAttempt !== undefined
+        && durableExecution.attempt !== dispatch.expectedAttempt
+      )
+    ) {
+      return { allowed: false, reason: "execution_identity_changed" };
+    }
+    const checkpoint = parseAiExecutionCheckpoint(durableExecution.checkpoint);
+    const binding = checkpoint?.recipeBinding;
+    if (
+      !binding
+      || binding.projectId !== dispatch.projectId
+      || binding.operationId !== dispatch.operationId
+      || (binding.candidateIdentity ?? null) !== (dispatch.action.candidateIdentity ?? null)
+      || JSON.stringify(binding.approvedPaths) !== JSON.stringify(dispatch.action.approvedPaths)
+    ) {
+      return { allowed: false, reason: "recipe_binding_changed" };
+    }
+    if (
+      execution.sourceRevision
+      && durableExecution.baseRevision
+      && durableExecution.baseRevision !== execution.sourceRevision
+    ) {
+      return { allowed: false, reason: "execution_revision_changed" };
+    }
+    return { allowed: true };
+  });
 }
 
 async function loadGitHubDeliveryContext(
@@ -1143,7 +1363,13 @@ async function syncRecipeObjectiveState(params: {
   goalId: string;
   missionId: string;
   projectId: string;
+  userId: string;
+  operationId: string;
+  idempotencyKey: string;
   executionId?: string;
+  expectedExecutionId?: string;
+  expectedAttempt?: number;
+  attempt?: number;
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
   status: "completed" | "blocked" | "failed" | "needs_replan" | "verifying";
@@ -1180,18 +1406,35 @@ async function syncRecipeObjectiveState(params: {
       .for("update");
     if (!goal) return;
 
+    if (
+      ["blocked", "cancelled", "completed", "failed"].includes(mission.status)
+      || ["blocked", "cancelled", "completed", "failed", "waiting_for_approval"].includes(goal.status)
+    ) {
+      return;
+    }
+
     const [durableExecution] = params.executionId
       ? await tx
           .select({
-            attempt: aiExecutionsTable.attempt,
+            id: aiExecutionsTable.id,
+            userId: aiExecutionsTable.userId,
+            goalId: aiExecutionsTable.goalId,
             operationId: aiExecutionsTable.operationId,
+            idempotencyKey: aiExecutionsTable.idempotencyKey,
+            attempt: aiExecutionsTable.attempt,
             baseRevision: aiExecutionsTable.baseRevision,
+            status: aiExecutionsTable.status,
           })
           .from(aiExecutionsTable)
           .where(and(
             eq(aiExecutionsTable.id, params.executionId),
             eq(aiExecutionsTable.projectId, params.projectId),
+            eq(aiExecutionsTable.goalId, params.goalId),
+            eq(aiExecutionsTable.userId, params.userId),
+            eq(aiExecutionsTable.operationId, params.operationId),
+            eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
           ))
+          .for("update")
           .limit(1)
       : [];
     const outcome = jsonRecord(goal.outcomeContract);
@@ -1251,42 +1494,69 @@ async function syncRecipeObjectiveState(params: {
     let completionReason = params.reason;
     let canonicalProofAccepted = params.status !== "completed";
     if (params.status === "completed" && params.executionId) {
-      const policy = jsonRecord(mission.autonomyPolicy);
-      const canonicalProof = await loadCanonicalProof({
-        tx,
-        executionId: params.executionId,
-        scope: {
-          projectId: params.projectId,
-          missionId: params.missionId,
-          goalId: goal.id,
-          planRevision: goalPlanRevision(goal) ?? null,
-          activePlanRevision: typeof policy.activePlanRevision === "string"
-            ? policy.activePlanRevision
-            : null,
-          sourceRevisionBinding: params.sourceRevision == null ? "execution" : "scope",
-          candidateIdentityBinding: (
-            params.candidateIdentity ?? goalCandidateIdentity(goal)
-          ) == null
-            ? "not_applicable"
-            : "required",
-          sourceRevision: params.sourceRevision ?? null,
-          candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
-        },
-        goalStatus: "completed",
-         deliveryRequired: requiresExternalDeliveryIdentity,
-         deliveryReceipt: canonicalDeliveryReceipt,
-      });
-      canonicalProofAccepted = canonicalProof.accepted;
-      if (!canonicalProofAccepted) {
-        console.log("canonical recipe proof rejected", {
+      const resultAttempt = params.attempt ?? params.expectedAttempt;
+      const executionIdentityValid = Boolean(
+        durableExecution
+        && durableExecution.status === "completed"
+        && durableExecution.goalId === goal.id
+        && durableExecution.userId === params.userId
+        && durableExecution.operationId === params.operationId
+        && durableExecution.idempotencyKey === params.idempotencyKey
+        && (!params.expectedExecutionId || params.expectedExecutionId === params.executionId)
+        && (resultAttempt === undefined || resultAttempt === durableExecution.attempt),
+      );
+      const continuation = executionIdentityValid && durableExecution
+        ? await authorizeMissionGoalContinuation(tx, mission, goal, {
+            targetExecutionId: durableExecution.id,
+          })
+        : { allowed: false as const, reason: "execution_identity_changed" };
+      let canonicalProof: Awaited<ReturnType<typeof loadCanonicalProof>> | undefined;
+      if (continuation.allowed && durableExecution) {
+        const policy = jsonRecord(mission.autonomyPolicy);
+        canonicalProof = await loadCanonicalProof({
+          tx,
           executionId: params.executionId,
-          failureReasons: canonicalProof.failureReasons,
-          delivery: canonicalProof.delivery,
-          sourceRevision: canonicalProof.sourceRevision,
-          candidateIdentity: canonicalProof.candidateIdentity,
+          scope: {
+            projectId: params.projectId,
+            missionId: params.missionId,
+            goalId: goal.id,
+            operationId: params.operationId,
+            planRevision: goalPlanRevision(goal) ?? null,
+            activePlanRevision: typeof policy.activePlanRevision === "string"
+              ? policy.activePlanRevision
+              : null,
+            sourceRevisionBinding: params.sourceRevision == null ? "execution" : "scope",
+            candidateIdentityBinding: (
+              params.candidateIdentity ?? goalCandidateIdentity(goal)
+            ) == null
+              ? "not_applicable"
+              : "required",
+            sourceRevision: params.sourceRevision ?? null,
+            candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
+          },
+          goalStatus: "completed",
+          deliveryRequired: requiresExternalDeliveryIdentity,
+          deliveryReceipt: canonicalDeliveryReceipt,
         });
+      }
+      canonicalProofAccepted = continuation.allowed && canonicalProof?.accepted === true;
+      if (!canonicalProofAccepted) {
+        if (canonicalProof && !canonicalProof.accepted) {
+          console.log("canonical recipe proof rejected", {
+            executionId: params.executionId,
+            failureReasons: canonicalProof.failureReasons,
+            delivery: canonicalProof.delivery,
+            sourceRevision: canonicalProof.sourceRevision,
+            candidateIdentity: canonicalProof.candidateIdentity,
+          });
+        }
         nextGoalStatus = "verifying";
-        completionReason = `canonical_proof_${canonicalProof.failureReasons[0] ?? "incomplete"}`;
+        if (!continuation.allowed) {
+          nextGoalStatus = "needs_replan";
+          completionReason = `mission_goal_continuation_${continuation.reason}`;
+        } else {
+          completionReason = `canonical_proof_${canonicalProof?.failureReasons[0] ?? "incomplete"}`;
+        }
       }
     } else if (params.status === "completed") {
       nextGoalStatus = "verifying";
@@ -1308,7 +1578,10 @@ async function syncRecipeObjectiveState(params: {
               : "FAILED",
           scope: {
             projectId: params.projectId,
+            operationId: params.operationId,
           },
+          sourceRevision: params.sourceRevision ?? durableExecution?.baseRevision ?? null,
+          candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
           acceptedRefs: [params.executionId],
           receipt: {
             kind: "recipe",
@@ -1359,13 +1632,8 @@ async function syncRecipeObjectiveState(params: {
         eq(aiGoalsTable.projectId, params.projectId),
       ))
       .for("update");
-    if (mission.status === "blocked" || mission.status === "cancelled" || mission.status === "completed") return;
-    const nextMissionStatus = deriveMissionStatusFromGoals(selectActiveMissionGoals({
-      mission,
-      goals,
-    }).map((item) =>
-      item.id === goal.id ? nextGoalStatus : item.status,
-    ));
+    if (["blocked", "cancelled", "completed", "failed"].includes(mission.status)) return;
+    const nextMissionStatus = await deriveProofGatedMissionStatus(tx, mission, goals);
     if (mission.status === nextMissionStatus) return;
     await tx.update(aiMissionsTable)
       .set({
@@ -1392,6 +1660,21 @@ async function syncRecipeObjectiveState(params: {
 
 async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
   try {
+    const preflight = await authorizeMissionRecipeDispatch(
+      dispatch,
+      dispatch.expectedExecutionId
+        ? { id: dispatch.expectedExecutionId, attempt: dispatch.expectedAttempt }
+        : undefined,
+    );
+    if (!preflight.allowed) {
+      if (dispatch.expectedExecutionId) {
+        await requestAiExecutionCancel({
+          executionId: dispatch.expectedExecutionId,
+          userId: dispatch.userId,
+        }).catch(() => undefined);
+      }
+      return;
+    }
     const [project] = await db
       .select()
       .from(projectsTable)
@@ -1492,6 +1775,17 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       ...(skillBinding ? { skillBinding } : {}),
       parentExecutionId: dispatch.delegation.parentExecutionId,
       proofRequired: true,
+      ...(dispatch.expectedExecutionId
+        ? { expectedExecutionId: dispatch.expectedExecutionId }
+        : {}),
+      beforeClaim: async ({ executionId, attempt }: { executionId: string; attempt: number }) => {
+        const authorization = await authorizeMissionRecipeDispatch(dispatch, {
+          id: executionId,
+          attempt,
+          sourceRevision,
+        });
+        return authorization.allowed;
+      },
       ...(delivery && project.gitRemoteUrl
         ? {
             githubDeliveryRunner: async ({
@@ -1521,6 +1815,12 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           }
         : {}),
     });
+    if (
+      dispatch.expectedExecutionId
+      && result.executionId !== dispatch.expectedExecutionId
+    ) {
+      throw new Error("Recovered recipe execution identity changed.");
+    }
     const parsedReceipt = RecipeReceiptSchema.safeParse(result.receipt).data;
     const receiptIsComplete = Boolean(parsedReceipt);
     const [goalAfterExecution] = await db
@@ -1540,6 +1840,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     await syncRecipeObjectiveState({
       ...dispatch,
       executionId: result.executionId,
+      attempt: parsedReceipt?.attempt,
       sourceRevision,
       candidateIdentity: dispatch.action.candidateIdentity ?? null,
       status: measurementContinuationRequiresReplan
@@ -1596,6 +1897,8 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
     .select({
       executionId: aiExecutionsTable.id,
       operationId: aiExecutionsTable.operationId,
+      idempotencyKey: aiExecutionsTable.idempotencyKey,
+      attempt: aiExecutionsTable.attempt,
       userId: aiExecutionsTable.userId,
       goalId: aiExecutionsTable.goalId,
       missionId: aiGoalsTable.missionId,
@@ -1632,27 +1935,44 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
     }
     const identity = await recipeOperationIdentity(db, row.projectId, row.goalId!, recipeAction);
     if (!identity) continue;
-    if (identity.operationId !== row.operationId) continue;
-    const added = heavyJobQueue.enqueueWithId(row.executionId, async () => {
-      await executeMissionRecipe({
-        goalId: row.goalId!,
-        userId: row.userId,
-        projectId: row.projectId,
+    if (
+      identity.operationId !== row.operationId
+      || identity.idempotencyKey !== row.idempotencyKey
+    ) continue;
+    const dispatch: RecipeDispatch = {
+      goalId: row.goalId!,
+      userId: row.userId,
+      projectId: row.projectId,
+      missionId: row.missionId,
+      operationId: identity.operationId,
+      idempotencyKey: identity.idempotencyKey,
+      expectedExecutionId: row.executionId,
+      expectedAttempt: row.attempt,
+      action: recipeAction,
+      delegation: buildMissionDelegationBinding({
         missionId: row.missionId,
-        operationId: identity.operationId,
-        idempotencyKey: identity.idempotencyKey,
-        action: recipeAction,
-        delegation: buildMissionDelegationBinding({
-          missionId: row.missionId,
-          goalId: row.goalId!,
-          taskId: null,
-          planRevision: goalPlanRevision({
-            outcomeContract: row.outcomeContract,
-          } as typeof aiGoalsTable.$inferSelect),
-          userId: row.userId,
-          trigger: "resume",
-        }),
-      });
+        goalId: row.goalId!,
+        taskId: null,
+        planRevision: goalPlanRevision({
+          outcomeContract: row.outcomeContract,
+        } as typeof aiGoalsTable.$inferSelect),
+        userId: row.userId,
+        trigger: "resume",
+      }),
+    };
+    const authorization = await authorizeMissionRecipeDispatch(dispatch, {
+      id: row.executionId,
+      attempt: row.attempt,
+    });
+    if (!authorization.allowed) {
+      await requestAiExecutionCancel({
+        executionId: row.executionId,
+        userId: row.userId,
+      }).catch(() => undefined);
+      continue;
+    }
+    const added = heavyJobQueue.enqueueWithId(row.executionId, async () => {
+      await executeMissionRecipe(dispatch);
     });
     if (added) dispatched += 1;
   }
@@ -1715,13 +2035,6 @@ export async function runMissionGoal(params: {
       ? mission.autonomyPolicy.activePlanRevision
       : undefined;
     const goalRevision = goalPlanRevision(goal);
-    if (activePlanRevision && goalRevision && goalRevision !== activePlanRevision) {
-      return {
-        status: "conflict" as const,
-        goalId: goal.id,
-        reason: "stale_plan_revision",
-      };
-    }
 
     const delegation = buildMissionDelegationBinding({
       missionId: mission.id,
@@ -1743,71 +2056,79 @@ export async function runMissionGoal(params: {
       }
     }
 
-    if (mission.status === "cancelled" || mission.status === "completed") {
-      return { status: "completed" as const, goalId: goal.id, reason: "mission_terminal" };
-    }
-    if (goal.status === "cancelled" || goal.status === "completed") {
-      return { status: "completed" as const, goalId: goal.id, reason: "goal_terminal" };
-    }
-    if (goal.status === "blocked" || goal.status === "waiting_for_approval") {
-      return { status: "blocked" as const, goalId: goal.id, reason: "goal_operator_owned" };
-    }
-
-    const dependencyState = await loadGoalDependencyState(tx, mission, goal);
-    if (dependencyState.dependencies.length > 0) {
-      const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
-        dependency.status === "failed"
-        || dependency.status === "cancelled"
-        || dependency.status === "blocked"
-        || dependency.status === "needs_replan",
-      );
-      if (failedDependency) {
-        const now = new Date();
-        await tx.update(aiGoalsTable)
-          .set({
-            status: "needs_replan",
-            blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
-            nextWakeAt: null,
-            updatedAt: now,
-          })
-          .where(eq(aiGoalsTable.id, goal.id));
-        await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: now })
-          .where(eq(aiMissionsTable.id, mission.id));
-        await tx.insert(eventsTable).values({
-          id: randomUUID(),
-          type: "AiGoalDependencyBlocked",
-          projectId: goal.projectId,
-          goalId: goal.id,
-          severity: "warning",
-          message: `AI goal "${goal.title}" requires a replan because a dependency did not complete`,
-          payload: {
-            missionId: mission.id,
-            planRevision: dependencyState.planRevision,
-            dependencyGoalId: failedDependency.id,
-            dependencyStatus: failedDependency.status,
-          },
-        });
-        return { status: "blocked" as const, goalId: goal.id, reason: "dependency_failed" };
+    const continuation = await authorizeMissionGoalContinuation(tx, mission, goal);
+    if (!continuation.allowed) {
+      const dependencyState = continuation.dependencyState;
+      if (continuation.reason === "stale_plan_revision") {
+        return { status: "conflict" as const, goalId: goal.id, reason: continuation.reason };
       }
-      const unprovenDependency = dependencyState.unprovenDependencies[0];
-      if (unprovenDependency) {
+      if (continuation.reason === "mission_operator_owned") {
+        return mission.status === "blocked" || mission.status === "failed"
+          ? { status: "blocked" as const, goalId: goal.id, reason: continuation.reason }
+          : { status: "completed" as const, goalId: goal.id, reason: continuation.reason };
+      }
+      if (continuation.reason === "goal_terminal") {
+        return goal.status === "failed"
+          ? { status: "blocked" as const, goalId: goal.id, reason: continuation.reason }
+          : { status: "completed" as const, goalId: goal.id, reason: continuation.reason };
+      }
+      if (continuation.reason === "goal_operator_owned") {
+        return { status: "blocked" as const, goalId: goal.id, reason: continuation.reason };
+      }
+      if (continuation.reason === "dependency_failed" && dependencyState) {
+        const failedDependency = continuation.dependency
+          ?? dependencyState.dependencyGoals.find((dependency) =>
+            ["failed", "cancelled", "blocked", "needs_replan"].includes(dependency.status),
+          );
+        if (failedDependency) {
+          const failedStatus = dependencyState.dependencyGoals.find((dependency) =>
+            dependency.id === failedDependency.id,
+          )?.status;
+          const now = new Date();
+          await tx.update(aiGoalsTable)
+            .set({
+              status: "needs_replan",
+              blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
+              nextWakeAt: null,
+              updatedAt: now,
+            })
+            .where(eq(aiGoalsTable.id, goal.id));
+          await tx.update(aiMissionsTable)
+            .set({ status: "needs_replan", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiGoalDependencyBlocked",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "warning",
+            message: `AI goal "${goal.title}" requires a replan because a dependency did not complete`,
+            payload: {
+              missionId: mission.id,
+              planRevision: dependencyState.planRevision,
+              dependencyGoalId: failedDependency.id,
+              dependencyStatus: failedStatus ?? null,
+            },
+          });
+        }
+        return { status: "blocked" as const, goalId: goal.id, reason: continuation.reason };
+      }
+      if (
+        (continuation.reason === "dependency_invalid"
+          || continuation.reason === "dependency_proof_unproven")
+        && dependencyState
+      ) {
         await persistGoalDependencyProofBlocked(tx, {
           goal,
           mission,
           planRevision: dependencyState.planRevision,
-          dependency: unprovenDependency,
+          dependency: continuation.dependency
+            ?? dependencyState.unprovenDependencies[0]
+            ?? { id: goal.id, title: goal.title },
         });
-        return {
-          status: "blocked" as const,
-          goalId: goal.id,
-          reason: "dependency_proof_unproven",
-        };
+        return { status: "blocked" as const, goalId: goal.id, reason: "dependency_proof_unproven" };
       }
-      const allDependenciesCompleted =
-        dependencyState.dependencies.length === dependencyState.dependencyGoals.length
-        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
-      if (!allDependenciesCompleted) {
+      if (continuation.reason === "dependencies_pending") {
         const now = new Date();
         await tx.update(aiGoalsTable)
           .set({
@@ -1817,18 +2138,22 @@ export async function runMissionGoal(params: {
             updatedAt: now,
           })
           .where(eq(aiGoalsTable.id, goal.id));
-        if (mission.status !== "blocked") {
-          await tx.update(aiMissionsTable)
-            .set({ status: "waiting", updatedAt: now })
-            .where(eq(aiMissionsTable.id, mission.id));
-        }
-        return { status: "waiting" as const, goalId: goal.id, reason: "dependencies_pending" };
+        await tx.update(aiMissionsTable)
+          .set({ status: "waiting", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        return { status: "waiting" as const, goalId: goal.id, reason: continuation.reason };
       }
-      if (goal.status === "waiting_for_event" && goal.blockedReason === "dependencies_pending") {
-        await tx.update(aiGoalsTable)
-          .set({ status: "queued", blockedReason: null, updatedAt: new Date() })
-          .where(eq(aiGoalsTable.id, goal.id));
-      }
+      return { status: "conflict" as const, goalId: goal.id, reason: continuation.reason };
+    }
+    const dependencyState = continuation.dependencyState;
+    if (
+      dependencyState.dependencies.length > 0
+      && goal.status === "waiting_for_event"
+      && goal.blockedReason === "dependencies_pending"
+    ) {
+      await tx.update(aiGoalsTable)
+        .set({ status: "queued", blockedReason: null, updatedAt: new Date() })
+        .where(eq(aiGoalsTable.id, goal.id));
     }
 
     const runtimeStartRequirement = runtimeStartRequirementForGoal(goal, activePlanRevision);
@@ -2056,6 +2381,55 @@ export async function runMissionGoal(params: {
         return { status: "blocked" as const, goalId: goal.id, reason };
       }
 
+      const [completionMission] = await tx
+        .select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, mission.id),
+          eq(aiMissionsTable.projectId, goal.projectId),
+        ))
+        .for("update");
+      const [completionGoal] = await tx
+        .select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, goal.id),
+          eq(aiGoalsTable.missionId, mission.id),
+          eq(aiGoalsTable.projectId, goal.projectId),
+        ))
+        .for("update");
+      if (!completionMission || !completionGoal) {
+        return { status: "conflict" as const, goalId: goal.id, reason: "mission_goal_missing" };
+      }
+      const completionAuthorization = await authorizeMissionGoalContinuation(
+        tx,
+        completionMission,
+        completionGoal,
+        { targetExecutionId: d2.executionId },
+      );
+      if (!completionAuthorization.allowed) {
+        const dependencyState = completionAuthorization.dependencyState;
+        if (
+          (completionAuthorization.reason === "dependency_invalid"
+            || completionAuthorization.reason === "dependency_proof_unproven")
+          && dependencyState
+        ) {
+          await persistGoalDependencyProofBlocked(tx, {
+            goal: completionGoal,
+            mission: completionMission,
+            planRevision: dependencyState.planRevision,
+            dependency: completionAuthorization.dependency
+              ?? dependencyState.unprovenDependencies[0]
+              ?? { id: completionGoal.id, title: completionGoal.title },
+          });
+        }
+        return {
+          status: "conflict" as const,
+          goalId: goal.id,
+          reason: `mission_goal_continuation_${completionAuthorization.reason}`,
+        };
+      }
+
       const now = new Date();
       const projected = await projectGoalAcceptance(tx, {
         goalId: goal.id,
@@ -2104,17 +2478,52 @@ export async function runMissionGoal(params: {
         .set({
           status: "completed",
           blockedReason: null,
-          completedAt: goal.completedAt ?? now,
+          completedAt: completionGoal.completedAt ?? now,
           nextWakeAt: null,
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
-      await tx.update(aiMissionsTable)
-        .set({ status: "active", updatedAt: now })
+      const missionGoals = await tx.select({
+        id: aiGoalsTable.id,
+        status: aiGoalsTable.status,
+        successCriteria: aiGoalsTable.successCriteria,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      }).from(aiGoalsTable)
         .where(and(
-          eq(aiMissionsTable.id, mission.id),
-          eq(aiMissionsTable.status, "waiting"),
-        ));
+          eq(aiGoalsTable.missionId, mission.id),
+          eq(aiGoalsTable.projectId, goal.projectId),
+        ))
+        .for("update");
+      const nextMissionStatus = await deriveProofGatedMissionStatus(
+        tx,
+        completionMission,
+        missionGoals,
+      );
+      if (completionMission.status !== nextMissionStatus) {
+        await tx.update(aiMissionsTable)
+          .set({
+            status: nextMissionStatus,
+            completedAt: nextMissionStatus === "completed"
+              ? completionMission.completedAt ?? now
+              : null,
+            updatedAt: now,
+          })
+          .where(eq(aiMissionsTable.id, mission.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiMissionStatusSynced",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: nextMissionStatus === "completed" ? "success" : "info",
+          message: `AI mission "${completionMission.title}" → ${nextMissionStatus}`,
+          payload: {
+            executionId: d2.executionId,
+            goalId: goal.id,
+            status: nextMissionStatus,
+            source: "apply_changes_proof",
+          },
+        });
+      }
       await tx.insert(eventsTable).values({
         id: randomUUID(),
         type: "AiGoalApplyChangesProofAccepted",
@@ -2773,7 +3182,7 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
         eq(aiMissionsTable.projectId, goal.projectId),
       ))
       .for("update");
-    if (!mission || ["blocked", "cancelled", "completed"].includes(mission.status)) return false;
+    if (!mission || ["blocked", "cancelled", "completed", "failed"].includes(mission.status)) return false;
 
     const now = new Date();
     await tx.update(aiGoalsTable)

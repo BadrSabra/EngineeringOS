@@ -3,7 +3,7 @@ import request from "supertest";
 import { randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import app from "../../app.js";
 import {
   aiChangeProposalsTable,
@@ -23,7 +23,12 @@ import {
   workflowsTable,
 } from "@workspace/db";
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
-import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
+import {
+  deriveProofGatedMissionStatus,
+  runMissionGoal,
+  wakeReadyMissionGoals,
+} from "../../lib/mission-runtime.js";
+import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
 import {
@@ -601,25 +606,37 @@ describe("AI missions and goals", () => {
     const predecessorIds = dependencies
       .filter((dependency) => dependency.goalId === dependentGoal.id)
       .map((dependency) => dependency.dependsOnGoalId);
-    await db.update(aiGoalsTable)
-      .set({
-        status: "completed",
-        blockedReason: null,
-        outcomeContract: {
-          ...(materializedGoals.find((goal) => predecessorIds.includes(goal.id))?.outcomeContract ?? {}),
-          acceptance: {
-            executionId: "provider-free-accepted-execution",
-            outcome: "SUCCEEDED",
-            verdict: "PROVEN",
-            acceptedRefs: ["provider-free-evidence"],
-          },
-        },
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(aiGoalsTable.missionId, missionId),
-        inArray(aiGoalsTable.id, predecessorIds),
-      ));
+    const proofGoalIds = new Set<string>();
+    const includeProofAncestors = (goalId: string) => {
+      if (proofGoalIds.has(goalId)) return;
+      proofGoalIds.add(goalId);
+      for (const dependency of dependencies.filter((edge) => edge.goalId === goalId)) {
+        includeProofAncestors(dependency.dependsOnGoalId);
+      }
+    };
+    for (const predecessorId of predecessorIds) includeProofAncestors(predecessorId);
+    const stepOrder = new Map<string, number>(
+      preview.body.plan.steps.map((step: { id: string }, index: number) => [step.id, index] as const),
+    );
+    const proofGoals = materializedGoals
+      .filter((goal) => proofGoalIds.has(goal.id))
+      .sort((left, right) => {
+        const leftStepId = (left.successCriteria as { stepId?: string }).stepId ?? "";
+        const rightStepId = (right.successCriteria as { stepId?: string }).stepId ?? "";
+        return (stepOrder.get(leftStepId) ?? Number.MAX_SAFE_INTEGER)
+          - (stepOrder.get(rightStepId) ?? Number.MAX_SAFE_INTEGER);
+      });
+    const proofBaseTime = new Date(Date.now() - 10 * 60_000);
+    for (const [sequence, proofGoal] of proofGoals.entries()) {
+      await seedCanonicalMissionGoalCompletion({
+        projectId,
+        missionId,
+        goalId: proofGoal.id,
+        planRevision,
+        sequence,
+        baseTime: proofBaseTime,
+      });
+    }
 
     expect(await wakeReadyMissionGoals()).toBeGreaterThanOrEqual(1);
     const [wokenGoal] = await db
@@ -695,6 +712,101 @@ describe("AI missions and goals", () => {
       });
     expect(cycle.status).toBe(400);
     expect(cycle.body.code).toBe("INVALID_GOAL_DEPENDENCIES");
+  });
+
+  it("rejects dependency edits while any Goal in the Mission is running", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Active dependency mission",
+      intent: "Keep dependencies stable while work is executing",
+    });
+    const prerequisite = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Active prerequisite" });
+    const dependent = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Dependent work",
+        dependsOnGoalIds: [prerequisite.body.id],
+        planRevision: "revision-1",
+      });
+    expect(dependent.status).toBe(201);
+    await db.update(aiGoalsTable)
+      .set({ status: "running" })
+      .where(eq(aiGoalsTable.id, prerequisite.body.id));
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${dependent.body.id}`)
+      .send({
+        dependsOnGoalIds: [],
+        planRevision: "revision-1",
+      });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("GOAL_DEPENDENCIES_LOCKED_DURING_EXECUTION");
+    const persisted = await db.select()
+      .from(aiGoalDependenciesTable)
+      .where(eq(aiGoalDependenciesTable.goalId, dependent.body.id));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.dependsOnGoalId).toBe(prerequisite.body.id);
+  });
+
+  it("requires Mission reactivation before downgrading a Goal under a completed Mission", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Completed Mission",
+      intent: "Protect accepted completion state",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Completed Goal" });
+    await db.update(aiGoalsTable)
+      .set({ status: "completed" })
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    await db.update(aiMissionsTable)
+      .set({ status: "completed" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({ status: "queued" });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("MISSION_REACTIVATION_REQUIRED");
+    const [persisted] = await db.select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persisted?.status).toBe("completed");
+  });
+
+  it("derives Mission completion only when Canonical Proof is present for every active Goal", async () => {
+    const projectId = await insertProject();
+    const missionResponse = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Proof-gated completion",
+      intent: "Do not infer Mission completion from Goal statuses alone",
+    });
+    const goalResponse = await request(app)
+      .post(`/api/ai/missions/${missionResponse.body.id}/goals`)
+      .send({ title: "Unproven completed Goal" });
+    await db.update(aiGoalsTable)
+      .set({ status: "completed" })
+      .where(eq(aiGoalsTable.id, goalResponse.body.id));
+
+    const derivedStatus = await db.transaction(async (tx) => {
+      const [mission] = await tx.select()
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionResponse.body.id));
+      const goals = await tx.select()
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.missionId, missionResponse.body.id));
+      if (!mission) throw new Error("Mission fixture was not persisted");
+      return deriveProofGatedMissionStatus(tx, mission, goals);
+    });
+
+    expect(derivedStatus).toBe("needs_replan");
   });
 
   it("creates a fresh replan Goal without replacing the prior Mission history", async () => {

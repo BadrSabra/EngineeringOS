@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { and, eq } from "drizzle-orm";
 import request from "supertest";
 import app from "../app.js";
+import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
@@ -143,7 +144,9 @@ async function seedSuccessfulRecipeProof(
       goalId,
       userId: "test-user",
       operationId,
-      idempotencyKey: `recipe-proof:${executionId}`,
+      idempotencyKey: typeof params.idempotencyKey === "string"
+        ? params.idempotencyKey
+        : `recipe-proof:${executionId}`,
       resumeTokenHash: `recipe-proof-token:${executionId}`,
       request: JSON.stringify({
         projectId,
@@ -405,25 +408,27 @@ describe("Mission recipe dispatch", () => {
       createdAt: now,
     });
 
-    const completedAcceptance = {
-      executionId: "unified-precondition-execution",
-      outcome: "SUCCEEDED",
-      verdict: "PROVEN",
-      acceptedRefs: ["unified-precondition-evidence"],
-    };
-    for (const predecessor of materializedGoals.filter((goal) => goal.id !== finalGoal.id)) {
-      await db.update(aiGoalsTable)
-        .set({
-          status: "completed",
-          blockedReason: null,
-          outcomeContract: {
-            ...predecessor.outcomeContract,
-            acceptance: completedAcceptance,
-          },
-          completedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(aiGoalsTable.id, predecessor.id));
+    const stepOrder = new Map<string, number>(
+      preview.body.plan.steps.map((step: { id: string }, index: number) => [step.id, index] as const),
+    );
+    const prerequisiteGoals = materializedGoals
+      .filter((goal) => goal.id !== finalGoal.id)
+      .sort((left, right) => {
+        const leftStepId = (left.successCriteria as { stepId?: string }).stepId ?? "";
+        const rightStepId = (right.successCriteria as { stepId?: string }).stepId ?? "";
+        return (stepOrder.get(leftStepId) ?? Number.MAX_SAFE_INTEGER)
+          - (stepOrder.get(rightStepId) ?? Number.MAX_SAFE_INTEGER);
+      });
+    const proofBaseTime = new Date(Date.now() - 10 * 60_000);
+    for (const [sequence, predecessor] of prerequisiteGoals.entries()) {
+      await seedCanonicalMissionGoalCompletion({
+        projectId,
+        missionId,
+        goalId: predecessor.id,
+        planRevision: preview.body.plan.planHash,
+        sequence,
+        baseTime: proofBaseTime,
+      });
     }
     await db.update(aiGoalsTable)
       .set({
@@ -1211,5 +1216,141 @@ describe("Mission recipe dispatch", () => {
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.goalId, goalId));
     expect(executions).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      stateName: "operator-blocked Mission",
+      missionStatus: "blocked" as const,
+      goalStatus: "queued" as const,
+    },
+    {
+      stateName: "failed Mission",
+      missionStatus: "failed" as const,
+      goalStatus: "queued" as const,
+    },
+    {
+      stateName: "failed Goal",
+      missionStatus: "active" as const,
+      goalStatus: "failed" as const,
+    },
+  ])("denies queued recipe recovery when $stateName", async ({ missionStatus, goalStatus }) => {
+    recipeRunner.mockReset();
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const executionId = randomUUID();
+    const now = new Date();
+    const action = {
+      kind: "recipe" as const,
+      recipeId: "validation.recover",
+      recipeVersion: 1,
+      approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
+      candidateIdentity: null,
+    };
+    const digest = createHash("sha256").update(JSON.stringify({
+      goalId,
+      recipeId: action.recipeId,
+      recipeVersion: action.recipeVersion,
+      approvedPaths: action.approvedPaths,
+      candidateIdentity: null,
+    })).digest("hex");
+    const operationId = `mission-goal-${goalId}-${digest.slice(0, 16)}`;
+    const idempotencyKey = `mission-goal:${goalId}:${digest.slice(0, 32)}`;
+    const binding = {
+      projectId,
+      operationId,
+      sourceRevision: "source-revision-recovered",
+      candidateIdentity: null,
+      candidateWorkspace: null,
+      approvedPaths: action.approvedPaths,
+      phase: "queued" as const,
+      leaseOwner: null,
+      leaseUntil: null,
+      missionBudget: {
+        maxNodes: 24,
+        maxParallelNodes: 1,
+        maxTotalTimeoutMs: 120_000,
+        maxProcessCount: 1,
+        maxOutputBytes: 200_000,
+      },
+      concurrencyBudget: {
+        maxInFlightNodes: 1,
+        maxProcesses: 1,
+      },
+    };
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-blocked-recovery-${projectId.slice(0, 8)}`,
+      rootPath: "/tmp/unneeded-blocked-recovery-root",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Blocked recovery",
+      intent: "Do not resume operator-blocked work",
+      status: missionStatus,
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Queued validation",
+      status: goalStatus,
+      outcomeContract: { deliveryRequired: false },
+      nextAction: action,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      goalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey,
+      resumeTokenHash: "blocked-recovery-fixture",
+      request: JSON.stringify({
+        projectId,
+        operationId,
+        message: `recipe:${operationId}`,
+        modelMessage: `recipe:${operationId}`,
+        workspaceRevision: binding.sourceRevision,
+      }),
+      checkpoint: JSON.stringify({
+        stage: "queued",
+        sequence: 0,
+        recipeBinding: binding,
+        updatedAt: now.toISOString(),
+      }),
+      status: "queued",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await dispatchPendingMissionRecipes()).toBe(0);
+    const [execution] = await db.select({ status: aiExecutionsTable.status })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId));
+    const [goal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId));
+    const [mission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(execution?.status).toBe("cancelled");
+    expect(goal?.status).toBe(goalStatus);
+    expect(mission?.status).toBe(missionStatus);
+    expect(recipeRunner).not.toHaveBeenCalled();
   });
 });

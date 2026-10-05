@@ -39,6 +39,7 @@ import { parsePagination } from "../../lib/pagination.js";
 import {
   receiveMissionEvent,
   runMissionGoal,
+  deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
 import { parseExecutionRequest } from "../../lib/ai-execution-state.js";
@@ -88,6 +89,10 @@ class GoalCompletionProofRejected extends Error {
     super("Goal completion requires Canonical Proof.");
   }
 }
+
+class GoalDependenciesLockedDuringExecution extends Error {}
+
+class MissionReactivationRequired extends Error {}
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const ACTIVATION_PLAN_KIND = "mission_activation_plan";
@@ -3181,7 +3186,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
     const result = await db.transaction(async (tx) => {
       // Keep the documented Mission-before-Goal lock order for all direct
       // completion checks, including patches to already-completed records.
-      const [lockedMission] = await tx.select({ id: aiMissionsTable.id })
+      const [lockedMission] = await tx.select()
         .from(aiMissionsTable)
         .where(and(
           eq(aiMissionsTable.id, owned.mission.id),
@@ -3198,7 +3203,35 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         ))
         .for("update");
       if (!currentGoal) return { updated: undefined };
+      if (
+        lockedMission.status === "completed"
+        && body.status !== undefined
+        && body.status !== currentGoal.status
+      ) {
+        throw new MissionReactivationRequired();
+      }
 
+      let dependenciesChanged = false;
+      if (
+        Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")
+        && planRevision
+      ) {
+        const currentDependencies = await tx
+          .select({ dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId })
+          .from(aiGoalDependenciesTable)
+          .where(and(
+            eq(aiGoalDependenciesTable.goalId, currentGoal.id),
+            eq(aiGoalDependenciesTable.missionId, lockedMission.id),
+            eq(aiGoalDependenciesTable.projectId, owned.project.id),
+            eq(aiGoalDependenciesTable.planRevision, planRevision),
+          ))
+          .for("update");
+        const currentIds = [...new Set(currentDependencies.map((edge) => edge.dependsOnGoalId))].sort();
+        const requestedIds = [...new Set(dependsOnGoalIds ?? [])].sort();
+        dependenciesChanged =
+          currentIds.length !== requestedIds.length
+          || currentIds.some((id, index) => id !== requestedIds[index]);
+      }
       const nextOutcomeContract =
         outcomeContract !== undefined
           ? outcomeContract
@@ -3239,7 +3272,40 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           planRevision,
         });
       }
-      if (nextStatus === "completed") {
+      if (dependenciesChanged) {
+        const missionGoals = await tx
+          .select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+          .from(aiGoalsTable)
+          .where(and(
+            eq(aiGoalsTable.missionId, lockedMission.id),
+            eq(aiGoalsTable.projectId, owned.project.id),
+          ));
+        const activeGoalIds = missionGoals
+          .filter((item) => ["queued", "planning", "running", "verifying"].includes(item.status))
+          .map((item) => item.id);
+        const [activeExecution] = activeGoalIds.length > 0
+          ? await tx
+            .select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.projectId, owned.project.id),
+              inArray(aiExecutionsTable.goalId, activeGoalIds),
+              inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+            ))
+            .limit(1)
+          : [];
+        if (activeGoalIds.length > 0 || activeExecution) {
+          throw new GoalDependenciesLockedDuringExecution();
+        }
+      }
+      const completedGoalProofRelevantMutation = currentGoal.status === "completed"
+        && (
+          dependenciesChanged
+          || planRevision !== undefined
+          || outcomeContract !== undefined
+          || body.nextAction !== undefined
+        );
+      if (nextStatus === "completed" || completedGoalProofRelevantMutation) {
         const proven = await evaluateGoalCompletion(tx, {
           goalId: goal.id,
           missionId: goal.missionId,
@@ -3261,6 +3327,43 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
           dependencyRevision: planRevision ?? null,
         },
       });
+      if (!["blocked", "cancelled", "completed", "failed"].includes(lockedMission.status)) {
+        const goals = await tx
+          .select()
+          .from(aiGoalsTable)
+          .where(and(
+            eq(aiGoalsTable.missionId, lockedMission.id),
+            eq(aiGoalsTable.projectId, owned.project.id),
+          ))
+          .for("update");
+        const nextMissionStatus = await deriveProofGatedMissionStatus(tx, lockedMission, goals);
+        if (lockedMission.status !== nextMissionStatus) {
+          await tx.update(aiMissionsTable)
+            .set({
+              status: nextMissionStatus,
+              completedAt: nextMissionStatus === "completed"
+                ? lockedMission.completedAt ?? now
+                : null,
+              updatedAt: now,
+            })
+            .where(eq(aiMissionsTable.id, lockedMission.id));
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiMissionStatusSynced",
+            projectId: owned.project.id,
+            goalId: goal.id,
+            severity: nextMissionStatus === "completed" ? "success" : "info",
+            message: `AI mission "${lockedMission.title}" → ${nextMissionStatus}`,
+            correlationId,
+            payload: {
+              goalId: goal.id,
+              before: lockedMission.status,
+              after: nextMissionStatus,
+              source: "goal_patch",
+            },
+          });
+        }
+      }
       return { updated };
     });
     if (!result.updated) return res.status(404).json({ error: "Goal not found" });
@@ -3270,6 +3373,18 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
       return res.status(409).json({
         error: "goal_completion_requires_proof",
         code: "GOAL_COMPLETION_REQUIRES_PROOF",
+      });
+    }
+    if (error instanceof GoalDependenciesLockedDuringExecution) {
+      return res.status(409).json({
+        error: "Goal dependencies cannot change while Mission work is active.",
+        code: "GOAL_DEPENDENCIES_LOCKED_DURING_EXECUTION",
+      });
+    }
+    if (error instanceof MissionReactivationRequired) {
+      return res.status(409).json({
+        error: "Reactivate the Mission before changing a completed Goal's status.",
+        code: "MISSION_REACTIVATION_REQUIRED",
       });
     }
     if (error instanceof GoalDependencyValidationError) {
