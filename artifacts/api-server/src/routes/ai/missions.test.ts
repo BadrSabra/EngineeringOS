@@ -128,30 +128,42 @@ async function startShadowCrashApiProcess(
     child.once("exit", (code, signal) => resolve({ code, signal }));
   });
   const processHandle = { child, port, applicationName, output: () => output, diagnostics: () => diagnostics, exit };
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (output.includes("E32_SHADOW_API_READY")) {
-      const listening = await new Promise<boolean>((resolve) => {
-        const socket = createConnection({ host: "127.0.0.1", port });
-        const done = (ready: boolean) => {
-          socket.destroy();
-          resolve(ready);
-        };
-        socket.setTimeout(1_000, () => done(false));
-        socket.once("connect", () => done(true));
-        socket.once("error", () => done(false));
-      });
-      if (listening) return processHandle;
+  try {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      if (output.includes("E32_SHADOW_API_READY")) {
+        const listening = await new Promise<boolean>((resolve) => {
+          const socket = createConnection({ host: "127.0.0.1", port });
+          const done = (ready: boolean) => {
+            socket.destroy();
+            resolve(ready);
+          };
+          socket.setTimeout(1_000, () => done(false));
+          socket.once("connect", () => done(true));
+          socket.once("error", () => done(false));
+        });
+        if (listening) return processHandle;
+      }
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(
+          `Shadow Replay API exited before becoming ready; `
+          + `exit=${JSON.stringify(await exit)}; stderr=${diagnostics}; stdout=${output}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(
-        `Shadow Replay API exited before becoming ready; `
-        + `exit=${JSON.stringify(await exit)}; stderr=${diagnostics}; stdout=${output}`,
-      );
+    throw new Error(`Shadow Replay API readiness timed out; stderr=${diagnostics}; stdout=${output}`);
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null && child.pid) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // The child may have exited while startup diagnostics were being read.
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await exit;
+    throw error;
   }
-  throw new Error(`Shadow Replay API readiness timed out; stderr=${diagnostics}; stdout=${output}`);
 }
 
 async function stopShadowCrashApiProcess(
@@ -1576,7 +1588,7 @@ describe("AI missions and goals", () => {
 
       const waitForCommittedQueuedReplay = async (
         idempotencyKey: string,
-        minimumBlockedClaims: number,
+        lockIdentity: string,
       ) => {
         const deadline = Date.now() + 45_000;
         let lastState = "no replay row";
@@ -1606,23 +1618,33 @@ describe("AI missions and goals", () => {
               .limit(1)
             : [];
           const activity = await db.execute(sql`
-            SELECT pid
-            FROM pg_stat_activity
-            WHERE application_name = ${applicationName}
-              AND wait_event_type = 'Lock'
-              AND query ILIKE '%ai_shadow_replays%'
+            SELECT DISTINCT activity.pid
+            FROM pg_stat_activity AS activity
+            JOIN pg_locks AS waiting_lock
+              ON waiting_lock.pid = activity.pid
+              AND waiting_lock.locktype = 'advisory'
+              AND waiting_lock.granted = false
+            WHERE activity.application_name = ${applicationName}
+              AND activity.wait_event_type = 'Lock'
+              AND waiting_lock.objsubid = 1
+              AND waiting_lock.classid::bigint = (
+                (hashtextextended(${lockIdentity}, 0) >> 32) & 4294967295
+              )
+              AND waiting_lock.objid::bigint = (
+                hashtextextended(${lockIdentity}, 0) & 4294967295
+              )
           `);
           const blockedRows =
             (activity as unknown as { rows?: Array<{ pid: number }> }).rows ?? [];
           lastState = JSON.stringify({
             replay: replayRow?.status ?? null,
             execution: executionRow?.status ?? null,
-            blockedClaims: blockedRows.length,
+            blockedBackendPids: blockedRows.map((row) => row.pid),
           });
           if (
             replayRow?.status === "queued"
             && executionRow?.status === "queued"
-            && blockedRows.length >= minimumBlockedClaims
+            && blockedRows.length >= 1
           ) {
             return {
               replayId: replayRow.id,
@@ -1645,14 +1667,17 @@ describe("AI missions and goals", () => {
         );
       };
 
-      const positiveIdentity = await waitForCommittedQueuedReplay(replayIdempotencyKey, 1);
+      const positiveIdentity = await waitForCommittedQueuedReplay(
+        replayIdempotencyKey,
+        lockRows[0]!.lockIdentity,
+      );
       crashWindowIdentities.push(positiveIdentity);
       if (positiveIdentity.workspaceRoot) shadowWorkspaceRoots.push(positiveIdentity.workspaceRoot);
       if (positiveIdentity.replayWorkspaceRoot) shadowWorkspaceRoots.push(positiveIdentity.replayWorkspaceRoot);
       routeRequests.push(sendReplayRequest(mutationProposalId));
       const mutationIdentity = await waitForCommittedQueuedReplay(
         mutationReplayIdempotencyKey,
-        2,
+        lockRows[1]!.lockIdentity,
       );
       crashWindowIdentities.push(mutationIdentity);
       if (mutationIdentity.workspaceRoot) shadowWorkspaceRoots.push(mutationIdentity.workspaceRoot);
