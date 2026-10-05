@@ -1873,6 +1873,8 @@ export function buildAiExecutionResumeContext(
   ].join("\n");
 }
 
+type AiExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export async function createAiExecution(params: {
   userId: string;
   request: AiExecutionRequestEnvelope;
@@ -1891,6 +1893,8 @@ export async function createAiExecution(params: {
   /** Optional server-owned parent execution for delegated work. */
   parentExecutionId?: string | null;
   delegationBudget?: Partial<ExecutionDelegationBudget>;
+  /** Existing transaction for callers that must atomically bind related rows. */
+  transaction?: AiExecutionTransaction;
 }): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
   if (params.recipeBinding) {
     assertRecipeOperationBinding(params.recipeBinding, {
@@ -1899,7 +1903,8 @@ export async function createAiExecution(params: {
       sourceRevision: params.request.workspaceRevision,
     });
   }
-  const existing = await db
+  const query = params.transaction ?? db;
+  const existing = await query
     .select()
     .from(aiExecutionsTable)
     .where(and(
@@ -1935,7 +1940,7 @@ export async function createAiExecution(params: {
   const executionId = randomUUID();
   let lineage;
   if (params.parentExecutionId) {
-    const [parent] = await db
+    const [parent] = await query
       .select({
         id: aiExecutionsTable.id,
         projectId: aiExecutionsTable.projectId,
@@ -1959,7 +1964,7 @@ export async function createAiExecution(params: {
     const stableDelegationId = parent.delegationId ?? `delegation:${parent.id}`;
     const stableRootExecutionId = parent.rootExecutionId ?? parent.id;
     if (!parent.delegationId || !parent.rootExecutionId) {
-      await db.update(aiExecutionsTable)
+      await query.update(aiExecutionsTable)
         .set({
           delegationId: stableDelegationId,
           rootExecutionId: stableRootExecutionId,
@@ -1981,7 +1986,7 @@ export async function createAiExecution(params: {
       },
       budget: params.delegationBudget,
     });
-    const [{ childCount }] = await db
+    const [{ childCount }] = await query
       .select({ childCount: sql<number>`count(*)` })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.parentExecutionId, parent.id));
@@ -2004,7 +2009,7 @@ export async function createAiExecution(params: {
       : {}),
     ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
   });
-  const [execution] = await db
+  const [execution] = await query
     .insert(aiExecutionsTable)
     .values({
       id: executionId,
@@ -2065,7 +2070,7 @@ export async function createAiExecution(params: {
   // than surfacing the expected conflict, so both callers get the same
   // resumable execution identity. Keep the request binding check here as well:
   // a conflicting key must never allow a different request to reuse it.
-  const [racedExecution] = await db
+  const [racedExecution] = await query
     .select()
     .from(aiExecutionsTable)
     .where(and(

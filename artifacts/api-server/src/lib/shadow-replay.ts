@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiExecutionsTable,
@@ -628,51 +628,89 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     objective: behaviorContract.objective.objective,
     taskObjective: behaviorContract.objective,
   };
-  const execution = await createAiExecution({
-    userId: input.userId,
-    request: replayExecutionRequest,
-    idempotencyKey: key,
-    correlationId: operationId,
-    projectId: input.projectId,
-    goalId: input.goalId,
-    recipeBinding: prepared.binding,
-    workspaceRoot: replayWorkspace.rootPath,
-  });
-  const [inserted] = await db
-    .insert(aiShadowReplaysTable)
-    .values({
-      id: replayId,
-      executionId: execution.execution.id,
-      projectId: input.projectId,
-      proposalId: input.proposalId,
-      userId: input.userId,
-      idempotencyKey: key,
-      operationId,
-      candidateId: input.candidate.candidateId,
-      canonicalAcceptanceId: input.canonicalProof.acceptanceId!,
-      trajectoryDigest: input.canonicalProof.trajectoryDigest!.digest,
-      sourceRevision: input.sourceRevision,
-      candidateTreeHash: input.candidateTreeHash,
-      changeSetHash: input.changeSetHash ?? null,
-      executionProfile: "shadow-replay",
-      sourceWorkspaceRoot: input.sourceWorkspaceRoot!,
-      replayWorkspaceRoot: replayWorkspace.rootPath,
-      status: "queued",
-      attempt: execution.execution.attempt,
-    })
-    .onConflictDoNothing()
-    .returning();
-  if (!inserted) {
+  const advisoryLockKey = JSON.stringify([input.userId, key]);
+  let creation: {
+    kind: "created";
+    inserted: ShadowReplayRow;
+  } | {
+    kind: "existing";
+    replay: ShadowReplayRow;
+  };
+  try {
+    creation = await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${advisoryLockKey}, 0))
+      `);
+      const [racedReplay] = await tx
+        .select()
+        .from(aiShadowReplaysTable)
+        .where(and(
+          eq(aiShadowReplaysTable.userId, input.userId),
+          eq(aiShadowReplaysTable.idempotencyKey, key),
+        ))
+        .limit(1);
+      if (racedReplay) return { kind: "existing" as const, replay: racedReplay };
+
+      const execution = await createAiExecution({
+        userId: input.userId,
+        request: replayExecutionRequest,
+        idempotencyKey: key,
+        correlationId: operationId,
+        projectId: input.projectId,
+        goalId: input.goalId,
+        recipeBinding: prepared.binding,
+        workspaceRoot: replayWorkspace.rootPath,
+        transaction: tx,
+      });
+      const [inserted] = await tx
+        .insert(aiShadowReplaysTable)
+        .values({
+          id: replayId,
+          executionId: execution.execution.id,
+          projectId: input.projectId,
+          proposalId: input.proposalId,
+          userId: input.userId,
+          idempotencyKey: key,
+          operationId,
+          candidateId: input.candidate.candidateId,
+          canonicalAcceptanceId: input.canonicalProof.acceptanceId!,
+          trajectoryDigest: input.canonicalProof.trajectoryDigest!.digest,
+          sourceRevision: input.sourceRevision,
+          candidateTreeHash: input.candidateTreeHash,
+          changeSetHash: input.changeSetHash ?? null,
+          executionProfile: "shadow-replay",
+          sourceWorkspaceRoot: input.sourceWorkspaceRoot!,
+          replayWorkspaceRoot: replayWorkspace.rootPath,
+          status: "queued",
+          attempt: execution.execution.attempt,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!inserted) {
+        throw new ShadowReplayError(
+          "SHADOW_REPLAY_CREATE_RACE",
+          "Shadow replay creation raced and was not recoverable.",
+        );
+      }
+      return {
+        kind: "created" as const,
+        inserted,
+      };
+    });
+  } catch (error) {
     await fs.rm(replayWorkspace.rootPath, { recursive: true, force: true }).catch(() => undefined);
-    const [raced] = await db
-      .select()
-      .from(aiShadowReplaysTable)
-      .where(and(
-        eq(aiShadowReplaysTable.userId, input.userId),
-        eq(aiShadowReplaysTable.idempotencyKey, key),
-      ))
-      .limit(1);
-    if (!raced) throw new ShadowReplayError("SHADOW_REPLAY_CREATE_RACE", "Shadow replay creation raced and was not recoverable.");
+    throw error;
+  }
+
+  if (creation.kind === "existing") {
+    await fs.rm(replayWorkspace.rootPath, { recursive: true, force: true }).catch(() => undefined);
+    const raced = creation.replay;
+    if (raced.projectId !== input.projectId || raced.proposalId !== input.proposalId) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_IDEMPOTENCY_CONFLICT",
+        "Replay idempotency is bound to another proposal.",
+      );
+    }
     if (raced.status === "queued" || raced.status === "running") {
       await runShadowReplayAttempt(raced.id, input.userId);
     }
@@ -681,8 +719,8 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     return { replay: toPublicShadowReplay(current), created: false };
   }
 
-  await runShadowReplayAttempt(inserted.id, input.userId);
-  const current = await getShadowReplayForUser(inserted.id, input.userId);
+  await runShadowReplayAttempt(creation.inserted.id, input.userId);
+  const current = await getShadowReplayForUser(creation.inserted.id, input.userId);
   if (!current) throw new ShadowReplayError("SHADOW_REPLAY_NOT_FOUND", "Shadow replay disappeared.");
   return { replay: toPublicShadowReplay(current), created: true };
 }
