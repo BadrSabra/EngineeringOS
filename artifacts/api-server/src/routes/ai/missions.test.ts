@@ -1456,252 +1456,376 @@ describe("AI missions and goals", () => {
       productionExecution: false,
     });
 
-    const replayInput = {
-      userId: "test-user",
+    await db.insert(aiChangeProposalsTable).values({
+      id: mutationProposalId,
       projectId,
-      proposalId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: "src/index.ts", newContent: "export const ok = true;" }]),
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
       operationId,
-      sourceRevision,
+      baseRevision: sourceRevision,
       candidateTreeHash,
       changeSetHash,
-      sourceWorkspaceRoot: deliveryWorkspace.workspaceRoot,
-      candidate: bound.body.candidate,
-      canonicalProof: await db.transaction((tx) => loadCanonicalProof({
-        tx,
-        executionId,
-        scope: {
-          projectId,
-          missionId,
-          goalId,
-          executionId,
-          operationId,
-          planRevision,
-          activePlanRevision: planRevision,
-          sourceRevisionBinding: "scope",
-          candidateIdentityBinding: "required",
-          sourceRevision,
-          candidateIdentity: candidateTreeHash,
-        },
-        goalStatus: "completed",
-      })),
-      missionId,
-      goalId,
-      planRevision,
-      activePlanRevision: planRevision,
-    };
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      workspaceRoot: deliveryWorkspace.workspaceRoot,
+      createdAt: now,
+    });
+    const mutationBound = await request(app)
+      .post(`/api/ai/proposals/${mutationProposalId}/skill-candidate`)
+      .send({});
+    expect(mutationBound.status, JSON.stringify(mutationBound.body)).toBe(201);
+    expect(mutationBound.body.candidate.candidateId).not.toBe(bound.body.candidate.candidateId);
+
     const replayIdempotencyKey =
       `shadow-replay:${proposalId}:${bound.body.candidate.candidateId}:${candidateTreeHash}`;
-    const validationRootsBeforeCrash = new Set(
-      (await fs.readdir("/tmp")).filter((name) => name.startsWith("engineeringos-validation-")),
-    );
-    let releaseReplayInsertLock!: () => void;
-    let signalReplayInsertLockReady!: () => void;
-    const replayInsertLockReady = new Promise<void>((resolve) => {
-      signalReplayInsertLockReady = resolve;
+    const mutationReplayIdempotencyKey =
+      `shadow-replay:${mutationProposalId}:${mutationBound.body.candidate.candidateId}:${candidateTreeHash}`;
+    const gateSuffix = randomUUID().replaceAll("-", "");
+    const gateTable = `e32_shadow_gate_${gateSuffix}`;
+    const gateFunction = `e32_shadow_gate_fn_${gateSuffix}`;
+    const gateTrigger = `e32_shadow_gate_tr_${gateSuffix}`;
+    const gateLockIdentities = [randomUUID(), randomUUID()];
+    const lockRows = [
+      { key: replayIdempotencyKey, lockIdentity: gateLockIdentities[0]! },
+      { key: mutationReplayIdempotencyKey, lockIdentity: gateLockIdentities[1]! },
+    ];
+    const gateTableSql = `public."${gateTable}"`;
+    let releaseGateLocks!: () => void;
+    let signalGateLocksReady!: () => void;
+    const gateLocksReady = new Promise<void>((resolve) => {
+      signalGateLocksReady = resolve;
     });
-    const holdReplayInsertLock = new Promise<void>((resolve) => {
-      releaseReplayInsertLock = resolve;
+    const holdGateLocks = new Promise<void>((resolve) => {
+      releaseGateLocks = resolve;
     });
-    const replayInsertLock = db.transaction(async (tx) => {
-      await tx.execute(sql`LOCK TABLE ai_shadow_replays IN SHARE MODE`);
-      signalReplayInsertLockReady();
-      await holdReplayInsertLock;
-    });
-    await replayInsertLockReady;
-
-    const databaseUrl = process.env.DATABASE_URL;
-    expect(databaseUrl).toBeTruthy();
-    expect(new URL(databaseUrl!).hostname).toBe("127.0.0.1");
-    const applicationName = `e32-shadow-crash-${proposalId.slice(0, 8)}`;
-    const childDatabaseUrl = new URL(databaseUrl!);
-    childDatabaseUrl.searchParams.set("application_name", applicationName);
-    const childSource = [
-      `const replayInput = ${JSON.stringify(replayInput)};`,
-      "(async () => {",
-      '  const { startShadowReplay } = await import("./src/lib/shadow-replay.ts");',
-      "  await startShadowReplay(replayInput);",
-      "})().catch((error) => {",
-      "  console.error(error);",
-      "  process.exitCode = 1;",
-      "});",
-    ].join("\n");
-    const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
-      cwd: process.cwd(),
-      env: {
-        DATABASE_URL: childDatabaseUrl.toString(),
-        NODE_ENV: "test",
-        PATH: process.env.PATH ?? "",
-        HOME: process.env.HOME ?? "",
-        PGAPPNAME: applicationName,
-        AI_PROVIDER_EGRESS_DISABLED: "1",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    child.stdout?.setEncoding("utf8");
-    child.stderr?.setEncoding("utf8");
-    let childOutput = "";
-    let childDiagnostics = "";
-    child.stdout?.on("data", (chunk: string) => { childOutput += chunk; });
-    child.stderr?.on("data", (chunk: string) => { childDiagnostics += chunk; });
-    const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-      child.once("exit", (code, signal) => resolve({ code, signal }));
-    });
-    let orphanExecution: { id: string; workspaceRoot: string | null } | undefined;
-    let replayInsertBlocked = false;
-    let replayBackendPid: number | undefined;
-    let replayBackendClosed = false;
+    let gateLockTransaction: Promise<unknown> | undefined;
+    const apiChildren: ShadowCrashApiProcess[] = [];
+    let routeRequests: Array<Promise<{ status: number; body: unknown } | { error: string }>> = [];
+    let crashWindowIdentities: Array<{
+      replayId: string;
+      executionId: string;
+      workspaceRoot: string | null;
+      replayWorkspaceRoot: string | null;
+    }> = [];
     try {
-      const deadline = Date.now() + 30_000;
-      while (Date.now() < deadline) {
-        [orphanExecution] = await db
+      await db.execute(sql.raw(
+        `CREATE TABLE ${gateTableSql} (idempotency_key text PRIMARY KEY, lock_identity text NOT NULL)`,
+      ));
+      await db.execute(sql.raw(`
+        CREATE OR REPLACE FUNCTION public."${gateFunction}"()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $body$
+        DECLARE gate_identity text;
+        BEGIN
+          SELECT gate.lock_identity INTO gate_identity
+          FROM ${gateTableSql} AS gate
+          WHERE gate.idempotency_key = OLD.idempotency_key;
+          IF gate_identity IS NOT NULL THEN
+            PERFORM pg_advisory_xact_lock(hashtextextended(gate_identity, 0));
+          END IF;
+          RETURN NEW;
+        END;
+        $body$
+      `));
+      await db.execute(sql.raw(`
+        CREATE TRIGGER "${gateTrigger}"
+        BEFORE UPDATE OF status ON public.ai_shadow_replays
+        FOR EACH ROW
+        WHEN (OLD.status = 'queued' AND NEW.status = 'running')
+        EXECUTE FUNCTION public."${gateFunction}"()
+      `));
+      for (const gate of lockRows) {
+        await db.execute(sql`
+          INSERT INTO ${sql.raw(gateTableSql)} (idempotency_key, lock_identity)
+          VALUES (${gate.key}, ${gate.lockIdentity})
+        `);
+      }
+      gateLockTransaction = db.transaction(async (tx) => {
+        for (const lockIdentity of gateLockIdentities) {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockIdentity}, 0))`);
+        }
+        signalGateLocksReady();
+        await holdGateLocks;
+      });
+      await gateLocksReady;
+
+      const apiDatabaseUrl = process.env.DATABASE_URL;
+      if (!apiDatabaseUrl) throw new Error("The Shadow Replay process test requires DATABASE_URL.");
+      const applicationName = `e32-shadow-crash-${randomUUID().slice(0, 8)}`;
+      const api = await startShadowCrashApiProcess(apiDatabaseUrl, applicationName);
+      apiChildren.push(api);
+      const sendReplayRequest = (targetProposalId: string) => fetch(
+        `http://127.0.0.1:${api.port}/api/ai/proposals/${targetProposalId}/skill-candidate/shadow-replay`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      ).then(async (response) => ({
+        status: response.status,
+        body: await response.json().catch(() => null),
+      })).catch((error: unknown) => ({ error: String(error) }));
+      routeRequests = [
+        sendReplayRequest(proposalId),
+      ];
+
+      const waitForCommittedQueuedReplay = async (
+        idempotencyKey: string,
+        minimumBlockedClaims: number,
+      ) => {
+        const deadline = Date.now() + 45_000;
+        let lastState = "no replay row";
+        while (Date.now() < deadline) {
+          const [replayRow] = await db
+            .select({
+              id: aiShadowReplaysTable.id,
+              executionId: aiShadowReplaysTable.executionId,
+              status: aiShadowReplaysTable.status,
+              replayWorkspaceRoot: aiShadowReplaysTable.replayWorkspaceRoot,
+            })
+            .from(aiShadowReplaysTable)
+            .where(and(
+              eq(aiShadowReplaysTable.userId, "test-user"),
+              eq(aiShadowReplaysTable.idempotencyKey, idempotencyKey),
+            ))
+            .limit(1);
+          const [executionRow] = replayRow
+            ? await db
+              .select({
+                id: aiExecutionsTable.id,
+                status: aiExecutionsTable.status,
+                workspaceRoot: aiExecutionsTable.workspaceRoot,
+              })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, replayRow.executionId))
+              .limit(1)
+            : [];
+          const activity = await db.execute(sql`
+            SELECT pid
+            FROM pg_stat_activity
+            WHERE application_name = ${applicationName}
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%ai_shadow_replays%'
+          `);
+          const blockedRows =
+            (activity as unknown as { rows?: Array<{ pid: number }> }).rows ?? [];
+          lastState = JSON.stringify({
+            replay: replayRow?.status ?? null,
+            execution: executionRow?.status ?? null,
+            blockedClaims: blockedRows.length,
+          });
+          if (
+            replayRow?.status === "queued"
+            && executionRow?.status === "queued"
+            && blockedRows.length >= minimumBlockedClaims
+          ) {
+            return {
+              replayId: replayRow.id,
+              executionId: executionRow.id,
+              workspaceRoot: executionRow.workspaceRoot,
+              replayWorkspaceRoot: replayRow.replayWorkspaceRoot,
+            };
+          }
+          if (api.child.exitCode !== null || api.child.signalCode !== null) {
+            throw new Error(
+              `Shadow Replay API exited before the committed claim barrier; `
+              + `exit=${JSON.stringify(await api.exit)}; stderr=${api.diagnostics()}; stdout=${api.output()}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(
+          `Timed out waiting for a committed queued Shadow Replay behind the claim barrier: ${lastState}; `
+          + `stderr=${api.diagnostics()}; stdout=${api.output()}`,
+        );
+      };
+
+      const positiveIdentity = await waitForCommittedQueuedReplay(replayIdempotencyKey, 1);
+      crashWindowIdentities.push(positiveIdentity);
+      if (positiveIdentity.workspaceRoot) shadowWorkspaceRoots.push(positiveIdentity.workspaceRoot);
+      if (positiveIdentity.replayWorkspaceRoot) shadowWorkspaceRoots.push(positiveIdentity.replayWorkspaceRoot);
+      routeRequests.push(sendReplayRequest(mutationProposalId));
+      const mutationIdentity = await waitForCommittedQueuedReplay(
+        mutationReplayIdempotencyKey,
+        2,
+      );
+      crashWindowIdentities.push(mutationIdentity);
+      if (mutationIdentity.workspaceRoot) shadowWorkspaceRoots.push(mutationIdentity.workspaceRoot);
+      if (mutationIdentity.replayWorkspaceRoot) shadowWorkspaceRoots.push(mutationIdentity.replayWorkspaceRoot);
+
+      expect(await stopShadowCrashApiProcess(api)).toMatchObject({
+        code: null,
+        signal: "SIGKILL",
+      });
+      await Promise.all(routeRequests);
+      await terminateShadowApiDatabaseSessions(applicationName);
+
+      for (const identity of crashWindowIdentities) {
+        const [replayRow] = await db
+          .select({
+            id: aiShadowReplaysTable.id,
+            executionId: aiShadowReplaysTable.executionId,
+            status: aiShadowReplaysTable.status,
+          })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.id, identity.replayId));
+        const [executionRow] = await db
           .select({
             id: aiExecutionsTable.id,
-            workspaceRoot: aiExecutionsTable.workspaceRoot,
+            status: aiExecutionsTable.status,
           })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, identity.executionId));
+        expect(replayRow).toEqual({
+          id: identity.replayId,
+          executionId: identity.executionId,
+          status: "queued",
+        });
+        expect(executionRow).toEqual({ id: identity.executionId, status: "queued" });
+      }
+
+      const [mutationProposal] = await db
+        .select({ validationEvidence: aiChangeProposalsTable.validationEvidence })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, mutationProposalId));
+      const changedEvidence = JSON.parse(mutationProposal!.validationEvidence!);
+      changedEvidence.skillCandidate.candidateTreeHash = "c".repeat(64);
+      await db.update(aiChangeProposalsTable)
+        .set({ validationEvidence: JSON.stringify(changedEvidence) })
+        .where(eq(aiChangeProposalsTable.id, mutationProposalId));
+
+      await db.execute(sql`
+        DELETE FROM ${sql.raw(gateTableSql)}
+        WHERE idempotency_key IN (${replayIdempotencyKey}, ${mutationReplayIdempotencyKey})
+      `);
+      releaseGateLocks();
+      await gateLockTransaction;
+      gateLockTransaction = undefined;
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${gateTrigger}" ON public.ai_shadow_replays`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${gateFunction}"()`));
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS ${gateTableSql}`));
+
+      const recoveryApplicationName = `e32-shadow-recovery-${randomUUID().slice(0, 8)}`;
+      const recoveryApi = await startShadowCrashApiProcess(apiDatabaseUrl, recoveryApplicationName);
+      apiChildren.push(recoveryApi);
+      const recoveryDeadline = Date.now() + 120_000;
+      let recoveredRows: Array<{
+        id: string;
+        executionId: string;
+        status: string;
+        error: string | null;
+      }> = [];
+      while (Date.now() < recoveryDeadline) {
+        const ids = crashWindowIdentities.map((identity) => identity.replayId);
+        recoveredRows = await Promise.all(ids.map(async (id) => {
+          const [row] = await db
+            .select({
+              id: aiShadowReplaysTable.id,
+              executionId: aiShadowReplaysTable.executionId,
+              status: aiShadowReplaysTable.status,
+              error: aiShadowReplaysTable.error,
+            })
+            .from(aiShadowReplaysTable)
+            .where(eq(aiShadowReplaysTable.id, id))
+            .limit(1);
+          return row!;
+        }));
+        if (recoveredRows[0]?.status === "completed" && recoveredRows[1]?.status === "failed") break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(recoveredRows[0]).toMatchObject({
+        id: crashWindowIdentities[0]!.replayId,
+        executionId: crashWindowIdentities[0]!.executionId,
+        status: "completed",
+      });
+      expect(recoveredRows[1]).toMatchObject({
+        id: crashWindowIdentities[1]!.replayId,
+        executionId: crashWindowIdentities[1]!.executionId,
+        status: "failed",
+        error: "SHADOW_REPLAY_SOURCE_PROOF_REJECTED",
+      });
+
+      const replayCounts = await Promise.all([
+        db.select({ id: aiShadowReplaysTable.id })
+          .from(aiShadowReplaysTable)
+          .where(and(
+            eq(aiShadowReplaysTable.userId, "test-user"),
+            eq(aiShadowReplaysTable.idempotencyKey, replayIdempotencyKey),
+          )),
+        db.select({ id: aiShadowReplaysTable.id })
+          .from(aiShadowReplaysTable)
+          .where(and(
+            eq(aiShadowReplaysTable.userId, "test-user"),
+            eq(aiShadowReplaysTable.idempotencyKey, mutationReplayIdempotencyKey),
+          )),
+      ]);
+      expect(replayCounts.map((rows) => rows.map((row) => row.id))).toEqual([
+        [crashWindowIdentities[0]!.replayId],
+        [crashWindowIdentities[1]!.replayId],
+      ]);
+      const replayExecutionCounts = await Promise.all([
+        db.select({ id: aiExecutionsTable.id })
           .from(aiExecutionsTable)
           .where(and(
             eq(aiExecutionsTable.userId, "test-user"),
             eq(aiExecutionsTable.idempotencyKey, replayIdempotencyKey),
-          ))
-          .limit(1);
-        const activity = await db.execute(sql`
-          SELECT pid, wait_event_type
-          FROM pg_stat_activity
-          WHERE application_name = ${applicationName}
-        `);
-        const activityRows =
-          (activity as unknown as {
-            rows?: Array<{ pid: number; wait_event_type: string | null }>;
-          }).rows ?? [];
-        const blockedBackend = activityRows.find((row) => row.wait_event_type === "Lock");
-        replayInsertBlocked = Boolean(blockedBackend);
-        replayBackendPid = blockedBackend?.pid;
-        if (replayInsertBlocked) break;
-        if (child.exitCode !== null || child.signalCode !== null) {
-          throw new Error(
-            `Shadow replay process exited before the insert lock; `
-            + `exit=${JSON.stringify(await childExit)}; stderr=${childDiagnostics}; stdout=${childOutput}`,
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      expect(replayInsertBlocked, `child stderr=${childDiagnostics}; stdout=${childOutput}`).toBe(true);
-      expect(await db.select({ id: aiShadowReplaysTable.id })
-        .from(aiShadowReplaysTable)
-        .where(and(
-          eq(aiShadowReplaysTable.userId, "test-user"),
-          eq(aiShadowReplaysTable.idempotencyKey, replayIdempotencyKey),
-        ))).toEqual([]);
+          )),
+        db.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.userId, "test-user"),
+            eq(aiExecutionsTable.idempotencyKey, mutationReplayIdempotencyKey),
+          )),
+      ]);
+      expect(replayExecutionCounts.map((rows) => rows.map((row) => row.id))).toEqual([
+        [crashWindowIdentities[0]!.executionId],
+        [crashWindowIdentities[1]!.executionId],
+      ]);
+
+      const negativeExecutionAcceptances = await db
+        .select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, crashWindowIdentities[1]!.executionId));
+      expect(negativeExecutionAcceptances).toEqual([]);
+      const negativeRegistration = await request(app)
+        .post(`/api/ai/proposals/${mutationProposalId}/skill-registry`)
+        .send({ skillId: "candidate-review", skillVersion: "mutated-after-commit" });
+      expect(negativeRegistration.status).toBe(409);
+      expect(negativeRegistration.body.code).toBe("SKILL_REGISTRY_SHADOW_REPLAY_REQUIRED");
+      const negativeRetry = await request(app)
+        .post(`/api/ai/proposals/${mutationProposalId}/skill-candidate/shadow-replay`)
+        .send({});
+      expect(negativeRetry.status).toBe(409);
+      expect(negativeRetry.body.code).toBe("SKILL_CANDIDATE_SHADOW_REJECTED");
+
+      expect(await stopShadowCrashApiProcess(recoveryApi)).toMatchObject({
+        code: null,
+        signal: "SIGKILL",
+      });
+      await terminateShadowApiDatabaseSessions(recoveryApplicationName);
     } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-        await childExit;
-      }
-      try {
-        if (replayBackendPid !== undefined) {
-          await db.execute(sql`SELECT pg_terminate_backend(${replayBackendPid})`);
-          const backendDeadline = Date.now() + 15_000;
-          while (Date.now() < backendDeadline) {
-            const remaining = await db.execute(sql`
-              SELECT count(*)::integer AS count
-              FROM pg_stat_activity
-              WHERE pid = ${replayBackendPid}
-            `);
-            const rows =
-              (remaining as unknown as { rows?: Array<{ count: number | string }> }).rows ?? [];
-            if (Number(rows[0]?.count ?? 0) === 0) {
-              replayBackendClosed = true;
-              break;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
+      for (const childApi of apiChildren) {
+        if (childApi.child.exitCode === null && childApi.child.signalCode === null) {
+          await stopShadowCrashApiProcess(childApi);
         }
-      } finally {
-        releaseReplayInsertLock();
-        await replayInsertLock;
+        await terminateShadowApiDatabaseSessions(childApi.applicationName).catch(() => undefined);
       }
-      for (const name of await fs.readdir("/tmp")) {
-        if (
-          name.startsWith("engineeringos-validation-")
-          && !validationRootsBeforeCrash.has(name)
-        ) {
-          shadowWorkspaceRoots.push(path.join("/tmp", name));
-        }
+      if (releaseGateLocks) {
+        releaseGateLocks();
+        await gateLockTransaction?.catch(() => undefined);
       }
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${gateTrigger}" ON public.ai_shadow_replays`))
+        .catch(() => undefined);
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${gateFunction}"()`))
+        .catch(() => undefined);
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS ${gateTableSql}`))
+        .catch(() => undefined);
     }
-    expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
-    expect(replayBackendClosed).toBe(true);
-    expect(orphanExecution).toBeUndefined();
-    if (orphanExecution?.workspaceRoot) shadowWorkspaceRoots.push(orphanExecution.workspaceRoot);
-    expect(await db.select({ id: aiShadowReplaysTable.id })
-      .from(aiShadowReplaysTable)
-      .where(and(
-        eq(aiShadowReplaysTable.userId, "test-user"),
-        eq(aiShadowReplaysTable.idempotencyKey, replayIdempotencyKey),
-      ))).toEqual([]);
-
-    const registrationWithoutReplay = await request(app)
-      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
-      .send({ skillId: "candidate-review", skillVersion: "crash-window" });
-    expect(registrationWithoutReplay.status).toBe(409);
-    expect(registrationWithoutReplay.body.code).toBe("SKILL_REGISTRY_SHADOW_REPLAY_REQUIRED");
-
-    const validationRootsBeforeRetry = new Set(
-      (await fs.readdir("/tmp")).filter((name) => name.startsWith("engineeringos-validation-")),
-    );
-    const replayRecoveryRace = await Promise.all([
-      request(app)
-        .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
-        .send({}),
-      request(app)
-        .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
-        .send({}),
-    ]);
-    for (const name of await fs.readdir("/tmp")) {
-      if (
-        name.startsWith("engineeringos-validation-")
-        && !validationRootsBeforeRetry.has(name)
-      ) {
-        shadowWorkspaceRoots.push(path.join("/tmp", name));
-      }
-    }
-    expect(replayRecoveryRace.every((response) => [200, 202].includes(response.status)), JSON.stringify({
-      orphanExecutionId: orphanExecution?.id ?? null,
-      registrationStatus: registrationWithoutReplay.status,
-      responses: replayRecoveryRace.map((response) => ({
-        status: response.status,
-        body: response.body,
-      })),
-    })).toBe(true);
-    expect([...new Set(replayRecoveryRace.map((response) => response.body.replay?.id))])
-      .toHaveLength(1);
-    const replayRecoveredAfterCrash =
-      replayRecoveryRace.find((response) => response.status === 200) ?? replayRecoveryRace[0]!;
-    expect(replayRecoveredAfterCrash.status).toBe(200);
-    const [executionAfterRecovery] = await db
-      .select({
-        id: aiExecutionsTable.id,
-        workspaceRoot: aiExecutionsTable.workspaceRoot,
-      })
-      .from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.userId, "test-user"),
-        eq(aiExecutionsTable.idempotencyKey, replayIdempotencyKey),
-      ))
-      .limit(1);
-    expect(executionAfterRecovery?.id).not.toBe(orphanExecution?.id);
-    expect(await db.select({ id: aiExecutionsTable.id })
-      .from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.userId, "test-user"),
-        eq(aiExecutionsTable.idempotencyKey, replayIdempotencyKey),
-      ))).toHaveLength(1);
-    expect(await db.select({ id: aiShadowReplaysTable.id })
-      .from(aiShadowReplaysTable)
-      .where(and(
-        eq(aiShadowReplaysTable.userId, "test-user"),
-        eq(aiShadowReplaysTable.idempotencyKey, replayIdempotencyKey),
-      ))).toHaveLength(1);
 
     const replay = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
