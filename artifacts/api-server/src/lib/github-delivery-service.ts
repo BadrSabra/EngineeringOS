@@ -237,27 +237,148 @@ async function recordGitHubPush(params: {
   changedPaths: string[];
   deliveryProof?: DeliveryProof;
 }): Promise<void> {
+  const receiptId = crypto.randomUUID();
+  const receiptPayload = {
+    proposalId: params.proposalId,
+    operationId: params.operationId,
+    commitHash: params.commitHash,
+    remoteCommitHash: params.remoteCommitHash,
+    ...(params.remoteParentHash ? { remoteParentHash: params.remoteParentHash } : {}),
+    ...(params.remoteTreeHash ? { remoteTreeHash: params.remoteTreeHash } : {}),
+    operationMarker: operationMarker(params.operationId),
+    changedPaths: params.changedPaths,
+    ...(params.deliveryProof ? params.deliveryProof : {}),
+    branch: params.branch,
+    remoteUrl: params.remoteUrl,
+    treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+  };
+  await db.transaction(async (tx) => {
+    // Serialize receipt completion with startup reconciliation on the same
+    // durable attempt row. Otherwise a concurrent startup could commit a
+    // recovery marker just after this transaction's marker lookup.
+    await tx
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, params.projectId),
+        eq(eventsTable.type, "GitPushAttemptStarted"),
+        eq(eventsTable.correlationId, params.operationId),
+      ))
+      .for("update");
+    await tx.insert(eventsTable).values({
+      id: receiptId,
+      type: "GitPushed",
+      projectId: params.projectId,
+      severity: "info",
+      message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
+      correlationId: params.operationId,
+      payload: receiptPayload,
+    });
+
+    const recoveryMarkers = await tx
+      .select({ id: eventsTable.id, payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, params.projectId),
+        eq(eventsTable.type, "GitPushRecoveryRequired"),
+        eq(eventsTable.correlationId, params.operationId),
+      ));
+    for (const marker of recoveryMarkers) {
+      const payload = marker.payload && typeof marker.payload === "object"
+        ? marker.payload as Record<string, unknown>
+        : {};
+      const matchesDelivery = payload.proposalId === params.proposalId
+        && payload.operationId === params.operationId
+        && payload.commitHash === params.commitHash
+        && payload.branch === params.branch
+        && payload.remoteUrl === params.remoteUrl
+        && (typeof payload.expectedParentHash !== "string"
+          || payload.expectedParentHash === params.remoteParentHash)
+        && (typeof payload.expectedTreeHash !== "string"
+          || payload.expectedTreeHash === params.remoteTreeHash);
+      if (!matchesDelivery || payload.recoveryState === "RESOLVED") continue;
+      await tx.update(eventsTable)
+        .set({
+          severity: "success",
+          message: "GitHub delivery recovery was resolved by an exact verified remote receipt.",
+          payload: {
+            ...payload,
+            recoveryState: "RESOLVED",
+            resolvedByEventId: receiptId,
+            resolvedAt: new Date().toISOString(),
+          },
+        })
+        .where(and(
+          eq(eventsTable.id, marker.id),
+          eq(eventsTable.type, "GitPushRecoveryRequired"),
+        ));
+    }
+  });
+}
+
+async function recordGitHubPushAttempt(params: {
+  projectId: string;
+  proposalId: string;
+  operationId: string;
+  executionId?: string;
+  executionAttempt?: number;
+  sourceRevision?: string;
+  branch: string;
+  remoteUrl: string;
+  commitHash: string;
+  expectedParentHash: string;
+  expectedTreeHash: string;
+  remoteCommitHashBefore: string;
+  remoteTreeHashBefore: string;
+  remoteParentCountBefore: number;
+}): Promise<void> {
+  const payload = {
+    proposalId: params.proposalId,
+    operationId: params.operationId,
+    ...(params.executionId ? { executionId: params.executionId } : {}),
+    ...(params.executionAttempt !== undefined ? { executionAttempt: params.executionAttempt } : {}),
+    ...(params.sourceRevision ? { sourceRevision: params.sourceRevision } : {}),
+    branch: params.branch,
+    remoteUrl: params.remoteUrl,
+    commitHash: params.commitHash,
+    expectedCommitHash: params.commitHash,
+    expectedParentHash: params.expectedParentHash,
+    expectedTreeHash: params.expectedTreeHash,
+    remoteCommitHashBefore: params.remoteCommitHashBefore,
+    remoteTreeHashBefore: params.remoteTreeHashBefore,
+    remoteParentCountBefore: params.remoteParentCountBefore,
+    operationMarker: operationMarker(params.operationId),
+  };
+  const existing = await findOperationEvent(
+    params.projectId,
+    "GitPushAttemptStarted",
+    params.operationId,
+  );
+  if (existing) {
+    const matchesExisting = existing.proposalId === payload.proposalId
+      && existing.operationId === payload.operationId
+      && existing.commitHash === payload.commitHash
+      && existing.expectedParentHash === payload.expectedParentHash
+      && existing.expectedTreeHash === payload.expectedTreeHash
+      && existing.branch === payload.branch
+      && existing.remoteUrl === payload.remoteUrl
+      && existing.operationMarker === payload.operationMarker;
+    if (matchesExisting) return;
+    throw new GitHubConnectorError(
+      "GitHub delivery attempt identity conflicts with its durable operation record.",
+      "GITHUB_DELIVERY_ATTEMPT_CONFLICT",
+      409,
+    );
+  }
+
   await db.insert(eventsTable).values({
     id: crypto.randomUUID(),
-    type: "GitPushed",
+    type: "GitPushAttemptStarted",
     projectId: params.projectId,
     severity: "info",
-    message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
+    message: "Verified GitHub delivery attempt recorded before remote mutation.",
     correlationId: params.operationId,
-    payload: {
-      proposalId: params.proposalId,
-      operationId: params.operationId,
-      commitHash: params.commitHash,
-      remoteCommitHash: params.remoteCommitHash,
-      ...(params.remoteParentHash ? { remoteParentHash: params.remoteParentHash } : {}),
-      ...(params.remoteTreeHash ? { remoteTreeHash: params.remoteTreeHash } : {}),
-      operationMarker: operationMarker(params.operationId),
-      changedPaths: params.changedPaths,
-      ...(params.deliveryProof ? params.deliveryProof : {}),
-      branch: params.branch,
-      remoteUrl: params.remoteUrl,
-      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
-    },
+    payload,
   });
 }
 
@@ -482,6 +603,25 @@ export async function executeVerifiedGitHubDelivery(
         observedAt: new Date().toISOString(),
       });
     }
+    if (params.signal?.aborted) {
+      return blocked("GitHub delivery was cancelled before the remote mutation.");
+    }
+    await recordGitHubPushAttempt({
+      projectId: params.projectId,
+      proposalId: params.proposalId,
+      operationId: params.operationId,
+      executionId: params.executionId,
+      executionAttempt: params.executionAttempt,
+      sourceRevision: params.sourceRevision,
+      branch: params.branch,
+      remoteUrl: params.remoteUrl,
+      commitHash,
+      expectedParentHash: localIdentity.parentHash,
+      expectedTreeHash: localIdentity.treeHash,
+      remoteCommitHashBefore: remoteBeforeState.commitHash,
+      remoteTreeHashBefore: remoteBeforeState.treeHash,
+      remoteParentCountBefore: remoteBeforeState.parentHashes.length,
+    });
     const pushed = await pushLocalCommitToGitHub({
       rootPath: params.rootPath,
       remote,

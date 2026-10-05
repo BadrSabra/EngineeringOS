@@ -26,7 +26,7 @@ async function git(rootPath: string, args: string[]) {
 
 describe("E2 verified GitHub delivery process recovery", () => {
   it.runIf(process.env.RUN_E2_GITHUB_DELIVERY_PROCESS_RESTART === "1")(
-    "shows full-index startup leaves a post-push/pre-receipt delivery unresolved, then reconciles one retry",
+    "persists recovery state during full-index startup without retrying, then resolves one verified retry",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -419,7 +419,12 @@ describe("E2 verified GitHub delivery process recovery", () => {
         expect(await firstService.exit).toMatchObject({ code: null, signal: "SIGKILL" });
 
         const loadDeliveryEvents = () => db
-          .select({ type: eventsTable.type, payload: eventsTable.payload })
+          .select({
+            id: eventsTable.id,
+            type: eventsTable.type,
+            correlationId: eventsTable.correlationId,
+            payload: eventsTable.payload,
+          })
           .from(eventsTable)
           .where(and(
             eq(eventsTable.projectId, projectId),
@@ -432,6 +437,7 @@ describe("E2 verified GitHub delivery process recovery", () => {
           parents: [parentHash],
         });
         expect(deliveredCommits).toEqual([commitHash]);
+        expect(afterCrashEvents.filter((event) => event.type === "GitPushAttemptStarted")).toHaveLength(1);
         expect(afterCrashEvents.filter((event) => event.type === "GitPushed")).toHaveLength(0);
         expect(afterCrashEvents.filter((event) => event.type === "GitPushRecoveryRequired")).toHaveLength(0);
         expect(apiProblems).toEqual([]);
@@ -483,8 +489,23 @@ describe("E2 verified GitHub delivery process recovery", () => {
           const afterStartupEvents = await loadDeliveryEvents();
           expect(branch.commitHash).toBe(commitHash);
           expect(deliveredCommits).toEqual([commitHash]);
+          expect(afterStartupEvents.filter((event) => event.type === "GitPushAttemptStarted")).toHaveLength(1);
           expect(afterStartupEvents.filter((event) => event.type === "GitPushed")).toHaveLength(0);
-          expect(afterStartupEvents.filter((event) => event.type === "GitPushRecoveryRequired")).toHaveLength(0);
+          const startupRecoveryMarkers = afterStartupEvents.filter(
+            (event) => event.type === "GitPushRecoveryRequired",
+          );
+          expect(startupRecoveryMarkers).toHaveLength(1);
+          expect(startupRecoveryMarkers[0]?.payload).toMatchObject({
+            proposalId,
+            operationId,
+            commitHash,
+            expectedCommitHash: commitHash,
+            expectedParentHash: parentHash,
+            expectedTreeHash: gitTreeHash,
+            operationMarker: `EngineeringOS-Operation: ${operationId}`,
+            recoveryState: "REQUIRED",
+            recoveryReason: "STARTUP_FOUND_ATTEMPT_WITHOUT_EXACT_RECEIPT",
+          });
           expect(remoteCounters).toEqual({
             blobCreates: 1,
             treeCreates: 1,
@@ -539,7 +560,20 @@ describe("E2 verified GitHub delivery process recovery", () => {
           remoteTreeHash: gitTreeHash,
           operationMarker: `EngineeringOS-Operation: ${operationId}`,
         });
-        expect(finalEvents.filter((event) => event.type === "GitPushRecoveryRequired")).toHaveLength(0);
+        const recoveryMarkers = finalEvents.filter(
+          (event) => event.type === "GitPushRecoveryRequired",
+        );
+        expect(recoveryMarkers).toHaveLength(1);
+        expect(recoveryMarkers[0]?.payload).toMatchObject({
+          recoveryState: "RESOLVED",
+          resolvedByEventId: pushReceipts[0]?.id,
+        });
+        expect(
+          recoveryMarkers.filter((event) =>
+            event.payload?.recoveryState !== "RESOLVED"
+            && event.correlationId === operationId
+          ),
+        ).toHaveLength(0);
         expect(apiProblems).toEqual([]);
       } finally {
         for (const handle of apiChildren) {

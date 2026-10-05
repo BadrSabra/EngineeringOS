@@ -4462,6 +4462,17 @@ G9 Revocation Safety
 - **remaining/blocker:** E2 remains open. Automatic startup recovery for this service boundary and the Git route's World Transition remain unproven; other mutation surfaces and crash windows remain open.
 - **next step:** Continue E2 only on the remaining recovery and effect-to-World-Transition gaps; require the explicit E2 gate before E3.
 
+### 2026-10-05 — E2.4 verified GitHub-delivery startup reconciliation
+
+- **phase/step:** E2 / verified GitHub delivery / startup reconciliation after remote mutation and before `GitPushed`.
+- **status:** `partial — E2.4 now leaves explicit recovery state; E2 remains open`
+- **what changed:** Persist `GitPushAttemptStarted` with the proposal, operation, commit, expected parent/tree, branch, remote, and operation marker before the first remote mutation. Full `src/index.ts` startup now records the existing `GitPushRecoveryRequired` state when no exact terminal receipt exists; it does not call GitHub or retry. The normal verified retry checks the exact remote commit, tree, single parent, and operation marker, writes one `GitPushed` receipt, and resolves the recovery marker transactionally.
+- **files/schema/contracts touched:** `github-delivery-service.ts`, `job-reconciliation.ts`, `routes/git.ts`, and the gated process-recovery test. Uses the existing events table; no schema, generic retry worker, or new approval authority.
+- **validation:** API typecheck passed; `RUN_E2_GITHUB_DELIVERY_PROCESS_RESTART=1 pnpm --filter @workspace/api-server exec vitest run src/lib/github-delivery-process-recovery.integration.test.ts --reporter=verbose` — 1/1 on a disposable loopback PostgreSQL cluster with provider egress disabled; `git diff --check` passed. API workflow restarted and listened successfully.
+- **authority/safety impact:** Startup emits only explicit unknown/recovery state; it never writes to the remote. Only the normal delivery service can resolve the marker after exact identity verification. No live GitHub connection was used.
+- **remaining/blocker:** E2 remains open. Other mutation surfaces and the manual Git route's World Transition remain unproven; no E3 work starts.
+- **next step:** Continue E2 only on the remaining recovery and effect-to-World-Transition gaps; require the explicit E2 gate before E3.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

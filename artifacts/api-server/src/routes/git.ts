@@ -1131,13 +1131,13 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
         }
       }
       const existingRecovery = await findOperationEvent(project.id, "GitPushRecoveryRequired", correlationId);
-      if (!existingRecovery) {
+      if (!existingRecovery || existingRecovery.recoveryState === "RESOLVED") {
         await db.insert(eventsTable).values({
           id: randomUUID(),
           type: "GitPushRecoveryRequired",
           projectId: project.id,
           severity: "error",
-          message: "Git push ended with an unknown remote state; reconciliation is required.",
+          message: "Git push outcome is unconfirmed; exact remote reconciliation is required.",
           correlationId,
           payload: {
             ...(proposalId ? { proposalId } : {}),
@@ -1146,6 +1146,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
             remoteUrl: project.gitRemoteUrl,
             commitHash: pushCommitHash,
             recoveryState: "REQUIRED",
+            recoveryReason: "ROUTE_CAUGHT_UNCONFIRMED_PUSH",
           },
         }).catch((persistError) => {
           logger.error({ err: persistError, projectId: project.id, correlationId }, "failed to persist Git push recovery receipt");

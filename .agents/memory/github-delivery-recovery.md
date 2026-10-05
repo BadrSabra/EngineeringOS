@@ -26,3 +26,9 @@ For process-crash tests, exercise the production delivery service through a loca
 **Why:** Startup recovery must be distinguished from a database write that was already in flight when the client process died.
 
 **How to apply:** Verify the remote ref advanced before killing the service, verify full API startup does or does not resolve the missing receipt, then exact-replay and duplicate-replay against the fixture. Keep this separate from live GitHub network tests.
+
+For verified GitHub delivery, persist the operation-bound attempt identity before the first remote mutation. Startup must not resend the request or infer success from this intent: if there is no exact `GitPushed` receipt, it records `GitPushRecoveryRequired`. Only the normal verified delivery retry may resolve that marker after checking the exact commit, Git tree, single parent, and operation marker. Serialize startup reconciliation and receipt completion on the attempt row so a concurrent startup cannot leave a stale recovery marker after success.
+
+**Why:** A durable pre-mutation intent closes the crash window without blind startup retries, while the shared row lock keeps concurrent startup and delivery completion from contradicting each other.
+
+**How to apply:** Keep startup recovery decision-only and reuse the existing recovery event. Preserve exact remote verification in the service; never let the attempt event or the recovery marker act as delivery proof.

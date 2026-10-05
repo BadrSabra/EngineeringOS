@@ -64,6 +64,7 @@ import {
   taskLogsTable,
   aiApplyJournalTable,
   aiChangeProposalsTable,
+  eventsTable,
 } from "@workspace/db";
 import { and, eq, inArray, isNull, lt, or, count } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -237,6 +238,172 @@ async function reconcileInterruptedDeliveries(
     recovered++;
   }
   return recovered;
+}
+
+function eventPayloadRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function matchesGitHubDeliveryReceipt(
+  attempt: Record<string, unknown>,
+  operationId: string,
+  receipt: Record<string, unknown> | undefined,
+): boolean {
+  if (!receipt) return false;
+  const proposalId = attempt.proposalId;
+  const commitHash = attempt.commitHash;
+  const expectedParentHash = attempt.expectedParentHash;
+  const expectedTreeHash = attempt.expectedTreeHash;
+  const branch = attempt.branch;
+  const remoteUrl = attempt.remoteUrl;
+  const marker = `EngineeringOS-Operation: ${operationId}`;
+  return typeof proposalId === "string"
+    && typeof commitHash === "string"
+    && typeof expectedParentHash === "string"
+    && typeof expectedTreeHash === "string"
+    && typeof branch === "string"
+    && typeof remoteUrl === "string"
+    && attempt.operationId === operationId
+    && attempt.expectedCommitHash === commitHash
+    && attempt.operationMarker === marker
+    && receipt.proposalId === proposalId
+    && receipt.operationId === operationId
+    && receipt.commitHash === commitHash
+    && receipt.remoteCommitHash === commitHash
+    && receipt.remoteParentHash === expectedParentHash
+    && receipt.remoteTreeHash === expectedTreeHash
+    && receipt.operationMarker === marker
+    && receipt.branch === branch
+    && receipt.remoteUrl === remoteUrl;
+}
+
+/**
+ * A verified delivery records its exact attempt identity before making any
+ * remote mutation. If startup finds that attempt without a matching terminal
+ * receipt, persist the existing recovery-required state; never replay the
+ * GitHub request from startup.
+ */
+async function reconcileInterruptedGitHubDeliveryAttempts(): Promise<number> {
+  const attempts = await db
+    .select({
+      id: eventsTable.id,
+      projectId: eventsTable.projectId,
+      correlationId: eventsTable.correlationId,
+    })
+    .from(eventsTable)
+    .where(eq(eventsTable.type, "GitPushAttemptStarted"));
+
+  let markedCount = 0;
+  for (const candidate of attempts) {
+    if (!candidate.correlationId) {
+      logger.error(
+        { eventId: candidate.id, projectId: candidate.projectId },
+        "GitHub delivery attempt has no operation identity; startup cannot reconcile it",
+      );
+      continue;
+    }
+    try {
+      const created = await db.transaction(async (tx) => {
+        const [attemptRow] = await tx
+          .select({
+            id: eventsTable.id,
+            projectId: eventsTable.projectId,
+            correlationId: eventsTable.correlationId,
+            payload: eventsTable.payload,
+          })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.id, candidate.id),
+            eq(eventsTable.type, "GitPushAttemptStarted"),
+          ))
+          .for("update")
+          .limit(1);
+        if (!attemptRow?.correlationId) return false;
+
+        const operationId = attemptRow.correlationId;
+        const attemptPayload = eventPayloadRecord(attemptRow.payload) ?? {};
+        const receipts = await tx
+          .select({ payload: eventsTable.payload })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, attemptRow.projectId),
+            eq(eventsTable.type, "GitPushed"),
+            eq(eventsTable.correlationId, operationId),
+          ));
+        if (receipts.some((receipt) => matchesGitHubDeliveryReceipt(
+          attemptPayload,
+          operationId,
+          eventPayloadRecord(receipt.payload),
+        ))) {
+          return false;
+        }
+
+        const existingMarkers = await tx
+          .select({ payload: eventsTable.payload })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, attemptRow.projectId),
+            eq(eventsTable.type, "GitPushRecoveryRequired"),
+            eq(eventsTable.correlationId, operationId),
+          ));
+        if (existingMarkers.some((marker) =>
+          eventPayloadRecord(marker.payload)?.recoveryState !== "RESOLVED"
+        )) {
+          return false;
+        }
+
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "GitPushRecoveryRequired",
+          projectId: attemptRow.projectId,
+          severity: "error",
+          message: "GitHub delivery has no exact terminal receipt; verify the remote state before retrying.",
+          correlationId: operationId,
+          payload: {
+            ...(typeof attemptPayload.proposalId === "string"
+              ? { proposalId: attemptPayload.proposalId }
+              : {}),
+            operationId,
+            ...(typeof attemptPayload.branch === "string" ? { branch: attemptPayload.branch } : {}),
+            ...(typeof attemptPayload.remoteUrl === "string" ? { remoteUrl: attemptPayload.remoteUrl } : {}),
+            ...(typeof attemptPayload.commitHash === "string" ? { commitHash: attemptPayload.commitHash } : {}),
+            ...(typeof attemptPayload.expectedCommitHash === "string"
+              ? { expectedCommitHash: attemptPayload.expectedCommitHash }
+              : {}),
+            ...(typeof attemptPayload.expectedParentHash === "string"
+              ? { expectedParentHash: attemptPayload.expectedParentHash }
+              : {}),
+            ...(typeof attemptPayload.expectedTreeHash === "string"
+              ? { expectedTreeHash: attemptPayload.expectedTreeHash }
+              : {}),
+            ...(typeof attemptPayload.operationMarker === "string"
+              ? { operationMarker: attemptPayload.operationMarker }
+              : {}),
+            attemptEventId: attemptRow.id,
+            recoveryState: "REQUIRED",
+            recoveryReason: "STARTUP_FOUND_ATTEMPT_WITHOUT_EXACT_RECEIPT",
+          },
+        });
+        return true;
+      });
+      if (created) markedCount++;
+    } catch (error) {
+      logger.error(
+        { error, projectId: candidate.projectId, eventId: candidate.id, operationId: candidate.correlationId },
+        "failed to persist GitHub delivery recovery state during startup",
+      );
+    }
+  }
+
+  if (markedCount > 0) {
+    logger.warn(
+      { count: markedCount },
+      "startup marked unreceipted verified GitHub deliveries for exact recovery; no remote retries were issued",
+    );
+  }
+  return markedCount;
 }
 
 
@@ -1144,11 +1311,18 @@ export async function reconcileStuckJobs(): Promise<{
   expiredUploads: number;
 }> {
   try {
-    const [scanJobs, discoverySessions, aiTasks, expiredUploads] = await Promise.all([
+    const [
+      scanJobs,
+      discoverySessions,
+      aiTasks,
+      expiredUploads,
+      githubDeliveryRecoveries,
+    ] = await Promise.all([
       reconcileScanJobs(),
       reconcileDiscoverySessions(),
       reconcileAiTasks(),
       sweepExpiredUploads(),
+      reconcileInterruptedGitHubDeliveryAttempts(),
     ]);
     // Apply reconciliation depends on execution lease reconciliation. Keep
     // both passes ordered so the delivery reconciler cannot race a proof-bound
@@ -1156,7 +1330,7 @@ export async function reconcileStuckJobs(): Promise<{
     const aiExecutions = await reconcileAiExecutions();
     const applyRecovery = await reconcileInterruptedApplyChanges();
     const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
-    const deliveries = legacyDeliveries + applyRecovery.reconciled;
+    const deliveries = legacyDeliveries + applyRecovery.reconciled + githubDeliveryRecoveries;
     if (applyRecovery.reconciled > 0) {
       logger.info(
         { applyChanges: applyRecovery.reconciled },
