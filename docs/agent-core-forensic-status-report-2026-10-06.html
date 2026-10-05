@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Engineering Agent Core — Forensic Status Report</title>
+  <style>
+    :root{color-scheme:light;--ink:#17212b;--muted:#5b6875;--line:#d9e0e7;--paper:#fff;--wash:#f3f6f8;--blue:#155eef;--red:#b42318;--amber:#925b00;--green:#067647}
+    *{box-sizing:border-box}
+    body{margin:0;background:#e9eef2;color:var(--ink);font:16px/1.75 system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif}
+    main{max-width:1120px;margin:32px auto;padding:44px 52px;background:var(--paper);box-shadow:0 10px 36px #17212b14}
+    h1{font-size:2rem;line-height:1.25;margin:0 0 1.4rem}
+    h2{font-size:1.45rem;margin:2.4rem 0 1rem;padding-bottom:.45rem;border-bottom:2px solid var(--line)}
+    h3{font-size:1.08rem;margin:1.5rem 0 .5rem}
+    p{margin:.5rem 0 1rem}
+    li{margin:.35rem 0}
+    ul,ol{padding-right:1.4rem}
+    code,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:.91em;direction:ltr;unicode-bidi:embed}
+    code{background:var(--wash);padding:.08rem .28rem;border-radius:4px;overflow-wrap:anywhere}
+    .meta,.callout{padding:1rem 1.2rem;background:var(--wash);border-right:4px solid var(--blue);margin:1rem 0}
+    .critical{border-color:var(--red)}
+    .warning{border-color:var(--amber)}
+    .status{font-weight:750}
+    .red{color:var(--red)}
+    .amber{color:var(--amber)}
+    .green{color:var(--green)}
+    table{width:100%;border-collapse:collapse;margin:1rem 0 1.5rem}
+    th,td{border:1px solid var(--line);padding:.7rem .8rem;vertical-align:top;text-align:right}
+    th{background:var(--wash)}
+    .score-table{direction:ltr}
+    .score-table th,.score-table td{text-align:left}
+    .score-table td[dir=rtl]{text-align:right}
+    .roadmap{font-size:.94rem}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101828;color:#f2f4f7;padding:1rem 1.2rem;border-radius:8px;direction:ltr;text-align:left;line-height:1.55}
+    .gate{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;direction:ltr;text-align:left}
+    .small{font-size:.92rem;color:var(--muted)}
+    @media(max-width:760px){main{margin:0;padding:24px 18px}h1{font-size:1.55rem}table{display:block;overflow-x:auto}}
+    @media print{body{background:#fff}main{max-width:none;margin:0;padding:16mm;box-shadow:none}h2{break-after:avoid}tr{break-inside:avoid}}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Engineering Agent Core — Forensic Status Report</h1>
+
+  <section>
+    <h2>1. Executive Summary</h2>
+    <div class="meta">
+      <ul>
+        <li><strong>تاريخ التدقيق:</strong> 2026-10-06، بتوقيت Africa/Cairo.</li>
+        <li><strong>المنهج:</strong> تدقيق code-first للملفات ومسارات الاستدعاء، واختبارات محلية محددة. لم يتغير كود المنتج أو قاعدة البيانات أو إعدادات التشغيل؛ لم تُفحص بيانات production.</li>
+        <li><strong>القالب:</strong> الأقسام الـ11 و19 بندًا في Final Gate من الملف المرفق.</li>
+        <li><strong>القرار:</strong> <span class="status red">NOT READY</span>. الطبقات الأربع تملك primitives مهمة، لكن تكامل الدليل متعثر، وworkflow غير الفارغ يمكن أن يُسجّل نجاحًا دون تنفيذ خطواته، وإغلاق World loop غير مثبت.</li>
+      </ul>
+    </div>
+
+    <h3>الوضع الحالي الحقيقي</h3>
+    <p>هذه ليست منظومة بلا أساس: dispatch الأدوات وسياسات النطاق، التنفيذ الدائم، بوابة Canonical Proof، ومادية World State موجودة في الكود. لكنها لا تكوّن دورة موحدة ومثبتة لكل مسارات العمل. النجاح المحلي لprimitive لا يساوي إثبات تكامله عبر كل transport أو mutation surface.</p>
+    <p><strong>حالة المراحل:</strong> يبقى <code>E3.2</code> مفتوحًا. إغلاق <code>E2</code> يخص invariant ماديًا محددًا لـWorld State، ولا يساوي إغلاق lifecycle كله. لا يبدأ <code>E4</code> أو verification-isolation أو P7.5/Learning/Transfer في هذا التدقيق أو كتوصية تنفيذ فورية.</p>
+
+    <h3>أقوى أجزاء النظام</h3>
+    <ul>
+      <li><code>executeSingleTool()</code> و<code>authorizeToolInvocation()</code> يضعان التفويض والتحقق من المدخلات والسياسة على حد استدعاء الأداة؛ اختبارات registry تثبت مواءمة 20 أداة بين التعريفات والمخططات والـmanifest.</li>
+      <li><code>safePath()</code> و<code>openVerifiedProjectFile()</code> يطبّقان فحص المسار والروابط الرمزية وفتح الملفات عبر جذر مثبت؛ كتابة أدوات المحادثة مرشحة للموافقة وليست كتابة حية مباشرة.</li>
+      <li><code>runBoundedCommand()</code> يستخدم <code>shell:false</code> وملف أمر خادميًا ثابتًا وحدود مهلة ومخرجات وإلغاء؛ لا يثبت ذلك وجود timeout موحد لكل الأدوات.</li>
+      <li><code>loadCanonicalProof()</code> يعيد تحميل صفوف التنفيذ والقبول ولقطة الدليل للمشروع والمحاولة ويقفلها؛ قبول mutation يتطلب حزمة أثر ومراجع observed في مسار القبول المحدد.</li>
+      <li><code>materializeWorldStateForProject()</code> ينتج revision مجزأ النطاق؛ توجد انتقالات مربوطة بملاحظات مباشرة لبعض ملفات العمل فقط، لا لكل mutations.</li>
+    </ul>
+
+    <h3>أخطر خمس فجوات</h3>
+    <ol>
+      <li><strong>تكامل دليل المحادثة أحمر:</strong> إعادة التشغيل المركزة لـ<code>chat-evidence-integrity-e2e.test.ts</code> أعطت 1 نجاح و7 إخفاقات. بعضها يرى صفر قراءات/أدلة؛ وبعضها لا يصدر إلا <code>NOT PROVEN</code> بدل النتيجة التي يتوقعها fixture. السبب الجذري بين التنفيذ والـfixture لم يُحسم.</li>
+      <li><strong>وسم غير مثبت يمكن أن يصبح موجبًا نصيًا:</strong> في <code>chat-agent.ts:15753-15757</code> يُعاد تشكيل الحالة <code>NOT_PROVEN</code> بحيث يتحول <code>FINDING_PROVEN</code> أو <code>FINDING PROVEN</code> إلى النص الإيجابي <code>FINDING PROVEN</code>. قابلية وصول هذه الحالة بعينها إلى رد نهائي كامل غير مثبتة؛ التناقض في طبقة العرض موجود.</li>
+      <li><strong>اكتمال workflow غير الفارغ لا ينفذ العمل:</strong> <code>executeWorkflowPhase()</code> يفحص وجود جذر المشروع ثم يعلّم عقدة الحدود <code>passed</code> ويحوّل العملية إلى <code>succeeded</code>، مع تعليق صريح أن الخطوات المعلنة لا تُنفّذ.</li>
+      <li><strong>سلامة الاستعادة بعد الأثر غير عامة:</strong> أثر filesystem/remote قد يقع قبل ملاحظة الحالة التالية أو قبل acceptance. سجل W0–W8 التاريخي يخص مسار Apply وحالات محددة؛ لم يُعد تشغيله هنا ولا يغلق بقية الأسطح أو <code>E3.2</code>.</li>
+      <li><strong>القرار لا يتغير في fixture التخطيط الحالي:</strong> اختبار World State يغيّر قيمة fact وrevision، ثم يصرّح بأن <code>changedPreview.plan.steps</code> تساوي الخطوات السابقة. لا يوجد إثبات أن replan غيّر القرار.</li>
+    </ol>
+
+    <h3>تصحيح صريح للتقدير السابق</h3>
+    <ul>
+      <li>النسبة السابقة <code>14/19</code> لم تكن محسوبة من قائمة Final Gate الأصلية؛ لا تُستخدم. التقرير الحالي يحافظ على 19 بندًا الأصلية.</li>
+      <li>التقرير السابق وضع النسب <code>UNKNOWN</code> لغياب مقام موثق. هنا حُدد المقام صراحةً من بنود Final Gate نفسها؛ النسب أدناه مؤشر إغلاق موزون بالتساوي وليست احتمال نجاح أو نسبة أسطر منفذة.</li>
+      <li>وصف أثر تغير World Fact على الخطة بأنه غير مثبت كان محافظًا لكنه ناقص: assertion قائم في الاختبار يثبت أن الخطوات لم تتغير في ذلك fixture. لم يُشغّل هذا الاختبار DB-backed في هذه الجولة، لذلك هذه ملاحظة عن العقد المكتوب في الاختبار لا نتيجة تشغيل جديدة.</li>
+      <li>الملاحظة السابقة عن mismatch واحد في إجابة الأدلة لم تعد كافية: التشغيل المركّز الحالي سجّل سبعة إخفاقات في الملف نفسه. لا أعمّم إخفاقات fixture على قبول production، ولا أصف السبب بأنه fixture قديم من دون دليل.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. Current Scorecard</h2>
+    <div class="callout">
+      <strong>طريقة الحساب:</strong> المقام هو عدد بنود Final Gate الـ19 الموزعة على الطبقات (Tool=4، Execution=4، Evidence=5، World=6). لكل بند وزن متساوٍ: مغلق بالكامل = 1، جزئي = 0.5، مفتوح أو مجهول = 0. «جزئي» لا يساوي إغلاقًا؛ لذلك يبقى مربع Final Gate فارغًا. النسبة مؤشر تقدم على بوابات هذا القالب فقط، وليست ادعاءً بنسبة اكتمال هندسي عامة.
+    </div>
+    <table class="score-table">
+      <thead><tr><th>Layer</th><th>Current %</th><th>Evidence</th><th>Main Blocker</th><th>100% Requirement</th></tr></thead>
+      <tbody>
+        <tr><td>Reliable Tool Agent</td><td>75% (3/4)</td><td dir="rtl">التفويض والنطاق مغلقان في manifest/dispatcher ومسارات الملفات المفحوصة؛ حدود timeout والتغطية الخصمية جزئية.</td><td dir="rtl">لا توجد حدود مهلة/إلغاء قابلة للإنفاذ على كل runner، ولا adversarial matrix شاملة.</td><td dir="rtl">كل ingress يمر بالتفويض والنطاق والحدود والإلغاء والتسجيل، مع اختبار سلبي لكل أداة/runner.</td></tr>
+        <tr><td>Reliable Execution Agent</td><td>50% (2/4)</td><td dir="rtl">هوية ومحاولة وlease وcheckpoint وacceptance موجودة؛ دورة واحدة موحدة لكل الأسطح غير مثبتة.</td><td dir="rtl">workflow غير الفارغ ينجح دون تنفيذ الخطوات؛ recovery وrace/cancellation غير مكتملة عبر mutation surfaces.</td><td dir="rtl">كل عملية تتبع lifecycle واحدًا وتنجو من crash/race بلا false success أو duplicate side effect.</td></tr>
+        <tr><td>Evidence-grounded Agent</td><td>50% (2.5/5)</td><td dir="rtl">Canonical Proof وclaim gate وrevision bindings موجودة؛ E2E المحادثة 1/8 فقط، ووسم NOT_PROVEN غير آمن دلاليًا.</td><td dir="rtl">تكافؤ الردود والدليل retained body متعثران؛ جرد كل producers/consumers لـPROVEN غير مكتمل.</td><td dir="rtl">كل رد/قبول proof-required مربوط بالدليل والنطاق والمراجعة والمطالبة، ولا توجد نتيجة PROVEN خارج السلطة المحددة.</td></tr>
+        <tr><td>Closed-loop World Agent</td><td>42% (2.5/6)</td><td dir="rtl">World State materialization مغلق للمجال المحدد؛ انتقالات وقراءة تخطيط استشارية موجودة لشرائح محددة.</td><td dir="rtl">التخطيط لا يغير الخطوات في fixture؛ Delta وتحديث belief والتقييم/replay غير عامة؛ E3.2 مفتوح.</td><td dir="rtl">كل أثر مؤهل يعاد بناؤه كـDelta، وتغير facts يغير قرارًا قابلاً للقياس، مع replay/evaluation مأذون وآمن.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>3. Reliable Tool Agent</h2>
+    <h3>ما هو مغلق؟</h3>
+    <ul>
+      <li><code>lib/ai-orchestrator/src/tool-policy.ts:authorizeToolInvocation()</code> و<code>tool-execution-engine.ts:executeSingleTool()</code>: تحقق مخطط المدخلات، policy، approval، وسطح الأداة المسموح. اختبار <code>reliable-tool-agent-100.test.ts</code> يطابق الأدوات التنفيذية العشرين بين definitions/schemas/server manifest.</li>
+      <li><code>tools/file-tools.ts:safePath()</code> و<code>openVerifiedProjectFile()</code>: رفض traversal وsymlink escape والقراءة عبر descriptor مثبت؛ الكتابة في <code>write_file</code>/<code>replace_text</code> تنتج PendingChange لا تعديلًا حيًا.</li>
+      <li><code>execution-kernel.ts:runBoundedCommand()</code>: shell غير مستخدم، الأمر من allowlist، الجذر مقيد، والمهلة/المخرجات/إلغاء process group محدودة لذلك runner.</li>
+      <li>اختبارات خصمية ذات قيمة: منع model shell text، symlink، الملفات الحساسة، glob الخبيث، تجاوز الجذر، وحجم output في <code>reliable-tool-agent-100.test.ts</code> و<code>execution-kernel.test.ts</code>.</li>
+    </ul>
+
+    <h3>ما هو جزئي؟ وما الـblockers؟</h3>
+    <ul>
+      <li><code>tool-operational-registry.ts:TOOL_OPERATIONAL_METADATA</code> يصرح بـ<code>COOPERATIVE_NO_TIMEOUT</code> لعدد من الأدوات. أدوات مثل <code>search_code</code> وGit لها مهلة ثابتة؛ قراءة الملفات، symbol/AST navigation، فحص الحزم والثنائيات لا تملك حد timeout موحدًا. وجود signal تعاوني ليس مهلة إنفاذ.</li>
+      <li>بعض المخرجات لها حدود bytes/entries، لكن السجل نفسه يميز حدودًا ديناميكية وأخرى غير قابلة للإنفاذ عند runner مفوض. لا يوجد برهان أن جميع الأعمال الثقيلة تتوقف عند حد زمن/CPU/حجم قابل للإنفاذ.</li>
+      <li>هوية invocation وmanifest وscope مطلوبة عندما يوجد <code>executionId</code> في <code>executeSingleTool()</code>؛ مسارات بلا executionId لا تملك عقد audit دائمًا مماثلًا. هذا نقص observability، وليس دليل bypass للصلاحية.</li>
+      <li><code>executeValidationTool</code> مسار خادمي بعد حواجز profile/approval، وليس إثباتًا أن النموذج يستطيع تمرير shell أو argv. يظل profile الخادمي هو حد التنفيذ.</li>
+    </ul>
+
+    <h3>الملفات والدوال والاختبارات</h3>
+    <ul>
+      <li><code>lib/ai-orchestrator/src/tool-policy.ts:authorizeToolInvocation</code></li>
+      <li><code>lib/ai-orchestrator/src/tool-execution-engine.ts:executeSingleTool</code> (التحقق/الموافقة عند 1139–1229 تقريبًا؛ lifecycle عند 1155–1204).</li>
+      <li><code>lib/ai-orchestrator/src/tool-operational-registry.ts:TOOL_OPERATIONAL_METADATA</code> (حدود timeout/output لكل tool؛ انظر 109–325).</li>
+      <li><code>lib/ai-orchestrator/src/execution-kernel.ts:runBoundedCommand</code> و<code>execution-kernel.test.ts</code>.</li>
+      <li><code>lib/ai-orchestrator/src/tools/file-tools.ts:safePath/openVerifiedProjectFile</code>؛ اختبارات <code>reliable-tool-agent-100.test.ts</code> و<code>file-tools.test.ts</code>.</li>
+    </ul>
+
+    <h3>التعديل الدقيق المقترح لاحقًا</h3>
+    <p>أكمل metadata بمهلة وموارد قابلة للإنفاذ لكل runner، أو استثناء خادمي موثق ومحدود؛ مرّر الإلغاء حتى نهاية العمل الثقيل؛ واربط الإرجاع المتأخر بحالة cancelled/failed لا success. لا تضف dispatcher أو سجل proof ثانيًا.</p>
+    <p><strong>اختبارات الإغلاق:</strong> وسّع <code>reliable-tool-agent-100.test.ts</code> و<code>execution-kernel.test.ts</code> باختبار timeout/cancel/output cap لكل فئة executor، وباستدعاء بعد سحب الموافقة/تغيير scope. معيار 100%: كل أداة في manifest لها حد فعلي مثبت واختبار خصمي، لا مجرد metadata.</p>
+  </section>
+
+  <section>
+    <h2>4. Reliable Execution Agent</h2>
+    <h3>ما هو مغلق؟</h3>
+    <ul>
+      <li><code>ai-execution-state.ts</code> يدير التنفيذ الدائم والـattempt والـlease والـcheckpoint؛ الكتابات المقيدة بالمحاولة والمالك ظاهرة في مسارات القراءة والقبول المفحوصة.</li>
+      <li><code>agent-episode-ledger.ts:appendLocked()</code> يربط Episode بالمشروع والتنفيذ والمحاولة، ويمنع أحداثًا جديدة بعد terminal state مع replay idempotent payload مطابق.</li>
+      <li><code>ai-execution-acceptance.ts</code> يفصل acceptance عن status؛ عند <code>effectRequired</code> يرفض missing bundle، وقائمة effect مفقودة/غير <code>observed</code> لا تصبح PROVEN (2225–2269).</li>
+      <li>اختبارات <code>reliable-tool-agent-100.test.ts</code> تغطي requested/started/failed، فشل الملكية، ونفاد الميزانية. اختبارات <code>execution-kernel.test.ts</code> تغطي timeout وprocess-group cancellation.</li>
+    </ul>
+
+    <h3>ما هو جزئي؟ والـblocker الأوضح</h3>
+    <p><code>artifacts/api-server/src/lib/workflow-phase-execution.ts:executeWorkflowPhase()</code> يشتق <code>noOpPhase</code> من فراغ <code>phaseSteps</code>. للمرحلة غير الفارغة ينشئ عقدة حدود بعنوان “Record workflow phase boundary”، يفحص <code>stat/access</code> للجذر فقط، ثم يضع العقدة <code>passed</code> بمحاولة واحدة وينقل operation إلى <code>succeeded</code> (92–177). التعليق يصرح أن هذه الدالة لا تنفذ العمل المعلن. هذا ليس مجرد نقص اختبار؛ إنه فرق بين ما يعلنه phase وما ينجزه.</p>
+    <p><code>workflow-phase-execution.test.ts</code> يثبت سلوك no-op، فقدان terminal fence، وفشل acceptance، لكنه لا يثبت أن phase غير فارغة تستدعي runner فعليًا. لا تستنتج من اختبار fence أن “Run the test suite” حدثت.</p>
+    <ul>
+      <li>الـEpisode/Action/effect/observation chain موجود لمسارات مثل Mission repair وruntime.start/Apply/GitHub delivery، لكنه غير مثبت كعقد موحد لكل mutation runner.</li>
+      <li>قبول Apply وterminal update ذريان في معاملات محددة؛ لا يساوي ذلك استعادة الحقيقة الفيزيائية لملف أو remote side effect بعد كل crash.</li>
+      <li>المراجعة السابقة تسجل W0–W8 على PostgreSQL مؤقتة لمسار Apply فقط. لم تُعَد هذه الاختبارات هنا؛ لا أعدّ سجلها تحققًا جديدًا ولا إغلاقًا لـ<code>E3.2</code>.</li>
+      <li>في قبول الحزمة، صف bundle مربوط بالمشروع والتنفيذ والمحاولة، ثم تُقرأ effects بواسطة IDs وتُفحص حالتها <code>observed</code>. شرط هوية كل effect row نفسه إلى bundle/execution/attempt غير ظاهر في هذا المقطع؛ هل يضمنه جميع الكتّاب؟ <strong>UNKNOWN</strong>. يلزم اختبار mismatch صريح قبل ادعاء الإغلاق.</li>
+    </ul>
+
+    <h3>الملفات والدوال والاختبارات</h3>
+    <ul>
+      <li><code>artifacts/api-server/src/lib/workflow-phase-execution.ts:executeWorkflowPhase</code> و<code>workflow-phase-execution.test.ts</code>.</li>
+      <li><code>artifacts/api-server/src/lib/ai-execution-state.ts</code>، <code>ai-execution-acceptance.ts:completeAiExecution</code>، و<code>agent-state/agent-episode-ledger.ts:appendLocked</code>.</li>
+      <li><code>artifacts/api-server/src/lib/agent-state/effect-observer.ts</code> و<code>effect-observer.test.ts</code>؛ <code>apply-change-effect.ts</code> واختبار هوية candidate/action/effect.</li>
+      <li><code>runtime-start-transition.test.ts</code> و<code>mission-auto-replan-evidence.integration.test.ts</code> DB-backed؛ لم يُشغّلا في هذه الجولة حرصًا على عدم لمس قاعدة بيانات مشتركة.</li>
+    </ul>
+
+    <h3>التعديل الدقيق المقترح لاحقًا</h3>
+    <p>في <code>executeWorkflowPhase()</code> إمّا dispatch لكل خطوة عبر runtime مسجل يملك قبولًا مستقلًا، أو رفض phase غير الفارغة كغير مدعومة. لا تنشئ عقدة synthetic ثم تضعها passed. بعد ذلك اختبر كل نافذة crash بين ACTION_REQUESTED والأثر والملاحظة والحزمة والقبول، مع manual disposition صريح عندما لا يمكن استعادة الحالة بأمان.</p>
+    <p><strong>اختبارات الإغلاق:</strong> أضف runner spy يثبت تنفيذ خطوة حقيقية، واختبارًا يثبت أن عدم وجود runner لا ينتج completed/succeeded، ثم crash/restart على DB مؤقتة loopback لكل surface. معيار 100%: كل نجاح مرتبط بعمل فعلي وقبول مقيد بالمحاولة، وكل أثر ملتبس يتعافى أو يبقى recovery-required بلا إعادة عمياء.</p>
+  </section>
+
+  <section>
+    <h2>5. Evidence-grounded Agent</h2>
+    <h3>ما هو مغلق؟</h3>
+    <ul>
+      <li><code>artifacts/api-server/src/lib/proof-foundation.ts:loadCanonicalProof()</code> يقفل execution الحالي للمشروع، ثم acceptance وevidence snapshot للمحاولة، ويشتق delivery receipt من صف execution لا من input قديم (535–634). عقد الـscope يضم project/mission/goal/execution/operation/revision/candidate (68–80).</li>
+      <li><code>ai-execution-acceptance.ts</code> يرفض evidence الناقص، apply proof غير المطابق، وmutation effect غير observed. هذه السلطة أقوى من status أو receipt منفرد.</li>
+      <li>في <code>chat-agent.ts</code>، Objective Completion Gate يرفض المطالبات أو reachability edges غير المكتملة قبل اختيار الرد؛ الإغلاق مشتق من excerpts محتفظ بها وروابط runtime-observed مع دليل، لا من import وحده (15455–15531).</li>
+      <li>اختبارات <code>required-claims.test.ts</code> و<code>evidence-integrity.test.ts</code> المختارة اجتازت 33 حالة بحسب سجل التشغيل السابق لهذه الجولة؛ و<code>proof-foundation.test.ts</code> مع <code>workflow-phase-execution.test.ts</code> اجتازا 14 حالة.</li>
+    </ul>
+
+    <h3>الإخفاق المحدد وحدوده</h3>
+    <p>التشغيل الحالي لـ<code>pnpm exec vitest run src/__tests__/chat-evidence-integrity-e2e.test.ts</code> من <code>lib/ai-orchestrator</code> انتهى بـ1 نجاح و7 إخفاقات من 8. الإخفاقات السبعة:</p>
+    <ol>
+      <li>well-formed prefetch: <code>uniqueFilesRead</code> متوقع 1، الفعلي 0.</li>
+      <li>completed read منفصل عن behavioral evidence: <code>evidenceFileCount</code> متوقع أكبر من 0، الفعلي 0.</li>
+      <li>targeted read retained-body reconciliation: النتيجة <code>ANALYSIS_INCOMPLETE</code> بلا final text بدل <code>VERDICT: PROVEN</code> الذي يتوقعه fixture.</li>
+      <li>sequential isolation: قراءة run الثاني متوقعة 1، الفعلية 0.</li>
+      <li>non-native stream: صدر <code>NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED</code> بدل verdict المتوقع.</li>
+      <li>native SSE: النتيجة نفسها بدل verdict المتوقع.</li>
+      <li>broad query stream: النتيجة نفسها بدل verdict المتوقع.</li>
+    </ol>
+    <p>اختبار truncated prefetch كان النجاح الوحيد. هذه النتائج تثبت أن مسار التكامل الحالي لا يحقق توقعات fixtures، وأن الحاجز يمنع verdict موجبًا في الحالات الفاشلة؛ <strong>لا تثبت false durable acceptance</strong>. سبب غياب القراءة أو تعارض fixture/runtime ما زال <strong>UNKNOWN</strong>. في <code>chat-agent.ts:8696–8732</code> تُحوّل exception في plan prefetch إلى نتيجة فارغة، ويُسجل الدليل فقط عند وجود injected messages؛ helper يعيد <code>failedFiles</code> لكن المستدعي لا يعرض سبب الفشل. لذلك لا يجوز تسمية السبب قبل إضافة تشخيص آمن.</p>
+
+    <h3>خطر دلالة PROVEN</h3>
+    <p>في <code>chat-agent.ts:15751–15759</code> تستثني branch حالة <code>runtimeLedger.scopedFindingStatus === "NOT_PROVEN"</code> من <code>buildScopedVerdictLabel()</code> ثم تطبع regex أي <code>FINDING_PROVEN</code> أو <code>FINDING PROVEN</code> كـ<code>FINDING PROVEN</code>. هذا ليس candidate نظريًا فقط: إذا لم تمنع الحالةَ بواباتُ الرفض الأخرى، يختار <code>finalResponse</code> هذا النص عند 15770–15817؛ ثم لا تستبدله معالجة <code>terminalResponse</code> عند 16133–16178 إلا إذا تحقق شرط التقرير غير المكتمل/الرفض. لا يوجد في المسار المعروض حظر صريح لمجرد أن الحالة NOT_PROVEN. لذلك <strong>إمكان وصول العبارة الإيجابية إلى الرد مثبت من تدفق التحكم</strong>، بينما لم يُشغّل E2E يحقق predicate المركب كاملًا في هذه الجولة. اختبارات <code>chat-scoped-verdict-e2e.test.ts</code> تغطي fixture-scoped وproduction-scoped الإيجابي، لا الحالة الدقيقة NOT_PROVEN. هذا خلل في صياغة الرد، وليس بحد ذاته دليلًا على قبول Canonical Proof.</p>
+    <p>كذلك <code>buildEvidenceBackedAnswer()</code> ينتج status محليًا باسم PROVEN عند إغلاق claim؛ لم يثبت هنا مسارًا يربطه وحده بقبول دائم. يظل inventory الكامل لكل producer/consumer غير مكتمل. <code>goalStatus</code> في مدخل loader قيمة يقدمها المستدعي (493–503)، وليست محملة من DB داخل loader؛ callers الحاليون server-side، لكن اكتمال شرط الثقة في كل caller غير مثبت.</p>
+
+    <h3>الملفات والاختبارات والتعديل الدقيق المقترح</h3>
+    <ul>
+      <li><code>proof-foundation.ts:loadCanonicalProof</code>، <code>ai-execution-acceptance.ts</code>، <code>chat-agent.ts</code> final gate وresponse formatter، <code>evidence-integrity.ts</code>.</li>
+      <li>الاختبارات: <code>chat-evidence-integrity-e2e.test.ts</code> (الحالي 1/8)، <code>chat-required-claim-unclosed-e2e.test.ts</code>، <code>chat-scoped-verdict-e2e.test.ts</code>، <code>ei-041-scoped-verdict-chat-e2e.test.ts</code>، و<code>proof-foundation.test.ts</code>.</li>
+      <li>التعديل اللاحق: لا تختزل exception إلى empty prefetch بلا diagnostic typed؛ احتفظ بسبب آمن وfailed path؛ أصلح dispatch/fixture بعد تحديد السبب ولا ترخِ claim gate. اجعل NOT_PROVEN يظل نصًا غير موجب في كل transport. أضف اختبار cross-reference يرفض effect row من مشروع/تنفيذ/محاولة أخرى.</li>
+    </ul>
+    <p><strong>100% gate:</strong> كل رد قاطع له evidence body complete وclaim closure وscope/revision binding؛ كل durable acceptance يحمّل Canonical Proof؛ ولا يمكن لأي status أو regex أو provider text إنتاج PROVEN. يجب أن تجتاز حالات non-stream/direct stream/native SSE الاختبار نفسه.</p>
+  </section>
+
+  <section>
+    <h2>6. Closed-loop World Agent</h2>
+    <h3>ما هو موجود؟</h3>
+    <ul>
+      <li><code>agent-state/world-state.ts:worldRevision()</code> يضم project والنطاق وenvironment revision وهويات facts ونسخها ومصادر observations؛ <code>materializeWorldStateForProject()</code> يقيد revisions وobservation IDs ويكتب الإسقاط.</li>
+      <li><code>runtime-start-transition.ts</code> يحتوي انتقالات runtime.start وApply Changes وGitHub delivery مع ربط execution/attempt/effect/before-after observations وإعادة محاولة/مادية محكومة في المسارات المحددة.</li>
+      <li><code>mission-world-state-planning-read.ts:loadMissionWorldStatePlanningRead()</code> يقرأ World State استشاريًا فقط، ويتحقق من Goal acceptance ثم execution/acceptance/Episode identities. <code>mission-auto-replan.ts:autoReplanMission()</code> يضيف planning-read revision للسياق وplan revision.</li>
+    </ul>
+    <h3>ما هو جزئي أو غير موجود؟</h3>
+    <ul>
+      <li>وجود الانتقالات الثلاثة لا يثبت أن كل accepted mutation ينتج World Delta. Apply بلا Mission Goal لا ينتج بالضرورة transition؛ فقبول الكتابة ووجود live delta شرطان منفصلان.</li>
+      <li>World State facts استشارية ولا تمنح authority أو scope؛ لكن لا يوجد إثبات أن تغيّرها يغيّر اختيار planner. في <code>mission-auto-replan-evidence.integration.test.ts:495–529</code> يثبت النص أن <code>planningReadRevision</code> يتغير، ثم يتوقع صراحةً <code>changedPreview.plan.steps</code> مساوية لـ<code>initialPreview.plan.steps</code>. هذا gap مؤكد في fixture، لا مجرد غياب assertion.</li>
+      <li>تحديث التشخيص/الاعتقاد عند unexpected outcome موجود لمسار runtime.start المحدد، وليس عقد belief update عام على كل أثر.</li>
+      <li>replay primitives لا تغلق E3.2: يجب ربط replay بGoal مكتمل، active plan revision، source proof الحالي، وCanonical Proof من replay execution نفسه. لا يوجد هنا دليل evaluation/held-out عام.</li>
+      <li>لم تُشغّل اختبارات DB-backed لـ<code>runtime-start-transition</code> أو world-state planning في هذه الجولة؛ لا أصفها بأنها اجتازت الآن. لم يُستعلم عن production.</li>
+    </ul>
+    <h3>الملفات والاختبارات والتعديل الدقيق المقترح</h3>
+    <ul>
+      <li><code>artifacts/api-server/src/lib/agent-state/world-state.ts:materializeWorldStateForProject</code> و<code>runtime-start-transition.ts</code>.</li>
+      <li><code>mission-world-state-planning-read.ts:loadMissionWorldStatePlanningRead</code> و<code>mission-auto-replan.ts:autoReplanMission/reconcileAutomaticMissionReplans</code>.</li>
+      <li>الاختبارات: <code>world-state.test.ts</code>، <code>runtime-start-transition.test.ts</code>، <code>mission-world-state-planning-read.test.ts</code>، <code>world-state-failure-diagnosis.test.ts</code>، و<code>mission-auto-replan-evidence.integration.test.ts</code>.</li>
+      <li>التعديل اللاحق بعد إذن المرحلة: عرّف لكل mutation سياسة Delta أو No-Delta صريحة؛ ثم A/B DB fixture يغيّر fact واحدًا ويثبت القرار والخطوات الجديدة المتوقعة، أو يثبت أن هذا fact غير مؤثر. لا تجعل advisory fact صلاحية أو policy.</li>
+    </ul>
+    <p><strong>100% gate:</strong> كل أثر مؤهل ينتج transition قابلًا لإعادة البناء من الملاحظات المباشرة ومراجعات متطابقة؛ unexpected outcome يحدث belief فقط بعد observation مستقلة؛ planner يستهلك قراءة scoped ويغير قرارًا محددًا؛ replay/evaluation آمن ومصرح.</p>
+  </section>
+
+  <section>
+    <h2>7. Cross-layer Integrity</h2>
+    <pre>Tool
+  → executeSingleTool / server read / scoped file access
+    X: plan-prefetch failures can collapse to empty result; E2E read telemetry is 0 in several cases.
+  → durable Execution (executionId + attempt + lease + checkpoint)
+    X: workflow-phase can mark a declared non-empty step passed without running it.
+  → Evidence / acceptance
+    X: chat E2E is 1/8; NOT_PROVEN text can be rewritten to FINDING PROVEN.
+  → EffectBundle + direct before/after observations
+    X: proven only for selected mutation surfaces; per-effect row identity and all crash windows UNKNOWN.
+  → World Transition / World State
+    X: accepted effects do not universally materialize as Delta.
+  → Planner / changed decision
+    X: advisory World State changes revision/context, but the checked fixture leaves plan.steps unchanged.
+  → replay / measured evaluation
+    X: E3.2 OPEN; no general held-out evaluation proof.</pre>
+    <p>الممرات الوسيطة موجودة في الكود؛ الانقطاع ليس بين modules فقط، بل بين معنى الحالة: <code>completed</code> مقابل عمل منفذ، evidence body مقابل evidence مقبول، effect مقبول مقابل World Delta، وWorld State مقروء مقابل قرار متغير.</p>
+  </section>
+
+  <section>
+    <h2>8. False Confidence Risks</h2>
+    <ul>
+      <li><strong>عدد الاختبارات لا يساوي الإغلاق:</strong> في هذه الجولة 7/8 من ملف E2E أخفقت؛ وحتى المرور في unit test لا يثبت أن كل route/runner يستعمل العقد نفسه.</li>
+      <li><strong>النجاح ليس دائمًا تنفيذًا:</strong> <code>workflow-phase-execution</code> يحوّل وصف خطوات غير فارغ إلى passed/succeeded من دون تنفيذ تلك الخطوات.</li>
+      <li><strong>قراءة الملف ليست دليل claim:</strong> القياس يفصل read telemetry عن accepted evidence؛ الإخفاق الحالي fail-closed، لكن سببه مخفي عند plan-prefetch exception.</li>
+      <li><strong>عبارة PROVEN ليست Canonical Proof:</strong> model text، local EvidenceGraph/Objective status، أو formatter لا يساوي acceptance snapshot. حاليًا يوجد تحديدًا خطر formatter من NOT_PROVEN إلى نص FINDING PROVEN.</li>
+      <li><strong>Bundle بحالة observed لا يثبت الهوية وحده:</strong> acceptance يفحص صفوف effects المحالة وحالتها؛ اختبار ربط كل صف بالمشروع والتنفيذ والمحاولة مطلوب، وإلا تبقى الهوية العامة UNKNOWN.</li>
+      <li><strong>Acceptance لا يساوي World Delta:</strong> Apply/runtime.start/GitHub تغطي مسارات، لا كل mutation؛ materialization محدود بأهلية observations وrevision وGoal.</li>
+      <li><strong>قراءة World State لا تعني planner impact:</strong> اختبار replan الحالي يثبت تساوي steps بعد تبديل قيمة fact في ذلك fixture.</li>
+      <li><strong>السجل السابق لا يعادل تحققًا حاليًا:</strong> W0–W8 شُغلت سابقًا على DB مؤقتة لمسارات Apply محددة؛ لم تُعَد هنا ولا تغلق E3.2.</li>
+      <li><strong>المهلة التعاونية ليست timeout:</strong> signal في metadata لا يضمن إنهاء runner يطنّش الإلغاء؛ عدد من الأدوات مصنف بلا timeout ثابت.</li>
+      <li><strong>مربع جزئي لا يصبح مغلقًا:</strong> النسبة في Scorecard مؤشر بوزن جزئي؛ Final Gate binary ويظل فارغًا ما لم يغلق المعيار كاملًا.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>9. Exact Implementation Roadmap</h2>
+    <div class="callout warning">
+      <strong>حد الصلاحية:</strong> هذه توصيات مستقبلية للقراءة فقط، لم تُنفذ. تسميات E1–E8 في الجدول حزم إغلاق لهذه الطبقات؛ لا تعني بدء مرحلة المشروع التالية. حالة البوابة التي يجب حفظها: E3.2 OPEN، وE4 وما بعدها غير مسموح ببدئها الآن.
+    </div>
+    <table class="roadmap">
+      <thead><tr><th>Phase</th><th>الملفات والدوال</th><th>التغيير المحدد</th><th>الاختبارات</th><th>معيار القبول</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>E1 — Tool authority (البواقي فقط)</strong></td>
+          <td><code>tool-operational-registry.ts:TOOL_OPERATIONAL_METADATA</code>؛ <code>tool-execution-engine.ts:executeSingleTool</code>؛ <code>chat-agent.ts</code> plan prefetch.</td>
+          <td>لا تعِد بناء حد الحزمة المغلق. أضف timeout/حد موارد قابلًا للإنفاذ لكل runner. أظهر typed diagnostic آمنًا بدل إسقاط prefetch exception إلى نتيجة فارغة؛ لا توسّع صلاحيات القراءة لإسكات الاختبار.</td>
+          <td><code>reliable-tool-agent-100.test.ts</code>، <code>execution-kernel.test.ts</code>، ثم كل حالات <code>chat-evidence-integrity-e2e.test.ts</code> بعد حسم سبب read failure.</td>
+          <td>كل tool له policy قابلة للإنفاذ، وكل failed read يترك سببًا آمنًا، وتنجح قراءات الـfixtures بالمسار الخادمي الحالي من دون إضعاف claim gate.</td>
+        </tr>
+        <tr>
+          <td><strong>E2 — Execution lifecycle (العمل المتبقي فقط)</strong></td>
+          <td><code>workflow-phase-execution.ts:executeWorkflowPhase</code>؛ <code>ai-execution-state.ts</code>؛ <code>ai-execution-acceptance.ts</code>؛ <code>agent-episode-ledger.ts:appendLocked</code>.</td>
+          <td>أوقف synthetic passed node للخطوات غير الفارغة. نفّذها عبر runtime مسجل أو أعد حالة unsupported/failed. أعد التحقق من هوية effect rows مقابل bundle/execution/project/attempt في القبول، لا status فقط.</td>
+          <td><code>workflow-phase-execution.test.ts</code> (runner spy، لا-success عند غياب runner)، <code>effect-observer.test.ts</code> واختبار foreign effect ID، ثم process-restart/race على DB مؤقتة.</td>
+          <td>لا completed لعمل لم يحدث؛ لا effect يربط بقبول من محاولة أخرى؛ لكل نافذة crash قرار recovery أو manual disposition صريح.</td>
+        </tr>
+        <tr>
+          <td><strong>E3 — Evidence authority</strong></td>
+          <td><code>chat-agent.ts</code> final response <code>scopedCandidateResponse</code>/<code>finalResponse</code>؛ <code>proof-foundation.ts:loadCanonicalProof</code>؛ consumers في Mission/Goal/chat.</td>
+          <td>اجعل NOT_PROVEN يظل غير موجب في كل formatter/transport؛ أكمل inventory للـPROVEN producers/consumers؛ تحقق من مصدر <code>goalStatus</code> في كل caller؛ احتفظ بتشخيص prefetch.</td>
+          <td><code>chat-evidence-integrity-e2e.test.ts</code>، <code>chat-scoped-verdict-e2e.test.ts</code>، <code>chat-required-claim-unclosed-e2e.test.ts</code>، <code>proof-foundation.test.ts</code> على current/stale attempt وrevision وmixed scope.</td>
+          <td>لا نص أو status غير canonical يظهر كـPROVEN؛ كل claim مطلوبة مغلقة بمقتطف retained؛ كل transport يتطابق في النتيجة والقبول.</td>
+        </tr>
+        <tr>
+          <td><strong>E3.2 — Replay safety <span class="red">OPEN</span></strong></td>
+          <td><code>recipe-operation-runner.ts</code>؛ <code>task-execution-service.ts</code>؛ <code>structured-task-execution.ts</code>؛ <code>workflow-phase-execution.ts</code>؛ Mission repair/Apply/runtime.start/remote delivery؛ <code>proof-foundation.ts</code>.</td>
+          <td>ارسم مصفوفة موحدة لكل side effect من ACTION_REQUESTED إلى observation/effect/acceptance/terminal. بعد crash غير محسوم لا تعِد الأثر تلقائيًا؛ أعد بناء الحقيقة من observation مستقلة أو احتفظ بـRECOVERY_REQUIRED. replay receipt يجب أن يرتبط بالمحاولة والمرجع الحالي وCanonical Proof من replay نفسه.</td>
+          <td>اختبارات process-kill وlease handoff وduplicate replay على disposable PostgreSQL loopback وroots/remote doubles مع provider egress مغلق. لا تستخدم DB مشتركة أو production.</td>
+          <td>كل نافذة لها نتيجة واحدة مثبتة: recovery آمن/idempotent أو blocking/manual disposition؛ لا stale owner write، false success، أو duplicate side effect. لا يعلن إغلاق E3.2 قبل تغطية كل mutation surface.</td>
+        </tr>
+        <tr>
+          <td><strong>E4 — World Delta <span class="amber">محظور البدء الآن</span></strong></td>
+          <td><code>world-state.ts:materializeWorldStateForProject</code>؛ <code>runtime-start-transition.ts</code>؛ Apply/D2؛ delivery.</td>
+          <td>بعد تصريح المرحلة فقط، عرّف لكل mutation أهلية Delta أو No-Delta، واربط الأثر المقبول بملاحظات before/after مستقلة ومراجعات متطابقة. لا تضف Truth Layer ثانية.</td>
+          <td><code>world-state.test.ts</code>، <code>runtime-start-transition.test.ts</code>، وroute tests لكل سياسة Delta/No-Delta.</td>
+          <td>كل أثر مؤهل يعاد بناؤه من observation refs؛ والأثر غير المؤهل له سبب صريح لا status متفائل.</td>
+        </tr>
+        <tr>
+          <td><strong>E5 — Planner consumption <span class="amber">مؤجل</span></strong></td>
+          <td><code>mission-world-state-planning-read.ts:loadMissionWorldStatePlanningRead</code>؛ <code>mission-auto-replan.ts:autoReplanMission</code>.</td>
+          <td>بعد E4 فقط، اجعل A/B fixture يغير fact مؤثرًا ويحدد مسبقًا قرار/steps بديلة؛ إن لم تتغير الخطة، سجّل fact غير مؤثرًا بدل الادعاء بتأثير planner.</td>
+          <td><code>mission-auto-replan-evidence.integration.test.ts</code> على DB مؤقتة؛ assert على decision وstep IDs/revision، لا prompt فقط.</td>
+          <td>تتغير الخطة للfact المؤثر وفق العقد، ولا تتغير للـfact غير المؤثر؛ كلاهما مربوطان بالـplanning revision.</td>
+        </tr>
+        <tr>
+          <td><strong>E6 — Belief update <span class="amber">مؤجل</span></td>
+          <td><code>world-state-failure-diagnosis.ts:diagnoseRuntimeStartWorldStateFailure</code>؛ <code>mission-auto-replan.ts:buildReplanContext</code>.</td>
+          <td>وسّع من runtime.start pilot بعد تعريف observations مستقلة وfreshness/contradiction policy؛ لا تستنتج belief من provider prose أو acceptance وحده.</td>
+          <td><code>world-state-failure-diagnosis.test.ts</code> و<code>mission-auto-replan.test.ts</code>: stale/contradictory/unresolved لا تحدث fact؛ الإيجابي يرتبط بobservation/revision.</td>
+          <td>كل belief update قابل لإعادة البناء من observation مؤهلة ويُرفض عند التعارض أو stale state.</td>
+        </tr>
+        <tr>
+          <td><strong>E7 — Replan vs retry <span class="amber">مؤجل</span></td>
+          <td><code>mission-auto-replan.ts:autoReplanMission/reconcileAutomaticMissionReplans</code>؛ Mission runtime.</td>
+          <td>افصل server-side بين retry لنفس الخطة وreplan بمراجعة جديدة؛ احتفظ بالscope والfailure evidence، ولا تكرر side effect لمجرد فشل التحقق.</td>
+          <td>اختبارات recovery تثبت سبب القرار، scope، revision، وعدم إعادة الأثر؛ plan revision جديدة عند الحاجة فقط.</td>
+          <td>لا retry مقنّع كـreplan ولا replan يوسّع الصلاحية أو يفقد intent/evidence.</td>
+        </tr>
+        <tr>
+          <td><strong>E8 — Replay/evaluation <span class="amber">مؤجل</span></td>
+          <td><code>routes/ai/missions.ts</code> shadow replay؛ <code>skill-registry.ts</code>؛ receipt/Canonical Proof loaders.</td>
+          <td>بعد إغلاق E3.2 وتصريح منفصل فقط: revalidate source proof/Goal/active plan/candidate ثم تشغيل validator server-owned وقبول proof خاص بالـreplay. لا collection أو calibration ضمن هذا التقرير.</td>
+          <td>اختبارات stale source/candidate/plan receipt، process restart، وheld-out cases ذات per-case evidence.</td>
+          <td>replay proof مستقل وصحيح، recovery idempotent، والتقييم held-out يعاد بناؤه؛ دون فتح P7.5 أو Learning/Transfer قبل موافقات بواباتها.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>10. Do Not Start Yet</h2>
+    <ul>
+      <li><strong>E4 / E4.1:</strong> لا تبدأ التنفيذ أو qualification؛ تبقى E3.2 مفتوحة. جرد المصدر السابق <code>UNQUALIFIED</code> لا يجيز evaluation أو promotion.</li>
+      <li><strong>verification-isolation:</strong> لا تبدأ بناء مسار تحقق موازٍ قبل إثبات lifecycle القائم؛ قد يكرر authority/receipt ويصعب تمييز proof من projection.</li>
+      <li><strong>P7.5 collection/evaluation:</strong> لا جمع ولا calibration؛ استقلال العينات والمقيم وربط provenance غير مؤهلين في هذه المراجعة، والقرار المسجل NO-GO يظل حاكمًا.</li>
+      <li><strong>P8:</strong> bounded diagnosis/replan pilot لا يثبت حلقة عامة أو أن القرار تغيّر.</li>
+      <li><strong>P9:</strong> effect-credit أو attribution قبل تغطية الملاحظات والـDelta يعرّض التعلم لنسب سببي غير مثبت.</li>
+      <li><strong>P10 / P10.5:</strong> لا تعميم للاستراتيجية أو self-model للقدرات قبل إغلاق replay/current-source proof وتقييم موثوق.</li>
+      <li><strong>P11 Learning:</strong> الأدلة والقبول والتعافي غير مكتملة عبر الأسطح؛ بيانات غير مثبتة ستصبح إشارات تدريب خاطئة.</li>
+      <li><strong>Transfer:</strong> لا يوجد دليل عام أن السلوك/الأثر المنقول يظل صحيحًا ويغير القرار خارج نطاقه.</li>
+      <li><strong>Capability composition:</strong> لا تركيب لقدرات قبل اكتمال authorization، lifecycle، proof، وreplay boundaries.</li>
+    </ul>
+    <p>السبب المشترك: توسيع التعلم أو النقل قبل إغلاق الحواجز الأربع يدوّر فجوات false success وfalse PROVEN وWorld Delta على أنها معرفة موثوقة.</p>
+  </section>
+
+  <section>
+    <h2>11. Final Gate</h2>
+    <p>هذه قائمة ثنائية؛ لا تُحسب البنود الجزئية مغلقة. تم وضع <code>[x]</code> فقط حيث يدعم الدليل إغلاق معيار هذا البند المحدد.</p>
+    <pre class="gate">[x] Tool authorization complete
+[x] Tool scope complete
+[ ] Tool bounded execution complete
+[ ] Tool adversarial coverage complete
+[ ] Execution lifecycle unified
+[ ] Attempt fencing complete
+[ ] Crash recovery complete
+[ ] Cancellation race safety complete
+[ ] Acceptance single authority
+[ ] Evidence canonical
+[ ] No non-canonical PROVEN
+[x] Claim completeness
+[ ] Revision binding
+[ ] World Delta reconstruction
+[x] World State materialization
+[ ] Planner consumes World State
+[ ] Unexpected outcome updates belief
+[ ] Replan changes decision
+[ ] Replay/evaluation available</pre>
+    <p><strong>الحكم النهائي: <span class="red">NOT READY</span></strong></p>
+    <p><strong>سبب الحكم:</strong> توجد فجوات جوهرية مثبتة أو غير محسومة في تكامل الأدلة، اكتمال workflow، السلامة عبر crash windows، دلالة PROVEN، وتحويل World State إلى قرار مختلف. <code>E3.2</code> يبقى OPEN؛ لا يبدأ E4 أو verification-isolation أو P7.5/Learning/Transfer.</p>
+  </section>
+</main>
+</body>
+</html>

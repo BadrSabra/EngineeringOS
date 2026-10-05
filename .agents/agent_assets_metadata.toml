@@ -56,3 +56,17 @@ mtime_ms = 1791084872490
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:d9ee80a9-1264-4087-bf84-742316b13035/f633e9af-ceab-4e10-a51b-fbeb8fb3247c/e108d70e-1f90-424a-b1bc-191af34dc009"
 storage_version_token = "1791084920899624"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "DzB4AUui8t7YFafvwJglJ"
+uri = "file://docs/agent-core-forensic-status-report-2026-10-06.html"
+type = "html"
+title = "تقرير التدقيق الجنائي لـ Agent Core — 2026-10-06"
+description = "تقرير عربي ذاتي الاحتواء من 11 قسمًا و19 بند Final Gate؛ النتيجة NOT READY، مع أدلة الكود والاختبارات وحدود التحقق."
+logical_id = "4f7abbbb-b78b-4c25-988e-fdc7631fcb74"
+content_hash = "sha256:5df74a0191d7cd2002c0b5e415a6ac75bb63dcafd713a3770dbe3b0116a0e3d4"
+size = 49980
+mtime_ms = 1791243386159
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:d9ee80a9-1264-4087-bf84-742316b13035/4f7abbbb-b78b-4c25-988e-fdc7631fcb74/46f21084-5cbd-4510-aa2c-df43578ea928"
+storage_version_token = "1791243420760551"
+content_type = "text/html"
