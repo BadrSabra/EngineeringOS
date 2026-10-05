@@ -17,8 +17,10 @@ import {
   aiShadowReplaysTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiSkillRegistryTable,
   db,
   eventsTable,
+  projectPluginBindingsTable,
   projectsTable,
   tasksTable,
   workflowsTable,
@@ -1440,6 +1442,316 @@ describe("AI missions and goals", () => {
     });
     const registryId = registered.body.registry.id as string;
 
+    const duplicateRegistration = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+      .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+    expect(duplicateRegistration.status).toBe(200);
+    expect(duplicateRegistration.body.registry.id).toBe(registryId);
+    expect(await db.select({ id: aiSkillRegistryTable.id })
+      .from(aiSkillRegistryTable)
+      .where(eq(aiSkillRegistryTable.projectId, projectId))).toHaveLength(1);
+
+    const [matrixReplayBaseline] = await db.select()
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const [matrixProposalBaseline] = await db.select({
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    const [matrixMissionBaseline] = await db.select({
+      status: aiMissionsTable.status,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    const [matrixGoalBaseline] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId));
+    const [matrixAcceptanceBaseline] = await db.select({
+      attempt: aiExecutionAcceptancesTable.attempt,
+      disposition: aiExecutionAcceptancesTable.disposition,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+    const originalReceipt = structuredClone(replay.body.receipt) as {
+      sourceRevision: string;
+      attempt?: number;
+      postTreeHash: string;
+      proof: { receiptId: string; trajectoryDigest: string };
+      [key: string]: unknown;
+    };
+    const candidateWorkspaceFile = path.join(deliveryWorkspace.workspaceRoot, "src/index.ts");
+    const originalCandidateWorkspaceContent = await fs.readFile(candidateWorkspaceFile, "utf8");
+    const originalProposalEvidence = JSON.parse(
+      matrixProposalBaseline?.validationEvidence ?? "{}",
+    ) as {
+      skillCandidate?: { sourceRevision: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    let matrixDependency: { goalId: string; edgeId: string } | undefined;
+    const restoreMatrixBaseline = async () => {
+      if (matrixDependency) {
+        await db.delete(aiGoalDependenciesTable)
+          .where(eq(aiGoalDependenciesTable.id, matrixDependency.edgeId));
+        await db.delete(aiGoalsTable)
+          .where(eq(aiGoalsTable.id, matrixDependency.goalId));
+        matrixDependency = undefined;
+      }
+      await db.update(aiChangeProposalsTable).set({
+        baseRevision: matrixProposalBaseline!.baseRevision,
+        validationEvidence: matrixProposalBaseline!.validationEvidence,
+      }).where(eq(aiChangeProposalsTable.id, proposalId));
+      await db.update(aiShadowReplaysTable).set({
+        attempt: matrixReplayBaseline!.attempt,
+        sourceRevision: matrixReplayBaseline!.sourceRevision,
+        candidateTreeHash: matrixReplayBaseline!.candidateTreeHash,
+        changeSetHash: matrixReplayBaseline!.changeSetHash,
+        operationId: matrixReplayBaseline!.operationId,
+        receipt: matrixReplayBaseline!.receipt,
+      }).where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+      await db.update(aiMissionsTable).set({
+        status: matrixMissionBaseline!.status,
+        autonomyPolicy: matrixMissionBaseline!.autonomyPolicy,
+      }).where(eq(aiMissionsTable.id, missionId));
+      await db.update(aiGoalsTable).set({
+        status: matrixGoalBaseline!.status,
+      }).where(eq(aiGoalsTable.id, goalId));
+      await db.update(aiExecutionAcceptancesTable).set({
+        attempt: matrixAcceptanceBaseline!.attempt,
+        disposition: matrixAcceptanceBaseline!.disposition,
+      }).where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+      await db.update(aiExecutionEvidenceSnapshotsTable)
+        .set({ attempt: replayProofEvidence!.attempt })
+        .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+      await db.update(aiSkillRegistryTable).set({
+        promotionStatus: "pending",
+        approvedBy: null,
+        approvedAt: null,
+      }).where(eq(aiSkillRegistryTable.id, registryId));
+      await db.delete(projectPluginBindingsTable)
+        .where(eq(projectPluginBindingsTable.projectId, projectId));
+    };
+    const changedSourceRevision = `changed-${sourceRevision}`;
+    const matrixCases: Array<{
+      name: string;
+      mutate: () => Promise<void>;
+      restore?: () => Promise<void>;
+    }> = [
+      {
+        name: "R1 stale receipt after proposal revision changes",
+        mutate: async () => {
+          await db.update(aiChangeProposalsTable)
+            .set({ baseRevision: changedSourceRevision })
+            .where(eq(aiChangeProposalsTable.id, proposalId));
+        },
+      },
+      {
+        name: "R2 new revision labels with old canonical proof",
+        mutate: async () => {
+          const evidence = structuredClone(originalProposalEvidence);
+          if (!evidence.skillCandidate) throw new Error("Candidate evidence is missing.");
+          evidence.skillCandidate.sourceRevision = changedSourceRevision;
+          const receipt = structuredClone(originalReceipt);
+          receipt.sourceRevision = changedSourceRevision;
+          await db.update(aiChangeProposalsTable).set({
+            baseRevision: changedSourceRevision,
+            validationEvidence: JSON.stringify(evidence),
+          }).where(eq(aiChangeProposalsTable.id, proposalId));
+          await db.update(aiShadowReplaysTable).set({
+            sourceRevision: changedSourceRevision,
+            receipt,
+          }).where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R3 receipt trajectory digest differs from current proof",
+        mutate: async () => {
+          const receipt = structuredClone(originalReceipt);
+          receipt.proof.trajectoryDigest = "a".repeat(64);
+          await db.update(aiShadowReplaysTable).set({ receipt })
+            .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R4 replay receipt and row claim a different attempt",
+        mutate: async () => {
+          const receipt = structuredClone(originalReceipt);
+          receipt.attempt = replayExecutionAttempt + 1;
+          await db.update(aiShadowReplaysTable).set({
+            attempt: replayExecutionAttempt + 1,
+            receipt,
+          }).where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R5 replay row candidate identity differs from its receipt",
+        mutate: async () => {
+          await db.update(aiShadowReplaysTable)
+            .set({ candidateTreeHash: "0".repeat(64) })
+            .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R5 candidate workspace bytes drift after replay",
+        mutate: async () => {
+          await fs.writeFile(candidateWorkspaceFile, "export const changed = true;\n", "utf8");
+        },
+        restore: async () => {
+          await fs.writeFile(candidateWorkspaceFile, originalCandidateWorkspaceContent, "utf8");
+        },
+      },
+      {
+        name: "R6 effect/change-set identity differs",
+        mutate: async () => {
+          await db.update(aiShadowReplaysTable)
+            .set({ changeSetHash: "e".repeat(64) })
+            .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R6 replay operation identity differs",
+        mutate: async () => {
+          await db.update(aiShadowReplaysTable)
+            .set({ operationId: "shadow-replay:wrong-operation" })
+            .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+        },
+      },
+      {
+        name: "R9 Mission is cancelled after replay",
+        mutate: async () => {
+          await db.update(aiMissionsTable).set({ status: "cancelled" })
+            .where(eq(aiMissionsTable.id, missionId));
+        },
+      },
+      {
+        name: "R9 Goal is no longer complete",
+        mutate: async () => {
+          await db.update(aiGoalsTable).set({ status: "blocked" })
+            .where(eq(aiGoalsTable.id, goalId));
+        },
+      },
+      {
+        name: "R9 a failed dependency is added after replay",
+        mutate: async () => {
+          const [goalRow] = await db.select().from(aiGoalsTable)
+            .where(eq(aiGoalsTable.id, goalId));
+          if (!goalRow) throw new Error("Replay Goal disappeared.");
+          const dependencyGoalId = randomUUID();
+          const edgeId = randomUUID();
+          matrixDependency = { goalId: dependencyGoalId, edgeId };
+          await db.insert(aiGoalsTable).values({
+            ...goalRow,
+            id: dependencyGoalId,
+            status: "failed",
+          });
+          await db.insert(aiGoalDependenciesTable).values({
+            id: edgeId,
+            missionId,
+            projectId,
+            goalId,
+            dependsOnGoalId: dependencyGoalId,
+            planRevision,
+          });
+        },
+      },
+      {
+        name: "R10 active plan revision changes after replay",
+        mutate: async () => {
+          const policy = matrixMissionBaseline?.autonomyPolicy;
+          if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+            throw new Error("Mission autonomy policy is missing.");
+          }
+          await db.update(aiMissionsTable).set({
+            autonomyPolicy: {
+              ...(policy as Record<string, unknown>),
+              activePlanRevision: `changed-${planRevision}`,
+            },
+          }).where(eq(aiMissionsTable.id, missionId));
+        },
+      },
+      {
+        name: "R11 old receipt after current Canonical Proof attempt changes",
+        mutate: async () => {
+          await db.update(aiExecutionAcceptancesTable)
+            .set({ attempt: replayExecutionAttempt + 1 })
+            .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+          await db.update(aiExecutionEvidenceSnapshotsTable)
+            .set({ attempt: replayExecutionAttempt + 1 })
+            .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+        },
+      },
+      {
+        name: "R12 current proof trajectory differs from old receipt",
+        mutate: async () => {
+          const disposition = structuredClone(
+            matrixAcceptanceBaseline!.disposition,
+          ) as {
+            proof?: { trajectoryDigest?: { digest?: string } };
+          };
+          if (!disposition.proof?.trajectoryDigest) {
+            throw new Error("Canonical proof trajectory is missing.");
+          }
+          disposition.proof.trajectoryDigest.digest = "f".repeat(64);
+          await db.update(aiExecutionAcceptancesTable)
+            .set({ disposition })
+            .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
+        },
+      },
+    ];
+    const matrixResults: Array<{
+      name: string;
+      getStatus: number;
+      retryStatus: number;
+      retryReplayId?: string;
+      registrationStatus: number;
+      approvalStatus: number;
+      executionDelta: number;
+      replayDelta: number;
+    }> = [];
+    for (const matrixCase of matrixCases) {
+      try {
+        const executionsBefore = await db.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.projectId, projectId));
+        const replaysBefore = await db.select({ id: aiShadowReplaysTable.id })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.proposalId, proposalId));
+        await matrixCase.mutate();
+        const readReceipt = await request(app)
+          .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+        const replayRetry = await request(app)
+          .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+          .send({});
+        const matrixRegistration = await request(app)
+          .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+          .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+        const matrixApproval = await request(app)
+          .post(`/api/ai/skill-registry/${registryId}/approve`)
+          .send({});
+        const executionsAfter = await db.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.projectId, projectId));
+        const replaysAfter = await db.select({ id: aiShadowReplaysTable.id })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.proposalId, proposalId));
+        matrixResults.push({
+          name: matrixCase.name,
+          getStatus: readReceipt.status,
+          retryStatus: replayRetry.status,
+          retryReplayId: replayRetry.body.replay?.id,
+          registrationStatus: matrixRegistration.status,
+          approvalStatus: matrixApproval.status,
+          executionDelta: executionsAfter.length - executionsBefore.length,
+          replayDelta: replaysAfter.length - replaysBefore.length,
+        });
+      } finally {
+        try {
+          await restoreMatrixBaseline();
+        } finally {
+          await matrixCase.restore?.();
+        }
+      }
+    }
     const stalePromotionAttempt = replayExecutionAttempt + 1;
     await db.update(aiExecutionAcceptancesTable)
       .set({ attempt: stalePromotionAttempt })
@@ -1624,6 +1936,11 @@ describe("AI missions and goals", () => {
       replayWorkspaceCleaned: true,
       replayCanonicalAcceptanceId: replay.body.receipt.proof.receiptId,
     });
+    const replayAcceptancesBeforeRecovery = await db
+      .select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, replay.body.replay.executionId));
+    expect(replayAcceptancesBeforeRecovery).toHaveLength(1);
     await db.update(aiShadowReplaysTable)
       .set({
         status: "running",
@@ -1650,6 +1967,11 @@ describe("AI missions and goals", () => {
       replayCanonicalAcceptanceId: replay.body.receipt.proof.receiptId,
       replayWorkspaceCleaned: true,
     });
+    const replayAcceptancesAfterRecovery = await db
+      .select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, replay.body.replay.executionId));
+    expect(replayAcceptancesAfterRecovery).toEqual(replayAcceptancesBeforeRecovery);
 
     const recoveryMismatchAttempt = replayExecutionAttempt + 1;
     await db.update(aiExecutionAcceptancesTable)
@@ -1684,6 +2006,17 @@ describe("AI missions and goals", () => {
       status: "failed",
       error: "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED",
     });
+
+    expect(matrixResults).toHaveLength(matrixCases.length);
+    expect(matrixResults.filter((result) =>
+      result.getStatus !== 200
+      || ![200, 409].includes(result.retryStatus)
+      || (result.retryStatus === 200 && result.retryReplayId !== replay.body.replay.id)
+      || result.registrationStatus !== 409
+      || result.approvalStatus !== 409
+      || result.executionDelta !== 0
+      || result.replayDelta !== 0
+    )).toEqual([]);
   });
 
   it("does not admit a candidate from a PROVEN acceptance for another execution attempt", async () => {
