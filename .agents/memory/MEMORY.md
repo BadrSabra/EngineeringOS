@@ -134,7 +134,7 @@
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
 - [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.
 - [Shadow replay validator contract](shadow-replay-validator-contract.md) — replay profiles and receipts stay server-owned and must pass through normal acceptance before proof.
-- [Skill registry Gate 4](skill-registry-gate4.md) — registration and approval require current-attempt source/replay proof and a passing paired baseline.
+- [Skill registry Gate 4](skill-registry-gate4.md) — registration and approval revalidate current source/replay proof, candidate bytes, Mission dependencies, and paired baseline.
 - [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.

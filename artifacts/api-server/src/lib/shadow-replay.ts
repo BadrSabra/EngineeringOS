@@ -78,7 +78,10 @@ export type ShadowReplayStartInput = {
   activePlanRevision: string;
 };
 
-export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
+export type DurableShadowReplayReceipt = Omit<ShadowReplayReceipt, "contractVersion"> & {
+  contractVersion: 2;
+  operationId: string;
+  changeSetHash: string | null;
   replayId: string;
   replayExecutionId: string;
   status: "completed";
@@ -137,12 +140,19 @@ function idempotencyKey(input: ShadowReplayStartInput): string {
   return `shadow-replay:${input.proposalId}:${input.candidate.candidateId}:${input.candidateTreeHash}`;
 }
 
-function replayOperationId(input: ShadowReplayStartInput): string {
+export function expectedShadowReplayOperationId(
+  proposalId: string,
+  candidateId: string,
+): string {
   const candidateKey = createHash("sha256")
-    .update(input.candidate.candidateId)
+    .update(candidateId)
     .digest("hex")
     .slice(0, 32);
-  return `shadow-replay:${input.proposalId}:${candidateKey}`;
+  return `shadow-replay:${proposalId}:${candidateKey}`;
+}
+
+function replayOperationId(input: ShadowReplayStartInput): string {
+  return expectedShadowReplayOperationId(input.proposalId, input.candidate.candidateId);
 }
 
 function planRevisionFromGoal(
@@ -323,8 +333,12 @@ export function toPublicShadowReplay(row: ShadowReplayRow): {
   };
 }
 
-async function assertCandidateWorkspace(input: ShadowReplayStartInput): Promise<string> {
-  if (!input.sourceWorkspaceRoot) {
+export async function assertCandidateWorkspaceIdentity(input: {
+  operationId: string | null;
+  sourceWorkspaceRoot: string | null;
+  candidateTreeHash: string | null;
+}): Promise<string> {
+  if (!input.operationId || !input.candidateTreeHash || !input.sourceWorkspaceRoot) {
     throw new ShadowReplayError(
       "SKILL_CANDIDATE_WORKSPACE_REQUIRED",
       "A server-owned candidate workspace is required before shadow replay.",
@@ -344,6 +358,14 @@ async function assertCandidateWorkspace(input: ShadowReplayStartInput): Promise<
     );
   }
   return sourceTreeHash;
+}
+
+async function assertCandidateWorkspace(input: ShadowReplayStartInput): Promise<string> {
+  return assertCandidateWorkspaceIdentity({
+    operationId: input.operationId,
+    sourceWorkspaceRoot: input.sourceWorkspaceRoot,
+    candidateTreeHash: input.candidateTreeHash,
+  });
 }
 
 function safeRelativePath(relativePath: string): string {
@@ -1167,12 +1189,14 @@ export async function runShadowReplayAttempt(
       );
     }
     const receipt: DurableShadowReplayReceipt = {
-      contractVersion: 1,
+      contractVersion: 2,
       runId: replay.id,
       candidateId: replay.candidateId,
       projectId: replay.projectId,
       sourceRevision: replay.sourceRevision,
       candidateTreeHash: replay.candidateTreeHash,
+      operationId: replay.operationId,
+      changeSetHash: replay.changeSetHash,
       verification: { recipeId: "candidate.verify", recipeVersion: 1 },
       proof: {
         receiptId: replayProof.acceptanceId,

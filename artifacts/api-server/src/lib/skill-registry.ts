@@ -109,12 +109,14 @@ export type SkillShadowScore = {
 };
 
 const ShadowReplayRegistryReceiptSchema = z.object({
-  contractVersion: z.literal(1),
+  contractVersion: z.literal(2),
   runId: z.string().min(1).max(160),
   candidateId: z.string().min(1).max(160),
   projectId: z.string().min(1).max(160),
   sourceRevision: z.string().min(1).max(240),
   candidateTreeHash: DigestSchema,
+  operationId: z.string().min(1).max(240),
+  changeSetHash: DigestSchema.nullable(),
   proof: z.object({
     receiptId: z.string().min(1).max(240),
     trajectoryDigest: DigestSchema,
@@ -124,6 +126,7 @@ const ShadowReplayRegistryReceiptSchema = z.object({
   replayId: z.string().min(1).max(160),
   replayExecutionId: z.string().min(1).max(160),
   status: z.literal("completed"),
+  attempt: z.number().int().nonnegative(),
   preTreeHash: DigestSchema,
   postTreeHash: DigestSchema,
   workspaceIsolated: z.literal(true),
