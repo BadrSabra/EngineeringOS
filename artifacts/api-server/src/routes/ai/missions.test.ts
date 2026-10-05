@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs } from "node:fs";
+import { createConnection, createServer } from "node:net";
 import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import app from "../../app.js";
@@ -59,6 +60,131 @@ import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
 const shadowSourceRoots: string[] = [];
+
+type ShadowCrashApiProcess = {
+  child: ChildProcess;
+  port: number;
+  applicationName: string;
+  output: () => string;
+  diagnostics: () => string;
+  exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+};
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve a loopback port for the Shadow Replay API child.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return address.port;
+}
+
+async function startShadowCrashApiProcess(
+  databaseUrl: string,
+  applicationName: string,
+): Promise<ShadowCrashApiProcess> {
+  const port = await reserveLoopbackPort();
+  const childDatabaseUrl = new URL(databaseUrl);
+  childDatabaseUrl.searchParams.set("application_name", applicationName);
+  const source = [
+    "(async () => {",
+    '  await import("./src/index.ts");',
+    '  process.stdout.write("E32_SHADOW_API_READY\\n");',
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exitCode = 1;",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: childDatabaseUrl.toString(),
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      PORT: String(port),
+      PGAPPNAME: applicationName,
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+    },
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  let output = "";
+  let diagnostics = "";
+  child.stdout?.on("data", (chunk: string) => { output += chunk; });
+  child.stderr?.on("data", (chunk: string) => { diagnostics += chunk; });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const processHandle = { child, port, applicationName, output: () => output, diagnostics: () => diagnostics, exit };
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (output.includes("E32_SHADOW_API_READY")) {
+      const listening = await new Promise<boolean>((resolve) => {
+        const socket = createConnection({ host: "127.0.0.1", port });
+        const done = (ready: boolean) => {
+          socket.destroy();
+          resolve(ready);
+        };
+        socket.setTimeout(1_000, () => done(false));
+        socket.once("connect", () => done(true));
+        socket.once("error", () => done(false));
+      });
+      if (listening) return processHandle;
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `Shadow Replay API exited before becoming ready; `
+        + `exit=${JSON.stringify(await exit)}; stderr=${diagnostics}; stdout=${output}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Shadow Replay API readiness timed out; stderr=${diagnostics}; stdout=${output}`);
+}
+
+async function stopShadowCrashApiProcess(
+  api: ShadowCrashApiProcess,
+  signal: NodeJS.Signals = "SIGKILL",
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (api.child.exitCode === null && api.child.signalCode === null && api.child.pid) {
+    try {
+      process.kill(-api.child.pid, signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+  return api.exit;
+}
+
+async function terminateShadowApiDatabaseSessions(applicationName: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE application_name = ${applicationName}
+    `);
+    const rows = (result as unknown as { rows?: Array<{ pid: number }> }).rows ?? [];
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      await db.execute(sql`SELECT pg_terminate_backend(${row.pid})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Shadow Replay API PostgreSQL sessions did not close for ${applicationName}.`);
+}
 
 async function insertProject(ownerId = "test-user") {
   const id = randomUUID();
@@ -1133,12 +1259,16 @@ describe("AI missions and goals", () => {
   });
 
   it("persists a server-owned skill candidate and performs read-only shadow replay", {
-    timeout: 60_000,
+    timeout: 300_000,
   }, async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    expect(databaseUrl).toBeTruthy();
+    expect(["127.0.0.1", "::1"]).toContain(new URL(databaseUrl!).hostname);
     const projectId = await insertProject();
     const sessionId = randomUUID();
     const messageId = randomUUID();
     const proposalId = randomUUID();
+    const mutationProposalId = randomUUID();
     const executionId = randomUUID();
     const operationId = randomUUID();
     const missionId = randomUUID();

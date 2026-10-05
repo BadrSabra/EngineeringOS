@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -31,6 +32,7 @@ import {
 import {
   type ShadowReplayReceipt,
   type SkillCandidateEnvelope,
+  parseStoredProposalEvidence,
   validateSkillCandidateAgainstCanonicalProof,
 } from "./skill-candidate.js";
 import {
@@ -175,6 +177,138 @@ function activePlanRevisionFromMission(
   }
   const revision = (autonomyPolicy as { activePlanRevision?: unknown }).activePlanRevision;
   return typeof revision === "string" && revision.trim() ? revision : undefined;
+}
+
+async function validateCurrentSourceCandidate(
+  replay: ShadowReplayRow,
+  replayExecution: typeof aiExecutionsTable.$inferSelect,
+): Promise<boolean> {
+  const [proposal] = await db
+    .select({
+      projectId: aiChangeProposalsTable.projectId,
+      operationId: aiChangeProposalsTable.operationId,
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
+      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
+      status: aiChangeProposalsTable.status,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+    })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, replay.proposalId),
+      eq(aiChangeProposalsTable.projectId, replay.projectId),
+    ))
+    .limit(1);
+  if (
+    !proposal
+    || proposal.status !== "applied"
+    || proposal.lifecycle !== "committed"
+    || !proposal.operationId
+    || proposal.baseRevision !== replay.sourceRevision
+    || proposal.candidateTreeHash !== replay.candidateTreeHash
+    || proposal.workspaceRoot !== replay.sourceWorkspaceRoot
+  ) return false;
+
+  let storedEvidence: unknown;
+  try {
+    storedEvidence = proposal.validationEvidence
+      ? JSON.parse(proposal.validationEvidence)
+      : null;
+  } catch {
+    return false;
+  }
+  const candidate = parseStoredProposalEvidence(storedEvidence).skillCandidate;
+  if (
+    !candidate
+    || candidate.candidateId !== replay.candidateId
+    || candidate.projectId !== replay.projectId
+    || candidate.sourceRevision !== replay.sourceRevision
+    || candidate.candidateTreeHash !== replay.candidateTreeHash
+    || candidate.changeSetHash !== (proposal.changeSetHash ?? null)
+    || candidate.proof.receiptId !== replay.canonicalAcceptanceId
+    || candidate.proof.trajectoryDigest !== replay.trajectoryDigest
+    || replay.operationId !== expectedShadowReplayOperationId(replay.proposalId, candidate.candidateId)
+  ) return false;
+
+  const [sourceAcceptance] = await db
+    .select({ executionId: aiExecutionAcceptancesTable.executionId })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.id, replay.canonicalAcceptanceId),
+      eq(aiExecutionAcceptancesTable.projectId, replay.projectId),
+    ))
+    .limit(1);
+  if (!sourceAcceptance) return false;
+  const [sourceExecution] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, sourceAcceptance.executionId))
+    .limit(1);
+  if (
+    !sourceExecution
+    || sourceExecution.projectId !== replay.projectId
+    || sourceExecution.goalId !== replayExecution.goalId
+    || sourceExecution.operationId !== proposal.operationId
+  ) return false;
+
+  const [scope] = await db
+    .select({
+      goalId: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      goalStatus: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    })
+    .from(aiGoalsTable)
+    .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+    .where(and(
+      eq(aiGoalsTable.id, sourceExecution.goalId ?? ""),
+      eq(aiGoalsTable.projectId, replay.projectId),
+      eq(aiMissionsTable.projectId, replay.projectId),
+    ))
+    .limit(1);
+  const planRevision = scope ? planRevisionFromGoal(scope.outcomeContract) : undefined;
+  const activePlanRevision = scope
+    ? activePlanRevisionFromMission(scope.autonomyPolicy)
+    : undefined;
+  if (
+    !scope
+    || scope.goalId !== replayExecution.goalId
+    || scope.goalStatus !== "completed"
+    || !planRevision
+    || !activePlanRevision
+    || planRevision !== activePlanRevision
+  ) return false;
+
+  const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+    tx,
+    executionId: sourceExecution.id,
+    scope: {
+      projectId: replay.projectId,
+      missionId: scope.missionId,
+      goalId: scope.goalId,
+      executionId: sourceExecution.id,
+      operationId: proposal.operationId!,
+      planRevision,
+      activePlanRevision,
+      sourceRevisionBinding: "scope",
+      candidateIdentityBinding: "required",
+      sourceRevision: replay.sourceRevision,
+      candidateIdentity: replay.candidateTreeHash,
+    },
+    goalStatus: scope.goalStatus,
+  }));
+  const candidateDecision = validateSkillCandidateAgainstCanonicalProof(candidate, canonicalProof, {
+    projectId: replay.projectId,
+    sourceRevision: replay.sourceRevision,
+    candidateTreeHash: replay.candidateTreeHash,
+    changeSetHash: proposal.changeSetHash,
+  });
+  return candidateDecision.allowed
+    && canonicalProof.acceptanceId === replay.canonicalAcceptanceId
+    && canonicalProof.trajectoryDigest?.digest === replay.trajectoryDigest;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -785,6 +919,20 @@ export async function runShadowReplayAttempt(
     ))
     .returning();
   if (!claimedReplay) return false;
+
+  if (!await validateCurrentSourceCandidate(replay, execution)) {
+    const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
+    await updateReplayOwned(replay.id, owner, {
+      status: "failed",
+      error: workspaceCleaned
+        ? "SHADOW_REPLAY_SOURCE_PROOF_REJECTED"
+        : "SHADOW_REPLAY_CLEANUP_FAILED",
+      completedAt: new Date(),
+      workerId: null,
+      leaseUntil: null,
+    });
+    return false;
+  }
 
   if (execution.status === "completed") {
     const receipt = execution.recipeReceipt;
