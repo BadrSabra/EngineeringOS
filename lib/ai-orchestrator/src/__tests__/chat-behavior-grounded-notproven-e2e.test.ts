@@ -44,6 +44,14 @@ function makeContext(): ProjectContext {
   };
 }
 
+// chat() only performs scoped source reads when the server supplies the
+// observation sinks used to persist read and tool lifecycle receipts. These
+// isolated tests provide the sinks without coupling to the API database.
+const testSourceReadCallbacks = {
+  onReadOnlyInvocation: async () => undefined,
+  onToolInvocation: async () => undefined,
+};
+
 async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<void> {
   vi.resetModules();
   vi.doUnmock("../tools/file-tools.js");
@@ -52,8 +60,8 @@ async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<
     const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
     return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
   });
-  // Non-null plan with targetFiles routes the source through the plan-prefetch
-  // path, which records the real file body into forensicFileContents.
+  // Non-null plan with targetFiles routes the source through plan-prefetch,
+  // which records the real file body into forensicFileContents.
   vi.doMock("../agents/query-planner.js", async () => {
     const actual = await vi.importActual<Record<string, unknown>>("../agents/query-planner.js");
     return {
@@ -225,10 +233,18 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 
       expect(calls.count).toBeGreaterThan(0);
+      expect(steps).toContainEqual(expect.objectContaining({
+        kind: "tool_result",
+        tool: "read_file",
+        source: FILE,
+        readStatus: "READ_COMPLETE",
+        prefetched: true,
+      }));
 
       // The grounded, no-Finding answer must NOT degrade to the NOT PROVEN
       // replacement — even though its excerpt is only READ_CONFIRMED.
@@ -272,6 +288,7 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 
@@ -325,6 +342,7 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 
@@ -406,6 +424,7 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         objective: GAP_OBJECTIVE,
         turnIntent,
         onStep: (step) => steps.push(step),
@@ -511,6 +530,7 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 

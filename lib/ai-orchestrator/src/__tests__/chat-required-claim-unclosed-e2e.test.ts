@@ -38,6 +38,14 @@ function makeContext(): ProjectContext {
   };
 }
 
+// chat() only performs scoped source reads when the server supplies the
+// observation sinks used to persist read and tool lifecycle receipts. These
+// isolated tests provide the sinks without coupling to the API database.
+const testSourceReadCallbacks = {
+  onReadOnlyInvocation: async () => undefined,
+  onToolInvocation: async () => undefined,
+};
+
 async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<void> {
   vi.resetModules();
   vi.doUnmock("../tools/file-tools.js");
@@ -46,8 +54,8 @@ async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<
     const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
     return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
   });
-  // Non-null plan routes the source through the plan-prefetch path, recording
-  // the real file body into forensicFileContents (the evidence inventory).
+  // Non-null plan routes the source through plan-prefetch, which records the
+  // real file body into forensicFileContents.
   vi.doMock("../agents/query-planner.js", () => ({
     planQuery: vi.fn(() => Promise.resolve(plan)),
   }));
@@ -202,10 +210,18 @@ describe("chat() refuses to finalize while evidence is retained but no claim is 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 
       expect(calls.count).toBeGreaterThan(0);
+      expect(steps).toContainEqual(expect.objectContaining({
+        kind: "tool_result",
+        tool: "read_file",
+        source: FILE,
+        readStatus: "READ_COMPLETE",
+        prefetched: true,
+      }));
 
       // The machine signal: the diagnostic is surfaced, so the model/operator
       // knows the answer is NOT final.
@@ -269,6 +285,7 @@ describe("chat() refuses to finalize while evidence is retained but no claim is 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
       });
 
@@ -320,6 +337,7 @@ describe("chat() refuses to finalize while evidence is retained but no claim is 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
         // Stress the streaming (direct-content) final path, which must apply
         // the SAME required-claim gate the non-streaming seam applies.
@@ -371,6 +389,7 @@ describe("chat() refuses to finalize while evidence is retained but no claim is 
         rootPath,
         provider: "openrouter",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
         onDelta: (delta) => emitted.push(delta),
       });
@@ -426,6 +445,7 @@ describe("chat() refuses to finalize while evidence is retained but no claim is 
         rootPath,
         provider: "groq",
         apiKey: "test-or-key",
+        ...testSourceReadCallbacks,
         onStep: (step) => steps.push(step),
         onDelta: (delta) => deltas.push(delta),
       });
