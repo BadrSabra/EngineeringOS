@@ -1,7 +1,7 @@
 # E3 Forensic Entry Audit
 
 **Date:** 2026-10-05
-**Status:** Entry audit recorded; E3 implementation has not started.
+**Status:** Entry audit recorded; E3 implementation has not started. E3.2 replay safety remains OPEN.
 **E2 boundary:** Closed for proof-bound World State materialization as defined in the current project decision.
 
 ## E3 invariant
@@ -47,3 +47,14 @@ Every producer or decision consumer must either reload/derive the current Canoni
 5. Do not combine this E3 work with E4 World Delta expansion or any Learning/Transfer/Generalization activation.
 
 This is an entry audit, not an E3 closure. The next implementation slice requires an explicit scope decision based on the failure matrix.
+
+## 2026-10-05 four-agent follow-up
+
+The code-first follow-up is recorded in [`agent-core-four-agent-forensic-audit-2026-10-05.md`](agent-core-four-agent-forensic-audit-2026-10-05.md). This addendum does not start E3 implementation or change the scoped E2 materialization decision.
+
+- `loadCanonicalProof()` remains the accepted proof authority for the guarded consumers inspected; the full producer/consumer inventory is not closed.
+- `chat-agent.ts` applies required-claim and telemetry gates before the reviewed final-response paths. The observed `chat-required-claim-unclosed-e2e.test.ts` response-classification failure remains unresolved; no persistent acceptance bypass was demonstrated.
+- Phase/status and Evidence Graph projections can display `PROVEN` from non-canonical or partial states. Treat these as projection/freshness findings, not as demonstrated acceptance writers.
+- `buildEvidenceBackedAnswer()` has no confirmed product-acceptance consumer in the reviewed paths; its authority impact is `UNKNOWN`.
+- Apply W0–W8 tests cover bounded apply/startup and HTTP-route crash cases. Earlier progress records a successful isolated run; the follow-up audit did not rerun it. Those Apply tests do not close E3.2 replay safety across source/replay receipts and other mutation surfaces.
+- Keep E3.2 `OPEN` until current-attempt replay proof, receipt persistence/recovery, and all required replay consumers are covered by broader evidence and verified tests.

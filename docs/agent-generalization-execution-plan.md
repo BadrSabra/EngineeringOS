@@ -1,6 +1,7 @@
 # مواصفة البناء الكاملة وعقد القبول — تطور الوكيل الهندسي نحو التعميم والتعلم
 
 > **أحدث قرار بوابة (2026-10-05):** أُغلق E2 للـinvariant المحدد: لا facts أو materialized World Transition أو WorldRevision قبل اكتمال proof chain المرتبط؛ pending reservation row مسموح ولا يعاد فتح E2 بسببه. اكتمل E3 Forensic Entry Audit وfailure matrix في `docs/e3-forensic-entry-audit.md`، ولم يبدأ تنفيذ E3. هذا القرار لا يغلق بقية نواقص Agent Core ولا يجيز Learning أو Transfer أو Generalization.
+> **متابعة الطبقات الأربع (2026-10-05):** المراجعة code-first ذات الأقسام الـ11 وFinal Gate الأصلي ذي 19 بندًا في `docs/agent-core-four-agent-forensic-audit-2026-10-05.md`. تظل نسب الطبقات `UNKNOWN`، وE3.2 replay safety `OPEN`. اختبارات Apply W0–W8 المسجلة تخص crash windows محدودة ولا تغلق replay عبر كل الأسطح. لا تخلط هذا مع إغلاق E2 المحدود أعلاه أو مع بدء تنفيذ E3.
 > **الحالة:** مواصفة البناء وعقد القبول — التنفيذ المرحلي قيد التقدم
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
