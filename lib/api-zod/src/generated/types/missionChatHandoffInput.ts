@@ -7,7 +7,7 @@
  */
 
 /**
- * Ordinary explicit handoffs provide message and may include sessionId/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records.
+ * Ordinary explicit handoffs provide message and may include sessionId/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records. idempotencyKey identifies one explicit confirmation; retries with the same key return the same Mission, while a new confirmation must use a new key.
  */
 export type MissionChatHandoffInput = (unknown & ({
   /**
@@ -15,6 +15,7 @@ export type MissionChatHandoffInput = (unknown & ({
      * @maxLength 200
      */
   projectId: string;
+  idempotencyKey: string;
   /**
      * @minLength 1
      * @maxLength 10000

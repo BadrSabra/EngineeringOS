@@ -2976,6 +2976,13 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: sessionId
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Include this project-owned session even when it is older than the recent-session window.
       responses:
         "200":
           description: List of sessions
@@ -3569,6 +3576,10 @@ paths:
       responses:
         "200":
           description: Mission projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionControlProjection"
 
   /api/ai/goals/{goalId}:
     parameters:
@@ -4403,11 +4414,13 @@ components:
     MissionChatHandoffInput:
       type: object
       additionalProperties: false
-      required: [projectId]
+      required: [projectId, idempotencyKey]
       description: >
         Ordinary explicit handoffs provide message and may include sessionId/messageId together.
         Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash
         returned by plan-preview; the server resolves the source user message and proof records.
+        idempotencyKey identifies one explicit confirmation; retries with the same key return the
+        same Mission, while a new confirmation must use a new key.
       oneOf:
         - required: [message]
           not:
@@ -4417,6 +4430,7 @@ components:
             required: [message]
       properties:
         projectId: { type: string, minLength: 1, maxLength: 200 }
+        idempotencyKey: { type: string, format: uuid }
         message: { type: string, minLength: 1, maxLength: 10000 }
         title: { type: string, minLength: 1, maxLength: 200 }
         objective: { type: string, minLength: 1, maxLength: 2000 }
@@ -4432,6 +4446,55 @@ components:
           nullable: true
           maxLength: 80
           pattern: "^[a-z0-9][a-z0-9-]*$"
+    AiMissionControlProjection:
+      type: object
+      required: [mission, agentControl, goals, counts]
+      properties:
+        mission:
+          type: object
+          additionalProperties: true
+        agentControl:
+          anyOf:
+            - $ref: "#/components/schemas/AiMissionAgentControl"
+            - type: "null"
+        goals:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        counts:
+          type: object
+          required: [goals, tasks, workflows, executions, events]
+          properties:
+            goals: { type: integer, minimum: 0 }
+            tasks: { type: integer, minimum: 0 }
+            workflows: { type: integer, minimum: 0 }
+            executions: { type: integer, minimum: 0 }
+            events: { type: integer, minimum: 0 }
+    AiMissionAgentControl:
+      type: object
+      required: [handoff]
+      properties:
+        handoff:
+          type: object
+          required:
+            - kind
+            - sessionId
+            - messageId
+            - assistantMessageId
+            - planHash
+            - dispatchStatus
+            - confirmedAt
+            - dispatchedAt
+          properties:
+            kind: { type: string, enum: [chat] }
+            sessionId: { type: [string, "null"], format: uuid }
+            messageId: { type: [string, "null"], format: uuid }
+            assistantMessageId: { type: [string, "null"], format: uuid }
+            planHash: { type: string, minLength: 1 }
+            dispatchStatus: { type: string, enum: [pending, dispatched] }
+            confirmedAt: { type: string, format: date-time }
+            dispatchedAt: { type: [string, "null"], format: date-time }
     ApplyMissionFromProposalInput:
       type: object
       additionalProperties: false

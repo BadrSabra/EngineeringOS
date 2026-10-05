@@ -744,6 +744,48 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /(?:now\(\)|current_timestamp)/,
       },
     ] satisfies readonly ColumnContract[],
+    ai_mission_handoffs: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "user_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "mission_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "session_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "message_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "assistant_message_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "idempotency_key", dataType: "text", udtName: "text", nullable: false },
+      { name: "request_hash", dataType: "text", udtName: "text", nullable: false },
+      { name: "plan_hash", dataType: "text", udtName: "text", nullable: false },
+      { name: "preview", dataType: "jsonb", udtName: "jsonb", nullable: false },
+      { name: "activation_plan", dataType: "jsonb", udtName: "jsonb", nullable: false },
+      { name: "dispatch_goal_ids", dataType: "jsonb", udtName: "jsonb", nullable: false },
+      {
+        name: "dispatch_status",
+        dataType: "USER-DEFINED",
+        udtName: "ai_mission_handoff_dispatch_status",
+        nullable: false,
+        defaultExpression: /'pending'::ai_mission_handoff_dispatch_status/,
+      },
+      {
+        name: "dispatched_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: true,
+      },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+      {
+        name: "updated_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
   },
   indexes: [
     {
@@ -1049,6 +1091,26 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       tableName: "ai_usage_events",
       columns: ["correlation_id"],
     },
+    {
+      name: "uq_ai_mission_handoffs_mission_id",
+      tableName: "ai_mission_handoffs",
+      columns: ["mission_id"],
+    },
+    {
+      name: "uq_ai_mission_handoffs_user_idempotency",
+      tableName: "ai_mission_handoffs",
+      columns: ["user_id", "idempotency_key"],
+    },
+    {
+      name: "idx_ai_mission_handoffs_session_id",
+      tableName: "ai_mission_handoffs",
+      columns: ["session_id"],
+    },
+    {
+      name: "idx_ai_mission_handoffs_dispatch",
+      tableName: "ai_mission_handoffs",
+      columns: ["dispatch_status", "created_at"],
+    },
   ] satisfies readonly IndexContract[],
   foreignKeys: [
     {
@@ -1057,6 +1119,41 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       foreignTableName: "projects",
       foreignColumnName: "id",
       deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_handoffs",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_handoffs",
+      columnName: "mission_id",
+      foreignTableName: "ai_missions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_handoffs",
+      columnName: "session_id",
+      foreignTableName: "ai_chat_sessions",
+      foreignColumnName: "id",
+      deleteRule: "SET NULL",
+    },
+    {
+      tableName: "ai_mission_handoffs",
+      columnName: "message_id",
+      foreignTableName: "ai_chat_messages",
+      foreignColumnName: "id",
+      deleteRule: "SET NULL",
+    },
+    {
+      tableName: "ai_mission_handoffs",
+      columnName: "assistant_message_id",
+      foreignTableName: "ai_chat_messages",
+      foreignColumnName: "id",
+      deleteRule: "SET NULL",
     },
     {
       tableName: "project_plugin_bindings",
@@ -1389,6 +1486,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly ForeignKeyContract[],
   enums: {
+    ai_mission_handoff_dispatch_status: ["pending", "dispatched"],
     workspace_runtime_status: ["stopped", "starting", "running", "failed"],
     task_status: [
       "pending",

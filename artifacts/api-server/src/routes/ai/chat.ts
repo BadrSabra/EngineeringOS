@@ -13975,6 +13975,23 @@ router.get("/ai/chat/sessions", async (req, res) => {
     .where(eq(aiChatSessionsTable.projectId, project.id))
     .orderBy(desc(aiChatSessionsTable.updatedAt))
     .limit(20);
+  const requestedSessionId = typeof req.query.sessionId === "string"
+    ? req.query.sessionId
+    : undefined;
+  if (
+    requestedSessionId
+    && !sessions.some((session) => session.id === requestedSessionId)
+  ) {
+    const [requestedSession] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(and(
+        eq(aiChatSessionsTable.id, requestedSessionId),
+        eq(aiChatSessionsTable.projectId, project.id),
+      ))
+      .limit(1);
+    if (requestedSession) sessions.push(requestedSession);
+  }
 
   if (sessions.length === 0) return res.json(sessions);
 

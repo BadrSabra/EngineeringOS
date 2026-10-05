@@ -143,6 +143,18 @@ export interface SkillCandidateProjection {
 
 export interface MissionProjection {
   mission: Mission;
+  agentControl: {
+    handoff: {
+      kind: 'chat';
+      sessionId: string | null;
+      messageId: string | null;
+      assistantMessageId: string | null;
+      planHash: string;
+      dispatchStatus: 'pending' | 'dispatched';
+      confirmedAt: string;
+      dispatchedAt: string | null;
+    };
+  } | null;
   goals: Array<{
     goal: Goal;
     tasks: ProjectionTask[];
@@ -320,6 +332,7 @@ export interface MissionPlanPreviewResult {
 export type ChatMissionHandoffInput =
   | {
       projectId: string;
+      idempotencyKey: string;
       message: string;
       title?: string;
       objective?: string;
@@ -331,6 +344,7 @@ export type ChatMissionHandoffInput =
     }
   | {
       projectId: string;
+      idempotencyKey: string;
       assistantMessageId: string;
       title?: string;
       objective?: string;

@@ -963,6 +963,18 @@ function aiChatSelectionStorageKey(projectId: string): string {
   return `${AI_CHAT_SELECTION_STORAGE_PREFIX}${projectId}`;
 }
 
+function getStoredAiChatSessionId(projectId: string): string | undefined {
+  try {
+    const selection = parseAiChatSelection(
+      localStorage.getItem(aiChatSelectionStorageKey(projectId)),
+      projectId,
+    );
+    return selection?.sessionId;
+  } catch {
+    return undefined;
+  }
+}
+
 function isOpaqueSelectionId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 512;
 }
@@ -5798,6 +5810,7 @@ function AcceptedProjectQueryMissionAction({
     try {
       const result = await createMissionFromChat({
         projectId,
+        idempotencyKey: crypto.randomUUID(),
         assistantMessageId: msg.id,
         objective: objective.trim(),
         expectedPlanHash: preview.plan.planHash,
@@ -10544,15 +10557,24 @@ export default function AiChat() {
     if (projectsError) emitProjectLoadFailed(projectsError, { userId: user?.id });
   }, [projectsError, user?.id]);
 
+  const requestedSessionId = (chatRouteTarget?.projectId === selectedProjectId
+    ? chatRouteTarget.sessionId
+    : undefined)
+    ?? sessionId
+    ?? (selectedProjectId ? getStoredAiChatSessionId(selectedProjectId) : undefined);
+
   const {
     data: sessions = [],
     isFetched: sessionsFetched,
     isError: sessionsError,
   } = useListAiChatSessions<Session[]>(
-    { projectId: selectedProjectId ?? '' },
+    {
+      projectId: selectedProjectId ?? '',
+      ...(requestedSessionId ? { sessionId: requestedSessionId } : {}),
+    },
     {
       query: {
-        queryKey: ['ai-sessions', selectedProjectId],
+        queryKey: ['ai-sessions', selectedProjectId, requestedSessionId ?? null],
         enabled: isLoaded && !!selectedProjectId,
       },
     },
@@ -12342,6 +12364,7 @@ export default function AiChat() {
     try {
       const result = await createMissionFromChat({
         projectId: selectedProjectId,
+        idempotencyKey: crypto.randomUUID(),
         message: message.content,
         sessionId,
         messageId: message.id,

@@ -13,6 +13,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
+  aiMissionHandoffsTable,
   aiShadowReplaysTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -28,6 +29,7 @@ import {
   runMissionGoal,
   wakeReadyMissionGoals,
 } from "../../lib/mission-runtime.js";
+import { dispatchPendingMissionChatHandoffs } from "../../lib/mission-chat-handoffs.js";
 import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
@@ -260,6 +262,7 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         message,
         expectedPlanHash: preview.body.plan.planHash,
       });
@@ -322,6 +325,7 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         assistantMessageId: source.assistantMessageId,
         objective,
         expectedPlanHash: "stale-plan-hash",
@@ -335,6 +339,7 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         assistantMessageId: source.assistantMessageId,
         objective,
         expectedPlanHash: preview.body.plan.planHash,
@@ -369,6 +374,84 @@ describe("AI missions and goals", () => {
     );
   });
 
+  it("binds handoffs to the exact Chat message and resumes the persisted Agent-control projection", async () => {
+    const projectId = await insertProject();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const message = "Inspect the project, implement the requested feature, and validate the result.";
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission handoff source",
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "user",
+      content: message,
+    });
+
+    const idempotencyKey = randomUUID();
+    const baseInput = {
+      projectId,
+      idempotencyKey,
+      sessionId,
+      messageId,
+    };
+    const mismatchedSource = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({ ...baseInput, message: `${message} altered` });
+    expect(mismatchedSource.status).toBe(409);
+    expect(mismatchedSource.body.code).toBe("CHAT_HANDOFF_MESSAGE_MISMATCH");
+
+    const input = { ...baseInput, message };
+    const handoff = await request(app).post("/api/ai/missions/from-chat").send(input);
+    expect(handoff.status).toBe(201);
+
+    const retry = await request(app).post("/api/ai/missions/from-chat").send(input);
+    expect(retry.status).toBe(200);
+    expect(retry.body.mission.id).toBe(handoff.body.mission.id);
+    const keyConflict = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({ ...input, message: `${message} with a different request` });
+    expect(keyConflict.status).toBe(409);
+    expect(keyConflict.body.code).toBe("MISSION_HANDOFF_IDEMPOTENCY_CONFLICT");
+
+    const newConfirmation = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({ ...input, idempotencyKey: randomUUID() });
+    expect(newConfirmation.status).toBe(201);
+    expect(newConfirmation.body.mission.id).not.toBe(handoff.body.mission.id);
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(2);
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${handoff.body.mission.id}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.agentControl.handoff).toMatchObject({
+      kind: "chat",
+      sessionId,
+      messageId,
+      assistantMessageId: null,
+      planHash: handoff.body.preview.plan.planHash,
+      dispatchStatus: "dispatched",
+    });
+
+    const [durableHandoff] = await db
+      .select({ id: aiMissionHandoffsTable.id })
+      .from(aiMissionHandoffsTable)
+      .where(eq(aiMissionHandoffsTable.missionId, handoff.body.mission.id));
+    await db.update(aiMissionHandoffsTable)
+      .set({ dispatchStatus: "pending", dispatchedAt: null })
+      .where(eq(aiMissionHandoffsTable.id, durableHandoff.id));
+    expect(await dispatchPendingMissionChatHandoffs()).toBeGreaterThanOrEqual(1);
+    const [recoveredHandoff] = await db
+      .select({ dispatchStatus: aiMissionHandoffsTable.dispatchStatus })
+      .from(aiMissionHandoffsTable)
+      .where(eq(aiMissionHandoffsTable.id, durableHandoff.id));
+    expect(recoveredHandoff.dispatchStatus).toBe("dispatched");
+  });
+
   it("keeps handoff provenance server-owned across generic Mission writes", async () => {
     const projectId = await insertProject();
     const spoofedCreate = await request(app)
@@ -398,6 +481,7 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         assistantMessageId: source.assistantMessageId,
         objective,
         expectedPlanHash: preview.body.plan.planHash,
@@ -539,6 +623,7 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         message,
         expectedPlanHash: preview.body.plan.planHash,
       });

@@ -5,7 +5,7 @@
  * the existing task lifecycle. It does not execute tools itself.
  */
 import { Router } from "express";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { z } from "zod";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
@@ -16,6 +16,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionHandoffsTable,
   aiMissionsTable,
   aiShadowReplaysTable,
   aiSkillRegistryTable,
@@ -46,6 +47,7 @@ import { parseExecutionRequest } from "../../lib/ai-execution-state.js";
 import { executionProfileForMissionStep } from "../../lib/mission-execution-profile.js";
 import { createMissionEventEnvelope } from "../../lib/mission-events.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
+import { dispatchMissionChatHandoff } from "../../lib/mission-chat-handoffs.js";
 import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
@@ -173,6 +175,7 @@ const MissionPlanPreviewBody = z.object({
 
 const MissionChatHandoffBody = z.object({
   projectId: z.string().min(1).max(200),
+  idempotencyKey: z.string().uuid(),
   message: z.string().trim().min(1).max(10_000).optional(),
   title: z.string().trim().min(1).max(200).optional(),
   objective: z.string().trim().min(1).max(2_000).optional(),
@@ -197,6 +200,51 @@ const MissionChatHandoffBody = z.object({
     });
   }
 });
+
+type MissionChatHandoffRequest = z.infer<typeof MissionChatHandoffBody>;
+
+function missionChatHandoffRequestHash(
+  projectId: string,
+  body: MissionChatHandoffRequest,
+): string {
+  const canonicalRequest = {
+    projectId,
+    message: body.message ?? null,
+    title: body.title ?? null,
+    objective: body.objective ?? null,
+    expectedPlanHash: body.expectedPlanHash ?? null,
+    assistantMessageId: body.assistantMessageId ?? null,
+    sessionId: body.sessionId ?? null,
+    messageId: body.messageId ?? null,
+    runtimeStartTargetStepId: body.runtimeStartTargetStepId ?? null,
+  };
+  return createHash("sha256").update(JSON.stringify(canonicalRequest)).digest("hex");
+}
+
+async function loadChatMissionHandoffByKey(userId: string, idempotencyKey: string) {
+  const [row] = await db
+    .select({
+      handoff: aiMissionHandoffsTable,
+      mission: aiMissionsTable,
+    })
+    .from(aiMissionHandoffsTable)
+    .innerJoin(aiMissionsTable, eq(aiMissionHandoffsTable.missionId, aiMissionsTable.id))
+    .where(and(
+      eq(aiMissionHandoffsTable.userId, userId),
+      eq(aiMissionHandoffsTable.idempotencyKey, idempotencyKey),
+    ))
+    .limit(1);
+  return row;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "code" in error
+    && (error as { code?: unknown }).code === "23505",
+  );
+}
 
 const MissionReplanBody = z.object({
   message: z.string().trim().min(1).max(10_000).optional(),
@@ -1096,10 +1144,30 @@ async function buildMissionProjection(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
 ) {
+  const [handoff] = await db
+    .select()
+    .from(aiMissionHandoffsTable)
+    .where(eq(aiMissionHandoffsTable.missionId, mission.id))
+    .limit(1);
+  const agentControl = handoff
+    ? {
+        handoff: {
+          kind: "chat" as const,
+          sessionId: handoff.sessionId,
+          messageId: handoff.messageId,
+          assistantMessageId: handoff.assistantMessageId,
+          planHash: handoff.planHash,
+          dispatchStatus: handoff.dispatchStatus,
+          confirmedAt: handoff.createdAt,
+          dispatchedAt: handoff.dispatchedAt,
+        },
+      }
+    : null;
   const goalIds = goals.map((goal) => goal.id);
   if (goalIds.length === 0) {
     return {
       mission,
+      agentControl,
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     };
@@ -1228,6 +1296,7 @@ async function buildMissionProjection(
 
   return {
     mission,
+    agentControl,
     goals: goals.map((goal) => ({
       goal: {
         ...goal,
@@ -1327,6 +1396,31 @@ router.post("/ai/missions/from-chat", async (req, res) => {
   const body = MissionChatHandoffBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  const requestHash = missionChatHandoffRequestHash(project.id, body);
+  const sendExistingHandoff = async (
+    row: NonNullable<Awaited<ReturnType<typeof loadChatMissionHandoffByKey>>>,
+  ) => {
+    if (row.handoff.projectId !== project.id || row.handoff.requestHash !== requestHash) {
+      return res.status(409).json({
+        error: "This idempotency key is already bound to a different Mission confirmation.",
+        code: "MISSION_HANDOFF_IDEMPOTENCY_CONFLICT",
+      });
+    }
+    const runs = await dispatchMissionChatHandoff(row.handoff.id);
+    return res.status(200).json({
+      mission: row.mission,
+      activation: row.handoff.activationPlan.primary,
+      planGoals: row.handoff.activationPlan.goals,
+      runs,
+      preview: row.handoff.preview,
+    });
+  };
+  const existingHandoff = await loadChatMissionHandoffByKey(
+    req.userId,
+    body.idempotencyKey,
+  );
+  if (existingHandoff) return sendExistingHandoff(existingHandoff);
+
   if (body.assistantMessageId && (body.sessionId || body.messageId)) {
     return res.status(400).json({
       error: "Accepted-finding handoff cannot be combined with a user-message handoff",
@@ -1345,6 +1439,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
         sessionProjectId: aiChatSessionsTable.projectId,
         messageSessionId: aiChatMessagesTable.sessionId,
         role: aiChatMessagesTable.role,
+        content: aiChatMessagesTable.content,
       })
       .from(aiChatMessagesTable)
       .innerJoin(
@@ -1360,6 +1455,12 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       return res.status(409).json({
         error: "The selected chat message is not a user message in this project",
         code: "CHAT_HANDOFF_CONTEXT_INVALID",
+      });
+    }
+    if (source.content !== body.message) {
+      return res.status(409).json({
+        error: "The submitted request does not match the selected chat message.",
+        code: "CHAT_HANDOFF_MESSAGE_MISMATCH",
       });
     }
   }
@@ -1451,8 +1552,44 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       },
     });
     const activationPlan = await ensureMissionActivationPlan(tx, mission, now, preview);
-    return { kind: "created" as const, mission, activationPlan, preview };
+    if (!activationPlan) {
+      throw new Error("Mission activation plan could not be created.");
+    }
+    const handoffId = randomUUID();
+    await tx.insert(aiMissionHandoffsTable).values({
+      id: handoffId,
+      projectId: project.id,
+      userId: req.userId,
+      missionId,
+      sessionId: acceptedSource?.sessionId ?? body.sessionId ?? null,
+      messageId: acceptedSource?.userMessageId ?? body.messageId ?? null,
+      assistantMessageId: acceptedSource?.assistantMessageId ?? body.assistantMessageId ?? null,
+      idempotencyKey: body.idempotencyKey,
+      requestHash,
+      planHash: preview.plan.planHash,
+      preview: JSON.parse(JSON.stringify(preview)) as Record<string, unknown>,
+      activationPlan,
+      dispatchGoalIds: activationPlan.goals
+        .filter((goal) => goal.dependencies.length === 0)
+        .map((goal) => goal.goalId),
+      dispatchStatus: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return {
+      kind: "created" as const,
+      mission,
+      activationPlan,
+      preview,
+      handoffId,
+    };
+  }).catch(async (error: unknown) => {
+    if (!isUniqueConstraintError(error)) throw error;
+    const duplicate = await loadChatMissionHandoffByKey(req.userId, body.idempotencyKey);
+    if (!duplicate) throw error;
+    return { kind: "replay" as const, row: duplicate };
   });
+  if (result.kind === "replay") return sendExistingHandoff(result.row);
   if (result.kind === "invalid_source") {
     return res.status(409).json({
       error: "The selected result is no longer a current, accepted PROJECT_QUERY finding",
@@ -1476,13 +1613,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       actualPlanHash: result.actualPlanHash,
     });
   }
-  if (!result.activationPlan) {
-    return res.status(500).json({
-      error: "Mission activation plan could not be created",
-      code: "MISSION_ACTIVATION_PLAN_MISSING",
-    });
-  }
-  const runs = await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
+  const runs = await dispatchMissionChatHandoff(result.handoffId);
   return res.status(201).json({
     mission: result.mission,
     activation: result.activationPlan.primary,

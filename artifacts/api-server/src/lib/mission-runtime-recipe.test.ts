@@ -360,6 +360,7 @@ describe("Mission recipe dispatch", () => {
       .post("/api/ai/missions/from-chat")
       .send({
         projectId,
+        idempotencyKey: randomUUID(),
         message,
         sessionId,
         messageId,

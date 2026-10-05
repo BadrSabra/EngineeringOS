@@ -88,6 +88,7 @@ beforeEach(() => {
   fetchMissionsMock.mockResolvedValue([]);
   fetchMissionProjectionMock.mockResolvedValue({
     mission,
+    agentControl: null,
     goals: [],
     counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
   });
@@ -152,6 +153,18 @@ describe('Missions management', () => {
     fetchMissionsMock.mockResolvedValue([acceptedMission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: acceptedMission,
+      agentControl: {
+        handoff: {
+          kind: 'chat',
+          sessionId: 'session-accepted-1',
+          messageId: 'user-message-1',
+          assistantMessageId: 'assistant-message-1',
+          planHash: 'mission-plan-hash-1',
+          dispatchStatus: 'dispatched',
+          confirmedAt: '2026-09-22T00:00:00.000Z',
+          dispatchedAt: '2026-09-22T00:00:01.000Z',
+        },
+      },
       goals: [{
         goal: {
           id: 'goal-1',
@@ -198,6 +211,12 @@ describe('Missions management', () => {
     expect(screen.getByText('evidence-snapshot-1')).toBeInTheDocument();
     expect(screen.getByText('claim-1, claim-2')).toBeInTheDocument();
     expect(screen.getByText('mission-plan-hash-1')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Agent control' })).toBeInTheDocument();
+    expect(screen.getByText('This Mission is the Agent run')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open linked chat/ })).toHaveAttribute(
+      'href',
+      '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
+    );
     expect(screen.getByTestId('link-mission-source-chat')).toHaveAttribute(
       'href',
       '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
@@ -237,6 +256,7 @@ describe('Missions management', () => {
     };
     fetchMissionProjectionMock.mockResolvedValue({
       mission: { ...mission, status: 'active' },
+      agentControl: null,
       goals: [{ goal: deliveryGoal, tasks: [], workflows: [], executions: [], events: [] }],
       counts: { goals: 1, tasks: 0, workflows: 0, executions: 0, events: 0 },
     });
@@ -265,6 +285,7 @@ describe('Missions management', () => {
     fetchMissionsMock.mockResolvedValue([needsReplanMission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: needsReplanMission,
+      agentControl: null,
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     });
@@ -322,6 +343,7 @@ describe('Missions management', () => {
     fetchMissionsMock.mockResolvedValue([activeMission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: activeMission,
+      agentControl: null,
       goals: [{
         goal: waitingGoal,
         tasks: [],

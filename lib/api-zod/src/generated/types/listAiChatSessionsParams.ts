@@ -8,4 +8,8 @@
 
 export type ListAiChatSessionsParams = {
 projectId: string;
+/**
+ * Include this project-owned session even when it is older than the recent-session window.
+ */
+sessionId?: string;
 };

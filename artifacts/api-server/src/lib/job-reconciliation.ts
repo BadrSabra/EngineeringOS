@@ -88,6 +88,7 @@ import {
 } from "./mission-runtime.js";
 import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
+import { dispatchPendingMissionChatHandoffs } from "./mission-chat-handoffs.js";
 import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 
 const ORPHANED_RUNNING_MESSAGE =
@@ -930,7 +931,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -944,12 +945,14 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       dispatchPendingMissionRecipes(),
       replayPendingMissionEvents(),
       dispatchPendingShadowReplays(),
+      dispatchPendingMissionChatHandoffs(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
     dispatched += missionRecipeCount;
     dispatched += missionEventCount;
     dispatched += shadowReplayCount;
+    dispatched += chatMissionHandoffCount;
 
     for (const job of queuedScans) {
       if (

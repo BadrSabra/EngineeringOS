@@ -39,6 +39,7 @@ import type {
   AiFallbackDiagnosticInput,
   AiFileContent,
   AiMissionControl,
+  AiMissionControlProjection,
   AiOrchestrateRequest,
   AiOrchestrationDecision,
   AiPendingProposal,
@@ -10086,9 +10087,9 @@ export const getGetAiMissionProjectionUrl = (missionId: string,) => {
 /**
  * @summary Get the read-only Mission Control projection
  */
-export const getAiMissionProjection = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const getAiMissionProjection = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<AiMissionControlProjection> => {
 
-  return customFetch<void>(getGetAiMissionProjectionUrl(missionId),
+  return customFetch<AiMissionControlProjection>(getGetAiMissionProjectionUrl(missionId),
   {
     ...options,
     method: 'GET'

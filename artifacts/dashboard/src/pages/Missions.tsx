@@ -66,6 +66,19 @@ function formatDate(value: string | null | undefined, includeTime = false) {
     : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+type ChatHandoffProjection = NonNullable<MissionProjection['agentControl']>['handoff'];
+
+function chatHandoffHref(projectId: string, handoff: ChatHandoffProjection): string | null {
+  if (!handoff.sessionId) return null;
+  const params = new URLSearchParams({
+    projectId,
+    sessionId: handoff.sessionId,
+  });
+  const messageId = handoff.assistantMessageId ?? handoff.messageId;
+  if (messageId) params.set('messageId', messageId);
+  return `/ai?${params.toString()}`;
+}
+
 function compactId(value: string) {
   return value.length > 24 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
@@ -1651,6 +1664,54 @@ export default function Missions() {
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
                             <span>Some activity is still loading. The latest result will appear here automatically.</span>
                           </div>
+                        ) : null}
+                        {projection.agentControl ? (
+                          <section
+                            aria-label="Agent control"
+                            className="mb-5 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.035] p-3.5"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan-200/70">
+                                  Agent control
+                                </p>
+                                <p className="mt-1 text-sm font-medium text-slate-200">
+                                  This Mission is the Agent run
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Execution and recovery stay with Mission Runtime.
+                                </p>
+                              </div>
+                              <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide text-slate-400">
+                                {projection.agentControl.handoff.dispatchStatus === 'dispatched'
+                                  ? 'Dispatched'
+                                  : 'Dispatch pending'}
+                              </span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-3">
+                              <div className="text-[11px] text-slate-500">
+                                Confirmed {formatDate(projection.agentControl.handoff.confirmedAt, true)}
+                                <span className="mx-2 text-slate-700">·</span>
+                                Plan {compactId(projection.agentControl.handoff.planHash)}
+                              </div>
+                              {chatHandoffHref(
+                                String(activeMission.projectId),
+                                projection.agentControl.handoff,
+                              ) ? (
+                                <a
+                                  href={chatHandoffHref(
+                                    String(activeMission.projectId),
+                                    projection.agentControl.handoff,
+                                  )!}
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-200 hover:text-cyan-100"
+                                >
+                                  Open linked chat <ArrowUpRight className="h-3.5 w-3.5" />
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-600">The linked chat session is no longer available.</span>
+                              )}
+                            </div>
+                          </section>
                         ) : null}
                          <div className="mb-4 flex items-center justify-between gap-3">
                           <div>

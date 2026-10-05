@@ -6945,7 +6945,8 @@ export const DecideAiImplementationPlanResponse = zod.object({
  * @summary List chat sessions for a project
  */
 export const ListAiChatSessionsQueryParams = zod.object({
-  "projectId": zod.coerce.string()
+  "projectId": zod.coerce.string(),
+  "sessionId": zod.string().uuid().optional().describe('Include this project-owned session even when it is older than the recent-session window.')
 })
 
 export const ListAiChatSessionsResponseItem = zod.object({
@@ -7909,6 +7910,7 @@ export const handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdRegExp = new
 
 export const HandoffChatToAiMissionBody = zod.union([zod.object({
   "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyOneProjectIdMax).optional(),
+  "idempotencyKey": zod.string().uuid().optional(),
   "message": zod.string().min(1).max(handoffChatToAiMissionBodyOneMessageMax),
   "title": zod.string().min(1).max(handoffChatToAiMissionBodyOneTitleMax).optional(),
   "objective": zod.string().min(1).max(handoffChatToAiMissionBodyOneObjectiveMax).optional(),
@@ -7919,6 +7921,7 @@ export const HandoffChatToAiMissionBody = zod.union([zod.object({
   "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdRegExp).nullish()
 }),zod.object({
   "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyTwoProjectIdMax).optional(),
+  "idempotencyKey": zod.string().uuid().optional(),
   "message": zod.never().optional(),
   "title": zod.string().min(1).max(handoffChatToAiMissionBodyTwoTitleMax).optional(),
   "objective": zod.string().min(1).max(handoffChatToAiMissionBodyTwoObjectiveMax).optional(),
@@ -7929,6 +7932,7 @@ export const HandoffChatToAiMissionBody = zod.union([zod.object({
   "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdRegExp).nullish()
 })]).and(zod.object({
   "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyThreeProjectIdMax),
+  "idempotencyKey": zod.string().uuid(),
   "message": zod.string().min(1).max(handoffChatToAiMissionBodyThreeMessageMax).optional(),
   "title": zod.string().min(1).max(handoffChatToAiMissionBodyThreeTitleMax).optional(),
   "objective": zod.string().min(1).max(handoffChatToAiMissionBodyThreeObjectiveMax).optional(),
@@ -7937,7 +7941,7 @@ export const HandoffChatToAiMissionBody = zod.union([zod.object({
   "sessionId": zod.string().uuid().optional(),
   "messageId": zod.string().uuid().optional(),
   "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdRegExp).nullish()
-})).describe('Ordinary explicit handoffs provide message and may include sessionId\/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records.\n')
+})).describe('Ordinary explicit handoffs provide message and may include sessionId\/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records. idempotencyKey identifies one explicit confirmation; retries with the same key return the same Mission, while a new confirmation must use a new key.\n')
 
 export const HandoffChatToAiMissionResponse = zod.void()
 
@@ -8031,7 +8035,42 @@ export const GetAiMissionProjectionParams = zod.object({
   "missionId": zod.coerce.string()
 })
 
-export const GetAiMissionProjectionResponse = zod.unknown()
+
+export const getAiMissionProjectionResponseCountsGoalsMin = 0;
+
+export const getAiMissionProjectionResponseCountsTasksMin = 0;
+
+export const getAiMissionProjectionResponseCountsWorkflowsMin = 0;
+
+export const getAiMissionProjectionResponseCountsExecutionsMin = 0;
+
+export const getAiMissionProjectionResponseCountsEventsMin = 0;
+
+
+
+export const GetAiMissionProjectionResponse = zod.object({
+  "mission": zod.record(zod.string(), zod.unknown()),
+  "agentControl": zod.union([zod.object({
+  "handoff": zod.object({
+  "kind": zod.enum(['chat']),
+  "sessionId": zod.string().uuid().nullable(),
+  "messageId": zod.string().uuid().nullable(),
+  "assistantMessageId": zod.string().uuid().nullable(),
+  "planHash": zod.string().min(1),
+  "dispatchStatus": zod.enum(['pending', 'dispatched']),
+  "confirmedAt": zod.coerce.date(),
+  "dispatchedAt": zod.coerce.date().nullable()
+})
+}),zod.null()]),
+  "goals": zod.array(zod.record(zod.string(), zod.unknown())),
+  "counts": zod.object({
+  "goals": zod.number().int().min(getAiMissionProjectionResponseCountsGoalsMin),
+  "tasks": zod.number().int().min(getAiMissionProjectionResponseCountsTasksMin),
+  "workflows": zod.number().int().min(getAiMissionProjectionResponseCountsWorkflowsMin),
+  "executions": zod.number().int().min(getAiMissionProjectionResponseCountsExecutionsMin),
+  "events": zod.number().int().min(getAiMissionProjectionResponseCountsEventsMin)
+})
+})
 
 
 /**

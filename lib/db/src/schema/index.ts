@@ -27,6 +27,7 @@ export * from "./ai_usage_events.js";
 export * from "./ai_project_budgets.js";
 export * from "./workspace_runtime.js";
 export * from "./ai_missions.js";
+export * from "./ai_mission_handoffs.js";
 export * from "./ai_skill_registry.js";
 export * from "./ai_agent_episodes.js";
 export * from "./ai_agent_observations.js";

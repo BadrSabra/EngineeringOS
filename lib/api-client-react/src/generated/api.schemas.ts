@@ -32,7 +32,7 @@ export type MissionPlanPreviewInput = (unknown & ({
 }));
 
 /**
- * Ordinary explicit handoffs provide message and may include sessionId/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records.
+ * Ordinary explicit handoffs provide message and may include sessionId/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records. idempotencyKey identifies one explicit confirmation; retries with the same key return the same Mission, while a new confirmation must use a new key.
  */
 export type MissionChatHandoffInput = (unknown & ({
   /**
@@ -40,6 +40,7 @@ export type MissionChatHandoffInput = (unknown & ({
      * @maxLength 200
      */
   projectId: string;
+  idempotencyKey: string;
   /**
      * @minLength 1
      * @maxLength 10000
@@ -70,6 +71,65 @@ export type MissionChatHandoffInput = (unknown & ({
      */
   runtimeStartTargetStepId?: string | null;
 }));
+
+export type AiMissionControlProjectionMission = { [key: string]: unknown };
+
+export type AiMissionControlProjectionGoalsItem = { [key: string]: unknown };
+
+export type AiMissionControlProjectionCounts = {
+  /** @minimum 0 */
+  goals: number;
+  /** @minimum 0 */
+  tasks: number;
+  /** @minimum 0 */
+  workflows: number;
+  /** @minimum 0 */
+  executions: number;
+  /** @minimum 0 */
+  events: number;
+};
+
+export type AiMissionAgentControlHandoffKind = typeof AiMissionAgentControlHandoffKind[keyof typeof AiMissionAgentControlHandoffKind];
+
+
+export const AiMissionAgentControlHandoffKind = {
+  chat: 'chat',
+} as const;
+
+export type AiMissionAgentControlHandoffDispatchStatus = typeof AiMissionAgentControlHandoffDispatchStatus[keyof typeof AiMissionAgentControlHandoffDispatchStatus];
+
+
+export const AiMissionAgentControlHandoffDispatchStatus = {
+  pending: 'pending',
+  dispatched: 'dispatched',
+} as const;
+
+export type AiMissionAgentControlHandoff = {
+  kind: AiMissionAgentControlHandoffKind;
+  /** @nullable */
+  sessionId: string | null;
+  /** @nullable */
+  messageId: string | null;
+  /** @nullable */
+  assistantMessageId: string | null;
+  /** @minLength 1 */
+  planHash: string;
+  dispatchStatus: AiMissionAgentControlHandoffDispatchStatus;
+  confirmedAt: string;
+  /** @nullable */
+  dispatchedAt: string | null;
+};
+
+export interface AiMissionAgentControl {
+  handoff: AiMissionAgentControlHandoff;
+}
+
+export interface AiMissionControlProjection {
+  mission: AiMissionControlProjectionMission;
+  agentControl: AiMissionAgentControl | null;
+  goals: AiMissionControlProjectionGoalsItem[];
+  counts: AiMissionControlProjectionCounts;
+}
 
 export interface ApplyMissionFromProposalInput {
   /**
@@ -6430,6 +6490,10 @@ export type DecideAiImplementationPlan200 = {
 
 export type ListAiChatSessionsParams = {
 projectId: string;
+/**
+ * Include this project-owned session even when it is older than the recent-session window.
+ */
+sessionId?: string;
 };
 
 export type RegenerateMissionCorrelationReport200 = {

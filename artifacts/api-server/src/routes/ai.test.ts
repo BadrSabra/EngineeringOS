@@ -3966,6 +3966,50 @@ describe("GET /api/ai/chat/sessions", () => {
     expect(res.body[0].projectId).toBe(projectId);
   });
 
+  it("includes a requested older session without crossing project ownership", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const otherProjectId = await insertProject();
+    projectIds.push(otherProjectId);
+    const oldSessionId = randomUUID();
+    const foreignSessionId = randomUUID();
+    const baseTime = new Date("2026-01-01T00:00:00.000Z");
+    await db.insert(aiChatSessionsTable).values([
+      {
+        id: oldSessionId,
+        projectId,
+        title: "Older handoff session",
+        updatedAt: new Date(baseTime.getTime() - 60_000),
+      },
+      {
+        id: foreignSessionId,
+        projectId: otherProjectId,
+        title: "Other project session",
+        updatedAt: new Date(baseTime.getTime() + 60_000),
+      },
+      ...Array.from({ length: 21 }, (_, index) => ({
+        id: randomUUID(),
+        projectId,
+        title: `Recent session ${index}`,
+        updatedAt: new Date(baseTime.getTime() + index * 1_000),
+      })),
+    ]);
+
+    const requested = await request(app)
+      .get(`/api/ai/chat/sessions?projectId=${projectId}&sessionId=${oldSessionId}`);
+    expect(requested.status).toBe(200);
+    expect(requested.body).toHaveLength(21);
+    expect(requested.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: oldSessionId, projectId }),
+    ]));
+
+    const foreign = await request(app)
+      .get(`/api/ai/chat/sessions?projectId=${projectId}&sessionId=${foreignSessionId}`);
+    expect(foreign.status).toBe(200);
+    expect(foreign.body).toHaveLength(20);
+    expect(foreign.body.some((session: { id: string }) => session.id === foreignSessionId)).toBe(false);
+  });
+
   it("returns an empty array for a project with no sessions", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
