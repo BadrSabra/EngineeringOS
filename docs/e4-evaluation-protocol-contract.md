@@ -213,6 +213,30 @@ evaluator أو reviewer، ولا تمنح صلاحية تشغيل:
 الفشل، متطلبات لأي بروتوكول مستقبلي. ولا يغيّر استكمالها أحد المواقف أعلاه
 أو أي صلاحية من الخمسة دون مراجعة موثقة.
 
+### جرد مصادر العينة — E4.1 Read-Only Sample Source Inventory (2026-10-05)
+
+**النتيجة:** `UNQUALIFIED` — `PASS` للجرد فقط، بمعنى أنه لم يُعثر في
+مسارات الكود الحالية على مصدر يثبت أهلية عينة تقييم E4 المستقلة. لا يغيّر ذلك
+E4.1، الذي يبقى `OPEN / NOT PASS`.
+
+راجع الجرد عقود ومسارات الكود داخل المستودع قراءةً ساكنة؛ لم يستعلم عن صفوف
+قاعدة بيانات، ولم يشغّل benchmark أو runtime، ولم يغيّر كودًا أو بيانات.
+لذلك لا يدّعي عدم وجود سجل في بيئة أخرى أو مصدر خارجي غير مفحوص؛ الحكم يخص
+ما يستطيع النظام الحالي إثباته server-side من الشيفرة والعقود المفحوصة.
+
+| مصدر محتمل | ما يثبته الكود | سبب عدم أهليته لعينة E4 المستقلة | الحكم |
+|---|---|---|---|
+| Strategy replay cases | `strategy-replay-case-registry.ts:327–359` يستبعد Episode الداعم للمرشح ويشترط أن يُغلق المصدر بعد تحديث المرشح، ثم يربط case بهوية المرشح وsource revision وEpisode والتنفيذ والقبول وCanonical Proof. | هذا فصل زمني وربط إثباتي لإعادة تشغيل مرشح بعينه، لا إطار اختيار مستقل ولا إثبات عضوية held-out أو سلطة مصدرها أو سجل وصول/ضبط يمنع التلوث. `strategy-replay-case-runner.ts:67, 543–555` يضع `partition: "held_out"` كقيمة ثابتة في receipt؛ والـschema الصارم لتعريف case في `strategy-replay-case-registry.ts:33–50` لا يحمل سجل اختيار أو حراسة held-out. | `UNQUALIFIED` |
+| Code Agent benchmark | `code-agent-benchmark.ts:12–32, 89–102` يعرّف suite ثابتًا من 34 حالة وملفات حالة ذات prompt/expected outcome؛ ويصف الملفات المستهدفة الصغيرة بأنها مسارات تشخيص، مع كون المصفوفة الكاملة مصدر baseline. | لا توجد في عقد الحالة عضوية held-out أو مصدر اختيار/أهلية أو سجل تعرض وتعديل. الـfixtures في `code-agent-benchmark-fixtures.ts:8–31, 39–57` معرفة داخل الشيفرة، وبعض السيناريوهات اصطناعية؛ صلاحيتها كاختبارات أو baseline لا تثبت استقلالها عن tuning. | `UNQUALIFIED` |
+| Empirical AI quality corpus | `empirical-quality.ts:49–75, 289–335` و`reviewed-empirical-quality-corpus-v2.json` يحملان corpus revision وروابط GitHub عامة ومراجعات مصدر مثبتة وground truth للحالات. | هذا corpus لقياس جودة مراجعة الكود، وليس بروتوكول E4 لهدف/مرشح محدد. عقده لا يثبت فصلًا محجوبًا عن الضبط أو تاريخ وصول/استخدام أو سلطة اختيار مستقلة؛ وscorecard موسوم `measurementOnly` في `empirical-quality.ts:160–168`. | `UNQUALIFIED` |
+| Runtime-start/P7.5 experiment ledger | `runtime-start-hypothesis-experiment.ts:88–120, 265–290` يربط التسجيل والنتيجة بالمشروع وMission وEpisode والنطاق ومراجعات المصدر/البيئة، ويحدد partition حرفيًا. | هذا مسار P7.5 محدود، وليس سلطة عينة E4. كما يسجل `runtime-start-hypothesis-trust-boundary.ts:92–101, 136–149` غياب مصدر cohort-selection وheld-out dataset في نطاق P7.5 نفسه. لا يُنقل حكم P7.5 تلقائيًا إلى E4 في أي اتجاه. | `UNQUALIFIED` |
+| World State وMission IDs وCanonical Proof وpaired-baseline receipts | يمكنها ربط حالة أو نتيجة تنفيذ أو مقارنة مرشح/خط أساس بأدلة وهوية محددة؛ `paired-baseline.ts:218–226` يقارن تنفيذين على عقد حالات مشترك. | لا تثبت وحدها إطار اختيار عينة E4 أو أهلية الوحدة أو عضويتها في held-out أو سجل عدم التلوث. اختلاف Mission أو وجود proof/receipt ليس دليل استقلال أو مصدر تقييم. | `UNQUALIFIED` |
+
+لم يُثبت أي مصدر داخل النطاق المفحوص سلسلةً قابلة للتحقق server-side تجمع
+provenance وindependence وscope وenvironment وnon-contamination لعينة E4.
+هذا هو نجاح الجرد وفق معيار الخروج المحدد، وليس تأهيلًا لمصدر أو إذنًا
+للانتقال إلى E4.2 أو التنفيذ أو التقييم أو collection أو promotion.
+
 ## 9. الترتيب بعد مراجعة القرار
 
 هذا الترتيب يصف الاعتماديات فقط؛ لا يفوض التنفيذ أو الاختبار التشغيلي أو الجمع:
