@@ -11,6 +11,7 @@ import { createExecutionLedger } from "@workspace/ai-orchestrator";
 import {
   AiBudgetAdmissionError,
   admitAiProviderAttempt,
+  defaultAiBudgetInput,
   getAiProjectBudgetSummary,
   reconcileAiBudgetReservation,
 } from "./ai-budget.js";
@@ -27,6 +28,14 @@ afterEach(async () => {
 });
 
 describe("AI project budget admission", () => {
+  it("uses the raised token limit for newly initialized project budgets", () => {
+    expect(defaultAiBudgetInput()).toMatchObject({
+      dailyAttemptLimit: 100,
+      dailyTokenLimit: 10_000_000,
+      warningThreshold: 0.8,
+    });
+  });
+
   it("reserves one provider attempt and rejects the next attempt at the project limit", async () => {
     const projectId = crypto.randomUUID();
     const ownerId = "budget-test-user";

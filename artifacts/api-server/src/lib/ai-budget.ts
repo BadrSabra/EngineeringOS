@@ -16,7 +16,7 @@ type BudgetExecutor = Pick<typeof db, "select" | "insert" | "update">;
 export const AI_BUDGET_DEFAULT_ATTEMPT_LIMIT = 100;
 export const AI_BUDGET_MIN_ATTEMPT_LIMIT = 1;
 export const AI_BUDGET_MAX_ATTEMPT_LIMIT = 10_000;
-export const AI_BUDGET_DEFAULT_TOKEN_LIMIT = 100_000;
+export const AI_BUDGET_DEFAULT_TOKEN_LIMIT = 10_000_000;
 export const AI_BUDGET_PROVIDER_RESERVATION_TOKENS = 8_192;
 
 const AI_BUDGET_DEFAULT_COMPLETION_RESERVE_TOKENS = 4_096;

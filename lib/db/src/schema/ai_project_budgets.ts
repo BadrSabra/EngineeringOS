@@ -11,7 +11,7 @@ export const aiProjectBudgetsTable = pgTable("ai_project_budgets", {
   projectId: text("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
   ownerId: text("owner_id").notNull(),
   dailyAttemptLimit: integer("daily_attempt_limit").notNull().default(100),
-  dailyTokenLimit: integer("daily_token_limit").notNull().default(100000),
+  dailyTokenLimit: integer("daily_token_limit").notNull().default(10000000),
   warningThreshold: real("warning_threshold").notNull().default(0.8),
   resetAt: timestamp("reset_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
