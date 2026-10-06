@@ -112,3 +112,11 @@
 - اختبار T8 يثبت رفض symlink الخارجي وتسجيل القراءة كفشل؛ آخر تشغيل مركّز لـT8 ومحرك الأدوات وGit timeout نجح **457/457**، بما فيها timeout الخاص بـGit.
 - فحص realpath ما زال check-then-use؛ تبديل المسار أو root بين التحقق وتنفيذ Git غير مغلق. إلغاء وtimeout subprocess الخاص بـGit مغطّيان مسبقًا باختبارات T8؛ التغطية التشغيلية المقابلة لبقية executors وoutput/replay والـrunner delegation غير مكتملة، لذا لا توجد مطالبة بإغلاق الطبقة الأولى كاملة.
 - صارت `write_file` و`replace_text` تعلنان حدًّا مركزيًا قدره 16 KiB لإيصال التغيير المقترح؛ الاختبار يتحقق أن الإيصال لا يسرّب محتوى الملف وأنه ضمن الحد. المحتوى المقترح يبقى في `pendingChanges` ويظل خاضعًا للموافقة؛ لا يتغير التفويض أو مسار الموافقة.
+
+### فجوة ordered-root في `search_code` (2026-10-06)
+
+- فحص ساكن لمسار ordered-root في `tool-execution-engine.ts` وجد أن فحص الجذر يطبق على `read_file` و`list_directory`، لا `search_code`. وفي الوقت نفسه قد يمرر المسار `toolManifest` الكامل لتطبيع استجابة مزود قديمة بعد أن ضُيّقت أدوات iteration إلى `read_file` و`list_directory`.
+- عند غياب `allowedToolNames` و`phase` إضافيين، لا يرفض `allowedTools` استدعاء `search_code` لمجرد أنه غير موجود في قائمة iteration؛ لذلك قد يبحث ضمن جذر المشروع خارج الجذور الفرعية المحددة. تبقى حماية project-root وأي `objectiveScopePolicy` نشطة ضوابط مستقلة؛ لم يثبت تجاوز project-root.
+- **التصنيف:** فجوة scope محتملة مؤكدة بتتبع الكود؛ لم تُجرَ تجربة runtime أو اختبار عدائي لهذا المسار في مراجعة 2026-10-06.
+- **الأثر على الحالة:** Reliable Tool Agent يظل `PARTIAL / UNDER VERIFICATION`، والنسب العامة `UNKNOWN`. لا تُعد فجوة الأداة وحدها إغلاقًا أو فتحًا لبوابة E2؛ ترتيب المشروع الحالي يبقي E2 نشطة ولا يسمح ببدء E3.
+- **المتابعة المحددة:** أضف اختبارًا لاستدعاء `search_code` قديم خارج ordered roots بعد تضييق الأدوات، بما يشمل غياب `allowedToolNames`، وتحقق من رفضه قبل تشغيل runner وعدم تسجيل قراءة مكتملة. المرجع الكامل: `docs/agent-core-four-agent-forensic-audit-2026-10-06.md`.

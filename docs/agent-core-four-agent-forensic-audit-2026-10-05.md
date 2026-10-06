@@ -1,6 +1,7 @@
 # Engineering Agent Core — Forensic Status Report
 
 - **تاريخ المراجعة:** 2026-10-05
+- **متابعة الحالة:** راجع `docs/agent-core-four-agent-forensic-audit-2026-10-06.md` للتدقيق الساكن اللاحق وتصحيح بوابة E2/E3. هذا الملف يبقى سجلًا تاريخيًا ولا يمثل أحدث حالة.
 - **المنهج:** مراجعة code-first لمسارات التنفيذ الحالية؛ وجود primitive أو test لا يساوي إغلاق capability.
 - **النطاق:** Reliable Tool Agent، Reliable Execution Agent، Evidence-grounded Agent، Closed-loop World Agent، والحدود بينها.
 - **تغييرات التطبيق:** لا توجد. هذا المستند وسجلاته المرجعية توثيق فقط.
