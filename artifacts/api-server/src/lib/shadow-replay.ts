@@ -63,6 +63,11 @@ export type ShadowReplayPublicStatus =
   | "failed"
   | "cancelled";
 
+export type ShadowReplayReceiptProofFreshness =
+  | "CURRENT"
+  | "STALE"
+  | "NOT_APPLICABLE";
+
 export type ShadowReplayStartInput = {
   userId: string;
   projectId: string;
@@ -315,6 +320,137 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+type CompletedShadowReplayProofValidation =
+  | { accepted: true; receipt: Record<string, unknown> }
+  | {
+      accepted: false;
+      errorCode:
+        | "SHADOW_REPLAY_RECEIPT_MISSING"
+        | "SHADOW_REPLAY_SCOPE_UNAVAILABLE"
+        | "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED";
+    };
+
+async function validateCompletedShadowReplayProof(
+  replay: ShadowReplayRow,
+  execution: typeof aiExecutionsTable.$inferSelect,
+): Promise<CompletedShadowReplayProofValidation> {
+  const recipeReceipt = recordValue(execution.recipeReceipt);
+  const durableReceipt = recordValue(replay.receipt);
+  const receiptProof = recordValue(durableReceipt?.proof);
+  const verification = recordValue(durableReceipt?.verification);
+  const receiptMatchesReplay = recipeReceipt?.status === "completed"
+    && recipeReceipt.executionId === replay.executionId
+    && recipeReceipt.operationId === replay.operationId
+    && recipeReceipt.recipeId === "candidate.verify"
+    && recipeReceipt.recipeVersion === 1
+    && durableReceipt?.status === "completed"
+    && durableReceipt.contractVersion === 2
+    && durableReceipt.runId === replay.id
+    && durableReceipt.candidateId === replay.candidateId
+    && durableReceipt.projectId === replay.projectId
+    && durableReceipt.sourceRevision === replay.sourceRevision
+    && durableReceipt.candidateTreeHash === replay.candidateTreeHash
+    && durableReceipt.operationId === replay.operationId
+    && durableReceipt.changeSetHash === replay.changeSetHash
+    && verification?.recipeId === "candidate.verify"
+    && verification.recipeVersion === 1
+    && durableReceipt.replayId === replay.id
+    && durableReceipt.replayExecutionId === replay.executionId
+    && durableReceipt.productionExecution === false
+    && replay.replayCanonicalAcceptanceId !== null
+    && replay.attempt === execution.attempt
+    && durableReceipt.attempt === execution.attempt
+    && receiptProof?.receiptId === replay.replayCanonicalAcceptanceId
+    && receiptProof?.verdict === "PROVEN";
+  if (!receiptMatchesReplay || !durableReceipt) {
+    return { accepted: false, errorCode: "SHADOW_REPLAY_RECEIPT_MISSING" };
+  }
+
+  const [replayScope] = await db
+    .select({
+      goalId: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      goalStatus: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    })
+    .from(aiGoalsTable)
+    .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+    .where(and(
+      eq(aiGoalsTable.id, execution.goalId ?? ""),
+      eq(aiGoalsTable.projectId, replay.projectId),
+      eq(aiMissionsTable.projectId, replay.projectId),
+    ))
+    .limit(1);
+  const planRevision = replayScope
+    ? planRevisionFromGoal(replayScope.outcomeContract)
+    : undefined;
+  const activePlanRevision = replayScope
+    ? activePlanRevisionFromMission(replayScope.autonomyPolicy)
+    : undefined;
+  if (
+    !replayScope
+    || replayScope.goalId !== execution.goalId
+    || replayScope.goalStatus !== "completed"
+    || !planRevision
+    || !activePlanRevision
+    || planRevision !== activePlanRevision
+  ) {
+    return { accepted: false, errorCode: "SHADOW_REPLAY_SCOPE_UNAVAILABLE" };
+  }
+
+  const replayProof = await db.transaction((tx) => loadCanonicalProof({
+    tx,
+    executionId: replay.executionId,
+    scope: {
+      projectId: replay.projectId,
+      missionId: replayScope.missionId,
+      goalId: replayScope.goalId,
+      executionId: replay.executionId,
+      operationId: replay.operationId,
+      planRevision,
+      activePlanRevision,
+      sourceRevisionBinding: "scope",
+      candidateIdentityBinding: "required",
+      sourceRevision: replay.sourceRevision,
+      candidateIdentity: replay.candidateTreeHash,
+    },
+    goalStatus: replayScope.goalStatus,
+  }));
+  return replayProof.accepted
+    && replayProof.verdict === "PROVEN"
+    && replayProof.acceptanceId === replay.replayCanonicalAcceptanceId
+    && replayProof.acceptanceId === receiptProof?.receiptId
+    && replayProof.trajectoryDigest?.digest === receiptProof?.trajectoryDigest
+    ? { accepted: true, receipt: durableReceipt }
+    : { accepted: false, errorCode: "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED" };
+}
+
+export async function getShadowReplayReceiptProofFreshness(
+  replayId: string,
+  userId: string,
+): Promise<ShadowReplayReceiptProofFreshness> {
+  const replay = await getShadowReplayForUser(replayId, userId);
+  if (!replay) return "STALE";
+  if (replay.status !== "completed") return "NOT_APPLICABLE";
+
+  const [execution] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, replay.executionId))
+    .limit(1);
+  if (
+    !execution
+    || execution.status !== "completed"
+    || execution.attempt !== replay.attempt
+    || !await validateCurrentSourceCandidate(replay, execution)
+  ) {
+    return "STALE";
+  }
+  const validation = await validateCompletedShadowReplayProof(replay, execution);
+  return validation.accepted ? "CURRENT" : "STALE";
 }
 
 function validationProfileFromGoal(
@@ -935,26 +1071,8 @@ export async function runShadowReplayAttempt(
   }
 
   if (execution.status === "completed") {
-    const receipt = execution.recipeReceipt;
-    const receiptRecord = receipt && typeof receipt === "object" && !Array.isArray(receipt)
-      ? receipt as Record<string, unknown>
-      : undefined;
-    const durableReceipt = replay.receipt && typeof replay.receipt === "object" && !Array.isArray(replay.receipt)
-      ? replay.receipt as Record<string, unknown>
-      : undefined;
-    const receiptMatchesReplay = receiptRecord?.status === "completed"
-      && receiptRecord.executionId === replay.executionId
-      && receiptRecord.operationId === replay.operationId
-      && receiptRecord.recipeId === "candidate.verify"
-      && receiptRecord.recipeVersion === 1
-      && durableReceipt?.status === "completed"
-      && durableReceipt.replayId === replay.id
-      && durableReceipt.replayExecutionId === replay.executionId
-      && durableReceipt.productionExecution === false
-      && replay.replayCanonicalAcceptanceId !== null
-      && recordValue(durableReceipt.proof)?.receiptId === replay.replayCanonicalAcceptanceId
-      && recordValue(durableReceipt.proof)?.verdict === "PROVEN";
-    if (!receiptMatchesReplay) {
+    const proofValidation = await validateCompletedShadowReplayProof(claimedReplay, execution);
+    if (!proofValidation.accepted && proofValidation.errorCode === "SHADOW_REPLAY_RECEIPT_MISSING") {
       await cleanupReplayWorkspace(claimedReplay, owner);
       await updateReplayOwned(replay.id, owner, {
         status: "failed",
@@ -965,75 +1083,18 @@ export async function runShadowReplayAttempt(
       });
       return false;
     }
-    const [replayScope] = await db
-      .select({
-        goalId: aiGoalsTable.id,
-        missionId: aiGoalsTable.missionId,
-        goalStatus: aiGoalsTable.status,
-        outcomeContract: aiGoalsTable.outcomeContract,
-        autonomyPolicy: aiMissionsTable.autonomyPolicy,
-      })
-      .from(aiGoalsTable)
-      .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
-      .where(and(
-        eq(aiGoalsTable.id, execution.goalId ?? ""),
-        eq(aiGoalsTable.projectId, replay.projectId),
-        eq(aiMissionsTable.projectId, replay.projectId),
-      ))
-      .limit(1);
-    const planRevision = replayScope
-      ? planRevisionFromGoal(replayScope.outcomeContract)
-      : undefined;
-    const activePlanRevision = replayScope
-      ? activePlanRevisionFromMission(replayScope.autonomyPolicy)
-      : undefined;
-    let recoveryProofError: string | null = "SHADOW_REPLAY_SCOPE_UNAVAILABLE";
-    if (
-      replayScope
-      && replayScope.goalId === execution.goalId
-      && replayScope.goalStatus === "completed"
-      && planRevision
-      && activePlanRevision
-      && planRevision === activePlanRevision
-    ) {
-      const replayProof = await db.transaction((tx) => loadCanonicalProof({
-        tx,
-        executionId: replay.executionId,
-        scope: {
-          projectId: replay.projectId,
-          missionId: replayScope.missionId,
-          goalId: replayScope.goalId,
-          executionId: replay.executionId,
-          operationId: replay.operationId,
-          planRevision,
-          activePlanRevision,
-          sourceRevisionBinding: "scope",
-          candidateIdentityBinding: "required",
-          sourceRevision: replay.sourceRevision,
-          candidateIdentity: replay.candidateTreeHash,
-        },
-        goalStatus: replayScope.goalStatus,
-      }));
-      const receiptProof = recordValue(durableReceipt?.proof);
-      recoveryProofError = replayProof.accepted
-        && replayProof.verdict === "PROVEN"
-        && replayProof.acceptanceId === replay.replayCanonicalAcceptanceId
-        && replayProof.acceptanceId === receiptProof?.receiptId
-        && replayProof.trajectoryDigest?.digest === receiptProof?.trajectoryDigest
-        ? null
-        : "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED";
-    }
-    if (recoveryProofError) {
+    if (!proofValidation.accepted) {
       const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
       await updateReplayOwned(replay.id, owner, {
         status: "failed",
-        error: workspaceCleaned ? recoveryProofError : "SHADOW_REPLAY_CLEANUP_FAILED",
+        error: workspaceCleaned ? proofValidation.errorCode : "SHADOW_REPLAY_CLEANUP_FAILED",
         completedAt: execution.completedAt ?? new Date(),
         workerId: null,
         leaseUntil: null,
       });
       return false;
     }
+    const durableReceipt = proofValidation.receipt;
     const workspaceCleaned = await cleanupReplayWorkspace(claimedReplay, owner);
     if (!workspaceCleaned) {
       await updateReplayOwned(replay.id, owner, {

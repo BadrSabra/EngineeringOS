@@ -1863,6 +1863,8 @@ describe("AI missions and goals", () => {
         proof: { verdict: "PROVEN" },
         validator: { profile: "shadow-replay", status: "passed" },
       },
+      receiptProofFreshness: "CURRENT",
+      replay: { receiptProofFreshness: "CURRENT" },
       productionExecution: false,
     });
     const replayAgain = await request(app)
@@ -1918,6 +1920,43 @@ describe("AI missions and goals", () => {
     expect(replayProofEvidence?.attempt).toBe(replayProofBinding?.executionAttempt);
     const replayExecutionAttempt = replayProofBinding!.executionAttempt;
     const inconsistentAttempt = replayExecutionAttempt + 1;
+    const originalReplayReceipt = structuredClone(replay.body.receipt) as Record<string, unknown>;
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: { ...originalReplayReceipt, attempt: inconsistentAttempt } })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const staleReceiptAttemptRead = await request(app)
+      .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+    expect(staleReceiptAttemptRead.status).toBe(200);
+    expect(staleReceiptAttemptRead.body).toMatchObject({
+      receiptProofFreshness: "STALE",
+      replay: { receiptProofFreshness: "STALE" },
+    });
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: originalReplayReceipt })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const restoredReceiptAttemptRead = await request(app)
+      .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+    expect(restoredReceiptAttemptRead.body.receiptProofFreshness).toBe("CURRENT");
+
+    const wrongCandidateTreeHash = `${candidateTreeHash.slice(0, -1)}${candidateTreeHash.endsWith("0") ? "1" : "0"}`;
+    await db.update(aiShadowReplaysTable)
+      .set({
+        receipt: {
+          ...originalReplayReceipt,
+          candidateTreeHash: wrongCandidateTreeHash,
+        },
+      })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const staleCandidateReceiptRead = await request(app)
+      .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+    expect(staleCandidateReceiptRead.body.receiptProofFreshness).toBe("STALE");
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: originalReplayReceipt })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const restoredCandidateReceiptRead = await request(app)
+      .get(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replay.body.replay.id}`);
+    expect(restoredCandidateReceiptRead.body.receiptProofFreshness).toBe("CURRENT");
+
     await db.update(aiExecutionAcceptancesTable)
       .set({ attempt: inconsistentAttempt })
       .where(eq(aiExecutionAcceptancesTable.id, replayProofBinding!.acceptanceId));
@@ -1930,6 +1969,10 @@ describe("AI missions and goals", () => {
     expect(staleReplayRead.body.receipt).toMatchObject({
       proof: { receiptId: replay.body.receipt.proof.receiptId },
     });
+    expect(staleReplayRead.body).toMatchObject({
+      receiptProofFreshness: "STALE",
+      replay: { receiptProofFreshness: "STALE" },
+    });
     const staleReplayRetry = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
       .send({});
@@ -1937,6 +1980,10 @@ describe("AI missions and goals", () => {
     expect(staleReplayRetry.body.replay.status).toBe("completed");
     expect(staleReplayRetry.body.receipt).toMatchObject({
       proof: { receiptId: replay.body.receipt.proof.receiptId },
+    });
+    expect(staleReplayRetry.body).toMatchObject({
+      receiptProofFreshness: "STALE",
+      replay: { receiptProofFreshness: "STALE" },
     });
     const staleReplayRegistration = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-registry`)
@@ -1949,6 +1996,15 @@ describe("AI missions and goals", () => {
     await db.update(aiExecutionEvidenceSnapshotsTable)
       .set({ attempt: replayExecutionAttempt })
       .where(eq(aiExecutionEvidenceSnapshotsTable.id, replayProofEvidence!.id));
+
+    const freshReplayRetry = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+      .send({});
+    expect(freshReplayRetry.status).toBe(200);
+    expect(freshReplayRetry.body).toMatchObject({
+      receiptProofFreshness: "CURRENT",
+      replay: { receiptProofFreshness: "CURRENT" },
+    });
 
     const registered = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-registry`)
@@ -2957,6 +3013,7 @@ describe("AI missions and goals", () => {
     const [recoveredReplay] = await db
       .select({
         status: aiShadowReplaysTable.status,
+        error: aiShadowReplaysTable.error,
         receipt: aiShadowReplaysTable.receipt,
         replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
       })

@@ -68,6 +68,7 @@ import {
 } from "../../lib/skill-registry.js";
 import { validateSkillRegistryAuthority } from "../../lib/skill-registry-authorization.js";
 import {
+  getShadowReplayReceiptProofFreshness,
   getShadowReplayForUser,
   ShadowReplayError,
   startShadowReplay,
@@ -2475,9 +2476,15 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       : started.replay.status === "queued" || started.replay.status === "running"
         ? 202
         : 409;
+    const receiptProofFreshness = await getShadowReplayReceiptProofFreshness(
+      started.replay.id,
+      req.userId,
+    );
+    const publicReplay = { ...started.replay, receiptProofFreshness };
     return res.status(status).json({
-      replay: started.replay,
-      ...(started.replay.receipt ? { receipt: started.replay.receipt } : {}),
+      replay: publicReplay,
+      ...(publicReplay.receipt ? { receipt: publicReplay.receipt } : {}),
+      receiptProofFreshness,
       productionExecution: false,
     });
   } catch (error) {
@@ -2505,9 +2512,14 @@ router.get("/ai/proposals/:proposalId/skill-candidate/shadow-replay/:replayId", 
   if (!replay || replay.proposalId !== proposal.id || replay.projectId !== project.id) {
     return res.status(404).json({ error: "Shadow replay not found" });
   }
+  const receiptProofFreshness = await getShadowReplayReceiptProofFreshness(
+    replay.id,
+    req.userId,
+  );
   return res.json({
-    replay: toPublicShadowReplay(replay),
+    replay: { ...toPublicShadowReplay(replay), receiptProofFreshness },
     ...(replay.receipt ? { receipt: replay.receipt } : {}),
+    receiptProofFreshness,
     productionExecution: false,
   });
 });
