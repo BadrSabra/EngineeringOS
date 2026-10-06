@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -278,6 +279,155 @@ async function drainPendingObservationMaterializations(): Promise<unknown[]> {
     );
   }
   return materializationFailures;
+}
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function startMissionRepairApiProcess(applicationName: string) {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("Mission repair process recovery requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(databaseUrl.hostname)) {
+    throw new Error("Mission repair process recovery is restricted to a loopback PostgreSQL database.");
+  }
+  databaseUrl.searchParams.set("application_name", applicationName);
+
+  const source = [
+    "(async () => {",
+    '  const { createServer } = await import("node:net");',
+    "  const reservation = createServer();",
+    '  await new Promise((resolve, reject) => reservation.listen(0, "127.0.0.1", resolve));',
+    "  const address = reservation.address();",
+    '  if (!address || typeof address === "string") throw new Error("Could not reserve an API port.");',
+    '  await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));',
+    "  process.env.PORT = String(address.port);",
+    '  await import("./src/index.ts");',
+    '  process.stdout.write("MISSION_REPAIR_INDEX_READY\\n");',
+    "  await new Promise(() => {});",
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exitCode = 1;",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      PGAPPNAME: applicationName,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const output = () => `stdout=${stdout}; stderr=${stderr}`;
+  const waitForReady = async () => {
+    const deadline = Date.now() + 60_000;
+    while (!stdout.includes("MISSION_REPAIR_INDEX_READY")) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`Mission repair API startup child exited early; ${output()}`);
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for Mission repair API startup; ${output()}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+  return { child, exit, output, waitForReady };
+}
+
+async function waitForMissionRepairRecoveryLock(output: () => string) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.wait_event_type, waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        AND waiting.query ILIKE '%update%'
+        AND (
+          waiting.query ILIKE '%ai_executions%'
+          OR waiting.query ILIKE '%tasks%'
+        )
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ wait_event_type: string | null; query: string | null }>;
+    }).rows ?? [];
+    const blocked = rows.find((row) =>
+      row.wait_event_type === "Lock"
+      && /(?:ai_executions|tasks)/i.test(row.query ?? "")
+    );
+    if (blocked?.query) return blocked.query;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for Mission repair startup reconciliation to block; ${output()}`);
+}
+
+async function runMissionRepairStartupRecoveryWithProcessKill(taskId: string, executionId: string) {
+  const lockAcquired = createDeferred<void>();
+  const releaseRowLocks = createDeferred<void>();
+  const lockTransaction = db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM tasks WHERE id = ${taskId} FOR UPDATE`);
+    await tx.execute(sql`SELECT id FROM ai_executions WHERE id = ${executionId} FOR UPDATE`);
+    lockAcquired.resolve();
+    await releaseRowLocks.promise;
+  });
+  void lockTransaction.catch((error: unknown) => lockAcquired.reject(error));
+
+  let firstStartup: ReturnType<typeof startMissionRepairApiProcess> | undefined;
+  let secondStartup: ReturnType<typeof startMissionRepairApiProcess> | undefined;
+  try {
+    await lockAcquired.promise;
+    const firstApplicationName = `mission-repair-recovery-kill-${randomUUID()}`;
+    firstStartup = startMissionRepairApiProcess(firstApplicationName);
+    await waitForMissionRepairRecoveryLock(firstStartup.output);
+    expect(firstStartup.child.kill("SIGKILL")).toBe(true);
+    expect(await firstStartup.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+  } finally {
+    releaseRowLocks.resolve();
+    await lockTransaction;
+    if (firstStartup && firstStartup.child.exitCode === null && firstStartup.child.signalCode === null) {
+      firstStartup.child.kill("SIGKILL");
+      await firstStartup.exit;
+    }
+  }
+
+  secondStartup = startMissionRepairApiProcess(`mission-repair-recovery-restart-${randomUUID()}`);
+  try {
+    await secondStartup.waitForReady();
+  } finally {
+    if (secondStartup.child.exitCode === null && secondStartup.child.signalCode === null) {
+      secondStartup.child.kill("SIGKILL");
+      await secondStartup.exit;
+    }
+  }
 }
 
 async function cleanupProjectExecutionData(projectId: string) {
@@ -2801,7 +2951,12 @@ describe("real durable task execution lifecycle", () => {
       expect(initial.ok).toBe(false);
       expect(executionId).toEqual(expect.any(String));
 
-      await reconcileStuckJobs();
+      if (process.env.RUN_MISSION_REPAIR_PROCESS_RECOVERY === "1") {
+        if (!executionId) throw new Error("Mission repair execution identity is missing before startup recovery.");
+        await runMissionRepairStartupRecoveryWithProcessKill(fixture.taskId, executionId);
+      } else {
+        await reconcileStuckJobs();
+      }
       const [pausedExecution] = await db
         .select({
           attempt: aiExecutionsTable.attempt,
@@ -2900,7 +3055,7 @@ describe("real durable task execution lifecycle", () => {
         throw new AggregateError(materializationFailures, "Startup Mission recovery observation cleanup failed.");
       }
     }
-  });
+  }, process.env.RUN_MISSION_REPAIR_PROCESS_RECOVERY === "1" ? 180_000 : 30_000);
 
   it("resumes a candidate-ready Mission repair with a new validator receipt after lease handoff", async () => {
     const fixture = await createMissionToolLoopFixture({
