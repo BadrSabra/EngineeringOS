@@ -1303,6 +1303,20 @@ export async function runShadowReplayAttempt(
         "The server-owned candidate verification recipe did not reach terminal success.",
       );
     }
+    const [completedExecution] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, replay.executionId))
+      .limit(1);
+    if (!completedExecution || completedExecution.status !== "completed") {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_EXECUTION_NOT_COMPLETED",
+        "The replay execution did not persist its completed state.",
+      );
+    }
     const evidenceRefs = [
       `shadow-replay:${replay.id}:tree:pre`,
       `shadow-replay:${replay.id}:tree:post`,
@@ -1454,7 +1468,7 @@ export async function runShadowReplayAttempt(
       replayId: replay.id,
       replayExecutionId: replay.executionId,
       status: "completed",
-      attempt: execution.attempt,
+      attempt: completedExecution.attempt,
       preTreeHash: replayStats.preTreeHash,
       postTreeHash: replayStats.postTreeHash,
       treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
@@ -1479,6 +1493,7 @@ export async function runShadowReplayAttempt(
     };
     return updateReplayOwned(replay.id, owner, {
       status: "completed",
+      attempt: completedExecution.attempt,
       replayCanonicalAcceptanceId: replayProof.acceptanceId,
       preTreeHash: replayStats.preTreeHash,
       postTreeHash: replayStats.postTreeHash,

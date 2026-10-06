@@ -49,12 +49,16 @@ import {
 } from "../../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
 import { requireActiveSkillRegistry } from "../../lib/skill-registry.js";
+import { buildSkillCandidateEnvelope } from "../../lib/skill-candidate.js";
 import {
   buildProjectQueryObjective,
   resolveProjectQueryTarget,
 } from "@workspace/ai-orchestrator";
 import { prepareRecipeOperation } from "../../lib/recipe-operation-runner.js";
-import { runShadowReplayAttempt } from "../../lib/shadow-replay.js";
+import {
+  expectedShadowReplayOperationId,
+  runShadowReplayAttempt,
+} from "../../lib/shadow-replay.js";
 import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js";
 
 const projectIds: string[] = [];
@@ -2819,7 +2823,9 @@ describe("AI missions and goals", () => {
       .not.toContain("skillCandidate");
   });
 
-  it("resumes a shadow replay whose recipe execution was interrupted by a crash", async () => {
+  it("resumes a shadow replay whose recipe execution was interrupted by a crash", {
+    timeout: 180_000,
+  }, async () => {
     const projectId = await insertProject();
     const userId = "test-user";
     const sessionId = randomUUID();
@@ -2827,11 +2833,14 @@ describe("AI missions and goals", () => {
     const proposalId = randomUUID();
     const replayId = randomUUID();
     const executionIdempotencyKey = `shadow-recovery-${replayId}`;
-    const operationId = `shadow-replay:${replayId}`;
     const missionId = randomUUID();
     const goalId = randomUUID();
+    const sourceExecutionId = randomUUID();
+    const sourceEvidenceSnapshotId = randomUUID();
+    const sourceAcceptanceId = randomUUID();
     const planRevision = `shadow-recovery-plan-${replayId}`;
     const sourceRevision = "c".repeat(40);
+    const changeSetHash = "d".repeat(64);
     const now = new Date();
     const sourceRoot = `/tmp/mission-shadow-recovery-source-${replayId}`;
     await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
@@ -2849,6 +2858,8 @@ describe("AI missions and goals", () => {
     const replayWorkspace = await createValidationWorkspace(sourceRoot, [], async () => undefined);
     shadowWorkspaceRoots.push(replayWorkspace.rootPath);
     const candidateTreeHash = await hashDeliveryTree(replayWorkspace.rootPath);
+    const candidateId = `skill-candidate:${proposalId}:${candidateTreeHash}`;
+    const operationId = expectedShadowReplayOperationId(proposalId, candidateId);
 
     await db.insert(aiChatSessionsTable).values({
       id: sessionId,
@@ -2891,10 +2902,114 @@ describe("AI missions and goals", () => {
         planRevision: { hash: planRevision },
         validationProfile: "workspace-typecheck",
       },
-      nextAction: {},
+      nextAction: {
+        kind: "recipe",
+        recipeId: "candidate.verify",
+        recipeVersion: 1,
+        approvedPaths: ["src/index.ts"],
+      },
       createdAt: now,
       updatedAt: now,
       completedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: sourceExecutionId,
+      projectId,
+      sessionId,
+      operationId,
+      goalId,
+      userId,
+      idempotencyKey: `shadow-recovery-source-${replayId}`,
+      resumeTokenHash: `shadow-recovery-source-token-${replayId}`,
+      request: JSON.stringify({
+        projectId,
+        operationId,
+        message: "Persist the current source candidate proof.",
+        modelMessage: "Persist the current source candidate proof.",
+        workspaceRevision: sourceRevision,
+        proofRequired: true,
+        proofEvidenceMode: "artifact_only",
+      }),
+      checkpoint: "{}",
+      status: "completed",
+      attempt: 0,
+      baseRevision: sourceRevision,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    const sourceProof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: sourceEvidenceSnapshotId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+    });
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: sourceEvidenceSnapshotId,
+      executionId: sourceExecutionId,
+      projectId,
+      attempt: 0,
+      operationId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: sourceAcceptanceId,
+      executionId: sourceExecutionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `shadow-recovery-source-acceptance-${replayId}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof: sourceProof },
+      evidenceSnapshotId: sourceEvidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      createdAt: now,
+    });
+    const sourceCanonicalProof = await db.transaction((tx) => loadCanonicalProof({
+      tx,
+      executionId: sourceExecutionId,
+      scope: {
+        projectId,
+        missionId,
+        goalId,
+        executionId: sourceExecutionId,
+        operationId,
+        planRevision,
+        activePlanRevision: planRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision,
+        candidateIdentity: candidateTreeHash,
+      },
+      goalStatus: "completed",
+    }));
+    expect(sourceCanonicalProof.accepted, JSON.stringify(sourceCanonicalProof.failureReasons)).toBe(true);
+    expect(sourceCanonicalProof.verdict).toBe("PROVEN");
+    const candidate = buildSkillCandidateEnvelope({
+      proposalId,
+      projectId,
+      sourceRevision,
+      candidateTreeHash,
+      changeSetHash,
+      approvedPaths: ["src/index.ts"],
+      receiptId: sourceCanonicalProof.acceptanceId!,
+      proof: sourceProof,
+      runId: sourceExecutionId,
     });
     await db.insert(aiChangeProposalsTable).values({
       id: proposalId,
@@ -2908,10 +3023,11 @@ describe("AI missions and goals", () => {
       operationId,
       baseRevision: sourceRevision,
       candidateTreeHash,
-      changeSetHash: "recovery-change-set",
+      changeSetHash,
       baseTreeHash: candidateTreeHash,
       treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       workspaceRoot: replayWorkspace.rootPath,
+      validationEvidence: JSON.stringify({ validationResults: [], skillCandidate: candidate }),
       createdAt: now,
     });
 
@@ -2981,14 +3097,14 @@ describe("AI missions and goals", () => {
       userId,
       idempotencyKey: executionIdempotencyKey,
       operationId,
-      candidateId: "recovery-candidate",
-      canonicalAcceptanceId: "recovery-acceptance",
-      trajectoryDigest: "recovery-trajectory",
+      candidateId: candidate.candidateId,
+      canonicalAcceptanceId: sourceCanonicalProof.acceptanceId!,
+      trajectoryDigest: sourceCanonicalProof.trajectoryDigest!.digest,
       sourceRevision,
       candidateTreeHash,
-      changeSetHash: "recovery-change-set",
+      changeSetHash,
       executionProfile: "shadow-replay",
-      sourceWorkspaceRoot: sourceRoot,
+      sourceWorkspaceRoot: replayWorkspace.rootPath,
       replayWorkspaceRoot: replayWorkspace.rootPath,
       status: "running",
       attempt: created.execution.attempt,
@@ -3014,6 +3130,8 @@ describe("AI missions and goals", () => {
       .select({
         status: aiShadowReplaysTable.status,
         error: aiShadowReplaysTable.error,
+        attempt: aiShadowReplaysTable.attempt,
+        replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
         receipt: aiShadowReplaysTable.receipt,
         replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
       })
@@ -3021,15 +3139,71 @@ describe("AI missions and goals", () => {
       .where(eq(aiShadowReplaysTable.id, replayId));
     expect(resumeResults.some(Boolean), JSON.stringify(recoveredReplay)).toBe(true);
     const [recoveredExecution] = await db
-      .select({ status: aiExecutionsTable.status })
+      .select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+      })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.id, created.execution.id));
+    const replayAcceptances = await db
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    const recoveredCanonicalProof = await db.transaction((tx) => loadCanonicalProof({
+      tx,
+      executionId: created.execution.id,
+      scope: {
+        projectId,
+        missionId,
+        goalId,
+        executionId: created.execution.id,
+        operationId,
+        planRevision,
+        activePlanRevision: planRevision,
+        sourceRevisionBinding: "scope",
+        candidateIdentityBinding: "required",
+        sourceRevision,
+        candidateIdentity: candidateTreeHash,
+      },
+      goalStatus: "completed",
+    }));
+    expect(recoveredCanonicalProof.accepted, JSON.stringify(recoveredCanonicalProof.failureReasons))
+      .toBe(true);
+    expect(recoveredCanonicalProof.verdict).toBe("PROVEN");
+    expect(recoveredExecution?.status).toBe("completed");
+    expect(recoveredExecution?.attempt).toBe(created.execution.attempt + 1);
     expect(recoveredReplay).toMatchObject({
       status: "completed",
+      attempt: recoveredExecution?.attempt,
+      replayCanonicalAcceptanceId: recoveredCanonicalProof.acceptanceId,
       replayWorkspaceCleaned: true,
-      receipt: { status: "completed", productionExecution: false },
+      receipt: {
+        status: "completed",
+        attempt: recoveredExecution?.attempt,
+        runId: replayId,
+        candidateId: candidate.candidateId,
+        projectId,
+        sourceRevision,
+        candidateTreeHash,
+        operationId,
+        changeSetHash,
+        replayId,
+        replayExecutionId: created.execution.id,
+        proof: {
+          receiptId: recoveredCanonicalProof.acceptanceId,
+          verdict: "PROVEN",
+        },
+        productionExecution: false,
+      },
     });
-    expect(recoveredExecution?.status).toBe("completed");
+    const currentAttemptAcceptances = replayAcceptances.filter(
+      (acceptance) => acceptance.attempt === recoveredExecution?.attempt,
+    );
+    expect(currentAttemptAcceptances).toHaveLength(1);
+    expect(currentAttemptAcceptances[0]?.id).toBe(recoveredCanonicalProof.acceptanceId);
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {
