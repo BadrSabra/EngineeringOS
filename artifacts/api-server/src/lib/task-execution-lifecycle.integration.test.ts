@@ -4351,6 +4351,115 @@ describe("real durable task execution lifecycle", () => {
     180_000,
   );
 
+  const manualTaskLiveStartupRaceTest =
+    process.env.RUN_MANUAL_TASK_LIVE_STARTUP_RACE === "1" ? it : it.skip;
+  manualTaskLiveStartupRaceTest(
+    "does not reconcile a live manual task when another API process starts",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `manual-task-live-race-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: `Live manual task ${taskId.slice(0, 6)}`,
+          description: "A task for overlapping manual verification and API startup.",
+          status: "pending",
+          priority: "p2",
+          retryCount: 0,
+          maxRetries: 2,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        signalRoot = await mkdtemp(join("/tmp", "manual-task-live-race-"));
+        const readySignalFile = join(signalRoot, "verification-pending.json");
+        workerProcess = startTaskRouteTestProcess({
+          mode: "manual-worker",
+          taskId,
+          readySignalFile,
+        });
+        const ready = JSON.parse(
+          await waitForProcessSignalFile(readySignalFile, workerProcess),
+        ) as { taskId: string; stage: string };
+        expect(ready).toEqual({ taskId, stage: "verification_pending" });
+
+        const [liveTaskBeforeStartup] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(liveTaskBeforeStartup?.status).toBe("running");
+
+        apiProcess = startApiStartupProcess(`manual-task-live-race-${randomUUID()}`);
+        await apiProcess.waitForReady();
+
+        const [liveTaskAfterStartup] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(liveTaskAfterStartup).toMatchObject({
+          status: "running",
+          retryCount: 0,
+          workerId: expect.any(String),
+        });
+        expect(liveTaskAfterStartup?.leaseUntil).toBeInstanceOf(Date);
+        expect(liveTaskAfterStartup?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(workerProcess.child.exitCode).toBeNull();
+        expect(workerProcess.child.signalCode).toBeNull();
+      } finally {
+        if (workerProcess) {
+          if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+            workerProcess.child.kill("SIGKILL");
+          }
+          await workerProcess.exit;
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (apiProcess) {
+          if (apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+            apiProcess.child.kill("SIGKILL");
+          }
+          await apiProcess.exit;
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(eventsTable).where(eq(eventsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
+
   const missionRepairWorkerProcessRecoveryTest =
     process.env.RUN_MISSION_REPAIR_WORKER_PROCESS_RECOVERY === "1" ? it : it.skip;
   missionRepairWorkerProcessRecoveryTest(
