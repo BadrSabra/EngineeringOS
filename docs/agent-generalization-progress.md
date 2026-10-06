@@ -4628,6 +4628,17 @@ G9 Revocation Safety
 - **remaining/blocker:** تغطية هذه المراحل تخص Mission repair فقط ولا تغلق بقية lifecycle أو mutation/delivery surfaces؛ E2 تبقى `OPEN` وE3 `STOPPED`.
 - **next step:** واصل تدقيق crash/recovery لسطح E2 التالي فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
 
+### 2026-10-06 — crash بعد القبول الدائم وقبل استجابة AI task
+
+- **phase/step:** E2 فقط — حد HTTP بين القبول النهائي الدائم وإرسال استجابة `/api/ai/tasks/:taskId/execute`.
+- **status:** `post-acceptance crash and result retrieval verified — E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يلف fixture دالة `finalizeExecutionAcceptance` الحقيقية، ينتظر رجوعها بعد commit ثم يكتب إشارة ويعلّق قبل أن يرجع lifecycle إلى route. يقتل الأب العامل بـ`SIGKILL` قبل استجابة HTTP، ثم يشغّل `src/index.ts` مستقلًا. يثبت الاختبار أن التنفيذ والقبول الناجح والمهمة وحدث `TaskCompleted` ثابتة بعد startup، وأن `GET /api/tasks/:taskId` يعيد الحالة والقبول نفسيهما.
+- **files/schema/contracts touched:** اختبار `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts` وهذا السجل وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** API TypeScript check و`git diff --check` ناجحان. بعد تطبيق schema على PostgreSQL مؤقتة loopback، نجح الاختبار الاختياري `preserves an accepted HTTP AI task when the process crashes before its response` **1/1، 38 skipped** مع provider egress معطّل. أُوقفت القاعدة المؤقتة وحُذف جذرها؛ لم يُستخدم provider حي أو قاعدة مشتركة أو managed workflow.
+- **authority/safety impact:** القبول والمهمة وحدث الإكمال تبقى معاملة واحدة؛ لا تُنشأ محاولة ثانية عند إعادة تحميل النتيجة، ولا تمنح قراءة النتيجة صلاحية تنفيذ.
+- **remaining/blocker:** يغطي هذا حد استجابة HTTP لمسار AI task واحدًا فقط؛ crash/race recovery لبقية execution وmutation/delivery surfaces ما زال مفتوحًا. E2 `OPEN` وE3 `STOPPED`.
+- **next step:** تابع تدقيق حد E2 متبقٍ واحدًا في كل مرة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

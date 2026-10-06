@@ -253,6 +253,33 @@ vi.mock("./ai-repair-validation.js", async () => {
   };
 });
 
+vi.mock("./ai-execution-acceptance.js", async () => {
+  const actual = await vi.importActual<typeof import("./ai-execution-acceptance.js")>(
+    "./ai-execution-acceptance.js",
+  );
+  return {
+    ...actual,
+    finalizeExecutionAcceptance: async (
+      ...args: Parameters<typeof actual.finalizeExecutionAcceptance>
+    ) => {
+      const result = await actual.finalizeExecutionAcceptance(...args);
+      if (process.env.TASK_ROUTE_PROCESS_CHILD === "accepted-worker" && result.accepted) {
+        const signalFile = process.env.TASK_ROUTE_PROCESS_READY_SIGNAL_FILE;
+        if (!signalFile) {
+          throw new Error("AI task acceptance worker is missing its ready signal path.");
+        }
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(signalFile, JSON.stringify({
+          executionId: args[0].executionId,
+          stage: "acceptance_committed_before_http_response",
+        }), "utf8");
+        await new Promise<never>(() => {});
+      }
+      return result;
+    },
+  };
+});
+
 import {
   executeTaskLifecycle,
   parseMissionToolLoopCheckpoint,
@@ -472,7 +499,7 @@ function startMissionRepairTestProcess(
 }
 
 function startTaskRouteTestProcess(input: {
-  mode: "worker" | "resume-worker" | "resume";
+  mode: "worker" | "resume-worker" | "resume" | "accepted-worker";
   taskId: string;
   readySignalFile?: string;
 }) {
@@ -491,6 +518,8 @@ function startTaskRouteTestProcess(input: {
       ? "process-level AI task route worker fixture"
       : input.mode === "resume-worker"
         ? "process-level AI task route resume worker fixture"
+        : input.mode === "accepted-worker"
+          ? "process-level AI task route accepted worker fixture"
         : "process-level AI task route resume fixture",
   ], {
     cwd: process.cwd(),
@@ -3198,6 +3227,25 @@ describe("real durable task execution lifecycle", () => {
     120_000,
   );
 
+  const taskRouteAcceptedWorkerProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "accepted-worker" ? it : it.skip;
+  taskRouteAcceptedWorkerProcessChildTest(
+    "process-level AI task route accepted worker fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      if (!taskId) {
+        throw new Error("AI task accepted worker is missing its task identity.");
+      }
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+      throw new Error(
+        `AI task route returned after acceptance but before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
+      );
+    },
+    120_000,
+  );
+
   const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
   const missionRepairProcessChildTest =
     missionRepairProcessChildMode === "worker" || missionRepairProcessChildMode === "recovery"
@@ -3920,6 +3968,180 @@ describe("real durable task execution lifecycle", () => {
           }
           await resumeProcess.exit;
           await waitForChildDatabaseDisconnect(resumeProcess.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(eventsTable).where(eq(eventsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
+
+  const taskRouteAcceptanceCrashTest =
+    process.env.RUN_TASK_ROUTE_ACCEPTANCE_CRASH === "1" ? it : it.skip;
+  taskRouteAcceptanceCrashTest(
+    "preserves an accepted HTTP AI task when the process crashes before its response",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `task-route-accepted-crash-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: `Accepted AI task ${taskId.slice(0, 6)}`,
+          description: "A task for the post-acceptance HTTP crash fixture.",
+          status: "pending",
+          priority: "p2",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        signalRoot = await mkdtemp(join("/tmp", "ai-task-route-accepted-crash-"));
+        const readySignalFile = join(signalRoot, "accepted-worker-ready.json");
+        workerProcess = startTaskRouteTestProcess({
+          mode: "accepted-worker",
+          taskId,
+          readySignalFile,
+        });
+        const ready = JSON.parse(
+          await waitForProcessSignalFile(readySignalFile, workerProcess),
+        ) as { executionId: string; stage: string };
+        expect(ready).toMatchObject({
+          stage: "acceptance_committed_before_http_response",
+          executionId: expect.any(String),
+        });
+
+        const [acceptedExecution] = await db
+          .select({
+            id: aiExecutionsTable.id,
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+          .limit(1);
+        expect(acceptedExecution).toEqual({
+          id: ready.executionId,
+          attempt: 0,
+          status: "completed",
+        });
+        const acceptedRows = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, ready.executionId));
+        expect(acceptedRows).toEqual([{
+          attempt: 0,
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+        }]);
+        const [acceptedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(acceptedTask?.status).toBe("completed");
+        const completedEventsBeforeCrash = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.taskId, taskId),
+            eq(eventsTable.type, "TaskCompleted"),
+          ));
+        expect(completedEventsBeforeCrash).toHaveLength(1);
+
+        expect(workerProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(workerProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+        workerProcess = undefined;
+
+        apiProcess = startApiStartupProcess(`ai-task-accepted-recovery-${randomUUID()}`);
+        await apiProcess.waitForReady();
+
+        const [recoveredExecution] = await db
+          .select({
+            id: aiExecutionsTable.id,
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+          .limit(1);
+        expect(recoveredExecution).toEqual(acceptedExecution);
+        const recoveredAcceptanceRows = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, ready.executionId));
+        expect(recoveredAcceptanceRows).toEqual(acceptedRows);
+        const [recoveredTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(recoveredTask?.status).toBe("completed");
+        const completedEventsAfterStartup = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.taskId, taskId),
+            eq(eventsTable.type, "TaskCompleted"),
+          ));
+        expect(completedEventsAfterStartup).toHaveLength(1);
+
+        const recoveredResponse = await request(app).get(`/api/tasks/${taskId}`);
+        expect(recoveredResponse.status).toBe(200);
+        expect(recoveredResponse.body).toMatchObject({
+          id: taskId,
+          status: "completed",
+          acceptance: {
+            attempt: 0,
+            outcome: "SUCCEEDED",
+            terminalStatus: "completed",
+          },
+        });
+      } finally {
+        if (workerProcess) {
+          if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+            workerProcess.child.kill("SIGKILL");
+          }
+          await workerProcess.exit;
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (apiProcess) {
+          if (apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+            apiProcess.child.kill("SIGKILL");
+          }
+          await apiProcess.exit;
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
         }
         await cleanupProjectExecutionData(projectId);
         await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
