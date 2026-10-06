@@ -2049,7 +2049,7 @@ describe("executeToolLoop", () => {
     );
   });
 
-  it("does not treat the file head as objective evidence when no bounded locator cluster exists", async () => {
+  it("recovers separate bounded objective windows when one shared span is unavailable", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const requiredPath = "src/large-project-query.ts";
     const sourceLines = Array.from({ length: 5_000 }, (_, index) => `const line${index + 1} = ${index + 1};`);
@@ -2059,9 +2059,11 @@ describe("executeToolLoop", () => {
     const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
       [requiredPath, "READ_TRUNCATED"],
     ]);
+    const rangeCalls: Array<Record<string, string>> = [];
     const strategy = makeStrategy([
       makeResponse("", []),
       makeResponse("The claim remains incomplete because its required implementation steps are outside one bounded source window."),
+      makeResponse("The route and provider dispatch are proven from separate bounded windows."),
     ]);
     FILE_TOOL_MOCK.mockImplementation(async (name: string, args: {
       path?: string;
@@ -2071,6 +2073,7 @@ describe("executeToolLoop", () => {
       if (name === "read_file_range") {
         const start = Number(args.startLine);
         const end = Number(args.endLine);
+        rangeCalls.push({ ...args } as Record<string, string>);
         return `File: ${requiredPath}\n\`\`\`\n${sourceLines
           .slice(start - 1, end)
           .join("\n")}\n\`\`\``;
@@ -2093,7 +2096,7 @@ describe("executeToolLoop", () => {
       initialReadStatuses: retainedReadStatuses,
       retainedReadStatuses,
       objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
-      maxIterations: 2,
+      maxIterations: 3,
       objective: {
         goal: "explain the complete provider flow",
         requiredEvidencePaths: [requiredPath],
@@ -2106,7 +2109,15 @@ describe("executeToolLoop", () => {
       },
     });
 
-    expect(result.kind).toBe("incomplete");
+    expect(result.kind).toBe("response");
+    expect(rangeCalls).toHaveLength(2);
+    const ranges = rangeCalls.map((range) => ({
+      start: Number(range.startLine),
+      end: Number(range.endLine),
+    }));
+    expect(ranges.some((range) => range.start <= 400 && range.end >= 400)).toBe(true);
+    expect(ranges.some((range) => range.start <= 4_900 && range.end >= 4_900)).toBe(true);
+    expect(result.evidenceWindows).toHaveLength(2);
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file_range",
       { path: requiredPath, startLine: "1", endLine: "200" },
@@ -3364,7 +3375,6 @@ describe("executeToolLoop", () => {
     const truncated =
       `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
       "[... output truncated at 128 KB by the read tool ...]\n```";
-    const targeted = `File: ${requiredPath}\n\`\`\`\n${locator.split("\n").slice(17, 24).join("\n")}\n\`\`\``;
     const steps: AgentStep[] = [];
     const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
       [requiredPath, "READ_TRUNCATED"],
@@ -3373,7 +3383,9 @@ describe("executeToolLoop", () => {
     FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string; startLine?: string; endLine?: string }) => {
       if (name === "read_file_range") {
         rangeCalls.push({ ...args } as Record<string, string>);
-        return targeted;
+        const start = Number(args.startLine);
+        const end = Number(args.endLine);
+        return `File: ${requiredPath}\n\`\`\`\n${locator.split("\n").slice(start - 1, end).join("\n")}\n\`\`\``;
       }
       return truncated;
     });
@@ -3422,7 +3434,7 @@ describe("executeToolLoop", () => {
     expect(retainedReadStatuses.get(requiredPath)).toBe("READ_TARGETED");
   });
 
-  it("recovers one path when its claims use several bounded executable clusters", async () => {
+  it("recovers one bounded window for locator clusters within the maximum span", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const requiredPath = "src/chat.ts";
     const locatorLines = Array.from({ length: 2_200 }, (_, index) => {
@@ -3435,8 +3447,6 @@ describe("executeToolLoop", () => {
     const truncated =
       `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
       "[... output truncated at 128 KB by the read tool ...]\n```";
-    const targeted =
-      `File: ${requiredPath}\n\`\`\`\n${locatorLines.slice(0, 4).join("\n")}\n\`\`\``;
     const steps: AgentStep[] = [];
     const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
       [requiredPath, "READ_TRUNCATED"],
@@ -3445,7 +3455,9 @@ describe("executeToolLoop", () => {
     FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string; startLine?: string; endLine?: string }) => {
       if (name === "read_file_range") {
         rangeCalls.push({ ...args } as Record<string, string>);
-        return targeted;
+        const start = Number(args.startLine);
+        const end = Number(args.endLine);
+        return `File: ${requiredPath}\n\`\`\`\n${locatorLines.slice(start - 1, end).join("\n")}\n\`\`\``;
       }
       return truncated;
     });
@@ -3496,14 +3508,259 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(rangeCalls).toHaveLength(1);
-    expect(Number(rangeCalls[0].startLine)).toBeLessThanOrEqual(20);
-    expect(Number(rangeCalls[0].endLine)).toBeGreaterThanOrEqual(2_150);
-    expect(Number(rangeCalls[0].endLine) - Number(rangeCalls[0].startLine) + 1).toBeLessThanOrEqual(4_000);
+    const ranges = rangeCalls.map((range) => ({
+      start: Number(range.startLine),
+      end: Number(range.endLine),
+    }));
+    for (const lineNumber of [20, 1_100, 2_150]) {
+      expect(ranges.some((range) =>
+        range.start <= lineNumber && range.end >= lineNumber,
+      )).toBe(true);
+    }
+    expect(ranges[0]!.end - ranges[0]!.start + 1).toBeLessThanOrEqual(4_000);
+    expect(result.evidenceWindows).toHaveLength(1);
     expect(steps).not.toContainEqual(expect.objectContaining({
       kind: "diagnostic",
       code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
     }));
     expect(retainedReadStatuses.get(requiredPath)).toBe("READ_TARGETED");
+  });
+
+  it("recovers separate bounded windows when claims on one path exceed a shared span", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/chat-agent.ts";
+    const locatorLines = Array.from({ length: 5_200 }, (_, index) => {
+      if (index === 19) {
+        return "export function resolveTurnIntent() { return routeProof; }";
+      }
+      if (index === 4_899) {
+        return "export function validateFinalAnswer() { return validationProof; }";
+      }
+      return `const line${index + 1} = ${index + 1};`;
+    });
+    const locator = locatorLines.join("\n");
+    const truncated =
+      `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
+      "[... output truncated at 128 KB by the read tool ...]\n```";
+    const rangeCalls: Array<Record<string, string>> = [];
+    const steps: AgentStep[] = [];
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (
+      name: string,
+      args: { path?: string; startLine?: string; endLine?: string },
+    ) => {
+      if (name !== "read_file_range") return truncated;
+      rangeCalls.push({ ...args } as Record<string, string>);
+      const startLine = Number(args.startLine);
+      const endLine = Number(args.endLine);
+      return [
+        `File: ${requiredPath}`,
+        "```",
+        ...locatorLines.slice(startLine - 1, endLine),
+        "```",
+      ].join("\n");
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("initial-window", "read_file_range", {
+          path: requiredPath,
+          startLine: "1",
+          endLine: "10",
+        })]),
+        makeResponse("Continue only after all declared source windows are retained."),
+        makeResponse("Continue only after all declared source windows are retained."),
+        makeResponse("verified from both bounded claim windows"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      objectiveEvidenceSources: new Map([[requiredPath, locator]]),
+      objective: {
+        goal: "prove separated chat-agent behaviors",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [
+          {
+            claimId: "routing",
+            requiredEvidencePaths: [requiredPath],
+            evidenceNeedles: ["resolveTurnIntent", "routeProof"],
+          },
+          {
+            claimId: "final-validation",
+            requiredEvidencePaths: [requiredPath],
+            evidenceNeedles: ["validateFinalAnswer", "validationProof"],
+          },
+        ],
+      },
+      maxIterations: 6,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(rangeCalls).toHaveLength(2);
+    const returnedRanges = rangeCalls.map((range) => ({
+      start: Number(range.startLine),
+      end: Number(range.endLine),
+    }));
+    expect(returnedRanges.some((range) => range.start <= 20 && range.end >= 20)).toBe(true);
+    expect(returnedRanges.some((range) => range.start <= 4_900 && range.end >= 4_900)).toBe(true);
+    expect(steps).not.toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+    }));
+    expect(result.evidenceWindows).toHaveLength(2);
+  });
+
+  it("recovers the real embedded-AI chat-agent objective across its separated locator windows", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const { buildProjectQueryObjective, resolveProjectQueryTarget } =
+      await import("../project-query-target.js");
+    const goal =
+      "Analyze the latest session of the embedded AI agent for response quality and the architecture of the AI layer.";
+    const target = resolveProjectQueryTarget(goal);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, goal);
+    const requiredPath = "lib/ai-orchestrator/src/agents/chat-agent.ts";
+    const qualityClaim = objective.requiredClaims.find(
+      (claim) => claim.claimId === "ai-response-quality-validation",
+    );
+    expect(qualityClaim?.evidenceNeedlesByPath?.[requiredPath]).toEqual([
+      "_qualityError",
+      "validateFinalAnswer",
+    ]);
+
+    const chatAgentNeedles = [...new Set(objective.requiredClaims.flatMap((claim) => {
+      if (!(claim.requiredEvidencePaths ?? []).includes(requiredPath)) return [];
+      if (claim.evidenceNeedlesByPath) {
+        return Object.entries(claim.evidenceNeedlesByPath)
+          .find(([path]) => path === requiredPath)?.[1] ?? [];
+      }
+      return claim.evidenceNeedles ?? [];
+    }))];
+    const locatorLineByNeedle = new Map<string, number>([
+      ["_qualityError", 4_163],
+      ["executeToolLoop", 9_706],
+      ["loopResult", 9_706],
+      ["validateFinalAnswer", 16_084],
+    ]);
+    for (const [index, needle] of chatAgentNeedles.entries()) {
+      if (!locatorLineByNeedle.has(needle)) {
+        locatorLineByNeedle.set(needle, 60 + index);
+      }
+    }
+    const locatorLines = Array.from({ length: 16_120 }, (_, index) => {
+      const lineNumber = index + 1;
+      const needlesAtLine = chatAgentNeedles.filter(
+        (needle) => locatorLineByNeedle.get(needle) === lineNumber,
+      );
+      if (lineNumber === 9_706 && needlesAtLine.includes("executeToolLoop")) {
+        return "const loopResult = await executeToolLoop({});";
+      }
+      if (lineNumber === 16_084 && needlesAtLine.includes("validateFinalAnswer")) {
+        return "const finalAnswerValidation = validateFinalAnswer({});";
+      }
+      if (lineNumber === 4_163 && needlesAtLine.includes("_qualityError")) {
+        return "let _qualityError: QualityFailure | undefined;";
+      }
+      if (needlesAtLine.length > 0) {
+        return `const locator${index} = ${needlesAtLine.join(" + ")};`;
+      }
+      if (lineNumber === 277 && chatAgentNeedles.includes("validateFinalAnswer")) {
+        return 'import { validateFinalAnswer } from "../evidence-integrity.js";';
+      }
+      return `const line${lineNumber} = ${lineNumber};`;
+    });
+    const locator = locatorLines.join("\n");
+    const truncated =
+      `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
+      "[... output truncated at 128 KB by the read tool ...]\n```";
+    const initialFileContents = new Map(
+      (objective.requiredEvidencePaths ?? [])
+        .filter((path) => path !== requiredPath)
+        .map((path) => [
+          path,
+          `File: ${path}\n\`\`\`\nexport const completeFixture = true;\n\`\`\``,
+        ]),
+    );
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    const rangeCalls: Array<Record<string, string>> = [];
+    const steps: AgentStep[] = [];
+    FILE_TOOL_MOCK.mockImplementation(async (
+      name: string,
+      args: { path?: string; startLine?: string; endLine?: string },
+    ) => {
+      if (name !== "read_file_range") return truncated;
+      rangeCalls.push({ ...args } as Record<string, string>);
+      const startLine = Number(args.startLine);
+      const endLine = Number(args.endLine);
+      return [
+        `File: ${requiredPath}`,
+        "```",
+        ...locatorLines.slice(startLine - 1, endLine),
+        "```",
+      ].join("\n");
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("initial-objective-window", "read_file_range", {
+          path: requiredPath,
+          startLine: "1",
+          endLine: "10",
+        })]),
+        makeResponse("Continue after retaining the next server-owned objective window."),
+        makeResponse("Continue after retaining the next server-owned objective window."),
+        makeResponse("Continue after retaining the next server-owned objective window."),
+        makeResponse("All embedded-AI objective windows are retained."),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialFileContents,
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      objectiveEvidenceSources: new Map([[requiredPath, locator]]),
+      objective: { ...objective, goal },
+      maxIterations: 8,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(rangeCalls).toHaveLength(3);
+    const returnedRanges = rangeCalls.map((range) => ({
+      start: Number(range.startLine),
+      end: Number(range.endLine),
+    }));
+    for (const lineNumber of [4_163, 9_706, 16_084]) {
+      expect(returnedRanges.some((range) =>
+        range.start <= lineNumber && range.end >= lineNumber,
+      )).toBe(true);
+    }
+    expect(result.evidenceWindows).toHaveLength(3);
+    expect(steps).not.toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+    }));
   });
 
   it("runs one no-tools JSON synthesis pass after forensic prefetch", async () => {

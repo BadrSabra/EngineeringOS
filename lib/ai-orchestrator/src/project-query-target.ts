@@ -769,11 +769,30 @@ const DELIVERY_TARGET_RE =
 const AUTH_TARGET_RE =
   /(?:\b(?:authentication|authorization|identity|permissions?)\b|مصادقة|توثيق|تفويض|هوية|صلاحيات)/iu;
 const TARGETED_DOMAIN_ANALYSIS_RE =
-  /(?:\b(?:analy[sz]e|analysis|explain|describe|understand|trace|follow|flow|architecture|how|what|why|where)\b|تحليل|حلل|اشرح|صف|افهم|تتبع|مسار|تدفق|معمارية|كيف|ماذا|لماذا|أين)/iu;
+  /(?:\b(?:analy[sz]e|analysis|explain|describe|understand|trace|follow|review|inspect)\b|تحليل|حلل|اشرح|صف|افهم|تتبع|راجع|افحص|فسر|وضح)/iu;
+const TARGETED_DOMAIN_QUESTION_RE =
+  /^\s*(?:[-*•]\s*)?(?:(?:please\s+)?(?:how|what|why|where)\b|(?:can|could|would)\s+you\s+(?:tell|show)\s+me\s+(?:how|what|why|where)\b|كيف|ماذا|ما|لماذا|أين)/iu;
 const GENERIC_PROJECT_QUERY_EXCLUSION_RE =
   /(?:\b(?:audit|forensic|review|scan|investigate|root\s+cause|mutate|modify|change|fix|implement|create|write|delete)\b|تدقيق|جنائي|مراجعة|فحص|تحقيق|السبب\s+الجذري|عدّل|غيّر|أصلح|نفّذ|أنشئ|اكتب|احذف)/iu;
 const GENERIC_PROJECT_SCOPE_RE =
   /(?:\b(?:project|workspace|repository|repo|codebase)\b|مشروع|المشروع|مشروعي|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))/iu;
+
+function hasTargetedDomainRequest(
+  message: string,
+  targetSignal: RegExp,
+): boolean {
+  // A subsystem mention in a checklist or example must not combine with an
+  // unrelated analysis verb elsewhere in a long request. Require the user to
+  // connect the analysis action and target within the same sentence or line.
+  return message
+    .split(/[\r\n.!?؟؛]+/u)
+    .some((clause) =>
+      (
+        TARGETED_DOMAIN_ANALYSIS_RE.test(clause) ||
+        TARGETED_DOMAIN_QUESTION_RE.test(clause)
+      ) && targetSignal.test(clause),
+    );
+}
 
 const AMBIGUOUS_PROJECT_SCOPE_RE =
   /(?:\b(?:project|workspace|repository|repo|codebase|system|architecture|module|service|component|layer|workflow|pipeline|flow|function|class|handler|endpoint|implementation|source|code)\b|مشروع|المشروع|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر)|النظام|المعمارية|الهندسة|الوحدة|الخدمة|المكوّن|المكون|الطبقة|سير\s+العمل|التدفق|الدالة|الفئة|المعالج|النقطة|التنفيذ|المصدر|الكود|الشفرة)/iu;
@@ -886,10 +905,10 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
       0.99,
     );
   }
-  if (TARGETED_DOMAIN_ANALYSIS_RE.test(message) && DELIVERY_TARGET_RE.test(message)) {
+  if (hasTargetedDomainRequest(message, DELIVERY_TARGET_RE)) {
     return materializeTarget(DELIVERY_TARGET, 0.95);
   }
-  if (TARGETED_DOMAIN_ANALYSIS_RE.test(message) && AUTH_TARGET_RE.test(message)) {
+  if (hasTargetedDomainRequest(message, AUTH_TARGET_RE)) {
     return materializeTarget(AUTH_TARGET, 0.95);
   }
   const aiSignal =

@@ -14,3 +14,9 @@ Provider fallback must continue from the same evidence cursor and execution budg
 **Why:** In a live project question, a truncated first prefetch left the first path outstanding; the model spent the loop retrying blocked scope expansions, then provider fallback arrived after the shared budget was exhausted. The durable checkpoint was safe, but the user lost the actionable partial result.
 
 **How to apply:** Preserve tool messages, read-status state, forced target, and ledger across provider changes; reserve bounded fallback capacity; map provider failure plus retained/incomplete evidence to the server-owned incomplete contract.
+
+For one source path with multiple server-owned locator windows, `READ_TARGETED` means that at least one useful window exists, not that the path's objective evidence is complete. Synthesis and claim closure must wait until each required window is retained, and each novel bounded range must count as evidence progress even when the canonical path was already read.
+
+**Why:** Strongest-status merging correctly promotes a targeted read over an earlier truncated read, but a path-only gate then mistakes the remaining windows for completed evidence; path-only progress accounting can also force a false no-progress terminal.
+
+**How to apply:** Track objective window coverage separately from the strongest path status. When a pending locator window exists, dispatch its bounded range even if the path is now `READ_TARGETED`; reset progress only for a genuinely new range, never an exact replay.

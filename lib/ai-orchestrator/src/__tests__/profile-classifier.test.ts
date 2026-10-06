@@ -362,6 +362,19 @@ describe("classifyRequest — implementation tasks do not enter forensic mode", 
     expect(result.outputContract).toBe("FORENSIC_REPORT");
   });
 
+  it("does not infer an implementation task from audit criteria and negated test instructions", () => {
+    const result = classifyRequest([
+      "Perform a read-only forensic audit of the embedded AI layer.",
+      "Acceptance criteria for this report: include source citations.",
+      "Identify the المسار التنفيذي behind the evidence decision.",
+      "Tests and validation are topics in the report; do not change files or run tests.",
+    ].join("\n"));
+
+    expect(result.implementationTaskMode).toBe(false);
+    expect(result.taskType).toBe("FULL_FORENSIC_AUDIT");
+    expect(result.outputContract).toBe("FORENSIC_REPORT");
+  });
+
   it("keeps UX planning out of REPAIR_ANALYSIS and forensic mode", () => {
     const result = classifyRequest("وضع خطة تنفيذية لتحسين تجربة المستخدم");
 

@@ -91,6 +91,26 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it("does not select delivery from incidental mentions in a broad embedded-AI audit", () => {
+    const message = [
+      "Perform a read-only forensic audit of the embedded AI layer.",
+      "Acceptance criteria for this report: include source citations.",
+      "Identify the المسار التنفيذي behind the evidence decision.",
+      "Assess browser/delivery execution where it is mutation-capable.",
+      "Tests and validation are topics in the report; do not change files or run tests.",
+    ].join("\n");
+    const target = resolveProjectQueryTarget(message);
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(target?.id).toBe("embedded-ai");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(classification.implementationTaskMode).toBe(false);
+    expect(intent.kind).not.toBe("DELIVERY");
+    expect(intent.requiresEvidence).toBe(true);
+    expect(intent.compoundWrite).toBe(false);
+  });
+
   it("resolves delivery and authentication as independent server-owned targets", () => {
     const delivery = resolveProjectQueryTarget(
       "Explain how candidate validation moves through release quality and promotion.",

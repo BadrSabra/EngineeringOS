@@ -141,12 +141,12 @@ const SOFT_LIMIT_RATIO = 0.75;
 const BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT = 64;
 const BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT = 4;
 /**
- * A single objective path may support several claims whose executable
- * assertions live in different functions in the same source file. Keep the
- * locator cluster bounded, but allow the path-level window to span those
- * related functions without exceeding read_file_range's 4,000-line limit.
+ * A single objective path can require several distinct bounded evidence
+ * windows. Keep each executable locator cluster bounded and cap the number of
+ * windows dispatched for one path.
  */
 const MAX_OBJECTIVE_LOCATOR_SPAN = 2_400;
+const MAX_OBJECTIVE_LOCATOR_WINDOWS = 24;
 
 function syntheticValidationResult(
   profile: string,
@@ -2871,6 +2871,7 @@ export type AgentDiagnosticCode =
   // Objective recovery could not derive a bounded server-owned window from
   // the retained locator body, so no provider-selected range is accepted.
   | "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE"
+  | "OBJECTIVE_EVIDENCE_WINDOWS_COMPLETE"
   // Budget rebalancing (FEG-009/010): the run ended with ZERO source reads ever
   // acquired. This is classified as incomplete-before-evidence - it is NOT a
   // normal terminal - and, within the recovery allocation, the loop forces a
@@ -3337,28 +3338,49 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   );
   type ObjectiveTargetedReadRange =
     | { startLine: number; endLine: number }
+    | { complete: true }
     | { unavailable: true; reason: string };
-  const objectiveTargetedReadRange = (
+  type ObjectiveLocatorWindowSpec = {
+    startLine: number;
+    endLine: number;
+    requirements: Array<{ needle: string; claimIds: string[] }>;
+  };
+  const objectiveLocatorWindowSpecs = (
     path: string,
-  ): ObjectiveTargetedReadRange | undefined => {
+  ): ObjectiveLocatorWindowSpec[] | { unavailable: true; reason: string } | undefined => {
     if (!objective) return undefined;
     const normalizedPath = canonicalRel(path);
-    const needles = objective.requiredClaims
+    const claimNeedles = objective.requiredClaims
       .filter((claim) =>
         (claim.requiredEvidencePaths ?? []).some(
           (requiredPath) => canonicalRel(requiredPath) === normalizedPath,
         ),
       )
-      .flatMap((claim) => {
+      .map((claim) => {
         if (claim.evidenceNeedlesByPath) {
           const pathNeedles = Object.entries(claim.evidenceNeedlesByPath)
             .find(([requiredPath]) => canonicalRel(requiredPath) === normalizedPath)?.[1];
-          return pathNeedles ?? [];
+          return {
+            claimId: claim.claimId,
+            needles: pathNeedles ?? [],
+          };
         }
-        return claim.evidenceNeedles ?? [];
-      })
-      .map((needle) => needle.trim())
-      .filter(Boolean);
+        return {
+          claimId: claim.claimId,
+          needles: claim.evidenceNeedles ?? [],
+        };
+      });
+    const claimsByNeedle = new Map<string, Set<string>>();
+    for (const claim of claimNeedles) {
+      for (const rawNeedle of claim.needles) {
+        const needle = rawNeedle.trim();
+        if (!needle) continue;
+        const claimIds = claimsByNeedle.get(needle) ?? new Set<string>();
+        claimIds.add(claim.claimId);
+        claimsByNeedle.set(needle, claimIds);
+      }
+    }
+    const needles = [...claimsByNeedle.keys()];
     // Claims without declared needles retain the legacy bounded fallback. A
     // claim with needles must use a server-owned locator so an arbitrary
     // provider-selected head range cannot be accepted as behavioral proof.
@@ -3436,12 +3458,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         if (/\b(?:function|const|let|var|if|else|return|await|throw|switch)\b/.test(context)) {
           score += 10;
         }
-        if (needles.every((requiredNeedle) => context.includes(requiredNeedle))) {
-          // A compact source context that contains every claim locator is a
-          // stronger behavioral anchor than separate later uses near another
-          // function or prompt string.
-          score += 25;
-        }
+        const nearbyNeedleCount = needles.filter((requiredNeedle) =>
+          context.includes(requiredNeedle),
+        ).length;
+        if (nearbyNeedleCount > 1) score += Math.min(25, 10 + (nearbyNeedleCount - 1) * 5);
         if (lineText.includes(needle)) score += 5;
         score += Math.min(line, 10_000) / 10_000;
         candidates.push({ line, score });
@@ -3457,62 +3477,129 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       };
     }
 
-    // Generic locators often have a later, high-scoring occurrence that is
-    // unrelated to the behavior being proven. Choosing each needle's winner
-    // independently can therefore span thousands of lines and fall back to
-    // the file head. Prefer the strongest bounded cluster containing every
-    // needle so the resulting window stays close to one executable path.
+    // Group locators into bounded executable clusters. Nearby needles share a
+    // read, while distant claim behaviors remain separate windows instead of
+    // making the whole path unavailable or widening a read across unrelated
+    // code. Every declared needle must be covered by one selected cluster.
     const maxLocatorSpan = MAX_OBJECTIVE_LOCATOR_SPAN;
-    const anchorLines = [...new Set(candidatesByNeedle.flat().map((candidate) => candidate.line))];
-    let bestCluster:
-      | { candidates: LocatorCandidate[]; score: number; span: number }
-      | undefined;
-    for (const anchorLine of anchorLines) {
-      const clusterCandidates = candidatesByNeedle.map((candidates) =>
-        candidates
-          .filter((candidate) => candidate.line >= anchorLine && candidate.line <= anchorLine + maxLocatorSpan)
-          .sort((a, b) => b.score - a.score || a.line - b.line)[0],
-      );
-      if (clusterCandidates.some((candidate) => candidate === undefined)) continue;
-      const selected = clusterCandidates as LocatorCandidate[];
-      const minLine = Math.min(...selected.map((candidate) => candidate.line));
-      const maxLine = Math.max(...selected.map((candidate) => candidate.line));
-      const span = maxLine - minLine;
-      const score = selected.reduce((total, candidate) => total + candidate.score, 0);
-      if (
-        !bestCluster
-        || score > bestCluster.score
-        || (score === bestCluster.score && span < bestCluster.span)
-      ) {
-        bestCluster = { candidates: selected, score, span };
+    const uncoveredNeedles = new Set(needles);
+    const windows: ObjectiveLocatorWindowSpec[] = [];
+    while (uncoveredNeedles.size > 0) {
+      const anchorLines = [...new Set(
+        [...uncoveredNeedles].flatMap((needle) =>
+          candidatesByNeedle[needles.indexOf(needle)]?.map((candidate) => candidate.line) ?? [],
+        ),
+      )];
+      let bestCluster:
+        | { selected: Array<{ needle: string; candidate: LocatorCandidate }>; score: number; span: number }
+        | undefined;
+      for (const anchorLine of anchorLines) {
+        const selected = [...uncoveredNeedles].flatMap((needle) => {
+          const candidates = candidatesByNeedle[needles.indexOf(needle)] ?? [];
+          const candidate = candidates
+            .filter((item) => item.line >= anchorLine && item.line <= anchorLine + maxLocatorSpan)
+            .sort((a, b) => b.score - a.score || a.line - b.line)[0];
+          return candidate ? [{ needle, candidate }] : [];
+        });
+        if (selected.length === 0) continue;
+        const minLine = Math.min(...selected.map((item) => item.candidate.line));
+        const maxLine = Math.max(...selected.map((item) => item.candidate.line));
+        const span = maxLine - minLine;
+        const score = selected.reduce((total, item) => total + item.candidate.score, 0);
+        if (
+          !bestCluster
+          || selected.length > bestCluster.selected.length
+          || (selected.length === bestCluster.selected.length && score > bestCluster.score)
+          || (
+            selected.length === bestCluster.selected.length
+            && score === bestCluster.score
+            && span < bestCluster.span
+          )
+        ) {
+          bestCluster = { selected, score, span };
+        }
       }
-    }
-    if (!bestCluster) {
-      return {
-        unavailable: true,
-        reason: "required evidence needles do not share a bounded executable cluster",
-      };
-    }
+      if (!bestCluster) {
+        return {
+          unavailable: true,
+          reason: "one or more required evidence needles have no bounded executable cluster",
+        };
+      }
+      if (windows.length >= MAX_OBJECTIVE_LOCATOR_WINDOWS) {
+        return {
+          unavailable: true,
+          reason: `required objective evidence exceeds the ${MAX_OBJECTIVE_LOCATOR_WINDOWS}-window limit`,
+        };
+      }
 
-    const matchingLineNumbers = bestCluster.candidates.map((candidate) => candidate.line);
-
-    const contextLines = 20;
-    const windowLines = 80;
-    const startLine = Math.max(1, Math.min(...matchingLineNumbers) - contextLines);
-    const endLine = Math.min(
-      sourceLines.length,
-      Math.max(startLine + windowLines - 1, Math.max(...matchingLineNumbers) + contextLines),
+      const matchingLineNumbers = bestCluster.selected.map((item) => item.candidate.line);
+      const contextLines = 20;
+      const windowLines = 80;
+      const startLine = Math.max(1, Math.min(...matchingLineNumbers) - contextLines);
+      const endLine = Math.min(
+        sourceLines.length,
+        Math.max(startLine + windowLines - 1, Math.max(...matchingLineNumbers) + contextLines),
+      );
+      if (endLine - startLine + 1 > 4_000) {
+        return {
+          unavailable: true,
+          reason: "the server-owned evidence window exceeds the read range limit",
+        };
+      }
+      windows.push({
+        startLine,
+        endLine,
+        requirements: bestCluster.selected.map(({ needle }) => ({
+          needle,
+          claimIds: [...(claimsByNeedle.get(needle) ?? [])],
+        })),
+      });
+      for (const { needle } of bestCluster.selected) uncoveredNeedles.delete(needle);
+    }
+    return windows;
+  };
+  const objectiveLocatorWindowIsRetained = (
+    path: string,
+    window: ObjectiveLocatorWindowSpec,
+  ): boolean => {
+    const normalizedPath = canonicalRel(path);
+    if (sourceEvidenceStrengthByCanonical.get(normalizedPath) === "READ_COMPLETE") return true;
+    return sourceEvidenceWindows.some((retained) =>
+      canonicalRel(retained.file) === normalizedPath
+      && retained.startLine <= window.startLine
+      && retained.endLine >= window.endLine
+      && window.requirements.every(({ needle }) => retained.content.includes(needle)),
     );
-    // read_file_range has its own 4,000-line cap. If the server-owned claims
-    // are too far apart, do not guess or silently widen past that cap; the
-    // existing head-window fallback remains fail-closed for this run.
-    if (endLine - startLine + 1 > 4_000) {
-      return {
-        unavailable: true,
-        reason: "the server-owned evidence window exceeds the read range limit",
-      };
+  };
+  const objectiveTargetedReadRange = (
+    path: string,
+  ): ObjectiveTargetedReadRange | undefined => {
+    if (sourceEvidenceStrengthByCanonical.get(canonicalRel(path)) === "READ_COMPLETE") {
+      return { complete: true };
     }
-    return { startLine, endLine };
+    const windows = objectiveLocatorWindowSpecs(path);
+    if (!windows || "unavailable" in windows) return windows;
+    const pending = windows.find((window) => !objectiveLocatorWindowIsRetained(path, window));
+    return pending
+      ? { startLine: pending.startLine, endLine: pending.endLine }
+      : { complete: true };
+  };
+  const objectiveClaimLocatorEvidenceComplete = (
+    claimId: string,
+    path: string,
+  ): boolean => {
+    if (sourceEvidenceStrengthByCanonical.get(canonicalRel(path)) === "READ_COMPLETE") {
+      return true;
+    }
+    const windows = objectiveLocatorWindowSpecs(path);
+    if (!windows) return true;
+    if ("unavailable" in windows) return false;
+    const requiredWindows = windows.filter((window) =>
+      window.requirements.some((requirement) => requirement.claimIds.includes(claimId)),
+    );
+    return requiredWindows.every((window) =>
+      objectiveLocatorWindowIsRetained(path, window),
+    );
   };
   const sourceEvidenceByCanonical = new Map<string, string>();
   const sourceEvidenceStrengthByCanonical = new Map<string, ReadStatus>();
@@ -3788,10 +3875,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     path: string | undefined,
     args: Record<string, string>,
     status: ReadStatus,
-  ): void => {
-    if (toolName !== "read_file" && toolName !== "read_file_range") return;
+  ): boolean => {
+    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
     const normalizedPath = canonicalRel(typeof path === "string" ? path : "");
-    if (!normalizedPath) return;
+    if (!normalizedPath) return false;
     const addsEvidence = sourceReadWouldAddEvidence(toolName, path, args, status);
     readAttemptFingerprints.add(sourceReadFingerprint(toolName, path, args));
     if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
@@ -3812,6 +3899,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     if (broadForensicReadBoundEnabled) {
       sourceRetrieval.nonProgressingReadRepeats = nonProgressingReadRepeats;
     }
+    return addsEvidence;
   };
   const shouldBlockBroadForensicRead = (
     toolName: string,
@@ -4065,6 +4153,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     ...evidenceRecoveryPaths,
   ])];
   const nextMissingServerOwnedEvidencePath = (): string | null => {
+    const pendingObjectiveWindow = objectiveRequiredEvidencePaths.find((path) => {
+      const strength = sourceEvidenceStrengthByCanonical.get(path);
+      const readStatus = readStatusByPath.get(path);
+      if (strength === "READ_COMPLETE") return false;
+      if (strength !== "READ_TARGETED" && readStatus !== "READ_TRUNCATED") return false;
+      const targetedRange = objectiveTargetedReadRange(path);
+      return targetedRange !== undefined && !("complete" in targetedRange);
+    });
+    if (pendingObjectiveWindow) return pendingObjectiveWindow;
+
     const verified = new Set(
       [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
         .map((value) => canonicalRel(value)),
@@ -4077,11 +4175,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     return orderedPaths
       .find((value) => value.length > 0 && !verified.has(value)) ?? null;
   };
-  const objectiveEvidenceManifestComplete = (): boolean =>
-    objectiveEvidenceManifestCompleteForPaths(
+  const objectiveEvidenceManifestComplete = (): boolean => {
+    const pathsComplete = objectiveEvidenceManifestCompleteForPaths(
       objective,
       [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()],
     );
+    if (!pathsComplete || !objective) return false;
+    return objective.requiredClaims.every((claim) =>
+      (claim.requiredEvidencePaths ?? []).every((path) =>
+        objectiveClaimLocatorEvidenceComplete(claim.claimId, canonicalRel(path)),
+      ),
+    );
+  };
   const retainedEvidenceProviderFailure = (): ToolLoopResult => {
     loopPhase = "terminal";
     currentIteration = Math.max(currentIteration, 0);
@@ -4131,12 +4236,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const maybeForceObjectiveSynthesis = (): void => {
     if (
       objectiveRequiredEvidencePaths.length > 0 &&
-      nextMissingObjectiveEvidencePath() === null
+      objectiveEvidenceManifestComplete()
     ) {
-      // Once every server-declared evidence path is complete, the provider
-      // must not decide to continue searching indefinitely. Final claim
-      // validation still happens downstream; this only closes the gathering
-      // phase and moves the loop to the bounded synthesis phase.
+      // Once every server-declared source path and objective locator window is
+      // retained, the provider must not decide to continue searching
+      // indefinitely. Final claim validation still happens downstream.
       forceSynthesisNext = true;
     }
   };
@@ -4678,7 +4782,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       retainedPaths: verifiedPaths,
       claimState,
     });
-    const missingEvidencePaths = plan.missingEvidencePaths;
     const restored = new Map((claimState ?? []).map((claim) => [claim.claimId, claim]));
     const claims = objective.requiredClaims.map((claim) => {
       const prior = restored.get(claim.claimId);
@@ -4692,12 +4795,21 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         prior?.status === "PROVEN" &&
         prior.evidenceRefs.length > 0 &&
         restoredEvidenceRefs.length === prior.evidenceRefs.length;
+      const missingLocatorPaths = restoredClaimIsProven
+        ? []
+        : requiredPaths.filter((path) =>
+            !objectiveClaimLocatorEvidenceComplete(claim.claimId, path),
+          );
+      const missingClaimPaths = [
+        ...(planned?.missingEvidencePaths ?? []),
+        ...missingLocatorPaths,
+      ].filter((path, index, all) => all.indexOf(path) === index);
       const base = {
         claimId: claim.claimId,
         evidenceRefs: (restoredClaimIsProven ? restoredEvidenceRefs : evidenceRefs).slice(0, 12),
         ...(requiredPaths.length > 0 ? {
           requiredEvidencePaths: requiredPaths,
-          missingEvidencePaths: (planned?.missingEvidencePaths ?? []).slice(0, 24),
+          missingEvidencePaths: missingClaimPaths.slice(0, 24),
         } : {}),
       };
       return {
@@ -4706,11 +4818,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           ? "BLOCKED" as const
           : restoredClaimIsProven
             ? "PROVEN" as const
-          : planned?.status === "PROVEN"
+          : planned?.status === "PROVEN" && missingLocatorPaths.length === 0
             ? "PROVEN" as const
             : "PENDING" as const,
       };
     });
+    const missingEvidencePaths = [
+      ...plan.missingEvidencePaths,
+      ...claims.flatMap((claim) => claim.missingEvidencePaths ?? []),
+    ].filter((path, index, all) => all.indexOf(path) === index);
     return {
       goal: objective.goal,
       phase: loopPhase,
@@ -5063,12 +5179,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const serverOwnedEvidencePath = nextMissingServerOwnedEvidencePath();
       if (!serverOwnedEvidencePath) return undefined;
 
-      const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
+      const targetedRange = objectiveTargetedReadRange(serverOwnedEvidencePath);
+      const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath) ||
+        (targetedRange !== undefined && !("complete" in targetedRange))
         ? "read_file_range"
         : "read_file";
-      const targetedRange = serverOwnedToolName === "read_file_range"
-        ? objectiveTargetedReadRange(serverOwnedEvidencePath)
-        : undefined;
       if (targetedRange && "unavailable" in targetedRange) {
         try {
           onStep?.({
@@ -5081,12 +5196,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         } catch { /* observers must not change recovery semantics */ }
         return undefined;
       }
+      if (targetedRange && "complete" in targetedRange) return undefined;
       const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
         ? {
             path: serverOwnedEvidencePath,
             // The locator body is never accepted as evidence. Only this
             // server-dispatched targeted read enters the evidence ledger.
-            ...(targetedRange ?? {
+            ...(targetedRange && "startLine" in targetedRange ? targetedRange : {
               startLine: "1",
               endLine: "200",
             }),
@@ -5689,12 +5805,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const serverOwnedEvidencePath = nextMissingServerOwnedEvidencePath();
       if (serverOwnedEvidencePath) {
         const serverOwnedToolCallId = `server-evidence-${iter}`;
-        const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
+        const targetedRange = objectiveTargetedReadRange(serverOwnedEvidencePath);
+        const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath) ||
+          (targetedRange !== undefined && !("complete" in targetedRange))
           ? "read_file_range"
           : "read_file";
-        const targetedRange = serverOwnedToolName === "read_file_range"
-          ? objectiveTargetedReadRange(serverOwnedEvidencePath)
-          : undefined;
         if (targetedRange && "unavailable" in targetedRange) {
           result = { ...result, toolCalls: [] };
           try {
@@ -5706,6 +5821,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               ],
             });
           } catch { /* ignore */ }
+        } else if (targetedRange && "complete" in targetedRange) {
+          result = { ...result, toolCalls: [] };
         } else {
           const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
             ? {
@@ -5713,7 +5830,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 // Prefer a bounded server-owned window around the declared
                 // evidence needles. The locator body is never accepted as
                 // evidence; only this read_file_range result enters the ledger.
-                ...(targetedRange ?? {
+                ...(targetedRange && "startLine" in targetedRange ? targetedRange : {
                   // A truncated full read has no reliable symbol span when no
                   // server-owned needle is available. Preserve the old bounded
                   // fallback and its fail-closed semantics.
@@ -6195,6 +6312,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             content:
               `OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE: "${args.path}" cannot be used as objective evidence ` +
               `because ${targetedRange.reason}. Do not treat the provider-selected range as proof.`,
+          });
+          continue;
+        }
+        if (targetedRange && "complete" in targetedRange) {
+          if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
+          try {
+            onStep?.({
+              kind: "diagnostic",
+              code: "OBJECTIVE_EVIDENCE_WINDOWS_COMPLETE",
+              details: [
+                `provider range for "${args.path}" was not dispatched because all server-owned objective windows are already retained`,
+              ],
+            });
+          } catch { /* ignore */ }
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content:
+              `OBJECTIVE_EVIDENCE_WINDOWS_COMPLETE: all server-owned evidence windows for "${args.path}" are already retained. ` +
+              "Do not request another provider-selected range as objective proof.",
           });
           continue;
         }
@@ -7067,12 +7204,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             }
           }
           recordRead(tc.function.name, args.path, cached);
-          recordSourceReadAttempt(
+          const addsSourceWindow = recordSourceReadAttempt(
             tc.function.name,
             args.path,
             args,
             classifyReadStatus(tc.function.name, cached),
           );
+          if (addsSourceWindow) iterationNewRead = true;
           if (
             broadForensicReadBoundEnabled &&
             sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT
@@ -7634,12 +7772,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
       if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
         recordRead(tc.function.name, args.path, toolResult.output);
-        recordSourceReadAttempt(
+        const addsSourceWindow = recordSourceReadAttempt(
           tc.function.name,
           args.path,
           args,
           classifyReadStatus(tc.function.name, toolResult.output),
         );
+        if (addsSourceWindow) iterationNewRead = true;
         if (
           broadForensicReadBoundEnabled &&
           sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT

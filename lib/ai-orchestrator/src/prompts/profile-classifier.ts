@@ -163,14 +163,36 @@ function detectStructuredOutputMode(message: string): boolean {
  * not reclassified as an implementation task.
  */
 function detectImplementationTaskMode(message: string): boolean {
-  const hasTaskStructure =
-    /\b(?:task\s*#?\s*\d+|done\s+looks\s+like|acceptance\s+criteria|relevant\s+files|implementation\s+task)\b|مهمة\s*#?\s*\d+/i.test(
-      message,
+  const clauses = message.split(
+    /[\r\n.!?؟؛;]+|(?:,\s*)?\b(?:but|however)\b|لكن|بل/iu,
+  );
+  const hasPositiveImplementationAction = (clause: string): boolean => {
+    if (
+      /\b(?:do\s+not|don't|never|without|not\s+to)\b|لا\s+(?:تعدّل|تعدل|تغيّر|تغير|تحذف|تنفذ|تنفّذ|تشغل|تشغّل|تضيف|تكتب)/iu.test(
+        clause,
+      )
+    ) {
+      return false;
+    }
+    return (
+      /\b(?:implement|add|extend|modify|change|create|write|edit|patch|run|execute|build|refactor|delete|remove|fix|repair|update)\b(?:\s+\b(?:the|this|a|an|new|targeted|unit|integration|typescript)\b){0,3}\s+\b(?:tests?|validation|code|files?|function|class|feature|module|component|workflow|migration|database|route|endpoint|project|app|dashboard|documentation|docs|behavior|tool|runtime|contract|improvements?)\b/i.test(
+        clause,
+      ) ||
+      /(?:أصلح|اصلح|صحح|عدّل|عدل|غير|غيّر|اكتب|ابنِ|أنشئ|انشئ|أضف|اضف|احذف|نفذ|نفّذ|شغل|شغّل|اختبر)\s+(?:ال)?(?:اختبارات?|تحقق|التحقق|كود|ملف|ملفات|دالة|ميزة|وحدة|مسار|قاعدة|تطبيق|مشروع)/iu.test(
+        clause,
+      )
     );
-  const hasImplementationIntent =
-    /\b(?:implement|add|extend|modify|change|create|write|edit|patch|run|execute|test|tests|validation)\b|أضف|وسّع|عدّل|غيّر|أنشئ|اكتب|شغّل|نفّذ|اختبر|اختبارات|تحقق|تغييرات|ملفات\s+ذات\s+الصلة/i.test(
-      message,
-    );
+  };
+  const hasTaskCardHeader =
+    /^\s*(?:you\s+are\s+working\s+on\s+)?task\s*#?\s*\d+\b/im.test(message.slice(0, 500));
+  const hasTaskCardAction =
+    hasTaskCardHeader && clauses.some(hasPositiveImplementationAction);
+  const hasStructuredTaskAction = clauses.some(
+    (clause) =>
+      /\b(?:done\s+looks\s+like|acceptance\s+criteria|relevant\s+files|implementation\s+task)\b|مهمة\s*#?\s*\d+/iu.test(
+        clause,
+      ) && hasPositiveImplementationAction(clause),
+  );
   // Product/UX planning is an implementation-oriented request, but it is not
   // a forensic repair analysis. Keep it on the normal task path so a phrase
   // like "ضع خطة تنفيذية لتحسين تجربة المستخدم" cannot trigger the generic
@@ -183,7 +205,7 @@ function detectImplementationTaskMode(message: string): boolean {
       message,
     );
 
-  return (hasTaskStructure && hasImplementationIntent) || hasProductExperiencePlan;
+  return hasTaskCardAction || hasStructuredTaskAction || hasProductExperiencePlan;
 }
 
 function detectImplementationPlanMode(message: string): boolean {
