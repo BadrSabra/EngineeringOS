@@ -11,6 +11,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage, RawGroqResponse } from "../groq-client.js";
@@ -1152,6 +1155,224 @@ describe("executeToolLoop", () => {
     });
     expect(hashProviderToolManifest(fullManifest))
       .not.toBe(hashProviderToolManifest(exposedTools));
+  });
+
+  it("blocks stale search calls outside the ordered-root scope", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const readTool = {
+      type: "function" as const,
+      function: { name: "read_file", description: "", parameters: {} },
+    };
+    const listTool = {
+      type: "function" as const,
+      function: { name: "list_directory", description: "", parameters: {} },
+    };
+    const searchTool = {
+      type: "function" as const,
+      function: { name: "search_code", description: "", parameters: {} },
+    };
+    const messages = makeMessages();
+    const result = await executeToolLoop({
+      messages,
+      strategy: makeStrategy([
+        makeResponse("", [
+          makeToolCall("stale-search", "search_code", {
+            pattern: "secret",
+            path: "src/private",
+          }),
+        ]),
+        makeResponse("finished from the permitted scope"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [readTool, listTool],
+      toolManifest: [readTool, listTool, searchTool],
+      orderedForensicRoots: ["src/allowed"],
+      rootPath: process.cwd(),
+      pendingChanges: [],
+      maxIterations: 2,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(result.toolSources ?? []).not.toContain("src/private");
+    expect(messages.some((message) =>
+      message.role === "tool" &&
+      String(message.content).includes("only inside the requested roots"),
+    )).toBe(true);
+  });
+
+  it("blocks ordered-root searches whose allowed-looking path resolves through a symlink", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "ordered-root-symlink-"));
+    const allowedPath = path.join(rootPath, "src", "allowed");
+    const privatePath = path.join(rootPath, "src", "private");
+    const laterPath = path.join(rootPath, "src", "later");
+    await fs.mkdir(allowedPath, { recursive: true });
+    await fs.mkdir(privatePath, { recursive: true });
+    await fs.mkdir(laterPath, { recursive: true });
+    await fs.writeFile(
+      path.join(privatePath, "secret.ts"),
+      "PRIVATE_SYMLINK_SOURCE",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(laterPath, "secret.ts"),
+      "LATER_ORDERED_ROOT_SOURCE",
+      "utf-8",
+    );
+    await fs.symlink(privatePath, path.join(allowedPath, "linked"), "dir");
+    await fs.symlink(laterPath, path.join(allowedPath, "linked-to-later"), "dir");
+
+    const readTool = {
+      type: "function" as const,
+      function: { name: "read_file", description: "", parameters: {} },
+    };
+    const listTool = {
+      type: "function" as const,
+      function: { name: "list_directory", description: "", parameters: {} },
+    };
+    const searchTool = {
+      type: "function" as const,
+      function: { name: "search_code", description: "", parameters: {} },
+    };
+    const messages = makeMessages();
+
+    try {
+      const result = await executeToolLoop({
+        messages,
+        strategy: makeStrategy([
+          makeResponse("", [
+            makeToolCall("stale-symlink-search", "search_code", {
+              pattern: "PRIVATE_SYMLINK_SOURCE",
+              path: "src/allowed/linked",
+            }),
+            makeToolCall("cross-root-symlink-search", "search_code", {
+              pattern: "LATER_ORDERED_ROOT_SOURCE",
+              path: "src/allowed/linked-to-later",
+            }),
+          ]),
+          makeResponse("finished from the permitted scope"),
+        ]),
+        model: "fast",
+        powerModel: "powerful",
+        provider: "test",
+        tools: [readTool, listTool],
+        toolManifest: [readTool, listTool, searchTool],
+        orderedForensicRoots: ["src/allowed", "src/later"],
+        rootPath,
+        pendingChanges: [],
+        maxIterations: 2,
+      });
+
+      expect(result.kind).toBe("response");
+      expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+      expect(result.toolSources ?? []).not.toContain("src/private");
+      expect(result.toolSources ?? []).not.toContain("src/later");
+      expect(messages.some((message) =>
+        message.role === "tool" &&
+        String(message.content).includes("only inside the requested roots"),
+      )).toBe(true);
+      expect(messages.map((message) => String(message.content)).join("\n"))
+        .not.toContain("PRIVATE_SYMLINK_SOURCE");
+      expect(messages.map((message) => String(message.content)).join("\n"))
+        .not.toContain("LATER_ORDERED_ROOT_SOURCE");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces ordered roots for every path-based read, including searches and traversal aliases", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const readTool = {
+      type: "function" as const,
+      function: { name: "read_file", description: "", parameters: {} },
+    };
+    const rangeTool = {
+      type: "function" as const,
+      function: { name: "read_file_range", description: "", parameters: {} },
+    };
+    const listTool = {
+      type: "function" as const,
+      function: { name: "list_directory", description: "", parameters: {} },
+    };
+    const searchTool = {
+      type: "function" as const,
+      function: { name: "search_code", description: "", parameters: {} },
+    };
+    const tools = [readTool, rangeTool, listTool, searchTool];
+    const messages = makeMessages();
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) =>
+      `${name}:${args.path ?? "."}`,
+    );
+
+    const result = await executeToolLoop({
+      messages,
+      strategy: makeStrategy([
+        makeResponse("", [
+          makeToolCall("safe-list", "list_directory", { path: "src/allowed" }),
+        ]),
+        makeResponse("", [
+          makeToolCall("outside-search", "search_code", {
+            pattern: "secret",
+            path: "src/private",
+          }),
+          makeToolCall("traversal-read", "read_file", {
+            path: "src/allowed/../private/secret.ts",
+          }),
+          makeToolCall("traversal-range", "read_file_range", {
+            path: "src/allowed/../private/secret.ts",
+            startLine: 1,
+            endLine: 2,
+          }),
+          makeToolCall("traversal-list", "list_directory", {
+            path: "src/allowed/../private",
+          }),
+        ]),
+        makeResponse("", [
+          makeToolCall("safe-search", "search_code", {
+            pattern: "safe",
+            path: "src/allowed",
+          }),
+        ]),
+        makeResponse("finished"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools,
+      toolManifest: tools,
+      orderedForensicRoots: ["src/allowed"],
+      rootPath: process.cwd(),
+      pendingChanges: [],
+      maxIterations: 4,
+      maxToolCalls: 8,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "list_directory",
+      { path: "src/allowed" },
+      process.cwd(),
+      [],
+      expect.any(AbortSignal),
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "search_code",
+      { pattern: "safe", path: "src/allowed" },
+      process.cwd(),
+      [],
+      expect.any(AbortSignal),
+    );
+    expect(messages.filter((message) =>
+      message.role === "tool" &&
+      String(message.content).includes("only inside the requested roots"),
+    )).toHaveLength(4);
+    expect(result.toolSources?.some((source) => source.includes("private"))).toBe(false);
   });
 
   it("returns an authoritative incomplete result when a declared claim is open", async () => {

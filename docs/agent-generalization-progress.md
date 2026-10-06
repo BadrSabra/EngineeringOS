@@ -4539,6 +4539,17 @@ G9 Revocation Safety
 - **remaining/blocker:** E2 ما زالت مفتوحة؛ E3.2 replay safety مفتوح؛ E4.1 inventory نتيجته `UNQUALIFIED` ولا يساوي اجتياز E4.1 أو تأهيل مصدر. النسب العامة للطبقات `UNKNOWN`.
 - **next step:** ضمن E2 فقط، أضف اختبارًا عدائيًا لاستدعاء `search_code` قديم خارج ordered roots بعد narrowing، ثم أصلح server-side authorization وأعد تدقيق بوابة E2. لا تبدأ E3 ولا تُعد تشغيل Strategy Replay receipts قبل إغلاقها صراحةً.
 
+### 2026-10-06 — إصلاح ordered-root واختبار الاستدعاء القديم
+
+- **phase/step:** E2 فقط — حصر مسارات القراءة ضمن ordered forensic roots.
+- **status:** `scoped fix complete — E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أضيف حارس ordered-root مساري ومحلول لـ`read_file` و`read_file_range` و`list_directory` و`search_code`. يرفض المسارات المطلقة ومقاطع `..` قبل runner، ويشترط بقاء symlink في الجذر المطابق للطلب، لا في أي جذر لاحق بالقائمة. بقي `toolManifest` الكامل للتطبيع؛ لا يوجد تقاطع عام مع قائمة الأدوات الظاهرة لأن `read_file_range` قد يلزم لاستعادة دليل كامل. الاختبارات تثبت أن الاستدعاء القديم أو مسار symlink العابر للجذر لا يصل إلى runner ولا ينتج source path.
+- **files/schema/contracts touched:** `tool-execution-engine.ts` واختبارات المحرك، تقارير الحالة والخطة وسجل Reliable Tool Agent، ومذكرة manifests؛ لا تغييرات schema أو DB أو صلاحيات عامة.
+- **validation:** ثلاث مجموعات اختبار مركّزة 249/249 مع `--testTimeout=20000` من جذر حزمة التحليل؛ `pnpm --filter @workspace/ai-orchestrator run typecheck` و`git diff --check` ناجحان. اختبار الخمسة ملفات استغرق 5.37 ثانية وتجاوز حد Vitest الافتراضي 5 ثوانٍ، ثم نجح ضمن مهلة 20 ثانية. لا اختبار API أو provider حي أو workflow أو DB.
+- **authority/safety impact:** أصبح dispatcher يطبق ordered-root على قراءات المسار قبل file runner؛ لا يثبت ذلك تجاوز project root أو إغلاق بقية حدود E2.
+- **remaining/blocker:** تبقى E2 مفتوحة، وE3.2 replay safety مفتوحًا، وE4.1 `OPEN / NOT PASS`. نسب الطبقات العامة `UNKNOWN`.
+- **next step:** استكمل E2 على بقية ingress وlifecycle/recovery؛ لا تبدأ E3 ولا تُعد تشغيل Strategy Replay receipts قبل اجتياز بوابة E2 صراحةً.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

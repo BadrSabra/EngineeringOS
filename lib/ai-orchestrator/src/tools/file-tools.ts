@@ -839,6 +839,70 @@ function projectRelativePath(rootPath: string, absolutePath: string): string | n
   return relativePath.split(path.sep).join("/");
 }
 
+function normalizeOrderedForensicPath(value: string): string | null {
+  const normalized = value.replaceAll("\\", "/");
+  if (
+    normalized.includes("\0")
+    || normalized.startsWith("/")
+    || /^[a-zA-Z]:/.test(normalized)
+    || normalized.split("/").includes("..")
+  ) {
+    return null;
+  }
+  return normalized
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+    .join("/");
+}
+
+/**
+ * Recheck an ordered forensic path after filesystem resolution. The tool-loop
+ * check rejects lexical escapes; this closes an in-project symlink alias that
+ * resolves outside the requested nested roots.
+ */
+export async function isResolvedPathWithinOrderedForensicRoot(
+  rootPath: string,
+  requestedPath: string,
+  orderedRoots: readonly string[],
+  expectedRootIndex: number,
+): Promise<boolean> {
+  if (
+    orderedRoots.length === 0
+    || !Number.isInteger(expectedRootIndex)
+    || expectedRootIndex < 0
+    || expectedRootIndex >= orderedRoots.length
+  ) {
+    return false;
+  }
+
+  let resolvedRoot: string;
+  try {
+    resolvedRoot = await fs.realpath(path.resolve(rootPath));
+  } catch {
+    return false;
+  }
+  const resolvedPath = await safePath(resolvedRoot, requestedPath);
+  if (!resolvedPath) return false;
+
+  const relativePath = projectRelativePath(resolvedRoot, resolvedPath);
+  if (relativePath === null) return false;
+  const normalizedPath = normalizeOrderedForensicPath(relativePath);
+  const normalizedRoots = orderedRoots.map(normalizeOrderedForensicPath);
+  if (normalizedPath === null || normalizedRoots.some((root) => root === null)) {
+    return false;
+  }
+
+  const resolvedRootIndex = normalizedRoots.findIndex((root) =>
+    root !== null
+    && (
+      root === ""
+      || normalizedPath === root
+      || normalizedPath.startsWith(`${root}/`)
+    ),
+  );
+  return resolvedRootIndex === expectedRootIndex;
+}
+
 function matchesSearchGlob(relativePath: string, fileGlob?: string): boolean {
   if (!fileGlob) return true;
   const normalizedGlob = fileGlob.replace(/\\/g, "/");

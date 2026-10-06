@@ -1,17 +1,17 @@
 # Engineering Agent Core — Forensic Audit Follow-up
 
 - **تاريخ المراجعة:** 2026-10-06
-- **النطاق:** تحديث code-first للتقرير المؤرخ 2026-10-05؛ مراجعة ساكنة لمسار ordered-root forensic scope، مع تصحيح حالة بوابة المراحل.
-- **التغييرات:** توثيق فقط. لا تغييرات تطبيق أو schema أو صلاحيات.
-- **حدّ التحقق:** لم تُشغّل اختبارات أو builds أو workflows أو استعلامات DB في هذه المراجعة. نتائج الاختبارات الواردة في السجلات الأقدم تظل تاريخية ومحدودة بنطاقها.
+- **النطاق:** تحديث code-first للتقرير المؤرخ 2026-10-05، ثم متابعة تنفيذية ضيقة ضمن E2 لمسار ordered-root forensic scope.
+- **التغييرات:** حارس نطاق على أدوات القراءة ذات المسار واختبارات عدائية؛ لا تغييرات schema أو DB أو صلاحيات عامة.
+- **حدّ التحقق:** اجتازت 3 مجموعات اختبار مركّزة 249/249 مع مهلة 20 ثانية؛ اجتاز typecheck و`git diff --check`. لم يُختبر provider حي أو API/workflow أو قاعدة بيانات.
 - **التقرير السابق:** `docs/agent-core-four-agent-forensic-audit-2026-10-05.md` محفوظ كسجل تاريخي؛ هذا الملحق هو مرجع الحالة الحالية.
 - **الحكم:** `NOT READY`. النسب العامة للطبقات الأربع `UNKNOWN` لعدم وجود مقام موثوق.
 
 ## 1. Executive Summary
 
-أُعيد تتبع مسار الأدوات في نمط التدقيق ذي الجذور المرتبة. قائمة الأدوات المكشوفة للدورة يمكن أن تقتصر على `read_file` و`list_directory`، بينما يبقى `toolManifest` الكامل متاحًا لتطبيع استجابة مزود متأخرة. فحص ordered-root يطبق على `read_file` و`list_directory` ولا يشمل `search_code`. إذا لم يفرض `allowedToolNames` أو `phase` قيدًا إضافيًا، فقد تُقبل استجابة قديمة لـ`search_code` وتصل إلى التنفيذ خارج الجذور الفرعية المطلوبة، مع بقائها داخل جذر المشروع.
+أثبت الاختبار العدائي أن استدعاء `search_code` قديمًا يمكن تطبيعه عبر `toolManifest` الأوسع عند غياب `allowedToolNames` و`phase`. أُصلح dispatcher بحيث يطبق ordered-root على `read_file` و`read_file_range` و`list_directory` و`search_code`، ويرفض المسارات المطلقة وأي مسار يحتوي `..` قبل تشغيل file runner. كما يتحقق من المسار بعد حلّه عبر filesystem، فيرفض رابطًا رمزيًا إذا خرج هدفه عن الجذر المطابق للطلب، حتى لو وصل إلى جذر آخر لاحق في القائمة. الاختبارات تؤكد أن هذه الحالات لا تصل إلى runner ولا تنتج source read مكتمل.
 
-هذه نتيجة تتبع ساكن، وليست تجربة runtime أو إثباتًا أن كل طلب يصل إلى هذا المسار. حدود project-root وأي `objectiveScopePolicy` نشطة تبقى ضوابط مستقلة؛ لا يثبت هذا التقرير تجاوز جذر المشروع أو تجاوز كل سياسة نطاق.
+يظل `toolManifest` الكامل مستخدمًا لتطبيع الاستدعاءات؛ لم يُفرض تقاطع عام مع أدوات الدورة الظاهرة لأن استدعاءات `read_file_range` المخفية قد تكون لازمة لاستعادة الدليل الكامل من ملف كبير. بدلًا من ذلك، يطبق dispatcher حد الجذور على كل أدوات القراءة ذات المسار. الاختبارات حتمية وعلى مستوى الوحدة، وليست تجربة API أو provider حي. حدود project-root وأي `objectiveScopePolicy` نشطة تبقى ضوابط مستقلة؛ لا يثبت هذا التقرير تجاوز جذر المشروع أو تجاوز كل سياسة نطاق.
 
 **قرار المراحل:** E2 ما زالت نشطة على مستوى البوابة. إغلاق invariant محدود في World State لا يغلق E2 كاملة. لا يبدأ E3 ولا Learning / Transfer / Generalization قبل اجتياز بوابة E2 صراحةً. يبقى E3.2 replay safety مفتوحًا. النسب العامة `UNKNOWN`؛ لا تُستخدم نسبة `14/19`.
 
@@ -19,30 +19,30 @@
 
 | الطبقة | الحالة | ما يدعمه الفحص الحالي | ما لا يثبته |
 |---|---|---|---|
-| Reliable Tool Agent | `PARTIAL`؛ النسبة `UNKNOWN` | حدود package الحالية واختبارات الأدوات الموثقة في السجل؛ اكتشاف فجوة ordered-root الخاصة بـ`search_code` ساكنًا | إغلاق كل ingress أو runners أو نطاق/إلغاء/وقت/خرج/Episode؛ لم يُختبر المسار المكتشف |
+| Reliable Tool Agent | `PARTIAL`؛ النسبة `UNKNOWN` | اختبارا ordered-root العدائيان وtypecheck؛ رفض `search_code` خارج النطاق قبل runner | إغلاق كل ingress أو runners أو نطاق/إلغاء/وقت/خرج/Episode؛ لا اختبار API أو provider حي |
 | Reliable Execution Agent | `PARTIAL`؛ النسبة `UNKNOWN` | اختبارات recovery وroute محدودة موثقة سابقًا، ومنها Apply windows ومسارات analyze/review | lifecycle موحد وتعافٍ بعد crash لكل mutation surface؛ لم تُعد هذه الاختبارات هنا |
 | Evidence-grounded Agent | `PARTIAL`؛ النسبة `UNKNOWN` | Canonical Proof لمسارات محددة | توحيد كل producers/consumers أو إغلاق replay safety؛ E3 لم يبدأ |
 | Closed-loop World Agent | `PARTIAL / UNKNOWN` | انتقالات World State محددة ومربوطة بملاحظات في مسارات معروفة | تغطية كل التغييرات أو إثبات أن fact يغير قرار planner |
 
 ## 3. Reliable Tool Agent
 
-### نتيجة ordered-root scope
+### نتيجة ordered-root scope والمتابعة
 
-1. في `tool-execution-engine.ts:5126-5131`، تضيق `iterationTools` الأدوات الظاهرة للدورة؛ وقد تقتصر على `read_file` و`list_directory`.
-2. عند بقاء أدوات مكشوفة، يمرر المسار `toolManifest` الكامل لتطبيع استجابة قديمة (`tool-execution-engine.ts:5133-5149`).
-3. `normalizeProviderToolCalls` يفضّل `toolManifest` على قائمة `tools` الأضيق عند التحقق من اسم الأداة (`provider-tool-calls.ts:41-65,173-179`).
-4. `allowedTools` مشتق من `allowedToolNames` و/أو `phase` (`tool-execution-engine.ts:4102-4113`). عند غياب كليهما تكون قيمته `null`؛ وفحصها لا يمنع registered tool لمجرد عدم إدراجه في القائمة الظاهرة (`tool-execution-engine.ts:6609-6625`; `tool-policy.ts:181-200`).
-5. فحص ordered-root يطبق على `read_file` و`list_directory` فقط، ولا يشمل `search_code` (`tool-execution-engine.ts:6719-6738`).
+1. قد تضيق الأدوات الظاهرة للدورة إلى `read_file` و`list_directory`، بينما يبقى `toolManifest` الكامل مستخدمًا لتطبيع استجابة مزود قديمة.
+2. عند غياب `allowedToolNames` و`phase` لا يمنع `allowedTools` registered tool لمجرد عدم ظهوره في الدورة؛ هذا السلوك مقصود لدعم manifest كامل مصرح به واسترجاع القراءة الجزئية.
+3. كان ordered-root يقتصر على `read_file` و`list_directory`. أصبح يطبق على `read_file` و`read_file_range` و`list_directory` و`search_code`.
+4. تطبيع هدف الجذر يرفض المسارات المطلقة ومقاطع `..`، فلا يقبل alias مثل `src/allowed/../private` لمجرد أن بدايته النصية تطابق الجذر المسموح.
+5. فحص المسار المحلول قبل dispatcher يشترط بقاء المسار في الجذر المطابق نفسه؛ لا يكفي أن ينتهي symlink في أي جذر آخر بالقائمة.
 
-**الأثر المحدود:** قد يُنفّذ `search_code` على مسار داخل المشروع لكنه خارج الجذور الفرعية المطلوبة، إذا وصل استدعاء قديم صالح وفق `toolManifest` ولم توجد سياسة أضيق فعالة. يبقى فحص `objectiveScopePolicy` مسارًا منفصلًا عندما يكون مفعّلًا، كما تبقى حماية جذر المشروع في أدوات الملفات. لا نسجل هذا كـproject-root escape أو كـruntime exploit مثبت.
+**الأثر المحدود:** الاستدعاء القديم خارج الجذور الفرعية المطلوبة يُرفض عند حد dispatcher قبل التنفيذ، مع عدم تسجيله كقراءة مكتملة. يبقى فحص `objectiveScopePolicy` مسارًا منفصلًا عندما يكون مفعّلًا، كما تبقى حماية جذر المشروع في أدوات الملفات. لا نسجل هذا كـproject-root escape أو كـruntime exploit.
 
-**تصنيف الدليل:** `STATICALLY CONFIRMED`; `RUNTIME-TESTED: NO`. لا توجد في هذه الجولة إعادة تشغيل للاختبارات أو تجربة للاستدعاء القديم.
+**تصنيف الدليل:** فجوة التنفيذ كانت مؤكدة ساكنًا؛ الإصلاح واجتياز المسارات العدائية مثبتان باختبارات وحدة: 249/249 عبر 3 ملفات مع `--testTimeout=20000`. اجتاز typecheck و`git diff --check`. `LIVE API/PROVIDER: NOT TESTED`.
 
-### موضع الإصلاح/الاختبار المقترح ضمن E2
+### الإصلاح والتحقق ضمن E2
 
-- اجعل قرار التنفيذ يفرض manifest مخولًا وفعليًا واحدًا بعد كل narrowing، لا manifest أوسع مخصصًا لتطبيع الاستجابة القديمة.
-- أضف اختبارًا عدائيًا لحالة ordered-roots مع استدعاء `search_code` قديم خارج الجذور، واختبارًا عندما تكون `allowedToolNames` غائبة؛ يجب رفضه قبل تشغيل executor وعدم تسجيله كقراءة مكتملة.
-- اختبر أن سياسة objective scope الفعالة لا تتسع بسبب fallback إلى manifest كامل.
+- يبقى manifest الكامل لتطبيع الاستجابة القديمة؛ يفرض dispatcher ordered-root على جميع أدوات القراءة ذات المسار بدل تقاطع عام مع قائمة العرض.
+- الاختبار العدائي يمرر استدعاء `search_code` خارج الجذر عبر manifest كامل مع غياب `allowedToolNames` و`phase`، ويتحقق من عدم تشغيل runner أو إضافة مسار إلى `toolSources`.
+- اختبارات إضافية تغطي `read_file_range` و`read_file` و`list_directory` و`search_code` خارج الجذر، ومسارات `..`، وsymlink داخل الجذر يشير إلى مصدر خاص، مع تأكيد أن البحث داخل الجذر يظل مسموحًا.
 - لا تعتبر إصلاح فجوة الأداة وحده إغلاقًا لـE2 أو Reliable Tool Agent.
 
 ## 4. Reliable Execution Agent
@@ -63,23 +63,23 @@
 
 حدود سلسلة ordered forensic scope الحالية:
 
-`root request → iteration tool exposure → provider response normalization → server allow-list → ordered-root check → file-tool project-root boundary`
+`root request → iteration tool exposure → provider response normalization → lexical + resolved ordered-root checks → file-tool project-root boundary`
 
-الفجوة الموثقة تقع بين تطبيع الاستجابة والتحقق من scope: قد تستخدم الأولى manifest أوسع من الأدوات الظاهرة، بينما لا يطبق فحص ordered-root على `search_code`. `objectiveScopePolicy` له فحص منفصل مشروط بوجوده (`tool-execution-engine.ts:6628-6686`)، وأداة البحث تعمل من file tools (`file-tools.ts:1473` وما بعدها). المطلوب إثبات رفض الاستدعاء قبل التنفيذ وعلى حدود النطاق المحددة؛ لا يوجد هنا دليل على قراءة خارج project root أو قبول إثبات ملوث.
+قد تظل الاستجابة الأقدم معتمدة على `toolManifest` الأوسع، لكن dispatcher يطبق حد الجذور قبل أي تنفيذ لأدوات القراءة ذات المسار. `objectiveScopePolicy` له فحص منفصل مشروط بوجوده، وأداة البحث تعمل من file tools. اختبارات الوحدة تثبت الرفض على النطاق المطلوب فقط؛ لا تثبت تغطية كل ingress أو قراءة خارج project root أو قبول إثبات ملوث.
 
 ## 8. False Confidence Risks
 
 - نجاح E1 package-boundary على مصادر محددة لا يعني أن كل مسار أداة يلتزم بالجذور الفرعية المطلوبة.
-- لا تُحوّل نتيجة تتبع ساكن إلى ادعاء runtime exploit؛ المسار لم يُختبر.
-- لا تخلط بين `toolManifest` الكامل والتعرض الفعلي للأداة؛ الأول قد يقبل استدعاءً غير موجود في `iterationTools`.
+- لا تُحوّل اختبار الوحدة إلى ادعاء اختبار API/provider حي أو إثبات exploit إنتاجي؛ التحقق الحالي محصور في الاختبارات المركّزة.
+- لا تخلط بين `toolManifest` الكامل والتعرض الفعلي للأداة؛ قبول استدعاء قديم بالتطبيع لا يتجاوز dispatcher scope. ولا تحذف full-manifest semantics لأن range reads قد تكون لازمة لاستعادة الدليل.
 - إغلاق invariant World State محدود لا يعني إغلاق E2 كاملة.
 - تدقيق E3 المؤرخ 2026-10-05 سجل تاريخي، وليس تصريحًا ببدء E3.
 - أرقام الاختبارات السابقة لا تنتج نسبة عامة؛ جميع نسب الطبقات الأربع `UNKNOWN`.
 
 ## 9. Exact Implementation Roadmap
 
-1. **E2 فقط:** أضف الاختبار العدائي لـordered-root/`search_code`، ثم اجعل authorization بعد normalization يطبق مجموعة الأدوات المسموح بها في التنفيذ الحالي. لا توسّع الصلاحية اعتمادًا على نص المزود أو manifest أقدم.
-2. افحص الاستدعاءات المتأخرة/المكررة بعد تضييق iteration tools، وتحقق أن الأداة غير المعروضة تُرفض قبل runner وتبقى غير مكتملة في lifecycle.
+1. **مكتمل ضمن هذا المسار فقط:** اختبار ordered-root/`search_code` العدائي وحارس كل أدوات القراءة ذات المسار؛ لا توسّع الصلاحية اعتمادًا على نص المزود.
+2. **مفتوح ضمن E2:** استكمل فحص بقية الاستدعاءات المتأخرة/المكررة والأسطح التي لا يحكمها path-based ordered-root.
 3. استكمل جرد E2 لبقية أسطح التنفيذ وcrash/recovery. نتيجة هذا المسار الواحد لا تغلق E2.
 4. أعد تدقيق بوابة E2 صراحةً بعد معالجة فجواتها. لا تبدأ E3 أو تعِد تشغيل Strategy Replay receipts قبل اجتياز هذه البوابة.
 5. أبقِ E4.1 `OPEN / NOT PASS` حتى تأهيل مصدر مستقل وإغلاق بقية شروطها؛ لا تستنتج جمعًا أو تقييمًا أو ترقية من نتيجة inventory.

@@ -117,6 +117,14 @@
 
 - فحص ساكن لمسار ordered-root في `tool-execution-engine.ts` وجد أن فحص الجذر يطبق على `read_file` و`list_directory`، لا `search_code`. وفي الوقت نفسه قد يمرر المسار `toolManifest` الكامل لتطبيع استجابة مزود قديمة بعد أن ضُيّقت أدوات iteration إلى `read_file` و`list_directory`.
 - عند غياب `allowedToolNames` و`phase` إضافيين، لا يرفض `allowedTools` استدعاء `search_code` لمجرد أنه غير موجود في قائمة iteration؛ لذلك قد يبحث ضمن جذر المشروع خارج الجذور الفرعية المحددة. تبقى حماية project-root وأي `objectiveScopePolicy` نشطة ضوابط مستقلة؛ لم يثبت تجاوز project-root.
-- **التصنيف:** فجوة scope محتملة مؤكدة بتتبع الكود؛ لم تُجرَ تجربة runtime أو اختبار عدائي لهذا المسار في مراجعة 2026-10-06.
+- **التصنيف في المراجعة الأولية:** فجوة scope مؤكدة بتتبع الكود؛ لم يُجر اختبار عدائي في تلك الجولة.
 - **الأثر على الحالة:** Reliable Tool Agent يظل `PARTIAL / UNDER VERIFICATION`، والنسب العامة `UNKNOWN`. لا تُعد فجوة الأداة وحدها إغلاقًا أو فتحًا لبوابة E2؛ ترتيب المشروع الحالي يبقي E2 نشطة ولا يسمح ببدء E3.
-- **المتابعة المحددة:** أضف اختبارًا لاستدعاء `search_code` قديم خارج ordered roots بعد تضييق الأدوات، بما يشمل غياب `allowedToolNames`، وتحقق من رفضه قبل تشغيل runner وعدم تسجيل قراءة مكتملة. المرجع الكامل: `docs/agent-core-four-agent-forensic-audit-2026-10-06.md`.
+- **المتابعة:** أُنجز الاختبار والإصلاح المحدود في متابعة 2026-10-06 أدناه؛ المرجع الكامل: `docs/agent-core-four-agent-forensic-audit-2026-10-06.md`.
+
+### إصلاح ordered-root لقراءات الملفات (2026-10-06)
+
+- حارس dispatcher يطبق الآن على `read_file` و`read_file_range` و`list_directory` و`search_code`. يرفض الهدف المطلق أو المحتوي على `..` قبل استدعاء file runner، ويتحقق أيضًا من المسار بعد حل الروابط الرمزية.
+- اختبار عدائي يمرر `search_code` قديمًا خارج الجذر عبر `toolManifest` كامل مع غياب `allowedToolNames` و`phase`؛ يثبت عدم تشغيل runner وعدم إضافة المسار إلى `toolSources`. تغطي اختبارات أخرى traversal aliases وsymlink يشير إلى جذر فرعي خاص والقراءة الجزئية، وتؤكد السماح بالبحث داخل الجذر.
+- بقي تطبيع الاستجابة معتمدًا على manifest الكامل؛ لم يُفرض تقاطع عام مع القائمة الظاهرة لأن استعادة القراءة الجزئية قد تحتاج `read_file_range`.
+- **التحقق:** ثلاث مجموعات الاختبار المركّزة 249/249 مع `--testTimeout=20000`؛ typecheck و`git diff --check` ناجحان. اختبار الخمسة ملفات تجاوز مهلة Vitest الافتراضية ذات 5 ثوانٍ (استغرق 5.37 ثانية) ثم نجح مع المهلة الموسعة. لم يُختبر API أو provider حي أو DB أو workflow.
+- **الحالة:** الإصلاح واختباره محدودان إلى هذا المسار؛ Reliable Tool Agent يظل `PARTIAL / UNDER VERIFICATION` وE2 تظل مفتوحة.

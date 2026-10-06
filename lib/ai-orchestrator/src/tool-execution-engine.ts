@@ -48,6 +48,7 @@ import {
 import {
   FILE_TOOL_DEFINITIONS,
   executeFileTool,
+  isResolvedPathWithinOrderedForensicRoot,
   stripReadFileWrapper,
 } from "./tools/file-tools.js";
 import {
@@ -4266,19 +4267,37 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const orderedRoots = (orderedForensicRoots ?? []).map((value) =>
     value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, ""),
   );
+  const normalizeOrderedRootPath = (value: string): string | null => {
+    const normalized = value.replaceAll("\\", "/");
+    if (
+      normalized.includes("\0") ||
+      normalized.startsWith("/") ||
+      /^[a-zA-Z]:/.test(normalized) ||
+      normalized.split("/").includes("..")
+    ) {
+      return null;
+    }
+    return normalized
+      .split("/")
+      .filter((segment) => segment && segment !== ".")
+      .join("/");
+  };
+  const normalizedOrderedRoots = orderedRoots.map(normalizeOrderedRootPath);
+  const orderedRootsValid = normalizedOrderedRoots.every((root) => root !== null);
   let highestOrderedRoot = -1;
 
   const rootIndexForPath = (value: string): number => {
-    const normalized = value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+    const normalized = normalizeOrderedRootPath(value);
+    if (!orderedRootsValid || normalized === null) return -1;
     // "." is the explicit project-root scope. Normalization above removes the
     // dot, so it becomes an empty root and must admit every project-relative
     // path; otherwise automatic broad-audit bootstrap would pre-read files but
     // then reject the same paths in the model tool loop.
-    return orderedRoots.findIndex((root) =>
-      root === "" ||
-      root === "." ||
-      normalized === root ||
-      normalized.startsWith(`${root}/`),
+    return normalizedOrderedRoots.findIndex((root) =>
+      root !== null &&
+      (root === "" ||
+        normalized === root ||
+        normalized.startsWith(`${root}/`)),
     );
   };
 
@@ -6716,10 +6735,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         continue;
       }
 
-      if (orderedRoots.length > 0 && (tc.function.name === "read_file" || tc.function.name === "list_directory")) {
+      if (
+        orderedRoots.length > 0 &&
+        (
+          tc.function.name === "read_file" ||
+          tc.function.name === "read_file_range" ||
+          tc.function.name === "list_directory" ||
+          tc.function.name === "search_code"
+        )
+      ) {
         const requestedPath = typeof args.path === "string" && args.path.trim() ? args.path : ".";
         const requestedRoot = rootIndexForPath(requestedPath);
-        if (requestedRoot < 0) {
+        const resolvedPathWithinRoots = requestedRoot >= 0
+          ? await isResolvedPathWithinOrderedForensicRoot(
+              rootPath,
+              requestedPath,
+              orderedRoots,
+              requestedRoot,
+            )
+          : false;
+        if (requestedRoot < 0 || !resolvedPathWithinRoots) {
           if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
           messages.push({
             role: "tool",
