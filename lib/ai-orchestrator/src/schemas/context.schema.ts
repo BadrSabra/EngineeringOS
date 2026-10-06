@@ -69,6 +69,21 @@ const AgentContextBaseSchema = z
     latestMetrics: z.string().min(1),
     /** Bounded, allowlisted evidence from the latest durable scan result. */
     latestScanEvidence: z.string().min(1).optional(),
+    /** Identity and content digests for the exact durable scan result loaded into this context. */
+    scanEvidenceBinding: z.object({
+      scanJobId: z.string().min(1),
+      scanStatus: z.enum(["queued", "running", "completed", "failed"]),
+      workspaceRevision: z.string().min(1),
+      scanRevision: z.string().min(1).nullable(),
+      revisionMatchesContext: z.boolean(),
+      scanCompleteness: z.string().nullable(),
+      scanVerified: z.boolean(),
+      resultDigestAlgorithm: z.literal("sha256-json-v1"),
+      resultDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      summaryDigest: z.string().regex(/^[a-f0-9]{64}$/),
+      createdAt: z.string().datetime(),
+      finishedAt: z.string().datetime().nullable(),
+    }).strict().optional(),
     graphSummary: z.string().min(1),
     recentEvents: z.string().min(1),
     workflows: z.string().min(1),

@@ -239,7 +239,11 @@ export type StructuredExecution = {
     errorMessage?: string;
     toolTrace?: string;
   }) => Promise<string>;
-  complete: (params: { messageId: string; content: string }) => Promise<boolean>;
+  complete: (params: {
+    messageId: string;
+    content: string;
+    disposition?: Record<string, unknown>;
+  }) => Promise<boolean>;
   fail: (params: {
     messageId: string;
     error: string;
@@ -537,7 +541,11 @@ export async function startStructuredExecution(params: {
       && current.leaseUntil > new Date();
   };
 
-  const complete = async (message: { messageId: string; content: string }) => {
+  const complete = async (message: {
+    messageId: string;
+    content: string;
+    disposition?: Record<string, unknown>;
+  }) => {
     await checkpoint("finalizing", "Persisting structured result");
     terminal = true;
     cleanup();
@@ -549,6 +557,7 @@ export async function startStructuredExecution(params: {
         finalMessageId: message.messageId,
         finalMessageContent: message.content,
         proofRequired: false,
+        disposition: message.disposition,
       });
     } catch (error) {
       const failureRecorded = await failAiExecution({

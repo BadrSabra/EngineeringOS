@@ -2992,6 +2992,7 @@ export async function completeAiExecution(params: {
   finalMessageId?: string | null;
   finalMessageContent?: string;
   proposalId?: string;
+  disposition?: Record<string, unknown>;
   operation?: AutonomousOperationContract;
   taskObjective?: TaskObjectiveContract;
   validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
@@ -3403,6 +3404,7 @@ export async function completeAiExecution(params: {
     goalProjection: params.goalProjection,
     effectRequired: params.effectRequired,
     effectBundleId: params.effectBundleId,
+    disposition: params.disposition,
     taskObjective,
     taskObjectiveStatus: params.objectiveValidated ? "PROVEN" : "INCOMPLETE",
     checkpoint: JSON.stringify(checkpointEnvelope),

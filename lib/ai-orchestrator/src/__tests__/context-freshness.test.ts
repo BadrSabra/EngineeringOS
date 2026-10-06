@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { compactGraphSummary, compactWorkflowSummary, estimateContextSize, trimContextToFit } from "../context-compressor.js";
 import { applyLifetime } from "../context-runtime/context-lifetime.js";
@@ -264,6 +265,45 @@ describe("context freshness and structural size controls", () => {
     }));
     expect(empty.graphSummary).not.toContain("Graph index from scan revision:");
     expect(empty.graphSummary).not.toContain("pre-extracted index");
+  });
+
+  it("binds the scan result and prompt summary to the workspace revision", () => {
+    const scanResult = {
+      projectRevision: "scan-revision-1",
+      scanCompleteness: "COMPLETE",
+      summary: "Fixture scan summary",
+    };
+    const scanCreatedAt = new Date("2026-10-01T00:00:00.000Z");
+    const context = buildProjectContextFromLoadedContext(makeLoadedContext({
+      latestScanJob: {
+        id: "scan-job-1",
+        status: "completed",
+        error: null,
+        result: scanResult,
+        createdAt: scanCreatedAt,
+        finishedAt: scanCreatedAt,
+      },
+    }));
+    const binding = context.scanEvidenceBinding;
+
+    expect(binding).toMatchObject({
+      scanJobId: "scan-job-1",
+      scanStatus: "completed",
+      workspaceRevision: "scan-revision-1",
+      scanRevision: "scan-revision-1",
+      revisionMatchesContext: true,
+      scanCompleteness: "COMPLETE",
+      scanVerified: true,
+      resultDigestAlgorithm: "sha256-json-v1",
+      createdAt: scanCreatedAt.toISOString(),
+      finishedAt: scanCreatedAt.toISOString(),
+    });
+    expect(binding?.resultDigest).toBe(
+      createHash("sha256").update(JSON.stringify(scanResult)).digest("hex"),
+    );
+    expect(binding?.summaryDigest).toBe(
+      createHash("sha256").update(context.latestScanEvidence ?? "").digest("hex"),
+    );
   });
 
   it("retains workflow phases before generic truncation", () => {

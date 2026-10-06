@@ -9,6 +9,7 @@
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
 - [Discovery lease ownership](discovery-lease-ownership.md) — every discovery progress and terminal write must remain fenced by the current worker lease.
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
+- [Scan evidence acceptance binding](scan-evidence-acceptance-binding.md) — bind both the loaded scan result and its exact model-facing summary to the analysis acceptance; this is provenance, not proof.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
 - [E1–E8 stage gates](e1-e8-gates.md) — keep E2 active; do not begin later stages or rerun Strategy Replay receipts before explicit E2 closure.
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.

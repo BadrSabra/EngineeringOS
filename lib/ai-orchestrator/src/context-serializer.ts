@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
 import type {
   LoadedProjectContext,
@@ -450,15 +451,54 @@ function buildWorldStateSummary(loaded: LoadedProjectContext): string {
   return lines.join("\n");
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function buildScanEvidenceBinding(
+  loaded: LoadedProjectContext,
+  summary: string,
+): NonNullable<ProjectContext["scanEvidenceBinding"]> | undefined {
+  const scan = loaded.latestScanJob;
+  if (!scan) return undefined;
+
+  const result = scan.result ?? {};
+  const scanRevision = typeof result.projectRevision === "string"
+    ? result.projectRevision
+    : null;
+  const scanCompleteness = typeof result.scanCompleteness === "string"
+    ? result.scanCompleteness
+    : null;
+
+  return {
+    scanJobId: scan.id,
+    scanStatus: scan.status,
+    workspaceRevision: loaded.contextManifest.projectRevision,
+    scanRevision,
+    revisionMatchesContext: scanRevision !== null
+      && scanRevision === loaded.contextManifest.projectRevision,
+    scanCompleteness,
+    scanVerified: loaded.scanVerified,
+    resultDigestAlgorithm: "sha256-json-v1",
+    resultDigest: sha256(JSON.stringify(scan.result ?? null) ?? "null"),
+    summaryDigest: sha256(summary),
+    createdAt: scan.createdAt.toISOString(),
+    finishedAt: scan.finishedAt?.toISOString() ?? null,
+  };
+}
+
 export function buildProjectContextFromLoadedContext(
   loaded: LoadedProjectContext,
 ): ProjectContext {
+  const latestScanEvidence = buildScanEvidenceSummary(loaded);
+  const scanEvidenceBinding = buildScanEvidenceBinding(loaded, latestScanEvidence);
   return {
     project: buildProjectSummary(loaded),
     workflows: buildWorkflowSummary(loaded),
     recentTasks: buildTaskSummary(loaded),
     latestMetrics: buildMetricsSummary(loaded),
-    latestScanEvidence: buildScanEvidenceSummary(loaded),
+    latestScanEvidence,
+    ...(scanEvidenceBinding ? { scanEvidenceBinding } : {}),
     graphSummary: buildGraphSummary(loaded, loaded.contextManifest.projectRevision),
     recentEvents: buildEventSummary(loaded),
     worldState: buildWorldStateSummary(loaded),

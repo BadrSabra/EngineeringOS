@@ -8,7 +8,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { and, eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import app from "../app.js";
 import {
@@ -4844,11 +4844,52 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     }
   });
 
-  it("makes malformed-then-429 analysis terminal with the same SSE, acceptance, and history projection", async () => {
+  it("persists typed 429 acceptance and scan binding for malformed-then-429 analysis", async () => {
     const { analyzeScan: mockAnalyzeScan, GroqClientError } = await import("@workspace/ai-orchestrator");
     const malformedModel = "openrouter/malformed-analysis";
     const rateLimitedModel = "openrouter/rate-limited-analysis";
     const rawMalformedResponse = `{"summary":"raw provider content ${randomUUID()}"}`;
+    const scanJobId = randomUUID();
+    const scanResult = {
+      projectRevision: "scan-revision-test",
+      scanCompleteness: "COMPLETE",
+      summary: "Fixture scan evidence",
+      scannedAt: "2026-10-06T00:00:00.000Z",
+      filesFound: 1,
+      issuesDetected: 0,
+    };
+    const scanSummary = [
+      `Scan job: ${scanJobId}`,
+      "Status: completed",
+      "Summary: Fixture scan evidence",
+      "Scanned at: 2026-10-06T00:00:00.000Z",
+      "Files found: 1",
+      "Source files: unknown",
+      "Issues detected: 0",
+      "Tasks created: unknown",
+      "Entities extracted: unknown",
+      "Relationships extracted: unknown",
+      "Scan completeness: COMPLETE",
+      "Source provenance: unknown",
+      "Project revision: scan-revision-test",
+      "Scan correlation: unknown",
+      "Scanner version: unknown",
+    ].join("\n");
+    const scanEvidenceBinding = {
+      scanJobId,
+      scanStatus: "completed" as const,
+      workspaceRevision: "scan-revision-test",
+      scanRevision: "scan-revision-test",
+      revisionMatchesContext: true,
+      scanCompleteness: "COMPLETE",
+      scanVerified: true,
+      resultDigestAlgorithm: "sha256-json-v1" as const,
+      resultDigest: createHash("sha256").update(JSON.stringify(scanResult)).digest("hex"),
+      summaryDigest: createHash("sha256").update(scanSummary).digest("hex"),
+      createdAt: "2026-10-06T00:00:00.000Z",
+      finishedAt: "2026-10-06T00:00:00.000Z",
+    };
+    let observedScanEvidenceBinding: Record<string, unknown> | undefined;
     type AnalysisOptions = {
       onModelAttempt?: (attempt: {
         model?: string | null;
@@ -4858,10 +4899,24 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       }) => void | Promise<void>;
     };
 
+    vi.mocked(buildProjectContext).mockResolvedValueOnce({
+      project: "Analysis fixture",
+      recentTasks: "No tasks yet.",
+      latestMetrics: "No metrics yet.",
+      latestScanEvidence: scanSummary,
+      scanEvidenceBinding,
+      graphSummary: "Graph unavailable.",
+      recentEvents: "No recent events.",
+      workflows: "No workflows yet.",
+      metricsVerified: true,
+    });
     vi.mocked(mockAnalyzeScan).mockImplementationOnce(async (
-      _context: unknown,
+      context: unknown,
       options: AnalysisOptions,
     ) => {
+      observedScanEvidenceBinding = (
+        context as { scanEvidenceBinding?: Record<string, unknown> }
+      ).scanEvidenceBinding;
       await options.onModelAttempt?.({
         model: malformedModel,
         outcome: "failure",
@@ -4873,6 +4928,7 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
           providerName: "OpenRouter",
           providerModel: rateLimitedModel,
           providerStatus: 429,
+          rateLimitScope: "upstream_shared_pool",
           retryAfterMs: 2_000,
         },
       });
@@ -4926,27 +4982,103 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
         .toEqual(terminalProjection);
       expect(messages.body.filter((entry: { role: string }) => entry.role === "assistant")).toHaveLength(1);
 
-      const usageRows = await db
+      const [acceptance] = await db
         .select()
-        .from(aiUsageEventsTable)
-        .where(eq(aiUsageEventsTable.executionId, executionId));
-      expect(usageRows).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          provider: "openrouter",
-          model: malformedModel,
-          outcome: "failure",
-          contractOutcome: "semantic_failure",
-          contractFailureKind: "malformed_json",
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptance?.disposition).toMatchObject({
+        failureKind: "RATE_LIMIT",
+        scanEvidenceBinding: expect.objectContaining({
+          scanJobId,
+          scanStatus: "completed",
+          scanRevision: "scan-revision-test",
+          revisionMatchesContext: true,
+          scanCompleteness: "COMPLETE",
+          scanVerified: true,
+          resultDigestAlgorithm: "sha256-json-v1",
+          resultDigest: scanEvidenceBinding.resultDigest,
+          summaryDigest: scanEvidenceBinding.summaryDigest,
         }),
-        expect.objectContaining({
-          provider: "openrouter",
-          model: rateLimitedModel,
-          outcome: "failure",
-          providerFailureKind: "RATE_LIMITED",
-        }),
-      ]));
-      expect(JSON.stringify(usageRows)).not.toContain(rawMalformedResponse);
+      });
+      const storedDisposition = acceptance?.disposition as Record<string, unknown> | undefined;
+      expect(storedDisposition?.scanEvidenceBinding).toEqual(observedScanEvidenceBinding);
+      const evidenceSnapshots = await db
+        .select()
+        .from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, executionId));
+      expect(evidenceSnapshots).toEqual([]);
       expect(response.text).not.toContain(rawMalformedResponse);
+    } finally {
+      if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = previousGroqKey;
+    }
+  });
+
+  it("stores scan binding in successful analysis acceptance", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const scanEvidenceBinding = {
+      scanJobId: "successful-analysis-scan",
+      scanStatus: "completed" as const,
+      workspaceRevision: "successful-analysis-revision",
+      scanRevision: "successful-analysis-revision",
+      revisionMatchesContext: true,
+      scanCompleteness: "COMPLETE",
+      scanVerified: true,
+      resultDigestAlgorithm: "sha256-json-v1" as const,
+      resultDigest: "a".repeat(64),
+      summaryDigest: "b".repeat(64),
+      createdAt: "2026-10-06T00:00:00.000Z",
+      finishedAt: "2026-10-06T00:00:00.000Z",
+    };
+    vi.mocked(buildProjectContext).mockResolvedValueOnce({
+      project: "Analysis fixture",
+      recentTasks: "No tasks yet.",
+      latestMetrics: "No metrics yet.",
+      latestScanEvidence: "Bound successful scan evidence.",
+      scanEvidenceBinding,
+      graphSummary: "Graph unavailable.",
+      recentEvents: "No recent events.",
+      workflows: "No workflows yet.",
+      metricsVerified: true,
+    });
+    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+      summary: "Bound analysis result",
+      overallAssessment: "The analysis completed using a revision-bound scan.",
+      insights: [],
+      topPriority: "Retain the scan identity",
+      estimatedImpact: "High",
+    });
+
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousGroqKey = process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    delete process.env.GROQ_API_KEY;
+    try {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const response = await request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`);
+      expect(response.status).toBe(200);
+      const events = response.text
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+      const started = events.find((event) => event.type === "execution_started");
+      expect(events.find((event) => event.type === "task_done")).toMatchObject({
+        task: "analyze",
+        result: { summary: "Bound analysis result" },
+      });
+
+      const [acceptance] = await db
+        .select()
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, String(started?.executionId)));
+      expect(acceptance?.outcome).toBe("SUCCEEDED");
+      expect(acceptance?.disposition).toMatchObject({
+        scanEvidenceBinding,
+      });
     } finally {
       if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;

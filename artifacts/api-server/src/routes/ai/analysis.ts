@@ -530,10 +530,11 @@ async function persistStructuredExecutionFailure(params: {
   execution: StructuredExecution;
   task: StructuredTask;
   details: ReturnType<typeof structuredFailureDetails>;
+  scanEvidenceBinding?: Record<string, unknown>;
   emit: (event: StructuredTaskEvent) => void;
   close: () => void;
 }): Promise<void> {
-  const { execution, task, details, emit, close } = params;
+  const { execution, task, details, scanEvidenceBinding, emit, close } = params;
   execution.cleanup();
   const cancelled = await execution.isCancellationRequested();
   const effectiveDetails = cancelled
@@ -597,7 +598,9 @@ async function persistStructuredExecutionFailure(params: {
         failureKind: effectiveDetails.failureKind,
         ...(effectiveDetails.parseCode ? { parseCode: effectiveDetails.parseCode } : {}),
         retryable: effectiveDetails.retryable,
-      }]),
+      }, ...(scanEvidenceBinding
+        ? [{ kind: "scan_evidence_binding", ...scanEvidenceBinding }]
+        : [])]),
     });
   } catch (error) {
     if ((error as { code?: unknown })?.code !== "EXECUTION_OWNERSHIP_LOST") throw error;
@@ -620,9 +623,11 @@ async function persistStructuredExecutionFailure(params: {
     providerAttempts: effectiveDetails.providerAttempts,
     retryAfterMs,
     retryAt,
-    disposition: retryAfterSource
-      ? { retryAfterSource }
-      : undefined,
+    disposition: {
+      failureKind: effectiveDetails.failureKind,
+      ...(retryAfterSource ? { retryAfterSource } : {}),
+      ...(scanEvidenceBinding ? { scanEvidenceBinding } : {}),
+    },
   });
   if (!accepted && !effectiveDetails.cancelled && await execution.isCancellationRequested()) {
     accepted = await execution.fail({
@@ -1026,6 +1031,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
   const { emit, close } = beginTaskStream(res, "analyze", projectId, metadata, {
     execution: structuredExecution,
   });
+  let scanEvidenceBinding: Record<string, unknown> | undefined;
   await structuredExecution.checkpoint("running", "Structured analysis started");
 
   const providerResolved = preflightProvider
@@ -1068,6 +1074,9 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
       operationId: metadata.operationId,
     });
+    if (projectContext.scanEvidenceBinding) {
+      scanEvidenceBinding = { ...projectContext.scanEvidenceBinding };
+    }
 
     emit({ type: "stage", stage: "calling-model" });
     await structuredExecution.checkpoint("model_call", "Calling AI model");
@@ -1118,6 +1127,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
           code: "model_output_invalid",
           parseCode: result._parseError.code,
         }),
+        scanEvidenceBinding,
         emit,
         close,
       });
@@ -1135,6 +1145,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
           message: "The AI result did not meet the quality checks required for completion.",
           retryable: true,
         },
+        scanEvidenceBinding,
         emit,
         close,
       });
@@ -1150,9 +1161,18 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     const messageId = await structuredExecution.persistAssistant({
       content,
       outcome: "SUCCEEDED",
-      toolTrace: JSON.stringify([{ kind: "structured_task_result", task: "analyze" }]),
+      toolTrace: JSON.stringify([
+        { kind: "structured_task_result", task: "analyze" },
+        ...(scanEvidenceBinding
+          ? [{ kind: "scan_evidence_binding", ...scanEvidenceBinding }]
+          : []),
+      ]),
     });
-    const accepted = await structuredExecution.complete({ messageId, content });
+    const accepted = await structuredExecution.complete({
+      messageId,
+      content,
+      ...(scanEvidenceBinding ? { disposition: { scanEvidenceBinding } } : {}),
+    });
     if (!accepted) {
       await closeUnacceptedStructuredExecution({ execution: structuredExecution, emit, close });
       return;
@@ -1206,6 +1226,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       execution: structuredExecution,
       task: "analyze",
       details: structuredFailureDetails(err),
+      scanEvidenceBinding,
       emit,
       close,
     });
