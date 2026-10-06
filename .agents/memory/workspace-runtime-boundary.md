@@ -20,3 +20,9 @@ The internal runtime supervisor is a local control service, not a preview artifa
 **Why:** Replit workflow port detection can fail for an intentionally localhost-only control service, while supervisor replacement otherwise loses its in-memory child registry.
 
 **How to apply:** Keep the supervisor bound to loopback with no `waitForPort`; use heartbeat adoption plus durable PID/port state for recovery.
+
+During recovery, the durable worker/lease claim is written before listener ownership and supervisor adoption are verified; a claimed row alone is not proof that adoption completed. Startup fixtures that synthesize the old worker ID or expire its lease directly prove startup orchestration, not that the killed API actually held that lease or that the managed supervisor adopted the process.
+
+**Why:** The claim is an intermediate recovery state, while API worker IDs are process-local and a local supervisor HTTP fixture cannot establish behavior of the managed supervisor.
+
+**How to apply:** Wait for the exact supervisor request and reload the final durable row before asserting adoption. State when worker identity or lease expiry is fixture-seeded; stronger ownership proof must observe the actual API worker ID and lease before killing it. Redirect only the isolated child API's supervisor calls to a loopback fixture.

@@ -4705,6 +4705,17 @@ G9 Revocation Safety
 - **remaining/blocker:** lease expiration نُمذجت بتحديث row في قاعدة الاختبار بدل انتظار timeout الطبيعي؛ listener resolver وsupervisor test doubles؛ الاختبار لا يشغل `src/index.ts` ولا supervisor مُدار ولا procfs الحقيقي، ولا يثبت HTTP route أو كل crash windows. E2 ما زالت مفتوحة.
 - **next step:** اختبر، ضمن E2 فقط، startup/reconciliation عبر `src/index.ts` مع supervisor HTTP fixture محلي بعد فقد العامل؛ لا تلمس `workspace-runtime-supervisor` المُدار ولا تبدأ E3 أو Learning/Transfer/Generalization أو تعِد تشغيل Strategy Replay receipts.
 
+### 2026-10-07 — استعادة runtime عند startup الكامل لـAPI
+
+- **phase/step:** E2 فقط — استعادة `workspaceRuntime` من `src/index.ts` بعد فقد API worker.
+- **status:** `full API startup recovery verified (1/1; 4 skipped); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُضيف اختبار process-level اختياري يشغّل عمليتي API مستقلتين عبر `src/index.ts`. يشغّل fixture runtime منفصلًا، يقتل API الأول بـ`SIGKILL`، ويهيئ صفوفًا قابلة للاستعادة بlease منتهية في PostgreSQL الاختبارية. API الثاني يتبنى الجلسة ذات listener المعروف بهوية project/session/root/PID/port المطابقة عبر HTTP supervisor fixture محلي. الجلسة ذات listener `UNKNOWN` تبقى `running`، والعملية المرتبطة بها تبقى حية، ويُحرر claim/lease من دون استدعاء supervisor.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime-store.test.ts`، وهذا السجل، وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات production code أو schema.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` نجحا. الاختبار المستهدف نجح **1/1، 4 skipped** بعد `schema:apply` على PostgreSQL مؤقتة loopback باسم disposable؛ `AI_PROVIDER_EGRESS_DISABLED=1`، وfetch preload في عمليات API يحوّل supervisor إلى fixture محلي ويمنع egress الخارجي. أُوقفت القاعدة وحُذف جذرها؛ لا قاعدة مشتركة أو provider حي أو managed workflow أُعيد تشغيله.
+- **authority/safety impact:** تبنّي runtime مرتبط بlistener معروف وبالهوية الدقيقة؛ عدم ثبوت listener ownership لا يقتل العملية ولا يثبت adoption، بل يترك صف `running` بلا مالك مؤقت.
+- **remaining/blocker:** worker ID السابق وصفوف lease حُقنت في fixture، وانتهاء lease مُحاكى مباشرة بدل انتظار timeout؛ لذلك لا يثبت الاختبار أن API الأول امتلك أو جدّد lease هذه الصفوف. supervisor محلي test double، ولا يغطي كل crash window أو workflow أو route؛ E2 تبقى `OPEN`.
+- **next step:** تابع خفض فجوات E2 واحدة قابلة للتحقق في كل مرة؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
