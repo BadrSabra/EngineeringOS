@@ -15,18 +15,20 @@ import {
 
 export type WorkflowPhaseExecutionResult = {
   executionId: string;
-  operationId: string;
+  operationId?: string;
   created: boolean;
   status: "completed" | "already_completed" | "in_progress" | "failed";
+  failureCode?: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE";
 };
 
 /**
  * Record one workflow phase through the shared autonomous operation loop.
  *
  * Workflow definitions describe phase work rather than arbitrary shell text.
- * Empty phases are durable no-op boundaries. Non-empty phase steps are not
- * executed here and cannot be accepted without substantive, revision-bound
- * evidence.
+ * Empty phases are durable no-op boundaries. Non-empty phase steps require a
+ * real runner and substantive, revision-bound evidence; this adapter has no
+ * such runner, so it must fail before creating an execution or projecting a
+ * Goal transition.
  *
  * The idempotency key is stable for an execution/phase pair. A retry after a
  * response timeout consequently observes the same terminal operation.
@@ -46,6 +48,15 @@ export async function executeWorkflowPhase(params: {
   isFinalPhase?: boolean;
 }): Promise<WorkflowPhaseExecutionResult> {
   const phaseKey = `workflow-phase:${params.workflowExecutionId}:${params.phaseName}`;
+  const hasDeclaredWork = params.phaseSteps.length > 0;
+  if (hasDeclaredWork) {
+    return {
+      executionId: params.workflowExecutionId,
+      created: false,
+      status: "failed",
+      failureCode: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+    };
+  }
   const objective = `Execute workflow "${params.workflowName}" phase "${params.phaseName}"`;
   const nodeId = `workflow-phase:${params.phaseName}`;
   const operationRequest = {
@@ -89,7 +100,7 @@ export async function executeWorkflowPhase(params: {
   }
 
   const workerId = `workflow-phase:${randomUUID()}`;
-  const noOpPhase = params.phaseSteps.length === 0;
+  const noOpPhase = !hasDeclaredWork;
   const nodes = noOpPhase ? [] : [{
     id: `${nodeId}:boundary`,
     title: "Record workflow phase boundary",

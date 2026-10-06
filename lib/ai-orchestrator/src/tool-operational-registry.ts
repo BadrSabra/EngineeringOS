@@ -86,10 +86,12 @@ export type ToolOperationalMetadata = {
   };
 };
 
-const COOPERATIVE_NO_TIMEOUT: ToolOperationalMetadata["cancellation"] = {
+const COOPERATIVE_WITH_TIMEOUT = (
+  maxMs: number,
+): ToolOperationalMetadata["cancellation"] => ({
   signal: "cooperative",
-  timeout: { kind: "none" },
-};
+  timeout: { kind: "fixed_ms", maxMs },
+});
 const CONTEXTUAL_READ_REPLAY: ToolOperationalMetadata["replay"] = {
   cache: "contextual_result",
   durableRecovery: "safe_to_replay",
@@ -103,8 +105,9 @@ const BLOCKED_ACTION_REPLAY: ToolOperationalMetadata["replay"] = {
  * One server-owned operational record per provider-visible tool.
  *
  * `outputBound` describes the existing executor contract; it does not create a
- * runtime limit. `unspecified` is deliberate where a delegated runner or
- * executor currently has no enforceable output cap.
+ * runtime limit. Fixed cancellation deadlines are enforced by the dispatcher.
+ * `unspecified` is deliberate where a delegated runner or executor currently
+ * has no enforceable output cap.
  */
 export const TOOL_OPERATIONAL_METADATA = {
   read_file: {
@@ -121,7 +124,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       ],
       notes: "The truncation marker and surrounding tool protocol add bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   read_file_range: {
@@ -135,7 +138,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "tool_body",
       notes: "Also limited to 4,000 output lines and a 512,000-byte scan budget.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   "project.list_tree": {
@@ -149,7 +152,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "serialized_result",
       notes: "Also limited to depth 2 and 100 entries.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   list_directory: {
@@ -161,7 +164,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "dynamic",
       basis: "Directory listing is limited to 24,000 bytes/100 entries; file fallback uses the 128,000-byte read body limit; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   search_code: {
@@ -192,7 +195,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "tool_body",
       notes: "The receipt contains bounded path/reason metadata, never proposed file contents; the dispatcher enforces this body limit.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(10_000),
     replay: BLOCKED_ACTION_REPLAY,
   },
   replace_text: {
@@ -206,7 +209,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       surface: "tool_body",
       notes: "The receipt contains bounded path metadata, never proposed file contents; the dispatcher enforces this body limit.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(10_000),
     replay: BLOCKED_ACTION_REPLAY,
   },
   git_status: {
@@ -271,7 +274,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       maxItemChars: 240,
       notes: "Scans at most 200 files and 512,000 bytes per file; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(45_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   ast_navigation: {
@@ -285,7 +288,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       maxItemChars: 240,
       notes: "Scans at most 200 files and 512,000 bytes per file; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(45_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   inspect_dependencies: {
@@ -297,7 +300,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "dynamic",
       basis: "Manifest summaries vary by package count; lockfile previews are limited to 32,000 characters; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   inspect_binary: {
@@ -309,7 +312,7 @@ export const TOOL_OPERATIONAL_METADATA = {
       kind: "dynamic",
       basis: "Reads a 1-MiB header and may hash a file up to 32 MiB; the dispatcher rejects serialized results over 512,000 bytes.",
     },
-    cancellation: COOPERATIVE_NO_TIMEOUT,
+    cancellation: COOPERATIVE_WITH_TIMEOUT(15_000),
     replay: CONTEXTUAL_READ_REPLAY,
   },
   run_validation: {

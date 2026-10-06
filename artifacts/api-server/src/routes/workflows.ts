@@ -228,10 +228,18 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
   const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
   if (!ownerProject) return;
 
-  const firstPhase =
-    Array.isArray(workflow[0].phases) && workflow[0].phases.length > 0
-      ? (workflow[0].phases as Array<{ name: string }>)[0].name
-      : null;
+  const workflowPhases = Array.isArray(workflow[0].phases)
+    ? workflow[0].phases as Array<{ name: string; steps?: string[] }>
+    : [];
+  const firstPhaseObj = workflowPhases[0];
+  const firstPhase = firstPhaseObj?.name ?? null;
+  if (firstPhaseObj?.steps && firstPhaseObj.steps.length > 0) {
+    return res.status(409).json({
+      code: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+      phase: firstPhase,
+      hint: "This phase declares work but no runner can execute it with accepted evidence.",
+    });
+  }
 
   const now = new Date();
   const correlationId = randomUUID();
@@ -311,7 +319,6 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
 
   invalidateContextCache(workflow[0].projectId);
 
-  const phase = (workflow[0].phases as Array<{ name: string; steps?: string[] }> | null)?.find((item) => item.name === firstPhase);
   const phaseExecution = firstPhase
     ? await executeWorkflowPhase({
         userId: req.userId,
@@ -320,19 +327,22 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
         workflowExecutionId: execution.id,
         workflowName: workflow[0].name,
         phaseName: firstPhase,
-        phaseSteps: phase?.steps ?? [],
+        phaseSteps: firstPhaseObj?.steps ?? [],
         revision: workflow[0].updatedAt.toISOString(),
         completedPhaseNames: [],
-         rootPath: ownerProject.rootPath,
-         goalId: workflow[0].goalId ?? undefined,
-         isFinalPhase: firstPhase === ((workflow[0].phases as Array<{ name: string }> | null)?.at(-1)?.name),
+        rootPath: ownerProject.rootPath,
+        goalId: workflow[0].goalId ?? undefined,
+        isFinalPhase: firstPhase === ((workflow[0].phases as Array<{ name: string }> | null)?.at(-1)?.name),
       })
     : undefined;
   return res.status(202).json({
     ...execution,
     ...(phaseExecution ? {
-      operationId: phaseExecution.operationId,
+      ...(phaseExecution.operationId ? { operationId: phaseExecution.operationId } : {}),
       phaseExecutionStatus: phaseExecution.status,
+      ...(phaseExecution.failureCode
+        ? { phaseExecutionFailureCode: phaseExecution.failureCode }
+        : {}),
     } : {}),
   });
 });
@@ -552,11 +562,28 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
       hint: "The execution points to a phase name that does not exist in the workflow definition",
     });
   }
+  if (currentPhaseObj.steps && currentPhaseObj.steps.length > 0) {
+    return res.status(409).json({
+      code: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+      phase: execution.currentPhase,
+      hint: "The current phase declares work without accepted execution evidence and cannot be advanced.",
+    });
+  }
   const { nextPhase, completedPhases, isLastPhase } = computePhaseAdvancement(
     allPhases,
     execution.currentPhase,
     (execution.completedPhases as string[] | null) ?? [],
   );
+  const nextPhaseObj = nextPhase
+    ? allPhases.find((phase) => phase.name === nextPhase)
+    : undefined;
+  if (nextPhaseObj?.steps && nextPhaseObj.steps.length > 0) {
+    return res.status(409).json({
+      code: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+      phase: nextPhase,
+      hint: "The next phase declares work but no runner can execute it with accepted evidence.",
+    });
+  }
   const now = new Date();
 
   const correlationId = randomUUID();
@@ -635,9 +662,6 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
 
   invalidateContextCache(workflow[0].projectId);
 
-  const nextPhaseObj = nextPhase
-    ? allPhases.find((phase) => phase.name === nextPhase)
-    : undefined;
   const phaseExecution = nextPhase
     ? await executeWorkflowPhase({
         userId: req.userId,
@@ -657,8 +681,11 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
   return res.json({
     ...updatedExecution,
     ...(phaseExecution ? {
-      operationId: phaseExecution.operationId,
+      ...(phaseExecution.operationId ? { operationId: phaseExecution.operationId } : {}),
       phaseExecutionStatus: phaseExecution.status,
+      ...(phaseExecution.failureCode
+        ? { phaseExecutionFailureCode: phaseExecution.failureCode }
+        : {}),
     } : {}),
   });
   } finally {

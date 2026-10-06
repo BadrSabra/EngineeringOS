@@ -381,9 +381,8 @@ export function deriveScopedFindingStatus(records: readonly EvidenceRecord[]): S
  * Fixture, test, and spec evidence must carry an explicit scope qualifier so
  * the caller cannot mistake a fixture-local proof for production reachability.
  *
- * NOT_PROVEN and MIXED_EVIDENCE return the generic label as a safe default;
- * callers that need a non-generic label must first confirm the finding was
- * accepted before using this helper.
+ * NOT_PROVEN must remain explicitly negative. A provider's positive verdict
+ * text is presentation only and cannot override missing or incomplete evidence.
  */
 export function buildScopedVerdictLabel(status: ScopedFindingStatus): string {
   switch (status) {
@@ -396,7 +395,7 @@ export function buildScopedVerdictLabel(status: ScopedFindingStatus): string {
     case "MIXED_EVIDENCE":
       return "FINDING PROVEN (MIXED EVIDENCE SCOPE — fixture and production sources combined; production reachability requires additional verification)";
     default:
-      return "FINDING PROVEN";
+      return "NOT PROVEN — the available evidence does not establish this finding.";
   }
 }
 

@@ -27,6 +27,10 @@ import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
+const testReadCallbacks = {
+  onReadOnlyInvocation: vi.fn(async () => undefined),
+  onToolInvocation: vi.fn(async (_event: { phase: string }) => undefined),
+};
 
 function makeContext(): ProjectContext {
   return {
@@ -132,6 +136,26 @@ function readThenAnswerStrategy(
   };
 }
 
+function answerWithoutReadsStrategy(
+  modelResponse: string,
+  calls: { count: number },
+): unknown {
+  return {
+    providerId: "openrouter",
+    supportsNativeStream: false,
+    call: vi.fn(async () => {
+      calls.count += 1;
+      return {
+        content: JSON.stringify({ response: modelResponse, sources: [] }),
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      };
+    }),
+    stream: vi.fn(),
+  };
+}
+
 // Plain-text question that does not trigger isExplicitBehaviorQueryRequest, so
 // the behavior-evidence gate is bypassed and the model's verdict text reaches
 // the scoped-label seam without being overridden.
@@ -147,6 +171,8 @@ const FINDING_PROVEN_RESPONSE =
 describe("chat() scoped-verdict seam (EI-029/030)", () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
+    testReadCallbacks.onReadOnlyInvocation.mockClear();
+    testReadCallbacks.onToolInvocation.mockClear();
   });
 
   afterEach(() => {
@@ -177,11 +203,16 @@ describe("chat() scoped-verdict seam (EI-029/030)", () => {
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
       });
 
       expect(calls.count).toBeGreaterThan(0);
+      expect(testReadCallbacks.onReadOnlyInvocation).toHaveBeenCalled();
+      expect(
+        testReadCallbacks.onToolInvocation.mock.calls.some(([event]) => event.phase === "completed"),
+      ).toBe(true);
       // The seam must replace FINDING_PROVEN (underscore, canonical forensic form)
       // with the fixture-local scoped label.
       expect(result.response).toContain("FIXTURE-LOCAL FINDING PROVEN");
@@ -220,6 +251,7 @@ describe("chat() scoped-verdict seam (EI-029/030)", () => {
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
       });
@@ -235,4 +267,41 @@ describe("chat() scoped-verdict seam (EI-029/030)", () => {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it.each([false, true])(
+    "does not preserve a provider's positive finding label when no source evidence was read (streaming=%s)",
+    async (streaming) => {
+      const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-scoped-verdict-none-"));
+      const calls = { count: 0 };
+      await mockChatProviders(
+        answerWithoutReadsStrategy(FINDING_PROVEN_RESPONSE, calls),
+        emptyPlan(),
+      );
+
+      try {
+        const { chat } = await import("../agents/chat-agent.js");
+        const deltas: string[] = [];
+        const result = await chat({
+          message: MESSAGE,
+          history: [],
+          projectContext: makeContext(),
+          rootPath,
+          ...testReadCallbacks,
+          provider: "openrouter",
+          apiKey: "test-or-key",
+          ...(streaming ? { onDelta: (delta: string) => deltas.push(delta) } : {}),
+        });
+
+        expect(calls.count).toBeGreaterThan(0);
+        expect(result.response).toContain("NOT PROVEN");
+        expect(result.response).not.toMatch(/\bFINDING[_ ]PROVEN\b/i);
+        if (streaming) {
+          expect(deltas.join("")).toContain("NOT PROVEN");
+          expect(deltas.join("")).not.toMatch(/\bFINDING[_ ]PROVEN\b/i);
+        }
+      } finally {
+        await fs.rm(rootPath, { recursive: true, force: true });
+      }
+    },
+  );
 });

@@ -69,6 +69,69 @@ describe("Workflow phase orchestration", () => {
     return { projectId, workflowId };
   }
 
+  it("rejects a non-empty first phase without starting or completing a workflow", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const created = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        name: `wf-${randomUUID().slice(0, 8)}`,
+        phases: [{ name: "build", steps: ["Run the test suite"] }],
+      });
+    expect(created.status).toBe(201);
+
+    const started = await request(app).post(`/api/workflows/${created.body.id}/start`);
+
+    expect(started.status).toBe(409);
+    expect(started.body.code).toBe("WORKFLOW_PHASE_RUNNER_UNAVAILABLE");
+    const workflow = await db
+      .select()
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, created.body.id))
+      .limit(1);
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, created.body.id));
+    expect(workflow[0]?.status).not.toBe("running");
+    expect(workflow[0]?.status).not.toBe("completed");
+    expect(executions).toHaveLength(0);
+  });
+
+  it("does not advance into a non-empty phase without an execution runner", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const created = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        name: `wf-${randomUUID().slice(0, 8)}`,
+        phases: [
+          { name: "prepare", steps: [] },
+          { name: "build", steps: ["Run the test suite"] },
+        ],
+      });
+    expect(created.status).toBe(201);
+    const workflowId = created.body.id;
+    const started = await request(app).post(`/api/workflows/${workflowId}/start`);
+    expect(started.status).toBe(202);
+
+    const advance = await request(app).post(`/api/workflows/${workflowId}/advance`);
+
+    expect(advance.status).toBe(409);
+    expect(advance.body.code).toBe("WORKFLOW_PHASE_RUNNER_UNAVAILABLE");
+    expect(advance.body.phase).toBe("build");
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(executions).toHaveLength(1);
+    expect(executions[0]?.status).toBe("running");
+    expect(executions[0]?.currentPhase).toBe("prepare");
+    expect(executions[0]?.completedPhases ?? []).toEqual([]);
+  });
+
   it("rejects deletion while a workflow execution is running", async () => {
     const { workflowId } = await createStartedWorkflow();
 

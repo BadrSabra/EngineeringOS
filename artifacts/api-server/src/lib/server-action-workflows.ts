@@ -12,10 +12,6 @@ import { executeWorkflowPhase } from "./workflow-phase-execution.js";
 
 const RESTART_SERVICES_WORKFLOW_NAME = "Restart services (internal workflow)";
 const RESTART_SERVICES_PHASE_NAME = "record_restart_request";
-const RESTART_SERVICES_PHASE_STEPS = [
-  "Record the requested service restart in the EngineeringOS workflow ledger.",
-];
-
 export type InternalRestartWorkflowResult = {
   workflowId: string;
   executionId: string;
@@ -47,7 +43,9 @@ export async function startInternalRestartServicesWorkflow(params: {
       status: "running",
       phases: [{
         name: RESTART_SERVICES_PHASE_NAME,
-        steps: RESTART_SERVICES_PHASE_STEPS,
+        // The request and its audit/event rows are written above; this phase is
+        // therefore a no-op boundary, not a claim that service control occurred.
+        steps: [],
       }],
       currentPhase: RESTART_SERVICES_PHASE_NAME,
       executionCount: 1,
@@ -111,7 +109,7 @@ export async function startInternalRestartServicesWorkflow(params: {
       workflowExecutionId: executionId,
       workflowName: RESTART_SERVICES_WORKFLOW_NAME,
       phaseName: RESTART_SERVICES_PHASE_NAME,
-      phaseSteps: RESTART_SERVICES_PHASE_STEPS,
+      phaseSteps: [],
       revision: params.revision,
       completedPhaseNames: [],
       rootPath: params.rootPath ?? undefined,
@@ -201,7 +199,7 @@ export async function startInternalRestartServicesWorkflow(params: {
   return {
     workflowId,
     executionId,
-    operationId: phaseResult.operationId,
+    operationId: phaseResult.operationId ?? executionId,
     workflowStatus,
     phaseStatus,
     serviceControl: "NOT_PERFORMED",

@@ -7960,14 +7960,32 @@ export async function chat(opts: {
     });
   };
   const prefetchReadFile: PrefetchReadFile = async (filePath, complete) => {
-    const result = await dispatchServerRead({
-      name: "read_file",
-      args: { path: filePath },
-      allowedReadPaths: [filePath],
-      surface: "prefetch",
-      completeReads: complete,
-    });
-    return result.kind === "ok" ? result.output : null;
+    try {
+      const result = await dispatchServerRead({
+        name: "read_file",
+        args: { path: filePath },
+        allowedReadPaths: [filePath],
+        surface: "prefetch",
+        completeReads: complete,
+      });
+      if (result.kind === "ok") return result.output;
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "PREFETCH_READ_FAILED",
+        executionId: executionLedger.id,
+        diagnosticCode: result.kind === "failed"
+          ? result.diagnosticCode
+          : "TOOL_UNAVAILABLE",
+      }));
+      return null;
+    } catch {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "PREFETCH_READ_EXCEPTION",
+        executionId: executionLedger.id,
+      }));
+      return null;
+    }
   };
   const manifestRequiresSourceReadSurface =
     !opts.authorizedToolManifestNames
@@ -8204,12 +8222,20 @@ export async function chat(opts: {
       maxFiles: remainingForensicPrefetchSlots(),
       excludeFiles: prefetchExcludeFiles(),
       includeTestSources,
-    }).catch(() => ({
-      injectedMessages: [] as RawMessage[],
-      sources: [] as string[],
-      cacheEntries: [] as Array<{ key: string; content: string }>,
-      failedFiles: [] as string[],
-    }));
+    }).catch(() => {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "PREFETCH_INTERNAL_FAILURE",
+        surface: "objective_manifest",
+        executionId: executionLedger.id,
+      }));
+      return {
+        injectedMessages: [] as RawMessage[],
+        sources: [] as string[],
+        cacheEntries: [] as Array<{ key: string; content: string }>,
+        failedFiles: [...objectiveSourcePaths],
+      };
+    });
 
     if (objectivePrefetch.injectedMessages.length > 0) {
       messages.push(...objectivePrefetch.injectedMessages);
@@ -8318,11 +8344,19 @@ export async function chat(opts: {
       maxFiles: remainingForensicPrefetchSlots(),
       excludeFiles: prefetchExcludeFiles(),
       includeTestSources,
-    }).catch(() => ({
-      injectedMessages: [] as typeof messages,
-      sources: [] as string[],
-      cacheEntries: [] as Array<{ key: string; content: string }>,
-    }));
+    }).catch(() => {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "PREFETCH_INTERNAL_FAILURE",
+        surface: "graph_guidance",
+        executionId: executionLedger.id,
+      }));
+      return {
+        injectedMessages: [] as typeof messages,
+        sources: [] as string[],
+        cacheEntries: [] as Array<{ key: string; content: string }>,
+      };
+    });
 
     if (graphPrefetch.injectedMessages.length > 0) {
       messages.push(...graphPrefetch.injectedMessages);
@@ -8432,11 +8466,19 @@ export async function chat(opts: {
         maxFiles: remainingForensicPrefetchSlots(),
         excludeFiles: prefetchExcludeFiles(),
         includeTestSources,
-      }).catch(() => ({
-        injectedMessages: [] as typeof messages,
-        sources: [] as string[],
-        cacheEntries: [] as Array<{ key: string; content: string }>,
-      }));
+      }).catch(() => {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "PREFETCH_INTERNAL_FAILURE",
+          surface: "session_memory",
+          executionId: executionLedger.id,
+        }));
+        return {
+          injectedMessages: [] as typeof messages,
+          sources: [] as string[],
+          cacheEntries: [] as Array<{ key: string; content: string }>,
+        };
+      });
       if (memPrefetch.injectedMessages.length > 0) {
         messages.push(...memPrefetch.injectedMessages);
         for (const entry of memPrefetch.cacheEntries) {
@@ -8708,7 +8750,20 @@ export async function chat(opts: {
           : remainingForensicPrefetchSlots(),
         excludeFiles: prefetchExcludeFiles(),
         includeTestSources,
-      }).catch(() => ({ injectedMessages: [] as typeof messages, sources: [] as string[], cacheEntries: [] as Array<{ key: string; content: string }> }));
+      }).catch(() => {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "PREFETCH_INTERNAL_FAILURE",
+          surface: "query_plan",
+          executionId: executionLedger.id,
+        }));
+        return {
+          injectedMessages: [] as typeof messages,
+          sources: [] as string[],
+          cacheEntries: [] as Array<{ key: string; content: string }>,
+          failedFiles: [...(queryPlan?.targetFiles ?? [])],
+        };
+      });
 
       if (planPrefetch.injectedMessages.length > 0) {
         messages.push(...planPrefetch.injectedMessages);
@@ -8863,11 +8918,19 @@ export async function chat(opts: {
       maxFiles: remainingForensicPrefetchSlots(),
       excludeFiles: prefetchExcludeFiles(),
       includeTestSources,
-    }).catch(() => ({
-      injectedMessages: [] as typeof messages,
-      sources: [] as string[],
-      cacheEntries: [] as Array<{ key: string; content: string }>,
-    }));
+    }).catch(() => {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "PREFETCH_INTERNAL_FAILURE",
+        surface: "execution_plan",
+        executionId: executionLedger.id,
+      }));
+      return {
+        injectedMessages: [] as typeof messages,
+        sources: [] as string[],
+        cacheEntries: [] as Array<{ key: string; content: string }>,
+      };
+    });
 
     if (executionPrefetch.injectedMessages.length > 0) {
       messages.push(...executionPrefetch.injectedMessages);
@@ -11564,11 +11627,7 @@ export async function chat(opts: {
     // PRODUCTION_PROVEN/NOT_PROVEN, replaced with the full scoped label for all
     // other statuses (FIXTURE_PROVEN, TEST_PROVEN, MIXED_EVIDENCE).
     const scopingRe = /\bFINDING[_ ]PROVEN\b/g;
-    const scopedLabel =
-      runtimeLedger.scopedFindingStatus === "PRODUCTION_PROVEN" ||
-      runtimeLedger.scopedFindingStatus === "NOT_PROVEN"
-        ? "FINDING PROVEN"
-        : buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus);
+    const scopedLabel = buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus);
     const gatedResponse = blocked
       ? /[\u0600-\u06FF]/.test(message)
         ? "غير مثبت — لم تُنتَج نتيجة قاطعة؛ التعارض أو النقص في تتبع القراءات يمنع قبول الادعاء."
@@ -15745,18 +15804,14 @@ export async function chat(opts: {
   // emitted by providers following the forensic JSON prompt verbatim). The
   // replacement is idempotent on production-scoped runs (scopedFindingStatus
   // === "PRODUCTION_PROVEN" => buildScopedVerdictLabel returns "FINDING PROVEN"
-  // with a space, so the underscore form is normalized as well).
+  // with a space, while NOT_PROVEN becomes an explicit negative label).
   // Telemetry inconsistency (EI-027) still downgrades to NOT PROVEN below —
   // the scoped label is applied only to the non-blocked candidate.
   const FINDING_PROVEN_RE = /\bFINDING[_ ]PROVEN\b/g;
-  const scopedCandidateResponse =
-    runtimeLedger.scopedFindingStatus === "PRODUCTION_PROVEN" ||
-    runtimeLedger.scopedFindingStatus === "NOT_PROVEN"
-      ? responseBeforeBehaviorEvidence.replace(FINDING_PROVEN_RE, "FINDING PROVEN")
-      : responseBeforeBehaviorEvidence.replace(
-          FINDING_PROVEN_RE,
-          buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus),
-        );
+  const scopedCandidateResponse = responseBeforeBehaviorEvidence.replace(
+    FINDING_PROVEN_RE,
+    buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus),
+  );
   const insufficientAcceptedBehaviorEvidence =
     shouldValidateBehaviorEvidence &&
     behaviorAnswerRejected &&

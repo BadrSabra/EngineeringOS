@@ -38,6 +38,10 @@ import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
+const testReadCallbacks = {
+  onReadOnlyInvocation: vi.fn(async () => undefined),
+  onToolInvocation: vi.fn(async (_event: { phase: string }) => undefined),
+};
 
 function makeContext(): ProjectContext {
   return {
@@ -301,6 +305,8 @@ function sequentialReReadThenPrefetchOnlyStrategy(modelResponse: string, calls: 
 describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
+    testReadCallbacks.onReadOnlyInvocation.mockClear();
+    testReadCallbacks.onToolInvocation.mockClear();
   });
 
   afterEach(() => {
@@ -325,12 +331,17 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
       });
 
       expect(calls.count).toBeGreaterThan(0);
+      expect(testReadCallbacks.onReadOnlyInvocation).toHaveBeenCalled();
+      expect(
+        testReadCallbacks.onToolInvocation.mock.calls.some(([event]) => event.phase === "completed"),
+      ).toBe(true);
       // Grounded answer is surfaced as a behavior result (evidence length > 0).
       expect(result.taskResult?.kind).toBe("BEHAVIOR_ANSWER_RESULT");
 
@@ -379,6 +390,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
@@ -426,6 +438,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
@@ -469,6 +482,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
@@ -537,6 +551,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps1.push(step),
@@ -559,6 +574,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps2.push(step),
@@ -606,6 +622,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
@@ -657,6 +674,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "groq",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),
@@ -708,6 +726,7 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         history: [],
         projectContext: makeContext(),
         rootPath,
+        ...testReadCallbacks,
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => steps.push(step),

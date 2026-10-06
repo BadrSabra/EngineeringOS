@@ -69,6 +69,7 @@ import {
   parseBinaryEvidencePacket,
   type BinaryEvidencePacket,
 } from "./tools/binary-tools.js";
+import { TOOL_OPERATIONAL_METADATA } from "./tool-operational-registry.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
   BrowserValidationDeadlineExceededError,
@@ -1109,10 +1110,68 @@ export function createSourceRetrievalTelemetry(): SourceRetrievalTelemetry {
  * list_directory, search_code, git_status, git_diff, git_log).
  * write_file never produces a source — it mutates pendingChanges instead.
  */
+class ToolExecutionDeadlineExceededError extends Error {
+  constructor(toolName: string) {
+    super(`Tool ${toolName} exceeded its server-owned execution deadline.`);
+    this.name = "ToolExecutionDeadlineExceededError";
+  }
+}
+
+/** @internal — shared with focused tests for the cooperative deadline contract. */
+export async function _runWithToolDeadline<T>(
+  toolName: string,
+  timeoutMs: number | undefined,
+  parentSignal: AbortSignal | undefined,
+  run: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  if (timeoutMs === undefined) return run(parentSignal);
+  parentSignal?.throwIfAborted();
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+  let rejectTimeout!: (error: ToolExecutionDeadlineExceededError) => void;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const parentAbortPromise = parentSignal
+    ? new Promise<never>((_, reject) => {
+        abortListener = () => {
+          controller.abort(parentSignal.reason);
+          reject(parentSignal.reason ?? new DOMException("The operation was aborted", "AbortError"));
+        };
+        parentSignal.addEventListener("abort", abortListener, { once: true });
+        if (parentSignal.aborted) abortListener();
+      })
+    : undefined;
+
+  timer = setTimeout(() => {
+    const error = new ToolExecutionDeadlineExceededError(toolName);
+    controller.abort(error);
+    rejectTimeout(error);
+  }, timeoutMs);
+
+  try {
+    const operation = Promise.resolve().then(() => {
+      controller.signal.throwIfAborted();
+      return run(controller.signal);
+    });
+    return await Promise.race(
+      parentAbortPromise
+        ? [operation, timeoutPromise, parentAbortPromise]
+        : [operation, timeoutPromise],
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (abortListener) parentSignal?.removeEventListener("abort", abortListener);
+  }
+}
+
 export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
   const { name, args, rootPath, pendingChanges } = opts;
-  const mutationPendingStart = pendingChanges.length;
+  const stagedFileChanges: PendingChange[] = [];
   let mutationInvocationActive = false;
+  let toolTimedOut = false;
 
   const isGitTool = GIT_TOOL_NAMES.has(name);
   const isFileTool = FILE_TOOL_NAMES.has(name);
@@ -1438,105 +1497,115 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           projectRevision: opts.analysisCorrelation.projectRevision,
         }
       : undefined;
+    const operationalMetadata = Object.hasOwn(TOOL_OPERATIONAL_METADATA, name)
+      ? TOOL_OPERATIONAL_METADATA[name as keyof typeof TOOL_OPERATIONAL_METADATA]
+      : undefined;
+    const timeoutPolicy = operationalMetadata?.cancellation.timeout;
+    const timeoutMs = timeoutPolicy?.kind === "fixed_ms" ? timeoutPolicy.maxMs : undefined;
     if (opts.onToolInvocation) {
       await emitToolLifecycle("started");
       lifecycleStarted = true;
     }
-    const output = await (isGitTool
-      ? await (opts.signal
-          ? executeGitTool(name, effectiveArgs, rootPath, opts.signal)
-          : executeGitTool(name, effectiveArgs, rootPath))
-      : isFileTool
-        ? await (opts.signal
-            ? executeFileTool(name, effectiveArgs, rootPath, pendingChanges, opts.signal)
-            : executeFileTool(name, effectiveArgs, rootPath, pendingChanges))
-        : isCodeNavigationTool
-          ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
-              operationId: opts.analysisCorrelation?.operationId,
-              revision: opts.analysisCorrelation?.projectRevision,
-              ...(opts.signal ? { signal: opts.signal } : {}),
-            })
-        : isPackageTool
-          ? await executePackageTool(name, effectiveArgs, rootPath, {
-              operationId: opts.analysisCorrelation?.operationId,
-              revision: opts.analysisCorrelation?.projectRevision,
-              ...(opts.signal ? { signal: opts.signal } : {}),
-            })
-        : isBinaryTool
-          ? await executeBinaryTool(name, effectiveArgs, rootPath, {
-              operationId: opts.analysisCorrelation?.operationId,
-              revision: opts.analysisCorrelation?.projectRevision,
-              ...(opts.signal ? { signal: opts.signal } : {}),
-            })
-        : name === "run_validation"
-        ? await executeValidationTool(
-            name,
-            effectiveArgs,
-            opts.validationTargetPaths ?? [],
-            opts.validationRunner,
-            opts.signal,
-            pendingChanges,
-            validationEvidenceContext,
-          )
-        : name === "run_command"
-          ? await executeCommandTool(
-              name,
-              effectiveArgs,
-              rootPath,
-              opts.commandProfiles,
-              opts.commandRunner,
-              opts.signal,
-              opts.commandContext,
-            )
-        : isAnalysisTool
-          ? executeAnalysisTool(
-            name,
-            effectiveArgs,
-            opts.analysisToolRunner,
-            opts.signal,
-            // This is deliberately the same request-owned envelope on every
-            // provider retry/resume; the analysis tool validates it before
-            // accepting evidence.
-            opts.analysisCorrelation,
-            opts.analysisDeadlineAt,
-          )
-            .then((result) => {
-              analysisStatus = result.status;
-              if (result.status === "complete") return result.output;
-              const failureKind = opts.signal?.aborted
-                ? "cancelled"
-                : result.failureCategory === "output_limit"
-                  ? "execution"
-                  : result.status === "unavailable"
-                    ? "unavailable"
-                    : "execution";
-              const diagnosticCode = failureKind === "cancelled"
-                ? "TOOL_CANCELLED"
-                : result.failureCategory === "output_limit"
-                  ? "TOOL_OUTPUT_LIMIT"
-                : result.status === "unavailable"
-                  ? "TOOL_UNAVAILABLE"
-                  : "TOOL_EXECUTION_FAILED";
-              analysisFailure = {
-                failureKind,
-                diagnosticCode,
-                safeMessage: result.output,
-                analysisFailureCategory: result.failureCategory,
-              };
-              return result.output;
-            })
-          : executeBrowserValidationTool(
-              name,
-              effectiveArgs,
-              rootPath,
-              opts.browserValidationRunner,
-              opts.signal,
-              {
-                ...opts.browserValidationContext,
-                deadlineAt: opts.browserValidationDeadlineAt,
-              },
-              pendingChanges,
-            ));
+    const output = await _runWithToolDeadline(
+      name,
+      timeoutMs,
+      opts.signal,
+      async (toolSignal) => await (isGitTool
+        ? await (toolSignal
+            ? executeGitTool(name, effectiveArgs, rootPath, toolSignal)
+            : executeGitTool(name, effectiveArgs, rootPath))
+        : isFileTool
+          ? await (toolSignal
+              ? executeFileTool(name, effectiveArgs, rootPath, stagedFileChanges, toolSignal)
+              : executeFileTool(name, effectiveArgs, rootPath, stagedFileChanges))
+          : isCodeNavigationTool
+            ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
+                operationId: opts.analysisCorrelation?.operationId,
+                revision: opts.analysisCorrelation?.projectRevision,
+                ...(toolSignal ? { signal: toolSignal } : {}),
+              })
+            : isPackageTool
+              ? await executePackageTool(name, effectiveArgs, rootPath, {
+                  operationId: opts.analysisCorrelation?.operationId,
+                  revision: opts.analysisCorrelation?.projectRevision,
+                  ...(toolSignal ? { signal: toolSignal } : {}),
+                })
+              : isBinaryTool
+                ? await executeBinaryTool(name, effectiveArgs, rootPath, {
+                    operationId: opts.analysisCorrelation?.operationId,
+                    revision: opts.analysisCorrelation?.projectRevision,
+                    ...(toolSignal ? { signal: toolSignal } : {}),
+                  })
+                : name === "run_validation"
+                  ? await executeValidationTool(
+                      name,
+                      effectiveArgs,
+                      opts.validationTargetPaths ?? [],
+                      opts.validationRunner,
+                      toolSignal,
+                      pendingChanges,
+                      validationEvidenceContext,
+                    )
+                  : name === "run_command"
+                    ? await executeCommandTool(
+                        name,
+                        effectiveArgs,
+                        rootPath,
+                        opts.commandProfiles,
+                        opts.commandRunner,
+                        toolSignal,
+                        opts.commandContext,
+                      )
+                    : isAnalysisTool
+                      ? executeAnalysisTool(
+                          name,
+                          effectiveArgs,
+                          opts.analysisToolRunner,
+                          toolSignal,
+                          // This is deliberately the same request-owned envelope on every
+                          // provider retry/resume; the analysis tool validates it before
+                          // accepting evidence.
+                          opts.analysisCorrelation,
+                          opts.analysisDeadlineAt,
+                        )
+                          .then((result) => {
+                            analysisStatus = result.status;
+                            if (result.status === "complete") return result.output;
+                            const failureKind = toolSignal?.aborted
+                              ? "cancelled"
+                              : result.failureCategory === "output_limit"
+                                ? "execution"
+                                : result.status === "unavailable"
+                                  ? "unavailable"
+                                  : "execution";
+                            const diagnosticCode = failureKind === "cancelled"
+                              ? "TOOL_CANCELLED"
+                              : result.failureCategory === "output_limit"
+                                ? "TOOL_OUTPUT_LIMIT"
+                                : result.status === "unavailable"
+                                  ? "TOOL_UNAVAILABLE"
+                                  : "TOOL_EXECUTION_FAILED";
+                            analysisFailure = {
+                              failureKind,
+                              diagnosticCode,
+                              safeMessage: result.output,
+                              analysisFailureCategory: result.failureCategory,
+                            };
+                            return result.output;
+                          })
+                      : executeBrowserValidationTool(
+                          name,
+                          effectiveArgs,
+                          rootPath,
+                          opts.browserValidationRunner,
+                          toolSignal,
+                          {
+                            ...opts.browserValidationContext,
+                            deadlineAt: opts.browserValidationDeadlineAt,
+                          },
+                          pendingChanges,
+                        )),
+    );
 
     opts.signal?.throwIfAborted();
     const outputBytes = Buffer.byteLength(output, "utf8");
@@ -1547,10 +1616,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
 
     if (mutationCallback && mutationInvocationBase) {
       const queuedSuccessfully = name === "write_file"
-        ? output.startsWith('Change queued for "') && pendingChanges.length === mutationPendingStart + 1
-        : output.startsWith('Focused change queued for "') && pendingChanges.length === mutationPendingStart + 1;
+        ? output.startsWith('Change queued for "') && stagedFileChanges.length === 1
+        : output.startsWith('Focused change queued for "') && stagedFileChanges.length === 1;
       if (!queuedSuccessfully) {
-        pendingChanges.splice(mutationPendingStart);
+        stagedFileChanges.splice(0);
         await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_EXECUTION_FAILED" });
         return {
           kind: "failed",
@@ -1562,7 +1631,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       try {
         await mutationCallback({ ...mutationInvocationBase, phase: "committed" });
       } catch {
-        pendingChanges.splice(mutationPendingStart);
+        stagedFileChanges.splice(0);
         await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
           kind: "failed",
@@ -1571,6 +1640,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           safeMessage: "The server could not record the staged candidate change; it was discarded.",
         };
       }
+    }
+    if (stagedFileChanges.length > 0) {
+      pendingChanges.push(...stagedFileChanges);
     }
 
     if (readCallback && readInvocationBase) {
@@ -1667,8 +1739,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     return { kind: "ok", output, source };
   } catch (error) {
     if (mutationInvocationActive) {
-      pendingChanges.splice(mutationPendingStart);
+      stagedFileChanges.splice(0);
     }
+    toolTimedOut = error instanceof ToolExecutionDeadlineExceededError;
     const cancelled = opts.signal?.aborted === true;
     const outputLimitError = isToolOutputLimitExceeded(error) ? error : undefined;
     const browserDeadlineExceeded = error instanceof BrowserValidationDeadlineExceededError;
@@ -1730,6 +1803,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       diagnosticCode,
       safeMessage: cancelled
         ? `Tool "${name}" was cancelled; the operation did not complete.`
+        : toolTimedOut
+          ? `Tool "${name}" exceeded its server-owned time limit; the operation did not complete.`
         : browserDeadlineExceeded
           ? `Tool "${name}" exceeded the request deadline; the operation did not complete.`
         : gitPathRejected
@@ -1747,6 +1822,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           {
             diagnosticCode: cancelled
               ? "TOOL_CANCELLED"
+              : toolTimedOut
+                ? "TOOL_EXECUTION_FAILED"
               : lifecycleStarted
                 ? "TOOL_EXECUTION_FAILED"
                 : "TOOL_UNAVAILABLE",

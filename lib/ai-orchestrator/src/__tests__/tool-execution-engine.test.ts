@@ -286,6 +286,7 @@ describe("executeSingleTool", () => {
       { path: "src/foo.ts", complete: "true" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
       2,
@@ -293,6 +294,7 @@ describe("executeSingleTool", () => {
       { path: "src/foo.ts", startLine: "2", endLine: "5" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -343,7 +345,13 @@ describe("executeSingleTool", () => {
       expect(result.output).toBe("file output");
       expect(result.source).toBe("src/foo.ts");
     }
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/foo.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/foo.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(GIT_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
@@ -564,6 +572,7 @@ describe("executeSingleTool", () => {
       { path: "src/large.ts", complete: "true" },
       "/tmp",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -591,7 +600,13 @@ describe("executeSingleTool", () => {
       toolCallId: "provider-list-1",
       manifestHash: "d".repeat(64),
     });
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("list_directory", { path: "src" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "list_directory",
+      { path: "src" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
 
     const deniedMissionListing = await executeSingleTool({
       name: "list_directory",
@@ -638,7 +653,12 @@ describe("executeSingleTool", () => {
       expect(result.output).toBe("git output");
       expect(result.source).toBe("git:status");
     }
-    expect(GIT_TOOL_MOCK).toHaveBeenCalledWith("git_status", {}, "/project");
+    expect(GIT_TOOL_MOCK).toHaveBeenCalledWith(
+      "git_status",
+      {},
+      "/project",
+      expect.any(AbortSignal),
+    );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
@@ -1237,8 +1257,22 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
-    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(1, "read_file", { path: "src/chat.ts" }, "/project", []);
-    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(2, "read_file", { path: "src/turn-intent.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "read_file",
+      { path: "src/chat.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "read_file",
+      { path: "src/turn-intent.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(steps).toContainEqual(expect.objectContaining({
       kind: "diagnostic",
       code: "FORCE_PRIMARY_EVIDENCE_ACTION",
@@ -1301,6 +1335,7 @@ describe("executeToolLoop", () => {
       { path: requiredPaths[1] },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
       2,
@@ -1308,6 +1343,7 @@ describe("executeToolLoop", () => {
       { path: requiredPaths[2] },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(result.fileContents?.has(requiredPaths[1])).toBe(true);
     expect(result.fileContents?.has(requiredPaths[2])).toBe(true);
@@ -1348,7 +1384,13 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/proof.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/proof.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(strategy.call).toHaveBeenNthCalledWith(
       2,
       expect.anything(),
@@ -1388,6 +1430,7 @@ describe("executeToolLoop", () => {
       { path: "README.md" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
       2,
@@ -1395,6 +1438,7 @@ describe("executeToolLoop", () => {
       { path: "src/App.tsx" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(result.fileContents?.has("README.md")).toBe(true);
     expect(result.fileContents?.has("src/App.tsx")).toBe(true);
@@ -1450,6 +1494,7 @@ describe("executeToolLoop", () => {
       { path: "src/first.ts" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
       2,
@@ -1457,6 +1502,7 @@ describe("executeToolLoop", () => {
       { path: "src/second.ts" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(steps).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -1588,6 +1634,7 @@ describe("executeToolLoop", () => {
       { path: "src/first.ts" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
       2,
@@ -1595,6 +1642,7 @@ describe("executeToolLoop", () => {
       { path: "src/second.ts" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(steps).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -1672,12 +1720,19 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/proof.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/proof.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "search_code",
       expect.anything(),
       expect.anything(),
       expect.anything(),
+      expect.any(AbortSignal),
     );
   });
 
@@ -1729,12 +1784,14 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file",
       { path: requiredPath },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -1807,12 +1864,14 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "340", endLine: "419" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file_range",
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -1893,12 +1952,14 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "340", endLine: "419" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file_range",
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -1977,12 +2038,14 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "380", endLine: "459" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file_range",
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -2049,6 +2112,7 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -2123,6 +2187,7 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "380", endLine: "459" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(result.evidenceWindows?.[0]?.content).not.toContain(
       "Do not call executeToolLoop",
@@ -2132,6 +2197,7 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -2393,6 +2459,7 @@ describe("executeToolLoop", () => {
       { path: "src/auth.ts" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
   });
 
@@ -2463,6 +2530,7 @@ describe("executeToolLoop", () => {
       expect.objectContaining({ path: "src/caller.ts" }),
       "/project",
       expect.any(Array),
+      expect.any(AbortSignal),
     );
     expect(result.sourceRetrieval?.scopeExpansions).toEqual([{
       kind: "JUSTIFIED_SCOPE_EXPANSION",
@@ -2644,7 +2712,7 @@ describe("executeToolLoop", () => {
     expect(validationRunner).toHaveBeenCalledWith(
       "workspace-typecheck",
       ["src/example.ts"],
-      undefined,
+      expect.any(AbortSignal),
       pendingChanges,
     );
     expect(steps.filter((step) => step.kind === "repair_state").map((step) => step.state)).toEqual([
@@ -2954,6 +3022,7 @@ describe("executeToolLoop", () => {
       { path: "src/cache.ts", complete: "true" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     if (result.kind === "response") {
       expect(result.fileContents?.get("src/cache.ts")).toContain("verified");
@@ -3116,6 +3185,7 @@ describe("executeToolLoop", () => {
       { path: "src/big.ts", startLine: "1", endLine: "20" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(result.sourceRetrieval?.redundantReads).toBe(1);
     expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
@@ -3162,6 +3232,7 @@ describe("executeToolLoop", () => {
       { path: "src/big.ts", startLine: "1", endLine: "200" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
   });
@@ -3568,7 +3639,13 @@ describe("executeToolLoop", () => {
       expect(result.toolSources).toContain("src/auth.ts");
       expect(result.fileContents?.get("src/auth.ts")).toBe("file content");
     }
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/auth.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/auth.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(strategy.call).toHaveBeenCalledTimes(2);
   });
 
@@ -3691,6 +3768,7 @@ describe("executeToolLoop", () => {
       { pattern: "search_code" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     const fallbackOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[1]?.[1] as Record<string, unknown>;
     expect(fallbackOptions).toMatchObject({
@@ -3855,6 +3933,7 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "320", endLine: "399" },
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(strategy.call).toHaveBeenCalledTimes(2);
     expect(steps.some((step) =>
@@ -5243,7 +5322,13 @@ describe("executeToolLoop", () => {
     expect(calls[1]?.tools).toEqual([
       { type: "function", function: { name: "read_file", description: "", parameters: {} } },
     ]);
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/other.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/other.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(result.toolSources).toContain("src/other.ts");
     expect(messages.some((message) =>
       message.role === "tool" &&
@@ -6166,7 +6251,13 @@ describe("executeToolLoop", () => {
     expect(forceDiagnostic?.details?.[0]).toContain("planning budget exhausted");
     expect(result.sourceRetrieval?.progressForced).toBe(true);
     // The forced read actually landed (bounded redirect, not just a flag).
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/ev.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/ev.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(result.sourceRetrieval?.iterationsUntilFirstSourceRead).not.toBeNull();
     // Because a source read landed before the terminal, this is NOT a zero-read
     // INCOMPLETE_BEFORE_EVIDENCE terminal (FEG-010 stays quiet).
@@ -6258,7 +6349,12 @@ describe("executeToolLoop", () => {
     // that must be REJECTED at dispatch — so it never reaches executeGitTool.
     // Only git_status + git_log reach the mock, NOT git_diff.
     expect(GIT_TOOL_MOCK).toHaveBeenCalledTimes(2);
-    expect(GIT_TOOL_MOCK).not.toHaveBeenCalledWith("git_diff", expect.anything(), expect.anything());
+    expect(GIT_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "git_diff",
+      expect.anything(),
+      expect.anything(),
+      expect.any(AbortSignal),
+    );
     // The rejected plan-3 call surfaces a "forced-evidence mode" instruction to
     // the model instead of silently dropping it.
     const gitDiffTurn = vi.mocked(strategy.call).mock.calls
@@ -6333,8 +6429,20 @@ describe("executeToolLoop", () => {
     });
 
     expect(result.kind).toBe("response");
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/a.ts" }, "/project", []);
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/b.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/a.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/b.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(steps.some((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF")).toBe(false);
   });
 
@@ -6364,7 +6472,13 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     // The first read reached the mock — it was NOT blocked even though proof is required.
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/primary.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/primary.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(
       steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
     ).toBe(0);
@@ -6401,7 +6515,13 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
     // The FIRST read (primary) ran; the SECOND (dep without proof) did NOT.
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
-    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith("read_file", { path: "src/dep.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/dep.ts" },
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     // The gate surfaced the diagnostic — the block was reported, not silent.
     expect(
       steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
@@ -6457,6 +6577,7 @@ describe("executeToolLoop", () => {
       expect.objectContaining({ path: "src/dep.ts", from_file: "src/primary.ts" }),
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(
       steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
@@ -6506,7 +6627,13 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1); // only primary; dep blocked
-    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith("read_file", expect.objectContaining({ path: "src/dep.ts" }), "/project", []);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file",
+      expect.objectContaining({ path: "src/dep.ts" }),
+      "/project",
+      [],
+      expect.any(AbortSignal),
+    );
     expect(
       steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,
     ).toBe(1);
@@ -6668,6 +6795,7 @@ describe("executeToolLoop", () => {
       expect.objectContaining({ path: "src/dep.ts" }),
       "/project",
       [],
+      expect.any(AbortSignal),
     );
     expect(
       steps.filter((s) => s.kind === "diagnostic" && s.code === "READ_BLOCKED_NO_DEPENDENCY_PROOF").length,

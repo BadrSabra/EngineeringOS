@@ -77,9 +77,7 @@ describe("executeWorkflowPhase", () => {
     expect(mocks.transitionAutonomousOperation).not.toHaveBeenCalled();
   });
 
-  it("does not report completion or write a stale failure after losing the terminal fence", async () => {
-    mocks.completeAiExecution.mockResolvedValue(false);
-
+  it("fails non-empty phases before creating an execution without a runner", async () => {
     const result = await executeWorkflowPhase({
       userId: "user-1",
       projectId: "project-1",
@@ -94,45 +92,16 @@ describe("executeWorkflowPhase", () => {
     });
 
     expect(result).toMatchObject({
-      executionId: "execution-1",
+      executionId: "workflow-execution-1",
+      created: false,
       status: "failed",
+      failureCode: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
     });
-    expect(mocks.completeAiExecution).toHaveBeenCalledOnce();
+    expect(mocks.createAiExecution).not.toHaveBeenCalled();
+    expect(mocks.claimAiExecution).not.toHaveBeenCalled();
+    expect(mocks.completeAiExecution).not.toHaveBeenCalled();
     expect(mocks.failAiExecution).not.toHaveBeenCalled();
-  });
-
-  it("records a terminal failure when workflow acceptance throws after local success", async () => {
-    mocks.completeAiExecution.mockRejectedValueOnce(new Error("fixture_goal_projection_transaction_failed"));
-
-    const result = await executeWorkflowPhase({
-      userId: "user-1",
-      projectId: "project-1",
-      workflowId: "workflow-1",
-      workflowExecutionId: "workflow-execution-1",
-      workflowName: "Example",
-      phaseName: "prepare",
-      phaseSteps: ["Run the declared workflow work"],
-      revision: "revision-1",
-      completedPhaseNames: [],
-      goalId: "goal-1",
-      isFinalPhase: false,
-    });
-
-    expect(result).toMatchObject({
-      executionId: "execution-1",
-      status: "failed",
-    });
-    expect(mocks.failAiExecution).toHaveBeenCalledOnce();
-    expect(mocks.failAiExecution).toHaveBeenCalledWith(expect.objectContaining({
-      operation: expect.objectContaining({ state: "failed" }),
-      goalProjection: expect.objectContaining({
-        goalId: "goal-1",
-        workflowId: "workflow-1",
-        workflowExecutionId: "workflow-execution-1",
-        phase: "prepare",
-        finalPhase: false,
-      }),
-    }));
+    expect(mocks.createAutonomousOperationContract).not.toHaveBeenCalled();
   });
 
   it("reports committed success when the acceptance response is lost", async () => {

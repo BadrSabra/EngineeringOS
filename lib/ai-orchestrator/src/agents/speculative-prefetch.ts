@@ -259,8 +259,17 @@ export async function speculativePrefetch(opts: {
   );
 
   const hits = readResults.filter((r): r is { filePath: string; content: string } => r.content !== null);
+  const failedFiles = readResults.filter((r) => r.content === null).map((r) => r.filePath);
+  if (failedFiles.length > 0) {
+    console.warn(JSON.stringify({
+      scope: "speculative-prefetch",
+      code: "PREFETCH_READS_INCOMPLETE",
+      requestedCount: mentionedFiles.length,
+      failedCount: failedFiles.length,
+    }));
+  }
   if (hits.length === 0) {
-    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles: mentionedFiles };
+    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles };
   }
 
   // Build synthetic tool exchange: one assistant message with all tool_calls,
@@ -314,7 +323,7 @@ export async function speculativePrefetch(opts: {
     injectedMessages,
     sources,
     cacheEntries,
-    failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
+    failedFiles,
     truncatedFiles: hits
       .filter((r) => /\[(?:prefetch|read) output truncated\b|\[\.\.\. forensic read exceeded\b/i.test(r.content))
       .map((r) => r.filePath),
@@ -385,8 +394,17 @@ export async function prefetchFileList(opts: {
   const hits = readResults.filter(
     (r): r is { filePath: string; content: string } => r.content !== null,
   );
+  const failedFiles = readResults.filter((r) => r.content === null).map((r) => r.filePath);
+  if (failedFiles.length > 0) {
+    console.warn(JSON.stringify({
+      scope: "plan-prefetch",
+      code: "PREFETCH_READS_INCOMPLETE",
+      requestedCount: candidates.length,
+      failedCount: failedFiles.length,
+    }));
+  }
   if (hits.length === 0) {
-    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles: candidates };
+    return { injectedMessages: [], sources: [], cacheEntries: [], failedFiles };
   }
 
   // Per-request nonce prevents duplicate tool_call IDs across turns in the
@@ -430,7 +448,7 @@ export async function prefetchFileList(opts: {
     injectedMessages,
     sources,
     cacheEntries,
-    failedFiles: readResults.filter((r) => r.content === null).map((r) => r.filePath),
+    failedFiles,
     truncatedFiles: hits
       .filter((r) => /\[(?:prefetch|read) output truncated\b|\[\.\.\. forensic read exceeded\b/i.test(r.content))
       .map((r) => r.filePath),
