@@ -107,6 +107,15 @@ const mocks = vi.hoisted(() => {
     sessionsError: false,
     messagesFetched: true,
     messagesError: false,
+    sessionMissions: { sessionId: 'session-1', missions: [] } as unknown,
+    sessionMissionsPending: false,
+    sessionMissionsError: false,
+    sessionMissionsRefetch: vi.fn(),
+    sessionMissionsHook: vi.fn(),
+    sessionMissionsSessionId: undefined as string | undefined,
+    sessionMissionsOptions: undefined as unknown,
+    createMissionFromChat: vi.fn(),
+    previewMissionPlanFromChat: vi.fn(),
     historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
@@ -188,6 +197,15 @@ vi.mock('@clerk/react', () => ({
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: mocks.toast }),
 }));
+
+vi.mock('@/lib/ai-missions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ai-missions')>();
+  return {
+    ...actual,
+    createMissionFromChat: mocks.createMissionFromChat,
+    previewMissionPlanFromChat: mocks.previewMissionPlanFromChat,
+  };
+});
 
 vi.mock('@workspace/api-client-react', () => {
   const status = () => ({
@@ -293,6 +311,22 @@ vi.mock('@workspace/api-client-react', () => {
       isError: mocks.messagesError,
       error: null,
     })),
+    useListAiChatSessionMissions: mocks.sessionMissionsHook.mockImplementation((
+      sessionId: string,
+      options: unknown,
+    ) => {
+      mocks.sessionMissionsSessionId = sessionId;
+      mocks.sessionMissionsOptions = options;
+      return {
+        data: sessionId ? mocks.sessionMissions : undefined,
+        isPending: mocks.sessionMissionsPending,
+        isError: mocks.sessionMissionsError,
+        refetch: mocks.sessionMissionsRefetch,
+      };
+    }),
+    getListAiChatSessionMissionsQueryKey: (sessionId: string) => [
+      `/api/ai/chat/${sessionId}/missions`,
+    ],
     useListBrowserValidationProfiles: vi.fn(() => ({
       data: [],
       isLoading: false,
@@ -437,6 +471,15 @@ beforeEach(() => {
   mocks.sessionsError = false;
   mocks.messagesFetched = true;
   mocks.messagesError = false;
+  mocks.sessionMissions = { sessionId: 'session-1', missions: [] };
+  mocks.sessionMissionsPending = false;
+  mocks.sessionMissionsError = false;
+  mocks.sessionMissionsRefetch.mockReset();
+  mocks.sessionMissionsHook.mockClear();
+  mocks.sessionMissionsSessionId = undefined;
+  mocks.sessionMissionsOptions = undefined;
+  mocks.createMissionFromChat.mockReset();
+  mocks.previewMissionPlanFromChat.mockReset();
   mocks.historicalAudits = [];
   mocks.fileContent = {
     available: true,
@@ -1858,6 +1901,201 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.messagesFetched = true;
     renderAiChat();
     expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('No messages in this session');
+  });
+
+  it('restores every Mission linked to a reopened chat session', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [
+        {
+          mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+          agentControl: { handoff: { dispatchStatus: 'DISPATCHED' } },
+        },
+        {
+          mission: { id: 'mission-two', title: 'Improve project setup', status: 'completed' },
+          agentControl: { handoff: { dispatchStatus: 'DISPATCHED' } },
+        },
+      ],
+    };
+
+    renderAiChat();
+
+    const missionList = await screen.findByTestId('chat-session-missions');
+    expect(missionList).toHaveTextContent('Add workspace search');
+    expect(missionList).toHaveTextContent('Improve project setup');
+    expect(missionList).toHaveTextContent('Active');
+    expect(missionList).toHaveTextContent('Completed');
+    expect(screen.getByTestId('link-chat-session-mission-mission-one')).toHaveAttribute(
+      'href',
+      '/missions?projectId=project-1&missionId=mission-one',
+    );
+    expect(mocks.sessionMissionsSessionId).toBe('session-1');
+
+    const hookOptions = mocks.sessionMissionsOptions as {
+      query: {
+        queryKey: unknown[];
+        enabled: boolean;
+        refetchOnMount: string;
+        refetchInterval: number;
+      };
+    };
+    expect(hookOptions.query).toMatchObject({
+      queryKey: ['/api/ai/chat/session-1/missions', 'user-1'],
+      enabled: true,
+      refetchOnMount: 'always',
+      refetchInterval: 15_000,
+    });
+  });
+
+  it('shows a loading state while linked Missions are being restored', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissionsPending = true;
+
+    renderAiChat();
+
+    expect(await screen.findByTestId('chat-session-missions-loading')).toHaveTextContent(
+      'Loading linked Missions',
+    );
+  });
+
+  it('keeps the chat open after a Mission handoff and refreshes its linked-Mission list', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.serverProposal = {
+      proposalId: 'handoff-source',
+      operationId: null,
+      changes: [],
+      approvalRequired: false,
+      revision: null,
+    };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      id: 'user-handoff',
+      role: 'user',
+      content: 'Implement the requested improvement.',
+      createdAt: '2026-08-13T00:00:00.000Z',
+    } as typeof mocks.proposalMessages[0];
+    mocks.createMissionFromChat.mockResolvedValue({
+      mission: { id: 'mission-new', title: 'Requested improvement' },
+    });
+    const initialLocation = `${window.location.pathname}${window.location.search}`;
+    const { invalidateQueries } = renderAiChat();
+
+    fireEvent.click(await screen.findByTestId('button-mission-handoff-user-handoff'));
+
+    await waitFor(() => {
+      expect(mocks.createMissionFromChat).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        messageId: 'user-handoff',
+      }));
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['/api/ai/chat/session-1/missions'],
+      });
+    });
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Mission started',
+      description: expect.stringContaining('Requested improvement'),
+    }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe(initialLocation);
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('Existing session');
+  });
+
+  it('keeps an accepted project-query Mission handoff in the current chat', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.serverProposal = {
+      proposalId: null,
+      operationId: null,
+      changes: [],
+      approvalRequired: false,
+      revision: null,
+    };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      id: 'accepted-query-message',
+      role: 'assistant',
+      content: 'The accepted project finding.',
+      turnIntent: 'PROJECT_QUERY',
+      outcome: 'SUCCEEDED',
+      acceptanceDisposition: null,
+      terminalProjection: {
+        outcome: 'SUCCEEDED',
+        messageId: 'accepted-query-message',
+        acceptanceId: 'accepted-query-proof',
+      },
+      projection: {
+        verification: { proofRequired: true, evidenceVerdict: 'PROVEN' },
+      },
+    } as typeof mocks.proposalMessages[0];
+    mocks.previewMissionPlanFromChat.mockResolvedValue({
+      admission: 'mission',
+      plan: { steps: [], planHash: 'accepted-query-plan' },
+    });
+    mocks.createMissionFromChat.mockResolvedValue({
+      mission: { id: 'accepted-query-mission', title: 'Verify the accepted finding' },
+    });
+    const { invalidateQueries } = renderAiChat();
+
+    fireEvent.click(await screen.findByTestId('button-mission-finding-preview-accepted-query-message'));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview plan' }));
+    expect(await screen.findByTestId('mission-finding-plan-accepted-query-message')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and start Mission' }));
+
+    await waitFor(() => {
+      expect(mocks.createMissionFromChat).toHaveBeenCalledWith(expect.objectContaining({
+        projectId: 'project-1',
+        assistantMessageId: 'accepted-query-message',
+      }));
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['/api/ai/chat/session-1/missions'],
+      });
+    });
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('Existing session');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows a retry path when linked Missions fail to load', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissionsError = true;
+
+    renderAiChat();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Linked Missions could not be loaded.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(mocks.sessionMissionsRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the linked-Mission list when another tab updates the chat session', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    const { invalidateQueries } = renderAiChat();
+    await screen.findByTestId('text-chat-current-context');
+
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'eos_ai_sync_event',
+      newValue: JSON.stringify({
+        version: 1,
+        projectId: 'project-1',
+        kind: 'data',
+        sessionId: 'session-1',
+        sequence: 4,
+      }),
+    }));
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['/api/ai/chat/session-1/missions'],
+    });
   });
 
   it('guides a user with no project to the project list instead of showing disabled starting points', async () => {

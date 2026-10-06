@@ -36,6 +36,8 @@ import {
   useListAiExecutionHistory,
   useListAiChatSessions,
   useListAiChatMessages,
+  useListAiChatSessionMissions,
+  getListAiChatSessionMissionsQueryKey,
   useGetAiPendingProposal,
   useListEvents,
   useGetAiChatFileContent,
@@ -67,6 +69,7 @@ import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
 import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import { ChatSessionMissionHandoffs } from '@/components/ChatSessionMissionHandoffs';
 import {
   executionCanResume,
   getExecutionRecoveryView,
@@ -5770,9 +5773,11 @@ const DEFAULT_ACCEPTED_FINDING_OBJECTIVE = 'Investigate and fix the accepted fin
 function AcceptedProjectQueryMissionAction({
   msg,
   projectId,
+  onHandoffComplete,
 }: {
   msg: ChatMessage;
   projectId: string;
+  onHandoffComplete: (mission: { id: string; title: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [objective, setObjective] = useState(DEFAULT_ACCEPTED_FINDING_OBJECTIVE);
@@ -5815,9 +5820,9 @@ function AcceptedProjectQueryMissionAction({
         objective: objective.trim(),
         expectedPlanHash: preview.plan.planHash,
       });
-      window.location.assign(
-        `/missions?projectId=${encodeURIComponent(projectId)}&missionId=${encodeURIComponent(result.mission.id)}`,
-      );
+      onHandoffComplete(result.mission);
+      setOpen(false);
+      setPreview(null);
     } catch (handoffError) {
       setError(handoffError instanceof Error ? handoffError.message : 'The accepted finding could not be handed off.');
     } finally {
@@ -5998,6 +6003,7 @@ function MessageBubble({
   projectQueryRetryPending,
   onMissionHandoff,
   missionHandoffPending,
+  onMissionHandoffComplete,
   onExplainFallback,
   fallbackDiagnostic,
   fallbackDiagnosticPending,
@@ -6020,6 +6026,7 @@ function MessageBubble({
   projectQueryRetryPending?: boolean;
   onMissionHandoff?: (message: ChatMessage) => void;
   missionHandoffPending?: boolean;
+  onMissionHandoffComplete?: (mission: { id: string; title: string }) => void;
   onExplainFallback?: (message: ChatMessage) => void;
   fallbackDiagnostic?: AiFallbackDiagnostic;
   fallbackDiagnosticPending?: boolean;
@@ -6414,7 +6421,11 @@ function MessageBubble({
           </Button>
         )}
         {canOfferAcceptedFindingMission && projectId && (
-          <AcceptedProjectQueryMissionAction msg={msg} projectId={projectId} />
+          <AcceptedProjectQueryMissionAction
+            msg={msg}
+            projectId={projectId}
+            onHandoffComplete={(mission) => onMissionHandoffComplete?.(mission)}
+          />
         )}
         {internalTechnicalDump && (
           <div className="w-full rounded-lg border border-border/40 bg-background/20">
@@ -9518,6 +9529,9 @@ export default function AiChat() {
         if (incomingSessionId) {
           void qc.invalidateQueries({ queryKey: ['ai-messages', incomingSessionId] });
           void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', incomingSessionId] });
+          void qc.invalidateQueries({
+            queryKey: getListAiChatSessionMissionsQueryKey(incomingSessionId),
+          });
         }
         void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
       } catch {
@@ -9536,6 +9550,9 @@ export default function AiChat() {
           setSessionId(selection.sessionId);
           void qc.invalidateQueries({ queryKey: ['ai-messages', selection.sessionId] });
           void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', selection.sessionId] });
+          void qc.invalidateQueries({
+            queryKey: getListAiChatSessionMissionsQueryKey(selection.sessionId),
+          });
           void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
         }
       }
@@ -10727,6 +10744,26 @@ export default function AiChat() {
       },
     },
   );
+
+  const {
+    data: chatSessionMissions,
+    isPending: chatSessionMissionsPending,
+    isError: chatSessionMissionsError,
+    refetch: refetchChatSessionMissions,
+  } = useListAiChatSessionMissions(sessionId ?? '', {
+    query: {
+      queryKey: [
+        ...getListAiChatSessionMissionsQueryKey(sessionId ?? ''),
+        user?.id ?? null,
+      ],
+      enabled: isLoaded && Boolean(selectedProjectId && sessionId),
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: true,
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+    },
+  });
 
   const { data: serverProposal } = useGetAiPendingProposal<{
     proposalId: string | null;
@@ -12358,22 +12395,37 @@ export default function AiChat() {
     });
   }
 
+  function handleMissionHandoffComplete(
+    mission: { id: string; title: string },
+    projectId: string | undefined,
+    linkedSessionId: string | undefined,
+  ) {
+    if (linkedSessionId) {
+      void qc.invalidateQueries({
+        queryKey: getListAiChatSessionMissionsQueryKey(linkedSessionId),
+      });
+      if (projectId) publishAiChatData(projectId, linkedSessionId);
+    }
+    toast({
+      title: 'Mission started',
+      description: `"${mission.title}" is now linked to this conversation. Its status will update here.`,
+    });
+  }
+
   async function handleMissionHandoff(message: ChatMessage) {
     if (!selectedProjectId || !sessionId || missionHandoffPending) return;
+    const handoffProjectId = selectedProjectId;
+    const handoffSessionId = sessionId;
     setMissionHandoffPending(message.id);
     try {
       const result = await createMissionFromChat({
-        projectId: selectedProjectId,
+        projectId: handoffProjectId,
         idempotencyKey: crypto.randomUUID(),
         message: message.content,
-        sessionId,
+        sessionId: handoffSessionId,
         messageId: message.id,
       });
-      toast({
-        title: 'Mission started',
-        description: `The approved request is now running as "${result.mission.title}".`,
-      });
-      window.location.assign(`/missions?projectId=${encodeURIComponent(selectedProjectId)}&missionId=${encodeURIComponent(result.mission.id)}`);
+      handleMissionHandoffComplete(result.mission, handoffProjectId, handoffSessionId);
     } catch (error) {
       toast({
         title: 'Mission handoff unavailable',
@@ -13442,6 +13494,17 @@ export default function AiChat() {
               </div>
             </div>
           )}
+          {selectedProjectId && sessionId && (
+            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
+              <ChatSessionMissionHandoffs
+                projectId={selectedProjectId}
+                missions={chatSessionMissions?.missions ?? []}
+                isPending={chatSessionMissionsPending}
+                isError={chatSessionMissionsError}
+                onRetry={() => void refetchChatSessionMissions()}
+              />
+            </div>
+          )}
           {isEmpty && !showExecutionProofInEmptyState ? (
             <div className="flex h-full min-h-[300px] items-center justify-center px-3 py-8">
               <div className="w-full max-w-2xl space-y-6">
@@ -13628,6 +13691,9 @@ export default function AiChat() {
                   projectQueryRetryPending={projectQueryRetryMessageId === msg.id}
                    onMissionHandoff={handleMissionHandoff}
                    missionHandoffPending={missionHandoffPending === msg.id}
+                    onMissionHandoffComplete={(mission) =>
+                      handleMissionHandoffComplete(mission, selectedProjectId, sessionId)
+                    }
                   onExplainFallback={explainFallbackForMessage}
                   fallbackDiagnostic={
                     fallbackDiagnosticMutation.data?.messageId === msg.id

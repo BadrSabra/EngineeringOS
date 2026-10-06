@@ -27,6 +27,12 @@ Chat-history projection tests should mock the episode-ledger persistence boundar
 
 **How to apply:** When ledger durability is not the subject, isolate that boundary in route tests; preserve the lease-selection and ownership path, and cover ledger transactions in dedicated ledger tests.
 
+Chat UI fixtures should keep unselected-session and selected-session message data scoped to the behavior under test; globally changing array identity can erase optimistic messages during selection hydration and break unrelated stream tests.
+
+**Why:** AiChat resets visible messages when session selection changes, while its stream path also protects transient messages during server hydration.
+
+**How to apply:** For restored-session and handoff tests, provide a session-specific message response; avoid changing the shared message-hook mock's identity semantics unless testing that transition.
+
 Lifecycle recovery tests that execute the production chat helper should preserve provider eligibility and budget admission, replacing only provider strategy construction and lifecycle/circuit readiness with deterministic fixtures. Budget reservations cascade with a unique project, but usage and operator-alert rows need explicit cleanup scoped to that project and owner.
 
 **Why:** Stubbing the helper hides service-to-engine forwarding; stubbing admission hides a real production boundary and can leave durable test rows behind.
