@@ -63,10 +63,12 @@ import {
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
 import {
+  AI_EXECUTION_HEARTBEAT_INTERVAL_MS,
   createAiExecution,
   reconcileAiExecutions,
   requestAiExecutionCancel,
 } from "../lib/ai-execution-state.js";
+import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import { buildExecutionProofProjection } from "../lib/execution-proof.js";
 import { loadCanonicalProof } from "../lib/proof-foundation.js";
@@ -5221,6 +5223,112 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       messageId: execution!.finalMessageId,
     });
   });
+
+  it("rejects late structured analysis success after heartbeat renewal throws", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    type AnalysisResult = Awaited<ReturnType<typeof mockAnalyzeScan>>;
+    const lateResult = {
+      summary: "Late result after heartbeat failure",
+      overallAssessment: "This result must not be accepted.",
+      insights: [],
+      topPriority: "Preserve the heartbeat failure boundary",
+      estimatedImpact: "None",
+    } as AnalysisResult;
+    let resolveLateResult!: (result: AnalysisResult) => void;
+    const lateProviderResult = new Promise<AnalysisResult>((resolve) => {
+      resolveLateResult = resolve;
+    });
+    let markProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      markProviderStarted = resolve;
+    });
+    let providerSignal: AbortSignal | undefined;
+
+    const analyzeMock = vi.mocked(mockAnalyzeScan);
+    const previousAnalyzeImplementation = analyzeMock.getMockImplementation();
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution")
+      .mockRejectedValueOnce(new Error("Fixture heartbeat storage failure."));
+    analyzeMock.mockImplementation((_context, options) => {
+      providerSignal = options?.signal;
+      markProviderStarted();
+      return lateProviderResult;
+    });
+
+    let responsePromise: Promise<{ status: number; text: string }> | undefined;
+    try {
+      responsePromise = request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`)
+        .then((response) => response);
+      const startState = await Promise.race([
+        providerStarted.then(() => "provider" as const),
+        responsePromise.then(() => "response" as const),
+      ]);
+      expect(startState).toBe("provider");
+      expect(providerSignal).toBeDefined();
+
+      const signal = providerSignal!;
+      const providerAborted = new Promise<void>((resolve) => {
+        if (signal.aborted) {
+          resolve();
+          return;
+        }
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      const heartbeatCall = intervalSpy.mock.calls
+        .find(([, delay]) => delay === AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
+      const heartbeatCallback = heartbeatCall?.[0];
+      expect(typeof heartbeatCallback).toBe("function");
+
+      heartbeatCallback!();
+      await providerAborted;
+      expect(signal.aborted).toBe(true);
+
+      const response = await responsePromise;
+      expect(response.status).toBe(200);
+      expect(response.text).not.toContain('"type":"task_done"');
+
+      // Resolve a provider result after the route has handled the heartbeat
+      // failure. The late result must not create a success acceptance.
+      resolveLateResult(lateResult);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId))
+        .limit(1);
+      expect(execution).toBeDefined();
+      expect(execution?.status).not.toBe("completed");
+
+      const acceptances = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      expect(acceptances.some((acceptance) =>
+        acceptance.outcome === "SUCCEEDED" || acceptance.terminalStatus === "completed"
+      )).toBe(false);
+
+      const events = await db.select({ type: eventsTable.type })
+        .from(eventsTable)
+        .where(eq(eventsTable.projectId, projectId));
+      expect(events.some((event) => event.type === "AiScanAnalysisCompleted")).toBe(false);
+    } finally {
+      resolveLateResult(lateResult);
+      await responsePromise?.catch(() => undefined);
+      analyzeMock.mockReset();
+      if (previousAnalyzeImplementation) {
+        analyzeMock.mockImplementation(previousAnalyzeImplementation);
+      }
+      heartbeatSpy.mockRestore();
+      intervalSpy.mockRestore();
+    }
+  }, 20_000);
 
   it("does not persist structured success after execution ownership changes", async () => {
     const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");

@@ -4573,6 +4573,17 @@ G9 Revocation Safety
 - **remaining/blocker:** process-kill/startup recovery لمسار Mission repair ما زال مفتوحًا؛ E2 باقية `OPEN`، وE3 `STOPPED`.
 - **next step:** استكمل E2 بتصميم اختبار Mission repair يقتل child process عند حد durable مضبوط ثم يعيد recovery على قاعدة loopback مؤقتة؛ لا تبدأ E3 أو تعِد تشغيل Strategy Replay receipts.
 
+### 2026-10-06 — رفض نتيجة structured analysis المتأخرة بعد فشل heartbeat
+
+- **phase/step:** E2 فقط — حد heartbeat بين structured-task وroute الخاص بالتحليل المتدفق.
+- **status:** `partial — signal والإسقاط النهائي مغطّيان؛ بقية أسطح E2 ما زالت مفتوحة`
+- **what changed:** أضيف اختبار route-level يستخدم `analyzeScan` وهميًا بنتيجة معلّقة. عند رفض `heartbeatAiExecution`، يثبت أن signal يصل إلى provider work وأن route لا يصدر نجاحًا؛ ثم يطلق النتيجة المتأخرة ويتأكد من عدم إنشاء acceptance ناجح أو حدث إكمال. لم يتغير runtime أو schema.
+- **files/schema/contracts touched:** اختبار `src/routes/ai.test.ts` وتقريرا الحالة؛ لا تغيير صلاحيات أو schema.
+- **validation:** `pnpm --filter @workspace/db run schema:apply` على PostgreSQL مؤقتة loopback، ثم اختبار route المركّز — **1/1** و198 skipped خلال 35.85 ثانية، مع `AI_PROVIDER_EGRESS_DISABLED=1`؛ API typecheck و`git diff --check` ناجحان.
+- **authority/safety impact:** provider محلي وهمي فقط؛ النتيجة المتأخرة لا تُقبل بعد abort. لا قاعدة dev/prod ولا provider حي ولا workflow مُدار.
+- **remaining/blocker:** الاختبار لا يثبت توقف مزوّد خارجي حي أو استعادة process؛ parity لبقية أسطح E2 ما زالت غير مكتملة.
+- **next step:** تابع E2 في السطح التالي المفتوح فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تعِد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
