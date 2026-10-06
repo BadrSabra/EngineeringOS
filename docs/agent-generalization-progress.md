@@ -4561,6 +4561,17 @@ G9 Revocation Safety
 - **remaining/blocker:** تبقى أسطح lifecycle وmutation الأخرى، وجرد writers/consumers، مفتوحة ضمن E2.
 - **next step:** تابع E2 على الفجوات المتبقية فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تعِد تشغيل Strategy Replay receipts قبل إغلاق بوابة E2 صراحةً.
 
+### 2026-10-06 — إعادة تحقق heartbeat وتحديد حد استعادة Mission repair
+
+- **phase/step:** E2 فقط — تجديد heartbeat في structured-task، ثم فرز فجوة crash recovery في Mission repair.
+- **status:** `partial — heartbeat rejection مُغطّى؛ استعادة Mission repair بعد قتل process ما زالت غير مثبتة`
+- **what changed:** لم يتطلب الأمر تعديل runtime. الكود الحالي يمسك رفض `heartbeatAiExecution` ويلغي controller signal، والاختبار المركّز يثبت ذلك. بالمقابل، اختبارات `candidate_ready` و`committed` تغيّر leases/status ثم تستدعي مسار الاستعادة داخل process الاختبار؛ لا تقتل عاملًا حقيقيًا ولا تبدأ `src/index.ts` من جديد. بقيت هذه فجوة E2.
+- **files/schema/contracts touched:** تقرير الحالة وسجل التقدم فقط؛ لا تغييرات تطبيق أو schema أو صلاحيات.
+- **validation:** `pnpm --filter @workspace/db run schema:apply` على PostgreSQL مؤقتة loopback، ثم `pnpm --filter @workspace/api-server exec vitest run src/lib/task-execution-lifecycle.integration.test.ts -t 'aborts structured provider work when heartbeat renewal rejects' --testTimeout=20000 --maxWorkers=1` — **1/1**، و30 skipped، 25.34 ثانية. عُطّل provider egress؛ أُوقفت القاعدة المؤقتة وأزيل مجلدها. لم تُشغّل managed workflows أو قاعدة التطوير/الإنتاج.
+- **authority/safety impact:** يثبت الاختبار إيقاف عمل provider المحلي عند تعذر تجديد الملكية فقط؛ لا يمنح قبولًا أو proof ولا يثبت crash recovery.
+- **remaining/blocker:** process-kill/startup recovery لمسار Mission repair ما زال مفتوحًا؛ E2 باقية `OPEN`، وE3 `STOPPED`.
+- **next step:** استكمل E2 بتصميم اختبار Mission repair يقتل child process عند حد durable مضبوط ثم يعيد recovery على قاعدة loopback مؤقتة؛ لا تبدأ E3 أو تعِد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
