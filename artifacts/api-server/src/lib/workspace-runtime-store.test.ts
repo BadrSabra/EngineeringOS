@@ -778,15 +778,6 @@ describe("workspace runtime full API startup recovery", () => {
         });
         const localSupervisorPort = await listenLoopback(supervisorServer);
 
-        const beforePort = await reserveLoopbackPort();
-        const beforeApplicationName = `runtime-api-before-${randomUUID().slice(0, 8)}`;
-        const initialApi = spawnApiWorker(beforePort, beforeApplicationName, localSupervisorPort);
-        apiBefore = initialApi;
-        const initialApiPid = initialApi.child.pid;
-        if (!initialApiPid) throw new Error("The first isolated API process did not start.");
-        await waitForApiWorkerReady(beforePort, initialApi.child, initialApi.output);
-        expect(supervisorRequests).toEqual([]);
-
         await db.insert(projectsTable).values([
           {
             id: knownProjectId,
@@ -825,35 +816,6 @@ describe("workspace runtime full API startup recovery", () => {
         runtimePort = knownRuntimePort;
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
-        const activeWorkerId = `runtime-api-worker-before-${initialApiPid}`;
-        const sessionId = `session-${randomUUID()}`;
-        const revision = "runtime-api-startup-recovery-revision";
-        const activeAt = new Date();
-        const activeLeaseUntil = new Date(activeAt.getTime() + RUNTIME_LEASE_MS * 4);
-        const knownBegin = await databaseWorkspaceRuntimeStore.begin({
-          projectId: knownProjectId,
-          projectRoot: knownRoot,
-          sessionId,
-          revision,
-          environmentRevision: null,
-          workerId: activeWorkerId,
-          now: activeAt,
-          leaseUntil: activeLeaseUntil,
-        });
-        if (!knownBegin) throw new Error("The known runtime row was not persisted.");
-        expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
-          knownProjectId,
-          sessionId,
-          activeWorkerId,
-          {
-            status: "running",
-            pid: knownRuntimePid,
-            port: knownRuntimePort,
-            lastHeartbeatAt: activeAt,
-            leaseUntil: activeLeaseUntil,
-          },
-        )).toBe(true);
-
         unknownOwner = spawn(
           process.execPath,
           ["-e", "process.once('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);"],
@@ -870,6 +832,35 @@ describe("workspace runtime full API startup recovery", () => {
         if (!unknownOwnerPid) throw new Error("The unrelated listener-owner fixture did not start.");
         await new Promise((resolve) => setTimeout(resolve, 100));
 
+        const seedWorkerId = `runtime-api-startup-orphan-${randomUUID()}`;
+        const sessionId = `session-${randomUUID()}`;
+        const revision = "runtime-api-startup-recovery-revision";
+        const staleAt = new Date(Date.now() - RUNTIME_LEASE_MS * 2);
+        const expiredLease = new Date(Date.now() - 1);
+        const knownBegin = await databaseWorkspaceRuntimeStore.begin({
+          projectId: knownProjectId,
+          projectRoot: knownRoot,
+          sessionId,
+          revision,
+          environmentRevision: null,
+          workerId: seedWorkerId,
+          now: staleAt,
+          leaseUntil: expiredLease,
+        });
+        if (!knownBegin) throw new Error("The known runtime row was not persisted.");
+        expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
+          knownProjectId,
+          sessionId,
+          seedWorkerId,
+          {
+            status: "running",
+            pid: knownRuntimePid,
+            port: knownRuntimePort,
+            lastHeartbeatAt: staleAt,
+            leaseUntil: expiredLease,
+          },
+        )).toBe(true);
+
         const unknownSessionId = `session-${randomUUID()}`;
         const unknownBegin = await databaseWorkspaceRuntimeStore.begin({
           projectId: unknownProjectId,
@@ -877,41 +868,72 @@ describe("workspace runtime full API startup recovery", () => {
           sessionId: unknownSessionId,
           revision,
           environmentRevision: null,
-          workerId: activeWorkerId,
-          now: activeAt,
-          leaseUntil: activeLeaseUntil,
+          workerId: seedWorkerId,
+          now: staleAt,
+          leaseUntil: expiredLease,
         });
         if (!unknownBegin) throw new Error("The unknown runtime row was not persisted.");
         expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
           unknownProjectId,
           unknownSessionId,
-          activeWorkerId,
+          seedWorkerId,
           {
             status: "running",
             pid: unknownOwnerPid,
             port: localSupervisorPort,
-            lastHeartbeatAt: activeAt,
-            leaseUntil: activeLeaseUntil,
+            lastHeartbeatAt: staleAt,
+            leaseUntil: expiredLease,
           },
         )).toBe(true);
+
+        const beforePort = await reserveLoopbackPort();
+        const beforeApplicationName = `runtime-api-before-${randomUUID().slice(0, 8)}`;
+        const initialApi = spawnApiWorker(beforePort, beforeApplicationName, localSupervisorPort);
+        apiBefore = initialApi;
+        await waitForApiWorkerReady(beforePort, initialApi.child, initialApi.output);
+
+        const knownBeforeCrash = await databaseWorkspaceRuntimeStore.get(knownProjectId);
+        expect(knownBeforeCrash).toMatchObject({
+          status: "running",
+          sessionId,
+          projectRoot: knownRoot,
+          pid: knownRuntimePid,
+          port: knownRuntimePort,
+        });
+        const priorOwnerId = knownBeforeCrash?.workerId;
+        expect(priorOwnerId).toBeTruthy();
+        if (!priorOwnerId) throw new Error("The first API process did not claim the known runtime lease.");
+        expect(priorOwnerId).not.toBe(seedWorkerId);
+        expect(knownBeforeCrash?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(supervisorRequests).toEqual([{
+          projectId: knownProjectId,
+          sessionId,
+          projectRoot: knownRoot,
+          pid: knownRuntimePid,
+          port: knownRuntimePort,
+        }]);
+
+        const unknownBeforeCrash = await databaseWorkspaceRuntimeStore.get(unknownProjectId);
+        expect(unknownBeforeCrash).toMatchObject({
+          status: "running",
+          sessionId: unknownSessionId,
+          pid: unknownOwnerPid,
+          port: localSupervisorPort,
+          workerId: null,
+          leaseUntil: null,
+        });
+        expect(process.kill(unknownOwnerPid, 0)).toBe(true);
 
         initialApi.child.kill("SIGKILL");
         expect((await initialApi.exit).signal).toBe("SIGKILL");
         await waitForRuntimeWorkerDatabaseDisconnect(beforeApplicationName);
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
-        const expiredLease = new Date(Date.now() - 1);
         const expiredHeartbeat = new Date(Date.now() - RUNTIME_LEASE_MS - 1);
         expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
           knownProjectId,
           sessionId,
-          activeWorkerId,
-          { leaseUntil: expiredLease, lastHeartbeatAt: expiredHeartbeat },
-        )).toBe(true);
-        expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
-          unknownProjectId,
-          unknownSessionId,
-          activeWorkerId,
+          priorOwnerId,
           { leaseUntil: expiredLease, lastHeartbeatAt: expiredHeartbeat },
         )).toBe(true);
 
@@ -930,7 +952,7 @@ describe("workspace runtime full API startup recovery", () => {
           port: knownRuntimePort,
         });
         expect(knownRecovered?.workerId).toBeTruthy();
-        expect(knownRecovered?.workerId).not.toBe(activeWorkerId);
+        expect(knownRecovered?.workerId).not.toBe(priorOwnerId);
         expect(knownRecovered?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
@@ -944,13 +966,22 @@ describe("workspace runtime full API startup recovery", () => {
           leaseUntil: null,
         });
         expect(process.kill(unknownOwnerPid, 0)).toBe(true);
-        expect(supervisorRequests).toEqual([{
-          projectId: knownProjectId,
-          sessionId,
-          projectRoot: knownRoot,
-          pid: knownRuntimePid,
-          port: knownRuntimePort,
-        }]);
+        expect(supervisorRequests).toEqual([
+          {
+            projectId: knownProjectId,
+            sessionId,
+            projectRoot: knownRoot,
+            pid: knownRuntimePid,
+            port: knownRuntimePort,
+          },
+          {
+            projectId: knownProjectId,
+            sessionId,
+            projectRoot: knownRoot,
+            pid: knownRuntimePid,
+            port: knownRuntimePort,
+          },
+        ]);
         expect(unexpectedSupervisorPaths).toEqual([]);
         await expect(fs.access(blockedEgressFile)).rejects.toMatchObject({ code: "ENOENT" });
       } finally {
