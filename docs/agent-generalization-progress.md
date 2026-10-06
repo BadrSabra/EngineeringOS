@@ -4694,6 +4694,17 @@ G9 Revocation Safety
 - **remaining/blocker:** worker وrecovery child يستدعيان lifecycle مباشرة لا HTTP route؛ مزوّد وهمي؛ لا تثبت هذه الحالات parity عامة أو بقية أسطح E2. بقي `runtime.start` adoption بعد فقد عامل API فجوة منفصلة.
 - **next step:** دقّق حد استعادة `runtime.start` بهوية session/process دائمة عبر عامل API بديل، باستخدام fixture معزول لا يلمس workflow المُدار؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
 
+### 2026-10-07 — استعادة runtime process بعد فقد عامل API
+
+- **phase/step:** E2 فقط — تبنّي runtime process باقٍ بعد `SIGKILL` لعامل API مع مخزن PostgreSQL دائم.
+- **status:** `bounded process + DB recovery verified (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُضيف اختبار process-level اختياري يشغّل `WorkspaceRuntimeManager` في عامل API fixture مستقل، ويبدأ runtime منفصلًا، ثم يقتل العامل بـ`SIGKILL`. يبقى runtime والمنفذ حيين. manager جديد يستخدم `databaseWorkspaceRuntimeStore`: عند listener ownership `UNKNOWN` يحرر claim ويبقي الجلسة `running` قابلة لإعادة المحاولة دون استدعاء supervisor؛ وبعد نتيجة `known` يطلب adoption من supervisor fixture بهوية project/session/root/PID/port المطابقة ويستعيد الجلسة نفسها.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime-store.test.ts` وسجل التقدم وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات production code أو schema أو صلاحيات.
+- **validation:** API `pnpm exec tsc -p tsconfig.json --noEmit` ناجح. الاختبار `RUN_RUNTIME_ADOPTION_PROCESS_RECOVERY=1 ... vitest ...` نجح **1/1** (3 اختبارات أخرى في الملف skipped) بعد `schema:apply` على PostgreSQL مؤقتة loopback باسم disposable، مع provider egress معطّل. أُوقفت القاعدة وحُذف جذرها؛ لا قاعدة مشتركة أو provider حي أو managed workflow.
+- **authority/safety impact:** قتل عامل API لا يحول runtime الحي إلى failed أو يقتله عند ownership `UNKNOWN`؛ lease تصبح قابلة لإعادة المحاولة، ويحدث adoption فقط عندما يعطي resolver وsupervisor fixture هوية مطابقة.
+- **remaining/blocker:** lease expiration نُمذجت بتحديث row في قاعدة الاختبار بدل انتظار timeout الطبيعي؛ listener resolver وsupervisor test doubles؛ الاختبار لا يشغل `src/index.ts` ولا supervisor مُدار ولا procfs الحقيقي، ولا يثبت HTTP route أو كل crash windows. E2 ما زالت مفتوحة.
+- **next step:** اختبر، ضمن E2 فقط، startup/reconciliation عبر `src/index.ts` مع supervisor HTTP fixture محلي بعد فقد العامل؛ لا تلمس `workspace-runtime-supervisor` المُدار ولا تبدأ E3 أو Learning/Transfer/Generalization أو تعِد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
