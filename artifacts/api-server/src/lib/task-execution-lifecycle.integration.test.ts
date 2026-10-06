@@ -17,6 +17,7 @@ type MissionValidationRunner = NonNullable<
   Parameters<ChatWithFallbackFunction>[1]["validationRunner"]
 >;
 import {
+  auditLogsTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentEpisodeEventsTable,
@@ -589,6 +590,72 @@ function startTaskRouteTestProcess(input: {
       ...(input.heartbeatIntervalMs !== undefined
         ? { AI_TASK_HEARTBEAT_INTERVAL_MS: String(input.heartbeatIntervalMs) }
         : {}),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExit) => {
+    child.once("exit", (code, signal) => resolveExit({ code, signal }));
+  });
+  const output = () => {
+    const databaseUrlWithoutCredentials = `${databaseUrl.protocol}//${databaseUrl.hostname}${databaseUrl.pathname}`;
+    let captured = `stdout=${stdout}; stderr=${stderr}`
+      .replaceAll(databaseUrl.toString(), databaseUrlWithoutCredentials);
+    if (databaseUrl.password) captured = captured.replaceAll(databaseUrl.password, "[redacted]");
+    if (databaseUrl.username) captured = captured.replaceAll(databaseUrl.username, "[redacted]");
+    return captured;
+  };
+  return { applicationName, child, exit, output };
+}
+
+function startStructuredRouteTestProcess(input: {
+  mode: "worker" | "resume";
+  task: "analyze" | "review";
+  projectId: string;
+  executionId?: string;
+  resumeToken?: string;
+  readySignalFile?: string;
+}) {
+  const databaseUrl = requireMissionRepairDisposableDatabaseUrl();
+  const applicationName = `structured-route-${input.mode}-${randomUUID()}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const child = spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "vitest", "vitest.mjs"),
+    "run",
+    "src/lib/task-execution-lifecycle.integration.test.ts",
+    "--pool=threads",
+    "--maxWorkers=1",
+    "--no-file-parallelism",
+    "-t",
+    "process-level structured route fixture",
+  ], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      PGAPPNAME: applicationName,
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      WORKSPACE_PATH: process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      GROQ_API_KEY: "test-dummy-key-for-mocked-tests",
+      STRUCTURED_ROUTE_PROCESS_CHILD: input.mode,
+      STRUCTURED_ROUTE_PROCESS_TASK: input.task,
+      STRUCTURED_ROUTE_PROCESS_PROJECT_ID: input.projectId,
+      STRUCTURED_ROUTE_PROCESS_EXECUTION_ID: input.executionId ?? "",
+      STRUCTURED_ROUTE_PROCESS_RESUME_TOKEN: input.resumeToken ?? "",
+      STRUCTURED_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile ?? "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -3466,6 +3533,140 @@ describe("real durable task execution lifecycle", () => {
     120_000,
   );
 
+  const structuredRouteProcessChildMode = process.env.STRUCTURED_ROUTE_PROCESS_CHILD;
+  const structuredRouteProcessChildTest =
+    structuredRouteProcessChildMode === "worker" || structuredRouteProcessChildMode === "resume"
+      ? it
+      : it.skip;
+  structuredRouteProcessChildTest(
+    "process-level structured route fixture",
+    async () => {
+      const task = process.env.STRUCTURED_ROUTE_PROCESS_TASK;
+      const projectId = process.env.STRUCTURED_ROUTE_PROCESS_PROJECT_ID;
+      if (
+        (task !== "analyze" && task !== "review")
+        || !projectId
+      ) {
+        throw new Error("Structured route child process is missing its task or project identity.");
+      }
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+      const path = `/api/ai/projects/${projectId}/${task}/stream`;
+
+      if (structuredRouteProcessChildMode === "worker") {
+        const readySignalFile = process.env.STRUCTURED_ROUTE_PROCESS_READY_SIGNAL_FILE;
+        if (!readySignalFile) {
+          throw new Error("Structured route worker is missing its ready signal path.");
+        }
+        const executionStarted = createDeferred<{
+          executionId: string;
+          sessionId: string;
+          resumeToken: string;
+          resumable: boolean;
+        }>();
+        let parsedExecutionStarted = false;
+        runAgentWithFallback.mockImplementation(async () => {
+          const started = await executionStarted.promise;
+          await writeFile(readySignalFile, JSON.stringify(started), "utf8");
+          return await new Promise<never>(() => {});
+        });
+
+        const response = await request(app)
+          .post(path)
+          .set("Accept", "text/event-stream")
+          .buffer(false)
+          .parse((stream, callback) => {
+            let body = "";
+            stream.setEncoding("utf8");
+            stream.on("data", (chunk: string) => {
+              body += chunk;
+              if (parsedExecutionStarted) return;
+              for (const line of body.split(/\r?\n/)) {
+                if (!line.startsWith("data: ")) continue;
+                let event: unknown;
+                try {
+                  event = JSON.parse(line.slice("data: ".length));
+                } catch {
+                  continue;
+                }
+                if (
+                  !event
+                  || typeof event !== "object"
+                  || (event as { type?: unknown }).type !== "execution_started"
+                ) continue;
+                const candidate = event as {
+                  executionId?: unknown;
+                  sessionId?: unknown;
+                  resumeToken?: unknown;
+                  resumable?: unknown;
+                };
+                if (
+                  typeof candidate.executionId !== "string"
+                  || typeof candidate.sessionId !== "string"
+                  || typeof candidate.resumeToken !== "string"
+                  || typeof candidate.resumable !== "boolean"
+                ) {
+                  throw new Error("Structured route omitted its initial execution resume identity.");
+                }
+                parsedExecutionStarted = true;
+                executionStarted.resolve({
+                  executionId: candidate.executionId,
+                  sessionId: candidate.sessionId,
+                  resumeToken: candidate.resumeToken,
+                  resumable: candidate.resumable,
+                });
+                break;
+              }
+            });
+            stream.on("end", () => callback(null, body));
+          })
+          .send(task === "review"
+            ? { fileContents: { "src/fixture.ts": "export const value = 1;\n" } }
+            : {});
+        throw new Error(
+          `Structured route returned before its parent terminated the worker: ${response.status}`,
+        );
+      }
+
+      const executionId = process.env.STRUCTURED_ROUTE_PROCESS_EXECUTION_ID;
+      const resumeToken = process.env.STRUCTURED_ROUTE_PROCESS_RESUME_TOKEN;
+      if (!executionId || !resumeToken) {
+        throw new Error("Structured route resume child is missing its execution identity.");
+      }
+      const result = task === "analyze"
+        ? {
+            summary: "Recovered structured analysis fixture.",
+            confidence: "high",
+            needsHumanReview: false,
+            steps: ["Resumed after process recovery."],
+            overallAssessment: "The execution resumed after API startup.",
+          }
+        : {
+            summary: "Recovered structured review fixture.",
+            confidence: "high",
+            needsHumanReview: false,
+            steps: ["Reviewed the supplied fixture file."],
+            verdict: "approved",
+            overallScore: 92,
+            reviewScope: "provided_files",
+          };
+      runAgentWithFallback.mockResolvedValue({
+        result,
+        effectiveProvider: "groq",
+      });
+      const body = task === "review"
+        ? {
+            executionId,
+            resumeToken,
+            fileContents: { "src/fixture.ts": "export const value = 1;\n" },
+          }
+        : { executionId, resumeToken };
+      const response = await request(app).post(path).send(body);
+      expect(response.status).toBe(200);
+      expect(response.text).toContain('"type":"task_done"');
+    },
+    120_000,
+  );
+
   const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
   const missionRepairProcessChildTest =
     missionRepairProcessChildMode === "worker" || missionRepairProcessChildMode === "recovery"
@@ -3812,6 +4013,291 @@ describe("real durable task execution lifecycle", () => {
     },
     180_000,
   );
+
+  const structuredRouteProcessRecoveryTest =
+    process.env.RUN_STRUCTURED_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;
+  for (const task of ["analyze", "review"] as const) {
+    structuredRouteProcessRecoveryTest(
+      `recovers the structured ${task} HTTP route after worker SIGKILL and API startup`,
+      async () => {
+        requireMissionRepairDisposableDatabaseUrl();
+        const projectId = randomUUID();
+        const now = new Date();
+        let signalRoot: string | undefined;
+        let workerProcess: ReturnType<typeof startStructuredRouteTestProcess> | undefined;
+        let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+        let resumeProcess: ReturnType<typeof startStructuredRouteTestProcess> | undefined;
+        let executionId: string | undefined;
+        let sessionId: string | undefined;
+        let resumeToken: string | undefined;
+
+        try {
+          await db.insert(projectsTable).values({
+            id: projectId,
+            ownerId: "test-user",
+            name: `structured-route-${task}-${projectId.slice(0, 8)}`,
+            rootPath: process.cwd(),
+            language: "typescript",
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+          });
+          signalRoot = await mkdtemp(join("/tmp", `structured-route-${task}-`));
+          const readySignalFile = join(signalRoot, "execution-started.json");
+          workerProcess = startStructuredRouteTestProcess({
+            mode: "worker",
+            task,
+            projectId,
+            readySignalFile,
+          });
+          const started = JSON.parse(
+            await waitForProcessSignalFile(readySignalFile, workerProcess),
+          ) as {
+            executionId: string;
+            sessionId: string;
+            resumeToken: string;
+            resumable: boolean;
+          };
+          expect(started.resumable).toBe(false);
+          expect(typeof started.executionId).toBe("string");
+          expect(typeof started.sessionId).toBe("string");
+          expect(typeof started.resumeToken).toBe("string");
+          executionId = started.executionId;
+          sessionId = started.sessionId;
+          resumeToken = started.resumeToken;
+
+          const [runningExecution] = await db
+            .select({
+              status: aiExecutionsTable.status,
+              attempt: aiExecutionsTable.attempt,
+              workerId: aiExecutionsTable.workerId,
+              leaseUntil: aiExecutionsTable.leaseUntil,
+              sessionId: aiExecutionsTable.sessionId,
+            })
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.id, executionId),
+              eq(aiExecutionsTable.projectId, projectId),
+            ))
+            .limit(1);
+          expect(runningExecution).toMatchObject({
+            status: "running",
+            attempt: 0,
+            workerId: expect.any(String),
+            sessionId,
+          });
+          expect(runningExecution?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+
+          const userMessagesBeforeCrash = await db
+            .select({ role: aiChatMessagesTable.role, turnIntent: aiChatMessagesTable.turnIntent })
+            .from(aiChatMessagesTable)
+            .where(eq(aiChatMessagesTable.sessionId, sessionId));
+          expect(userMessagesBeforeCrash).toEqual([{
+            role: "user",
+            turnIntent: task === "analyze" ? "STRUCTURED_ANALYZE" : "STRUCTURED_REVIEW",
+          }]);
+          expect(await db.select()
+            .from(aiExecutionAcceptancesTable)
+            .where(eq(aiExecutionAcceptancesTable.executionId, executionId)))
+            .toHaveLength(0);
+
+          expect(workerProcess.child.kill("SIGKILL")).toBe(true);
+          expect(await waitForChildProcessExit(workerProcess)).toMatchObject({
+            code: null,
+            signal: "SIGKILL",
+          });
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+          workerProcess = undefined;
+
+          const [expiredExecution] = await db
+            .update(aiExecutionsTable)
+            .set({ leaseUntil: new Date(Date.now() - 1), updatedAt: new Date() })
+            .where(and(
+              eq(aiExecutionsTable.id, executionId),
+              eq(aiExecutionsTable.status, "running"),
+              eq(aiExecutionsTable.attempt, 0),
+            ))
+            .returning({ id: aiExecutionsTable.id });
+          expect(expiredExecution?.id).toBe(executionId);
+
+          apiProcess = startApiStartupProcess(`structured-route-startup-${task}-${randomUUID()}`);
+          await apiProcess.waitForReady();
+          const recoveryDeadline = Date.now() + 60_000;
+          let recoveredExecution: {
+            status: string;
+            attempt: number;
+            workerId: string | null;
+            leaseUntil: Date | null;
+          } | undefined;
+          while (Date.now() < recoveryDeadline) {
+            const [current] = await db
+              .select({
+                status: aiExecutionsTable.status,
+                attempt: aiExecutionsTable.attempt,
+                workerId: aiExecutionsTable.workerId,
+                leaseUntil: aiExecutionsTable.leaseUntil,
+              })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, executionId))
+              .limit(1);
+            if (current?.status === "paused") {
+              recoveredExecution = current;
+              break;
+            }
+            if (apiProcess.child.exitCode !== null || apiProcess.child.signalCode !== null) {
+              throw new Error(`API startup process exited during structured recovery; ${apiProcess.output()}`);
+            }
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+          }
+          expect(recoveredExecution).toEqual({
+            status: "paused",
+            attempt: 0,
+            workerId: null,
+            leaseUntil: null,
+          });
+
+          const [expiredAcceptance] = await db
+            .select({
+              outcome: aiExecutionAcceptancesTable.outcome,
+              terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+              reasonCode: aiExecutionAcceptancesTable.reasonCode,
+              nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+              resumable: aiExecutionAcceptancesTable.resumable,
+            })
+            .from(aiExecutionAcceptancesTable)
+            .where(and(
+              eq(aiExecutionAcceptancesTable.executionId, executionId),
+              eq(aiExecutionAcceptancesTable.attempt, 0),
+            ))
+            .limit(1);
+          expect(expiredAcceptance).toEqual({
+            outcome: "FAILED",
+            terminalStatus: "paused",
+            reasonCode: "EXECUTION_LEASE_EXPIRED",
+            nextActionCode: "RESUME_ALLOWED",
+            resumable: 1,
+          });
+
+          expect(apiProcess.child.kill("SIGKILL")).toBe(true);
+          expect(await waitForChildProcessExit(apiProcess)).toMatchObject({
+            code: null,
+            signal: "SIGKILL",
+          });
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName);
+          apiProcess = undefined;
+
+          resumeProcess = startStructuredRouteTestProcess({
+            mode: "resume",
+            task,
+            projectId,
+            executionId,
+            resumeToken,
+          });
+          expect(await waitForChildProcessExit(resumeProcess), resumeProcess.output()).toEqual({
+            code: 0,
+            signal: null,
+          });
+          await waitForChildDatabaseDisconnect(resumeProcess.applicationName);
+
+          const [completedExecution] = await db
+            .select({
+              status: aiExecutionsTable.status,
+              attempt: aiExecutionsTable.attempt,
+              workerId: aiExecutionsTable.workerId,
+            })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, executionId))
+            .limit(1);
+          expect(completedExecution).toEqual({
+            status: "completed",
+            attempt: 1,
+            workerId: null,
+          });
+
+          const acceptanceHistory = await db
+            .select({
+              attempt: aiExecutionAcceptancesTable.attempt,
+              outcome: aiExecutionAcceptancesTable.outcome,
+              terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+            })
+            .from(aiExecutionAcceptancesTable)
+            .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+            .then((rows) => rows.sort((left, right) => left.attempt - right.attempt));
+          expect(acceptanceHistory).toEqual([
+            { attempt: 0, outcome: "FAILED", terminalStatus: "paused" },
+            { attempt: 1, outcome: "SUCCEEDED", terminalStatus: "completed" },
+          ]);
+
+          const finalMessages = await db
+            .select({
+              role: aiChatMessagesTable.role,
+              outcome: aiChatMessagesTable.outcome,
+              turnIntent: aiChatMessagesTable.turnIntent,
+            })
+            .from(aiChatMessagesTable)
+            .where(eq(aiChatMessagesTable.sessionId, sessionId));
+          const userMessages = finalMessages.filter((message) => message.role === "user");
+          const successfulAssistantMessages = finalMessages.filter(
+            (message) => message.role === "assistant" && message.outcome === "SUCCEEDED",
+          );
+          expect(userMessages).toHaveLength(1);
+          expect(userMessages[0]?.turnIntent).toBe(
+            task === "analyze" ? "STRUCTURED_ANALYZE" : "STRUCTURED_REVIEW",
+          );
+          expect(successfulAssistantMessages).toHaveLength(1);
+
+          const completionType = task === "analyze"
+            ? "AiScanAnalysisCompleted"
+            : "AiCodeReviewCompleted";
+          const completionEvents = await db
+            .select({ id: eventsTable.id })
+            .from(eventsTable)
+            .where(and(
+              eq(eventsTable.projectId, projectId),
+              eq(eventsTable.type, completionType),
+            ));
+          expect(completionEvents).toHaveLength(1);
+          const completionAudits = await db
+            .select({ action: auditLogsTable.action })
+            .from(auditLogsTable)
+            .where(and(
+              eq(auditLogsTable.projectId, projectId),
+              eq(auditLogsTable.action, task === "analyze" ? "ai_analyzed" : "ai_reviewed"),
+            ));
+          expect(completionAudits).toHaveLength(1);
+        } finally {
+          if (workerProcess) {
+            if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+              workerProcess.child.kill("SIGKILL");
+            }
+            await workerProcess.exit;
+            await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+          }
+          if (apiProcess) {
+            if (apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+              apiProcess.child.kill("SIGKILL");
+            }
+            await apiProcess.exit;
+            await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
+          }
+          if (resumeProcess) {
+            if (resumeProcess.child.exitCode === null && resumeProcess.child.signalCode === null) {
+              resumeProcess.child.kill("SIGKILL");
+            }
+            await resumeProcess.exit;
+            await waitForChildDatabaseDisconnect(resumeProcess.applicationName).catch(() => undefined);
+          }
+          await cleanupProjectExecutionData(projectId);
+          await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+          await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+          await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+          await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+          if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+        }
+      },
+      180_000,
+    );
+  }
 
   const taskRouteProcessRecoveryTest =
     process.env.RUN_TASK_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;

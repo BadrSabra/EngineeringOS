@@ -4672,6 +4672,17 @@ G9 Revocation Safety
 - **remaining/blocker:** الاختبار يستدعي `startStructuredExecution` وreconciler مباشرةً؛ لا يقتل HTTP worker ولا يشغّل `src/index.ts` لاستعادة structured analyze/review، ولا يستدعي provider. تبقى هذه الحدود `UNKNOWN`.
 - **next step:** تابع فجوة E2 واحدة أخرى أو أضف اختبار process-level معزول لهذين المسارين؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — استعادة structured analyze/review بعد قتل worker
+
+- **phase/step:** E2 فقط — process-level recovery لمساري structured analyze وreview.
+- **status:** `route-child SIGKILL and actual API startup recovery verified (2/2); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يبدأ كل مسار عبر Express route داخل Vitest child ويصدر `execution_started` مع resume token؛ ينتظر عند provider وهمي بعد claim وcheckpoint `model_call`، ثم يُقتل بـ`SIGKILL`. يشغّل الاختبار عملية `src/index.ts` مستقلة لمصالحة startup، ويتحقق من قبول `EXECUTION_LEASE_EXPIRED` القابل للاستئناف، ثم يعيد المسار عبر child جديد باستخدام الرمز الأصلي. يثبت المحصلة نجاح المحاولة 1، وبقاء user turn واحدة، ومساعد ناجح واحد، وحدث completion وتدقيق واحد لكل مسار.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، وهذا السجل، وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** `RUN_STRUCTURED_ROUTE_PROCESS_RECOVERY=1 pnpm exec vitest run src/lib/task-execution-lifecycle.integration.test.ts -t "recovers the structured"` نجح **2/2، 45 skipped**. طُبّق schema على PostgreSQL باسم disposable/test ومقيّدة بـ`127.0.0.1`، مع `AI_PROVIDER_EGRESS_DISABLED=1`. API typecheck و`git diff --check` ناجحان. أُوقفت القاعدة المؤقتة وأزيل جذرها؛ لم يُستخدم provider حي أو قاعدة مشتركة أو managed workflow.
+- **authority/safety impact:** قبول المحاولة القديمة يبقى فشلًا معلّقًا قابلًا للاستئناف؛ المحاولة الجديدة وحدها تقبل نتيجة النجاح وتنتج completion event/audit واحدًا، دون تكرار user turn.
+- **remaining/blocker:** route يُنفذ عبر Supertest داخل child وليس listener شبكيًا حيًا؛ نتيجة provider وهمية؛ لا يثبت هذا كل crash windows أو E2 surfaces، ولا يغلق E2. لم يُعد تشغيل workflow مُدار أو Strategy Replay.
+- **next step:** تابع فجوة E2 محددة أخرى فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
