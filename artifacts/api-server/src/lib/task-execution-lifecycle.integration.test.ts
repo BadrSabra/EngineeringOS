@@ -39,6 +39,8 @@ import {
   workflowExecutionsTable,
   workflowsTable,
 } from "@workspace/db";
+import app from "../app.js";
+import request from "supertest";
 
 const runAgentWithFallback = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
   result: {
@@ -86,6 +88,11 @@ const taskProgressFixture = vi.hoisted(() => ({
   failTerminalOutcome: null as "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null,
   terminalOutcomes: [] as Array<"SUCCEEDED" | "FAILED" | "INTERRUPTED">,
 }));
+const taskRouteProcessFixture = vi.hoisted(() => ({
+  pauseAtExecuteTask: false,
+  taskId: "",
+  readySignalFile: "",
+}));
 
 vi.mock("./ai-route-helpers.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-route-helpers.js")>("./ai-route-helpers.js");
@@ -103,6 +110,40 @@ vi.mock("@workspace/ai-orchestrator", async () => {
   const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>("@workspace/ai-orchestrator");
   return {
     ...actual,
+    executeTask: vi.fn(async (...args: Parameters<typeof actual.executeTask>) => {
+      if (taskRouteProcessFixture.pauseAtExecuteTask) {
+        const { taskId, readySignalFile } = taskRouteProcessFixture;
+        if (!taskId || !readySignalFile) {
+          throw new Error("AI task route crash fixture is missing its durable signal identity.");
+        }
+        const [task] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        const [execution] = await db
+          .select({
+            id: aiExecutionsTable.id,
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+          .limit(1);
+        if (!task || !execution) {
+          throw new Error("AI task route reached executeTask before its durable claim was visible.");
+        }
+        await writeFile(readySignalFile, JSON.stringify({
+          taskId,
+          executionId: execution.id,
+          attempt: execution.attempt,
+          executionStatus: execution.status,
+          taskStatus: task.status,
+        }), "utf8");
+        return await new Promise<never>(() => {});
+      }
+      return actual.executeTask(...args);
+    }),
     buildProjectContext: vi.fn(async () => ({ fixture: true })),
     invalidateContextCache: vi.fn(),
     getProviderLifecycleSnapshot: vi.fn(async () => ({
@@ -309,7 +350,7 @@ function createDeferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function startMissionRepairApiProcess(applicationName: string) {
+function startApiStartupProcess(applicationName: string) {
   const rawDatabaseUrl = process.env.DATABASE_URL;
   if (!rawDatabaseUrl) {
     throw new Error("Mission repair process recovery requires an explicit disposable DATABASE_URL.");
@@ -330,7 +371,7 @@ function startMissionRepairApiProcess(applicationName: string) {
     '  await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));',
     "  process.env.PORT = String(address.port);",
     '  await import("./src/index.ts");',
-    '  process.stdout.write("MISSION_REPAIR_INDEX_READY\\n");',
+    '  process.stdout.write("API_INDEX_READY\\n");',
     "  await new Promise(() => {});",
     "})().catch((error) => {",
     "  console.error(error);",
@@ -366,12 +407,12 @@ function startMissionRepairApiProcess(applicationName: string) {
   const output = () => `stdout=${stdout}; stderr=${stderr}`;
   const waitForReady = async () => {
     const deadline = Date.now() + 60_000;
-    while (!stdout.includes("MISSION_REPAIR_INDEX_READY")) {
+    while (!stdout.includes("API_INDEX_READY")) {
       if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error(`Mission repair API startup child exited early; ${output()}`);
+        throw new Error(`API startup child exited early; ${output()}`);
       }
       if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for Mission repair API startup; ${output()}`);
+        throw new Error(`Timed out waiting for API startup; ${output()}`);
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -468,9 +509,78 @@ function startMissionRepairTestProcess(
   return { applicationName, child, exit, output };
 }
 
-async function waitForMissionRepairProcessFile(
+function startTaskRouteTestProcess(input: {
+  taskId: string;
+  readySignalFile: string;
+}) {
+  const databaseUrl = requireMissionRepairDisposableDatabaseUrl();
+  const applicationName = `ai-task-route-worker-${randomUUID()}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const child = spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "vitest", "vitest.mjs"),
+    "run",
+    "src/lib/task-execution-lifecycle.integration.test.ts",
+    "--pool=threads",
+    "--maxWorkers=1",
+    "--no-file-parallelism",
+    "-t",
+    "process-level AI task route worker fixture",
+  ], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      PGAPPNAME: applicationName,
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      WORKSPACE_PATH: process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      GROQ_API_KEY: "test-dummy-key-for-mocked-tests",
+      TASK_ROUTE_PROCESS_CHILD: "worker",
+      TASK_ROUTE_PROCESS_TASK_ID: input.taskId,
+      TASK_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExit) => {
+    child.once("exit", (code, signal) => resolveExit({ code, signal }));
+  });
+  const output = () => {
+    const databaseUrlWithoutCredentials = `${databaseUrl.protocol}//${databaseUrl.hostname}${databaseUrl.pathname}`;
+    let captured = `stdout=${stdout}; stderr=${stderr}`
+      .replaceAll(databaseUrl.toString(), databaseUrlWithoutCredentials);
+    if (databaseUrl.password) captured = captured.replaceAll(databaseUrl.password, "[redacted]");
+    if (databaseUrl.username) captured = captured.replaceAll(databaseUrl.username, "[redacted]");
+    return captured;
+  };
+  return { applicationName, child, exit, output };
+}
+
+type ChildProcessMonitor = {
+  child: {
+    exitCode: number | null;
+    signalCode: NodeJS.Signals | null;
+    kill: (signal: NodeJS.Signals) => boolean;
+  };
+  exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  output: () => string;
+};
+
+async function waitForProcessSignalFile(
   path: string,
-  processHandle: ReturnType<typeof startMissionRepairTestProcess>,
+  processHandle: ChildProcessMonitor,
   timeoutMs = 60_000,
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -481,15 +591,15 @@ async function waitForMissionRepairProcessFile(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     if (processHandle.child.exitCode !== null || processHandle.child.signalCode !== null) {
-      throw new Error(`Mission repair child exited before writing its signal; ${processHandle.output()}`);
+      throw new Error(`Child process exited before writing its signal; ${processHandle.output()}`);
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  throw new Error(`Timed out waiting for Mission repair child signal; ${processHandle.output()}`);
+  throw new Error(`Timed out waiting for child process signal; ${processHandle.output()}`);
 }
 
-async function waitForMissionRepairProcessExit(
-  processHandle: ReturnType<typeof startMissionRepairTestProcess>,
+async function waitForChildProcessExit(
+  processHandle: ChildProcessMonitor,
   timeoutMs = 120_000,
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -497,14 +607,14 @@ async function waitForMissionRepairProcessExit(
     if (Date.now() >= deadline) {
       processHandle.child.kill("SIGKILL");
       await processHandle.exit;
-      throw new Error(`Timed out waiting for Mission repair child exit; ${processHandle.output()}`);
+      throw new Error(`Timed out waiting for child process exit; ${processHandle.output()}`);
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   return processHandle.exit;
 }
 
-async function waitForMissionRepairDatabaseDisconnect(applicationName: string, timeoutMs = 30_000) {
+async function waitForChildDatabaseDisconnect(applicationName: string, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const result = await db.execute(sql`
@@ -517,7 +627,7 @@ async function waitForMissionRepairDatabaseDisconnect(applicationName: string, t
     if (rows.length === 0) return;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  throw new Error(`Mission repair PostgreSQL client did not disconnect: ${applicationName}`);
+  throw new Error(`Child PostgreSQL client did not disconnect: ${applicationName}`);
 }
 
 async function removeMissionRepairCandidateWorkspace(path: string | undefined) {
@@ -572,12 +682,12 @@ async function runMissionRepairStartupRecoveryWithProcessKill(taskId: string, ex
   });
   void lockTransaction.catch((error: unknown) => lockAcquired.reject(error));
 
-  let firstStartup: ReturnType<typeof startMissionRepairApiProcess> | undefined;
-  let secondStartup: ReturnType<typeof startMissionRepairApiProcess> | undefined;
+  let firstStartup: ReturnType<typeof startApiStartupProcess> | undefined;
+  let secondStartup: ReturnType<typeof startApiStartupProcess> | undefined;
   try {
     await lockAcquired.promise;
     const firstApplicationName = `mission-repair-recovery-kill-${randomUUID()}`;
-    firstStartup = startMissionRepairApiProcess(firstApplicationName);
+    firstStartup = startApiStartupProcess(firstApplicationName);
     await waitForMissionRepairRecoveryLock(firstStartup.output);
     expect(firstStartup.child.kill("SIGKILL")).toBe(true);
     expect(await firstStartup.exit).toMatchObject({ code: null, signal: "SIGKILL" });
@@ -590,7 +700,7 @@ async function runMissionRepairStartupRecoveryWithProcessKill(taskId: string, ex
     }
   }
 
-  secondStartup = startMissionRepairApiProcess(`mission-repair-recovery-restart-${randomUUID()}`);
+  secondStartup = startApiStartupProcess(`mission-repair-recovery-restart-${randomUUID()}`);
   try {
     await secondStartup.waitForReady();
   } finally {
@@ -728,6 +838,9 @@ describe("real durable task execution lifecycle", () => {
     vi.clearAllMocks();
     taskProgressFixture.failTerminalOutcome = null;
     taskProgressFixture.terminalOutcomes = [];
+    taskRouteProcessFixture.pauseAtExecuteTask = false;
+    taskRouteProcessFixture.taskId = "";
+    taskRouteProcessFixture.readySignalFile = "";
     runAgentWithFallback.mockReset().mockImplementation(async (..._args: unknown[]) => ({
       result: {
         summary: "Fixture execution completed.",
