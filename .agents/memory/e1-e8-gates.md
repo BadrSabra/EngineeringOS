@@ -20,3 +20,9 @@ For Apply route crash tests, acceptance insertion and terminal execution update 
 **Why:** The transaction boundary makes acceptance atomic with terminal success, while early table locks can intercept unrelated claim writes and produce a false crash point. A single full startup after staging the cases tests real recovery without mixing startup workers into each route scenario.
 
 **How to apply:** Reuse this sequence for Apply acceptance/terminalization tests and preserve the distinction between local route-case labels and the audit's generic W0–W9 window labels.
+
+For read-only E2 forensic work, do not restart managed API/runtime workflows without explicit authorization. Startup reconciliation and dispatchers can run, and an already-running dashboard may submit an interactive analysis request; even a request rejected by local AI-budget admission can persist a failed acceptance without calling an external provider.
+
+**Why:** Restarting the API during this investigation was followed by a dashboard analysis request that persisted a failed acceptance before provider admission. A health check reporting no queued recovery jobs does not prevent interactive requests or their durable effects.
+
+**How to apply:** Prefer isolated route tests and builds while preserving the forensic boundary. If runtime startup is explicitly authorized, inspect startup behavior first, watch request logs immediately, and stop the workflow if unrelated durable work appears. Do not equate “no provider call” with “no database mutation.”
