@@ -8,7 +8,7 @@ import {
   buildMissionRepairEffectContract,
   MISSION_REPAIR_TOOL_CAPABILITY_ID,
 } from "./agent-state/mission-repair-effect.js";
-import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import * as effectObserver from "./agent-state/effect-observer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
 import type { AgentAction, AgentStep } from "@workspace/ai-orchestrator";
@@ -404,6 +404,7 @@ function startMissionRepairTestProcess(
     taskId: string;
     userId: string;
     workspaceRevision: string;
+    crashPhase?: "candidate_ready" | "committed" | "effect_classified";
     executionId?: string;
     readySignalFile?: string;
     workspaceSignalFile?: string;
@@ -438,6 +439,7 @@ function startMissionRepairTestProcess(
       MISSION_REPAIR_PROCESS_USER_ID: input.userId,
       MISSION_REPAIR_PROCESS_WORKSPACE_REVISION: input.workspaceRevision,
       ...(input.executionId ? { MISSION_REPAIR_PROCESS_EXECUTION_ID: input.executionId } : {}),
+      MISSION_REPAIR_PROCESS_CRASH_PHASE: input.crashPhase ?? "candidate_ready",
       ...(input.readySignalFile ? { MISSION_REPAIR_READY_SIGNAL_FILE: input.readySignalFile } : {}),
       ...(input.workspaceSignalFile
         ? { MISSION_REPAIR_WORKSPACE_SIGNAL_FILE: input.workspaceSignalFile }
@@ -470,7 +472,7 @@ function startMissionRepairTestProcess(
 }
 
 function startTaskRouteTestProcess(input: {
-  mode: "worker" | "resume";
+  mode: "worker" | "resume-worker" | "resume";
   taskId: string;
   readySignalFile?: string;
 }) {
@@ -487,7 +489,9 @@ function startTaskRouteTestProcess(input: {
     "-t",
     input.mode === "worker"
       ? "process-level AI task route worker fixture"
-      : "process-level AI task route resume fixture",
+      : input.mode === "resume-worker"
+        ? "process-level AI task route resume worker fixture"
+        : "process-level AI task route resume fixture",
   ], {
     cwd: process.cwd(),
     env: {
@@ -3167,6 +3171,32 @@ describe("real durable task execution lifecycle", () => {
     },
     120_000,
   );
+  const taskRouteResumeWorkerProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "resume-worker" ? it : it.skip;
+  taskRouteResumeWorkerProcessChildTest(
+    "process-level AI task route resume worker fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      const readySignalFile = process.env.TASK_ROUTE_PROCESS_READY_SIGNAL_FILE;
+      if (!taskId || !readySignalFile) {
+        throw new Error("AI task route resume worker child is missing its durable fixture identity.");
+      }
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+      runAgentWithFallback.mockImplementation(async () => {
+        await writeFile(readySignalFile, JSON.stringify({
+          taskId,
+          stage: "resumed_model_call_pending",
+        }), "utf8");
+        return await new Promise<never>(() => {});
+      });
+
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+      throw new Error(
+        `AI task resume route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
+      );
+    },
+    120_000,
+  );
 
   const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
   const missionRepairProcessChildTest =
@@ -3185,6 +3215,20 @@ describe("real durable task execution lifecycle", () => {
 
       if (missionRepairProcessChildMode === "worker") {
         const readySignalFile = process.env.MISSION_REPAIR_READY_SIGNAL_FILE;
+        const requestedCrashPhase = process.env.MISSION_REPAIR_PROCESS_CRASH_PHASE;
+        if (
+          requestedCrashPhase !== undefined
+          && requestedCrashPhase !== "candidate_ready"
+          && requestedCrashPhase !== "committed"
+          && requestedCrashPhase !== "effect_classified"
+        ) {
+          throw new Error(`Unsupported Mission repair crash phase: ${requestedCrashPhase}`);
+        }
+        const crashPhase = requestedCrashPhase === "committed"
+          ? "committed"
+          : requestedCrashPhase === "effect_classified"
+            ? "effect_classified"
+            : "candidate_ready";
         if (!readySignalFile) {
           throw new Error("Mission repair worker child is missing its ready signal path.");
         }
@@ -3210,44 +3254,164 @@ describe("real durable task execution lifecycle", () => {
             effectiveProvider: "groq" as const,
           };
         });
-        runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => {
-          const evidenceContext = args[5] as { operationId: string };
-          const [execution] = await db
-            .select({ checkpoint: aiExecutionsTable.checkpoint })
-            .from(aiExecutionsTable)
-            .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
-            .limit(1);
-          if (!execution) throw new Error("Mission worker child lost its durable execution.");
-          const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
-          const detail = JSON.parse(checkpoint.detail) as {
-            missionRepairRecovery: {
+        if (crashPhase === "committed") {
+          runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => ({
+            status: "passed" as const,
+            evidence: {
+              evidenceId: "mission-repair-process-worker-validator-before-crash",
+              artifactRef: "mission-repair-process-worker-validator-receipt",
+              validatorProfile: String(args[1]),
+            },
+          }));
+          vi.spyOn(effectObserver, "verifyAndPersistEffect").mockImplementationOnce(async (input) => {
+            const [execution] = await db
+              .select({ checkpoint: aiExecutionsTable.checkpoint })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, input.executionId))
+              .limit(1);
+            if (!execution) throw new Error("Mission worker lost its execution before effect verification.");
+            const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
+            const detail = JSON.parse(checkpoint.detail) as {
+              missionRepairRecovery: {
+                attempt: number;
+                candidateIdentity: string;
+                executionId: string;
+                phase: string;
+                taskId: string;
+                afterObservationId?: string;
+              };
+            };
+            expect(detail.missionRepairRecovery).toMatchObject({
+              attempt: 0,
+              candidateIdentity: expect.any(String),
+              executionId: input.executionId,
+              phase: "committed",
+              taskId,
+              afterObservationId: expect.any(String),
+            });
+            const workspacePath = missionRepairProcessFixture.candidateWorkspacePath;
+            if (!workspacePath) {
+              throw new Error("Mission worker child did not retain its disposable candidate workspace path.");
+            }
+            await writeFile(readySignalFile, JSON.stringify({
+              executionId: input.executionId,
+              candidateIdentity: detail.missionRepairRecovery.candidateIdentity,
+              attempt: detail.missionRepairRecovery.attempt,
+              phase: detail.missionRepairRecovery.phase,
+              taskId,
+              candidateWorkspacePath: workspacePath,
+            }), "utf8");
+            return await new Promise<never>(() => {});
+          });
+        } else if (crashPhase === "effect_classified") {
+          runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => ({
+            status: "passed" as const,
+            evidence: {
+              evidenceId: "mission-repair-process-worker-validator-before-finalization",
+              artifactRef: "mission-repair-process-worker-validator-finalization-receipt",
+              validatorProfile: String(args[1]),
+            },
+          }));
+          const realCheckpointAiExecution = aiExecutionState.checkpointAiExecution;
+          vi.spyOn(aiExecutionState, "checkpointAiExecution").mockImplementation(async (params) => {
+            const checkpointed = await realCheckpointAiExecution(params);
+            if (!checkpointed || !params.checkpoint.detail) return checkpointed;
+            let recoveryManifest: {
               attempt: number;
               candidateIdentity: string;
               executionId: string;
               phase: string;
-              taskId: string;
+              afterObservationId?: string;
+              effectBundleId?: string;
+              effectObserved?: boolean;
+            } | undefined;
+            try {
+              recoveryManifest = JSON.parse(params.checkpoint.detail).missionRepairRecovery;
+            } catch {
+              return checkpointed;
+            }
+            if (recoveryManifest?.phase !== "effect_classified") return checkpointed;
+            const [execution] = await db
+              .select({ checkpoint: aiExecutionsTable.checkpoint })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, params.executionId))
+              .limit(1);
+            if (!execution) {
+              throw new Error("Mission worker lost its execution after effect classification.");
+            }
+            const persistedDetail = JSON.parse(execution.checkpoint) as { detail: string };
+            const persistedManifest = JSON.parse(persistedDetail.detail) as {
+              missionRepairRecovery: typeof recoveryManifest;
             };
-          };
-          expect(detail.missionRepairRecovery).toMatchObject({
-            attempt: 0,
-            executionId: evidenceContext.operationId,
-            phase: "candidate_ready",
-            taskId,
+            expect(persistedManifest.missionRepairRecovery).toMatchObject({
+              attempt: 0,
+              candidateIdentity: expect.any(String),
+              executionId: params.executionId,
+              phase: "effect_classified",
+              afterObservationId: expect.any(String),
+              effectBundleId: expect.any(String),
+              effectObserved: true,
+            });
+            const priorAcceptances = await db
+              .select({ id: aiExecutionAcceptancesTable.id })
+              .from(aiExecutionAcceptancesTable)
+              .where(eq(aiExecutionAcceptancesTable.executionId, params.executionId));
+            expect(priorAcceptances).toEqual([]);
+            const workspacePath = missionRepairProcessFixture.candidateWorkspacePath;
+            if (!workspacePath) {
+              throw new Error("Mission worker child did not retain its disposable candidate workspace path.");
+            }
+            await writeFile(readySignalFile, JSON.stringify({
+              executionId: params.executionId,
+              candidateIdentity: persistedManifest.missionRepairRecovery?.candidateIdentity,
+              attempt: persistedManifest.missionRepairRecovery?.attempt,
+              phase: persistedManifest.missionRepairRecovery?.phase,
+              taskId,
+              candidateWorkspacePath: workspacePath,
+              effectBundleId: persistedManifest.missionRepairRecovery?.effectBundleId,
+            }), "utf8");
+            return await new Promise<never>(() => {});
           });
-          const workspacePath = missionRepairProcessFixture.candidateWorkspacePath;
-          if (!workspacePath) {
-            throw new Error("Mission worker child did not retain its disposable candidate workspace path.");
-          }
-          await writeFile(readySignalFile, JSON.stringify({
-            executionId: evidenceContext.operationId,
-            candidateIdentity: detail.missionRepairRecovery.candidateIdentity,
-            attempt: detail.missionRepairRecovery.attempt,
-            phase: detail.missionRepairRecovery.phase,
-            taskId,
-            candidateWorkspacePath: workspacePath,
-          }), "utf8");
-          return await new Promise<never>(() => {});
-        });
+        } else {
+          runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => {
+            const evidenceContext = args[5] as { operationId: string };
+            const [execution] = await db
+              .select({ checkpoint: aiExecutionsTable.checkpoint })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+              .limit(1);
+            if (!execution) throw new Error("Mission worker child lost its durable execution.");
+            const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
+            const detail = JSON.parse(checkpoint.detail) as {
+              missionRepairRecovery: {
+                attempt: number;
+                candidateIdentity: string;
+                executionId: string;
+                phase: string;
+                taskId: string;
+              };
+            };
+            expect(detail.missionRepairRecovery).toMatchObject({
+              attempt: 0,
+              executionId: evidenceContext.operationId,
+              phase: "candidate_ready",
+              taskId,
+            });
+            const workspacePath = missionRepairProcessFixture.candidateWorkspacePath;
+            if (!workspacePath) {
+              throw new Error("Mission worker child did not retain its disposable candidate workspace path.");
+            }
+            await writeFile(readySignalFile, JSON.stringify({
+              executionId: evidenceContext.operationId,
+              candidateIdentity: detail.missionRepairRecovery.candidateIdentity,
+              attempt: detail.missionRepairRecovery.attempt,
+              phase: detail.missionRepairRecovery.phase,
+              taskId,
+              candidateWorkspacePath: workspacePath,
+            }), "utf8");
+            return await new Promise<never>(() => {});
+          });
+        }
 
         await executeTaskLifecycle({
           taskId,
@@ -3261,6 +3425,20 @@ describe("real durable task execution lifecycle", () => {
       }
 
       const executionId = process.env.MISSION_REPAIR_PROCESS_EXECUTION_ID;
+      const requestedCrashPhase = process.env.MISSION_REPAIR_PROCESS_CRASH_PHASE;
+      if (
+        requestedCrashPhase !== undefined
+        && requestedCrashPhase !== "candidate_ready"
+        && requestedCrashPhase !== "committed"
+        && requestedCrashPhase !== "effect_classified"
+      ) {
+        throw new Error(`Unsupported Mission repair crash phase: ${requestedCrashPhase}`);
+      }
+      const crashPhase = requestedCrashPhase === "committed"
+        ? "committed"
+        : requestedCrashPhase === "effect_classified"
+          ? "effect_classified"
+          : "candidate_ready";
       if (!executionId) {
         throw new Error("Mission repair recovery child is missing its execution identity.");
       }
@@ -3286,7 +3464,7 @@ describe("real durable task execution lifecycle", () => {
       };
       expect(detail.missionRepairRecovery).toMatchObject({
         attempt: 0,
-        phase: "candidate_ready",
+        phase: crashPhase,
         taskId,
       });
       const [interruptedAcceptance] = await db
@@ -3370,7 +3548,7 @@ describe("real durable task execution lifecycle", () => {
   const taskRouteProcessRecoveryTest =
     process.env.RUN_TASK_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;
   taskRouteProcessRecoveryTest(
-    "reconciles a task started by the HTTP execute route after its worker process is killed",
+    "recovers the HTTP AI task route after crashes during execute and resume attempts",
     async () => {
       requireMissionRepairDisposableDatabaseUrl();
       const projectId = randomUUID();
@@ -3379,6 +3557,8 @@ describe("real durable task execution lifecycle", () => {
       let signalRoot: string | undefined;
       let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
       let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+      let resumeWorkerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let resumeApiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
       let resumeProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
       let executionId: string | undefined;
 
@@ -3503,6 +3683,148 @@ describe("real durable task execution lifecycle", () => {
         await waitForChildDatabaseDisconnect(apiProcess.applicationName);
         apiProcess = undefined;
 
+        const resumeWorkerReadyFile = join(signalRoot, "resume-worker-ready.json");
+        resumeWorkerProcess = startTaskRouteTestProcess({
+          mode: "resume-worker",
+          taskId,
+          readySignalFile: resumeWorkerReadyFile,
+        });
+        const resumeWorkerReady = JSON.parse(
+          await waitForProcessSignalFile(resumeWorkerReadyFile, resumeWorkerProcess),
+        ) as { taskId: string; stage: string };
+        expect(resumeWorkerReady).toEqual({
+          taskId,
+          stage: "resumed_model_call_pending",
+        });
+
+        const [resumingExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(resumingExecution).toMatchObject({
+          attempt: 1,
+          status: "running",
+          workerId: expect.any(String),
+        });
+        const beforeResumeCrashAcceptances = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(beforeResumeCrashAcceptances).toEqual([
+          expect.objectContaining({ attempt: 0, outcome: "FAILED" }),
+        ]);
+        const [runningResumeTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(runningResumeTask?.status).toBe("running");
+        const preResumeCrashEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(preResumeCrashEvents.some((event) => event.type === "TaskCompleted")).toBe(false);
+
+        expect(resumeWorkerProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(resumeWorkerProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(resumeWorkerProcess.applicationName);
+        resumeWorkerProcess = undefined;
+        const resumeExpiredAt = new Date(Date.now() - 60_000);
+        await db.update(aiExecutionsTable).set({
+          leaseUntil: resumeExpiredAt,
+          updatedAt: new Date(),
+        }).where(eq(aiExecutionsTable.id, executionId));
+        await db.update(tasksTable).set({
+          leaseUntil: resumeExpiredAt,
+          updatedAt: new Date(),
+        }).where(eq(tasksTable.id, taskId));
+
+        resumeApiProcess = startApiStartupProcess(`ai-task-resume-recovery-${randomUUID()}`);
+        await resumeApiProcess.waitForReady();
+        const [recoveredResumeExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(recoveredResumeExecution).toEqual({
+          attempt: 1,
+          status: "paused",
+          workerId: null,
+          leaseUntil: null,
+        });
+        const resumedCrashAcceptance = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+            nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+            resumable: aiExecutionAcceptancesTable.resumable,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 1),
+          ))
+          .limit(1);
+        expect(resumedCrashAcceptance[0]).toMatchObject({
+          attempt: 1,
+          terminalStatus: "paused",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+        });
+        const allResumeCrashAcceptances = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+          .then((acceptances) => acceptances.sort((left, right) => left.attempt - right.attempt));
+        expect(allResumeCrashAcceptances).toEqual([
+          expect.objectContaining({ attempt: 0, outcome: "FAILED" }),
+          expect.objectContaining({ attempt: 1, outcome: "FAILED" }),
+        ]);
+        expect(allResumeCrashAcceptances.some((acceptance) => acceptance.outcome === "SUCCEEDED"))
+          .toBe(false);
+        const [recoveredResumeTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(["pending", "queued", "verifying"]).toContain(recoveredResumeTask?.status);
+        const eventsAfterResumeCrash = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(eventsAfterResumeCrash.some((event) => event.type === "TaskCompleted")).toBe(false);
+
+        expect(resumeApiProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(resumeApiProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(resumeApiProcess.applicationName);
+        resumeApiProcess = undefined;
+
         resumeProcess = startTaskRouteTestProcess({ mode: "resume", taskId });
         expect(await waitForChildProcessExit(resumeProcess), resumeProcess.output()).toEqual({
           code: 0,
@@ -3517,7 +3839,7 @@ describe("real durable task execution lifecycle", () => {
           .from(aiExecutionsTable)
           .where(eq(aiExecutionsTable.id, executionId))
           .limit(1);
-        expect(completedExecution).toEqual({ attempt: 1, status: "completed" });
+        expect(completedExecution).toEqual({ attempt: 2, status: "completed" });
         const [completedAcceptance] = await db
           .select({
             attempt: aiExecutionAcceptancesTable.attempt,
@@ -3527,14 +3849,28 @@ describe("real durable task execution lifecycle", () => {
           .from(aiExecutionAcceptancesTable)
           .where(and(
             eq(aiExecutionAcceptancesTable.executionId, executionId),
-            eq(aiExecutionAcceptancesTable.attempt, 1),
+            eq(aiExecutionAcceptancesTable.attempt, 2),
           ))
           .limit(1);
         expect(completedAcceptance).toEqual({
-          attempt: 1,
+          attempt: 2,
           outcome: "SUCCEEDED",
           terminalStatus: "completed",
         });
+        const finalAcceptanceHistory = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+          .then((acceptances) => acceptances.sort((left, right) => left.attempt - right.attempt));
+        expect(finalAcceptanceHistory).toEqual([
+          { attempt: 0, outcome: "FAILED", terminalStatus: "paused" },
+          { attempt: 1, outcome: "FAILED", terminalStatus: "paused" },
+          { attempt: 2, outcome: "SUCCEEDED", terminalStatus: "completed" },
+        ]);
         const [completedTask] = await db
           .select({ status: tasksTable.status })
           .from(tasksTable)
@@ -3561,6 +3897,23 @@ describe("real durable task execution lifecycle", () => {
           await apiProcess.exit;
           await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
         }
+        if (resumeWorkerProcess) {
+          if (
+            resumeWorkerProcess.child.exitCode === null
+            && resumeWorkerProcess.child.signalCode === null
+          ) {
+            resumeWorkerProcess.child.kill("SIGKILL");
+          }
+          await resumeWorkerProcess.exit;
+          await waitForChildDatabaseDisconnect(resumeWorkerProcess.applicationName).catch(() => undefined);
+        }
+        if (resumeApiProcess) {
+          if (resumeApiProcess.child.exitCode === null && resumeApiProcess.child.signalCode === null) {
+            resumeApiProcess.child.kill("SIGKILL");
+          }
+          await resumeApiProcess.exit;
+          await waitForChildDatabaseDisconnect(resumeApiProcess.applicationName).catch(() => undefined);
+        }
         if (resumeProcess) {
           if (resumeProcess.child.exitCode === null && resumeProcess.child.signalCode === null) {
             resumeProcess.child.kill("SIGKILL");
@@ -3582,9 +3935,23 @@ describe("real durable task execution lifecycle", () => {
   const missionRepairWorkerProcessRecoveryTest =
     process.env.RUN_MISSION_REPAIR_WORKER_PROCESS_RECOVERY === "1" ? it : it.skip;
   missionRepairWorkerProcessRecoveryTest(
-    "recovers a candidate-ready Mission repair after SIGKILL of its worker process",
+    "recovers a Mission repair after SIGKILL at a persisted recovery phase",
     async () => {
       requireMissionRepairDisposableDatabaseUrl();
+      const configuredCrashPhase = process.env.MISSION_REPAIR_PROCESS_CRASH_PHASE;
+      if (
+        configuredCrashPhase !== undefined
+        && configuredCrashPhase !== "candidate_ready"
+        && configuredCrashPhase !== "committed"
+        && configuredCrashPhase !== "effect_classified"
+      ) {
+        throw new Error(`Unsupported Mission repair crash phase: ${configuredCrashPhase}`);
+      }
+      const crashPhase = configuredCrashPhase === "committed"
+        ? "committed"
+        : configuredCrashPhase === "effect_classified"
+          ? "effect_classified"
+          : "candidate_ready";
       const fixture = await createMissionToolLoopFixture({
         phase: "execute",
         approvalRequired: false,
@@ -3592,6 +3959,7 @@ describe("real durable task execution lifecycle", () => {
       let signalRoot: string | undefined;
       const userId = "mission-effect-test-user";
       let workerProcess: ReturnType<typeof startMissionRepairTestProcess> | undefined;
+      let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
       let recoveryProcess: ReturnType<typeof startMissionRepairTestProcess> | undefined;
       let executionId: string | undefined;
       let candidateWorkspacePath: string | undefined;
@@ -3604,6 +3972,7 @@ describe("real durable task execution lifecycle", () => {
           taskId: fixture.taskId,
           userId,
           workspaceRevision: fixture.now.toISOString(),
+          crashPhase,
           readySignalFile,
           workspaceSignalFile,
         });
@@ -3614,6 +3983,7 @@ describe("real durable task execution lifecycle", () => {
           phase: string;
           taskId: string;
           candidateWorkspacePath: string;
+          effectBundleId?: string;
         };
         executionId = ready.executionId;
         candidateWorkspacePath = await readFile(workspaceSignalFile, "utf8");
@@ -3621,7 +3991,7 @@ describe("real durable task execution lifecycle", () => {
           attempt: 0,
           candidateIdentity: expect.any(String),
           candidateWorkspacePath,
-          phase: "candidate_ready",
+          phase: crashPhase,
           taskId: fixture.taskId,
         });
         expect(candidateWorkspacePath).toMatch(/^\/tmp\/engineeringos-validation-/);
@@ -3657,8 +4027,33 @@ describe("real durable task execution lifecycle", () => {
         expect(detail.missionRepairRecovery).toMatchObject({
           candidateIdentity: ready.candidateIdentity,
           executionId,
-          phase: "candidate_ready",
+          phase: crashPhase,
         });
+        if (crashPhase !== "candidate_ready") {
+          expect(detail.missionRepairRecovery).toMatchObject({
+            afterObservationId: expect.any(String),
+            validatorStatus: "passed",
+          });
+          const committedBeforeRecovery = await db
+            .select({ payload: aiAgentEpisodeEventsTable.payload })
+            .from(aiAgentEpisodeEventsTable)
+            .where(and(
+              eq(aiAgentEpisodeEventsTable.executionId, executionId),
+              eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+            ))
+            .then((events) => events.filter((event) =>
+              (event.payload as { actionId?: unknown } | null)?.actionId
+                === `mission-repair:${executionId}:0`
+            ));
+          expect(committedBeforeRecovery).toHaveLength(1);
+        }
+        if (crashPhase === "effect_classified") {
+          expect(ready.effectBundleId).toEqual(expect.any(String));
+          expect(detail.missionRepairRecovery).toMatchObject({
+            effectBundleId: ready.effectBundleId,
+            effectObserved: true,
+          });
+        }
         const priorAcceptances = await db
           .select({ id: aiExecutionAcceptancesTable.id })
           .from(aiExecutionAcceptancesTable)
@@ -3688,7 +4083,7 @@ describe("real durable task execution lifecycle", () => {
           missionRepairRecovery: {
             candidateIdentity: ready.candidateIdentity,
             executionId,
-            phase: "candidate_ready",
+            phase: crashPhase,
           },
         });
 
@@ -3708,10 +4103,87 @@ describe("real durable task execution lifecycle", () => {
         await expect(readFile(join(candidateWorkspacePath, "src", "target.ts")))
           .rejects.toMatchObject({ code: "ENOENT" });
 
+        apiProcess = startApiStartupProcess(`mission-repair-startup-recovery-${randomUUID()}`);
+        await apiProcess.waitForReady();
+        const [startupRecoveredExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, executionId),
+            eq(aiExecutionsTable.linkedTaskId, fixture.taskId),
+          ))
+          .limit(1);
+        expect(startupRecoveredExecution).toEqual({
+          attempt: 0,
+          status: "paused",
+          workerId: null,
+          leaseUntil: null,
+        });
+        const [startupRecoveredCheckpoint] = await db
+          .select({ checkpoint: aiExecutionsTable.checkpoint })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        if (!startupRecoveredCheckpoint) {
+          throw new Error("API startup removed the Mission repair checkpoint.");
+        }
+        const startupManifest = JSON.parse(
+          JSON.parse(startupRecoveredCheckpoint.checkpoint).detail,
+        ) as { missionRepairRecovery: { phase: string; effectBundleId?: string } };
+        expect(startupManifest.missionRepairRecovery.phase).toBe(crashPhase);
+        if (crashPhase === "effect_classified") {
+          expect(startupManifest.missionRepairRecovery.effectBundleId).toBe(ready.effectBundleId);
+        }
+        const [startupRecoveryAcceptance] = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+            nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+            resumable: aiExecutionAcceptancesTable.resumable,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ))
+          .limit(1);
+        expect(startupRecoveryAcceptance).toMatchObject({
+          attempt: 0,
+          terminalStatus: "paused",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+        });
+        const [startupRecoveryTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, fixture.taskId))
+          .limit(1);
+        expect(["pending", "queued", "verifying"]).toContain(startupRecoveryTask?.status);
+        const startupRecoveryEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, fixture.taskId));
+        expect(startupRecoveryEvents.some((event) => event.type === "TaskCompleted")).toBe(false);
+
+        expect(apiProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await apiProcess.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+        await waitForChildDatabaseDisconnect(apiProcess.applicationName);
+        apiProcess = undefined;
+
         recoveryProcess = startMissionRepairTestProcess("recovery", {
           taskId: fixture.taskId,
           userId,
           workspaceRevision: fixture.now.toISOString(),
+          crashPhase,
           executionId,
         });
         const recoveryExit = await waitForChildProcessExit(recoveryProcess);
@@ -3758,6 +4230,7 @@ describe("real durable task execution lifecycle", () => {
             outcome: aiExecutionAcceptancesTable.outcome,
             terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
             resumable: aiExecutionAcceptancesTable.resumable,
+            effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
           })
           .from(aiExecutionAcceptancesTable)
           .where(and(
@@ -3765,21 +4238,49 @@ describe("real durable task execution lifecycle", () => {
             eq(aiExecutionAcceptancesTable.attempt, 1),
           ))
           .limit(1);
-        expect(completedAcceptance).toEqual({
+        expect(completedAcceptance).toMatchObject({
           outcome: "SUCCEEDED",
           terminalStatus: "completed",
           resumable: 0,
+          effectBundleId: expect.any(String),
         });
+        if (crashPhase === "effect_classified") {
+          // A rotated attempt must rebuild effect evidence rather than accept
+          // the classified bundle from the crashed attempt.
+          expect(completedAcceptance?.effectBundleId).not.toBe(ready.effectBundleId);
+        }
         expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
           .toBe("export const value = 'base';\n");
+        const expectedAggregateActionId = `mission-repair:${executionId}:${
+          crashPhase === "candidate_ready" ? 1 : 0
+        }`;
+        const committedAfterRecovery = await db
+          .select({ payload: aiAgentEpisodeEventsTable.payload })
+          .from(aiAgentEpisodeEventsTable)
+          .where(and(
+            eq(aiAgentEpisodeEventsTable.executionId, executionId),
+            eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+          ))
+          .then((events) => events.filter((event) =>
+            (event.payload as { actionId?: unknown } | null)?.actionId
+              === expectedAggregateActionId
+          ));
+        expect(committedAfterRecovery).toHaveLength(1);
       } finally {
         if (workerProcess && workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
           workerProcess.child.kill("SIGKILL");
           await workerProcess.exit;
         }
+        if (apiProcess && apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+          apiProcess.child.kill("SIGKILL");
+          await apiProcess.exit;
+        }
         if (recoveryProcess && recoveryProcess.child.exitCode === null && recoveryProcess.child.signalCode === null) {
           recoveryProcess.child.kill("SIGKILL");
           await recoveryProcess.exit;
+        }
+        if (apiProcess) {
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
         }
         if (workerProcess) {
           await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
@@ -4809,7 +5310,7 @@ describe("real durable task execution lifecycle", () => {
           }
           await persistManifest({ afterObservationId: originalAfterObservationId });
 
-          const verification = await verifyAndPersistEffect({
+          const verification = await effectObserver.verifyAndPersistEffect({
             projectId: fixture.projectId,
             executionId: evidenceContext.operationId,
             attempt: execution.attempt,
