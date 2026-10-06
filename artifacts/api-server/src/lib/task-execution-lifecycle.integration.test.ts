@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   buildMissionRepairEffectContract,
   MISSION_REPAIR_TOOL_CAPABILITY_ID,
@@ -79,6 +79,9 @@ const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) =
   evidence: { artifactRef: "fixture-validation-receipt" },
 })));
 const pendingObservationMaterializations = vi.hoisted(() => [] as Promise<unknown>[]);
+const missionRepairProcessFixture = vi.hoisted(() => ({
+  candidateWorkspacePath: null as string | null,
+}));
 const taskProgressFixture = vi.hoisted(() => ({
   failTerminalOutcome: null as "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null,
   terminalOutcomes: [] as Array<"SUCCEEDED" | "FAILED" | "INTERRUPTED">,
@@ -230,6 +233,21 @@ vi.mock("./ai-repair-validation.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-repair-validation.js")>("./ai-repair-validation.js");
   return {
     ...actual,
+    createValidationWorkspace: async (
+      ...args: Parameters<typeof actual.createValidationWorkspace>
+    ) => {
+      const workspace = await actual.createValidationWorkspace(...args);
+      if (process.env.MISSION_REPAIR_PROCESS_CHILD === "worker") {
+        missionRepairProcessFixture.candidateWorkspacePath = workspace.rootPath;
+        const pathSignal = process.env.MISSION_REPAIR_WORKSPACE_SIGNAL_FILE;
+        if (!pathSignal) {
+          throw new Error("Mission repair worker child is missing its workspace signal path.");
+        }
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(pathSignal, workspace.rootPath, "utf8");
+      }
+      return workspace;
+    },
     runRepairValidation,
   };
 });
@@ -359,6 +377,159 @@ function startMissionRepairApiProcess(applicationName: string) {
     }
   };
   return { child, exit, output, waitForReady };
+}
+
+type MissionRepairProcessChildMode = "worker" | "recovery";
+
+function requireMissionRepairDisposableDatabaseUrl() {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("Mission repair worker recovery requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(databaseUrl.hostname)) {
+    throw new Error("Mission repair worker recovery is restricted to a loopback PostgreSQL database.");
+  }
+  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\/+/, ""));
+  if (!/(?:^|[_-])(?:test|disposable)(?:[_-]|$)/i.test(databaseName)) {
+    throw new Error("Mission repair worker recovery requires a disposable or test-named database.");
+  }
+  return databaseUrl;
+}
+
+function startMissionRepairTestProcess(
+  mode: MissionRepairProcessChildMode,
+  input: {
+    taskId: string;
+    userId: string;
+    workspaceRevision: string;
+    executionId?: string;
+    readySignalFile?: string;
+    workspaceSignalFile?: string;
+  },
+) {
+  const databaseUrl = requireMissionRepairDisposableDatabaseUrl();
+  const applicationName = `mission-repair-${mode}-${randomUUID()}`;
+  databaseUrl.searchParams.set("application_name", applicationName);
+  const child = spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "vitest", "vitest.mjs"),
+    "run",
+    "src/lib/task-execution-lifecycle.integration.test.ts",
+    "--pool=threads",
+    "--maxWorkers=1",
+    "--no-file-parallelism",
+    "-t",
+    "process-level Mission repair worker fixture",
+  ], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: databaseUrl.toString(),
+      PGAPPNAME: applicationName,
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      WORKSPACE_PATH: process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      MISSION_REPAIR_PROCESS_CHILD: mode,
+      MISSION_REPAIR_PROCESS_TASK_ID: input.taskId,
+      MISSION_REPAIR_PROCESS_USER_ID: input.userId,
+      MISSION_REPAIR_PROCESS_WORKSPACE_REVISION: input.workspaceRevision,
+      ...(input.executionId ? { MISSION_REPAIR_PROCESS_EXECUTION_ID: input.executionId } : {}),
+      ...(input.readySignalFile ? { MISSION_REPAIR_READY_SIGNAL_FILE: input.readySignalFile } : {}),
+      ...(input.workspaceSignalFile
+        ? { MISSION_REPAIR_WORKSPACE_SIGNAL_FILE: input.workspaceSignalFile }
+        : {}),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveExit) => {
+    child.once("exit", (code, signal) => resolveExit({ code, signal }));
+  });
+  const output = () => {
+    const databaseUrlWithoutCredentials = `${databaseUrl.protocol}//${databaseUrl.hostname}${databaseUrl.pathname}`;
+    let captured = `stdout=${stdout}; stderr=${stderr}`
+      .replaceAll(databaseUrl.toString(), databaseUrlWithoutCredentials);
+    if (databaseUrl.password) captured = captured.replaceAll(databaseUrl.password, "[redacted]");
+    if (databaseUrl.username) captured = captured.replaceAll(databaseUrl.username, "[redacted]");
+    return captured;
+  };
+  return { applicationName, child, exit, output };
+}
+
+async function waitForMissionRepairProcessFile(
+  path: string,
+  processHandle: ReturnType<typeof startMissionRepairTestProcess>,
+  timeoutMs = 60_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (processHandle.child.exitCode !== null || processHandle.child.signalCode !== null) {
+      throw new Error(`Mission repair child exited before writing its signal; ${processHandle.output()}`);
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  throw new Error(`Timed out waiting for Mission repair child signal; ${processHandle.output()}`);
+}
+
+async function waitForMissionRepairProcessExit(
+  processHandle: ReturnType<typeof startMissionRepairTestProcess>,
+  timeoutMs = 120_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (processHandle.child.exitCode === null && processHandle.child.signalCode === null) {
+    if (Date.now() >= deadline) {
+      processHandle.child.kill("SIGKILL");
+      await processHandle.exit;
+      throw new Error(`Timed out waiting for Mission repair child exit; ${processHandle.output()}`);
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  return processHandle.exit;
+}
+
+async function waitForMissionRepairDatabaseDisconnect(applicationName: string, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE application_name = ${applicationName}
+        AND pid <> pg_backend_pid()
+    `);
+    const rows = (result as unknown as { rows?: Array<{ pid: number }> }).rows ?? [];
+    if (rows.length === 0) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  throw new Error(`Mission repair PostgreSQL client did not disconnect: ${applicationName}`);
+}
+
+async function removeMissionRepairCandidateWorkspace(path: string | undefined) {
+  if (!path) return;
+  const absolutePath = resolve(path);
+  if (
+    dirname(absolutePath) !== "/tmp"
+    || !basename(absolutePath).startsWith("engineeringos-validation-")
+  ) {
+    throw new Error("Refusing to remove an unrecognized Mission repair candidate workspace.");
+  }
+  await rm(absolutePath, { recursive: true, force: true });
 }
 
 async function waitForMissionRepairRecoveryLock(output: () => string) {
@@ -578,6 +749,7 @@ describe("real durable task execution lifecycle", () => {
       status: "passed" as const,
       evidence: { artifactRef: "fixture-validation-receipt" },
     }));
+    missionRepairProcessFixture.candidateWorkspacePath = null;
   });
 
   it("persists execution, checkpoint, task completion, and terminal acceptance", async () => {
@@ -2870,6 +3042,428 @@ describe("real durable task execution lifecycle", () => {
       await fixture.cleanup();
     }
     },
+  );
+
+  const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
+  const missionRepairProcessChildTest =
+    missionRepairProcessChildMode === "worker" || missionRepairProcessChildMode === "recovery"
+      ? it
+      : it.skip;
+  missionRepairProcessChildTest(
+    "process-level Mission repair worker fixture",
+    async () => {
+      const taskId = process.env.MISSION_REPAIR_PROCESS_TASK_ID;
+      const userId = process.env.MISSION_REPAIR_PROCESS_USER_ID;
+      const workspaceRevision = process.env.MISSION_REPAIR_PROCESS_WORKSPACE_REVISION;
+      if (!taskId || !userId || !workspaceRevision) {
+        throw new Error("Mission repair child process is missing its durable fixture identity.");
+      }
+
+      if (missionRepairProcessChildMode === "worker") {
+        const readySignalFile = process.env.MISSION_REPAIR_READY_SIGNAL_FILE;
+        if (!readySignalFile) {
+          throw new Error("Mission repair worker child is missing its ready signal path.");
+        }
+        const candidateContent = "export const value = 'process-crashed-candidate';\n";
+        chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+          const baseParams = args[1] as {
+            onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+          };
+          const invocation = {
+            toolCallId: "provider-call-mission-worker-process-crash",
+            toolName: "write_file" as const,
+            path: "src/target.ts",
+            inputHash: "d".repeat(64),
+          };
+          await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+          await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+          return {
+            result: {
+              response: "Prepared the candidate before the worker process was interrupted.",
+              pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
+              sources: [],
+            },
+            effectiveProvider: "groq" as const,
+          };
+        });
+        runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => {
+          const evidenceContext = args[5] as { operationId: string };
+          const [execution] = await db
+            .select({ checkpoint: aiExecutionsTable.checkpoint })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+            .limit(1);
+          if (!execution) throw new Error("Mission worker child lost its durable execution.");
+          const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
+          const detail = JSON.parse(checkpoint.detail) as {
+            missionRepairRecovery: {
+              attempt: number;
+              candidateIdentity: string;
+              executionId: string;
+              phase: string;
+              taskId: string;
+            };
+          };
+          expect(detail.missionRepairRecovery).toMatchObject({
+            attempt: 0,
+            executionId: evidenceContext.operationId,
+            phase: "candidate_ready",
+            taskId,
+          });
+          const workspacePath = missionRepairProcessFixture.candidateWorkspacePath;
+          if (!workspacePath) {
+            throw new Error("Mission worker child did not retain its disposable candidate workspace path.");
+          }
+          await writeFile(readySignalFile, JSON.stringify({
+            executionId: evidenceContext.operationId,
+            candidateIdentity: detail.missionRepairRecovery.candidateIdentity,
+            attempt: detail.missionRepairRecovery.attempt,
+            phase: detail.missionRepairRecovery.phase,
+            taskId,
+            candidateWorkspacePath: workspacePath,
+          }), "utf8");
+          return await new Promise<never>(() => {});
+        });
+
+        await executeTaskLifecycle({
+          taskId,
+          userId,
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision,
+        });
+        throw new Error("Mission worker returned before the parent could terminate the process.");
+      }
+
+      const executionId = process.env.MISSION_REPAIR_PROCESS_EXECUTION_ID;
+      if (!executionId) {
+        throw new Error("Mission repair recovery child is missing its execution identity.");
+      }
+      await reconcileStuckJobs();
+      const [pausedExecution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          checkpoint: aiExecutionsTable.checkpoint,
+          status: aiExecutionsTable.status,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, executionId),
+          eq(aiExecutionsTable.linkedTaskId, taskId),
+        ))
+        .limit(1);
+      expect(pausedExecution).toBeDefined();
+      if (!pausedExecution) throw new Error("Recovery child could not find the interrupted execution.");
+      expect(pausedExecution).toMatchObject({ attempt: 0, status: "paused" });
+      const checkpoint = JSON.parse(pausedExecution.checkpoint) as { detail: string };
+      const detail = JSON.parse(checkpoint.detail) as {
+        missionRepairRecovery: { attempt: number; phase: string; taskId: string };
+      };
+      expect(detail.missionRepairRecovery).toMatchObject({
+        attempt: 0,
+        phase: "candidate_ready",
+        taskId,
+      });
+      const [interruptedAcceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ))
+        .limit(1);
+      expect(interruptedAcceptance).toMatchObject({
+        outcome: "FAILED",
+        nextActionCode: "RESUME_ALLOWED",
+        resumable: 1,
+      });
+
+      const recovery = await aiExecutionState.recoverAiExecutionResumeToken({
+        executionId,
+        userId,
+        linkedTaskId: taskId,
+        expectedAttempt: 0,
+      });
+      expect(recovery).toBeDefined();
+      if (!recovery) throw new Error("Recovery child did not receive a server-owned resume token.");
+      runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => ({
+        status: "passed" as const,
+        evidence: {
+          evidenceId: "mission-repair-worker-process-validator-evidence",
+          artifactRef: "mission-repair-worker-process-validator-pass",
+          validatorProfile: String(args[1]),
+        },
+      }));
+      const resumed = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision,
+        resumeExecutionId: executionId,
+        resumeToken: recovery.resumeToken,
+      });
+      expect(resumed).toMatchObject({ ok: true, status: "completed", executionId });
+      expect(chatWithFallback).not.toHaveBeenCalled();
+      const [completedExecution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(completedExecution).toEqual({ attempt: 1, status: "completed" });
+      const [completedAcceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 1),
+        ))
+        .limit(1);
+      expect(completedAcceptance).toEqual({
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+        resumable: 0,
+      });
+      const materializationFailures = await drainPendingObservationMaterializations();
+      expect(materializationFailures).toEqual([]);
+    },
+    180_000,
+  );
+
+  const missionRepairWorkerProcessRecoveryTest =
+    process.env.RUN_MISSION_REPAIR_WORKER_PROCESS_RECOVERY === "1" ? it : it.skip;
+  missionRepairWorkerProcessRecoveryTest(
+    "recovers a candidate-ready Mission repair after SIGKILL of its worker process",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const fixture = await createMissionToolLoopFixture({
+        phase: "execute",
+        approvalRequired: false,
+      });
+      let signalRoot: string | undefined;
+      const userId = "mission-effect-test-user";
+      let workerProcess: ReturnType<typeof startMissionRepairTestProcess> | undefined;
+      let recoveryProcess: ReturnType<typeof startMissionRepairTestProcess> | undefined;
+      let executionId: string | undefined;
+      let candidateWorkspacePath: string | undefined;
+
+      try {
+        signalRoot = await mkdtemp(join("/tmp", "mission-repair-worker-recovery-"));
+        const readySignalFile = join(signalRoot, "worker-ready.json");
+        const workspaceSignalFile = join(signalRoot, "candidate-workspace-path");
+        workerProcess = startMissionRepairTestProcess("worker", {
+          taskId: fixture.taskId,
+          userId,
+          workspaceRevision: fixture.now.toISOString(),
+          readySignalFile,
+          workspaceSignalFile,
+        });
+        const ready = JSON.parse(await waitForMissionRepairProcessFile(readySignalFile, workerProcess)) as {
+          executionId: string;
+          candidateIdentity: string;
+          attempt: number;
+          phase: string;
+          taskId: string;
+          candidateWorkspacePath: string;
+        };
+        executionId = ready.executionId;
+        candidateWorkspacePath = await readFile(workspaceSignalFile, "utf8");
+        expect(ready).toMatchObject({
+          attempt: 0,
+          candidateIdentity: expect.any(String),
+          candidateWorkspacePath,
+          phase: "candidate_ready",
+          taskId: fixture.taskId,
+        });
+        expect(candidateWorkspacePath).toMatch(/^\/tmp\/engineeringos-validation-/);
+        expect(await readFile(join(candidateWorkspacePath, "src", "target.ts"), "utf8"))
+          .toBe("export const value = 'process-crashed-candidate';\n");
+        expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+          .toBe("export const value = 'base';\n");
+
+        const [runningExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            checkpoint: aiExecutionsTable.checkpoint,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+          })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, executionId),
+            eq(aiExecutionsTable.linkedTaskId, fixture.taskId),
+          ))
+          .limit(1);
+        expect(runningExecution).toBeDefined();
+        if (!runningExecution) throw new Error("Worker child did not persist its execution.");
+        expect(runningExecution).toMatchObject({
+          attempt: 0,
+          status: "running",
+          workerId: expect.any(String),
+        });
+        const checkpoint = JSON.parse(runningExecution.checkpoint) as { detail: string };
+        const detail = JSON.parse(checkpoint.detail) as {
+          missionRepairRecovery: { candidateIdentity: string; executionId: string; phase: string };
+        };
+        expect(detail.missionRepairRecovery).toMatchObject({
+          candidateIdentity: ready.candidateIdentity,
+          executionId,
+          phase: "candidate_ready",
+        });
+        const priorAcceptances = await db
+          .select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(priorAcceptances).toEqual([]);
+
+        expect(workerProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForMissionRepairProcessExit(workerProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForMissionRepairDatabaseDisconnect(workerProcess.applicationName);
+        const [crashedExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            checkpoint: aiExecutionsTable.checkpoint,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(crashedExecution).toBeDefined();
+        if (!crashedExecution) throw new Error("SIGKILL removed the durable execution unexpectedly.");
+        expect(crashedExecution).toMatchObject({ attempt: 0, status: "running" });
+        const durableCrashCheckpoint = JSON.parse(crashedExecution.checkpoint) as { detail: string };
+        expect(JSON.parse(durableCrashCheckpoint.detail)).toMatchObject({
+          missionRepairRecovery: {
+            candidateIdentity: ready.candidateIdentity,
+            executionId,
+            phase: "candidate_ready",
+          },
+        });
+
+        // Model the lease deadline after the real worker has been killed; do
+        // not wait for the production lease duration in this isolated fixture.
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: new Date(0), updatedAt: new Date() })
+          .where(eq(aiExecutionsTable.id, executionId));
+        await db.update(tasksTable)
+          .set({ leaseUntil: new Date(0), updatedAt: new Date() })
+          .where(eq(tasksTable.id, fixture.taskId));
+
+        // Recovery rebuilds from durable checkpoint content, not the dead
+        // worker's disposable validation workspace.
+        if (!candidateWorkspacePath) throw new Error("Candidate workspace path was not recorded.");
+        await removeMissionRepairCandidateWorkspace(candidateWorkspacePath);
+        await expect(readFile(join(candidateWorkspacePath, "src", "target.ts")))
+          .rejects.toMatchObject({ code: "ENOENT" });
+
+        recoveryProcess = startMissionRepairTestProcess("recovery", {
+          taskId: fixture.taskId,
+          userId,
+          workspaceRevision: fixture.now.toISOString(),
+          executionId,
+        });
+        const recoveryExit = await waitForMissionRepairProcessExit(recoveryProcess);
+        expect(
+          recoveryExit,
+          recoveryExit.code !== 0 ? recoveryProcess.output() : "Mission repair recovery child failed.",
+        ).toEqual({ code: 0, signal: null });
+        await waitForMissionRepairDatabaseDisconnect(recoveryProcess.applicationName);
+
+        const [completedExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(completedExecution).toEqual({ attempt: 1, status: "completed" });
+        const [completedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, fixture.taskId))
+          .limit(1);
+        expect(completedTask).toEqual({ status: "completed" });
+        const [failedAcceptance] = await db
+          .select({
+            outcome: aiExecutionAcceptancesTable.outcome,
+            nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+            resumable: aiExecutionAcceptancesTable.resumable,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ))
+          .limit(1);
+        expect(failedAcceptance).toMatchObject({
+          outcome: "FAILED",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+        });
+        const [completedAcceptance] = await db
+          .select({
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+            resumable: aiExecutionAcceptancesTable.resumable,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 1),
+          ))
+          .limit(1);
+        expect(completedAcceptance).toEqual({
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+          resumable: 0,
+        });
+        expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+          .toBe("export const value = 'base';\n");
+      } finally {
+        if (workerProcess && workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+          workerProcess.child.kill("SIGKILL");
+          await workerProcess.exit;
+        }
+        if (recoveryProcess && recoveryProcess.child.exitCode === null && recoveryProcess.child.signalCode === null) {
+          recoveryProcess.child.kill("SIGKILL");
+          await recoveryProcess.exit;
+        }
+        if (workerProcess) {
+          await waitForMissionRepairDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (recoveryProcess) {
+          await waitForMissionRepairDatabaseDisconnect(recoveryProcess.applicationName).catch(() => undefined);
+        }
+        if (!candidateWorkspacePath && signalRoot) {
+          candidateWorkspacePath = await readFile(join(signalRoot, "candidate-workspace-path"), "utf8")
+            .catch(() => undefined);
+        }
+        try {
+          await removeMissionRepairCandidateWorkspace(candidateWorkspacePath);
+        } finally {
+          await fixture.cleanup();
+          if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+        }
+      }
+    },
+    300_000,
   );
 
   it("resumes a candidate-ready Mission repair after startup recovery rotates the execution attempt", async () => {

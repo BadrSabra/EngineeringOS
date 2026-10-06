@@ -198,7 +198,7 @@ This is the known-surface matrix from the bounded source audit, not a claim that
 | workflow / recipe | لا يوجد process-kill test يغطي non-empty phase | W8 يحقن rollback لإسقاط Goal؛ W9 service fixture يختبر فقد استجابة no-op phase | مراحل/receipts وMission handoff المزروعة لا تمثل route/process restart |
 | runtime process | لا يوجد إثبات adoption لعملية باقية أو startup recovery بعد قتل API؛ اختبارات المدير in-memory ومسار child attestation لا تثبت ذلك | failure/retry محقون عند transition materializer بعد Gate C | DB fixtures تغطي lease discovery/claim وWorld State retry فقط |
 | Git delivery | اختبار process-kill لمسار legacy fixture، واختبار منفصل لخدمة `executeVerifiedGitHubDelivery` بعد PATCH مُقَرّ وقبل receipt؛ كلاهما يستخدم remote/HTTP fixtures محلية | full `src/index.ts` startup على PostgreSQL المؤقتة لا ينشئ receipt أو recovery marker؛ replay مطابق عبر process جديد يكتب receipt واحدًا وduplicate idempotent | التعافي التلقائي عند startup غير موجود في المسار المختبر؛ يلزم replay صريح. لا production GitHub ولا إثبات World Transition لمسار Git route |
-| Mission repair | اختبار اختياري يزرع حالة `candidate_ready`، ثم يقتل API child كاملًا بـ`SIGKILL` عند UPDATE محجوب أثناء `src/index.ts` reconciliation؛ startup ثانٍ يستعيد الحالة | تحقق الاستعادة يرفض Episode/checkpoint mismatches قبل إعادة بناء المرشح | الاختبار يثبت حد startup-recovery بعد checkpoint مزروع؛ موت عامل Mission الأصلي عند حد الأثر ما زال محاكاة، و`committed`/`effect_classified` تبقيان fixtures/lease handoff |
+| Mission repair | اختبار اختياري يشغّل `executeTaskLifecycle` في Vitest child مع provider/validator fixtures حتمية؛ يقتله الأب بـ`SIGKILL` بعد `candidate_ready`، ثم child جديد يشغّل `reconcileStuckJobs` ويستأنف التنفيذ نفسه بعد حذف sandbox العامل الميت | تحقق الاستعادة يرفض Episode/checkpoint mismatches قبل إعادة بناء المرشح؛ وتبقى اختبارات handoff للمراحل اللاحقة محدودة | اختبار `src/index.ts` ما زال يبدأ من حالة مزروعة؛ اختبار worker-kill لا يمر عبر startup الكامل، و`committed`/`effect_classified` تبقيان fixtures/lease handoff |
 | discovery / upload | لا يوجد قتل process بعد clone/extract/materialize في هذه الجولة | لا response-loss test شامل لحد إنشاء الجذر | owner/lease/cleanup fixtures تثبت boundaries منفصلة؛ ليست E2 agent-mutation recovery |
 
 **Apply durable fixtures and route crashes (2026-10-05، محدث 2026-10-06):** تبقى fixtures السابقة ذات candidate tree و`PROMOTION_INTENT` وbefore-only / before+after / EffectBundle، مع نتيجة `RECOVERY_REQUIRED` وحفظ bytes. أضيف فوقها اختبار route حقيقي: الحالة المحلية W5 تُقتل داخل effect-bundle transaction بعد observations، فلا يظهر effect أو bundle أو `AiChangesApplied`؛ W6 تُقتل عند acceptance بعد دوام effect/bundle؛ W7 تُقتل أثناء تحديث execution النهائي، والـacceptance insert غير ملتزم في transaction نفسها ويرجع؛ وتبقى الحالات الثلاث بلا `SUCCEEDED` أو World Transition أو `AiGoalDispatchRequested` بعد startup reconciliation. حالة `OBSERVATION_TO_EFFECT` تستخدم trigger قصيرًا على إدراج `ACTION_COMMITTED`؛ عند التوقف تكون ملاحظتا before/after والـpromoted bytes دائمة، بينما الحدث والـeffect والـbundle والـacceptance والـtransition غائبة. بعد `SIGKILL` وstartup واحد تنتهي الحالة بـ`RECOVERY_REQUIRED` بلا نجاح أو Transition أو dispatch. حالة W8 تُقتل بعد قبول نجاح وكتابة event وقبل response؛ startup كامل ثم replay مطابق لا يكرر execution أو acceptance أو bundle أو event. اجتاز اختبار route المستهدف 1/1 (مع 111 حالة متجاوزة بالترشيح). الـfixture غير المرتبط بـMission لا ينتج Transition أو dispatch؛ واختبار D2 المنفصل يثبت dispatch للـsuccessor في Apply المقبول والمرتبط بـMission. أسماء W5–W8 محلية للاختبار ولا تعيد ترقيم W0–W9 العامة.
@@ -260,15 +260,18 @@ process ولا جميع نوافذ workflow.
 `candidate_ready` و`committed` و`effect_classified`. هذا لا يثبت crash فعلي داخل
 route أو تعافي كل أسطح E2.
 
-**حد startup لـMission repair (2026-10-06):** أُضيف مسار اختياري في اختبار
-`candidate_ready` يستخدم PostgreSQL مؤقتة loopback وprovider egress معطّل. تُقفل
-صفوف المهمة والتنفيذ المعنيين فقط، ويمر فحص المخطط ثم يُقتل API child الذي يشغّل
-`src/index.ts` بـ`SIGKILL` عندما يصل reconciliation إلى UPDATE المحجوب؛ بعد تحرير
-الصفوف، ينجح child ثانٍ في startup reconciliation؛ بعدها يستدعي test harness مسار
-resume المعتاد ويتحقق من الـacceptance والـcheckpoint والنتيجة. نجح الاختبار 1/1 (30 skipped)،
-مع API typecheck و`git diff --check`. موت العامل الأصلي بعد `candidate_ready` ما
-زال محاكاة، لذا لا يثبت هذا قتل worker عند حد الأثر أو تعافي كل أسطح E2. لم يُلمس
-أي managed workflow أو provider حي أو production database.
+**حد startup لـMission repair (2026-10-06):** اختبار PostgreSQL loopback السابق يقتل
+child يشغّل `src/index.ts` عند UPDATE محجوب أثناء startup reconciliation لحالة
+`candidate_ready` مزروعة، ثم يثبت نجاح startup ثانٍ؛ ولا يزال يختبر حالة مزروعة.
+أضيف اختبار مستقل يقتل بـ`SIGKILL` child ينفذ `executeTaskLifecycle` الفعلي بعد دوام
+`candidate_ready`، ثم يشغّل child Vitest جديدًا لـ`reconcileStuckJobs` وresume على
+التنفيذ نفسه. بعد حذف sandbox المرشح الخاص بالعامل المقتول، تنجح الاستعادة من
+checkpoint الدائم إلى acceptance ناجح للمحاولة 1؛ ولا تستدعي provider ولا تغيّر live
+tree. اجتاز الاختبار المستهدف 1/1 (52 skipped) على قاعدة loopback مؤقتة، مع API
+typecheck و`git diff --check`؛ أوقفت القاعدة وحُذف جذرها. هذا يثبت worker-kill
+واستعادة متعددة العمليات عبر reconciliation المباشر، لا startup كاملًا عبر
+`src/index.ts` لنفس التنفيذ؛ بقية crash windows والأسطح لم تُغلق، لذا E2 تبقى
+`OPEN` وE3 `STOPPED`. لم يُلمس managed workflow أو provider حي أو production database.
 
 **حد استعادة `apply-changes` (2026-10-04):** اختبارات DB-backed تغطي حالتين
 مقابلتين. عند وجود المرشح الحي دون Episode/Effect/Acceptance proof، تسجل

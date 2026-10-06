@@ -14,3 +14,11 @@ In a SIGKILL recovery test, terminating the client during a server-side `pg_slee
 **Why:** A long sleep can hold the transaction and block the test's cleanup long after the client process has been killed.
 
 **How to apply:** Use a short bounded sleep to expose the in-flight transaction, kill the client, then wait for that exact `application_name` session to disappear before restarting recovery or dropping the test trigger.
+
+## Child-process SIGKILL tests
+
+Run a Vitest child with `--pool=threads` when the parent must kill the process executing a blocked test callback. Assign a unique PostgreSQL `application_name`, wait for that exact session to disappear after `SIGKILL`, and record disposable workspace paths so cleanup removes only roots owned by the test.
+
+**Why:** Killing a forked test worker can leave its runner and database session alive, which weakens the process-death boundary and can race recovery or cleanup.
+
+**How to apply:** Signal only after the durable checkpoint is visible, kill the child CLI process, drain its PostgreSQL session, then run reconciliation in a separate process against the same isolated database. Rebuild from durable state and remove only the captured temporary workspace.
