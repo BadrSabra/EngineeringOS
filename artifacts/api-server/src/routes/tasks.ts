@@ -26,6 +26,8 @@ import { randomUUID } from "crypto";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runTaskVerification } from "../services/task-service.js";
+import { AI_TASK_HEARTBEAT_INTERVAL_MS, AI_TASK_LEASE_MS } from "../lib/job-lease.js";
+import { logger } from "../lib/logger.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
@@ -48,6 +50,65 @@ const router = Router();
 router.use(requireAuth);
 
 class TaskStateConflictError extends Error {}
+
+async function renewManualTaskLease(taskId: string, workerId: string): Promise<boolean> {
+  const now = new Date();
+  const [renewed] = await db
+    .update(tasksTable)
+    .set({
+      leaseUntil: new Date(now.getTime() + AI_TASK_LEASE_MS),
+      lastHeartbeatAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(tasksTable.id, taskId),
+      eq(tasksTable.status, "running"),
+      eq(tasksTable.workerId, workerId),
+      gt(tasksTable.leaseUntil, now),
+    ))
+    .returning({ id: tasksTable.id });
+  return Boolean(renewed);
+}
+
+function startManualTaskLeaseHeartbeat(taskId: string, workerId: string) {
+  let stopped = false;
+  let lostLease = false;
+  let pendingHeartbeat: Promise<void> = Promise.resolve();
+
+  const queueHeartbeat = () => {
+    if (stopped || lostLease) return pendingHeartbeat;
+    pendingHeartbeat = pendingHeartbeat.then(async () => {
+      if (stopped || lostLease) return;
+      try {
+        if (!await renewManualTaskLease(taskId, workerId)) {
+          lostLease = true;
+          logger.warn({ taskId, workerId }, "manual task worker lost its lease");
+        }
+      } catch (error) {
+        lostLease = true;
+        logger.error({ err: error, taskId, workerId }, "manual task lease heartbeat failed");
+      }
+    });
+    return pendingHeartbeat;
+  };
+
+  const timer = setInterval(() => {
+    void queueHeartbeat();
+  }, AI_TASK_HEARTBEAT_INTERVAL_MS);
+
+  return {
+    renewNow: async () => {
+      await queueHeartbeat();
+      return !lostLease;
+    },
+    stop: async () => {
+      stopped = true;
+      clearInterval(timer);
+      await pendingHeartbeat;
+      return !lostLease;
+    },
+  };
+}
 
 const PUBLIC_TASK_LOG_METADATA = new Set([
   "trigger",
@@ -381,6 +442,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
   if (!project) return;
 
   const now = new Date();
+  const workerId = randomUUID();
 
   // Atomic claim: only one concurrent /execute call can move a task out of
   // pending/queued. A conditional UPDATE with a status guard means a second
@@ -388,7 +450,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
   // 409 instead of both requests running verification concurrently.
   const claimed = await db
     .update(tasksTable)
-    .set({ status: "running", updatedAt: now })
+    .set({
+      status: "running",
+      workerId,
+      leaseUntil: new Date(now.getTime() + AI_TASK_LEASE_MS),
+      lastHeartbeatAt: now,
+      updatedAt: now,
+    })
     .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
     .returning();
   if (claimed.length === 0) {
@@ -397,182 +465,225 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       .json({ error: `Cannot execute task with status "${task[0].status}"` });
   }
 
-  // One ID for this entire execute operation — threads through the
-  // "started" log line, the verification log/event, and the audit entry so
-  // the full execution trace can be retrieved with a single filter.
-  const correlationId = randomUUID();
-
-  await db.insert(taskLogsTable).values({
-    id: randomUUID(),
-    taskId,
-    level: "info",
-    message: "Task execution started — running verification against project root",
-    metadata: {
-      initiatedAt: now.toISOString(),
-      projectRoot: project.rootPath,
-    },
-    correlationId,
-  });
-
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "TaskExecutionStarted",
-    projectId: task[0].projectId,
-    taskId,
-    severity: "info",
-    message: `Executing task "${task[0].title}"`,
-    correlationId,
-    payload: { before: { status: task[0].status }, after: { status: "running" } },
-  });
-
-  // Delegate to the task service (business logic extracted from route — audit W-003/PR-03).
-  let verification;
+  const leaseHeartbeat = startManualTaskLeaseHeartbeat(taskId, workerId);
   try {
-    verification = await runTaskVerification(task[0], project.rootPath);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-
-    await db
-      .update(tasksTable)
-      .set({ status: task[0].status, updatedAt: now })
-      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+    // One ID for this entire execute operation — threads through the
+    // "started" log line, the verification log/event, and the audit entry so
+    // the full execution trace can be retrieved with a single filter.
+    const correlationId = randomUUID();
 
     await db.insert(taskLogsTable).values({
       id: randomUUID(),
       taskId,
-      level: "error",
-      message: `Task execution failed: ${message}`,
-      metadata: { error: message, correlationId },
+      level: "info",
+      message: "Task execution started — running verification against project root",
+      metadata: {
+        initiatedAt: now.toISOString(),
+        projectRoot: project.rootPath,
+      },
       correlationId,
     });
 
     await db.insert(eventsTable).values({
       id: randomUUID(),
-      type: "TaskExecutionFailed",
+      type: "TaskExecutionStarted",
       projectId: task[0].projectId,
       taskId,
-      severity: "error",
-      message: `Executing task "${task[0].title}" failed: ${message}`,
+      severity: "info",
+      message: `Executing task "${task[0].title}"`,
       correlationId,
-      payload: { before: { status: "running" }, after: { status: task[0].status } },
+      payload: { before: { status: task[0].status }, after: { status: "running" } },
     });
 
-    await recordAudit({
-      entityType: "task",
-      entityId: taskId,
-      action: "execution_failed",
-      projectId: task[0].projectId,
-      stateBefore: { status: "running" },
-      stateAfter: { status: task[0].status },
-      changedFields: { error: message },
-      correlationId,
-    });
+    if (!await leaseHeartbeat.renewNow()) {
+      return res.status(409).json({ error: "task_lease_lost" });
+    }
+
+    // Delegate to the task service (business logic extracted from route — audit W-003/PR-03).
+    let verification;
+    try {
+      verification = await runTaskVerification(task[0], project.rootPath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!await leaseHeartbeat.stop()) {
+        return res.status(409).json({ error: "task_lease_lost" });
+      }
+      const restoredTask = await db.transaction(async (tx) => {
+        const failedAt = new Date();
+        const [restored] = await tx
+          .update(tasksTable)
+          .set({
+            status: task[0].status,
+            updatedAt: failedAt,
+            workerId: null,
+            leaseUntil: null,
+            lastHeartbeatAt: null,
+          })
+          .where(and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.status, "running"),
+            eq(tasksTable.workerId, workerId),
+            gt(tasksTable.leaseUntil, failedAt),
+          ))
+          .returning({ id: tasksTable.id });
+        if (!restored) return false;
+
+        await tx.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: `Task execution failed: ${message}`,
+          metadata: { error: message, correlationId },
+          correlationId,
+        });
+
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskExecutionFailed",
+          projectId: task[0].projectId,
+          taskId,
+          severity: "error",
+          message: `Executing task "${task[0].title}" failed: ${message}`,
+          correlationId,
+          payload: { before: { status: "running" }, after: { status: task[0].status } },
+        });
+
+        await recordAuditInTransaction(tx, {
+          entityType: "task",
+          entityId: taskId,
+          action: "execution_failed",
+          projectId: task[0].projectId,
+          stateBefore: { status: "running" },
+          stateAfter: { status: task[0].status },
+          changedFields: { error: message },
+          correlationId,
+        });
+        return true;
+      });
+
+      if (!restoredTask) {
+        return res.status(409).json({ error: "task_lease_lost" });
+      }
+
+      invalidateContextCache(project.id);
+      return res.status(500).json({
+        error: "task_execution_failed",
+        reason: message,
+      });
+    }
+
+    const { finalStatus, steps: verificationSteps } = verification;
+    const verificationResult = {
+      passed: finalStatus === "completed",
+      decision:
+        finalStatus === "completed"
+          ? ("verified" as const)
+          : finalStatus === "failed"
+            ? ("failed" as const)
+            : ("incomplete" as const),
+      steps: verificationSteps.map((step) => ({
+        ...step,
+        kind: step.kind ?? ("automatic" as const),
+      })),
+    };
+    const finalizedAt = new Date();
+    const completedAt = finalStatus === "completed" ? finalizedAt : null;
+    if (!await leaseHeartbeat.stop()) {
+      return res.status(409).json({ error: "task_lease_lost" });
+    }
+
+    // Keep the result, its log/event, and the ownership-fenced transition atomic.
+    let updated: typeof tasksTable.$inferSelect | undefined;
+    try {
+      [updated] = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(tasksTable)
+          .set({
+            status: finalStatus,
+            verificationResult,
+            remediationPlan: markRemediationPlanVerified(
+              task[0].remediationPlan,
+              finalStatus === "completed",
+            ),
+            updatedAt: finalizedAt,
+            completedAt,
+            workerId: null,
+            leaseUntil: null,
+            lastHeartbeatAt: null,
+          })
+          .where(and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.status, "running"),
+            eq(tasksTable.workerId, workerId),
+            gt(tasksTable.leaseUntil, new Date()),
+          ))
+          .returning();
+        if (!row) {
+          throw new TaskStateConflictError("Task lease or state changed before verification could be finalized");
+        }
+
+        await tx.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: finalStatus === "completed" ? "info" : finalStatus === "failed" ? "error" : "warn",
+          message: `Verification ${finalStatus}: ${verificationSteps[0]?.output ?? "no details"}`,
+          metadata: { verificationResult },
+          correlationId,
+        });
+
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type:
+            finalStatus === "completed"
+              ? "TaskCompleted"
+              : finalStatus === "failed"
+                ? "TaskFailed"
+                : "TaskVerifying",
+          projectId: task[0].projectId,
+          taskId,
+          severity:
+            finalStatus === "completed"
+              ? "success"
+              : finalStatus === "failed"
+                ? "error"
+                : "warning",
+          message: `Task "${task[0].title}" → ${finalStatus}`,
+          correlationId,
+          payload: { before: { status: "running" }, after: { status: finalStatus } },
+        });
+        await recordAuditInTransaction(tx, {
+          entityType: "task",
+          entityId: taskId,
+          action: "executed",
+          projectId: task[0].projectId,
+          stateBefore: { status: task[0].status },
+          stateAfter: { status: finalStatus },
+          changedFields: { verificationResult },
+          correlationId,
+        });
+
+        return [row];
+      });
+    } catch (error) {
+      if (error instanceof TaskStateConflictError) {
+        return res.status(409).json({ error: "task_state_changed_concurrently" });
+      }
+      throw error;
+    }
 
     invalidateContextCache(project.id);
 
-    return res.status(500).json({
-      error: "task_execution_failed",
-      reason: message,
-    });
-  }
-
-  const { finalStatus, steps: verificationSteps } = verification;
-
-  const verificationResult = {
-    passed: finalStatus === "completed",
-    decision:
-      finalStatus === "completed"
-        ? ("verified" as const)
-        : finalStatus === "failed"
-          ? ("failed" as const)
-          : ("incomplete" as const),
-    steps: verificationSteps.map((step) => ({
-      ...step,
-      kind: step.kind ?? ("automatic" as const),
-    })),
-  };
-  const completedAt = finalStatus === "completed" ? now : null;
-
-  // The verification outcome, its log line, and its event are one logical
-  // effect of this execution — persist them atomically so a crash between
-  // steps can't leave a task marked "completed" with no corresponding log
-  // or event (or vice versa).
-  let updated: typeof tasksTable.$inferSelect | undefined;
-  try {
-    [updated] = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(tasksTable)
-      .set({
-        status: finalStatus,
-        verificationResult,
-        remediationPlan: markRemediationPlanVerified(
-          task[0].remediationPlan,
-          finalStatus === "completed",
-        ),
-        updatedAt: now,
-        completedAt,
-      })
-      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
-      .returning();
-    if (!row) {
-      throw new TaskStateConflictError("Task state changed before verification could be finalized");
+    // PR-C: auto-trigger AI execution when the execute path lands on `verifying`
+    // and the task already has a generated prompt. Fire-and-forget into the shared
+    // heavyJobQueue — never blocks this HTTP response.
+    if (finalStatus === "verifying" && task[0].prompt) {
+      scheduleAiTaskExecution(taskId, req.userId);
     }
 
-    await tx.insert(taskLogsTable).values({
-      id: randomUUID(),
-      taskId,
-      level: finalStatus === "completed" ? "info" : finalStatus === "failed" ? "error" : "warn",
-      message: `Verification ${finalStatus}: ${verificationSteps[0]?.output ?? "no details"}`,
-      metadata: { verificationResult },
-      correlationId,
-    });
-
-    await tx.insert(eventsTable).values({
-      id: randomUUID(),
-      type:
-        finalStatus === "completed"
-          ? "TaskCompleted"
-          : finalStatus === "failed"
-            ? "TaskFailed"
-            : "TaskVerifying",
-      projectId: task[0].projectId,
-      taskId,
-      severity:
-        finalStatus === "completed"
-          ? "success"
-          : finalStatus === "failed"
-            ? "error"
-            : "warning",
-      message: `Task "${task[0].title}" → ${finalStatus}`,
-      correlationId,
-      payload: { before: { status: "running" }, after: { status: finalStatus } },
-    });
-      await recordAuditInTransaction(tx, {
-        entityType: "task", entityId: taskId, action: "executed",
-        projectId: task[0].projectId, stateBefore: { status: task[0].status },
-        stateAfter: { status: finalStatus },
-        changedFields: { verificationResult }, correlationId,
-      });
-
-      return [row];
-    });
-  } catch (error) {
-    if (error instanceof TaskStateConflictError) {
-      return res.status(409).json({ error: "task_state_changed_concurrently" });
-    }
-    throw error;
+    return res.status(202).json(updated);
+  } finally {
+    await leaseHeartbeat.stop();
   }
-
-  invalidateContextCache(project.id);
-
-  // PR-C: auto-trigger AI execution when the execute path lands on `verifying`
-  // and the task already has a generated prompt. Fire-and-forget into the shared
-  // heavyJobQueue — never blocks this HTTP response.
-  if (finalStatus === "verifying" && task[0].prompt) {
-    scheduleAiTaskExecution(taskId, req.userId);
-  }
-
-  return res.status(202).json(updated);
 });
 
 // Record one operator result for a server-owned rule verification check.

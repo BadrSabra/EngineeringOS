@@ -4650,6 +4650,17 @@ G9 Revocation Safety
 - **remaining/blocker:** يثبت هذا مسار task اليدوي وحده ولا يثبت بقية execution وmutation/delivery crash windows. E2 `OPEN` وE3 `STOPPED`.
 - **next step:** واصل تدقيق E2 فقط، ولا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
 
+### 2026-10-07 — سباق startup مع تنفيذ task يدوي حيّ
+
+- **phase/step:** E2 فقط — مصالحة API startup وملكية العامل في `POST /api/tasks/:taskId/execute`.
+- **status:** `live-worker protection and stale-worker fencing verified — E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أصبح claim التنفيذ اليدوي يدوّن `workerId` وlease، ويجدد العامل lease أثناء التحقق. startup لا يصالح مهمة ما زال lease الخاص بعاملها حيًا؛ وبعد انتهاء lease، recovery يعيدها إلى `verifying`، والعامل القديم لا يستطيع كتابة النتيجة. تحديث الفشل وسجلاته/حدثه/audit ذرّي، والانتقالات النهائية تشترط العامل الحالي وlease غير المنتهي ثم تمسح الملكية. لا تغييرات schema.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/tasks.ts`، اختبار lifecycle process-level، هذا السجل، وتقرير الحالة؛ لا جداول أو schema أو صلاحيات عامة.
+- **validation:** API typecheck و`git diff --check` ناجحان. على PostgreSQL مؤقتة loopback بعد تطبيق schema ومع provider egress معطّل: crash recovery اليدوي **1/1**، سباق العامل الحيّ/انتهاء lease ورفض العامل القديم **1/1**، واختبارات `tasks` **25/25**. بعد أن أعاد العامل القديم `task_lease_lost` كما هو متوقع، حُدّث assertion وأُعيد اختبار السباق بنجاح. أُوقفت القواعد المؤقتة وحُذفت جذورها؛ لا provider حي أو قاعدة مشتركة أو workflow مُدار أُعيد تشغيله.
+- **authority/safety impact:** يمنع startup والعامل القديم من إتمام عمل لا يملكان lease صالحًا له؛ لا ينشئ هذا قبولًا أو Canonical Proof ولا يوسّع الصلاحيات.
+- **remaining/blocker:** هذا يثبت سطح task اليدوي فقط؛ بقية E2 lifecycle وmutation/delivery ما زالت مفتوحة. E2 `OPEN` وE3 `STOPPED`.
+- **next step:** تابع فجوة E2 التالية فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

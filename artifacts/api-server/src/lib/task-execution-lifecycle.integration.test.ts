@@ -299,6 +299,20 @@ vi.mock("../services/task-service.js", async () => {
           taskId: args[0].id,
           stage: "verification_pending",
         }), "utf8");
+        const releaseSignalFile = process.env.TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE;
+        if (releaseSignalFile) {
+          const deadline = Date.now() + 60_000;
+          while (Date.now() < deadline) {
+            try {
+              await fs.readFile(releaseSignalFile);
+              return actual.runTaskVerification(...args);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            }
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+          }
+          throw new Error("Manual task route worker did not receive its release signal.");
+        }
         await new Promise<never>(() => {});
       }
       return actual.runTaskVerification(...args);
@@ -528,6 +542,10 @@ function startTaskRouteTestProcess(input: {
   mode: "worker" | "resume-worker" | "resume" | "accepted-worker" | "manual-worker";
   taskId: string;
   readySignalFile?: string;
+  releaseSignalFile?: string;
+  resultSignalFile?: string;
+  leaseMs?: number;
+  heartbeatIntervalMs?: number;
 }) {
   const databaseUrl = requireMissionRepairDisposableDatabaseUrl();
   const applicationName = `ai-task-route-worker-${randomUUID()}`;
@@ -565,6 +583,12 @@ function startTaskRouteTestProcess(input: {
       TASK_ROUTE_PROCESS_CHILD: input.mode,
       TASK_ROUTE_PROCESS_TASK_ID: input.taskId,
       TASK_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile ?? "",
+      TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE: input.releaseSignalFile ?? "",
+      TASK_ROUTE_PROCESS_RESULT_SIGNAL_FILE: input.resultSignalFile ?? "",
+      ...(input.leaseMs !== undefined ? { AI_TASK_LEASE_MS: String(input.leaseMs) } : {}),
+      ...(input.heartbeatIntervalMs !== undefined
+        ? { AI_TASK_HEARTBEAT_INTERVAL_MS: String(input.heartbeatIntervalMs) }
+        : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -3283,6 +3307,15 @@ describe("real durable task execution lifecycle", () => {
       if (!taskId) throw new Error("Manual task route worker is missing its task identity.");
 
       const response = await request(app).post(`/api/tasks/${taskId}/execute`);
+      const resultSignalFile = process.env.TASK_ROUTE_PROCESS_RESULT_SIGNAL_FILE;
+      if (resultSignalFile) {
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(resultSignalFile, JSON.stringify({
+          status: response.status,
+          body: response.body,
+        }), "utf8");
+        return;
+      }
       throw new Error(
         `Manual task route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
       );
@@ -4253,16 +4286,21 @@ describe("real durable task execution lifecycle", () => {
             retryCount: tasksTable.retryCount,
             workerId: tasksTable.workerId,
             leaseUntil: tasksTable.leaseUntil,
+            lastHeartbeatAt: tasksTable.lastHeartbeatAt,
           })
           .from(tasksTable)
           .where(eq(tasksTable.id, taskId))
           .limit(1);
-        expect(runningTask).toEqual({
+        expect(runningTask).toMatchObject({
           status: "running",
           retryCount: 0,
-          workerId: null,
-          leaseUntil: null,
+          workerId: expect.any(String),
         });
+        if (!runningTask?.workerId) throw new Error("Manual task worker did not claim a lease.");
+        const crashedWorkerId = runningTask.workerId;
+        expect(runningTask.leaseUntil).toBeInstanceOf(Date);
+        expect(runningTask.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(runningTask.lastHeartbeatAt).toBeInstanceOf(Date);
         const startedEventsBeforeCrash = await db
           .select({ type: eventsTable.type })
           .from(eventsTable)
@@ -4283,6 +4321,17 @@ describe("real durable task execution lifecycle", () => {
         });
         await waitForChildDatabaseDisconnect(workerProcess.applicationName);
         workerProcess = undefined;
+
+        const [expiredTask] = await db
+          .update(tasksTable)
+          .set({ leaseUntil: new Date(Date.now() - 1), updatedAt: new Date() })
+          .where(and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.status, "running"),
+            eq(tasksTable.workerId, crashedWorkerId),
+          ))
+          .returning({ id: tasksTable.id });
+        expect(expiredTask?.id).toBe(taskId);
 
         apiProcess = startApiStartupProcess(`manual-task-recovery-${randomUUID()}`);
         await apiProcess.waitForReady();
@@ -4354,15 +4403,18 @@ describe("real durable task execution lifecycle", () => {
   const manualTaskLiveStartupRaceTest =
     process.env.RUN_MANUAL_TASK_LIVE_STARTUP_RACE === "1" ? it : it.skip;
   manualTaskLiveStartupRaceTest(
-    "does not reconcile a live manual task when another API process starts",
+    "preserves a live manual task and fences its worker after lease recovery",
     async () => {
       requireMissionRepairDisposableDatabaseUrl();
       const projectId = randomUUID();
       const taskId = randomUUID();
       const now = new Date();
+      const leaseMs = 3_000;
+      const heartbeatIntervalMs = 400;
       let signalRoot: string | undefined;
       let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
       let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+      let recoveryApiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
 
       try {
         await db.insert(projectsTable).values({
@@ -4390,10 +4442,16 @@ describe("real durable task execution lifecycle", () => {
 
         signalRoot = await mkdtemp(join("/tmp", "manual-task-live-race-"));
         const readySignalFile = join(signalRoot, "verification-pending.json");
+        const releaseSignalFile = join(signalRoot, "release-verification");
+        const resultSignalFile = join(signalRoot, "route-result.json");
         workerProcess = startTaskRouteTestProcess({
           mode: "manual-worker",
           taskId,
           readySignalFile,
+          releaseSignalFile,
+          resultSignalFile,
+          leaseMs,
+          heartbeatIntervalMs,
         });
         const ready = JSON.parse(
           await waitForProcessSignalFile(readySignalFile, workerProcess),
@@ -4406,11 +4464,35 @@ describe("real durable task execution lifecycle", () => {
             retryCount: tasksTable.retryCount,
             workerId: tasksTable.workerId,
             leaseUntil: tasksTable.leaseUntil,
+            lastHeartbeatAt: tasksTable.lastHeartbeatAt,
           })
           .from(tasksTable)
           .where(eq(tasksTable.id, taskId))
           .limit(1);
         expect(liveTaskBeforeStartup?.status).toBe("running");
+        expect(liveTaskBeforeStartup?.workerId).toEqual(expect.any(String));
+        expect(liveTaskBeforeStartup?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        const workerId = liveTaskBeforeStartup?.workerId;
+        const initialHeartbeatAt = liveTaskBeforeStartup?.lastHeartbeatAt?.getTime();
+        if (!workerId || !initialHeartbeatAt) {
+          throw new Error("Manual task worker did not persist its lease identity and heartbeat.");
+        }
+
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, heartbeatIntervalMs * 3));
+        const [heartbeatingTask] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+            lastHeartbeatAt: tasksTable.lastHeartbeatAt,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(heartbeatingTask?.workerId).toBe(workerId);
+        expect(heartbeatingTask?.lastHeartbeatAt?.getTime()).toBeGreaterThan(initialHeartbeatAt);
+        expect(heartbeatingTask?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
 
         apiProcess = startApiStartupProcess(`manual-task-live-race-${randomUUID()}`);
         await apiProcess.waitForReady();
@@ -4428,12 +4510,69 @@ describe("real durable task execution lifecycle", () => {
         expect(liveTaskAfterStartup).toMatchObject({
           status: "running",
           retryCount: 0,
-          workerId: expect.any(String),
+          workerId,
         });
         expect(liveTaskAfterStartup?.leaseUntil).toBeInstanceOf(Date);
         expect(liveTaskAfterStartup?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(workerProcess.child.exitCode).toBeNull();
         expect(workerProcess.child.signalCode).toBeNull();
+
+        const [expiredTask] = await db
+          .update(tasksTable)
+          .set({ leaseUntil: new Date(Date.now() - 1), updatedAt: new Date() })
+          .where(and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.status, "running"),
+            eq(tasksTable.workerId, workerId),
+          ))
+          .returning({ id: tasksTable.id });
+        expect(expiredTask?.id).toBe(taskId);
+
+        recoveryApiProcess = startApiStartupProcess(`manual-task-live-race-recovery-${randomUUID()}`);
+        await recoveryApiProcess.waitForReady();
+        const [recoveredTask] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(recoveredTask).toEqual({
+          status: "verifying",
+          retryCount: 1,
+          workerId: null,
+          leaseUntil: null,
+        });
+
+        await writeFile(releaseSignalFile, "release");
+        const staleWorkerResponse = JSON.parse(
+          await waitForProcessSignalFile(resultSignalFile, workerProcess),
+        ) as { status: number; body: { error?: string } };
+        expect(staleWorkerResponse).toMatchObject({
+          status: 409,
+          body: { error: "task_lease_lost" },
+        });
+        expect(await waitForChildProcessExit(workerProcess)).toMatchObject({ code: 0 });
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+        workerProcess = undefined;
+
+        const [taskAfterStaleWorkerReturns] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            verificationResult: tasksTable.verificationResult,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(taskAfterStaleWorkerReturns).toMatchObject({
+          status: "verifying",
+          retryCount: 1,
+          verificationResult: null,
+        });
       } finally {
         if (workerProcess) {
           if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
@@ -4448,6 +4587,16 @@ describe("real durable task execution lifecycle", () => {
           }
           await apiProcess.exit;
           await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
+        }
+        if (recoveryApiProcess) {
+          if (
+            recoveryApiProcess.child.exitCode === null
+            && recoveryApiProcess.child.signalCode === null
+          ) {
+            recoveryApiProcess.child.kill("SIGKILL");
+          }
+          await recoveryApiProcess.exit;
+          await waitForChildDatabaseDisconnect(recoveryApiProcess.applicationName).catch(() => undefined);
         }
         await cleanupProjectExecutionData(projectId);
         await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
