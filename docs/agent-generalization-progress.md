@@ -4683,6 +4683,17 @@ G9 Revocation Safety
 - **remaining/blocker:** route يُنفذ عبر Supertest داخل child وليس listener شبكيًا حيًا؛ نتيجة provider وهمية؛ لا يثبت هذا كل crash windows أو E2 surfaces، ولا يغلق E2. لم يُعد تشغيل workflow مُدار أو Strategy Replay.
 - **next step:** تابع فجوة E2 محددة أخرى فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — إعادة التحقق من استعادة Mission repair عبر startup
+
+- **phase/step:** E2 فقط — إعادة تشغيل اختبارات crash recovery القائمة عند `candidate_ready` و`committed` و`effect_classified`.
+- **status:** `three persisted-phase recoveries revalidated (3/3); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** لم يتغير runtime أو الاختبارات. أظهرت المقارنة أن تقرير الحالة الرئيسي كان أقدم من سجل التقدم: اختبار process-level لهذه المراحل كان موجودًا وموثقًا مسبقًا. أُعيد تشغيل المراحل الثلاث، وأكدت كل منها `SIGKILL` للعامل، وstartup حقيقيًا من `src/index.ts`، وقبول المحاولة الجديدة بعد المصالحة، مع بقاء ملفات project root كما هي.
+- **files/schema/contracts touched:** تقرير `docs/agent-core-forensic-status-report.md` وسجل التقدم؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** كل مرحلة نجحت **1/1** (المجموع **3/3**) على PostgreSQL مؤقتة loopback باسم disposable/test بعد `schema:apply`، مع `AI_PROVIDER_EGRESS_DISABLED=1`. `candidate_ready` استُخدمت له قاعدة مؤقتة، و`committed` و`effect_classified` لقاعدة مؤقتة أخرى؛ أُوقفت القواعد وحُذفت الجذور. لا provider حي أو قاعدة مشتركة أو managed workflow.
+- **authority/safety impact:** acceptance للمحاولة المقتولة يبقى `FAILED/RESUME_ALLOWED`؛ لا تُعاد كتابة جذر المشروع؛ بعد `effect_classified` يعيد attempt الجديد إنشاء دليل effect بدل قبول bundle المحاولة القديمة.
+- **remaining/blocker:** worker وrecovery child يستدعيان lifecycle مباشرة لا HTTP route؛ مزوّد وهمي؛ لا تثبت هذه الحالات parity عامة أو بقية أسطح E2. بقي `runtime.start` adoption بعد فقد عامل API فجوة منفصلة.
+- **next step:** دقّق حد استعادة `runtime.start` بهوية session/process دائمة عبر عامل API بديل، باستخدام fixture معزول لا يلمس workflow المُدار؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

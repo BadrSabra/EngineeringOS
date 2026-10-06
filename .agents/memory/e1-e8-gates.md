@@ -15,6 +15,12 @@ The audit goal is to reduce `UNKNOWN` by resolving one bounded, testable E2 unce
 
 **How to apply:** Each E2 step should name the exact uncertainty, add the cheapest evidence that can resolve it, and record what remains untested without advancing to E3.
 
+Before reopening an E2 unknown, reconcile the main status report with the chronological progress log; a later entry may already have tested the boundary while summary matrices remain stale.
+
+**Why:** On 2026-10-07, Mission-repair process recovery at three persisted phases was documented in the progress log but still described as untested in the main report.
+
+**How to apply:** Search the relevant test and latest progress entries before selecting the next target. If evidence already exists, verify it if useful and correct the stale report instead of duplicating the test as new coverage.
+
 As of 2026-10-06, the current project audit remains on E2; do not use earlier reported stage statuses or focused fixes as authorization to advance. The E4 Entry Audit passed. The E4.1 Read-Only Sample Source Inventory returned `UNQUALIFIED`: this is `PASS` for the inventory only, while E4.1 stays `OPEN / NOT PASS`. Source qualification, protocol completion, evaluation authorization, and promotion remain separate ordered gates.
 
 **Why:** The user explicitly keeps E3.2 open despite earlier fixes, tests, or Publish. The previously recorded explanation no longer matches the current queued-dispatch code; localized reauthorization is not proof of end-to-end crash/replay safety across external side effects.
