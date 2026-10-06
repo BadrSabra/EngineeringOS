@@ -8576,7 +8576,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   }, 60_000);
 
   it.runIf(process.env.RUN_E2_API_PROCESS_RESTART === "1")(
-    "recovers accepted analysis and proves W0-W4 startup plus W5-W8 Apply-route crash boundaries",
+    "recovers accepted analysis and proves W0-W4 startup plus W5-W8 and observation-to-effect Apply crash boundaries",
     async () => {
       const databaseUrl = process.env.DATABASE_URL;
       expect(databaseUrl).toBeTruthy();
@@ -9018,7 +9018,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         return { child, port, exit, commit, waitForMarker };
       };
 
-      const createApplyRouteFixture = async (phase: "W5" | "W6" | "W7" | "W8") => {
+      const createApplyRouteFixture = async (
+        phase: "W5" | "W6" | "W7" | "W8" | "OBSERVATION_TO_EFFECT",
+      ) => {
         const workspacePath = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
         const projectParent = await fs.mkdtemp(
           `${workspacePath}/.apply-route-${phase.toLowerCase()}-`,
@@ -9147,6 +9149,47 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         );
       };
 
+      const waitForActionCommittedPause = async () => {
+        const deadline = Date.now() + 60_000;
+        let lastRows: Array<{ application_name: string; wait_event: string | null; query: string }> = [];
+        while (Date.now() < deadline) {
+          const result = await db.execute(sql`
+            SELECT application_name, wait_event, query
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = 'e2-apply-route'
+              AND state = 'active'
+              AND wait_event = 'PgSleep'
+              AND lower(query) LIKE '%ai_agent_episode_events%'
+          `);
+          lastRows = (result as unknown as {
+            rows: Array<{ application_name: string; wait_event: string | null; query: string }>;
+          }).rows ?? [];
+          if (lastRows.length > 0) return;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        throw new Error(
+          `Timed out waiting for ACTION_COMMITTED after-state boundary; `
+          + `last pg_stat_activity rows=${JSON.stringify(lastRows)}`,
+        );
+      };
+
+      const waitForApplyRouteDatabaseSessionsToClose = async () => {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          const result = await db.execute(sql`
+            SELECT count(*)::integer AS count
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = 'e2-apply-route'
+          `);
+          const rows = (result as unknown as { rows: Array<{ count: number | string }> }).rows ?? [];
+          if (Number(rows[0]?.count ?? 0) === 0) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error("Timed out waiting for killed Apply route database sessions to close.");
+      };
+
       const sendApplyRouteRequest = (port: number, fixture: Awaited<ReturnType<typeof createApplyRouteFixture>>) =>
         fetch(`http://127.0.0.1:${port}/api/ai/chat/apply-changes`, {
           method: "POST",
@@ -9159,7 +9202,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         });
 
       const interruptedApplyBoundaries: Array<{
-        phase: "W5" | "W6" | "W7";
+        phase: "W5" | "W6" | "W7" | "OBSERVATION_TO_EFFECT";
         fixture: Awaited<ReturnType<typeof createApplyRouteFixture>>;
         executionId: string;
         attempt: number;
@@ -9273,6 +9316,115 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           phase,
           fixture,
           executionId: interruptedExecution!.id,
+          attempt: interruptedExecution!.attempt,
+        });
+      };
+
+      const runObservationToEffectBoundary = async () => {
+        const phase = "OBSERVATION_TO_EFFECT" as const;
+        const fixture = await createApplyRouteFixture(phase);
+        const suffix = fixture.projectId.replaceAll("-", "");
+        const functionName = `e2_apply_pause_${suffix}`;
+        const triggerName = `e2_apply_pause_trigger_${suffix}`;
+        let api: Awaited<ReturnType<typeof startApiProcess>> | undefined;
+        let pendingRequest: Promise<unknown> | undefined;
+        let executionId: string | undefined;
+        let triggerInstalled = false;
+        try {
+          api = await startApiProcess({ E2_APP_ONLY: "1" });
+          await db.transaction(async (tx) => {
+            await tx.execute(sql.raw(`
+              CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN
+                IF NEW.project_id = '${fixture.projectId}'
+                  AND NEW.event_type = 'ACTION_COMMITTED' THEN
+                  PERFORM pg_sleep(5);
+                END IF;
+                RETURN NEW;
+              END;
+              $$
+            `));
+            await tx.execute(sql.raw(`
+              CREATE TRIGGER ${triggerName}
+              BEFORE INSERT ON ai_agent_episode_events
+              FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+            `));
+          });
+          triggerInstalled = true;
+
+          pendingRequest = sendApplyRouteRequest(api.port, fixture)
+            .then(async (response) => ({ status: response.status, body: await response.json() }))
+            .catch((error) => ({ error: String(error) }));
+          await waitForActionCommittedPause();
+
+          const [executionBeforeKill] = await db.select({
+            id: aiExecutionsTable.id,
+            status: aiExecutionsTable.status,
+          }).from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.proposalId, fixture.proposalId))
+            .limit(1);
+          expect(executionBeforeKill).toMatchObject({ status: "running" });
+          executionId = executionBeforeKill!.id;
+          expect(await fs.readFile(path.join(fixture.rootPath, fixture.targetPath), "utf8"))
+            .toBe(fixture.newContent);
+
+          const observations = await db.select({
+            sourceId: aiAgentObservationsTable.sourceId,
+          }).from(aiAgentObservationsTable)
+            .where(eq(aiAgentObservationsTable.executionId, executionId));
+          expect(observations.some(({ sourceId }) => sourceId.includes(":before:"))).toBe(true);
+          expect(observations.some(({ sourceId }) => sourceId.includes(":after:"))).toBe(true);
+          expect(await db.select({ id: aiAgentEpisodeEventsTable.id })
+            .from(aiAgentEpisodeEventsTable)
+            .where(and(
+              eq(aiAgentEpisodeEventsTable.executionId, executionId),
+              eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+            ))).toEqual([]);
+          expect(await db.select({ id: aiAgentEffectsTable.id })
+            .from(aiAgentEffectsTable)
+            .where(eq(aiAgentEffectsTable.executionId, executionId))).toEqual([]);
+          expect(await db.select({ id: aiAgentEffectBundlesTable.id })
+            .from(aiAgentEffectBundlesTable)
+            .where(eq(aiAgentEffectBundlesTable.executionId, executionId))).toEqual([]);
+          expect(await db.select({ id: aiExecutionAcceptancesTable.id })
+            .from(aiExecutionAcceptancesTable)
+            .where(eq(aiExecutionAcceptancesTable.executionId, executionId))).toEqual([]);
+          expect(await db.select({ id: aiWorldTransitionsTable.id })
+            .from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.executionId, executionId))).toEqual([]);
+
+          expect(api.child.kill("SIGKILL")).toBe(true);
+          expect(await api.exit).toMatchObject({ code: null, signal: "SIGKILL" });
+          await pendingRequest;
+          await waitForApplyRouteDatabaseSessionsToClose();
+        } finally {
+          if (api && api.child.exitCode === null && api.child.signalCode === null) {
+            api.child.kill("SIGKILL");
+            await api.exit;
+          }
+          await pendingRequest?.catch(() => undefined);
+          if (triggerInstalled) {
+            await waitForApplyRouteDatabaseSessionsToClose();
+            await db.execute(sql.raw(
+              `DROP TRIGGER IF EXISTS ${triggerName} ON ai_agent_episode_events`,
+            ));
+            await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+          }
+        }
+
+        if (!executionId) throw new Error("Apply execution was not persisted before the injected crash.");
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+          .where(eq(aiExecutionsTable.id, executionId));
+        const [interruptedExecution] = await db.select({
+          attempt: aiExecutionsTable.attempt,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        interruptedApplyBoundaries.push({
+          phase,
+          fixture,
+          executionId,
           attempt: interruptedExecution!.attempt,
         });
       };
@@ -9782,6 +9934,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         await runBlockedApplyBoundary("W5", "ai_agent_effect_bundles", "ai_agent_effect_bundles");
         await runBlockedApplyBoundary("W6", "ai_execution_acceptances", "ai_execution_acceptances");
         await runBlockedApplyBoundary("W7", "ai_executions", "update \"ai_executions\"");
+        await runObservationToEffectBoundary();
 
         const w8 = await createApplyRouteFixture("W8");
         const responseGatedApi = await startApiProcess({
@@ -9861,6 +10014,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
                 eq(eventsTable.projectId, boundary.fixture.projectId),
                 eq(eventsTable.type, "AiGoalDispatchRequested"),
               ))).toEqual([]);
+            expect(await db.select({ id: aiWorldTransitionsTable.id })
+              .from(aiWorldTransitionsTable)
+              .where(eq(aiWorldTransitionsTable.executionId, boundary.executionId))).toEqual([]);
           }
 
           const replay = await sendApplyRouteRequest(recoveryApi.port, w8);

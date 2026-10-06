@@ -47,7 +47,7 @@
 
 ## 4. Reliable Execution Agent
 
-تسجل الوثائق السابقة اختبارات محدودة لـApply crash/recovery، وGit recovery، وworkflow W9، وstructured analyze/review. وتشمل وثيقة الحالة الحالية تشغيلًا مسجلًا لـanalyze/review بواقع 8/8 على PostgreSQL مؤقتة. لم تُعد أي من هذه الاختبارات في مراجعة 2026-10-06؛ لا تتحول الأرقام التاريخية إلى إثبات جديد أو إغلاق شامل.
+تسجل الوثائق السابقة اختبارات محدودة لـApply crash/recovery، وGit recovery، وworkflow W9، وstructured analyze/review. وفي متابعة 2026-10-06 أُعيد تشغيل اختباري Apply materialization/recovery (2/2) على PostgreSQL مؤقتة، كما اجتاز اختبار route المستهدف لحد ما بعد ملاحظات before/after وقبل حفظ effect (1/1؛ 111 حالة أخرى متجاوزة بالترشيح). تثبت النتائج هذه الحدود المحددة فقط؛ لا تتحول إلى إغلاق شامل لـE2 أو إلى إثبات حي لمزوّد خارجي.
 
 تظل E2 مفتوحة لأسطح lifecycle والتعافي المتبقية. إغلاق invariant واحد يمنع materialization قبل اكتمال proof chain لا يغلق execution lifecycle، ولا يثبت تعافي كل أثر خارجي أو سلامة كل سباق/إلغاء.
 

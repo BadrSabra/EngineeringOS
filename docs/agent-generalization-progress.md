@@ -4550,6 +4550,17 @@ G9 Revocation Safety
 - **remaining/blocker:** تبقى E2 مفتوحة، وE3.2 replay safety مفتوحًا، وE4.1 `OPEN / NOT PASS`. نسب الطبقات العامة `UNKNOWN`.
 - **next step:** استكمل E2 على بقية ingress وlifecycle/recovery؛ لا تبدأ E3 ولا تُعد تشغيل Strategy Replay receipts قبل اجتياز بوابة E2 صراحةً.
 
+### 2026-10-06 — Apply observation-to-effect crash boundary
+
+- **phase/step:** E2 فقط — crash/recovery لمسار Apply Changes الحقيقي.
+- **status:** حد Apply محدد اختُبر؛ E2 `OPEN` وE3 `STOPPED`.
+- **what changed:** أضيف اختبار process-kill محلي باسم `OBSERVATION_TO_EFFECT`. يوقف trigger إدراج `ACTION_COMMITTED` بعد دوام ملاحظات before/after والـpromoted bytes وقبل بدء حفظ effect؛ عند نقطة التوقف لا يوجد حدث `ACTION_COMMITTED` أو effect/bundle/acceptance/Transition. بعد `SIGKILL` وstartup كامل واحد، الحالة تبقى `RECOVERY_REQUIRED` بلا `SUCCEEDED` أو World Transition أو Goal dispatch. لا تغييرات إنتاجية أو schema.
+- **files/schema/contracts touched:** اختبار `ai-stream-integration.test.ts` وتقارير الحالة والتدقيق؛ لا تعديلات في كود الإنتاج أو مخطط DB.
+- **validation:** API typecheck و`git diff --check` ناجحان. اختبار `RUN_E2_API_PROCESS_RESTART` المحدد نجح 1/1 مع 111 حالة متجاوزة بالترشيح خلال 182.35 ثانية. أُعيد أيضًا تشغيل `apply-changes-recovery.integration.test.ts` على PostgreSQL مؤقتة loopback: 2/2، تشمل rollback ثم retry، وSIGKILL أثناء materialization مع قبول proof الصحيح ورفض stale observation وlive-tree drift وEpisode rebinding وattempt rotation. أُوقف وحُذف cluster المؤقت؛ لا قاعدة مشتركة أو managed workflow أو provider حي.
+- **authority/safety impact:** يثبت هذا الاختبار أن ملاحظات before/after وحدها لا تصبح قبولًا أو إثبات effect عند crash قبل حفظ effect؛ لا يغير حدود الصلاحيات.
+- **remaining/blocker:** تبقى أسطح lifecycle وmutation الأخرى، وجرد writers/consumers، مفتوحة ضمن E2.
+- **next step:** تابع E2 على الفجوات المتبقية فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تعِد تشغيل Strategy Replay receipts قبل إغلاق بوابة E2 صراحةً.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
