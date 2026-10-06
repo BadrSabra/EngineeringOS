@@ -5,5 +5,11 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiMissionControlProjectionGoalsItemCurrentAttempt } from './aiMissionControlProjectionGoalsItemCurrentAttempt';
+import type { AiMissionControlProjectionGoalsItemGoal } from './aiMissionControlProjectionGoalsItemGoal';
 
-export type AiMissionControlProjectionGoalsItem = { [key: string]: unknown };
+export type AiMissionControlProjectionGoalsItem = {
+  goal: AiMissionControlProjectionGoalsItemGoal;
+  currentAttempt: AiMissionControlProjectionGoalsItemCurrentAttempt;
+  [key: string]: unknown;
+ };

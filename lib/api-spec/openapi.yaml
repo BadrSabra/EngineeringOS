@@ -4469,7 +4469,7 @@ components:
           pattern: "^[a-z0-9][a-z0-9-]*$"
     AiMissionControlProjection:
       type: object
-      required: [mission, agentControl, goals, counts]
+      required: [mission, agentControl, currentPlan, goals, counts]
       properties:
         mission:
           type: object
@@ -4478,10 +4478,48 @@ components:
           anyOf:
             - $ref: "#/components/schemas/AiMissionAgentControl"
             - type: "null"
+        currentPlan:
+          type: object
+          required: [revision, binding, goalIds]
+          properties:
+            revision:
+              anyOf:
+                - type: string
+                - type: "null"
+            binding:
+              type: string
+              enum: [active_revision, legacy_unversioned, revision_mismatch]
+            goalIds:
+              type: array
+              items: { type: string }
         goals:
           type: array
           items:
             type: object
+            required: [goal, currentAttempt]
+            properties:
+              goal:
+                type: object
+                additionalProperties: true
+              currentAttempt:
+                anyOf:
+                  - type: object
+                    required: [id, status, attempt, operationId, updatedAt, completedAt]
+                    properties:
+                      id: { type: string }
+                      status: { type: string }
+                      attempt: { type: integer, minimum: 0 }
+                      operationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      updatedAt: { type: string, format: date-time }
+                      completedAt:
+                        anyOf:
+                          - type: string
+                            format: date-time
+                          - type: "null"
+                  - type: "null"
             additionalProperties: true
         counts:
           type: object

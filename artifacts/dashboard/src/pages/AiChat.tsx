@@ -13498,6 +13498,8 @@ export default function AiChat() {
             <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
               <ChatSessionMissionHandoffs
                 projectId={selectedProjectId}
+                sessionId={sessionId}
+                userId={user?.id ?? null}
                 missions={chatSessionMissions?.missions ?? []}
                 isPending={chatSessionMissionsPending}
                 isError={chatSessionMissionsError}

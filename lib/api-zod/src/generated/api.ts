@@ -8072,6 +8072,8 @@ export const GetAiMissionProjectionParams = zod.object({
 })
 
 
+export const getAiMissionProjectionResponseGoalsItemCurrentAttemptOneAttemptMin = 0;
+
 export const getAiMissionProjectionResponseCountsGoalsMin = 0;
 
 export const getAiMissionProjectionResponseCountsTasksMin = 0;
@@ -8098,7 +8100,22 @@ export const GetAiMissionProjectionResponse = zod.object({
   "dispatchedAt": zod.coerce.date().nullable()
 })
 }),zod.null()]),
-  "goals": zod.array(zod.record(zod.string(), zod.unknown())),
+  "currentPlan": zod.object({
+  "revision": zod.union([zod.string(),zod.null()]),
+  "binding": zod.enum(['active_revision', 'legacy_unversioned', 'revision_mismatch']),
+  "goalIds": zod.array(zod.string())
+}),
+  "goals": zod.array(zod.object({
+  "goal": zod.record(zod.string(), zod.unknown()),
+  "currentAttempt": zod.union([zod.object({
+  "id": zod.string(),
+  "status": zod.string(),
+  "attempt": zod.number().int().min(getAiMissionProjectionResponseGoalsItemCurrentAttemptOneAttemptMin),
+  "operationId": zod.union([zod.string(),zod.null()]),
+  "updatedAt": zod.coerce.date(),
+  "completedAt": zod.union([zod.coerce.date(),zod.null()])
+}),zod.null()])
+})),
   "counts": zod.object({
   "goals": zod.number().int().min(getAiMissionProjectionResponseCountsGoalsMin),
   "tasks": zod.number().int().min(getAiMissionProjectionResponseCountsTasksMin),

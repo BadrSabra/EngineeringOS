@@ -155,8 +155,14 @@ export interface MissionProjection {
       dispatchedAt: string | null;
     };
   } | null;
+  currentPlan: {
+    revision: string | null;
+    binding: 'active_revision' | 'legacy_unversioned' | 'revision_mismatch';
+    goalIds: string[];
+  };
   goals: Array<{
     goal: Goal;
+    currentAttempt: ProjectionExecution | null;
     tasks: ProjectionTask[];
     workflows: ProjectionWorkflow[];
     executions: ProjectionExecution[];

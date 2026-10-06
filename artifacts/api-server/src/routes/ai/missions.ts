@@ -51,6 +51,7 @@ import { dispatchMissionChatHandoff } from "../../lib/mission-chat-handoffs.js";
 import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
+  projectMissionActivePlan,
 } from "../../lib/mission-completion-gate.js";
 import {
   loadCanonicalProof,
@@ -1144,6 +1145,7 @@ async function buildMissionProjection(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
 ) {
+  const currentPlan = projectMissionActivePlan(mission, goals);
   const [handoff] = await db
     .select()
     .from(aiMissionHandoffsTable)
@@ -1168,6 +1170,7 @@ async function buildMissionProjection(
     return {
       mission,
       agentControl,
+      currentPlan,
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     };
@@ -1211,6 +1214,28 @@ async function buildMissionProjection(
       mission.projectId,
     )),
   ]);
+  const currentPlanGoalIds = new Set(currentPlan.goalIds);
+  const currentExecutionByGoalId = new Map<string, typeof executions[number]>();
+  for (const execution of executions) {
+    if (!execution.goalId || !currentPlanGoalIds.has(execution.goalId)) continue;
+    const current = currentExecutionByGoalId.get(execution.goalId);
+    if (
+      !current
+      || execution.attempt > current.attempt
+      || (
+        execution.attempt === current.attempt
+        && (
+          execution.updatedAt.getTime() > current.updatedAt.getTime()
+          || (
+            execution.updatedAt.getTime() === current.updatedAt.getTime()
+            && execution.id.localeCompare(current.id) > 0
+          )
+        )
+      )
+    ) {
+      currentExecutionByGoalId.set(execution.goalId, execution);
+    }
+  }
   const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
   const candidateByGoalId = new Map<string, {
     skillCandidate: {
@@ -1297,11 +1322,18 @@ async function buildMissionProjection(
   return {
     mission,
     agentControl,
+    currentPlan,
     goals: goals.map((goal) => ({
       goal: {
         ...goal,
         dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
       },
+      currentAttempt: currentPlanGoalIds.has(goal.id)
+        ? (() => {
+            const execution = currentExecutionByGoalId.get(goal.id);
+            return execution ? publicExecution(execution) : null;
+          })()
+        : null,
       tasks: tasks.filter((task) => task.goalId === goal.id).map(publicTask),
       workflows: workflows.filter((workflow) => workflow.goalId === goal.id).map(publicWorkflow),
       executions: executions.filter((execution) => execution.goalId === goal.id).map(publicExecution),

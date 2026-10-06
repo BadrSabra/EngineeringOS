@@ -1113,8 +1113,14 @@ describe("AI missions and goals", () => {
     const projection = await request(app).get(`/api/ai/missions/${createdMission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.mission.id).toBe(createdMission.body.id);
+    expect(projection.body.currentPlan).toEqual({
+      revision: null,
+      binding: "legacy_unversioned",
+      goalIds: [createdGoal.body.id],
+    });
     expect(projection.body.goals).toHaveLength(1);
     expect(projection.body.goals[0].goal.id).toBe(createdGoal.body.id);
+    expect(projection.body.goals[0].currentAttempt).toBeNull();
     expect(projection.body.counts).toEqual({
       goals: 1,
       tasks: 0,
@@ -1122,6 +1128,116 @@ describe("AI missions and goals", () => {
       executions: 0,
       events: 1,
     });
+  });
+
+  it("projects only active-revision Goals and their highest latest execution attempt", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Current plan projection",
+      intent: "Expose the active plan and latest attempt without actions",
+    });
+    const historicalGoal = await request(app)
+      .post(`/api/ai/missions/${createdMission.body.id}/goals`)
+      .send({ title: "Historical Goal" });
+    const currentGoal = await request(app)
+      .post(`/api/ai/missions/${createdMission.body.id}/goals`)
+      .send({ title: "Current Goal" });
+    const activeRevision = "plan-revision-current";
+    const now = new Date("2026-10-06T08:00:00.000Z");
+
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: activeRevision } })
+      .where(eq(aiMissionsTable.id, createdMission.body.id));
+    await db.update(aiGoalsTable)
+      .set({ successCriteria: { planRevision: { hash: "plan-revision-old" } } })
+      .where(eq(aiGoalsTable.id, historicalGoal.body.id));
+    await db.update(aiGoalsTable)
+      .set({ successCriteria: { planRevision: { hash: activeRevision } } })
+      .where(eq(aiGoalsTable.id, currentGoal.body.id));
+
+    const oldAttemptId = randomUUID();
+    const firstCurrentAttemptId = randomUUID();
+    const latestCurrentAttemptId = randomUUID();
+    await db.insert(aiExecutionsTable).values([
+      {
+        id: oldAttemptId,
+        projectId,
+        goalId: historicalGoal.body.id,
+        userId: "test-user",
+        idempotencyKey: `mission-projection-${oldAttemptId}`,
+        attempt: 9,
+        resumeTokenHash: "old-attempt-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+        createdAt: now,
+        updatedAt: new Date(now.getTime() + 2_000),
+      },
+      {
+        id: firstCurrentAttemptId,
+        projectId,
+        goalId: currentGoal.body.id,
+        userId: "test-user",
+        idempotencyKey: `mission-projection-${firstCurrentAttemptId}`,
+        attempt: 1,
+        resumeTokenHash: "first-current-attempt-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+        createdAt: now,
+        updatedAt: new Date(now.getTime() + 1_000),
+      },
+      {
+        id: latestCurrentAttemptId,
+        projectId,
+        goalId: currentGoal.body.id,
+        userId: "test-user",
+        idempotencyKey: `mission-projection-${latestCurrentAttemptId}`,
+        attempt: 2,
+        resumeTokenHash: "latest-current-attempt-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "running",
+        createdAt: now,
+        updatedAt: new Date(now.getTime() + 3_000),
+      },
+    ]);
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+
+    expect(projection.status).toBe(200);
+    expect(projection.body.currentPlan).toEqual({
+      revision: activeRevision,
+      binding: "active_revision",
+      goalIds: [currentGoal.body.id],
+    });
+    expect(projection.body.goals.find((item: { goal: { id: string } }) =>
+      item.goal.id === historicalGoal.body.id,
+    )?.currentAttempt).toBeNull();
+    expect(projection.body.goals.find((item: { goal: { id: string } }) =>
+      item.goal.id === currentGoal.body.id,
+    )?.currentAttempt).toMatchObject({
+      id: latestCurrentAttemptId,
+      status: "running",
+      attempt: 2,
+    });
+    expect(firstCurrentAttemptId).not.toBe(latestCurrentAttemptId);
+
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: "missing-plan-revision" } })
+      .where(eq(aiMissionsTable.id, createdMission.body.id));
+    const revisionMismatch = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect(revisionMismatch.body.currentPlan).toEqual({
+      revision: "missing-plan-revision",
+      binding: "revision_mismatch",
+      goalIds: [],
+    });
+    expect(revisionMismatch.body.goals.every(
+      (item: { currentAttempt: unknown }) => item.currentAttempt === null,
+    )).toBe(true);
   });
 
   it("accepts an authenticated Goal event idempotently and wakes the waiting Goal", async () => {

@@ -7,12 +7,14 @@
  */
 import type { AiMissionAgentControl } from './aiMissionAgentControl';
 import type { AiMissionControlProjectionCounts } from './aiMissionControlProjectionCounts';
+import type { AiMissionControlProjectionCurrentPlan } from './aiMissionControlProjectionCurrentPlan';
 import type { AiMissionControlProjectionGoalsItem } from './aiMissionControlProjectionGoalsItem';
 import type { AiMissionControlProjectionMission } from './aiMissionControlProjectionMission';
 
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
   agentControl: AiMissionAgentControl | null;
+  currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
 }

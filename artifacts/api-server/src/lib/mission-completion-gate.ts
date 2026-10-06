@@ -34,18 +34,42 @@ function goalPlanRevision(goal: typeof aiGoalsTable.$inferSelect): string | null
   return typeof planRevision.hash === "string" ? planRevision.hash : null;
 }
 
+export function projectMissionActivePlan(
+  mission: typeof aiMissionsTable.$inferSelect,
+  goals: Array<typeof aiGoalsTable.$inferSelect>,
+): {
+  revision: string | null;
+  binding: "active_revision" | "legacy_unversioned" | "revision_mismatch";
+  goalIds: string[];
+} {
+  const revision = activePlanRevision(mission);
+  if (!revision) {
+    return {
+      revision: null,
+      binding: "legacy_unversioned",
+      goalIds: goals.map((goal) => goal.id),
+    };
+  }
+  const matchingGoalIds = goals
+    .filter((goal) =>
+      goalPlanRevision(goal) === revision
+      || record(goal.successCriteria).planRevision
+        && record(record(goal.successCriteria).planRevision).hash === revision,
+    )
+    .map((goal) => goal.id);
+  return matchingGoalIds.length > 0
+    ? { revision, binding: "active_revision", goalIds: matchingGoalIds }
+    : { revision, binding: "revision_mismatch", goalIds: [] };
+}
+
 function selectActiveGoals(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
 ): Array<typeof aiGoalsTable.$inferSelect> {
-  const revision = activePlanRevision(mission);
-  if (!revision) return goals;
-  const activeGoals = goals.filter((goal) =>
-    goalPlanRevision(goal) === revision
-    || record(goal.successCriteria).planRevision
-      && record(record(goal.successCriteria).planRevision).hash === revision,
-  );
-  return activeGoals.length > 0 ? activeGoals : goals;
+  const plan = projectMissionActivePlan(mission, goals);
+  if (plan.binding !== "active_revision") return goals;
+  const activeGoalIds = new Set(plan.goalIds);
+  return goals.filter((goal) => activeGoalIds.has(goal.id));
 }
 
 function projectedAcceptance(goal: typeof aiGoalsTable.$inferSelect): {

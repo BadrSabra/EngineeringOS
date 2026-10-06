@@ -74,7 +74,38 @@ export type MissionChatHandoffInput = (unknown & ({
 
 export type AiMissionControlProjectionMission = { [key: string]: unknown };
 
-export type AiMissionControlProjectionGoalsItem = { [key: string]: unknown };
+export type AiMissionControlProjectionCurrentPlanBinding = typeof AiMissionControlProjectionCurrentPlanBinding[keyof typeof AiMissionControlProjectionCurrentPlanBinding];
+
+
+export const AiMissionControlProjectionCurrentPlanBinding = {
+  active_revision: 'active_revision',
+  legacy_unversioned: 'legacy_unversioned',
+  revision_mismatch: 'revision_mismatch',
+} as const;
+
+export type AiMissionControlProjectionCurrentPlan = {
+  revision: string | null;
+  binding: AiMissionControlProjectionCurrentPlanBinding;
+  goalIds: string[];
+};
+
+export type AiMissionControlProjectionGoalsItemGoal = { [key: string]: unknown };
+
+export type AiMissionControlProjectionGoalsItemCurrentAttempt = {
+  id: string;
+  status: string;
+  /** @minimum 0 */
+  attempt: number;
+  operationId: string | null;
+  updatedAt: string;
+  completedAt: string | null;
+} | null;
+
+export type AiMissionControlProjectionGoalsItem = {
+  goal: AiMissionControlProjectionGoalsItemGoal;
+  currentAttempt: AiMissionControlProjectionGoalsItemCurrentAttempt;
+  [key: string]: unknown;
+ };
 
 export type AiMissionControlProjectionCounts = {
   /** @minimum 0 */
@@ -127,6 +158,7 @@ export interface AiMissionAgentControl {
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
   agentControl: AiMissionAgentControl | null;
+  currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
 }

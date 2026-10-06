@@ -89,6 +89,7 @@ beforeEach(() => {
   fetchMissionProjectionMock.mockResolvedValue({
     mission,
     agentControl: null,
+    currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
     goals: [],
     counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
   });
@@ -165,6 +166,11 @@ describe('Missions management', () => {
           dispatchedAt: '2026-09-22T00:00:01.000Z',
         },
       },
+      currentPlan: {
+        revision: null,
+        binding: 'legacy_unversioned',
+        goalIds: ['goal-1'],
+      },
       goals: [{
         goal: {
           id: 'goal-1',
@@ -187,6 +193,14 @@ describe('Missions management', () => {
         },
         tasks: [],
         workflows: [],
+        currentAttempt: {
+          id: 'mission-execution-1',
+          status: 'completed',
+          attempt: 1,
+          operationId: 'mission-operation-1',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: '2026-09-22T00:01:00.000Z',
+        },
         executions: [{
           id: 'mission-execution-1',
           status: 'completed',
@@ -211,7 +225,7 @@ describe('Missions management', () => {
     expect(screen.getByText('evidence-snapshot-1')).toBeInTheDocument();
     expect(screen.getByText('claim-1, claim-2')).toBeInTheDocument();
     expect(screen.getByText('mission-plan-hash-1')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Agent control' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Agent control' })).toBeInTheDocument();
     expect(screen.getByText('This Mission is the Agent run')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open linked chat/ })).toHaveAttribute(
       'href',
@@ -257,7 +271,19 @@ describe('Missions management', () => {
     fetchMissionProjectionMock.mockResolvedValue({
       mission: { ...mission, status: 'active' },
       agentControl: null,
-      goals: [{ goal: deliveryGoal, tasks: [], workflows: [], executions: [], events: [] }],
+      currentPlan: {
+        revision: null,
+        binding: 'legacy_unversioned',
+        goalIds: [deliveryGoal.id],
+      },
+      goals: [{
+        goal: deliveryGoal,
+        currentAttempt: null,
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      }],
       counts: { goals: 1, tasks: 0, workflows: 0, executions: 0, events: 0 },
     });
     fetchMissionsMock.mockResolvedValue([{ ...mission, status: 'active' }]);
@@ -286,6 +312,7 @@ describe('Missions management', () => {
     fetchMissionProjectionMock.mockResolvedValue({
       mission: needsReplanMission,
       agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     });
@@ -344,8 +371,21 @@ describe('Missions management', () => {
     fetchMissionProjectionMock.mockResolvedValue({
       mission: activeMission,
       agentControl: null,
+      currentPlan: {
+        revision: null,
+        binding: 'legacy_unversioned',
+        goalIds: [waitingGoal.id],
+      },
       goals: [{
         goal: waitingGoal,
+        currentAttempt: {
+          id: 'execution-approval-1',
+          status: 'waiting',
+          attempt: 1,
+          operationId: 'operation-approval-1',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: null,
+        },
         tasks: [],
         workflows: [],
         executions: [{

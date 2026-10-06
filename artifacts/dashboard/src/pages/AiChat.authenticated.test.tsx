@@ -114,6 +114,7 @@ const mocks = vi.hoisted(() => {
     sessionMissionsHook: vi.fn(),
     sessionMissionsSessionId: undefined as string | undefined,
     sessionMissionsOptions: undefined as unknown,
+    fetchMissionProjection: vi.fn(),
     createMissionFromChat: vi.fn(),
     previewMissionPlanFromChat: vi.fn(),
     historicalAudits: [] as Array<Record<string, unknown>>,
@@ -204,6 +205,7 @@ vi.mock('@/lib/ai-missions', async (importOriginal) => {
     ...actual,
     createMissionFromChat: mocks.createMissionFromChat,
     previewMissionPlanFromChat: mocks.previewMissionPlanFromChat,
+    fetchMissionProjection: mocks.fetchMissionProjection,
   };
 });
 
@@ -434,6 +436,60 @@ function openProviderSettings() {
   fireEvent.click(screen.getByRole('button', { name: 'AI settings and diagnostics' }));
 }
 
+function currentMissionProjectionFixture({
+  missionId = 'mission-one',
+  projectId = 'project-1',
+}: {
+  missionId?: string;
+  projectId?: string;
+} = {}) {
+  return {
+    mission: { id: missionId, projectId, title: 'Add workspace search', status: 'active' },
+    agentControl: null,
+    currentPlan: {
+      revision: 'plan-revision-current',
+      binding: 'active_revision',
+      goalIds: ['goal-current'],
+    },
+    goals: [
+      {
+        goal: {
+          id: 'goal-historical',
+          title: 'Historical goal from the previous plan',
+          description: null,
+          status: 'completed',
+        },
+        currentAttempt: null,
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      },
+      {
+        goal: {
+          id: 'goal-current',
+          title: 'Inspect the active project plan',
+          description: 'Read-only current-plan Goal.',
+          status: 'queued',
+        },
+        currentAttempt: {
+          id: 'execution-current-2',
+          status: 'running',
+          attempt: 2,
+          operationId: 'operation-current-2',
+          updatedAt: '2026-10-06T08:00:00.000Z',
+          completedAt: null,
+        },
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      },
+    ],
+    counts: { goals: 2, tasks: 0, workflows: 0, executions: 1, events: 0 },
+  };
+}
+
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -478,6 +534,7 @@ beforeEach(() => {
   mocks.sessionMissionsHook.mockClear();
   mocks.sessionMissionsSessionId = undefined;
   mocks.sessionMissionsOptions = undefined;
+  mocks.fetchMissionProjection.mockReset();
   mocks.createMissionFromChat.mockReset();
   mocks.previewMissionPlanFromChat.mockReset();
   mocks.historicalAudits = [];
@@ -1912,11 +1969,11 @@ describe('AiChat authenticated generated mutations', () => {
       missions: [
         {
           mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
-          agentControl: { handoff: { dispatchStatus: 'DISPATCHED' } },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
         },
         {
           mission: { id: 'mission-two', title: 'Improve project setup', status: 'completed' },
-          agentControl: { handoff: { dispatchStatus: 'DISPATCHED' } },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
         },
       ],
     };
@@ -1948,6 +2005,135 @@ describe('AiChat authenticated generated mutations', () => {
       refetchOnMount: 'always',
       refetchInterval: 15_000,
     });
+  });
+
+  it('loads Mission details on demand and displays only active-plan Goals with their latest attempts', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(currentMissionProjectionFixture());
+
+    renderAiChat();
+
+    expect(mocks.fetchMissionProjection).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId('button-chat-mission-projection-mission-one'));
+    expect(await screen.findByTestId('chat-mission-current-goal-goal-current')).toHaveTextContent(
+      'Inspect the active project plan',
+    );
+    expect(screen.getByTestId('chat-mission-current-attempt-goal-current')).toHaveTextContent(
+      'Latest attempt 2 · Running',
+    );
+    expect(screen.getByText('plan-revision-current')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-mission-current-goal-goal-historical')).not.toBeInTheDocument();
+    expect(mocks.fetchMissionProjection).toHaveBeenCalledWith('mission-one', expect.anything());
+  });
+
+  it('shows a retry for a failed Mission projection request', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection
+      .mockRejectedValueOnce(new Error('Projection unavailable'))
+      .mockResolvedValueOnce(currentMissionProjectionFixture());
+
+    renderAiChat();
+    fireEvent.click(await screen.findByTestId('button-chat-mission-projection-mission-one'));
+
+    expect(await screen.findByText('The current Mission plan could not be loaded.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByTestId('chat-mission-current-goal-goal-current')).toBeInTheDocument();
+    expect(mocks.fetchMissionProjection).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not present historical Goals as current when the active plan revision is unmatched', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    const projection = currentMissionProjectionFixture();
+    projection.currentPlan = {
+      revision: 'missing-plan-revision',
+      binding: 'revision_mismatch',
+      goalIds: [],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(projection);
+
+    renderAiChat();
+    fireEvent.click(await screen.findByTestId('button-chat-mission-projection-mission-one'));
+
+    expect(await screen.findByText(
+      'The Mission records an active plan revision, but no Goal is bound to it. Older Goals are not shown as current.',
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-mission-current-goal-goal-current')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-mission-current-goal-goal-historical')).not.toBeInTheDocument();
+  });
+
+  it('withholds a Mission projection whose mission or project identity does not match the linked entry', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(
+      currentMissionProjectionFixture({ missionId: 'different-mission' }),
+    );
+
+    renderAiChat();
+    fireEvent.click(await screen.findByTestId('button-chat-mission-projection-mission-one'));
+
+    expect(await screen.findByText(
+      'The returned Mission projection does not match this linked Mission and project. Details were withheld.',
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-mission-current-goal-goal-current')).not.toBeInTheDocument();
+  });
+
+  it('withholds a Mission projection returned for a different project', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(
+      currentMissionProjectionFixture({ projectId: 'different-project' }),
+    );
+
+    renderAiChat();
+    fireEvent.click(await screen.findByTestId('button-chat-mission-projection-mission-one'));
+
+    expect(await screen.findByText(
+      'The returned Mission projection does not match this linked Mission and project. Details were withheld.',
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-mission-current-goal-goal-current')).not.toBeInTheDocument();
   });
 
   it('shows a loading state while linked Missions are being restored', async () => {
