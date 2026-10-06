@@ -7423,6 +7423,42 @@ export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseIt
 
 
 /**
+ * @summary List Mission handoffs linked to a chat session
+ */
+export const ListAiChatSessionMissionsParams = zod.object({
+  "sessionId": zod.coerce.string()
+})
+
+
+
+
+export const ListAiChatSessionMissionsResponse = zod.object({
+  "sessionId": zod.string(),
+  "missions": zod.array(zod.object({
+  "mission": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'active', 'waiting', 'blocked', 'needs_replan', 'completed', 'failed', 'cancelled']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "agentControl": zod.object({
+  "handoff": zod.object({
+  "kind": zod.enum(['chat']),
+  "sessionId": zod.string().uuid().nullable(),
+  "messageId": zod.string().uuid().nullable(),
+  "assistantMessageId": zod.string().uuid().nullable(),
+  "planHash": zod.string().min(1),
+  "dispatchStatus": zod.enum(['pending', 'dispatched']),
+  "confirmedAt": zod.coerce.date(),
+  "dispatchedAt": zod.coerce.date().nullable()
+})
+})
+}))
+})
+
+
+/**
  * @summary Explain an accepted project-query fallback using its exact persisted run
  */
 

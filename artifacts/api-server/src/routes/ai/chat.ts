@@ -16,6 +16,7 @@ import { db } from "@workspace/db";
 import {
   aiChatSessionsTable,
   aiChatMessagesTable,
+  aiMissionHandoffsTable,
   aiChangeProposalsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -149,7 +150,10 @@ import {
   type ProjectQueryInvestigationContract,
   type ProjectQueryInvestigationResult,
 } from "@workspace/ai-orchestrator";
-import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
+import {
+  ListAiChatMessagesResponseItem,
+  ListAiChatSessionMissionsResponse,
+} from "@workspace/api-zod";
 import { loadEpisodeEvidenceBraid } from "../../lib/agent-state/episode-evidence-braid";
 import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
 import {
@@ -14171,6 +14175,80 @@ router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/
     messageId: updated.id,
     missionCorrelationReport: projectMissionCorrelationReportForExport(parseStoredJson(serialized)),
   });
+});
+
+// ── GET /api/ai/chat/:sessionId/missions ─────────────────────────────────────
+
+router.get("/ai/chat/:sessionId/missions", async (req, res) => {
+  const { sessionId } = req.params;
+  const [session] = await db
+    .select({
+      id: aiChatSessionsTable.id,
+      projectId: aiChatSessionsTable.projectId,
+    })
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.id, sessionId))
+    .limit(1);
+  if (!session) {
+    return res.status(404).json({
+      error: "Chat session not found",
+      code: "SESSION_NOT_FOUND",
+    });
+  }
+
+  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  if (!project) return;
+
+  const rows = await db
+    .select({
+      missionId: aiMissionsTable.id,
+      title: aiMissionsTable.title,
+      status: aiMissionsTable.status,
+      createdAt: aiMissionsTable.createdAt,
+      updatedAt: aiMissionsTable.updatedAt,
+      messageId: aiMissionHandoffsTable.messageId,
+      assistantMessageId: aiMissionHandoffsTable.assistantMessageId,
+      planHash: aiMissionHandoffsTable.planHash,
+      dispatchStatus: aiMissionHandoffsTable.dispatchStatus,
+      handoffCreatedAt: aiMissionHandoffsTable.createdAt,
+      dispatchedAt: aiMissionHandoffsTable.dispatchedAt,
+    })
+    .from(aiMissionHandoffsTable)
+    .innerJoin(aiMissionsTable, eq(aiMissionHandoffsTable.missionId, aiMissionsTable.id))
+    .where(and(
+      eq(aiMissionHandoffsTable.sessionId, session.id),
+      eq(aiMissionHandoffsTable.projectId, project.id),
+      eq(aiMissionHandoffsTable.userId, req.userId),
+      eq(aiMissionsTable.projectId, project.id),
+      eq(aiMissionsTable.userId, req.userId),
+    ))
+    .orderBy(desc(aiMissionHandoffsTable.createdAt), desc(aiMissionHandoffsTable.id));
+
+  const response = ListAiChatSessionMissionsResponse.parse({
+    sessionId,
+    missions: rows.map((row) => ({
+      mission: {
+        id: row.missionId,
+        title: row.title,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      },
+      agentControl: {
+        handoff: {
+          kind: "chat" as const,
+          sessionId,
+          messageId: row.messageId,
+          assistantMessageId: row.assistantMessageId,
+          planHash: row.planHash,
+          dispatchStatus: row.dispatchStatus,
+          confirmedAt: row.handoffCreatedAt.toISOString(),
+          dispatchedAt: row.dispatchedAt?.toISOString() ?? null,
+        },
+      },
+    })),
+  });
+  return res.json(response);
 });
 
 // ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────

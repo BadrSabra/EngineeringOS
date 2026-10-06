@@ -131,6 +131,38 @@ export interface AiMissionControlProjection {
   counts: AiMissionControlProjectionCounts;
 }
 
+export type AiChatSessionMissionReferenceMissionStatus = typeof AiChatSessionMissionReferenceMissionStatus[keyof typeof AiChatSessionMissionReferenceMissionStatus];
+
+
+export const AiChatSessionMissionReferenceMissionStatus = {
+  draft: 'draft',
+  active: 'active',
+  waiting: 'waiting',
+  blocked: 'blocked',
+  needs_replan: 'needs_replan',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export type AiChatSessionMissionReferenceMission = {
+  id: string;
+  title: string;
+  status: AiChatSessionMissionReferenceMissionStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export interface AiChatSessionMissionReference {
+  mission: AiChatSessionMissionReferenceMission;
+  agentControl: AiMissionAgentControl;
+}
+
+export interface AiChatSessionMissionsResponse {
+  sessionId: string;
+  missions: AiChatSessionMissionReference[];
+}
+
 export interface ApplyMissionFromProposalInput {
   /**
      * @minLength 1

@@ -3014,6 +3014,27 @@ paths:
                 items:
                   $ref: "#/components/schemas/AiChatMessage"
 
+  /api/ai/chat/{sessionId}/missions:
+    get:
+      operationId: listAiChatSessionMissions
+      summary: List Mission handoffs linked to a chat session
+      tags: [AI]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Mission references created from explicit handoffs in this chat session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatSessionMissionsResponse"
+        "404":
+          description: Chat session not found
+
   /api/ai/chat/fallback-diagnostic:
     post:
       operationId: explainAiFallback
@@ -4471,6 +4492,32 @@ components:
             workflows: { type: integer, minimum: 0 }
             executions: { type: integer, minimum: 0 }
             events: { type: integer, minimum: 0 }
+    AiChatSessionMissionsResponse:
+      type: object
+      required: [sessionId, missions]
+      properties:
+        sessionId: { type: string }
+        missions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiChatSessionMissionReference"
+    AiChatSessionMissionReference:
+      type: object
+      required: [mission, agentControl]
+      properties:
+        mission:
+          type: object
+          required: [id, title, status, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            title: { type: string }
+            status:
+              type: string
+              enum: [draft, active, waiting, blocked, needs_replan, completed, failed, cancelled]
+            createdAt: { type: string }
+            updatedAt: { type: string }
+        agentControl:
+          $ref: "#/components/schemas/AiMissionAgentControl"
     AiMissionAgentControl:
       type: object
       required: [handoff]

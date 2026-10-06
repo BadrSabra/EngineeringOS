@@ -583,6 +583,24 @@ describe("AI missions and goals", () => {
       dispatchStatus: "dispatched",
     });
 
+    const sessionMissions = await request(app)
+      .get(`/api/ai/chat/${sessionId}/missions`);
+    expect(sessionMissions.status).toBe(200);
+    expect(sessionMissions.body.sessionId).toBe(sessionId);
+    expect(sessionMissions.body.missions).toHaveLength(2);
+    expect(new Set(sessionMissions.body.missions.map(
+      (entry: { mission: { id: string } }) => entry.mission.id,
+    ))).toEqual(new Set([
+      handoff.body.mission.id,
+      newConfirmation.body.mission.id,
+    ]));
+    expect(sessionMissions.body.missions.every(
+      (entry: { agentControl: { handoff: { sessionId: string; messageId: string; dispatchStatus: string } } }) =>
+        entry.agentControl.handoff.sessionId === sessionId
+        && entry.agentControl.handoff.messageId === messageId
+        && entry.agentControl.handoff.dispatchStatus === "dispatched",
+    )).toBe(true);
+
     const [durableHandoff] = await db
       .select({ id: aiMissionHandoffsTable.id })
       .from(aiMissionHandoffsTable)

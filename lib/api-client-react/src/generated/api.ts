@@ -30,6 +30,7 @@ import type {
   AiChatOutput,
   AiChatRequest,
   AiChatSession,
+  AiChatSessionMissionsResponse,
   AiCodeReview,
   AiDeliveryPolicy,
   AiDeliveryPolicyUpdate,
@@ -8112,6 +8113,83 @@ export function useListAiChatMessages<TData = Awaited<ReturnType<typeof listAiCh
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListAiChatMessagesQueryOptions(sessionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAiChatSessionMissionsUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/ai/chat/${sessionId}/missions`
+}
+
+/**
+ * @summary List Mission handoffs linked to a chat session
+ */
+export const listAiChatSessionMissions = async (sessionId: string, options?: Parameters<typeof customFetch>[1]): Promise<AiChatSessionMissionsResponse> => {
+
+  return customFetch<AiChatSessionMissionsResponse>(getListAiChatSessionMissionsUrl(sessionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiChatSessionMissionsQueryKey = (sessionId: string,) => {
+    return [
+    `/api/ai/chat/${sessionId}/missions`
+    ] as const;
+    }
+
+
+export const getListAiChatSessionMissionsQueryOptions = <TData = Awaited<ReturnType<typeof listAiChatSessionMissions>>, TError = ErrorType<void>>(sessionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiChatSessionMissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiChatSessionMissionsQueryKey(sessionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiChatSessionMissions>>> = ({ signal }) => listAiChatSessionMissions(sessionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: sessionId !== null && sessionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiChatSessionMissions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiChatSessionMissionsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiChatSessionMissions>>>
+export type ListAiChatSessionMissionsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List Mission handoffs linked to a chat session
+ */
+
+export function useListAiChatSessionMissions<TData = Awaited<ReturnType<typeof listAiChatSessionMissions>>, TError = ErrorType<void>>(
+ sessionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiChatSessionMissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiChatSessionMissionsQueryOptions(sessionId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
