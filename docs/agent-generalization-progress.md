@@ -4639,6 +4639,17 @@ G9 Revocation Safety
 - **remaining/blocker:** يغطي هذا حد استجابة HTTP لمسار AI task واحدًا فقط؛ crash/race recovery لبقية execution وmutation/delivery surfaces ما زال مفتوحًا. E2 `OPEN` وE3 `STOPPED`.
 - **next step:** تابع تدقيق حد E2 متبقٍ واحدًا في كل مرة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
 
+### 2026-10-06 — استعادة تنفيذ task يدوي بعد crash أثناء التحقق
+
+- **phase/step:** E2 فقط — استعادة `POST /api/tasks/:taskId/execute` بعد crash عقب claim `running` وقبل terminal verification.
+- **status:** `manual task crash recovery verified — E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يوقف process child مسار HTTP الحقيقي داخل `runTaskVerification` بعد دوام حالة `running` وسجل/حدث البداية. بعد `SIGKILL`، يشغّل الاختبار `src/index.ts` مستقلًا؛ مصالحة startup تعيد المهمة إلى `verifying` وتزيد `retryCount` مرة واحدة وتمسح الملكية، مع بقاء حدث `TaskExecutionStarted` منفردًا ومن دون أحداث إكمال/فشل وهمية. يثبت `GET /api/tasks/:taskId` قراءة الحالة المستعادة.
+- **files/schema/contracts touched:** اختبار `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts` وهذا السجل وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** API TypeScript check و`git diff --check` ناجحان. بعد تطبيق schema على PostgreSQL مؤقتة loopback، نجح الاختبار الاختياري `recovers a manual task execution after a crash during verification` **1/1، 40 skipped** مع provider egress معطّل. أُوقفت القاعدة المؤقتة وحُذف جذرها؛ لم يُستخدم provider حي أو قاعدة مشتركة أو managed workflow.
+- **authority/safety impact:** لا يعيد startup التحقق المتقطع تلقائيًا؛ يحفظ نتيجة معلّقة قابلة للعرض/المتابعة، ولا يكرر حدث البداية أو يصطنع terminal acceptance.
+- **remaining/blocker:** يثبت هذا مسار task اليدوي وحده ولا يثبت بقية execution وmutation/delivery crash windows. E2 `OPEN` وE3 `STOPPED`.
+- **next step:** واصل تدقيق E2 فقط، ولا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

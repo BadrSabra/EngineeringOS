@@ -280,6 +280,32 @@ vi.mock("./ai-execution-acceptance.js", async () => {
   };
 });
 
+vi.mock("../services/task-service.js", async () => {
+  const actual = await vi.importActual<typeof import("../services/task-service.js")>(
+    "../services/task-service.js",
+  );
+  return {
+    ...actual,
+    runTaskVerification: async (
+      ...args: Parameters<typeof actual.runTaskVerification>
+    ) => {
+      if (process.env.TASK_ROUTE_PROCESS_CHILD === "manual-worker") {
+        const signalFile = process.env.TASK_ROUTE_PROCESS_READY_SIGNAL_FILE;
+        if (!signalFile) {
+          throw new Error("Manual task route worker is missing its ready signal path.");
+        }
+        const fs = await import("node:fs/promises");
+        await fs.writeFile(signalFile, JSON.stringify({
+          taskId: args[0].id,
+          stage: "verification_pending",
+        }), "utf8");
+        await new Promise<never>(() => {});
+      }
+      return actual.runTaskVerification(...args);
+    },
+  };
+});
+
 import {
   executeTaskLifecycle,
   parseMissionToolLoopCheckpoint,
@@ -499,7 +525,7 @@ function startMissionRepairTestProcess(
 }
 
 function startTaskRouteTestProcess(input: {
-  mode: "worker" | "resume-worker" | "resume" | "accepted-worker";
+  mode: "worker" | "resume-worker" | "resume" | "accepted-worker" | "manual-worker";
   taskId: string;
   readySignalFile?: string;
 }) {
@@ -520,7 +546,9 @@ function startTaskRouteTestProcess(input: {
         ? "process-level AI task route resume worker fixture"
         : input.mode === "accepted-worker"
           ? "process-level AI task route accepted worker fixture"
-        : "process-level AI task route resume fixture",
+          : input.mode === "manual-worker"
+            ? "process-level manual task route worker fixture"
+            : "process-level AI task route resume fixture",
   ], {
     cwd: process.cwd(),
     env: {
@@ -3246,6 +3274,22 @@ describe("real durable task execution lifecycle", () => {
     120_000,
   );
 
+  const manualTaskRouteWorkerProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "manual-worker" ? it : it.skip;
+  manualTaskRouteWorkerProcessChildTest(
+    "process-level manual task route worker fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      if (!taskId) throw new Error("Manual task route worker is missing its task identity.");
+
+      const response = await request(app).post(`/api/tasks/${taskId}/execute`);
+      throw new Error(
+        `Manual task route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
+      );
+    },
+    120_000,
+  );
+
   const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
   const missionRepairProcessChildTest =
     missionRepairProcessChildMode === "worker" || missionRepairProcessChildMode === "recovery"
@@ -4128,6 +4172,159 @@ describe("real durable task execution lifecycle", () => {
             terminalStatus: "completed",
           },
         });
+      } finally {
+        if (workerProcess) {
+          if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+            workerProcess.child.kill("SIGKILL");
+          }
+          await workerProcess.exit;
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (apiProcess) {
+          if (apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+            apiProcess.child.kill("SIGKILL");
+          }
+          await apiProcess.exit;
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(eventsTable).where(eq(eventsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
+
+  const manualTaskRouteProcessRecoveryTest =
+    process.env.RUN_MANUAL_TASK_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;
+  manualTaskRouteProcessRecoveryTest(
+    "recovers a manual task execution after a crash during verification",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `manual-task-crash-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: `Manual task ${taskId.slice(0, 6)}`,
+          description: "A task for manual verification process recovery.",
+          status: "pending",
+          priority: "p2",
+          retryCount: 0,
+          maxRetries: 2,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        signalRoot = await mkdtemp(join("/tmp", "manual-task-route-crash-"));
+        const readySignalFile = join(signalRoot, "verification-pending.json");
+        workerProcess = startTaskRouteTestProcess({
+          mode: "manual-worker",
+          taskId,
+          readySignalFile,
+        });
+        const ready = JSON.parse(
+          await waitForProcessSignalFile(readySignalFile, workerProcess),
+        ) as { taskId: string; stage: string };
+        expect(ready).toEqual({ taskId, stage: "verification_pending" });
+
+        const [runningTask] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(runningTask).toEqual({
+          status: "running",
+          retryCount: 0,
+          workerId: null,
+          leaseUntil: null,
+        });
+        const startedEventsBeforeCrash = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(startedEventsBeforeCrash).toEqual([{ type: "TaskExecutionStarted" }]);
+        const startedLogsBeforeCrash = await db
+          .select({ message: taskLogsTable.message })
+          .from(taskLogsTable)
+          .where(eq(taskLogsTable.taskId, taskId));
+        expect(startedLogsBeforeCrash).toEqual([{
+          message: "Task execution started — running verification against project root",
+        }]);
+
+        expect(workerProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(workerProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+        workerProcess = undefined;
+
+        apiProcess = startApiStartupProcess(`manual-task-recovery-${randomUUID()}`);
+        await apiProcess.waitForReady();
+
+        const [recoveredTask] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(recoveredTask).toEqual({
+          status: "verifying",
+          retryCount: 1,
+          workerId: null,
+          leaseUntil: null,
+        });
+        const recoveredEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(recoveredEvents).toEqual([{ type: "TaskExecutionStarted" }]);
+        const recoveredLogs = await db
+          .select({ message: taskLogsTable.message })
+          .from(taskLogsTable)
+          .where(eq(taskLogsTable.taskId, taskId));
+        expect(recoveredLogs.map(({ message }) => message).sort()).toEqual([
+          "Task execution started — running verification against project root",
+          'Task reset to "verifying" after process restart (retry 1/2). Re-trigger to execute.',
+        ].sort());
+
+        const recoveredResponse = await request(app).get(`/api/tasks/${taskId}`);
+        expect(recoveredResponse.status).toBe(200);
+        expect(recoveredResponse.body).toMatchObject({
+          id: taskId,
+          status: "verifying",
+          retryCount: 1,
+        });
+        expect(recoveredResponse.body.acceptance).toBeUndefined();
       } finally {
         if (workerProcess) {
           if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
