@@ -4661,6 +4661,17 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يثبت سطح task اليدوي فقط؛ بقية E2 lifecycle وmutation/delivery ما زالت مفتوحة. E2 `OPEN` وE3 `STOPPED`.
 - **next step:** تابع فجوة E2 التالية فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — خفض UNKNOWN في استعادة structured analyze/review
+
+- **phase/step:** E2 فقط — استعادة structured analyze/review بعد انتهاء lease.
+- **status:** `database reconciliation and resume verified; process-level crash boundary remains UNKNOWN`
+- **what changed:** أضيف اختبار DB-backed للنوعين يثبت انقضاء lease، ومصالحة التنفيذ إلى `paused` مع قبول `EXECUTION_LEASE_EXPIRED` القابل للاستئناف، ثم استرداد resume token وclaim لمحاولة جديدة وإكمال قبولها. يؤكد الاختبار أيضًا عدم إنشاء رسالة مستخدم مكررة عند الاستئناف.
+- **files/schema/contracts touched:** اختبار `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، وهذا السجل، وتقرير الحالة؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** الاختبار المحدد نجح **2/2، 42 skipped** على PostgreSQL مؤقتة loopback بعد تطبيق schema، مع `AI_PROVIDER_EGRESS_DISABLED=1`. API typecheck و`git diff --check` ناجحان. لم يُستخدم provider حي أو قاعدة مشتركة أو managed workflow.
+- **authority/safety impact:** يحول انتهاء lease إلى قبول معلّق بدل نجاح؛ لا تُقبل النتيجة إلا في المحاولة الجديدة المالكة، مع بقاء قبول المحاولة القديمة منفصلًا.
+- **remaining/blocker:** الاختبار يستدعي `startStructuredExecution` وreconciler مباشرةً؛ لا يقتل HTTP worker ولا يشغّل `src/index.ts` لاستعادة structured analyze/review، ولا يستدعي provider. تبقى هذه الحدود `UNKNOWN`.
+- **next step:** تابع فجوة E2 واحدة أخرى أو أضف اختبار process-level معزول لهذين المسارين؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

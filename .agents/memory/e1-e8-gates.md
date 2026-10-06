@@ -9,6 +9,12 @@ Complete the remaining gap sequence in order: E1, then E2 through E8. Do not dec
 
 **How to apply:** Keep each stage's findings and validation scoped and recorded. If E2 remains partial, continue only E2 work and do not present E3–E8 as started.
 
+The audit goal is to reduce `UNKNOWN` by resolving one bounded, testable E2 uncertainty at a time. Distinguish source inspection, DB-level integration, process-kill/startup recovery, and live/production evidence; do not let a narrower result stand in for a broader boundary.
+
+**Why:** The user clarified that the goal is to reduce `UNKNOWN`, not to treat missing evidence as proof that every path is broken.
+
+**How to apply:** Each E2 step should name the exact uncertainty, add the cheapest evidence that can resolve it, and record what remains untested without advancing to E3.
+
 As of 2026-10-06, the current project audit remains on E2; do not use earlier reported stage statuses or focused fixes as authorization to advance. The E4 Entry Audit passed. The E4.1 Read-Only Sample Source Inventory returned `UNQUALIFIED`: this is `PASS` for the inventory only, while E4.1 stays `OPEN / NOT PASS`. Source qualification, protocol completion, evaluation authorization, and promotion remain separate ordered gates.
 
 **Why:** The user explicitly keeps E3.2 open despite earlier fixes, tests, or Publish. The previously recorded explanation no longer matches the current queued-dispatch code; localized reauthorization is not proof of end-to-end crash/replay safety across external side effects.

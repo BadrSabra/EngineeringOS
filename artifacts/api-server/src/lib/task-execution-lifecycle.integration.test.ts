@@ -1428,6 +1428,149 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it.each(["analyze", "review"] as const)(
+    "reconciles and resumes structured %s after an expired execution lease",
+    async (task) => {
+      const projectId = randomUUID();
+      const userId = `structured-recovery-${task}-${projectId}`;
+      const now = new Date();
+      const prompt = task === "analyze"
+        ? "Analyze the latest scan results."
+        : "Review the supplied project files.";
+      let original: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+      let resumed: Awaited<ReturnType<typeof startStructuredExecution>> | undefined;
+
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `structured-recovery-${task}-${projectId.slice(0, 8)}`,
+        rootPath: `/tmp/structured-recovery-${projectId}`,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      try {
+        original = await startStructuredExecution({
+          userId,
+          projectId,
+          projectRevision: "b".repeat(64),
+          task,
+          prompt,
+        });
+        expect(original.started.resumable).toBe(false);
+        original.cleanup();
+
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+          .where(eq(aiExecutionsTable.id, original.started.executionId));
+
+        expect(await aiExecutionState.reconcileAiExecutions({ expiredOnly: true })).toBe(1);
+
+        const [interrupted] = await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          workerId: aiExecutionsTable.workerId,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, original.started.executionId));
+        expect(interrupted).toEqual({
+          status: "paused",
+          attempt: 0,
+          workerId: null,
+        });
+
+        const [expiredAcceptance] = await db.select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        }).from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, original.started.executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ));
+        expect(expiredAcceptance).toMatchObject({
+          outcome: "FAILED",
+          terminalStatus: "paused",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          resumable: 1,
+        });
+
+        const recovery = await aiExecutionState.recoverAiExecutionResumeToken({
+          executionId: original.started.executionId,
+          userId,
+          expectedAttempt: 0,
+        });
+        expect(recovery).toBeDefined();
+
+        resumed = await startStructuredExecution({
+          userId,
+          projectId,
+          projectRevision: "b".repeat(64),
+          task,
+          prompt,
+          executionId: original.started.executionId,
+          resumeToken: recovery!.resumeToken,
+        });
+        expect(resumed.started.resumable).toBe(true);
+        expect(resumed.execution.attempt).toBe(1);
+
+        const content = `Recovered ${task} fixture result.`;
+        const messageId = await resumed.persistAssistant({
+          content,
+          outcome: "SUCCEEDED",
+          toolTrace: `structured_recovery_${task}_fixture`,
+        });
+        expect(await resumed.complete({ messageId, content })).toBe(true);
+
+        const [completed] = await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          workerId: aiExecutionsTable.workerId,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, original.started.executionId));
+        expect(completed).toEqual({
+          status: "completed",
+          attempt: 1,
+          workerId: null,
+        });
+
+        const [currentAcceptance] = await db.select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        }).from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, original.started.executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 1),
+          ));
+        expect(currentAcceptance).toEqual({
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+        });
+
+        const userMessages = await db.select({
+          id: aiChatMessagesTable.id,
+          turnIntent: aiChatMessagesTable.turnIntent,
+        }).from(aiChatMessagesTable)
+          .where(and(
+            eq(aiChatMessagesTable.sessionId, original.started.sessionId),
+            eq(aiChatMessagesTable.role, "user"),
+          ));
+        expect(userMessages).toHaveLength(1);
+        expect(userMessages[0]?.turnIntent).toBe(
+          task === "analyze" ? "STRUCTURED_ANALYZE" : "STRUCTURED_REVIEW",
+        );
+      } finally {
+        original?.cleanup();
+        resumed?.cleanup();
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      }
+    },
+  );
+
   it("W8 rolls back structured success acceptance when the assistant projection fails", async () => {
     const projectId = randomUUID();
     const userId = `structured-w8-${projectId}`;
