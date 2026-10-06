@@ -5468,6 +5468,123 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     expect(res.text).toContain('"mode":"SELECTED_FILES"');
   });
 
+  it("cancels streamed structured review and records an interrupted terminal message", async () => {
+    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const defaultReview = vi.mocked(mockReviewCode).getMockImplementation();
+    expect(defaultReview).toBeDefined();
+    vi.mocked(mockReviewCode).mockImplementationOnce(async (...args) => {
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        userId: aiExecutionsTable.userId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId)).limit(1);
+      expect(execution).toBeDefined();
+      await requestAiExecutionCancel({
+        executionId: execution!.id,
+        userId: execution!.userId,
+      });
+      return defaultReview!(...args);
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/review/stream`)
+      .send({ fileContents: { "index.ts": "const x = 1;" } });
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain('"type":"task_done"');
+    expect(lastSseEvent(response.text)).toMatchObject({
+      type: "error",
+      code: "EXECUTION_CANCELLED",
+      failureKind: "CANCELLATION",
+      outcome: "INTERRUPTED",
+      terminalProjection: {
+        status: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+      },
+    });
+
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution?.status).toBe("cancelled");
+    expect(execution?.finalMessageId).toEqual(expect.any(String));
+    const messages = await db.select().from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.executionId, execution!.id));
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]).toMatchObject({
+      id: execution!.finalMessageId,
+      content: "",
+      outcome: "INTERRUPTED",
+      errorCode: "EXECUTION_CANCELLED",
+    });
+    const [acceptance] = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+    expect(acceptance).toMatchObject({
+      outcome: "INTERRUPTED",
+      terminalStatus: "cancelled",
+      reasonCode: "EXECUTION_CANCELLED",
+      messageId: execution!.finalMessageId,
+    });
+    const events = await db.select({ type: eventsTable.type }).from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "AiCodeReviewCompleted")).toBe(false);
+    const audits = await db.select({ action: auditLogsTable.action }).from(auditLogsTable)
+      .where(eq(auditLogsTable.projectId, projectId));
+    expect(audits.some((audit) => audit.action === "ai_reviewed")).toBe(false);
+  });
+
+  it("does not persist structured review success after execution ownership changes", async () => {
+    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const defaultReview = vi.mocked(mockReviewCode).getMockImplementation();
+    expect(defaultReview).toBeDefined();
+    vi.mocked(mockReviewCode).mockImplementationOnce(async (...args) => {
+      const [execution] = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, projectId),
+          eq(aiExecutionsTable.status, "running"),
+        ))
+        .limit(1);
+      expect(execution).toBeDefined();
+      await db.update(aiExecutionsTable)
+        .set({ workerId: "replacement-structured-review-worker" })
+        .where(eq(aiExecutionsTable.id, execution!.id));
+      return defaultReview!(...args);
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/review/stream`)
+      .send({ fileContents: { "index.ts": "const x = 1;" } });
+    expect(response.status).toBe(200);
+    expect(response.text).not.toContain('"type":"task_done"');
+    expect(lastSseEvent(response.text)).toMatchObject({
+      type: "error",
+      code: "EXECUTION_OWNERSHIP_LOST",
+      outcome: "INTERRUPTED",
+    });
+
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution?.status).toBe("running");
+    expect(execution?.workerId).toBe("replacement-structured-review-worker");
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
+    expect(await db.select().from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.executionId, execution!.id),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))).toEqual([]);
+    const events = await db.select({ type: eventsTable.type }).from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((event) => event.type === "AiCodeReviewCompleted")).toBe(false);
+    const audits = await db.select({ action: auditLogsTable.action }).from(auditLogsTable)
+      .where(eq(auditLogsTable.projectId, projectId));
+    expect(audits.some((audit) => audit.action === "ai_reviewed")).toBe(false);
+  });
+
   it("recovers from malformed OpenRouter review output and projects one accepted terminal identity", async () => {
     const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
     const firstModel = "openrouter/malformed-review";
