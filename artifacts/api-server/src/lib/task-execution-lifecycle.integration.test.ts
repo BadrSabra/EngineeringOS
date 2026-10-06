@@ -88,12 +88,6 @@ const taskProgressFixture = vi.hoisted(() => ({
   failTerminalOutcome: null as "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null,
   terminalOutcomes: [] as Array<"SUCCEEDED" | "FAILED" | "INTERRUPTED">,
 }));
-const taskRouteProcessFixture = vi.hoisted(() => ({
-  pauseAtExecuteTask: false,
-  taskId: "",
-  readySignalFile: "",
-}));
-
 vi.mock("./ai-route-helpers.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-route-helpers.js")>("./ai-route-helpers.js");
   actualChatWithFallbackRef.fn = actual.chatWithFallback as unknown as (
@@ -110,40 +104,6 @@ vi.mock("@workspace/ai-orchestrator", async () => {
   const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>("@workspace/ai-orchestrator");
   return {
     ...actual,
-    executeTask: vi.fn(async (...args: Parameters<typeof actual.executeTask>) => {
-      if (taskRouteProcessFixture.pauseAtExecuteTask) {
-        const { taskId, readySignalFile } = taskRouteProcessFixture;
-        if (!taskId || !readySignalFile) {
-          throw new Error("AI task route crash fixture is missing its durable signal identity.");
-        }
-        const [task] = await db
-          .select({ status: tasksTable.status })
-          .from(tasksTable)
-          .where(eq(tasksTable.id, taskId))
-          .limit(1);
-        const [execution] = await db
-          .select({
-            id: aiExecutionsTable.id,
-            attempt: aiExecutionsTable.attempt,
-            status: aiExecutionsTable.status,
-          })
-          .from(aiExecutionsTable)
-          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
-          .limit(1);
-        if (!task || !execution) {
-          throw new Error("AI task route reached executeTask before its durable claim was visible.");
-        }
-        await writeFile(readySignalFile, JSON.stringify({
-          taskId,
-          executionId: execution.id,
-          attempt: execution.attempt,
-          executionStatus: execution.status,
-          taskStatus: task.status,
-        }), "utf8");
-        return await new Promise<never>(() => {});
-      }
-      return actual.executeTask(...args);
-    }),
     buildProjectContext: vi.fn(async () => ({ fixture: true })),
     invalidateContextCache: vi.fn(),
     getProviderLifecycleSnapshot: vi.fn(async () => ({
@@ -417,7 +377,7 @@ function startApiStartupProcess(applicationName: string) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   };
-  return { child, exit, output, waitForReady };
+  return { applicationName, child, exit, output, waitForReady };
 }
 
 type MissionRepairProcessChildMode = "worker" | "recovery";
@@ -510,8 +470,9 @@ function startMissionRepairTestProcess(
 }
 
 function startTaskRouteTestProcess(input: {
+  mode: "worker" | "resume";
   taskId: string;
-  readySignalFile: string;
+  readySignalFile?: string;
 }) {
   const databaseUrl = requireMissionRepairDisposableDatabaseUrl();
   const applicationName = `ai-task-route-worker-${randomUUID()}`;
@@ -524,7 +485,9 @@ function startTaskRouteTestProcess(input: {
     "--maxWorkers=1",
     "--no-file-parallelism",
     "-t",
-    "process-level AI task route worker fixture",
+    input.mode === "worker"
+      ? "process-level AI task route worker fixture"
+      : "process-level AI task route resume fixture",
   ], {
     cwd: process.cwd(),
     env: {
@@ -538,9 +501,9 @@ function startTaskRouteTestProcess(input: {
       RUN_CONTROLLED_RELEASE_VALIDATION: "1",
       DASHBOARD_E2E_TEST_MODE: "fixture",
       GROQ_API_KEY: "test-dummy-key-for-mocked-tests",
-      TASK_ROUTE_PROCESS_CHILD: "worker",
+      TASK_ROUTE_PROCESS_CHILD: input.mode,
       TASK_ROUTE_PROCESS_TASK_ID: input.taskId,
-      TASK_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile,
+      TASK_ROUTE_PROCESS_READY_SIGNAL_FILE: input.readySignalFile ?? "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -838,9 +801,6 @@ describe("real durable task execution lifecycle", () => {
     vi.clearAllMocks();
     taskProgressFixture.failTerminalOutcome = null;
     taskProgressFixture.terminalOutcomes = [];
-    taskRouteProcessFixture.pauseAtExecuteTask = false;
-    taskRouteProcessFixture.taskId = "";
-    taskRouteProcessFixture.readySignalFile = "";
     runAgentWithFallback.mockReset().mockImplementation(async (..._args: unknown[]) => ({
       result: {
         summary: "Fixture execution completed.",
@@ -3157,6 +3117,57 @@ describe("real durable task execution lifecycle", () => {
     },
   );
 
+  const taskRouteWorkerProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "worker" ? it : it.skip;
+  taskRouteWorkerProcessChildTest(
+    "process-level AI task route worker fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      const readySignalFile = process.env.TASK_ROUTE_PROCESS_READY_SIGNAL_FILE;
+      if (!taskId || !readySignalFile) {
+        throw new Error("AI task route worker child is missing its durable fixture identity.");
+      }
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+      runAgentWithFallback.mockImplementation(async () => {
+        await writeFile(readySignalFile, JSON.stringify({
+          taskId,
+          stage: "model_call_pending",
+        }), "utf8");
+        return await new Promise<never>(() => {});
+      });
+
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+      throw new Error(
+        `AI task route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
+      );
+    },
+    120_000,
+  );
+  const taskRouteResumeProcessChildTest =
+    process.env.TASK_ROUTE_PROCESS_CHILD === "resume" ? it : it.skip;
+  taskRouteResumeProcessChildTest(
+    "process-level AI task route resume fixture",
+    async () => {
+      const taskId = process.env.TASK_ROUTE_PROCESS_TASK_ID;
+      if (!taskId) throw new Error("AI task route resume child is missing its task identity.");
+      process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+      runAgentWithFallback.mockResolvedValue({
+        result: {
+          summary: "Task completed after process recovery.",
+          confidence: "high",
+          steps: ["Resumed through the task HTTP route."],
+          needsHumanReview: false,
+        },
+        effectiveProvider: "groq",
+      });
+
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+      expect(response.status).toBe(202);
+      expect(["completed", "verifying"]).toContain(response.body.status);
+    },
+    120_000,
+  );
+
   const missionRepairProcessChildMode = process.env.MISSION_REPAIR_PROCESS_CHILD;
   const missionRepairProcessChildTest =
     missionRepairProcessChildMode === "worker" || missionRepairProcessChildMode === "recovery"
@@ -3356,6 +3367,218 @@ describe("real durable task execution lifecycle", () => {
     180_000,
   );
 
+  const taskRouteProcessRecoveryTest =
+    process.env.RUN_TASK_ROUTE_PROCESS_RECOVERY === "1" ? it : it.skip;
+  taskRouteProcessRecoveryTest(
+    "reconciles a task started by the HTTP execute route after its worker process is killed",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let apiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+      let resumeProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let executionId: string | undefined;
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `task-route-crash-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: `AI task ${taskId.slice(0, 6)}`,
+          description: "A task for the HTTP route crash-recovery fixture.",
+          status: "pending",
+          priority: "p2",
+          createdAt: now,
+          updatedAt: now,
+        });
+        signalRoot = await mkdtemp(join("/tmp", "ai-task-route-crash-"));
+        const readySignalFile = join(signalRoot, "worker-ready.json");
+        workerProcess = startTaskRouteTestProcess({ mode: "worker", taskId, readySignalFile });
+        const ready = JSON.parse(await waitForProcessSignalFile(readySignalFile, workerProcess)) as {
+          taskId: string;
+          stage: string;
+        };
+        expect(ready).toEqual({ taskId, stage: "model_call_pending" });
+        const [claimedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(claimedTask?.status).toBe("running");
+        const [claimedExecution] = await db
+          .select()
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+          .limit(1);
+        executionId = claimedExecution?.id;
+        expect(executionId).toBeTruthy();
+        expect(claimedExecution).toMatchObject({
+          linkedTaskId: taskId,
+          attempt: 0,
+          status: "running",
+        });
+        const beforeCrashAcceptances = await db
+          .select()
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(beforeCrashAcceptances).toHaveLength(0);
+
+        expect(workerProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(workerProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+
+        const expiredAt = new Date(Date.now() - 60_000);
+        await db.update(aiExecutionsTable).set({
+          leaseUntil: expiredAt,
+          updatedAt: new Date(),
+        }).where(eq(aiExecutionsTable.id, executionId));
+        await db.update(tasksTable).set({
+          leaseUntil: expiredAt,
+          updatedAt: new Date(),
+        }).where(eq(tasksTable.id, taskId));
+
+        apiProcess = startApiStartupProcess(`ai-task-route-recovery-${randomUUID()}`);
+        await apiProcess.waitForReady();
+
+        const [recoveredExecution] = await db
+          .select()
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(recoveredExecution).toMatchObject({
+          linkedTaskId: taskId,
+          attempt: 0,
+          status: "paused",
+          workerId: null,
+          leaseUntil: null,
+        });
+        const recoveryAcceptances = await db
+          .select()
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(recoveryAcceptances).toHaveLength(1);
+        expect(recoveryAcceptances[0]).toMatchObject({
+          attempt: 0,
+          terminalStatus: "paused",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+          disposition: expect.objectContaining({ recoveryState: "REQUIRED" }),
+        });
+        expect(recoveryAcceptances.some((acceptance) => acceptance.outcome === "SUCCEEDED")).toBe(false);
+
+        const [recoveredTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(["pending", "queued", "verifying"]).toContain(recoveredTask?.status);
+        const taskEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(taskEvents.some((event) => event.type === "TaskCompleted")).toBe(false);
+
+        expect(apiProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(apiProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(apiProcess.applicationName);
+        apiProcess = undefined;
+
+        resumeProcess = startTaskRouteTestProcess({ mode: "resume", taskId });
+        expect(await waitForChildProcessExit(resumeProcess), resumeProcess.output()).toEqual({
+          code: 0,
+          signal: null,
+        });
+        await waitForChildDatabaseDisconnect(resumeProcess.applicationName);
+        const [completedExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(completedExecution).toEqual({ attempt: 1, status: "completed" });
+        const [completedAcceptance] = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 1),
+          ))
+          .limit(1);
+        expect(completedAcceptance).toEqual({
+          attempt: 1,
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+        });
+        const [completedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(completedTask?.status).toBe("completed");
+        const completedEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(completedEvents.some((event) => event.type === "TaskCompleted")).toBe(true);
+      } finally {
+        if (workerProcess) {
+          if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+            workerProcess.child.kill("SIGKILL");
+          }
+          await workerProcess.exit;
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (apiProcess) {
+          if (apiProcess.child.exitCode === null && apiProcess.child.signalCode === null) {
+            apiProcess.child.kill("SIGKILL");
+          }
+          await apiProcess.exit;
+          await waitForChildDatabaseDisconnect(apiProcess.applicationName).catch(() => undefined);
+        }
+        if (resumeProcess) {
+          if (resumeProcess.child.exitCode === null && resumeProcess.child.signalCode === null) {
+            resumeProcess.child.kill("SIGKILL");
+          }
+          await resumeProcess.exit;
+          await waitForChildDatabaseDisconnect(resumeProcess.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(eventsTable).where(eq(eventsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
+
   const missionRepairWorkerProcessRecoveryTest =
     process.env.RUN_MISSION_REPAIR_WORKER_PROCESS_RECOVERY === "1" ? it : it.skip;
   missionRepairWorkerProcessRecoveryTest(
@@ -3384,7 +3607,7 @@ describe("real durable task execution lifecycle", () => {
           readySignalFile,
           workspaceSignalFile,
         });
-        const ready = JSON.parse(await waitForMissionRepairProcessFile(readySignalFile, workerProcess)) as {
+        const ready = JSON.parse(await waitForProcessSignalFile(readySignalFile, workerProcess)) as {
           executionId: string;
           candidateIdentity: string;
           attempt: number;
@@ -3443,11 +3666,11 @@ describe("real durable task execution lifecycle", () => {
         expect(priorAcceptances).toEqual([]);
 
         expect(workerProcess.child.kill("SIGKILL")).toBe(true);
-        expect(await waitForMissionRepairProcessExit(workerProcess)).toMatchObject({
+        expect(await waitForChildProcessExit(workerProcess)).toMatchObject({
           code: null,
           signal: "SIGKILL",
         });
-        await waitForMissionRepairDatabaseDisconnect(workerProcess.applicationName);
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
         const [crashedExecution] = await db
           .select({
             attempt: aiExecutionsTable.attempt,
@@ -3491,12 +3714,12 @@ describe("real durable task execution lifecycle", () => {
           workspaceRevision: fixture.now.toISOString(),
           executionId,
         });
-        const recoveryExit = await waitForMissionRepairProcessExit(recoveryProcess);
+        const recoveryExit = await waitForChildProcessExit(recoveryProcess);
         expect(
           recoveryExit,
           recoveryExit.code !== 0 ? recoveryProcess.output() : "Mission repair recovery child failed.",
         ).toEqual({ code: 0, signal: null });
-        await waitForMissionRepairDatabaseDisconnect(recoveryProcess.applicationName);
+        await waitForChildDatabaseDisconnect(recoveryProcess.applicationName);
 
         const [completedExecution] = await db
           .select({
@@ -3559,10 +3782,10 @@ describe("real durable task execution lifecycle", () => {
           await recoveryProcess.exit;
         }
         if (workerProcess) {
-          await waitForMissionRepairDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
         }
         if (recoveryProcess) {
-          await waitForMissionRepairDatabaseDisconnect(recoveryProcess.applicationName).catch(() => undefined);
+          await waitForChildDatabaseDisconnect(recoveryProcess.applicationName).catch(() => undefined);
         }
         if (!candidateWorkspacePath && signalRoot) {
           candidateWorkspacePath = await readFile(join(signalRoot, "candidate-workspace-path"), "utf8")

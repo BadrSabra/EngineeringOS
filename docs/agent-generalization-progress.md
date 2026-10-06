@@ -4584,6 +4584,17 @@ G9 Revocation Safety
 - **remaining/blocker:** الاختبار لا يثبت توقف مزوّد خارجي حي أو استعادة process؛ parity لبقية أسطح E2 ما زالت غير مكتملة.
 - **next step:** تابع E2 في السطح التالي المفتوح فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تعِد تشغيل Strategy Replay receipts.
 
+### 2026-10-06 — استعادة process لمسار task execute HTTP
+
+- **phase/step:** E2 فقط — crash recovery لمسار `/api/ai/tasks/:taskId/execute` ثم `/resume`.
+- **status:** `route crash/recovery/retry verified — E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أضيف اختبار اختياري يشغّل طلب execute الحقيقي من HTTP child، ويوقفه عند حد model fixture بعد claim دائم ثم يقتله بـ`SIGKILL`. يبدأ child مستقل `src/index.ts` لعمل startup reconciliation؛ يثبت الاختبار انتهاء lease وحالة paused مع `EXECUTION_LEASE_EXPIRED` و`RESUME_ALLOWED`، دون نجاح زائف. بعدها يرسل Vitest child آخر طلب `/resume` بfixture حتمية، ويتحقق من اكتمال المحاولة التالية وقبول `SUCCEEDED` وحدث `TaskCompleted`.
+- **files/schema/contracts touched:** اختبار `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts` وهذا السجل و`docs/agent-core-forensic-status-report.md`؛ لا تغييرات إنتاجية أو schema أو صلاحيات.
+- **validation:** API TypeScript check و`git diff --check` نجحا. الاختبار المركّز `reconciles a task started by the HTTP execute route after its worker process is killed` — **1/1، 35 skipped** على PostgreSQL مؤقتة loopback بعد `schema:apply`، مع `AI_PROVIDER_EGRESS_DISABLED=1`. أُوقف cluster وحُذف جذر البيانات المؤقت. لا provider حي ولا managed workflow.
+- **authority/safety impact:** لا يُقبل العمل بعد موت العامل؛ startup يسجل حالة قابلة للاستئناف فقط. النجاح لا يحدث إلا عبر طلب resume جديد ومحاولة تالية مقبولة؛ لم تتغير صلاحيات الإنتاج.
+- **remaining/blocker:** الاختبار يغطي مسار task HTTP محددًا ولا يغطي بقية نوافذ crash أو structured-analysis وworkflow وmutation/delivery surfaces؛ E2 تبقى `OPEN` وE3 `STOPPED`.
+- **next step:** واصل E2 على gaps المتبقية فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
