@@ -9,6 +9,7 @@ import request from "supertest";
 import app from "../app.js";
 import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
 import {
+  aiAgentEpisodesTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
@@ -20,8 +21,12 @@ import {
   aiMissionHandoffsTable,
   aiMissionsTable,
   db,
+  eventsTable,
   projectsTable,
+  tasksTable,
 } from "@workspace/db";
+import { getProjectWorldState } from "./agent-state/world-state.js";
+import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { dispatchMissionChatHandoff } from "./mission-chat-handoffs.js";
 
@@ -53,7 +58,11 @@ vi.mock("../routes/ai/tasks.js", async () => {
   };
 });
 
-import { dispatchPendingMissionRecipes, runMissionGoal } from "./mission-runtime.js";
+import {
+  dispatchPendingMissionRecipes,
+  runMissionGoal,
+  wakeReadyMissionGoals,
+} from "./mission-runtime.js";
 
 const projectIds: string[] = [];
 const testRoots: string[] = [];
@@ -85,6 +94,7 @@ async function seedSuccessfulRecipeProof(
     : null;
   const recipeId = typeof params.recipeId === "string" ? params.recipeId : "delivery.push.github";
   const recipeVersion = typeof params.recipeVersion === "number" ? params.recipeVersion : 1;
+  const nodeId = recipeId === "delivery.push.github" ? "push" : "verify";
   const now = new Date();
   const [execution] = await db
     .select({ id: aiExecutionsTable.id, attempt: aiExecutionsTable.attempt })
@@ -106,9 +116,9 @@ async function seedSuccessfulRecipeProof(
     recipeId,
     recipeVersion,
     status: "completed",
-    completedNodeIds: ["push"],
+    completedNodeIds: [nodeId],
     nodes: [{
-      nodeId: "push",
+      nodeId,
       status: "passed",
       attempts: 1,
       elapsedMs: 10,
@@ -184,7 +194,7 @@ async function seedSuccessfulRecipeProof(
     kind: "recipe_evidence",
     recipeId,
     recipeVersion,
-    nodeId: "push",
+    nodeId,
     evidenceId: "recipe-proof-evidence",
     artifactRef: "recipe-proof-artifact",
     executionId,
@@ -241,6 +251,67 @@ async function seedSuccessfulRecipeProof(
   return executionId;
 }
 
+async function seedMissionRecipeEpisode(
+  params: Record<string, unknown>,
+  executionId: string,
+  planRevision: string,
+): Promise<void> {
+  const projectId = String(params.projectId);
+  const missionId = String(params.missionId);
+  const goalId = String(params.goalId);
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+      baseRevision: aiExecutionsTable.baseRevision,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, projectId),
+      eq(aiExecutionsTable.goalId, goalId),
+    ))
+    .limit(1);
+  if (!execution?.baseRevision) throw new Error("recipe episode fixture execution missing");
+
+  const id = randomUUID();
+  const scope = { kind: "mission_goal" };
+  const taskScope = taskScopeIdentity({
+    id,
+    projectId,
+    missionId,
+    goalId,
+    scope,
+  });
+  const worldState = await getProjectWorldState(projectId, {
+    taskScope,
+    environmentRevision: null,
+  });
+  const now = new Date();
+  await db.insert(aiAgentEpisodesTable).values({
+    id,
+    projectId,
+    executionId: execution.id,
+    attempt: execution.attempt,
+    missionId,
+    goalId,
+    projectRevision: execution.baseRevision,
+    worldRevision: worldState.worldRevision,
+    planRevision,
+    intentKind: "task",
+    scope,
+    observationRefs: [],
+    workerId: "mission-recipe-proof-fixture",
+    leaseUntil: new Date(now.getTime() + 60_000),
+    idempotencyKey: `mission-recipe-proof:${execution.id}`,
+    state: "completed",
+    verdict: "achieved",
+    createdAt: now,
+    updatedAt: now,
+    closedAt: now,
+  });
+}
+
 afterEach(async () => {
   recipeRunner.mockReset();
   githubDeliveryRunner.mockReset();
@@ -254,6 +325,214 @@ afterEach(async () => {
 });
 
 describe("Mission recipe dispatch", () => {
+  it("releases a dependent Goal only after the GitHub delivery proof is current", async () => {
+    const rootPath = await createTestRoot("delivery-successor");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const deliveryGoalId = randomUUID();
+    const successorGoalId = randomUUID();
+    const successorTaskId = randomUUID();
+    const operationId = randomUUID();
+    const planRevision = createHash("sha256").update(randomUUID()).digest("hex");
+    const sourceRevision = "delivery-source-revision";
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `delivery-successor-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Delivery successor fixture",
+      intent: "Release the dependent Goal only after verified delivery",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: deliveryGoalId,
+        missionId,
+        projectId,
+        title: "Deliver the verified change",
+        status: "running",
+        successCriteria: {
+          stepId: "deliver",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          deliveryRequired: true,
+          planRevision: { hash: planRevision },
+        },
+        nextAction: {
+          kind: "recipe",
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          approvedPaths: [],
+          candidateIdentity: null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: successorGoalId,
+        missionId,
+        projectId,
+        title: "Run the post-delivery task",
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        successCriteria: {
+          stepId: "after-delivery",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          deliveryRequired: false,
+          planRevision: { hash: planRevision },
+        },
+        nextAction: { kind: "task", taskId: successorTaskId },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(tasksTable).values({
+      id: successorTaskId,
+      projectId,
+      goalId: successorGoalId,
+      title: "Post-delivery task",
+      status: "verifying",
+      prompt: "Verify the accepted delivery.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId,
+      projectId,
+      goalId: successorGoalId,
+      dependsOnGoalId: deliveryGoalId,
+      planRevision,
+      createdAt: now,
+    });
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitPushed",
+      projectId,
+      correlationId: operationId,
+      payload: {
+        operationId,
+        operationMarker: `EngineeringOS-Operation: ${operationId}`,
+      },
+      severity: "success",
+      message: "Delivery receipt exists without Mission acceptance",
+      timestamp: now,
+    });
+
+    expect(await wakeReadyMissionGoals()).toBe(0);
+    expect(scheduleTaskExecution).not.toHaveBeenCalled();
+    let [successor] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, successorGoalId));
+    expect(successor).toEqual({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
+
+    const proofParams = {
+      projectId,
+      missionId,
+      goalId: deliveryGoalId,
+      operationId,
+      sourceRevision,
+      rootPath,
+      recipeId: "delivery.push.github",
+      recipeVersion: 1,
+      candidateIdentity: null,
+      idempotencyKey: `delivery-proof:${operationId}`,
+    };
+    const executionId = await seedSuccessfulRecipeProof(
+      proofParams,
+      "delivery-successor-execution",
+    );
+    await seedMissionRecipeEpisode(proofParams, executionId, planRevision);
+    const deliveryReceipt = {
+      kind: "recipe",
+      status: "completed",
+      executionId,
+      attempt: 0,
+      operationId,
+      sourceRevision,
+      candidateTreeHash: "a".repeat(64),
+      treeHash: "b".repeat(64),
+    };
+    await db.update(aiGoalsTable)
+      .set({
+        status: "completed",
+        completedAt: new Date(),
+        outcomeContract: {
+          deliveryRequired: true,
+          planRevision: { hash: planRevision },
+          acceptance: {
+            executionId,
+            outcome: "SUCCEEDED",
+            verdict: "PROVEN",
+            acceptedRefs: [executionId],
+            scope: {
+              projectId,
+              missionId,
+              goalId: deliveryGoalId,
+              operationId,
+              planRevision,
+            },
+            receipt: { kind: "recipe", executionId, status: "completed" },
+            deliveryReceipt,
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(aiGoalsTable.id, deliveryGoalId));
+
+    expect(await wakeReadyMissionGoals()).toBe(1);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    expect(scheduleTaskExecution).toHaveBeenCalledWith(
+      successorTaskId,
+      "test-user",
+      expect.any(Object),
+    );
+    [successor] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, successorGoalId));
+    expect(successor).toEqual({ status: "running", blockedReason: null });
+    const successorDispatches = await db
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.goalId, successorGoalId),
+        eq(eventsTable.taskId, successorTaskId),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(successorDispatches).toHaveLength(1);
+  });
+
   it("completes one Chat-to-Mission delivery loop with server-owned identity and receipt", async () => {
     const rootPath = await createTestRoot("unified");
     const projectId = randomUUID();

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
@@ -9,14 +9,19 @@ import { promisify } from "node:util";
 import { eq, and, sql } from "drizzle-orm";
 import app from "../app.js";
 import {
+  aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionsTable,
   auditLogsTable,
   aiProviderCredentialsTable,
+  aiWorldTransitionsTable,
   db,
   eventsTable,
   projectsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashChangeSet, hashDeliveryTree } from "../lib/delivery-workspace.js";
@@ -32,7 +37,9 @@ async function git(rootPath: string, args: string[]) {
 }
 
 async function createFixture() {
-  const rootPath = await mkdtemp(path.join(tmpdir(), "engineeringos-git-"));
+  const safeRootsPath = path.resolve(process.cwd(), "../..", ".test-roots");
+  await mkdir(safeRootsPath, { recursive: true });
+  const rootPath = await mkdtemp(path.join(safeRootsPath, "engineeringos-git-"));
   rootPaths.push(rootPath);
   await git(rootPath, ["init", "-q"]);
   await writeFile(path.join(rootPath, "README.md"), "fixture\n");
@@ -250,7 +257,7 @@ describe("AI-scoped Git commits", () => {
     expect(receipts).toHaveLength(1);
   });
 
-  it("completes an approved Apply → commit → push flow with one operation trace", async () => {
+  it("keeps manual Git push outside AI World State and completes the approved delivery trace", async () => {
     const fixture = await createFixture();
     const operationId = randomUUID();
     const remoteRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-git-remote-"));
@@ -488,6 +495,110 @@ process.exit(result.status ?? 1);
           });
         }
       }
+
+      await writeFile(
+        path.join(fixture.rootPath, "manual-update.md"),
+        "User-created commit outside the AI proposal lifecycle.\n",
+      );
+      await git(fixture.rootPath, ["add", "manual-update.md"]);
+      await git(fixture.rootPath, [
+        "-c", "user.name=Fixture",
+        "-c", "user.email=fixture@example.com",
+        "commit", "-qm", "Manual user update",
+      ]);
+      const transitionsBeforeManualPush = await db
+        .select({ id: aiWorldTransitionsTable.id })
+        .from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.projectId, fixture.projectId));
+      expect(transitionsBeforeManualPush).toHaveLength(0);
+      const episodeIdsBeforeManualPush = (await db
+        .select({ id: aiAgentEpisodesTable.id })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, fixture.projectId)))
+        .map(({ id }) => id)
+        .sort();
+
+      const manualPush = await request(app)
+        .post(`/api/projects/${fixture.projectId}/git/push`)
+        .send({});
+      expect(manualPush.status).toBe(200);
+      const manualCorrelationId = manualPush.body.correlationId as string;
+      expect(manualCorrelationId).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(manualCorrelationId).not.toBe(operationId);
+
+      const [manualReceipt] = await db
+        .select({ correlationId: eventsTable.correlationId, payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.type, "GitPushed"),
+          eq(eventsTable.correlationId, manualCorrelationId),
+        ));
+      expect(manualReceipt?.correlationId).toBe(manualCorrelationId);
+      expect(manualReceipt?.payload).not.toHaveProperty("proposalId");
+      expect(manualReceipt?.payload).toMatchObject({ operationId: manualCorrelationId });
+
+      expect(await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, fixture.projectId),
+          eq(aiExecutionsTable.correlationId, manualCorrelationId),
+        ))).toHaveLength(0);
+      const episodeIdsAfterManualPush = (await db
+        .select({ id: aiAgentEpisodesTable.id })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, fixture.projectId)))
+        .map(({ id }) => id)
+        .sort();
+      expect(episodeIdsAfterManualPush).toEqual(episodeIdsBeforeManualPush);
+      expect(await db
+        .select({ id: aiAgentEpisodeEventsTable.id })
+        .from(aiAgentEpisodeEventsTable)
+        .where(and(
+          eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId),
+          eq(aiAgentEpisodeEventsTable.correlationId, manualCorrelationId),
+        ))).toHaveLength(0);
+      expect(await db
+        .select({ id: aiWorldTransitionsTable.id })
+        .from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.projectId, fixture.projectId)))
+        .toEqual(transitionsBeforeManualPush);
+
+      const scanDeadline = Date.now() + 30_000;
+      let manualScanStatus: string | undefined;
+      let projectScansTerminal = false;
+      while (Date.now() < scanDeadline) {
+        const queuedEvents = await db
+          .select({ jobId: eventsTable.correlationId, payload: eventsTable.payload })
+          .from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.type, "ProjectScanQueued"),
+          ));
+        const manualScanEvent = queuedEvents.find(({ payload }) =>
+          payload !== null
+          && typeof payload === "object"
+          && "parentCorrelationId" in payload
+          && payload.parentCorrelationId === manualCorrelationId);
+        const projectScanJobs = await db
+          .select({ id: scanJobsTable.id, status: scanJobsTable.status })
+          .from(scanJobsTable)
+          .where(eq(scanJobsTable.projectId, fixture.projectId));
+        const manualScanJob = projectScanJobs.find((job) => job.id === manualScanEvent?.jobId);
+        manualScanStatus = manualScanJob?.status;
+        projectScansTerminal = projectScanJobs.length > 0
+          && projectScanJobs.every((job) => job.status === "completed" || job.status === "failed");
+        if (manualScanStatus === "completed" && projectScansTerminal) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(manualScanStatus).toBe("completed");
+      expect(projectScansTerminal).toBe(true);
+
+      const manualRemoteFiles = await execFileAsync("git", [
+        "--git-dir", remotePath, "show", "--format=", "--name-only", "main",
+      ]);
+      expect(manualRemoteFiles.stdout.trim().split(/\r?\n/)).toContain("manual-update.md");
     } finally {
       if (originalPathEnv === undefined) delete process.env.PATH;
       else process.env.PATH = originalPathEnv;
@@ -496,7 +607,7 @@ process.exit(result.status ?? 1);
       if (previousCryptoKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
       else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousCryptoKey;
     }
-  });
+  }, 60_000);
 
   it("records durable push recovery after an uncertain remote result and safely retries", async () => {
     const fixture = await createFixture();

@@ -929,13 +929,23 @@ describe("workspace runtime full API startup recovery", () => {
         await waitForRuntimeWorkerDatabaseDisconnect(beforeApplicationName);
         expect(await fetchRuntimeFixture(knownRuntimePort)).toBe("runtime-startup-live");
 
-        const expiredHeartbeat = new Date(Date.now() - RUNTIME_LEASE_MS - 1);
-        expect(await databaseWorkspaceRuntimeStore.updateOwnedSession(
-          knownProjectId,
+        const orphanedRuntime = await databaseWorkspaceRuntimeStore.get(knownProjectId);
+        expect(orphanedRuntime).toMatchObject({
+          status: "running",
           sessionId,
-          priorOwnerId,
-          { leaseUntil: expiredLease, lastHeartbeatAt: expiredHeartbeat },
-        )).toBe(true);
+          workerId: priorOwnerId,
+          pid: knownRuntimePid,
+          port: knownRuntimePort,
+        });
+        const orphanedLeaseUntil = orphanedRuntime?.leaseUntil?.getTime();
+        expect(orphanedLeaseUntil).toBeGreaterThan(Date.now());
+        if (!orphanedLeaseUntil) throw new Error("The killed API worker left no durable runtime lease to expire.");
+        while (Date.now() <= orphanedLeaseUntil) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        const naturallyExpiredRuntime = await databaseWorkspaceRuntimeStore.get(knownProjectId);
+        expect(naturallyExpiredRuntime?.workerId).toBe(priorOwnerId);
+        expect(naturallyExpiredRuntime?.leaseUntil?.getTime()).toBeLessThan(Date.now());
 
         const afterPort = await reserveLoopbackPort();
         const afterApplicationName = `runtime-api-after-${randomUUID().slice(0, 8)}`;

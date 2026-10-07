@@ -4716,6 +4716,61 @@ G9 Revocation Safety
 - **remaining/blocker:** worker ID السابق وصفوف lease حُقنت في fixture، وانتهاء lease مُحاكى مباشرة بدل انتظار timeout؛ لذلك لا يثبت الاختبار أن API الأول امتلك أو جدّد lease هذه الصفوف. supervisor محلي test double، ولا يغطي كل crash window أو workflow أو route؛ E2 تبقى `OPEN`.
 - **next step:** تابع خفض فجوات E2 واحدة قابلة للتحقق في كل مرة؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — إثبات ملكية API الأولى لـruntime lease قبل SIGKILL
+
+- **phase/step:** E2 فقط — ownership الفعلي للـlease عبر startup ثم recovery من `src/index.ts`.
+- **status:** `first-worker lease ownership and replacement adoption verified (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُعيد ترتيب اختبار startup بحيث تُزرع session بlease قديمة قبل بدء API الأولى. ينتظر الاختبار اكتمال `workspaceRuntime.recover()` قبل healthz؛ ثم يتحقق من adoption عبر fixture ومن `workerId` والـlease الفعليين اللذين كتبهما API الأول. بعد `SIGKILL`، ينهي الاختبار lease باستخدام ذلك `workerId` تحديدًا، ويثبت أن API الثانية تتبنى الجلسة نفسها. صف listener `UNKNOWN` يبقى `running` مع process حي وclaim/lease محررين، بلا طلب supervisor.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime-store.test.ts` وسجل التقدم وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات production code أو schema.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` نجحا؛ اختبار `RUN_RUNTIME_STARTUP_RECOVERY=1 ... vitest ...` نجح **1/1، 4 skipped** بعد schema apply على PostgreSQL مؤقتة loopback. `AI_PROVIDER_EGRESS_DISABLED=1`، والـfetch preload يوجّه supervisor إلى HTTP fixture محلي ويمنع egress الخارجي. أُوقفت القاعدة وحُذف جذرها؛ لا provider حي أو قاعدة مشتركة أو managed workflow أُعيد تشغيله.
+- **authority/safety impact:** يثبت أن API الأولى امتلكت lease فعلية وأن API الثانية أعادت adoption بعد فقد العامل؛ listener `UNKNOWN` لا يمنح ownership ولا يوقف العملية.
+- **remaining/blocker:** الصف الأولي stale والـlease بعد `SIGKILL` مُهيآن في fixture؛ لا انتظار لانتهاء طبيعي أو إثبات لسلوك supervisor المُدار، ولا يغطي هذا بقية crash windows. E2 تبقى `OPEN`.
+- **next step:** اختر فجوة E2 أخرى غير مغطاة من mutation/recovery matrix؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-07 — انتهاء runtime lease طبيعيًا بعد فقد API worker
+
+- **phase/step:** E2 فقط — lease timeout بعد ملكية فعلية من API الأول.
+- **status:** `natural lease expiry and second full startup adoption verified (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** بعد أن يتبنى API الأول الصف stale ويكتب worker ID وlease فعليين، يقتل الاختبار العامل بـ`SIGKILL` وينتظر lease المسجلة حتى تنقضي دون تعديل صف قاعدة البيانات. بعد ذلك يبدأ `src/index.ts` ثانيًا ويتبنى runtime listener المعروف؛ يظل listener `UNKNOWN` حيًا وصفه `running` بلا claim/lease وبلا adoption.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/workspace-runtime-store.test.ts` وسجل التقدم وتقرير `docs/agent-core-forensic-status-report.md` وذاكرة runtime؛ لا production code أو schema.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` و`git diff --check` ناجحان؛ الاختبار المستهدف **1/1، 4 skipped** على PostgreSQL loopback مؤقتة بعد schema apply، واستغرق الاختبار 55.87 ثانية. `AI_PROVIDER_EGRESS_DISABLED=1` والـsupervisor HTTP fixture محلي؛ أُوقفت القاعدة وحُذف جذرها، ولا provider حي أو managed workflow أُعيد تشغيله.
+- **authority/safety impact:** يثبت takeover بعد انتهاء lease الفعلية من دون كتابة DB تعجّل recovery؛ listener `UNKNOWN` لا يقتل العملية ولا يحصل على ownership.
+- **remaining/blocker:** الصف stale الأولي fixture-seeded، وsupervisor local test double؛ لا يثبت هذا managed-supervisor behavior أو بقية crash windows. E2 تبقى `OPEN`.
+- **next step:** افحص فجوة E2 المتبقية لمسار Git اليدوي/World Transition دون اختراع execution أو Episode identity؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-07 — تثبيت حدّ Git اليدوي عن World Transition
+
+- **phase/step:** E2 فقط — عقد `/git/push` عند عدم وجود proposal أو operation AI.
+- **status:** `manual push remains outside AI execution/Episode/World Transition; route test passed (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يضيف اختبار route commit يدويًا ثانيًا بعد التدفق المرتبط بالمقترح، ثم يدفعه إلى bare remote محلي بطلب `/git/push` بلا `proposalId` أو `operationId`. يثبت وجود إيصال `GitPushed` بمعرّف correlation جديد، وعدم وجود Execution مرتبطة به أو Episode جديد/episode event أو World Transition للمشروع. هذا يؤكد الفصل المقصود بين Git المستخدم العادي ومسار recipe الذي يملك عقد انتقال منفصلًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/git.test.ts`، تقرير `docs/agent-core-forensic-status-report.md`، وهذا السجل؛ لا تغييرات production code أو schema.
+- **validation:** API typecheck و`git diff --check` نجحا؛ الاختبار المستهدف نجح **1/1، 6 skipped** على PostgreSQL loopback مؤقتة مع bare remote محلي و`AI_PROVIDER_EGRESS_DISABLED=1`. أُوقفت القاعدة وحُذف جذرها؛ لا provider حي أو managed workflow أُعيد تشغيله. ظهر فشل مستقل في fire-and-forget post-push scan لأن جذر fixture `/tmp/engineeringos-git-*` shallow؛ لا يغيّر نجاح push لكنه لا يثبت نجاح scan.
+- **authority/safety impact:** لا تُنشأ authority AI أو World Transition لمجرد push يدوي؛ event receipt لا يثبت Goal dispatch.
+- **remaining/blocker:** نجاح automatic scan بعد push غير مثبت بسبب جذر الاختبار غير المقبول؛ live GitHub غير مختبر، وrecipe push-to-successor ما زال غير محسوم. E2 تبقى `OPEN`.
+- **next step:** اجعل Git route test يستخدم جذرًا آمنًا للمسح، ثم أثبت أن post-push scan المرتبط بالـpush يصل لحالة durable نهائية؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-07 — إثبات اكتمال scan المرتبط بدفع Git اليدوي
+
+- **phase/step:** E2 فقط — terminal persistence لمسح المشروع الذي يُجدول بعد manual `/git/push`.
+- **status:** `manual push boundary and post-push scan completion verified (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** المحاولة السابقة رفضت scan لأن المشروع التجريبي كان تحت `/tmp`، وهو جذر غير مسموح للمسح. أصبح fixture داخل workspace-safe `.test-roots`، ويحدد الاختبار `ProjectScanQueued` الذي يحمل `parentCorrelationId` الخاص بالـpush، وينتظر scan job المرتبط به حتى `completed` ويتأكد أن جميع scan jobs للمشروع وصلت إلى حالة terminal. بقي مسار المسح fail-closed بلا تغيير.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/git.test.ts`، تقرير `docs/agent-core-forensic-status-report.md`، وهذا السجل؛ لا تغييرات production code أو schema. يُحذف فقط جذر fixture الفريد بعد الاختبار.
+- **validation:** API typecheck و`git diff --check` نجحا؛ الاختبار المستهدف نجح **1/1، 6 skipped** على PostgreSQL مؤقتة loopback، مع bare remote محلي و`AI_PROVIDER_EGRESS_DISABLED=1`. أُوقفت القاعدة وحُذف جذرها؛ لا provider حي أو managed workflow أُعيد تشغيله.
+- **authority/safety impact:** نجاح push منفصل عن مسح المشروع؛ لا يُقبل Git receipt كـWorld Transition. المسح يظل خلف `establishProjectRoot` ويُسجل حالة durable مرتبطة بالـpush.
+- **remaining/blocker:** manual route والـpost-push scan مثبتان في هذا fixture. لا يوجد اتصال GitHub حي؛ recipe `delivery.push.github` successor edge ما زال غير محسوم، وأس surfaces E2 الأخرى تبقى مفتوحة.
+- **next step:** افحص إثبات successor dispatch لمسار recipe `delivery.push.github` دون خلطه بمسار Git اليدوي أو receipt وحده؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-07 — successor اعتمادي بعد إثبات recipe delivery
+
+- **phase/step:** E2 فقط — تحرير Goal تابع بعد `delivery.push.github`.
+- **status:** `ordinary dependency dispatch verified (23/23); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أضيف اختبار DB-backed يزرع حدث `GitPushed` بينما Goal التسليم غير مكتمل، ويتحقق أن successor يبقى `waiting_for_event` ولا يُوزع. بعد إضافة execution/attempt وCanonical acceptance وإيصال recipe وEpisode متطابقة، يحرر `wakeReadyMissionGoals` Goal التابعة ويوزع مهمة واحدة. هذا يغطي الاعتماد العادي، لا successor ذي شرط صريح على World Transition.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/mission-runtime-recipe.test.ts`، هذا السجل، وتقرير `docs/agent-core-forensic-status-report.md`؛ لا تغييرات production code أو schema.
+- **validation:** الاختبار الجديد نجح **1/1، 22 skipped**، وملف `mission-runtime-recipe.test.ts` كاملًا **23/23** على PostgreSQL مؤقتة loopback بعد `schema:apply`. `tsc -p tsconfig.json --noEmit --pretty false --incremental false` نجح؛ أمر package `typecheck` الأول انتهت مهلته أثناء forced dependency build. نجح `git diff --check` بعد تحديث التقرير والسجل. أُوقفت القاعدة المؤقتة وحُذف جذرها؛ لم يُعَد تشغيل أي workflow مُدار.
+- **authority/safety impact:** سجل Git وحده لا يمنح dispatch؛ يتطلب successor إثبات Canonical Proof الحالي وإيصال delivery الدائم المرتبط بالتنفيذ. لا تغيّر في الصلاحيات أو مسار Git اليدوي.
+- **remaining/blocker:** لم يختبر fixture إنشاء World Transition الفعلي أو شرط successor مربوطًا به، ولم يُستخدم اتصال GitHub حي. تبقى هذه الحدود وأس surfaces E2 الأخرى مفتوحة.
+- **next step:** احسم ضمن E2 هل يحتاج delivery successor إلى عقد انتقال صريح، ثم اختبره منفصلًا إن كان مطلوبًا؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

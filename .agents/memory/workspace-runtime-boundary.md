@@ -21,8 +21,8 @@ The internal runtime supervisor is a local control service, not a preview artifa
 
 **How to apply:** Keep the supervisor bound to loopback with no `waitForPort`; use heartbeat adoption plus durable PID/port state for recovery.
 
-During recovery, the durable worker/lease claim is written before listener ownership and supervisor adoption are verified; a claimed row alone is not proof that adoption completed. Startup fixtures that synthesize the old worker ID or expire its lease directly prove startup orchestration, not that the killed API actually held that lease or that the managed supervisor adopted the process.
+During recovery, the durable worker/lease claim is written before listener ownership and supervisor adoption are verified; a claimed row alone is not proof that adoption completed. To prove takeover after worker death, seed an expired row before startup, wait until full `src/index.ts` recovery completes, observe the actual worker ID and active lease, kill that API, then wait for the recorded lease to expire naturally before starting the replacement.
 
-**Why:** The claim is an intermediate recovery state, while API worker IDs are process-local and a local supervisor HTTP fixture cannot establish behavior of the managed supervisor.
+**Why:** API worker IDs are process-local; rows inserted after startup may only be claimed by a later sweep, and `recover()` persists its claim before it verifies adoption. Updating the database to force expiry skips the timing behavior that recovery is supposed to validate. Managed supervisor behavior is a separate boundary from API orchestration.
 
-**How to apply:** Wait for the exact supervisor request and reload the final durable row before asserting adoption. State when worker identity or lease expiry is fixture-seeded; stronger ownership proof must observe the actual API worker ID and lease before killing it. Redirect only the isolated child API's supervisor calls to a loopback fixture.
+**How to apply:** Wait for the exact supervisor request and for API startup health after recovery, then reload the durable row before asserting ownership. Bind the post-kill expiry check to the captured lease and wait it out without mutating the row. State when the initial stale lease is fixture-seeded. Redirect only the isolated child API's supervisor calls to a loopback fixture.
