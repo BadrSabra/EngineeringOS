@@ -4782,6 +4782,17 @@ G9 Revocation Safety
 - **remaining/blocker:** الانتقال المقيد مباشرةً بـ`delivery.push.github` ليس سلوكًا مدعومًا في عقد Mission الحالي، وليس invariant ضمن runtime.start pilot. أي إضافة مستقبلية تحتاج قرار عقد مستقل؛ E2 ما زالت مفتوحة بسبب أسطح أخرى.
 - **next step:** انتقل إلى فجوة E2 مستقلة ومحددة من مصفوفة الحالة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — تحقق D2 من انتقال runtime.start إلى successor
+
+- **phase/step:** E2 فقط — materialize انتقال `runtime.start` ثم تحرير successor المرتبط بخطة Mission.
+- **status:** `exact transition-to-successor dispatch verified (2/2); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُعيد تشغيل اختبارين DB-backed موجودين. الأول ينفذ `finalizeRuntimeStartTransition` على ملاحظات before/after مربوطة بالمحاولة وEpisode وEffectBundle، ثم يثبت أن `wakeRuntimeTransitionMissionGoals` يحرر الهدف المحدد مرة واحدة فقط ويرسل في حدث dispatch transition proof بالهوية الدقيقة للانتقال وخطتي المصدر/الهدف. الثاني يغير fact غير متعلق في World State ويثبت أن D2 event-scoped لا يتعطل بسبب تغير project revision العام.
+- **files/schema/contracts touched:** تقرير `docs/agent-core-forensic-status-report.md` وهذا السجل فقط؛ لا تغييرات production code أو schema.
+- **validation:** نجح اختبار `runtime-start-transition.test.ts` المستهدف واختبار `mission-runtime.test.ts` المستهدف **2/2، 64 skipped** بعد `schema:apply` على PostgreSQL مؤقتة loopback مع `AI_PROVIDER_EGRESS_DISABLED=1`. أُوقفت القاعدة وحُذف جذرها. نجح `git diff --check` بعد تحديث التقرير والسجل؛ لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** dispatch D2 يتطلب Transition materialized ومطابقًا للمحاولة وEpisode وAction وEffectBundle والملاحظات والبيئة والمراجعة النشطة؛ قبول Gate C وحده أو اكتمال Goal عادي لا يستبدل هذا الدليل.
+- **remaining/blocker:** هذا يثبت consumer edge لمسار `runtime.start` فقط، ولا يغلق recovery لكل crash window أو supervisor مُدار أو بقية أسطح E2. E2 تبقى `OPEN`.
+- **next step:** اختر فجوة E2 مستقلة من المصفوفة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
