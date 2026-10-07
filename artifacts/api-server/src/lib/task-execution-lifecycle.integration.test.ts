@@ -8,6 +8,7 @@ import {
   buildMissionRepairEffectContract,
   MISSION_REPAIR_TOOL_CAPABILITY_ID,
 } from "./agent-state/mission-repair-effect.js";
+import { seedCanonicalMissionGoalCompletion } from "../__tests__/mission-dependency-proof-fixture.js";
 import * as effectObserver from "./agent-state/effect-observer.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
@@ -7324,6 +7325,160 @@ describe("real durable task execution lifecycle", () => {
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId));
       expect(task?.status).toBe("verifying");
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.missionId, missionId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("admits a linked task when its completed Goal dependency has current proof", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const sourceGoalId = randomUUID();
+    const goalId = randomUUID();
+    const taskId = randomUUID();
+    const planRevision = "mission-dependency-admission-v1";
+    const sourceRevision = "a".repeat(40);
+    const now = new Date();
+    const rootPath = await mkdtemp(join("/tmp", "mission-dependency-proof-admission-"));
+
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: "test-user",
+        name: `mission-proof-admission-${projectId.slice(0, 8)}`,
+        rootPath,
+        language: "typescript",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiMissionsTable).values({
+        id: missionId,
+        projectId,
+        userId: "test-user",
+        title: "Dependency proof admission fixture",
+        intent: "Start the dependent task only after current proof exists",
+        status: "active",
+        scope: { kind: "project", projectId },
+        autonomyPolicy: { activePlanRevision: planRevision },
+        budget: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiGoalsTable).values([
+        {
+          id: sourceGoalId,
+          missionId,
+          projectId,
+          title: "Verified prerequisite",
+          status: "running",
+          successCriteria: { planRevision: { hash: planRevision } },
+          outcomeContract: { planRevision: { hash: planRevision } },
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: goalId,
+          missionId,
+          projectId,
+          title: "Dependent Goal",
+          status: "queued",
+          successCriteria: { planRevision: { hash: planRevision } },
+          outcomeContract: { planRevision: { hash: planRevision } },
+          nextAction: { kind: "task", taskId },
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+      await db.insert(aiGoalDependenciesTable).values({
+        id: randomUUID(),
+        missionId,
+        projectId,
+        goalId,
+        dependsOnGoalId: sourceGoalId,
+        planRevision,
+        createdAt: now,
+      });
+      await db.insert(tasksTable).values({
+        id: taskId,
+        projectId,
+        goalId,
+        title: "Proof-gated dependent task",
+        prompt: "Run after the prerequisite proof is current",
+        status: "verifying",
+        retryCount: 0,
+        maxRetries: 2,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const sourceProof = await seedCanonicalMissionGoalCompletion({
+        projectId,
+        missionId,
+        goalId: sourceGoalId,
+        planRevision,
+        sourceRevision,
+      });
+
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId: "test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: sourceRevision,
+      });
+
+      expect(outcome).toMatchObject({
+        ok: true,
+        status: "completed",
+        executionId: expect.any(String),
+      });
+      const linkedExecutions = await db.select({
+        id: aiExecutionsTable.id,
+        goalId: aiExecutionsTable.goalId,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      expect(linkedExecutions).toEqual([expect.objectContaining({
+        id: outcome.executionId,
+        goalId,
+        status: "completed",
+        attempt: 0,
+      })]);
+      if (!outcome.executionId) throw new Error("Expected linked Task execution ID");
+      const linkedAcceptances = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        attempt: aiExecutionAcceptancesTable.attempt,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, outcome.executionId));
+      expect(linkedAcceptances).toEqual([{
+        outcome: "SUCCEEDED",
+        terminalStatus: "completed",
+        attempt: 0,
+      }]);
+      const [sourceGoal] = await db.select({
+        status: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, sourceGoalId));
+      expect(sourceGoal?.status).toBe("completed");
+      expect(sourceGoal?.outcomeContract).toMatchObject({
+        acceptance: {
+          executionId: sourceProof.executionId,
+          verdict: "PROVEN",
+          scope: { planRevision },
+        },
+      });
+      const [task] = await db.select({ status: tasksTable.status })
+        .from(tasksTable).where(eq(tasksTable.id, taskId));
+      expect(task?.status).toBe("completed");
     } finally {
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));

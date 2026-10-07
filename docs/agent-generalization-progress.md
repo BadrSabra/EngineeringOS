@@ -4815,6 +4815,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يُختبر هنا السماح بمهمة تابعة عند وجود proof صالح، ولا scheduler dispatch الناجح أو parity العامة بين Task وGoal/Mission؛ هذه الحدود تبقى `UNKNOWN`.
 - **next step:** اختر فجوة E2 مستقلة قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — السماح بـTask تابعة عند وجود Canonical Proof حالي
+
+- **phase/step:** E2 فقط — direct Task admission لمهمة مرتبطة بـGoal تعتمد على prerequisite مكتملة.
+- **status:** `current-proof Task admission allowed and accepted (1/1); deny/allow cases 2/2; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُضيف اختبار DB-backed مقابل اختبار الرفض السابق. يزرع fixture Canonical Proof للـGoal السابقة على revision الخطة الفعّالة ومراجعة workspace نفسها، ثم يستدعي `executeTaskLifecycle` مباشرة. تُقبل المحاولة ويكتمل execution واحد مرتبط بالـTask مع acceptance دائم `SUCCEEDED` للمحاولة الحالية؛ يظل إثبات Goal السابقة هو Canonical Proof الذي سمح بالدخول. لا يدعي الاختبار اكتمال Goal التابعة أو Mission.
+- **files/schema/contracts touched:** اختبار `task-execution-lifecycle.integration.test.ts`، وهذا السجل، وجدول التغطية في `docs/agent-core-forensic-status-report.md`؛ لا تغييرات production code أو schema.
+- **validation:** نجح `pnpm --filter @workspace/db run schema:apply` على PostgreSQL مؤقتة loopback، ثم `cd artifacts/api-server && pnpm exec vitest run src/lib/task-execution-lifecycle.integration.test.ts -t 'linked task'` بنتيجة **2 passed / 46 skipped** مع `AI_PROVIDER_EGRESS_DISABLED=1`. نجح `pnpm exec tsc -p tsconfig.json --noEmit`، وأُوقفت القاعدة وحُذف جذرها المؤقت؛ لم يُعَد تشغيل workflow مُدار أو provider حي.
+- **authority/safety impact:** حالة `completed` وحدها لا تسمح بالدخول؛ عند وجود Canonical Proof حالي ومطابق للخطة ومراجعة المصدر، يسمح فحص Task المباشر بالتنفيذ. لم يُمنح execution سلطة إكمال Goal/Mission.
+- **remaining/blocker:** لا يختبر هذا الحد scheduler dispatch أو منع duplicate wake، ولا parity العامة بين direct Task admission وGoal/Mission completion. E2 تبقى مفتوحة؛ لا يبدأ E3 أو Learning/Transfer/Generalization.
+- **next step:** اختر فجوة E2 أخرى قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
