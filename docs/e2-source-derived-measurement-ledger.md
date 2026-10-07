@@ -157,6 +157,24 @@ For each family, record the search method and reviewed result for:
 
 Only then may that family move from `UNKNOWN` to `CLOSED`. The census itself is documentation derived from source references; it must not become a runtime permission catalog or duplicate the existing registries.
 
+### Orthogonal surface dispositions
+
+For each discovered surface, record its behavior along separate dimensions rather than assigning one mutually exclusive label:
+
+| Dimension | Record |
+|---|---|
+| Durable state | Whether the surface reads or writes durable state, or remains `UNKNOWN` |
+| External effect | Whether it can create or report an external effect, and the observed effect boundary |
+| Execution outcome | Whether it can terminalize an execution; distinguish successful authority-bearing completion from failure, cancellation, abandonment, and informational status |
+| World State | Whether it reserves, materializes, or only reads/projects a World Transition |
+| Decision use | Whether the value can authorize completion, dependency release, dispatch, approval, promotion, or is display-only |
+| Required authority | The exact acceptance, Canonical Proof, effect observation, approval, or other server-owned check required for that operation |
+| Identity binding | The project, operation, execution, attempt, objective/plan revision, candidate, and evidence identities actually required at that boundary |
+
+A surface can have more than one disposition. Split distinct reads, writes, projections, and decision edges into separate rows when they have different authority or failure behavior. A terminal failure or cancellation is not successful completion; its correct classification does not by itself satisfy a dependent Goal or authorize promotion. Likewise, a status projection is not an acceptance writer merely because it displays `completed` or `PROVEN`.
+
+These dispositions refine source review only. They do not create a new runtime catalog, change permission, or replace the atomic `surface × invariant` evidence register. If a disposition or identity requirement cannot be established from reviewed source and bounded evidence, keep it `UNKNOWN`.
+
 ## Atomic E2 evidence register
 
 Statuses below apply only to the invariant as written. Historical results are identified as such and are not represented as tests rerun in this update.

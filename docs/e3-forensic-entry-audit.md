@@ -58,3 +58,39 @@ The code-first follow-up is recorded in [`agent-core-four-agent-forensic-audit-2
 - `buildEvidenceBackedAnswer()` has no confirmed product-acceptance consumer in the reviewed paths; its authority impact is `UNKNOWN`.
 - Apply W0–W8 tests cover bounded apply/startup and HTTP-route crash cases. Earlier progress records a successful isolated run; the follow-up audit did not rerun it. Those Apply tests do not close E3.2 replay safety across source/replay receipts and other mutation surfaces.
 - Keep E3.2 `OPEN` until current-attempt replay proof, receipt persistence/recovery, and all required replay consumers are covered by broader evidence and verified tests.
+
+## 2026-10-07 contract refinement — documentation only
+
+This refinement does not start E3 implementation, pass E2, or authorize Strategy Replay. E2 remains active; E3 remains stopped until the E2 gate explicitly passes.
+
+### Decision-consumer contract
+
+Treat a surface according to the decision it makes, not merely the status field it reads:
+
+- Any authority-bearing decision that relies on completion or `PROVEN`—including dependency release, successor dispatch, acceptance, approval, or promotion—must reload or derive the current server-owned Canonical Proof for the exact authorized scope. A stored `completed`/`PROVEN` value or receipt is not sufficient.
+- A read/API/UI projection that does not load current proof remains explicitly status-only or historical. It must not be consumed by an authority-bearing path.
+- Task-local verification, Mission/Goal completion, effect acceptance, and World Transition are separate claims. Evidence for one must not silently promote another.
+
+### First E3 implementation boundary after authorization
+
+Use the existing failure matrix to scope, rather than broaden, the first implementation slice:
+
+1. **Goal dependency release:** define whether and under what exact conditions a proof from an earlier plan revision can satisfy a dependency in the active plan. Until that policy is explicit and enforced, missing, stale, or revision-ambiguous proof must block release rather than inherit authority from `status === "completed"`.
+2. **Mission aggregation:** distinguish stored aggregate status from proof-backed completion. Do not describe an aggregate as Canonically proven unless the required Goal proofs are current for the defined Mission scope.
+3. **Projections and replay receipts:** preserve useful historical display, but label freshness and keep the values non-authoritative. Decision gates must reload the source and replay proofs for the current attempt.
+
+Keep these as separate contracts and test classes; a projection finding is not automatically a writer bypass, and an unreachable helper is not a production path.
+
+### Required stale-read race fixture
+
+For each authority-bearing consumer in scope, include a deterministic race case:
+
+```text
+A reads a valid dependency/proof
+B changes the dependency, active revision, attempt, or cancellation state
+A attempts to commit authorization or release the successor
+```
+
+The result must be a bounded block/replan or a decision based on freshly revalidated state. The test must exercise the production transaction/lock or compare-and-set boundary; a helper-only mock does not establish race safety. Add missing-proof, prior-attempt, stale-revision, and incomplete-evidence cases independently, and keep crash/replay receipt recovery as its own contract.
+
+This is a proposed E3 acceptance contract only. Do not expand it into World Delta work, a new universal authorization service, or Learning/Transfer/Generalization.
