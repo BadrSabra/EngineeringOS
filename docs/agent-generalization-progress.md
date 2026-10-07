@@ -4804,6 +4804,17 @@ G9 Revocation Safety
 - **remaining/blocker:** تغيير action/قرار الـplanner بسبب fact ذي صلة ما زال غير مثبت (`UNKNOWN`)، والاختبار يثبت ثبات الخطوات لا تغيّرها. بقية lifecycle/recovery وmutation surfaces ضمن E2 مفتوحة.
 - **next step:** اختر فجوة E2 مستقلة قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — منع بدء Task تابع بلا Canonical Proof حالي
+
+- **phase/step:** E2 فقط — direct Task admission عند وجود dependency Goal منتهية بلا إثبات حالي.
+- **status:** `unproven-dependency admission denied before execution (1/1); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُعيد تشغيل اختبار DB-backed يستدعي `executeTaskLifecycle` مباشرةً على Task تابع لـGoal تعتمد على prerequisite بحالة `completed` لكن بلا Canonical Proof حالي. النداء يُرفض بـ`mission_dependency_proof_unproven`، ولا ينشئ سجل AI execution جديدًا، وتبقى Task بحالة `verifying`.
+- **files/schema/contracts touched:** تقرير `docs/agent-core-forensic-status-report.md` وهذا السجل فقط؛ لا تغييرات production code أو schema.
+- **validation:** نجح `pnpm --filter @workspace/db run schema:apply` على PostgreSQL مؤقتة loopback، ثم الاختبار المستهدف في `task-execution-lifecycle.integration.test.ts` بنتيجة **1 passed / 46 skipped** مع `AI_PROVIDER_EGRESS_DISABLED=1`. أُوقفت القاعدة وحُذف جذرها؛ لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** حالة Goal المسجلة `completed` لا تسمح وحدها ببدء Task تابع عند غياب Canonical Proof الحالي؛ لم يُنشأ execution قبل رفض فحص dependency.
+- **remaining/blocker:** لم يُختبر هنا السماح بمهمة تابعة عند وجود proof صالح، ولا scheduler dispatch الناجح أو parity العامة بين Task وGoal/Mission؛ هذه الحدود تبقى `UNKNOWN`.
+- **next step:** اختر فجوة E2 مستقلة قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
