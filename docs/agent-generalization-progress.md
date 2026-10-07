@@ -4771,6 +4771,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يختبر fixture إنشاء World Transition الفعلي أو شرط successor مربوطًا به، ولم يُستخدم اتصال GitHub حي. تبقى هذه الحدود وأس surfaces E2 الأخرى مفتوحة.
 - **next step:** احسم ضمن E2 هل يحتاج delivery successor إلى عقد انتقال صريح، ثم اختبره منفصلًا إن كان مطلوبًا؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — حسم نطاق successor المرتبط بانتقال GitHub delivery
+
+- **phase/step:** E2 فقط — مراجعة عقد Mission وD2 لمسار `delivery.push.github`.
+- **status:** `no delivery-transition successor contract in current plan; scope boundary confirmed; E2 remains OPEN`
+- **what changed:** مراجعة الخطة والـdispatcher أكدت أن `transitionRequirements` في `GeneralTaskPlan` محصورة بالنوع `RuntimeStartTransitionRequirement`، ويُنشئها المخطط عبر `runtimeStartTargetStepId` لمسار `runtime.start`. لدى Apply عقده الصارم المنفصل. لا يعرّف مخطط Mission أو materializer شرط source/target لانتقال GitHub delivery؛ dependencies العادية تنتظر Canonical Proof للـGoal السابق. هذا يتفق مع حدّ D2 الحالي الذي يقصر pilot على `runtime.start` بدل إضافة predicate أو scheduler عام.
+- **files/schema/contracts touched:** تقرير `docs/agent-core-forensic-status-report.md` وهذا السجل فقط؛ لا تغييرات production code أو schema. اختبار Mission recipe السابق يثبت dependency dispatch العادي ولا يدعي تغطية D2 للـdelivery Transition.
+- **validation:** فحص مصدر الخطة والمخطط والـmaterializer والـdispatcher أكد حدود العقد؛ نجح `git diff --check` بعد تحديث السجل. لا حاجة لإعادة اختبار ديناميكي لأن هذا تحديث تصنيف نطاق، واختبارات proof/dependency الحالية لم تتغير. لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** لا يمنح receipt أو materialized delivery Transition صلاحية dispatch بذاته؛ تبقى dependency العادية خلف Canonical Proof الحالي. لا تغيير سلوكي أو توسيع صلاحيات.
+- **remaining/blocker:** الانتقال المقيد مباشرةً بـ`delivery.push.github` ليس سلوكًا مدعومًا في عقد Mission الحالي، وليس invariant ضمن runtime.start pilot. أي إضافة مستقبلية تحتاج قرار عقد مستقل؛ E2 ما زالت مفتوحة بسبب أسطح أخرى.
+- **next step:** انتقل إلى فجوة E2 مستقلة ومحددة من مصفوفة الحالة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
