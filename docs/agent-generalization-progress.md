@@ -4793,6 +4793,17 @@ G9 Revocation Safety
 - **remaining/blocker:** هذا يثبت consumer edge لمسار `runtime.start` فقط، ولا يغلق recovery لكل crash window أو supervisor مُدار أو بقية أسطح E2. E2 تبقى `OPEN`.
 - **next step:** اختر فجوة E2 مستقلة من المصفوفة؛ لا تبدأ E3 أو Learning/Transfer/Generalization ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — ربط World Fact موثوق بإعادة تخطيط Mission
+
+- **phase/step:** E2 فقط — freshness/revision/prompt binding لقراءة World State advisory في auto-replan.
+- **status:** `advisory revision and prompt binding verified (9/9); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُعيد تشغيل اختبار التكامل DB-backed كاملًا. fact وملاحظته المباشرة الموثوقة تغيرا من `main` إلى `release`؛ تغيّرت مراجعة قراءة التخطيط ومراجعة auto-replan، ووصلت القيمة الحالية فقط إلى task prompt مع اشتراط التحقق بأدلة خادمية حديثة. بقيت plan steps نفسها. حالات الأدلة غير المؤهلة لم تدخل الخطة أو revision hash.
+- **files/schema/contracts touched:** تقرير `docs/agent-core-forensic-status-report.md` وهذا السجل فقط؛ لا تغييرات production code أو schema.
+- **validation:** نجح `pnpm --filter @workspace/db run schema:apply` على PostgreSQL مؤقتة loopback، ثم `cd artifacts/api-server && pnpm exec vitest run src/lib/mission-auto-replan-evidence.integration.test.ts` بنتيجة **1 file / 9 tests passed** مع `AI_PROVIDER_EGRESS_DISABLED=1`. أُوقفت القاعدة وحُذف جذرها المؤقت؛ لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** World Facts تظل advisory؛ الاختبار لا يمنح صلاحية أو يفرض action، وprompt يطلب fresh server-owned evidence قبل الفعل.
+- **remaining/blocker:** تغيير action/قرار الـplanner بسبب fact ذي صلة ما زال غير مثبت (`UNKNOWN`)، والاختبار يثبت ثبات الخطوات لا تغيّرها. بقية lifecycle/recovery وmutation surfaces ضمن E2 مفتوحة.
+- **next step:** اختر فجوة E2 مستقلة قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
