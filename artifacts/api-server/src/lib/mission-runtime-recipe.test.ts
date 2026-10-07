@@ -531,6 +531,19 @@ describe("Mission recipe dispatch", () => {
         eq(eventsTable.type, "AiGoalDispatchRequested"),
       ));
     expect(successorDispatches).toHaveLength(1);
+
+    expect(await wakeReadyMissionGoals()).toBe(0);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+    const repeatedSuccessorDispatches = await db
+      .select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.goalId, successorGoalId),
+        eq(eventsTable.taskId, successorTaskId),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(repeatedSuccessorDispatches).toHaveLength(1);
   });
 
   it("completes one Chat-to-Mission delivery loop with server-owned identity and receipt", async () => {
