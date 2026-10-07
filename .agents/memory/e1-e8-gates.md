@@ -38,3 +38,9 @@ For read-only E2 forensic work, do not restart managed API/runtime workflows wit
 **Why:** Restarting the API during this investigation was followed by a dashboard analysis request that persisted a failed acceptance before provider admission. A health check reporting no queued recovery jobs does not prevent interactive requests or their durable effects.
 
 **How to apply:** Prefer isolated route tests and builds while preserving the forensic boundary. If runtime startup is explicitly authorized, inspect startup behavior first, watch request logs immediately, and stop the workflow if unrelated durable work appears. Do not equate “no provider call” with “no database mutation.”
+
+Use a source-derived measurement ledger for E2, not test totals, `PROVEN` row counts, or a new Runtime catalog. Track source-inventory completeness separately from atomic `surface × invariant` evidence; any `UNKNOWN` source family blocks a global denominator or ratio. Split mixed/partial behavior into separate invariants. `0/4` means zero of the four architectural layers is fully closed, not a progress percentage. Keep E3 stopped and E4 behind its existing gates.
+
+**Why:** The user specified that the denominator itself must be evidence-based and that partial behaviors must not receive fractional credit.
+
+**How to apply:** Record source anchors and exact evidence boundaries for each unit; close source families before calculating any total. Preserve the existing stage gates regardless of the number of passing rows.

@@ -4826,6 +4826,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لا يختبر هذا الحد scheduler dispatch أو منع duplicate wake، ولا parity العامة بين direct Task admission وGoal/Mission completion. E2 تبقى مفتوحة؛ لا يبدأ E3 أو Learning/Transfer/Generalization.
 - **next step:** اختر فجوة E2 أخرى قابلة للتحقق؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-07 — إنشاء جرد قياس E2 المشتق من المصادر
+
+- **phase/step:** E2 فقط — فصل اكتمال جرد المصادر عن قياس invariants.
+- **status:** `ledger initialized; source-family completeness UNKNOWN; no global denominator or ratio; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أُنشئ `docs/e2-source-derived-measurement-ledger.md` كسجل يدوي مرتبط بمصادر الشيفرة والاختبارات، لا ككتالوج Runtime. يحدد عائلات ingress/tools، scheduler، proof/acceptance، mutation/effects، durable recovery، World State، وواجهة العميل، ويسجل اكتمالها `UNKNOWN` حتى يغلق الجرد. قُسمت الأدلة إلى وحدات `surface × invariant` مع حالات ذرية؛ لا تستخدم أعداد الاختبارات أو صفوف `PROVEN` لتكوين مقام.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md`، `docs/agent-core-forensic-status-report.md`، هذا السجل، و`.agents/memory/e1-e8-gates.md`؛ لا تغييرات production code أو schema.
+- **validation:** تحقق scheduler DB-backed المسجل أعلاه نجح **1 passed / 22 skipped** بعد schema apply على PostgreSQL مؤقتة loopback؛ فحص المخطط نجح. `git diff --check` تحقق بعد تحديث السجلات. لم يُعَد تشغيل أي workflow مُدار.
+- **authority/safety impact:** الـGit event وحده لا يوقظ successor؛ Canonical Proof الحالي المرتبط بالاعتماد يسمح بطلب dispatch واحد، وإعادة الإيقاظ التسلسلية لا تكرره. `scheduleAiTaskExecution` mock في الاختبار، لذلك لا يثبت تشغيل العامل. لا تغيير في صلاحيات mutation.
+- **remaining/blocker:** اكتمال جرد جميع ingress والكتّاب والمستهلكين وrecovery edges ما زال `UNKNOWN`؛ لا مقام أو نسبة عامة. التوازي بين wake workers وتغيّر قرار planner بسبب World Fact لم يثبتا. `0/4` يظل إغلاق الطبقات الأربع بالكامل فقط؛ E3 متوقفة وE4 عند بوابتها القائمة.
+- **next step:** أغلق عائلة مصدر واحدة في كل مرة، بدءًا من model/tool ingress ثم proof/acceptance producers وconsumers؛ لا تبدأ E3 أو E4 التنفيذية ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

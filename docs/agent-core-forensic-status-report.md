@@ -1,7 +1,7 @@
 # EngineeringOS — Agent Core Forensic Status Report
 
 - **تاريخ التدقيق الأساسي:** 2026-10-02
-- **آخر تحديث للمصدر والحالة الديناميكية في هذا التقرير:** 2026-10-07؛ يسجل تشغيلات سابقة محددة ولا يدعي إعادة تشغيلها في كل مراجعة لاحقة.
+- **آخر تحديث للمصدر والحالة الديناميكية في هذا التقرير:** 2026-10-07؛ يسجل تشغيلات سابقة محددة ولا يدعي إعادة تشغيلها في كل مراجعة لاحقة. سجل القياس المشتق من المصادر: `docs/e2-source-derived-measurement-ledger.md`.
 - **المراجعة المركزة الأحدث:** `docs/agent-core-four-agent-forensic-audit-2026-10-06.md` — أُصلح ordered-root scope لأدوات القراءة ذات المسار، واجتازت اختبارات الوحدة العدائية؛ لا اختبار API أو provider حي.
 - **توضيح بوابة المراحل (2026-10-06):** E2 ما زالت نشطة؛ الإغلاق السابق يخص invariant محددًا ولا يغلق المرحلة. E3 متوقفة حتى اجتياز بوابة E2 صراحةً، وE3.2 replay safety مفتوح. لا تُعد تشغيل Strategy Replay receipts.
 - **حدّ النتائج:** التشغيلات المسجلة أدناه تاريخية ومحدودة بنطاقها. في 2026-10-07 أُعيد التحقق من استعادة Mission repair بعد `SIGKILL` عند `candidate_ready` و`committed` و`effect_classified` (**3/3**)؛ startup مستقل من `src/index.ts` يسجل المحاولة القديمة كـ`paused`، ثم recovery child يقبل attempt جديدًا دون تغيير project root. كما اجتازت اختبارات `POST /api/tasks/:taskId/execute` لاستعادة crash وحماية العامل الحي ورفض العامل القديم (1/1 لكل اختبار، واختبارات tasks 25/25)، واختبار structured analyze/review process-level (2/2): route داخل child عبر Supertest ينتظر provider وهميًا، `SIGKILL`، startup reconciliation، ثم resume بالرمز الأصلي الصادر في SSE، مع user turn وevent/audit واحد لكل مسار. هذه اختبارات معزولة بمزوّد وهمي؛ لا تغطي كل crash window/surface ولا تثبت provider حيًا أو listener شبكيًا لstructured routes. استُخدمت PostgreSQL مؤقتة loopback وprovider egress معطّل؛ اجتاز API typecheck و`git diff --check`. لم تُشغّل managed workflows أو provider حي. لا تثبت هذه الحدود إغلاق جميع أسطح E2.
@@ -64,6 +64,14 @@
 | Reliable Execution Agent | `PARTIAL` | executions دائمة، attempts وleases وcheckpoints وacceptance/recovery في المسار المركزي | lifecycle موحد لكل mutation surface أو إعادة بناء نتيجة الأثر الخارجي بعد crash |
 | Evidence-Grounded Agent | `PARTIAL` | `proof-foundation.ts` يتحقق من سجل Canonical Proof؛ الاختياري لا يصبح Canonical Proof | أن كل قيمة `PROVEN` في النظام تمر بهذا verifier أو أن كل claim مقفول عبر كل المسارات |
 | Closed-Loop World Agent | `PARTIAL` | مسارات `runtime.start` و`apply-changes` و`delivery.push.github` تmaterialize transitions محددة؛ اختبار Apply يتحقق من مراجع facts المرتبطة بالملاحظات المختارة | delta مكتملًا لكل mutation أو planner عامًّا يتغير قراره بسبب facts جديدة |
+
+### 3.1 E2 source-derived measurement
+
+سجل القياس الأولي في `docs/e2-source-derived-measurement-ledger.md` يفصل اكتمال جرد المصادر عن دليل كل invariant. ما زالت عائلات ingress والأدوات والكتّاب والمستهلكين `UNKNOWN` من حيث الشمول؛ لذلك لا يوجد مقام كلي أو نسبة صالحة. كل نتيجة مسجلة هي `surface × invariant` بحدودها، و`PARTIAL` لا تُمنح كنصف نقطة بل تُفكك إلى وحدات مستقلة.
+
+مسار Mission scheduler التابع أصبح مثبتًا DB-backed: حدث `GitPushed` وحده لا يوقظ successor، بينما Canonical Proof الحالي المطابق يسمح بحدث dispatch واحد؛ إعادة الاستدعاء لا تكرر الجدولة أو الحدث. يستبدل هذا الدليل وصف «scheduler غير مختبر» للمسار العادي، لكنه لا يثبت تشغيل worker الفعلي أو سباق عدة wake workers.
+
+يبقى `0/4` عدد الطبقات المعمارية المغلقة بالكامل من أصل أربع، لا نسبة تقدم. E2 نشطة؛ E3 متوقفة؛ وE4.1 تظل `OPEN / NOT PASS` وفق بوابتها الحالية، بلا بدء مراحل التقييم أو التجميع أو الترقية اللاحقة.
 
 ### Evidence-Based Scorecard
 
@@ -567,7 +575,7 @@ retry materialization durable منفصل عن Mission `needs_replan` في بعض
 - `[~]` runtime worker adoption: اختُبر startup كامل مرتين من `src/index.ts` على PostgreSQL disposable باستخدام resolver الحقيقي وsupervisor HTTP fixture محلي. API الأول يملك فعليًا lease للجلسة المعروفة قبل `SIGKILL`؛ بعد انقضاء lease طبيعيًا، يعيد API الثاني تبنّيها. صف `UNKNOWN` يبقى حيًا ويُحرر claim/lease بلا adoption. الصف الأولي stale fixture-seeded والـsupervisor ليس الخدمة المُدارة؛ يظل التعميم `PARTIAL`.
 - `[~]` Canonical Proof يرفض evidence-optional acceptance؛ global `PROVEN` producers/semantics غير موحدة بالكامل.
 - `[✓]` Mission-linked Apply acceptance للمسار المختبر: `apply_changes_v1` يربط artifact مشتقًا من السجلات الدائمة، وD2 يبقى gate مستقلًا ومربوطًا بالخطة؛ هذا لا يغلق E2/E3 عالميًا.
-- `[~]` `runtime.start` وapply-changes و`delivery.push.github` لديها transitions محددة؛ Apply يشتق `changedFactRefs` ويختبرها على ملاحظات المصدر المختارة. auto-replan يربط World State revision بالـrevision والـprompt؛ اختبار التكامل الذي يثبت ذلك مع ثبات plan steps لم يُشغّل في هذه الجولة. اختبار manual `/git/push` يؤكد أنه لا ينشئ هويات execution/Episode أو Transition مصطنعة، وأن scan المرتبط بالـpush يصل إلى `completed` على fixture آمن. اكتمال delta عبر بقية الأسطح وتغيّر قرار planner ما زالا غير مثبتين؛ successor edge لمسار recipe `delivery.push.github` ما زال غير محسوم.
+- `[~]` `runtime.start` وapply-changes و`delivery.push.github` لديها transitions محددة؛ Apply يشتق `changedFactRefs` ويختبرها على ملاحظات المصدر المختارة. auto-replan يربط World State revision بالـrevision والـprompt، لكن تغيّر قرار planner لم يثبت. اختبار manual `/git/push` يؤكد أنه لا ينشئ هويات execution/Episode أو Transition مصطنعة، وأن scan المرتبط بالـpush يصل إلى `completed` على fixture آمن. كما ثبت scheduler لمسار Mission recipe العادي: يرفض Git event بلا قبول، ويطلق successor بعد Canonical Proof حالي مرة واحدة فقط عند إعادة الإيقاظ التسلسلية. هذا لا يثبت تشغيل العامل أو سباقات wake متزامنة، ولا ينشئ عقدًا لانتقال delivery خاص. اكتمال delta عبر بقية الأسطح وتغيّر قرار planner ما زالا غير مثبتين.
 - `[✗]` لا يوجد دليل أن World State changes تفرض خطة/Action مختلفة على نحو عام.
 - `[✗]` لا يوجد تقييم held-out عام يثبت loop عبر أسطح mutation مختلفة.
 - `[✗]` لا تبدأ طبقات Learning / Transfer / Generalization بعد.
