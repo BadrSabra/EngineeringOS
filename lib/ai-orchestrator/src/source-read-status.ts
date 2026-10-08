@@ -6,7 +6,7 @@
  * source files can legitimately define or document the marker itself.
  */
 const TOOL_TRUNCATION_MARKER_LINE =
-  /^(?:\[\.\.\.\s*(?:output truncated|forensic read exceeded)\b(?:[^\]]*\])?|\u2026\s*\[(?:prefetch|read) output truncated\b[^\]]*\]|\[(?:prefetch|read) output truncated\b[^\]]*\])$/i;
+  /^(?:\[\.\.\.\s*(?:output truncated|forensic read exceeded|directory listing truncated|search incomplete)\b(?:[^\]]*\])?|\u2026\s*\[(?:prefetch|read) output truncated\b[^\]]*\]|\[(?:prefetch|read) output truncated\b[^\]]*\])$/i;
 
 const DISPLAY_LIMIT_MARKER_LINE =
   /^(?:\u2026\s*)?\[(?:prefetch|read) output truncated\b[^\]]*\]$|^(?:\[\.\.\.\s*)?(?:output truncated|forensic read exceeded)\b(?:[^\]]*\])?$|^(?:\.\.\.\s*)?\[\d+\s+(?:lines?|bytes?)\s+omitted\b[^\]]*\]$/i;

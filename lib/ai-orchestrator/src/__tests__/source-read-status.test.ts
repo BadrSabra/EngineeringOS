@@ -29,6 +29,19 @@ describe("source-read-status", () => {
     expect(hasDisplayTruncationMarker(output)).toBe(true);
   });
 
+  it("recognizes bounded directory and search result markers", () => {
+    expect(
+      hasToolAppendedTruncationMarker(
+        'Contents of "src":\n[file] a.ts\n[... directory listing truncated by entry, scan, or output limit ...]',
+      ),
+    ).toBe(true);
+    expect(
+      hasToolAppendedTruncationMarker(
+        "src/a.ts:1:match\n[... search incomplete: a scan, file, byte, time, or output limit was reached ...]",
+      ),
+    ).toBe(true);
+  });
+
   it("recognizes terminal prefetch and omitted-line markers", () => {
     expect(
       hasDisplayTruncationMarker(

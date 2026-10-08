@@ -4848,6 +4848,17 @@ G9 Revocation Safety
 - **remaining/blocker:** عائلة أخطاء code-navigation/package/binary لم تُصنّف هنا؛ ما زالت قراءة-status sideband محدودة بـ`read_file` و`read_file_range`، وأخطاء أدوات mutation دون callback وقياس اكتمال E2 الكلي تبقى مفتوحة (`UNKNOWN`).
 - **next step:** استمر في E2 فقط، وافحص عائلة مصدر واحدة متبقية لكل مرة؛ لا تبدأ E3 ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-08 — تصنيف مخرجات الأدوات وحالة القراءة عبر العائلات
+
+- **phase/step:** E2 فقط — تصنيف نتائج Reliable Tool Agent وربط حالة القراءة بملاحظات Mission.
+- **status:** `targeted tool-output and read-status classification verified; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** صُنفت أغلفة JSON لأدوات code-navigation/package/binary: `unavailable` فشل من النوع `unavailable`، و`failed` أو `incomplete` أو الغلاف غير الصالح فشل تنفيذ؛ النتائج المقتطعة المحدودة مثل tree/search/list تبقى قراءات ناجحة مع `READ_TRUNCATED`. أضيفت حالة القراءة إلى أحداث Mission المسجلة عند تطابق مراجعة المشروع. تُرفض أخطاء `Error:` المحجوزة لأدوات write/replace حتى دون mutation callback، وتُمسح تغييراتها المرحلية قبل إدخالها إلى `pendingChanges`. حُسم FEG-015 بتصحيح manifest في fixture ليعلن أداة `read_file_range` التي يستدعيها الاختبار، فصار cache migration مطابقًا لعقده.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/tool-execution-engine.ts`، `lib/ai-orchestrator/src/source-read-status.ts`، اختبارات `lib/ai-orchestrator`، `artifacts/api-server/src/lib/task-execution-service.ts`، `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا تغييرات schema أو صلاحيات أو workflows.
+- **validation:** نجحت أربعة ملفات اختبارات مستهدفة **211/211**؛ نجح TypeScript في `lib/ai-orchestrator` و`artifacts/api-server`؛ اختبار Mission على PostgreSQL مؤقتة loopback مع `DATABASE_URL` محلية صريحة وschema apply نجح **1 passed / 47 skipped**؛ نجح `git diff --check`. لم يُعَد تشغيل أي workflow مُدار.
+- **authority/safety impact:** المخرجات الفاشلة لا تُقبل كنجاح أو hash دليل، ولا تُسجل تغييرات mutation المرحلية الفاشلة؛ حالة القراءة ملاحظات provenance فقط، وليست Canonical Proof أو صلاحية أو موافقة. بقيت حدود التنفيذ كما هي.
+- **remaining/blocker:** اكتمال جرد E2 الكلي وعائلات المصدر والمستهلكين غير المفحوصة ما زال `UNKNOWN`؛ لا ينتج عن هذه الفحوص إغلاق E2.
+- **next step:** مواصلة E2 وفق ledger، عائلة مصدر واحدة في كل مرة؛ إبقاء E3 متوقفة، وعدم إعادة Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

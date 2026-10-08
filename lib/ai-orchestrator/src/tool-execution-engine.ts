@@ -353,22 +353,74 @@ const READ_ONLY_FILE_TOOL_NAMES = new Set([
   "list_directory",
   "search_code",
 ]);
+const MUTATION_FILE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
+const STRUCTURED_READ_TOOL_NAMES = new Set([
+  ...CODE_NAVIGATION_TOOL_NAMES_SET,
+  ...PACKAGE_TOOL_NAMES_SET,
+  ...BINARY_TOOL_NAMES_SET,
+]);
 
 /**
- * File and Git executors still expose legacy string results. Only their
- * reserved error prefixes are classified here. Read-only file outputs are
- * wrapped or path-prefixed, so an error-shaped source line cannot begin with
- * the executor's reserved "Error:" prefix.
+ * Inspect only executor-owned result envelopes and reserved output prefixes.
+ * Source bodies are wrapped or path-prefixed, so ordinary source text that
+ * begins with "Error:" cannot be confused with a file-tool diagnostic.
  */
-function isExecutorErrorOutput(name: string, output: string): boolean {
+function parseToolOutputObject(output: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(output);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type ExecutorOutputFailure = {
+  failureKind: "execution" | "unavailable";
+  diagnosticCode: "TOOL_EXECUTION_FAILED" | "TOOL_UNAVAILABLE";
+};
+
+function classifyExecutorOutputFailure(
+  name: string,
+  output: string,
+): ExecutorOutputFailure | undefined {
   const text = output.trimStart();
   if (FILE_TOOL_NAMES.has(name)) {
-    return /^Error (?:reading|listing)\b/u.test(text)
+    if (
+      /^Error (?:reading|listing)\b/u.test(text)
       || /^Error: project root path does not exist or is not accessible\./u.test(text)
-      || (READ_ONLY_FILE_TOOL_NAMES.has(name) && /^Error:/u.test(text));
+      || (
+        (READ_ONLY_FILE_TOOL_NAMES.has(name) || MUTATION_FILE_TOOL_NAMES.has(name))
+        && /^Error:/u.test(text)
+      )
+    ) {
+      return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
+    }
+    if (name === "project.list_tree") {
+      const result = parseToolOutputObject(output);
+      if (
+        result?.kind !== "project_tree"
+        || typeof result.truncated !== "boolean"
+        || !Array.isArray(result.entries)
+      ) {
+        return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
+      }
+    }
   }
-  if (GIT_TOOL_NAMES.has(name)) return /^\[git error\]:/u.test(text);
-  return false;
+  if (STRUCTURED_READ_TOOL_NAMES.has(name)) {
+    const result = parseToolOutputObject(output);
+    if (typeof result?.status !== "string") {
+      return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
+    }
+    if (result.status === "complete") return undefined;
+    if (result.status === "unavailable") {
+      return { failureKind: "unavailable", diagnosticCode: "TOOL_UNAVAILABLE" };
+    }
+    return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
+  }
+  if (GIT_TOOL_NAMES.has(name) && /^\[git error\]:/u.test(text)) {
+    return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
+  }
+  return undefined;
 }
 
 const RECOVERABLE_SCOPE_READ_TOOLS = new Set([
@@ -978,22 +1030,62 @@ export function classifyReadStatus(toolName: string, output: string): ReadStatus
     const trimmed = output.trim();
     if (!trimmed || /^Error\b/i.test(trimmed)) return "READ_FAILED";
     if (/^No content in lines\b/i.test(trimmed)) return "READ_FAILED";
+    if (hasToolAppendedTruncationMarker(output)) return "READ_TRUNCATED";
     if (!hasUsableSourceBody(output)) return "READ_FAILED";
     return "READ_TARGETED";
   }
-  if (toolName !== "read_file") return "READ_COMPLETE";
-  const trimmed = output.trim();
-  if (!trimmed || /^Error\b/i.test(trimmed)) return "READ_FAILED";
-  // Acceptance persistence rejects oversized bodies instead of retaining a
-  // misleading prefix. Keep cached/replayed reads aligned with that boundary
-  // so the trace cannot report READ_COMPLETE for evidence that persistence
-  // will later discard.
-  if (Buffer.byteLength(output, "utf8") > MAX_PERSISTED_SOURCE_BYTES) {
-    return "READ_TRUNCATED";
+  if (toolName === "read_file") {
+    const trimmed = output.trim();
+    if (!trimmed || /^Error\b/i.test(trimmed)) return "READ_FAILED";
+    // Acceptance persistence rejects oversized bodies instead of retaining a
+    // misleading prefix. Keep cached/replayed reads aligned with that boundary
+    // so the trace cannot report READ_COMPLETE for evidence that persistence
+    // will later discard.
+    if (Buffer.byteLength(output, "utf8") > MAX_PERSISTED_SOURCE_BYTES) {
+      return "READ_TRUNCATED";
+    }
+    if (hasReadTruncationMarker(output)) return "READ_TRUNCATED";
+    if (!isUsableReadOutput(output)) return "READ_FAILED";
+    return "READ_COMPLETE";
   }
-  if (hasReadTruncationMarker(output)) return "READ_TRUNCATED";
-  if (!isUsableReadOutput(output)) return "READ_FAILED";
-  return "READ_COMPLETE";
+
+  if (!PROJECT_READ_ONLY_TOOL_NAMES.has(toolName as ReadOnlyToolInvocation["toolName"])) {
+    return "READ_COMPLETE";
+  }
+  const trimmed = output.trim();
+  if (!trimmed) return "READ_FAILED";
+
+  if (toolName === "project.list_tree") {
+    const result = parseToolOutputObject(output);
+    if (
+      result?.kind !== "project_tree"
+      || typeof result.truncated !== "boolean"
+      || !Array.isArray(result.entries)
+    ) {
+      return "READ_FAILED";
+    }
+    return result.truncated ? "READ_TRUNCATED" : "READ_COMPLETE";
+  }
+
+  if (STRUCTURED_READ_TOOL_NAMES.has(toolName)) {
+    const result = parseToolOutputObject(output);
+    if (typeof result?.status !== "string") return "READ_FAILED";
+    if (result.status === "incomplete") return "READ_TRUNCATED";
+    if (result.status !== "complete") return "READ_FAILED";
+    return result.truncated === true ? "READ_TRUNCATED" : "READ_COMPLETE";
+  }
+
+  if (GIT_TOOL_NAMES.has(toolName)) {
+    if (/^\[git error\]:/u.test(trimmed)) return "READ_FAILED";
+    return hasToolAppendedTruncationMarker(output) ? "READ_TRUNCATED" : "READ_COMPLETE";
+  }
+
+  if (READ_ONLY_FILE_TOOL_NAMES.has(toolName)) {
+    if (/^Error\b/i.test(trimmed)) return "READ_FAILED";
+    return hasToolAppendedTruncationMarker(output) ? "READ_TRUNCATED" : "READ_COMPLETE";
+  }
+
+  return "READ_FAILED";
 }
 
 /** True when a read_file body carries a truncation marker (incomplete source). */
@@ -1685,12 +1777,14 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         };
       }
     }
-    if (stagedFileChanges.length > 0) {
+    const recoverableScopeRejection = isRecoverableFileScopeErrorOutput(name, output);
+    const executorOutputFailure = classifyExecutorOutputFailure(name, output);
+    if (executorOutputFailure) {
+      stagedFileChanges.splice(0);
+    } else if (stagedFileChanges.length > 0) {
       pendingChanges.push(...stagedFileChanges);
     }
 
-    const recoverableScopeRejection = isRecoverableFileScopeErrorOutput(name, output);
-    const executorErrorOutput = isExecutorErrorOutput(name, output);
     if (readCallback && readInvocationBase) {
       const recorded = analysisFailure
         ? {
@@ -1705,26 +1799,20 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               phase: "recorded" as const,
               status: "failed" as const,
               diagnosticCode: "TOOL_UNAVAILABLE" as const,
-              ...(name === "read_file" || name === "read_file_range"
-                ? { readStatus: classifyReadStatus(name, output) }
-                : {}),
+              readStatus: classifyReadStatus(name, output),
             }
-        : executorErrorOutput
+        : executorOutputFailure
           ? {
               phase: "recorded" as const,
               status: "failed" as const,
-              diagnosticCode: "TOOL_EXECUTION_FAILED" as const,
-              ...(name === "read_file" || name === "read_file_range"
-                ? { readStatus: classifyReadStatus(name, output) }
-                : {}),
+              diagnosticCode: executorOutputFailure.diagnosticCode,
+              readStatus: classifyReadStatus(name, output),
             }
         : {
             phase: "recorded" as const,
             status: "completed" as const,
             outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
-            ...(name === "read_file" || name === "read_file_range"
-              ? { readStatus: classifyReadStatus(name, output) }
-              : {}),
+            readStatus: classifyReadStatus(name, output),
           };
       try {
         await readCallback({ ...readInvocationBase, ...recorded });
@@ -1770,6 +1858,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       };
     }
 
+    if (executorOutputFailure) {
+      await emitTerminalToolLifecycle("failed", {
+        diagnosticCode: executorOutputFailure.diagnosticCode,
+      });
+      return {
+        kind: "failed",
+        ...executorOutputFailure,
+        safeMessage: executorOutputFailure.failureKind === "unavailable"
+          ? `Tool "${name}" could not inspect its approved input; no result was accepted.`
+          : `Tool "${name}" reported an execution failure; no result was accepted.`,
+      };
+    }
+
     // Ground-truth source label for observable reads.
     let source: string | undefined;
     switch (name) {
@@ -1811,9 +1912,6 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
-    if (executorErrorOutput) {
-      throw new Error(`${name} returned a reserved executor error diagnostic`);
-    }
     await emitTerminalToolLifecycle("completed", {
       outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
     });
@@ -1846,6 +1944,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           phase: "recorded",
           status: cancelled ? "cancelled" : "failed",
           diagnosticCode,
+          readStatus: classifyReadStatus(name, ""),
         });
       } catch {
         return {

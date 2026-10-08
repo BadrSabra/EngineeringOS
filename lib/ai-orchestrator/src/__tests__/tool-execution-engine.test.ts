@@ -443,6 +443,7 @@ describe("executeSingleTool", () => {
       expect(callback.mock.calls[1]?.[0]).toMatchObject({
         status: "completed",
         outputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        readStatus: "READ_COMPLETE",
       });
       expect(JSON.stringify(callback.mock.calls)).not.toContain(privateOutput);
       expect(JSON.stringify(callback.mock.calls)).not.toContain("src/secret.ts");
@@ -603,6 +604,10 @@ describe("executeSingleTool", () => {
       toolCallId: "provider-list-1",
       manifestHash: "d".repeat(64),
     });
+    expect(callback.mock.calls[1]?.[0]).toMatchObject({
+      status: "completed",
+      readStatus: "READ_COMPLETE",
+    });
     expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
       "list_directory",
       { path: "src" },
@@ -625,6 +630,110 @@ describe("executeSingleTool", () => {
     expect(deniedMissionListing.kind).toBe("failed");
     expect(callback).toHaveBeenCalledTimes(2);
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps truncated project-tree results successful but marks their read status", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce(JSON.stringify({
+      kind: "project_tree",
+      truncated: true,
+      entries: [{ path: "src/a.ts", kind: "file" }],
+    }));
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+    const result = await executeSingleTool({
+      name: "project.list_tree",
+      args: {},
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["project.list_tree"]),
+      toolManifestHash: "c".repeat(64),
+      toolCallId: "provider-tree-truncated",
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect(callback.mock.calls[1]?.[0]).toMatchObject({
+      status: "completed",
+      readStatus: "READ_TRUNCATED",
+      outputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it.each([
+    { name: "symbol_search", args: { symbol: "needle" } },
+    { name: "ast_navigation", args: { operation: "definition", symbol: "needle" } },
+    { name: "inspect_dependencies", args: {} },
+    { name: "inspect_binary", args: { path: "image.png" } },
+  ] as const)("fails closed on unavailable structured read status for $name", async ({ name, args }) => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+    const result = await executeSingleTool({
+      name,
+      args,
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set([name]),
+      toolManifestHash: "d".repeat(64),
+      toolCallId: `provider-${name}-unavailable`,
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
+    expect(callback.mock.calls[1]?.[0]).toMatchObject({
+      status: "failed",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+      readStatus: "READ_FAILED",
+    });
+    expect(callback.mock.calls[1]?.[0]).not.toHaveProperty("outputHash");
+  });
+
+  it("terminalizes incomplete binary inspection without recording its output hash", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const root = await fs.mkdtemp(path.join(tmpdir(), "tool-binary-incomplete-"));
+    try {
+      await fs.writeFile(
+        path.join(root, "truncated.png"),
+        Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+      );
+      const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+      const result = await executeSingleTool({
+        name: "inspect_binary",
+        args: { path: "truncated.png" },
+        rootPath: root,
+        pendingChanges: [],
+        allowedToolNames: new Set(["inspect_binary"]),
+        toolManifestHash: "e".repeat(64),
+        toolCallId: "provider-binary-incomplete",
+        analysisCorrelation: {
+          operationId: "operation-binary-incomplete",
+          projectId: "project-binary-incomplete",
+          projectRevision: "revision-binary-incomplete",
+          rootAvailable: true,
+          evidenceProvenance: "tool-execution-test",
+        },
+        onReadOnlyInvocation: callback,
+      });
+
+      expect(result).toMatchObject({
+        kind: "failed",
+        failureKind: "execution",
+        diagnosticCode: "TOOL_EXECUTION_FAILED",
+      });
+      expect(callback.mock.calls[1]?.[0]).toMatchObject({
+        status: "failed",
+        diagnosticCode: "TOOL_EXECUTION_FAILED",
+        readStatus: "READ_TRUNCATED",
+      });
+      expect(callback.mock.calls[1]?.[0]).not.toHaveProperty("outputHash");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("dispatches search_code to executeFileTool and produces search source label", async () => {
@@ -693,6 +802,34 @@ describe("executeSingleTool", () => {
     if (result.kind === "ok") {
       expect(result.source).toBe("git:log");
     }
+  });
+
+  it("terminalizes reserved write diagnostics without retaining a pending change", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce("Error: candidate change was not queued.");
+    const pending: PendingChange[] = [];
+    const lifecycle: ToolInvocationLifecycleEvent[] = [];
+    const result = await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/app.ts", content: "new value", reason: "test write" },
+      rootPath: "/project",
+      pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/app.ts"],
+      allowedToolNames: new Set(["write_file"]),
+      toolManifestHash: "a".repeat(64),
+      toolCallId: "provider-write-diagnostic",
+      onToolInvocation: async (event) => { lifecycle.push(event); },
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(pending).toEqual([]);
+    expect(lifecycle.map((event) => event.phase)).toEqual(["requested", "started", "failed"]);
   });
 
   it("returns no source for write_file (produces a pending change instead)", async () => {
@@ -3267,8 +3404,35 @@ describe("executeToolLoop", () => {
   it("classifies a targeted window read as READ_TARGETED evidence (SR-003/SR-008)", async () => {
     const { classifyReadStatus } = await import("../tool-execution-engine.js");
     expect(classifyReadStatus("read_file_range", "File: src/a.ts\n```\nline\n```\n")).toBe("READ_TARGETED");
-    // A non-read tool is always treated as a complete-read (not a source read).
+    // A bounded search result is complete unless its terminal marker says otherwise.
     expect(classifyReadStatus("search_code", "foo.ts:1:const x = 1;")).toBe("READ_COMPLETE");
+  });
+
+  it("classifies all observable read adapters and their bounded or failed results", async () => {
+    const { classifyReadStatus } = await import("../tool-execution-engine.js");
+    expect(classifyReadStatus(
+      "search_code",
+      "src/a.ts:1:match\n[... search incomplete: a scan, file, byte, time, or output limit was reached ...]",
+    )).toBe("READ_TRUNCATED");
+    expect(classifyReadStatus(
+      "list_directory",
+      'Contents of "src":\n[file] a.ts\n[... directory listing truncated by entry, scan, or output limit ...]',
+    )).toBe("READ_TRUNCATED");
+    expect(classifyReadStatus("git_status", "[git error]: repository unavailable")).toBe("READ_FAILED");
+    expect(classifyReadStatus("symbol_search", JSON.stringify({ status: "unavailable" })))
+      .toBe("READ_FAILED");
+    expect(classifyReadStatus("inspect_dependencies", JSON.stringify({
+      status: "complete",
+      truncated: true,
+    }))).toBe("READ_TRUNCATED");
+    expect(classifyReadStatus("inspect_binary", JSON.stringify({ status: "incomplete" })))
+      .toBe("READ_TRUNCATED");
+    expect(classifyReadStatus("project.list_tree", JSON.stringify({
+      kind: "project_tree",
+      truncated: true,
+      entries: [],
+    }))).toBe("READ_TRUNCATED");
+    expect(classifyReadStatus("project.list_tree", '{"truncated":true}')).toBe("READ_FAILED");
   });
 
   it("retains a successful read_file_range body in the canonical file evidence map", async () => {
@@ -5640,6 +5804,7 @@ describe("executeToolLoop", () => {
       status?: string;
       diagnosticCode?: string;
       outputHash?: string;
+      readStatus?: string;
     }> = [];
     const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
 
@@ -5670,6 +5835,7 @@ describe("executeToolLoop", () => {
     expect(readEvents[1]).toMatchObject({
       status: "failed",
       diagnosticCode: "TOOL_EXECUTION_FAILED",
+      readStatus: "READ_FAILED",
     });
     expect(readEvents[1]).not.toHaveProperty("outputHash");
     expect(lifecycleEvents.map((event) => event.phase))
@@ -6837,7 +7003,10 @@ describe("executeToolLoop", () => {
       model: "fast",
       powerModel: "powerful",
       provider: "test",
-      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
       rootPath: "/project",
       pendingChanges: [],
       cache,

@@ -6813,6 +6813,7 @@ describe("real durable task execution lifecycle", () => {
         ...invocation,
         phase: "recorded",
         status: "completed",
+        readStatus: "READ_COMPLETE",
         outputHash: "e".repeat(64),
       });
       const treeInvocation = {
@@ -6826,6 +6827,7 @@ describe("real durable task execution lifecycle", () => {
         ...treeInvocation,
         phase: "recorded",
         status: "completed",
+        readStatus: "READ_COMPLETE",
         outputHash: "a".repeat(64),
       });
       return {
@@ -6906,6 +6908,7 @@ describe("real durable task execution lifecycle", () => {
         scopeHash: gitScopeHash,
         scopePolicyVersion: "mission-read-scope-v1",
         status: "completed",
+        readStatus: "READ_COMPLETE",
         outputHash: "e".repeat(64),
         projectRevision: fixture.now.toISOString(),
       });
@@ -6938,6 +6941,7 @@ describe("real durable task execution lifecycle", () => {
         scopeHash: treeScopeHash,
         scopePolicyVersion: "mission-read-scope-v1",
         status: "completed",
+        readStatus: "READ_COMPLETE",
         outputHash: "a".repeat(64),
         projectRevision: fixture.now.toISOString(),
       });

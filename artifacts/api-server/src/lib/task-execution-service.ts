@@ -2249,6 +2249,11 @@ async function executeMissionToolLoop(params: {
             projectRevision: params.workspaceRevision,
             status: revisionMatches ? invocation.status ?? "failed" : "failed",
             ...(
+              revisionMatches && invocation.readStatus
+                ? { readStatus: invocation.readStatus }
+                : {}
+            ),
+            ...(
               revisionMatches && invocation.outputHash
                 ? { outputHash: invocation.outputHash }
                 : {}
