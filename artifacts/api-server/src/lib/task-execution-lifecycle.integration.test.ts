@@ -4212,12 +4212,15 @@ describe("real durable task execution lifecycle", () => {
         resumable: 1,
       });
 
-      const recovery = await aiExecutionState.recoverAiExecutionResumeToken({
-        executionId,
-        userId,
-        linkedTaskId: taskId,
-        expectedAttempt: 0,
-      });
+      const recovery = await db.transaction((transaction) =>
+        aiExecutionState.recoverAiExecutionResumeToken({
+          executionId,
+          userId,
+          linkedTaskId: taskId,
+          expectedAttempt: 0,
+          transaction,
+        }),
+      );
       expect(recovery).toBeDefined();
       if (!recovery) throw new Error("Recovery child did not receive a server-owned resume token.");
       runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => ({
@@ -6006,12 +6009,15 @@ describe("real durable task execution lifecycle", () => {
         resumable: 1,
       });
 
-      const recovery = await aiExecutionState.recoverAiExecutionResumeToken({
-        executionId: executionId!,
-        userId: "mission-effect-test-user",
-        linkedTaskId: fixture.taskId,
-        expectedAttempt: 0,
-      });
+      const recovery = await db.transaction((transaction) =>
+        aiExecutionState.recoverAiExecutionResumeToken({
+          executionId: executionId!,
+          userId: "mission-effect-test-user",
+          linkedTaskId: fixture.taskId,
+          expectedAttempt: 0,
+          transaction,
+        }),
+      );
       expect(recovery).toBeDefined();
       if (!recovery) throw new Error("Startup recovery did not issue a resume token.");
 
@@ -7153,7 +7159,7 @@ describe("real durable task execution lifecycle", () => {
         manifestHash: "d".repeat(64),
         scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         scopePolicyVersion: "mission-read-scope-v1",
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
         authorization: "server_owned",
       });
       const observationRecorded = events.find((event) =>
@@ -7167,7 +7173,7 @@ describe("real durable task execution lifecycle", () => {
         status: "completed",
         readStatus: "READ_COMPLETE",
         outputHash: "e".repeat(64),
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
       });
       expect(observationRequest?.episodeId).toEqual(expect.any(String));
       expect(observationRecorded?.episodeId).toBe(observationRequest?.episodeId);
@@ -7190,7 +7196,7 @@ describe("real durable task execution lifecycle", () => {
         toolCallId: "provider-tree-mission-1",
         scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
         scopePolicyVersion: "mission-read-scope-v1",
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
         authorization: "server_owned",
       });
       expect(treeRecorded?.payload).toMatchObject({
@@ -7200,7 +7206,7 @@ describe("real durable task execution lifecycle", () => {
         status: "completed",
         readStatus: "READ_COMPLETE",
         outputHash: "a".repeat(64),
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
       });
       expect(treeScopeHash).not.toBe(gitScopeHash);
       const baseParams = chatWithFallback.mock.calls.at(-1)?.[1] as {
@@ -7212,7 +7218,74 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("records a failed Mission observation when the project revision changes mid-read", async () => {
+  it("rejects a legacy timestamp-bound Mission resume before claiming it", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "validate",
+      approvalRequired: false,
+    });
+    const executionId = randomUUID();
+    const legacyRevision = fixture.now.toISOString();
+    try {
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId: fixture.projectId,
+        linkedTaskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        idempotencyKey: `${fixture.taskId}:legacy-resume`,
+        resumeTokenHash: "a".repeat(64),
+        request: JSON.stringify({
+          projectId: fixture.projectId,
+          message: "Legacy timestamp-bound Mission execution.",
+          workspaceRevision: legacyRevision,
+          linkedTaskId: fixture.taskId,
+        }),
+        status: "paused",
+        attempt: 0,
+        correlationId: null,
+        workspaceRoot: fixture.rootPath,
+        baseRevision: legacyRevision,
+      });
+
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedResumeAttempt: 0,
+        expectedProjectUpdatedAt: legacyRevision,
+        resumeExecutionId: executionId,
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "mission_project_revision_changed",
+      });
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          baseRevision: aiExecutionsTable.baseRevision,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(execution).toMatchObject({
+        status: "paused",
+        attempt: 0,
+        baseRevision: legacyRevision,
+        resumeTokenHash: "a".repeat(64),
+      });
+      expect(chatWithFallback).not.toHaveBeenCalled();
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("records a failed Mission observation when source content changes mid-read", async () => {
     const fixture = await createMissionToolLoopFixture({
       phase: "validate",
       approvalRequired: false,
@@ -7228,9 +7301,11 @@ describe("real durable task execution lifecycle", () => {
         manifestHash: "2".repeat(64),
       };
       await baseParams.onReadOnlyInvocation?.({ ...invocation, phase: "requested" });
-      await db.update(projectsTable)
-        .set({ updatedAt: new Date(fixture.now.getTime() + 1_000) })
-        .where(eq(projectsTable.id, fixture.projectId));
+      await writeFile(
+        join(fixture.rootPath, "src", "target.ts"),
+        "export const value = 'changed during read';\n",
+        "utf8",
+      );
       await expect(
         baseParams.onReadOnlyInvocation?.({
           ...invocation,
@@ -7274,13 +7349,86 @@ describe("real durable task execution lifecycle", () => {
       );
 
       expect(request?.payload).toMatchObject({
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
         authorization: "server_owned",
       });
       expect(recorded?.payload).toMatchObject({
         status: "failed",
         diagnosticCode: "PROJECT_REVISION_CHANGED",
-        projectRevision: fixture.now.toISOString(),
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
+      });
+      expect(recorded?.payload).not.toHaveProperty("outputHash");
+      const [execution] = await db
+        .select({ baseRevision: aiExecutionsTable.baseRevision })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, fixture.taskId))
+        .limit(1);
+      expect(execution?.baseRevision).toMatch(/^workspace-tree-v1:[a-f0-9]{64}$/);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("records a failed Mission observation when project metadata changes mid-read", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "validate",
+      approvalRequired: false,
+    });
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-tree-metadata-drift",
+        toolName: "project.list_tree" as const,
+        inputHash: "4".repeat(64),
+        manifestHash: "5".repeat(64),
+      };
+      await baseParams.onReadOnlyInvocation?.({ ...invocation, phase: "requested" });
+      await db.update(projectsTable)
+        .set({ updatedAt: new Date(fixture.now.getTime() + 1_000) })
+        .where(eq(projectsTable.id, fixture.projectId));
+      await expect(
+        baseParams.onReadOnlyInvocation?.({
+          ...invocation,
+          phase: "recorded",
+          status: "completed",
+          outputHash: "6".repeat(64),
+        }),
+      ).rejects.toThrow("mission_project_revision_changed_after_read");
+      return {
+        result: {
+          response: "The project metadata changed during the read.",
+          pendingChanges: [],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    try {
+      await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+      });
+      const events = await db
+        .select({
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+        })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      const recorded = events.find((event) =>
+        event.eventType === "OBSERVATION_RECORDED"
+        && (event.payload as { toolCallId?: string }).toolCallId === "provider-tree-metadata-drift",
+      );
+      expect(recorded?.payload).toMatchObject({
+        status: "failed",
+        diagnosticCode: "PROJECT_REVISION_CHANGED",
+        projectRevision: expect.stringMatching(/^workspace-tree-v1:[a-f0-9]{64}$/),
       });
       expect(recorded?.payload).not.toHaveProperty("outputHash");
     } finally {

@@ -438,6 +438,7 @@ describe("durable automatic task recovery", () => {
             nextActionCode: "RESUME_ALLOWED",
           },
           resumable: 1,
+          sourceRevision: "workspace-tree-v1:" + "a".repeat(64),
         })
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
 

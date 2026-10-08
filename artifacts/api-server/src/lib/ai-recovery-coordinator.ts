@@ -62,6 +62,11 @@ export type TaskRecoveryCandidate = {
   resumable: number;
   disposition: unknown;
   sourceRevision: string | null;
+  /**
+   * Live workspace content revision when the coordinator can compute it.
+   * `projects.updatedAt` is metadata only; the Task lifecycle checks the
+   * current managed root when this value is unavailable.
+   */
   projectRevision: string | null;
 };
 
@@ -432,7 +437,6 @@ async function findRecoveryCandidates(scope: {
       resumable: aiExecutionAcceptancesTable.resumable,
       disposition: aiExecutionAcceptancesTable.disposition,
       sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
-      projectRevision: projectsTable.updatedAt,
     })
     .from(aiExecutionAcceptancesTable)
     .innerJoin(
@@ -457,7 +461,9 @@ async function findRecoveryCandidates(scope: {
   return rows.map((row) => ({
     ...row,
     executionCorrelationId: row.executionCorrelationId!,
-    projectRevision: row.projectRevision?.toISOString() ?? null,
+    // The project row exposes a metadata timestamp, not the current workspace
+    // content revision. Let the authoritative lifecycle validate provenance.
+    projectRevision: null,
   }));
 }
 
@@ -676,7 +682,6 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
       expectedRetryCount: plan.expectedRetryCount,
       expectedCorrelationId: candidate.executionCorrelationId,
       expectedResumeAttempt: candidate.executionAttempt,
-      workspaceRevision: candidate.projectRevision ?? undefined,
       resumeExecutionId: candidate.executionId,
     });
     if (!lifecycle.ok && lifecycle.status !== "conflict") {
@@ -700,7 +705,6 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     trigger: "reconciliation",
     expectedStatuses: [...RECOVERY_TASK_STATUSES],
     expectedRetryCount: claimed.retryCount,
-    workspaceRevision: candidate.projectRevision ?? undefined,
   });
   if (!lifecycle.ok && lifecycle.status !== "conflict") {
     logger.warn({ taskId: candidate.taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode }, "automatic AI retry did not complete");

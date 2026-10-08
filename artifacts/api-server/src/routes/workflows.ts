@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   aiGoalsTable,
+  aiExecutionsTable,
   aiMissionsTable,
   workflowsTable,
   workflowExecutionsTable,
@@ -30,6 +31,7 @@ import {
 } from "../services/workflow-service.js";
 import { parsePagination } from "../lib/pagination.js";
 import { executeWorkflowPhase } from "../lib/workflow-phase-execution.js";
+import { parseExecutionRequest } from "../lib/ai-execution-state.js";
 import { z } from "zod";
 
 const router = Router();
@@ -786,6 +788,91 @@ router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async 
   if (!execution || execution.workflowId !== workflowId) {
     return res.status(404).json({ error: "Execution not found" });
   }
+  if (execution.status !== "failed") {
+    return res.status(409).json({
+      error: `Cannot retry execution with status "${execution.status}"`,
+    });
+  }
+
+  const phases = Array.isArray(workflow[0].phases)
+    ? workflow[0].phases as Array<{ name: string; steps?: string[] }>
+    : [];
+  const phaseIndex = phases.findIndex((phase) => phase.name === execution.currentPhase);
+  const phase = phaseIndex >= 0 ? phases[phaseIndex] : undefined;
+  if (!phase) {
+    return res.status(409).json({
+      code: "WORKFLOW_PHASE_NOT_FOUND",
+      phase: execution.currentPhase,
+    });
+  }
+  if (phase.steps && phase.steps.length > 0) {
+    return res.status(409).json({
+      code: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+      phase: phase.name,
+      hint: "This phase declares work but no runner can execute it with accepted evidence.",
+    });
+  }
+
+  const phaseIdempotencyKey = `workflow-phase:${execution.id}:${phase.name}`;
+  const [priorPhaseOperation] = await db
+    .select({
+      projectId: aiExecutionsTable.projectId,
+      goalId: aiExecutionsTable.goalId,
+      workspaceRoot: aiExecutionsTable.workspaceRoot,
+      request: aiExecutionsTable.request,
+      baseRevision: aiExecutionsTable.baseRevision,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.userId, req.userId),
+      eq(aiExecutionsTable.idempotencyKey, phaseIdempotencyKey),
+    ))
+    .limit(1);
+  let phaseRevision = workflow[0].updatedAt.toISOString();
+  if (priorPhaseOperation) {
+    const storedRequest = parseExecutionRequest(priorPhaseOperation.request);
+    const storedRevision = priorPhaseOperation.baseRevision ?? storedRequest?.workspaceRevision;
+    if (
+      !storedRequest
+      || storedRequest.projectId !== workflow[0].projectId
+      || storedRequest.operationId !== execution.id
+      || priorPhaseOperation.projectId !== workflow[0].projectId
+      || (priorPhaseOperation.goalId ?? null) !== (workflow[0].goalId ?? null)
+      || (priorPhaseOperation.workspaceRoot ?? null) !== (retryOwnerProject.rootPath ?? null)
+      || typeof storedRevision !== "string"
+    ) {
+      return res.status(409).json({
+        code: "WORKFLOW_PHASE_RETRY_IDENTITY_MISMATCH",
+        phase: phase.name,
+      });
+    }
+    phaseRevision = storedRevision;
+  }
+
+  // Re-run the durable no-op boundary before projecting the workflow back to
+  // running. The operation is idempotent for this execution/phase pair; if it
+  // is still in progress or failed, keep the workflow in its failed state.
+  const phaseExecution = await executeWorkflowPhase({
+    userId: req.userId,
+    projectId: workflow[0].projectId,
+    workflowId,
+    workflowExecutionId: execution.id,
+    workflowName: workflow[0].name,
+    phaseName: phase.name,
+    phaseSteps: phase.steps ?? [],
+    revision: phaseRevision,
+    completedPhaseNames: (execution.completedPhases as string[] | null) ?? [],
+    rootPath: retryOwnerProject.rootPath,
+    goalId: workflow[0].goalId ?? undefined,
+    isFinalPhase: phaseIndex === phases.length - 1,
+  });
+  if (phaseExecution.status !== "completed" && phaseExecution.status !== "already_completed") {
+    return res.status(409).json({
+      code: phaseExecution.failureCode ?? "WORKFLOW_PHASE_RETRY_NOT_READY",
+      phase: phase.name,
+      phaseExecutionStatus: phaseExecution.status,
+    });
+  }
 
   const now = new Date();
   const correlationId = randomUUID();
@@ -842,7 +929,14 @@ router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async 
 
   invalidateContextCache(workflow[0].projectId);
 
-  return res.status(202).json(updatedExecution);
+  return res.status(202).json({
+    ...updatedExecution,
+    ...(phaseExecution.operationId ? { operationId: phaseExecution.operationId } : {}),
+    phaseExecutionStatus: phaseExecution.status,
+    ...(phaseExecution.failureCode
+      ? { phaseExecutionFailureCode: phaseExecution.failureCode }
+      : {}),
+  });
 });
 
 // Roll a running, failed, or completed execution back to one of its already

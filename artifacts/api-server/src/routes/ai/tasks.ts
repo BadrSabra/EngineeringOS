@@ -129,7 +129,7 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       expectedRetryCount: task.retryCount,
       expectedCorrelationId: task.correlationId,
       expectedResumeAttempt: execution.attempt,
-      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+      expectedProjectUpdatedAt: ownerProject.updatedAt?.toISOString(),
       resumeExecutionId: execution.id,
     });
   } catch (error) {
@@ -204,7 +204,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
       expectedRetryCount: task.retryCount,
       expectedCorrelationId: task.correlationId,
-      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+      expectedProjectUpdatedAt: ownerProject.updatedAt?.toISOString(),
     });
   } catch (error) {
     const [currentTask] = await db

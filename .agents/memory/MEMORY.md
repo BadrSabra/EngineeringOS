@@ -38,7 +38,7 @@
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks; Preview is blocking by default while live providers stay opt-in.
-- [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
+- [Task execution lifecycle](task-execution-lifecycle.md) — Mission proof-bearing revisions use content hashes; keep metadata timestamps and non-proof generic Task receipts distinct.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Package test root](package-test-root.md) — run API Vitest from artifacts/api-server; workspace-root discovery can select the stale imported-project copy.

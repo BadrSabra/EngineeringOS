@@ -9,6 +9,12 @@ Complete the remaining gap sequence in order: E1, then E2 through E8. Do not dec
 
 **How to apply:** Keep each stage's findings and validation scoped and recorded. If E2 remains partial, continue only E2 work and do not present E3–E8 as started.
 
+While E2 remains open, do not propose follow-up project tasks.
+
+**Why:** The user explicitly asked to keep work focused on closing E2 rather than creating a follow-up queue.
+
+**How to apply:** Continue the current E2 request directly; do not invoke follow-up task proposals until E2 passes.
+
 The audit goal is to reduce `UNKNOWN` by resolving one bounded, testable E2 uncertainty at a time. Distinguish source inspection, DB-level integration, process-kill/startup recovery, and live/production evidence; do not let a narrower result stand in for a broader boundary.
 
 **Why:** The user clarified that the goal is to reduce `UNKNOWN`, not to treat missing evidence as proof that every path is broken.

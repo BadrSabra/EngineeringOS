@@ -32,3 +32,9 @@ Structured execution heartbeat rejections must abort the same provider signal as
 **Why:** A persistence or transport error makes lease renewal uncertain. Leaving provider work active can produce output after the worker can no longer establish durable ownership.
 
 **How to apply:** Catch rejected heartbeat promises in the timer callback, stop non-terminal provider work, and retain the existing durable ownership checks for any later failure or completion write.
+
+Proof-bearing Mission Tool Loop attempts bind `workspaceRevision` and `baseRevision` to a versioned managed-root content digest; `projects.updatedAt` is a separate metadata snapshot. Do not broaden this content-proof contract to generic Task reports that can run without an established workspace and do not produce a Task Objective proof.
+
+**Why:** A timestamp is not source content, but generic reporting tasks can validly run without a readable project tree and their completion is not Canonical Proof. Treating every generic receipt as content-bound would break those non-proof paths or imply stronger evidence than they provide.
+
+**How to apply:** For Mission Tool Loop work, hash the established root, pass metadata freshness independently, and reject legacy timestamp-bound resumes before claim. Keep generic Task receipts non-proof unless their execution profile explicitly adds a server-owned objective and evidence contract.

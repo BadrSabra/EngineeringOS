@@ -1878,6 +1878,12 @@ async function rebindRotatedMissionRepairRecoveryManifest(params: {
   };
 }
 
+const MISSION_WORKSPACE_REVISION_PREFIX = "workspace-tree-v1:";
+
+async function missionWorkspaceRevision(rootPath: string): Promise<string> {
+  return `${MISSION_WORKSPACE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
+}
+
 async function executeMissionToolLoop(params: {
   task: typeof tasksTable.$inferSelect;
   goal: typeof aiGoalsTable.$inferSelect;
@@ -1889,6 +1895,7 @@ async function executeMissionToolLoop(params: {
   correlationId: string;
   signal: AbortSignal;
   workspaceRevision: string;
+  expectedProjectUpdatedAt: string;
   workerId: string;
   expectedAttempt: number;
   checkpointSequenceBase: number;
@@ -1913,9 +1920,11 @@ async function executeMissionToolLoop(params: {
   if (!project) throw new Error("mission_project_not_found");
   const root = await establishProjectRoot(project.rootPath);
   if (!root.ok) throw new Error("mission_project_root_unavailable");
+  const currentWorkspaceRevision = await missionWorkspaceRevision(root.canonicalPath);
   if (
     !params.workspaceRevision
-    || project.updatedAt?.toISOString() !== params.workspaceRevision
+    || currentWorkspaceRevision !== params.workspaceRevision
+    || project.updatedAt?.toISOString() !== params.expectedProjectUpdatedAt
   ) {
     throw new Error("mission_project_revision_changed_before_execution");
   }
@@ -2225,8 +2234,10 @@ async function executeMissionToolLoop(params: {
         .from(projectsTable)
         .where(eq(projectsTable.id, params.task.projectId))
         .limit(1);
+      const currentWorkspaceRevision = await missionWorkspaceRevision(root.canonicalPath);
       const revisionMatches =
-        currentProject?.updatedAt?.toISOString() === params.workspaceRevision;
+        currentProject?.updatedAt?.toISOString() === params.expectedProjectUpdatedAt
+        && currentWorkspaceRevision === params.workspaceRevision;
       if (invocation.phase === "requested" && !revisionMatches) {
         throw new Error("mission_project_revision_changed_before_read");
       }
@@ -3048,6 +3059,8 @@ export async function executeTaskLifecycle(params: {
   expectedRetryCount?: number;
   expectedCorrelationId?: string | null;
   expectedResumeAttempt?: number;
+  expectedProjectUpdatedAt?: string;
+  /** Backward-compatible metadata snapshot input; never used as a Mission content revision. */
   workspaceRevision?: string;
   resumeExecutionId?: string;
   resumeToken?: string;
@@ -3104,7 +3117,9 @@ export async function executeTaskLifecycle(params: {
     missionGoal?.outcomeContract,
     before.phase,
   );
-  let executionWorkspaceRevision = params.workspaceRevision;
+  const expectedProjectUpdatedAt = params.expectedProjectUpdatedAt ?? params.workspaceRevision;
+  let executionWorkspaceRevision = params.workspaceRevision ?? expectedProjectUpdatedAt;
+  let executionProjectUpdatedAt: string | undefined;
   let executionWorkspaceRoot: string | undefined;
   if (missionGoal && isMissionToolLoopProfile(executionProfile)) {
     const [project] = await db
@@ -3125,8 +3140,8 @@ export async function executeTaskLifecycle(params: {
         };
       }
       if (
-        params.workspaceRevision
-        && params.workspaceRevision !== currentProjectRevision
+        expectedProjectUpdatedAt
+        && expectedProjectUpdatedAt !== currentProjectRevision
       ) {
         return {
           ok: false,
@@ -3144,6 +3159,51 @@ export async function executeTaskLifecycle(params: {
         };
       }
       executionWorkspaceRoot = established.canonicalPath;
+      executionProjectUpdatedAt = currentProjectRevision;
+      try {
+        executionWorkspaceRevision = await missionWorkspaceRevision(established.canonicalPath);
+      } catch {
+        return {
+          ok: false,
+          status: "conflict",
+          errorCode: "mission_project_revision_unavailable",
+        };
+      }
+      if (params.resumeExecutionId) {
+        const [resumeExecution] = await db
+          .select({ baseRevision: aiExecutionsTable.baseRevision })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, params.resumeExecutionId),
+            eq(aiExecutionsTable.userId, params.userId),
+            eq(aiExecutionsTable.projectId, before.projectId),
+            eq(aiExecutionsTable.linkedTaskId, before.id),
+            correlationIdAtRead
+              ? eq(aiExecutionsTable.correlationId, correlationIdAtRead)
+              : isNull(aiExecutionsTable.correlationId),
+            params.expectedResumeAttempt !== undefined
+              ? eq(aiExecutionsTable.attempt, params.expectedResumeAttempt)
+              : undefined,
+          ))
+          .limit(1);
+        if (!resumeExecution) {
+          return { ok: false, status: "conflict", errorCode: "execution_identity_changed" };
+        }
+        if (!resumeExecution.baseRevision) {
+          return {
+            ok: false,
+            status: "conflict",
+            errorCode: "mission_project_revision_unavailable",
+          };
+        }
+        if (resumeExecution.baseRevision !== executionWorkspaceRevision) {
+          return {
+            ok: false,
+            status: "conflict",
+            errorCode: "mission_project_revision_changed",
+          };
+        }
+      }
     } else {
       return {
         ok: false,
@@ -3406,7 +3466,7 @@ export async function executeTaskLifecycle(params: {
     const failure = failureReceipt({
       executionId,
       correlationId,
-      revision: params.workspaceRevision,
+      revision: executionRevision,
       provider: executionProvider,
       attempt: executionAttempt,
       durationMs: Date.now() - startedAt,
@@ -3500,7 +3560,8 @@ export async function executeTaskLifecycle(params: {
           executionId,
           correlationId,
           signal: executionAbortController.signal,
-           workspaceRevision: executionRevision!,
+          workspaceRevision: executionRevision!,
+          expectedProjectUpdatedAt: executionProjectUpdatedAt!,
           workerId,
           expectedAttempt: executionAttempt,
           checkpointSequenceBase: Math.max(3, initialCheckpointSequence + 1),
@@ -3598,7 +3659,7 @@ export async function executeTaskLifecycle(params: {
       await progress.finish("analysis", "failed", "The model response could not be accepted.", 68, 5);
       await progress.start("finalization", "Recording the failed execution.", 84, 7);
       const parseReceipt = failureReceipt({
-        executionId, correlationId, revision: params.workspaceRevision,
+        executionId, correlationId, revision: executionRevision,
         provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
         failureClass: "malformed_output",
@@ -3655,7 +3716,7 @@ export async function executeTaskLifecycle(params: {
       const qualityReceipt = failureReceipt({
         executionId,
         correlationId,
-        revision: params.workspaceRevision,
+        revision: executionRevision,
         provider: effectiveProvider,
         attempt: executionAttempt,
         durationMs: Date.now() - startedAt,
@@ -3892,7 +3953,7 @@ export async function executeTaskLifecycle(params: {
       || (error instanceof Error && error.name === "AbortError");
     const classification = classifyTaskExecutionFailure({ stage, cancelled, error });
     const failure = failureReceipt({
-      executionId, correlationId, revision: params.workspaceRevision,
+      executionId, correlationId, revision: executionRevision,
       provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt,
       stages,

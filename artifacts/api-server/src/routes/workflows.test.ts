@@ -284,6 +284,7 @@ describe("Workflow phase orchestration", () => {
     expect(retried.body.status).toBe("running");
     expect(retried.body.errorMessage).toBeNull();
     expect(retried.body.currentPhase).toBe("build");
+    expect(retried.body.phaseExecutionStatus).toBe("already_completed");
 
     const workflowAfterRetry = await db
       .select()
@@ -291,6 +292,44 @@ describe("Workflow phase orchestration", () => {
       .where(eq(workflowsTable.id, workflowId))
       .limit(1);
     expect(workflowAfterRetry[0].status).toBe("running");
+  });
+
+  it("does not mark a non-empty phase running when no runner can retry it", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+    await db
+      .update(workflowsTable)
+      .set({ phases: [{ name: "build", steps: ["Run the test suite"] }] })
+      .where(eq(workflowsTable.id, workflowId));
+
+    const failed = await request(app)
+      .post(`/api/workflows/${workflowId}/fail-phase`)
+      .send({ error: "previous attempt failed" });
+    expect(failed.status).toBe(200);
+
+    const retried = await request(app)
+      .post(`/api/workflows/${workflowId}/executions/${failed.body.id}/retry-phase`);
+
+    expect(retried.status).toBe(409);
+    expect(retried.body.code).toBe("WORKFLOW_PHASE_RUNNER_UNAVAILABLE");
+    const [workflow] = await db
+      .select()
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, workflowId))
+      .limit(1);
+    const [execution] = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.id, failed.body.id))
+      .limit(1);
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+
+    expect(workflow?.status).toBe("failed");
+    expect(execution?.status).toBe("failed");
+    expect(execution?.errorMessage).toBe("previous attempt failed");
+    expect(events.some((event) => event.type === "WorkflowPhaseRetried")).toBe(false);
   });
 
   it("rolls a completed execution back to a previous phase and records one trace", async () => {

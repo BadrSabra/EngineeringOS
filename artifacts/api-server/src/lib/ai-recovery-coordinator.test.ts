@@ -141,6 +141,20 @@ describe("automatic task recovery admission", () => {
       kind: "skip",
       reason: "revision_changed",
     });
+
+    // A projects.updatedAt timestamp is not comparable to a persisted content
+    // revision. If the coordinator cannot compute the live root revision, the
+    // authoritative Task lifecycle owns that check.
+    expect(planTaskRecovery(candidate({
+      action: "RESUME_ALLOWED",
+      resumable: 1,
+      executionStatus: "paused",
+      sourceRevision: "workspace-tree-v1:" + "a".repeat(64),
+      projectRevision: null,
+    }))).toMatchObject({
+      kind: "resume",
+      action: "RESUME_ALLOWED",
+    });
   });
 
   it("keeps resumable project-query recovery bound to its persisted revision", () => {
