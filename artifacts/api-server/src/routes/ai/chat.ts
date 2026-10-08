@@ -13444,6 +13444,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
 
   return res.json({
     id: execution.id,
+    correlationId: execution.correlationId,
     projectId: execution.projectId,
     sessionId: execution.sessionId,
     objective: storedRequest?.objective,

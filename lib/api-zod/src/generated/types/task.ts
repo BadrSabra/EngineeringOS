@@ -14,6 +14,8 @@ import type { VerificationResult } from './verificationResult';
 export interface Task {
   id: string;
   projectId: string;
+  /** Current Task lifecycle execution pointer; linkage only, not acceptance or proof */
+  correlationId: string | null;
   ruleId?: string;
   workflowId?: string;
   goalId?: string;

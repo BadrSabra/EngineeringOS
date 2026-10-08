@@ -41,6 +41,7 @@ import {
 import {
   getPublicTaskExecutionAcceptance,
   getPublicTaskExecutionAcceptances,
+  getPublicTaskExecutionReceipts,
 } from "../lib/ai-execution-acceptance.js";
 
 const router = Router();
@@ -48,6 +49,26 @@ const router = Router();
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
 router.use(requireAuth);
+
+async function projectCurrentTaskExecutionReceipts<
+  T extends { id: string; agentResponse: string | null },
+>(tasks: readonly T[]): Promise<T[]> {
+  const receiptByTaskId = await getPublicTaskExecutionReceipts(tasks);
+  return tasks.map((task) => ({
+    ...task,
+    agentResponse: receiptByTaskId.get(task.id) ?? null,
+  }));
+}
+
+async function projectCurrentTaskExecutionReceipt<
+  T extends { id: string; agentResponse: string | null },
+>(task: T): Promise<T> {
+  const receiptByTaskId = await getPublicTaskExecutionReceipts([task]);
+  return {
+    ...task,
+    agentResponse: receiptByTaskId.get(task.id) ?? null,
+  };
+}
 
 class TaskStateConflictError extends Error {}
 
@@ -198,10 +219,14 @@ router.get("/tasks", async (req, res) => {
   const acceptanceByTaskId = await getPublicTaskExecutionAcceptances(
     tasks.map((task) => task.id),
   );
+  const projectedTasks = await projectCurrentTaskExecutionReceipts(tasks);
   return res.json(
-    tasks.map((task) => {
+    projectedTasks.map((task) => {
       const acceptance = acceptanceByTaskId.get(task.id);
-      return acceptance ? { ...task, acceptance } : task;
+      return {
+        ...task,
+        ...(acceptance ? { acceptance } : {}),
+      };
     }),
   );
 });
@@ -262,8 +287,9 @@ router.get("/tasks/:taskId", async (req, res) => {
   const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
   if (!project) return;
   const acceptance = await getPublicTaskExecutionAcceptance(taskId);
+  const [projectedTask] = await projectCurrentTaskExecutionReceipts(task);
   return res.json({
-    ...task[0],
+    ...projectedTask,
     ...(acceptance ? { acceptance } : {}),
   });
 });
@@ -360,7 +386,8 @@ router.patch("/tasks/:taskId", async (req, res) => {
 
   invalidateContextCache(project.id);
 
-  return res.json(updated[0]);
+  const projected = await projectCurrentTaskExecutionReceipt(updated[0]);
+  return res.json(projected);
 });
 
 // Delete task
@@ -680,7 +707,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       scheduleAiTaskExecution(taskId, req.userId);
     }
 
-    return res.status(202).json(updated);
+    return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
   } finally {
     await leaseHeartbeat.stop();
   }
@@ -922,7 +949,7 @@ router.post("/tasks/:taskId/verification", async (req, res) => {
   }
 
   invalidateContextCache(project.id);
-  return res.json(updated);
+  return res.json(await projectCurrentTaskExecutionReceipt(updated));
 });
 
 // Retry task
@@ -1013,7 +1040,7 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
 
   invalidateContextCache(project.id);
 
-  return res.status(202).json(updated);
+  return res.status(202).json(await projectCurrentTaskExecutionReceipt(updated));
 });
 
 // Rollback task
@@ -1113,7 +1140,7 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
 
   invalidateContextCache(project.id);
 
-  return res.json(updated);
+  return res.json(await projectCurrentTaskExecutionReceipt(updated));
 });
 
 // Get task logs

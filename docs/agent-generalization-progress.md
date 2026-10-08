@@ -4936,6 +4936,50 @@ G9 Revocation Safety
 - **remaining/blocker:** Task-aware Chat قد يرتبط بالـ Task عبر `linkedTaskId` لكنه ليس execution الخاص بدورة Task؛ candidate filter يستبعده إن اختلف correlation. Token rotation لا يجري ذريًا مع Task claim؛ التنفيذ/episode قد يسبقان CAS النهائي. يبقى ذلك interleaving غير مختبر. `getPublicTaskExecutionAcceptance(s)` وDashboard acceptance projection ما زالا يختاران بحسب attempt، والبيانات القديمة أو auxiliary executions ذات correlation مفقود/غير مطابق لا تدخل Task recovery تلقائيًا. عائلات ingress/proof/evidence/effects/recovery/Dashboard العامة ما زالت غير محصورة؛ E2 مفتوحة وE3 متوقفة.
 - **next step:** تابع تدقيق E2 فقط، بدءًا من acceptance projection وسباق preflight/token/Task claim؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة، ولا تقترح مهام متابعة أثناء نشاط E2.
 
+### 2026-10-08 — ربط إسقاط قبول Task بمؤشر التنفيذ الحالي
+
+- **phase/step:** E2 فقط — اختيار acceptance المعروض في تفاصيل Task وقائمته.
+- **status:** `PARTIAL — detail/list projections now follow the current Task correlation pointer; separate Dashboard receipt mismatch and resume-claim race remain open; source-family inventory remains UNKNOWN`
+- **what changed:** يربط `getPublicTaskExecutionAcceptance(s)` التنفيذ المرتبط بـTask عبر تطابق `aiExecutions.correlationId` مع `tasks.correlationId`، ثم يحمّل acceptance للمحاولة الدقيقة لذلك التنفيذ. لا يستطيع execution متجاوز ذو `attempt` أعلى ومؤشر correlation مختلف أن يحجب acceptance الحالية. المؤشر المفقود أو غير المطابق لا ينتج acceptance عامة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-acceptance.ts` و`artifacts/api-server/src/routes/tasks.test.ts`؛ سجل E2 وهذا السجل و`.agents/memory/recovery-candidate-binding.md`. لا تغيير schema أو workflow.
+- **validation:** نجح API TypeScript check. نجحت `src/routes/tasks.test.ts` من `artifacts/api-server` (**25/25**) على PostgreSQL مؤقتة loopback بعد تطبيق schema الحالي، ثم أُوقفت القاعدة وحُذف جذرها. غطت الاختبارات القائمة تفاصيل Task والقائمة مع execution متجاوز أعلى `attempt` ومختلف correlation. `git diff --check` سيعاد بعد تحديث السجل والذاكرة.
+- **authority/safety impact:** correlation يربط العرض بالتنفيذ الحالي فقط؛ لا يثبت Canonical Proof أو يمنح صلاحية. الإخفاء عند غياب/اختلاف المؤشر fail-closed، بما في ذلك السجلات القديمة والـauxiliary executions.
+- **remaining/blocker:** `tasks.agentResponse` ما زال إسقاط receipt منفصلًا عن acceptance ولا يطابق `operationId`/`attempt` مع التنفيذ الحالي. يبقى سباق preflight/token/Task claim غير محسوم، وعائلات المصدر العامة غير محصورة؛ لا تنفيذ لمرحلة لاحقة في هذه الخطوة.
+- **next step:** افحص اتساق `agentResponse` receipt المعروض في Dashboard مع Task/execution الحالي، مع إبقاء receipt منفصلًا عن دليل acceptance؛ واصل E2 فقط.
+
+### 2026-10-08 — ربط receipt المعروض بالتنفيذ الحالي
+
+- **phase/step:** E2 فقط — مطابقة `tasks.agentResponse` مع تنفيذ Task الحالي في واجهتي القائمة والتفاصيل.
+- **status:** `PARTIAL — recognized AI receipts are pointer- and attempt-bound and UI labels distinguish execution/provider attempts; E2 source-family inventory remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** إسقاط list/detail في API يعيد receipt من نوع `AI_TASK_EXECUTION_RECEIPT` فقط عندما يطابق `operationId` و`correlationId` و`attempt` التنفيذ الوحيد المرتبط بمؤشر Task الحالي؛ stale/ambiguous receipt يصبح `null`. تميّز Dashboard الآن بين execution attempt وprovider attempts. البيانات القديمة قد تبقى مخزنة لكن لا تُعرض كأنها المحاولة الحالية.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-acceptance.ts` و`routes/tasks.ts` و`routes/tasks.test.ts`؛ `artifacts/dashboard/src/pages/Tasks.tsx` و`Tasks.test.tsx`؛ `docs/e2-source-derived-measurement-ledger.md` وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** نجح اختبار API المحدد (**1 passed / 25 skipped**) على PostgreSQL 16.10 مؤقتة loopback مع DSN صريح، ونجح اختبار Dashboard المحدد (**1 passed / 10 skipped**). لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** مطابقة receipt تحدد إسقاطه فقط؛ لا تنشئ Acceptance أو Canonical Proof ولا تمنح صلاحية. لوحة القبول تبقى إسقاطًا منفصلًا.
+- **remaining/blocker:** القيم غير المعروفة/القديمة غير التابعة لنوع AI، والكتّاب الخارجيون، ومصدر التشخيص العام خارج هذا الفلتر. جرد عائلات E2 العامة لا يزال `UNKNOWN`؛ E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل E2 بفحص نافذة إسقاط Task logs والتنفيذ بعد retry؛ لا تبدأ E3 أو Strategy Replay ولا تعِد تشغيل workflows مُدارة.
+
+### 2026-10-08 — جعل مطالبة استئناف Task ذرية
+
+- **phase/step:** E2 فقط — سباق token rotation وexecution attempt وTask claim في الاستئناف اليدوي والتلقائي.
+- **status:** `PARTIAL — Task-specific resume claims are atomic and the concurrent pointer-loss case is verified; public source-family inventory remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** لم يعد مسار resume اليدوي أو recovery التلقائي يدوّر token قبل lifecycle. يمرران attempt المتوقع إلى `executeTaskLifecycle`؛ وتنفذ معاملة واحدة استعادة token ومطالبة execution attempt وCAS مطالبة Task. إنشاء execution جديد ومطالبته وCAS Task صاروا كذلك ذرّيين. خسارة CAS تعيد rollback لتغييرات token/attempt، قبل Episode أو provider work. يرفض manual resume وجود أكثر من execution مطابق لمؤشر correlation الحالي.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts` و`task-execution-service.ts` و`ai-recovery-coordinator.ts` و`task-execution-lifecycle.integration.test.ts` و`routes/ai/tasks.ts`؛ `docs/e2-source-derived-measurement-ledger.md` وهذا السجل و`.agents/memory/recovery-candidate-binding.md`. لا تغيير schema أو workflow.
+- **validation:** نجح `pnpm --filter @workspace/api-server run typecheck`. نجح اختبار lifecycle المحدد (**3 passed / 47 skipped**) بما فيه تداخل pointer race، والقبول الناجح للتنفيذ، ورفض snapshot قديمة. نجح manual resume المحدد (**2 passed / 199 skipped**)؛ نجحت اختبارات automatic recovery المحددة (**3 passed / 8 skipped**) واختبارات `ai-execution-state.test.ts` (**29/29**). اختبارات PostgreSQL استخدمت عنقود 16.10 مؤقتًا على loopback مع `DATABASE_URL` صريح وschema حديث؛ سيُوقف ويُحذف بعد الفحوص النهائية. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** مؤشر correlation يظل رابط اختيار فقط، لا acceptance أو Canonical Proof ولا صلاحية. لمطالبة Task وexecution/token الآن حد transaction واحد؛ محاولة تخسر CAS لا تترك attempt أو token جديدًا قابلًا للاستخدام ولا تبدأ Episode/provider.
+- **remaining/blocker:** عائلات ingress وproof/evidence وeffects وrecovery وDashboard العامة ما زالت غير محصورة (`UNKNOWN`)، لذا E2 مفتوحة وE3 متوقفة. ما زالت فروق provenance الخاصة بـ`projects.updatedAt` خارج هذا الإصلاح.
+- **next step:** واصل تدقيق وإغلاق فجوات E2 فقط مع إبقاء العائلات غير المحصورة مفتوحة؛ لا تبدأ E3 أو Strategy Replay ولا تعِد تشغيل workflows مُدارة أثناء E2.
+
+### 2026-10-09 — منع عرض تنفيذ Task سابق بعد retry
+
+- **phase/step:** E2 فقط — freshness لهوية تنفيذ Task المعروضة بعد retry.
+- **status:** `PARTIAL — stale Task execution projection is pointer-bound and tested; public source-family inventory remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** صار `GET /tasks/:taskId` و`GET /ai/executions/:executionId` يعرّفان `correlationId` في العقد المولّد، ويعيد execution detail قيمته الفعلية. عند توسيع المهمة، تحدّث Dashboard مؤشر Task الحالي وتعرض execution المحدد من Task logs فقط إذا طابق correlation الحالي وكان مرتبطًا بـTask نفسه. بذلك يُخفى التنفيذ السابق بعد تدوير المؤشر وحتى وصول progress جديد.
+- **files/schema/contracts touched:** `lib/api-spec/openapi.yaml` ومخرجات `api-zod` و`api-client-react`؛ `artifacts/api-server/src/routes/ai/chat.ts` واختبار API؛ `artifacts/dashboard/src/pages/Tasks.tsx` واختباراته؛ سجل E2 وهذا السجل. لا تغيير قاعدة بيانات أو workflow.
+- **validation:** نجح codegen و`typecheck:libs`، وtypecheck لكل من API Server وDashboard، واختبار Dashboard (`13/13`) واختبار API المحدد (`1 passed / 200 skipped`) على PostgreSQL مؤقتة loopback مع DSN صريح، و`git diff --check`. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** مطابقة correlation و`linkedTaskId` تضبط العرض فقط؛ لا تنشئ acceptance أو Canonical Proof ولا تمنح صلاحية. بقاء executionId قديمًا في task logs لا يغيّر المؤشر الحالي.
+- **remaining/blocker:** عائلات المصادر العامة في E2 ما زالت غير محصورة (`UNKNOWN`)، لذا E2 مفتوحة وE3 متوقفة. لا يثبت هذا الفحص سلوك النشر أو حالات runtime بعينها.
+- **next step:** واصل إغلاق فجوات E2 المشتقة من المصادر، وأبقِ العائلات غير المحصورة `UNKNOWN` حتى اكتمال جردها؛ لا تبدأ E3 أو Strategy Replay ولا تعِد تشغيل workflows مُدارة أثناء E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

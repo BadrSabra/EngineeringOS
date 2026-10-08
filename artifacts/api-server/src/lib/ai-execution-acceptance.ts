@@ -1406,7 +1406,7 @@ export function projectExecutionAcceptance(
 export async function getPublicTaskExecutionAcceptance(
   taskId: string,
 ): Promise<PublicExecutionAcceptance | undefined> {
-  const [execution] = await db
+  const executions = await db
     .select({
       id: aiExecutionsTable.id,
       attempt: aiExecutionsTable.attempt,
@@ -1417,8 +1417,9 @@ export async function getPublicTaskExecutionAcceptance(
       eq(tasksTable.correlationId, aiExecutionsTable.correlationId),
     ))
     .where(eq(aiExecutionsTable.linkedTaskId, taskId))
-    .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
-    .limit(1);
+    .limit(2);
+  if (executions.length !== 1) return undefined;
+  const [execution] = executions;
   if (!execution) return undefined;
 
   const [acceptance] = await db
@@ -1454,31 +1455,25 @@ export async function getPublicTaskExecutionAcceptances(
       eq(tasksTable.id, aiExecutionsTable.linkedTaskId),
       eq(tasksTable.correlationId, aiExecutionsTable.correlationId),
     ))
-    .where(inArray(aiExecutionsTable.linkedTaskId, [...taskIds]))
-    .orderBy(
-      desc(aiExecutionsTable.attempt),
-      desc(aiExecutionsTable.updatedAt),
-      desc(aiExecutionsTable.id),
-    );
+    .where(inArray(aiExecutionsTable.linkedTaskId, [...taskIds]));
 
-  const latestExecutionByTask = new Map<
+  const matchingExecutionsByTask = new Map<
     string,
-    { id: string; attempt: number }
+    Array<{ id: string; attempt: number }>
   >();
   for (const execution of executions) {
-    if (
-      execution.linkedTaskId &&
-      !latestExecutionByTask.has(execution.linkedTaskId)
-    ) {
-      latestExecutionByTask.set(execution.linkedTaskId, {
-        id: execution.id,
-        attempt: execution.attempt,
-      });
-    }
+    if (!execution.linkedTaskId) continue;
+    const matches = matchingExecutionsByTask.get(execution.linkedTaskId) ?? [];
+    matches.push({ id: execution.id, attempt: execution.attempt });
+    matchingExecutionsByTask.set(execution.linkedTaskId, matches);
+  }
+  const currentExecutionByTask = new Map<string, { id: string; attempt: number }>();
+  for (const [taskId, matches] of matchingExecutionsByTask) {
+    if (matches.length === 1) currentExecutionByTask.set(taskId, matches[0]);
   }
 
-  const latestExecutions = [...latestExecutionByTask.values()];
-  if (latestExecutions.length === 0) return result;
+  const currentExecutions = [...currentExecutionByTask.values()];
+  if (currentExecutions.length === 0) return result;
 
   const acceptances = await db
     .select()
@@ -1486,7 +1481,7 @@ export async function getPublicTaskExecutionAcceptances(
     .where(
       inArray(
         aiExecutionAcceptancesTable.executionId,
-        latestExecutions.map((execution) => execution.id),
+        currentExecutions.map((execution) => execution.id),
       ),
     );
   const acceptanceByExecution = new Map(
@@ -1496,12 +1491,84 @@ export async function getPublicTaskExecutionAcceptances(
     ]),
   );
 
-  for (const [taskId, execution] of latestExecutionByTask) {
+  for (const [taskId, execution] of currentExecutionByTask) {
     const acceptance = acceptanceByExecution.get(
       `${execution.id}:${execution.attempt}`,
     );
     const projected = projectExecutionAcceptance(acceptance);
     if (projected) result.set(taskId, projected);
+  }
+
+  return result;
+}
+
+/**
+ * Keep recognized AI execution receipts public only while they identify the
+ * Task's unique pointer-bound execution and its exact current attempt.
+ */
+export async function getPublicTaskExecutionReceipts(
+  taskRows: readonly { id: string; agentResponse: string | null }[],
+): Promise<Map<string, string | null>> {
+  const result = new Map(taskRows.map((task) => [task.id, task.agentResponse]));
+  if (taskRows.length === 0) return result;
+
+  const receiptCandidates = taskRows.flatMap((task) => {
+    if (!task.agentResponse) return [];
+    try {
+      const value: unknown = JSON.parse(task.agentResponse);
+      if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+        || (value as Record<string, unknown>).kind !== "AI_TASK_EXECUTION_RECEIPT"
+      ) {
+        return [];
+      }
+      return [{
+        taskId: task.id,
+        raw: task.agentResponse,
+        receipt: value as Record<string, unknown>,
+      }];
+    } catch {
+      return [];
+    }
+  });
+  if (receiptCandidates.length === 0) return result;
+
+  const executions = await db
+    .select({
+      taskId: tasksTable.id,
+      executionId: aiExecutionsTable.id,
+      correlationId: aiExecutionsTable.correlationId,
+      attempt: aiExecutionsTable.attempt,
+    })
+    .from(tasksTable)
+    .innerJoin(aiExecutionsTable, and(
+      eq(aiExecutionsTable.linkedTaskId, tasksTable.id),
+      eq(aiExecutionsTable.correlationId, tasksTable.correlationId),
+    ))
+    .where(inArray(tasksTable.id, receiptCandidates.map((candidate) => candidate.taskId)));
+
+  const executionsByTask = new Map<
+    string,
+    Array<{ executionId: string; correlationId: string | null; attempt: number }>
+  >();
+  for (const execution of executions) {
+    const matches = executionsByTask.get(execution.taskId) ?? [];
+    matches.push(execution);
+    executionsByTask.set(execution.taskId, matches);
+  }
+
+  for (const candidate of receiptCandidates) {
+    const matches = executionsByTask.get(candidate.taskId) ?? [];
+    const execution = matches.length === 1 ? matches[0] : undefined;
+    const current = Boolean(
+      execution
+      && candidate.receipt.operationId === execution.executionId
+      && candidate.receipt.correlationId === execution.correlationId
+      && candidate.receipt.attempt === execution.attempt,
+    );
+    result.set(candidate.taskId, current ? candidate.raw : null);
   }
 
   return result;

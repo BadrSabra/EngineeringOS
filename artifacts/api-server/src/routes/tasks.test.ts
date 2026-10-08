@@ -245,6 +245,94 @@ describe("Task lifecycle", () => {
     expect(JSON.stringify(res.body)).not.toContain("providerPayload");
   });
 
+  it("returns an AI Task receipt only for the pointer-bound execution and exact attempt", async () => {
+    const { projectId, taskId } = await createTask();
+    const currentExecutionId = randomUUID();
+    const currentCorrelationId = randomUUID();
+    const supersededExecutionId = randomUUID();
+    const supersededCorrelationId = randomUUID();
+    const currentReceipt = JSON.stringify({
+      kind: "AI_TASK_EXECUTION_RECEIPT",
+      operationId: currentExecutionId,
+      correlationId: currentCorrelationId,
+      attempt: 3,
+      attempts: 2,
+      terminalStatus: "SUCCEEDED",
+    });
+
+    await db.update(tasksTable)
+      .set({ correlationId: currentCorrelationId, agentResponse: currentReceipt })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(aiExecutionsTable).values([
+      {
+        id: currentExecutionId,
+        projectId,
+        linkedTaskId: taskId,
+        userId: "test-user",
+        idempotencyKey: currentExecutionId,
+        correlationId: currentCorrelationId,
+        attempt: 3,
+        resumeTokenHash: "current-task-receipt-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+      },
+      {
+        id: supersededExecutionId,
+        projectId,
+        linkedTaskId: taskId,
+        userId: "test-user",
+        idempotencyKey: supersededExecutionId,
+        correlationId: supersededCorrelationId,
+        attempt: 9,
+        resumeTokenHash: "superseded-task-receipt-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "failed",
+      },
+    ]);
+
+    const currentList = await request(app).get("/api/tasks").query({ projectId });
+    expect(currentList.body.find((task: { id: string }) => task.id === taskId).agentResponse)
+      .toBe(currentReceipt);
+    const currentDetail = await request(app).get(`/api/tasks/${taskId}`);
+    expect(currentDetail.body.agentResponse).toBe(currentReceipt);
+
+    await db.update(tasksTable)
+      .set({
+        agentResponse: JSON.stringify({
+          kind: "AI_TASK_EXECUTION_RECEIPT",
+          operationId: supersededExecutionId,
+          correlationId: supersededCorrelationId,
+          attempt: 9,
+          attempts: 1,
+          terminalStatus: "FAILED",
+        }),
+      })
+      .where(eq(tasksTable.id, taskId));
+
+    const supersededList = await request(app).get("/api/tasks").query({ projectId });
+    expect(supersededList.body.find((task: { id: string }) => task.id === taskId).agentResponse)
+      .toBeNull();
+    const supersededDetail = await request(app).get(`/api/tasks/${taskId}`);
+    expect(supersededDetail.body.agentResponse).toBeNull();
+
+    await db.update(tasksTable)
+      .set({
+        agentResponse: JSON.stringify({
+          kind: "AI_TASK_EXECUTION_RECEIPT",
+          operationId: currentExecutionId,
+          correlationId: currentCorrelationId,
+          attempt: 2,
+          attempts: 1,
+          terminalStatus: "FAILED",
+        }),
+      })
+      .where(eq(tasksTable.id, taskId));
+    const staleAttemptDetail = await request(app).get(`/api/tasks/${taskId}`);
+    expect(staleAttemptDetail.body.agentResponse).toBeNull();
+  });
+
   it("executes a task with no rule/relatedFiles into the verifying state", async () => {
     const { taskId } = await createTask();
 
@@ -540,13 +628,24 @@ describe("Task lifecycle", () => {
 
   it("retries a failed task and increments retryCount, refusing once maxRetries is hit", async () => {
     const { taskId } = await createTask();
-    await db.update(tasksTable).set({ status: "failed", maxRetries: 1 }).where(eq(tasksTable.id, taskId));
+    await db.update(tasksTable).set({
+      status: "failed",
+      maxRetries: 1,
+      agentResponse: JSON.stringify({
+        kind: "AI_TASK_EXECUTION_RECEIPT",
+        operationId: randomUUID(),
+        correlationId: randomUUID(),
+        attempt: 1,
+        attempts: 2,
+      }),
+    }).where(eq(tasksTable.id, taskId));
 
     const retried = await request(app).post(`/api/tasks/${taskId}/retry`);
     expect(retried.status).toBe(202);
     expect(retried.body.status).toBe("queued");
     expect(retried.body.retryCount).toBe(1);
     expect(retried.body.correlationId).toEqual(expect.any(String));
+    expect(retried.body.agentResponse).toBeNull();
 
     await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
     const secondRetry = await request(app).post(`/api/tasks/${taskId}/retry`);

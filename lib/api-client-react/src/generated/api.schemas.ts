@@ -5163,6 +5163,8 @@ export interface ExecutionAcceptance {
 export interface Task {
   id: string;
   projectId: string;
+  /** Current Task lifecycle execution pointer; linkage only, not acceptance or proof */
+  correlationId: string | null;
   ruleId?: string;
   workflowId?: string;
   goalId?: string;
@@ -6289,6 +6291,8 @@ export type GetAiExecution200ApplyMission = {
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
   id: string;
+  /** Server-owned execution identity used to match a Task lifecycle pointer; not proof or authorization */
+  correlationId: string | null;
   projectId?: string;
   /** UUID of the chat session */
   sessionId?: string;

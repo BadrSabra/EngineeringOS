@@ -2211,9 +2211,11 @@ export async function recoverAiExecutionResumeToken(params: {
   userId: string;
   linkedTaskId?: string;
   expectedAttempt?: number;
+  transaction?: AiExecutionTransaction;
 }): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  const query = params.transaction ?? db;
   const resumeToken = createResumeToken();
-  const [candidate] = await db
+  const [candidate] = await query
     .select()
     .from(aiExecutionsTable)
     .where(and(
@@ -2228,7 +2230,7 @@ export async function recoverAiExecutionResumeToken(params: {
     .limit(1);
   if (!candidate) return undefined;
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
-  const [priorAcceptance] = await db
+  const [priorAcceptance] = await query
     .select({
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
@@ -2269,7 +2271,7 @@ export async function recoverAiExecutionResumeToken(params: {
   ) {
     return undefined;
   }
-  const [execution] = await db
+  const [execution] = await query
     .update(aiExecutionsTable)
     .set({
       resumeTokenHash: hashResumeTokenForRequest(resumeToken, candidate.request),
@@ -2623,10 +2625,12 @@ export async function claimAiExecution(params: {
   workerId: string;
   resumeToken?: string;
   recipeBinding?: RecipeOperationBinding;
+  transaction?: AiExecutionTransaction;
 }): Promise<AiExecution | undefined> {
+  const query = params.transaction ?? db;
   const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
   const [tokenState] = params.resumeToken
-    ? await db
+    ? await query
         .select({ request: aiExecutionsTable.request })
         .from(aiExecutionsTable)
         .where(and(
@@ -2639,9 +2643,16 @@ export async function claimAiExecution(params: {
   const requestBoundTokenHash = params.resumeToken && tokenState
     ? hashResumeTokenForRequest(params.resumeToken, tokenState.request)
     : undefined;
-  const existing = params.recipeBinding
-    ? await getAiExecutionForUser(params.executionId, params.userId)
-    : undefined;
+  const [existing] = params.recipeBinding
+    ? await query
+        .select()
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.userId, params.userId),
+        ))
+        .limit(1)
+    : [];
   const claimCheckpoint = existing && params.recipeBinding
     ? parseAiExecutionCheckpoint(existing.checkpoint)
     : undefined;
@@ -2668,7 +2679,7 @@ export async function claimAiExecution(params: {
   const claimedBinding = bindingToClaim
     ? { ...bindingToClaim, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
     : undefined;
-  const [claimed] = await db
+  const [claimed] = await query
     .update(aiExecutionsTable)
     .set({
       status: "running",

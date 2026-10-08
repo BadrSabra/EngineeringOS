@@ -24,6 +24,8 @@ import type { RuntimeWorldTransitionProjection } from './runtimeWorldTransitionP
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
   id: string;
+  /** Server-owned execution identity used to match a Task lifecycle pointer; not proof or authorization */
+  correlationId: string | null;
   projectId?: string;
   /** UUID of the chat session */
   sessionId?: string;

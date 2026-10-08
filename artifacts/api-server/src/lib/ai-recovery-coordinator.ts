@@ -10,7 +10,6 @@ import {
 } from "@workspace/db";
 import { resolveProvider } from "./ai-route-helpers.js";
 import { checkProjectRateLimitDb } from "./db-rate-limiter.js";
-import { recoverAiExecutionResumeToken } from "./ai-execution-state.js";
 import {
   hasAiExecutionResumeContract,
   parseExecutionRequest,
@@ -571,19 +570,6 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
   }
 
   if (plan.kind === "resume") {
-    const recovered = await recoverAiExecutionResumeToken({
-      executionId: candidate.executionId,
-      userId: candidate.userId,
-      linkedTaskId: candidate.taskId,
-      expectedAttempt: candidate.executionAttempt,
-    });
-    if (!recovered) {
-      await writeRecoveryLog(candidate, "Automatic resume lost its atomic claim to another worker.", "info", {
-        reason: "resume_claim_conflict",
-      });
-      return;
-    }
-
     const lifecycle = await executeTaskLifecycle({
       taskId: candidate.taskId,
       userId: candidate.userId,
@@ -592,9 +578,9 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
       expectedStatuses: [...RECOVERY_TASK_STATUSES],
       expectedRetryCount: plan.expectedRetryCount,
       expectedCorrelationId: candidate.executionCorrelationId,
+      expectedResumeAttempt: candidate.executionAttempt,
       workspaceRevision: candidate.projectRevision ?? undefined,
       resumeExecutionId: candidate.executionId,
-      resumeToken: recovered.resumeToken,
     });
     if (!lifecycle.ok && lifecycle.status !== "conflict") {
       logger.warn({ taskId: candidate.taskId, executionId: candidate.executionId, code: lifecycle.errorCode }, "automatic AI resume did not complete");

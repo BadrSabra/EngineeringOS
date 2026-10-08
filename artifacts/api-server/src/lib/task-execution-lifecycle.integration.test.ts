@@ -357,6 +357,27 @@ async function waitForEpisode(executionId: string) {
   throw new Error(`Episode was not materialized for execution ${executionId}`);
 }
 
+async function waitForTaskUpdateLock(timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+        AND waiting.query ILIKE '%update%'
+        AND waiting.query ILIKE '%tasks%'
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    const blockedTaskUpdate = rows.find((row) => /update/i.test(row.query ?? "") && /tasks/i.test(row.query ?? ""));
+    if (blockedTaskUpdate) return blockedTaskUpdate.query;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error("Task execution did not reach its row-locked Task claim.");
+}
+
 async function drainPendingObservationMaterializations(): Promise<unknown[]> {
   const materializationFailures: unknown[] = [];
   while (pendingObservationMaterializations.length > 0) {
@@ -1126,6 +1147,171 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.linkedTaskId, taskId));
       expect(executions).toEqual([]);
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("rolls back resume token and execution claims when the Task pointer changes concurrently", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const userId = "lifecycle-test-user";
+    const currentCorrelationId = randomUUID();
+    const replacementCorrelationId = randomUUID();
+    const now = new Date();
+    const runCountBefore = runAgentWithFallback.mock.calls.length;
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `lifecycle-resume-race-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Resume claim race fixture",
+      prompt: "Do not start if the current execution pointer changes",
+      status: "verifying",
+      correlationId: currentCorrelationId,
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const created = await aiExecutionState.createAiExecution({
+        userId,
+        projectId,
+        linkedTaskId: taskId,
+        idempotencyKey: `${taskId}:attempt:0`,
+        correlationId: currentCorrelationId,
+        request: {
+          projectId,
+          linkedTaskId: taskId,
+          message: "Resume the current Task execution.",
+          modelMessage: "Resume the current Task execution.",
+          validationTargetPaths: [],
+        },
+      });
+      await db.update(aiExecutionsTable)
+        .set({ status: "failed", updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, created.execution.id));
+      await db.insert(aiExecutionAcceptancesTable).values({
+        id: randomUUID(),
+        executionId: created.execution.id,
+        projectId,
+        attempt: created.execution.attempt,
+        finalizationKey: randomUUID(),
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "PROVIDER_FAILURE",
+        nextActionCode: "RESUME_ALLOWED",
+        disposition: {
+          outcome: "FAILED",
+          recoveryState: "REQUIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          operatorAction: "Resume the saved task checkpoint.",
+          reasonCodes: ["PROVIDER_FAILURE"],
+        },
+        resumable: 1,
+      });
+      const [beforeExecution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, created.execution.id))
+        .limit(1);
+
+      let releaseBlocker!: () => void;
+      let signalBlockerReady!: () => void;
+      const blockerReady = new Promise<void>((resolveReady) => {
+        signalBlockerReady = resolveReady;
+      });
+      const waitForRelease = new Promise<void>((resolveRelease) => {
+        releaseBlocker = resolveRelease;
+      });
+      const blocker = db.transaction(async (tx) => {
+        await tx.update(tasksTable)
+          .set({ correlationId: replacementCorrelationId, updatedAt: new Date() })
+          .where(eq(tasksTable.id, taskId));
+        signalBlockerReady();
+        await waitForRelease;
+      });
+      await blockerReady;
+
+      const lifecyclePromise = executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: currentCorrelationId,
+        expectedResumeAttempt: created.execution.attempt,
+        resumeExecutionId: created.execution.id,
+      });
+      let lockWaitError: unknown;
+      try {
+        await waitForTaskUpdateLock();
+      } catch (error) {
+        lockWaitError = error;
+      } finally {
+        releaseBlocker();
+        await blocker;
+      }
+      if (lockWaitError) {
+        await lifecyclePromise.catch(() => undefined);
+        throw lockWaitError;
+      }
+
+      const outcome = await lifecyclePromise;
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "task_state_changed",
+      });
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          correlationId: tasksTable.correlationId,
+          workerId: tasksTable.workerId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+      expect(task).toEqual({
+        status: "verifying",
+        correlationId: replacementCorrelationId,
+        workerId: null,
+      });
+      const [afterExecution] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, created.execution.id))
+        .limit(1);
+      expect(afterExecution).toEqual(beforeExecution);
+      const episodes = await db
+        .select({ id: aiAgentEpisodesTable.id })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, created.execution.id));
+      expect(episodes).toEqual([]);
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(runCountBefore);
     } finally {
       await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));

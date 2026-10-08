@@ -1693,9 +1693,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection, worldTransitions]
+                required: [id, correlationId, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection, worldTransitions]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
+                  correlationId:
+                    type: string
+                    nullable: true
+                    description: Server-owned execution identity used to match a Task lifecycle pointer; not proof or authorization
                   projectId: { type: string }
                   sessionId: { type: string, description: UUID of the chat session }
                   objective:
@@ -8997,12 +9001,16 @@ components:
 
     Task:
       type: object
-      required: [id, projectId, title, status, priority, createdAt, updatedAt]
+      required: [id, projectId, title, status, priority, createdAt, updatedAt, correlationId]
       properties:
         id:
           type: string
         projectId:
           type: string
+        correlationId:
+          type: string
+          nullable: true
+          description: Current Task lifecycle execution pointer; linkage only, not acceptance or proof
         ruleId:
           type: string
         workflowId:

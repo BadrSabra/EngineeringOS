@@ -281,6 +281,13 @@ function TaskAcceptancePanel({
 }
 
 function TaskExecutionProjection({ taskId }: { taskId: string }) {
+  const { data: task } = useGetTask(taskId, {
+    query: {
+      queryKey: getGetTaskQueryKey(taskId),
+      staleTime: 0,
+      refetchInterval: 5_000,
+    },
+  });
   const { data: logs } = useGetTaskLogs(taskId, {
     query: {
       queryKey: getGetTaskLogsQueryKey(taskId),
@@ -299,7 +306,13 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
     },
   });
 
-  if (!executionId || !execution?.projection) return null;
+  const taskCorrelationId = task?.correlationId;
+  const executionMatchesCurrentTask = Boolean(
+    taskCorrelationId
+    && execution?.correlationId === taskCorrelationId
+    && execution.linkedTaskId === taskId,
+  );
+  if (!executionId || !execution?.projection || !executionMatchesCurrentTask) return null;
   return (
     <MissionCapsule
       projection={execution.projection}
@@ -1664,7 +1677,8 @@ export default function Tasks() {
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-muted-foreground font-mono">
-                                  <span>Attempts: {receipt.attempts ?? 1}</span>
+                                  <span>Execution attempt: {receipt.attempt ?? '—'}</span>
+                                  <span>Provider attempts: {receipt.attempts ?? 1}</span>
                                   <span>Duration: {receipt.durationMs != null ? `${receipt.durationMs}ms` : '—'}</span>
                                 </div>
                                 <div className="mt-2 text-muted-foreground">

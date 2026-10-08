@@ -28,10 +28,9 @@ import {
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
-  getAiExecutionForUser,
   checkpointAiExecution,
   claimAiExecution,
-  failAiExecution,
+  recoverAiExecutionResumeToken,
   AI_EXECUTION_LEASE_MS,
   buildAiExecutionResumeContext,
   parseAiExecutionCheckpoint,
@@ -131,6 +130,12 @@ export type TaskExecutionOutcome = {
 
 type Provider = { provider: ProviderId; apiKey: string };
 type TaskExecutionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+class TaskLifecycleClaimConflict extends Error {
+  constructor(readonly errorCode: string) {
+    super(errorCode);
+  }
+}
 
 type MissionTaskAdmission =
   | { allowed: true }
@@ -3042,6 +3047,7 @@ export async function executeTaskLifecycle(params: {
   expectedStatuses?: Array<"pending" | "queued" | "verifying">;
   expectedRetryCount?: number;
   expectedCorrelationId?: string | null;
+  expectedResumeAttempt?: number;
   workspaceRevision?: string;
   resumeExecutionId?: string;
   resumeToken?: string;
@@ -3181,71 +3187,150 @@ export async function executeTaskLifecycle(params: {
   const stages: string[] = ["claim"];
   let executionProvider = params.provider.provider;
 
-  // A resume continues the existing durable execution. It must not re-enter
-  // createAiExecution with the original task idempotency key: that key belongs
-  // to the original user turn, while resumeToken authorizes a new auditable
-  // assistant attempt on the same execution.
-  const durable = params.resumeExecutionId
-    ? await (async () => {
-        if (!params.resumeToken) return undefined;
-        const existing = await getAiExecutionForUser(params.resumeExecutionId!, params.userId);
-        if (
-          !existing
-          || existing.linkedTaskId !== before.id
-          || existing.projectId !== before.projectId
-        ) {
-          return undefined;
+  const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
+  if (claimConflict) {
+    return { ok: false, status: "conflict", errorCode: "invalid_task_transition" };
+  }
+  // Keep execution creation/recovery, execution-attempt ownership, token
+  // rotation, and the Task lease in one transaction. A failed Task CAS rolls
+  // all of them back, so stale work leaves no claimed execution or usable token.
+  let resumeToken = params.resumeToken;
+  let claim:
+    | {
+        kind: "claimed";
+        durable: Awaited<ReturnType<typeof createAiExecution>>;
+        claimedExecution: NonNullable<Awaited<ReturnType<typeof claimAiExecution>>>;
+        correlationId: string;
+      }
+    | { kind: "conflict"; errorCode: string };
+  try {
+    claim = await db.transaction(async (tx) => {
+      if (missionGoal) {
+        const admission = await inspectMissionTaskAdmission(tx, {
+          goalId: missionGoal.id,
+          projectId: before.projectId,
+          userId: params.userId,
+        });
+        if (!admission.allowed) return { kind: "conflict" as const, errorCode: admission.errorCode };
+      }
+
+      let durable: Awaited<ReturnType<typeof createAiExecution>>;
+      if (params.resumeExecutionId) {
+        if (!correlationIdAtRead) {
+          throw new TaskLifecycleClaimConflict("execution_identity_changed");
         }
-        return { execution: existing, created: false as const };
-      })()
-    : await createAiExecution({
-        userId: params.userId,
-        request,
-        idempotencyKey,
-        correlationId: initialCorrelationId,
-        attempt: before.retryCount,
-        projectId: before.projectId,
-        linkedTaskId: before.id,
-        goalId: before.goalId ?? undefined,
-        workspaceRoot: executionWorkspaceRoot,
-        parentExecutionId: params.parentExecutionId,
-        delegationBudget: params.delegationBudget,
-      });
-  if (!durable) {
-    return {
-      ok: false,
-      status: "conflict",
-      errorCode: "execution_identity_changed",
-    };
-  }
-  const executionId = durable.execution.id;
-  if (params.resumeExecutionId && executionId !== params.resumeExecutionId) {
-    return {
-      ok: false,
-      status: "conflict",
-      executionId,
-      errorCode: "execution_identity_changed",
-    };
-  }
-  const correlationId = durable.execution.correlationId ?? initialCorrelationId;
-  const claimedExecution = durable.created
-    ? await claimAiExecution({
-        executionId,
+        if (resumeToken) {
+          const [existing] = await tx
+            .select()
+            .from(aiExecutionsTable)
+            .where(and(
+              eq(aiExecutionsTable.id, params.resumeExecutionId),
+              eq(aiExecutionsTable.userId, params.userId),
+              eq(aiExecutionsTable.projectId, before.projectId),
+              eq(aiExecutionsTable.linkedTaskId, before.id),
+              eq(aiExecutionsTable.correlationId, correlationIdAtRead),
+              inArray(aiExecutionsTable.status, ["paused", "failed"]),
+              ...(params.expectedResumeAttempt !== undefined
+                ? [eq(aiExecutionsTable.attempt, params.expectedResumeAttempt)]
+                : []),
+            ))
+            .limit(1);
+          if (!existing) throw new TaskLifecycleClaimConflict("execution_identity_changed");
+          durable = { execution: existing, created: false };
+        } else {
+          const recovered = await recoverAiExecutionResumeToken({
+            executionId: params.resumeExecutionId,
+            userId: params.userId,
+            linkedTaskId: before.id,
+            expectedAttempt: params.expectedResumeAttempt,
+            transaction: tx,
+          });
+          if (!recovered) throw new TaskLifecycleClaimConflict("execution_identity_changed");
+          resumeToken = recovered.resumeToken;
+          durable = { execution: recovered.execution, created: false };
+        }
+      } else {
+        durable = await createAiExecution({
+          userId: params.userId,
+          request,
+          idempotencyKey,
+          correlationId: initialCorrelationId,
+          attempt: before.retryCount,
+          projectId: before.projectId,
+          linkedTaskId: before.id,
+          goalId: before.goalId ?? undefined,
+          workspaceRoot: executionWorkspaceRoot,
+          parentExecutionId: params.parentExecutionId,
+          delegationBudget: params.delegationBudget,
+          transaction: tx,
+        });
+      }
+
+      const executionCorrelationId = durable.execution.correlationId;
+      if (
+        (params.resumeExecutionId !== undefined && durable.execution.id !== params.resumeExecutionId)
+        || durable.execution.userId !== params.userId
+        || durable.execution.projectId !== before.projectId
+        || durable.execution.linkedTaskId !== before.id
+        || !executionCorrelationId
+        || (params.resumeExecutionId && executionCorrelationId !== correlationIdAtRead)
+        || (!params.resumeExecutionId
+          && (durable.created
+            ? executionCorrelationId !== initialCorrelationId
+            : executionCorrelationId !== correlationIdAtRead))
+      ) {
+        throw new TaskLifecycleClaimConflict("execution_identity_changed");
+      }
+
+      const claimedExecution = await claimAiExecution({
+        executionId: durable.execution.id,
         userId: params.userId,
         workerId,
-        ...(params.resumeToken ? { resumeToken: params.resumeToken } : {}),
-      })
-    : durable.execution.status === "running"
-      ? undefined
-      : await claimAiExecution({
-          executionId,
-          userId: params.userId,
+        ...(resumeToken ? { resumeToken } : {}),
+        transaction: tx,
+      });
+      if (!claimedExecution) {
+        throw new TaskLifecycleClaimConflict("execution_already_claimed");
+      }
+
+      const [claimedTask] = await tx.update(tasksTable)
+        .set({
+          status: "running",
           workerId,
-          ...(params.resumeToken ? { resumeToken: params.resumeToken } : {}),
-        });
-  if (!claimedExecution) {
-    return { ok: false, status: "conflict", executionId, errorCode: "execution_already_claimed" };
+          leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+          lastHeartbeatAt: new Date(),
+          correlationId: executionCorrelationId,
+          idempotencyKey,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(tasksTable.id, before.id),
+          eq(tasksTable.projectId, before.projectId),
+          inArray(tasksTable.status, allowed),
+          eq(tasksTable.retryCount, retryCountAtRead),
+          correlationFence,
+        ))
+        .returning();
+      if (!claimedTask) throw new TaskLifecycleClaimConflict("task_state_changed");
+
+      return {
+        kind: "claimed" as const,
+        durable,
+        claimedExecution,
+        correlationId: executionCorrelationId,
+      };
+    });
+  } catch (error) {
+    if (error instanceof TaskLifecycleClaimConflict) {
+      return { ok: false, status: "conflict", errorCode: error.errorCode };
+    }
+    throw error;
   }
+  if (claim.kind === "conflict") {
+    return { ok: false, status: "conflict", errorCode: claim.errorCode };
+  }
+  const { durable, claimedExecution, correlationId } = claim;
+  const executionId = durable.execution.id;
   const executionAttempt = claimedExecution.attempt;
   const executionRevision = claimedExecution.baseRevision ?? executionWorkspaceRevision;
   const episodePlanRevision = missionPlanRevisionHash(missionGoal);
@@ -3281,76 +3366,9 @@ export async function executeTaskLifecycle(params: {
     claimedCheckpoint?.sequence ?? 0,
     claimedExecution.checkpointVersion ?? 0,
   ) + 1;
-  const resumeContext = params.resumeToken
+  const resumeContext = resumeToken
     ? buildAiExecutionResumeContext(claimedCheckpoint)
     : "";
-
-  const claimedTask = missionGoal
-    ? await db.transaction(async (tx) => {
-        const admission = await inspectMissionTaskAdmission(tx, {
-          goalId: missionGoal.id,
-          projectId: before.projectId,
-          userId: params.userId,
-        });
-        if (!admission.allowed) return { task: undefined, errorCode: admission.errorCode };
-        const [task] = await tx.update(tasksTable)
-          .set({
-            status: "running",
-            workerId,
-            leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-            lastHeartbeatAt: new Date(),
-            correlationId,
-            idempotencyKey,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(tasksTable.id, before.id),
-            eq(tasksTable.projectId, before.projectId),
-            inArray(tasksTable.status, allowed),
-            eq(tasksTable.retryCount, retryCountAtRead),
-            correlationFence,
-          ))
-          .returning();
-        return { task, errorCode: task ? undefined : "task_state_changed" as const };
-      })
-    : await (async () => {
-        const [task] = await db.update(tasksTable)
-          .set({
-            status: "running",
-            workerId,
-            leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
-            lastHeartbeatAt: new Date(),
-            correlationId,
-            idempotencyKey,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(tasksTable.id, before.id),
-            inArray(tasksTable.status, allowed),
-            eq(tasksTable.retryCount, retryCountAtRead),
-            correlationFence,
-          ))
-          .returning();
-        return { task, errorCode: task ? undefined : "task_state_changed" as const };
-      })();
-  if (!claimedTask.task) {
-    await failAiExecution({
-      executionId,
-      workerId,
-      error: claimedTask.errorCode ?? "Task state changed before claim.",
-    });
-    return {
-      ok: false,
-      status: "conflict",
-      executionId,
-      errorCode: claimedTask.errorCode ?? "task_state_changed",
-    };
-  }
-  const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
-  if (claimConflict) {
-    await failAiExecution({ executionId, workerId, error: claimConflict });
-    return { ok: false, status: "conflict", executionId, errorCode: "invalid_task_transition" };
-  }
 
   const log = async (level: "info" | "warn" | "error", message: string, metadata?: Record<string, unknown>) => {
     const safeMetadata = Object.fromEntries(

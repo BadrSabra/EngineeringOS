@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AiExecutionProjection } from '@workspace/api-client-react';
 import Tasks from './Tasks';
 
 const createTaskMutate = vi.hoisted(() => vi.fn());
@@ -76,6 +77,41 @@ const recoveryCases = [
   },
 ] as const;
 
+const executionProjectionFixture: AiExecutionProjection = {
+  schemaVersion: 2,
+  kind: 'DELIVERY',
+  phase: 'VALIDATE',
+  objective: 'Repair provider authentication',
+  progress: {
+    percent: 50,
+    label: 'Validation is running',
+    currentStep: 'Run checks',
+    completedSteps: 1,
+    totalSteps: 2,
+  },
+  plan: {
+    steps: [{
+      id: 'step-1',
+      title: 'Run checks',
+      status: 'active',
+      action: 'validate',
+      files: ['src/App.tsx'],
+    }],
+    currentStepId: 'step-1',
+  },
+  tools: {
+    totalCalls: 1,
+    activeTool: 'read_file',
+    recent: [{ tool: 'read_file', status: 'completed', source: 'src/App.tsx' }],
+  },
+  workspace: { changedFiles: ['src/App.tsx'], diffStatus: 'available' },
+  verification: { status: 'running', evidenceVerdict: 'PARTIAL', proofRequired: true },
+  approval: { required: true, status: 'PENDING', proposalId: 'proposal-1' },
+  stopped: { reason: null, outcome: null },
+  timeline: [],
+  allowedActions: [],
+};
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -110,6 +146,7 @@ beforeEach(() => {
         terminalStatus: 'FAILED',
         provider: 'safe-provider-label',
         model: 'safe-model-label',
+        attempt: 3,
         attempts: 2,
         durationMs: 1200,
         availabilityState: item.availabilityState,
@@ -167,6 +204,53 @@ beforeEach(() => {
   } as ReturnType<typeof useDeleteTask>);
 });
 
+function mockTaskExecutionProjection(taskCorrelationId: string, executionCorrelationId: string) {
+  vi.mocked(useGetTask).mockReturnValue({
+    data: {
+      id: 'task-auth',
+      projectId: 'project-1',
+      correlationId: taskCorrelationId,
+    } as NonNullable<ReturnType<typeof useGetTask>['data']>,
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useGetTask>);
+  vi.mocked(useGetTaskLogs).mockReturnValue({
+    data: [{
+      id: 'task-log-1',
+      taskId: 'task-auth',
+      executionId: 'execution-1',
+      attempt: 1,
+      sequence: 1,
+      message: 'Task execution started',
+      createdAt: '2026-08-25T10:00:00.000Z',
+    }] as NonNullable<ReturnType<typeof useGetTaskLogs>['data']>,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useGetTaskLogs>);
+  vi.mocked(useGetAiExecution).mockReturnValue({
+    data: {
+      id: 'execution-1',
+      correlationId: executionCorrelationId,
+      linkedTaskId: 'task-auth',
+      projectId: 'project-1',
+      status: 'running',
+      flightState: 'VALIDATING',
+      evidenceVerdict: 'PARTIAL',
+      proofRequired: true,
+      checkpoint: {},
+      checkpointVersion: 1,
+      resumable: false,
+      projection: executionProjectionFixture,
+    } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useGetAiExecution>);
+}
+
 describe('Tasks recovery rendering', () => {
   it('edits task title, description, and priority through the generated PATCH mutation', () => {
     renderPage();
@@ -223,6 +307,32 @@ describe('Tasks recovery rendering', () => {
       expect(within(card).getByText(`Support reference: ${item.correlationId}`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: `Collapse task ${item.title}` }));
     }
+  });
+
+  it('labels the execution attempt separately from provider attempts', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    expect(screen.getByText('Execution attempt: 3')).toBeInTheDocument();
+    expect(screen.getByText('Provider attempts: 2')).toBeInTheDocument();
+  });
+
+  it('hides a prior execution projection after retry rotates the Task correlation pointer', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-prior');
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+  });
+
+  it('shows the execution projection while its identity matches the current Task pointer', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current');
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
   });
 
   it('renders the server acceptance outcome and safe recovery action', () => {

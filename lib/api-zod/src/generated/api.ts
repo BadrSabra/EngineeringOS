@@ -545,6 +545,7 @@ export const listTasksResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const ListTasksResponseItem = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -675,6 +676,7 @@ export const createTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const CreateTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -795,6 +797,7 @@ export const getTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const GetTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -922,6 +925,7 @@ export const updateTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const UpdateTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -1052,6 +1056,7 @@ export const executeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const ExecuteTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -1182,6 +1187,7 @@ export const recordTaskVerificationResponseAcceptanceDispositionRetryAfterMsMin 
 export const RecordTaskVerificationResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -1302,6 +1308,7 @@ export const retryTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const RetryTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -1422,6 +1429,7 @@ export const rollbackTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const RollbackTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -4377,6 +4385,7 @@ export const getAiExecutionResponseEvidenceBraidEpisodesItemEffectsItemContradic
 
 export const GetAiExecutionResponse = zod.object({
   "id": zod.string().describe('UUID of the AI execution'),
+  "correlationId": zod.string().nullable().describe('Server-owned execution identity used to match a Task lifecycle pointer; not proof or authorization'),
   "projectId": zod.string().optional(),
   "sessionId": zod.string().optional().describe('UUID of the chat session'),
   "objective": zod.record(zod.string(), zod.unknown()).nullish().describe('Server-retained objective contract used to scope this execution'),
@@ -8213,6 +8222,7 @@ export const aiExecuteTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const AiExecuteTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),
@@ -8334,6 +8344,7 @@ export const aiResumeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 export const AiResumeTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
+  "correlationId": zod.string().nullable().describe('Current Task lifecycle execution pointer; linkage only, not acceptance or proof'),
   "ruleId": zod.string().optional(),
   "workflowId": zod.string().optional(),
   "goalId": zod.string().optional(),

@@ -3520,6 +3520,7 @@ describe("GET /api/ai/executions/:executionId World Transitions", () => {
     const response = await request(app).get(`/api/ai/executions/${executionId}`);
 
     expect(response.status).toBe(200);
+    expect(response.body.correlationId).toBe(created.execution.correlationId);
     expect(response.body.worldTransitions).toHaveLength(1);
     expect(response.body.worldTransitions[0]).toMatchObject({
       id: "included-transition",

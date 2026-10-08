@@ -13,7 +13,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -24,7 +24,6 @@ import {
   handleOrchestratorError,
 } from "../../lib/ai-route-helpers.js";
 import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
-import { recoverAiExecutionResumeToken } from "../../lib/ai-execution-state.js";
 import type { ExecutionDelegationBudget } from "../../lib/execution-lineage.js";
 
 const router = Router();
@@ -56,7 +55,7 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
     });
   }
 
-  const [execution] = await db
+  const matchingExecutions = await db
     .select({
       id: aiExecutionsTable.id,
       attempt: aiExecutionsTable.attempt,
@@ -69,14 +68,14 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       eq(aiExecutionsTable.correlationId, task.correlationId),
       inArray(aiExecutionsTable.status, ["paused", "failed"]),
     ))
-    .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
-    .limit(1);
-  if (!execution) {
+    .limit(2);
+  if (matchingExecutions.length !== 1) {
     return res.status(409).json({
       error: "task_not_resumable",
       hint: "The task has no current recoverable execution.",
     });
   }
+  const execution = matchingExecutions[0]!;
 
   const [acceptance] = await db
     .select({
@@ -119,19 +118,6 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
     });
   }
 
-  const recovered = await recoverAiExecutionResumeToken({
-    executionId: execution.id,
-    userId: req.userId,
-    linkedTaskId: task.id,
-    expectedAttempt: execution.attempt,
-  });
-  if (!recovered) {
-    return res.status(409).json({
-      error: "task_state_changed_concurrently",
-      hint: "The task changed while resume was being authorized; refresh before trying again.",
-    });
-  }
-
   let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
   try {
     lifecycle = await executeTaskLifecycle({
@@ -142,9 +128,9 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
       expectedRetryCount: task.retryCount,
       expectedCorrelationId: task.correlationId,
+      expectedResumeAttempt: execution.attempt,
       workspaceRevision: ownerProject.updatedAt?.toISOString(),
       resumeExecutionId: execution.id,
-      resumeToken: recovered.resumeToken,
     });
   } catch (error) {
     logger.error({ err: error, taskId }, "task resume lifecycle failed");
