@@ -338,6 +338,7 @@ describe('Tasks recovery rendering', () => {
   it('renders the server acceptance outcome and safe recovery action', () => {
     vi.mocked(useGetTask).mockReturnValue({
       data: {
+        status: 'verifying',
         acceptance: {
           attempt: 2,
           terminalStatus: 'failed',
@@ -370,6 +371,41 @@ describe('Tasks recovery rendering', () => {
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
     expect(within(acceptance).getByRole('button', { name: 'Resume task execution' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
+  });
+
+  it('does not offer resume when the Task status blocks it despite a resumable execution acceptance', () => {
+    vi.mocked(useGetTask).mockReturnValue({
+      data: {
+        status: 'failed',
+        acceptance: {
+          attempt: 2,
+          terminalStatus: 'paused',
+          outcome: 'FAILED',
+          reasonCode: 'EXECUTION_LEASE_EXPIRED',
+          nextActionCode: 'RESUME_ALLOWED',
+          evidenceComplete: false,
+          evidenceRequired: false,
+          resumable: true,
+          disposition: {
+            reasonCodes: ['EXECUTION_LEASE_EXPIRED'],
+            outcome: 'FAILED',
+            recoveryState: 'REQUIRED',
+            nextActionCode: 'RESUME_ALLOWED',
+            operatorAction: 'Resume the saved task checkpoint.',
+          },
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
+    expect(within(acceptance).getByText(/Task status does not allow resume/)).toBeInTheDocument();
+    expect(within(acceptance).queryByRole('button', { name: 'Resume task execution' })).not.toBeInTheDocument();
   });
 
   it('shows public acceptance badges and filters task rows by acceptance outcome', () => {

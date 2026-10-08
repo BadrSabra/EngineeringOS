@@ -4980,6 +4980,39 @@ G9 Revocation Safety
 - **remaining/blocker:** عائلات المصادر العامة في E2 ما زالت غير محصورة (`UNKNOWN`)، لذا E2 مفتوحة وE3 متوقفة. لا يثبت هذا الفحص سلوك النشر أو حالات runtime بعينها.
 - **next step:** واصل إغلاق فجوات E2 المشتقة من المصادر، وأبقِ العائلات غير المحصورة `UNKNOWN` حتى اكتمال جردها؛ لا تبدأ E3 أو Strategy Replay ولا تعِد تشغيل workflows مُدارة أثناء E2.
 
+### 2026-10-09 — تثبيت حداثة retry التلقائي وclaim الاستئناف
+
+- **phase/step:** E2 فقط — إعادة التحقق من acceptance قبل استهلاك retry budget وربط token/execution/Task claim في الاستئناف.
+- **status:** `PARTIAL — stale queued retries are rejected and resume claim rollback is DB-tested; public/dynamic source inventory and stale Task/execution reconciliation remain open`
+- **what changed:** صار مرشح retry يحتفظ بهوية acceptance ومفتاح الإتمام، ثم يقفل التنفيذ والقبول بالترتيب نفسه، ويعيد التحقق من المحاولة والقرار وموعد retry قبل CAS لحالة Task والعداد والحد الأقصى والمؤشر. يبقى مسار resume مربوطًا بمعاملة تستعيد الرمز وتطالب التنفيذ وTask معًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-recovery-coordinator.ts` واختبارات unit/integration و`docs/e2-source-derived-measurement-ledger.md`. لا تغيير schema أو workflow.
+- **validation:** نجح API typecheck، واختبار recovery الوحدوي (**8/8**) واختبار PostgreSQL التكاملي (**13/13**) على قاعدة مؤقتة loopback مع schema حديث. نجح `git diff --check`، ثم أُوقفت القاعدة وحُذف جذرها. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** لا يستطيع عنصر retry قديم استهلاك ميزانية Task بعد تغيير قرار القبول؛ خسارة مطالبة resume تعيد rollback قبل Episode أو provider.
+- **remaining/blocker:** فهرس المستهلكين العامين/dynamic لم يكتمل، وحافة Task متقادمة مع execution مرتبط بها ما زالت تحتاج فحصًا.
+- **next step:** فحص مصير Task الفاشلة عند استمرار قبول execution بوصفه resumable، مع إبقاء العمل ضمن E2 فقط.
+
+### 2026-10-09 — حراسة استئناف Task بعد تقادم زوج Task/execution
+
+- **phase/step:** E2 فقط — reconciliation المتوازي للمهمة والتنفيذ المرتبطين، ومنع عرض استئناف لا يسمح به وضع Task.
+- **status:** `PARTIAL — periodic DB interleaving covered for remaining/exhausted budgets; Task resume is status-gated in API and Dashboard; separate writes and generic readers remain`
+- **what changed:** أضيف اختبار PostgreSQL يشغّل تقادم Task والتنفيذ المرتبط بالتوازي، للميزانية المتبقية والمنتهية، ويتحقق من correlation والعداد وحالة execution والقبول exact-attempt. عند نفاد الميزانية قد يظل execution acceptance معلّمًا `RESUME_ALLOWED` رغم فشل Task؛ route الاختبارية تثبت رفض الاستئناف من Task، وDashboard لا تعرض الزر وتوضح أن حالة المهمة لا تسمح به.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/job-reconciliation.test.ts` و`routes/ai.test.ts`؛ `artifacts/dashboard/src/pages/Tasks.tsx` واختباراته؛ سجل E2 وهذا السجل. لا تغيير schema.
+- **validation:** على قاعدة PostgreSQL مؤقتة loopback بعد schema apply: اختبارات reconciliation **2/2** واختبار route **1/1**. اختبار Dashboard **14/14**. نجح API وDashboard typecheck. أُوقفت قاعدة الاختبار وحُذف جذرها؛ لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** acceptance على execution لا تتجاوز بوابة Task: الخادم يرفض Task الفاشلة قبل provider work، والواجهة لا تعرض زرًا يخالف حالة Task. لم تتحول acceptance إلى Canonical Proof.
+- **remaining/blocker:** كتابتا Task وexecution لا تزالان في معاملتين منفصلتين، لذلك يمكن ظهور حالة انتقالية؛ لا يوجد تحقق runtime/production لهذا التداخل. المستهلكون العامون والديناميكيون خارج المسار task-scoped ما زالوا `UNKNOWN`.
+- **next step:** تابع جرد مستهلكي acceptance العامين خارج واجهات recovery التي أُغلقت هنا؛ لا تبدأ E3 أو Strategy Replay ولا تعِد تشغيل workflow مُدارًا ولا تقترح متابعة أثناء بقاء E2 مفتوحة.
+
+### 2026-10-09 — عزل واجهات الاسترداد العامة عن Task-linked executions
+
+- **phase/step:** E2 فقط — منع واجهات استرداد execution العامة من تجاوز بوابة Task lifecycle.
+- **status:** `PARTIAL — generic resume/retry/operator recovery are Task-gated and DB-tested; other generic/dynamic readers and runtime interleavings remain open`
+- **what changed:** `recoverAiExecutionResumeToken` لا يصدر token لتنفيذ مرتبط بـTask إلا عندما يمرر caller هوية Task المطابقة ومعاملة، ويتحقق من المشروع والمؤشر والحالة الحالية داخلها. مسارا generic retry-token وoperator recovery يرفضان Task المرتبط في صف execution أو request. جرد المصدر أكد أن recovery coordinator المحادثي يستبعد rows المربوطة بـTask أصلًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts` واختبار `routes/ai.test.ts`؛ جرى توثيق الحافة في سجل E2 وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** اختبارات API/DB لرفض Task المنهية، لقبول مسار Task resume المصرح، ولرفض generic resume/retry وoperator resume/abandon **3/3**؛ اختبارات reconciliation المتوازي **2/2**. نجح API typecheck و`git diff --check`. قاعدة الاختبار مؤقتة loopback وأُوقفت وحُذف جذرها.
+- **authority/safety impact:** Task lifecycle هو المالك الوحيد لاستئناف التنفيذ المرتبط بـTask؛ token عام أو إجراء مشغل لا يستطيع تدوير الرمز أو تغيير execution خارجه. لا يرفع هذا أي قبول إلى Canonical Proof.
+- **remaining/blocker:** ما زال جرد القراء العامين والديناميكي خارج recovery routes غير مكتمل، وعمليات reconciliation المنفصلة لم تُتحقق في إنتاج/runtime. E2 تبقى مفتوحة.
+- **next step:** واصل إحصاء مستهلكي acceptance والهوية الديناميكيين في E2؛ لا تبدأ E3 أو أي مرحلة لاحقة، ولا Strategy Replay، ولا تعِد تشغيل workflows مُدارة، ولا تقترح مهام متابعة أثناء E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
+import { db, aiExecutionsTable, aiExecutionAcceptancesTable, tasksTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import {
   hashProjectQueryFactManifest,
@@ -2243,6 +2243,32 @@ export async function recoverAiExecutionResumeToken(params: {
     ))
     .limit(1);
   const request = parseExecutionRequest(candidate.request);
+  const expectedLinkedTaskId = params.linkedTaskId ?? null;
+  const rowLinkedTaskId = candidate.linkedTaskId ?? null;
+  const requestLinkedTaskId = request?.linkedTaskId ?? null;
+  if (
+    rowLinkedTaskId !== expectedLinkedTaskId
+    || (requestLinkedTaskId !== null && requestLinkedTaskId !== expectedLinkedTaskId)
+    || (rowLinkedTaskId !== null && !params.transaction)
+  ) {
+    return undefined;
+  }
+  if (rowLinkedTaskId) {
+    if (!candidate.correlationId) return undefined;
+    const [task] = await query
+      .select({
+        id: tasksTable.id,
+      })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.id, rowLinkedTaskId),
+        eq(tasksTable.projectId, candidate.projectId),
+        eq(tasksTable.correlationId, candidate.correlationId),
+        inArray(tasksTable.status, ["pending", "queued", "verifying"]),
+      ))
+      .limit(1);
+    if (!task) return undefined;
+  }
   const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
   const parserFailureRecovery =
     ordinaryChat
@@ -2317,6 +2343,7 @@ export async function recoverAiExecutionRetryToken(params: {
 
   const request = parseExecutionRequest(candidate.request);
   const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  if (candidate.linkedTaskId || request?.linkedTaskId) return undefined;
   if (!hasAiExecutionResumeContract(request) && !ordinaryChat) return undefined;
 
   const [priorAcceptance] = await db
@@ -2530,6 +2557,9 @@ export async function requestAiExecutionRecovery(params: {
 }): Promise<AiExecutionRecoveryResult | undefined> {
   const current = await getAiExecutionForUser(params.executionId, params.userId);
   if (!current) return undefined;
+  if (current.linkedTaskId || parseExecutionRequest(current.request)?.linkedTaskId) {
+    return { execution: current, outcome: "not_eligible" };
+  }
   const checkpoint = recoveryCheckpoint(current);
   const operation = checkpoint?.operation;
   const storedRevision = operation?.revisionManifest ?? null;

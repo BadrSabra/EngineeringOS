@@ -9548,6 +9548,61 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
     });
   });
 
+  it("rejects a failed Task even when its current execution acceptance allows resume", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "failed");
+    const correlationId = randomUUID();
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      idempotencyKey: `${taskId}:exhausted-recovery`,
+      correlationId,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Recover this task.",
+        modelMessage: "Recover this task.",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(tasksTable)
+      .set({
+        correlationId,
+        retryCount: 3,
+        maxRetries: 3,
+      })
+      .where(eq(tasksTable.id, taskId));
+    await db.update(aiExecutionsTable)
+      .set({ status: "paused", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      finalizationKey: randomUUID(),
+      terminalStatus: "paused",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+      },
+      resumable: 1,
+    });
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      error: "task_not_resumable",
+      hint: expect.stringContaining("current server-provided next action"),
+    });
+  });
+
   it("resumes the current accepted execution and advances its attempt", async () => {
     const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockExecuteTask).mockResolvedValue({
@@ -10036,6 +10091,121 @@ describe("autonomous task acceptance finalization races", () => {
       code: "EXECUTION_NOT_RESUMABLE",
       status: "paused",
     });
+  });
+
+  it("keeps generic resume, retry, and operator recovery off Task-linked executions", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "failed");
+    const correlationId = randomUUID();
+    const operation = {
+      ...aiExecutionState.createAutonomousOperationContract({
+        operationId: randomUUID(),
+        objective: "Recover only through the owning Task lifecycle.",
+      }),
+      state: "uncertain" as const,
+      updatedAt: new Date().toISOString(),
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      idempotencyKey: `${taskId}:generic-capability-boundary`,
+      correlationId,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        turnIntent: "DELIVERY",
+        message: "Recover the linked Task.",
+        modelMessage: "Recover the linked Task.",
+        validationTargetPaths: [],
+        proofRequired: false,
+      },
+    });
+    await db.update(tasksTable)
+      .set({ correlationId })
+      .where(eq(tasksTable.id, taskId));
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "paused",
+        checkpoint: JSON.stringify({
+          stage: "failed",
+          sequence: 1,
+          operation,
+          updatedAt: new Date().toISOString(),
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      finalizationKey: randomUUID(),
+      terminalStatus: "paused",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+      },
+      resumable: 1,
+    });
+
+    const resumeCapability = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(resumeCapability.status).toBe(409);
+    expect(resumeCapability.body.code).toBe("EXECUTION_NOT_RESUMABLE");
+
+    await db.update(aiExecutionAcceptancesTable)
+      .set({
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+        resumable: 0,
+        disposition: {
+          outcome: "FAILED",
+          recoveryState: "REQUIRED",
+          nextActionCode: "RETRY_AFTER_TIMEOUT",
+          retryAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+      })
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, created.execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, created.execution.attempt),
+      ));
+    const retryCapability = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/retry-capability`);
+    expect(retryCapability.status).toBe(409);
+    expect(retryCapability.body.code).toBe("EXECUTION_NOT_RETRYABLE");
+
+    await db.update(aiExecutionAcceptancesTable)
+      .set({
+        reasonCode: "EXECUTION_LEASE_EXPIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        resumable: 1,
+        disposition: {
+          outcome: "FAILED",
+          recoveryState: "REQUIRED",
+          nextActionCode: "RESUME_ALLOWED",
+        },
+      })
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, created.execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, created.execution.attempt),
+      ));
+    const operatorResume = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/recovery`)
+      .send({ action: "resume" });
+    expect(operatorResume.status).toBe(409);
+    expect(operatorResume.body.code).toBe("EXECUTION_NOT_RECOVERABLE");
+    const operatorAbandon = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/recovery`)
+      .send({ action: "abandon" });
+    expect(operatorAbandon.status).toBe(409);
+    expect(operatorAbandon.body.code).toBe("EXECUTION_NOT_RECOVERABLE");
   });
 
   it("preserves the proof contract when a proof-bearing execution lease expires", async () => {

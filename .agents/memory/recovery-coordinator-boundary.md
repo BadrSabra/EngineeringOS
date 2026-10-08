@@ -14,3 +14,9 @@ Passive clients must not call a token-claiming resume-capability endpoint while 
 **Why:** The capability endpoint updates the durable token hash. A polling client that claims it can race the coordinator and invalidate the token the recovery worker is about to use.
 
 **How to apply:** Poll execution status without claiming credentials. Only fetch and persist a resume token after the user explicitly chooses manual Resume, then immediately submit that token through the normal stream handler.
+
+Generic execution recovery endpoints must reject executions linked to a Task. Task-linked resume belongs to the Task lifecycle, which binds the current Task status, project, correlation pointer, and execution claim in one transaction. Generic retry and operator recovery must not rotate credentials or terminalize that execution independently.
+
+**Why:** A generic recovery action can otherwise bypass the Task retry budget and leave Task status or correlation identity inconsistent with its execution.
+
+**How to apply:** Keep Task-linked executions out of generic resume/retry capability and operator recovery routes; only the Task lifecycle may claim them after validating the current Task row. Conversational recovery remains a separate adapter for unlinked executions.

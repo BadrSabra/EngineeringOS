@@ -31,6 +31,7 @@ import {
   requeueStalePendingJobs,
   STALE_PENDING_TIMEOUT_MS,
 } from "./job-reconciliation.js";
+import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
 import {
   createDeliveryWorkspace,
@@ -364,6 +365,143 @@ describe("reconcileStuckJobs", () => {
     expect(task.status).toBe("verifying");
     expect(task.workerId).toBeNull();
   });
+
+  it.each([
+    {
+      name: "the retry budget remains",
+      retryCount: 0,
+      maxRetries: 2,
+      expectedTaskStatus: "verifying",
+      expectedRetryCount: 1,
+    },
+    {
+      name: "the retry budget is exhausted",
+      retryCount: 2,
+      maxRetries: 2,
+      expectedTaskStatus: "failed",
+      expectedRetryCount: 2,
+    },
+  ] as const)(
+    "reconciles an expired Task and its linked execution when $name",
+    async ({ retryCount, maxRetries, expectedTaskStatus, expectedRetryCount }) => {
+      const projectId = await insertProject("active");
+      projectCleanup.push(projectId);
+      const taskId = randomUUID();
+      const executionId = randomUUID();
+      const workerId = randomUUID();
+      const now = new Date();
+      const expiredAt = new Date(now.getTime() - 60_000);
+
+      await db.insert(tasksTable).values({
+        id: taskId,
+        projectId,
+        title: "linked expired task",
+        prompt: "Recover the linked execution",
+        status: "running",
+        workerId,
+        leaseUntil: expiredAt,
+        lastHeartbeatAt: expiredAt,
+        correlationId: executionId,
+        retryCount,
+        maxRetries,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiExecutionsTable).values({
+        id: executionId,
+        projectId,
+        linkedTaskId: taskId,
+        userId: "test-user",
+        idempotencyKey: `${taskId}:linked-reconciliation`,
+        correlationId: executionId,
+        attempt: 0,
+        resumeTokenHash: "linked-reconciliation-token-hash",
+        request: JSON.stringify({
+          projectId,
+          linkedTaskId: taskId,
+          turnIntent: "DELIVERY",
+          message: "Recover the linked execution",
+          modelMessage: "Recover the linked execution",
+          validationTargetPaths: [],
+          proofRequired: false,
+        }),
+        checkpoint: "{}",
+        status: "running",
+        workerId,
+        leaseUntil: expiredAt,
+        lastHeartbeatAt: expiredAt,
+        startedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      try {
+        const [reconciledTasks, reconciledExecutions] = await Promise.all([
+          reconcileStaleAiTasks(),
+          reconcileAiExecutions({ expiredOnly: true }),
+        ]);
+        expect(reconciledTasks).toBe(1);
+        expect(reconciledExecutions).toBe(1);
+
+        const [task] = await db
+          .select({
+            status: tasksTable.status,
+            retryCount: tasksTable.retryCount,
+            correlationId: tasksTable.correlationId,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId));
+        expect(task).toMatchObject({
+          status: expectedTaskStatus,
+          retryCount: expectedRetryCount,
+          correlationId: executionId,
+          workerId: null,
+          leaseUntil: null,
+        });
+
+        const [execution] = await db
+          .select({
+            status: aiExecutionsTable.status,
+            attempt: aiExecutionsTable.attempt,
+            linkedTaskId: aiExecutionsTable.linkedTaskId,
+            correlationId: aiExecutionsTable.correlationId,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId));
+        expect(execution).toMatchObject({
+          status: "paused",
+          attempt: 0,
+          linkedTaskId: taskId,
+          correlationId: executionId,
+          workerId: null,
+          leaseUntil: null,
+        });
+
+        const [acceptance] = await db
+          .select()
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(acceptance).toMatchObject({
+          attempt: 0,
+          terminalStatus: "paused",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+          disposition: expect.objectContaining({ recoveryState: "REQUIRED" }),
+        });
+      } finally {
+        await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      }
+    },
+  );
 
   // ── Cache invalidation ─────────────────────────────────────────────────────
 

@@ -221,7 +221,9 @@ function TaskAcceptancePanel({
       staleTime: 0,
     },
   });
-  const acceptance = (data as { acceptance?: TaskAcceptance } | undefined)?.acceptance;
+  const taskDetails = data as { status?: string; acceptance?: TaskAcceptance } | undefined;
+  const acceptance = taskDetails?.acceptance;
+  const taskCanResume = ["pending", "queued", "verifying"].includes(taskDetails?.status ?? "");
 
   if (isLoading) {
     return (
@@ -240,6 +242,12 @@ function TaskAcceptancePanel({
   if (!acceptance) return null;
 
   const status = acceptanceStatus(acceptance);
+  const acceptanceOffersResume =
+    acceptance.resumable && acceptance.nextActionCode === "RESUME_ALLOWED";
+  const nextAction =
+    acceptanceOffersResume && !taskCanResume
+      ? "The Task status does not allow resume right now. Refresh the task to see its current action."
+      : acceptanceNextAction(acceptance);
   return (
     <section
       className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs"
@@ -257,12 +265,13 @@ function TaskAcceptancePanel({
       </div>
       <div className="mt-3 border-t border-primary/15 pt-2 text-muted-foreground">
         <span className="font-semibold text-foreground">Next action: </span>
-        {acceptanceNextAction(acceptance)}
+        {nextAction}
       </div>
       <div className="mt-1 text-muted-foreground">
         Provider diagnostics and credentials are not shown.
       </div>
-      {acceptance.resumable
+      {taskCanResume
+        && acceptance.resumable
         && acceptance.nextActionCode === 'RESUME_ALLOWED'
         && acceptance.disposition?.recoveryState === 'REQUIRED' && (
         <button
