@@ -346,17 +346,26 @@ const FILE_TOOL_NAMES = new Set(getToolNamesByExecutor("file"));
 const EXECUTION_TOOL_NAMES = new Set(getToolNamesByExecutor("execution"));
 const ANALYSIS_TOOL_NAMES = new Set(getToolNamesByExecutor("analysis"));
 
+const READ_ONLY_FILE_TOOL_NAMES = new Set([
+  "project.list_tree",
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+]);
+
 /**
  * File and Git executors still expose legacy string results. Only their
- * reserved error prefixes are classified here; successful file reads carry a
- * server-owned path wrapper, so source text that begins with "Error:" is not
- * mistaken for a failed tool call.
+ * reserved error prefixes are classified here. Read-only file outputs are
+ * wrapped or path-prefixed, so an error-shaped source line cannot begin with
+ * the executor's reserved "Error:" prefix.
  */
 function isExecutorErrorOutput(name: string, output: string): boolean {
   const text = output.trimStart();
   if (FILE_TOOL_NAMES.has(name)) {
     return /^Error (?:reading|listing)\b/u.test(text)
-      || /^Error: project root path does not exist or is not accessible\./u.test(text);
+      || /^Error: project root path does not exist or is not accessible\./u.test(text)
+      || (READ_ONLY_FILE_TOOL_NAMES.has(name) && /^Error:/u.test(text));
   }
   if (GIT_TOOL_NAMES.has(name)) return /^\[git error\]:/u.test(text);
   return false;
@@ -1221,6 +1230,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     inputHash: string;
     manifestHash: string;
   } | undefined;
+  let readResultRecorded = false;
 
   if (!isGitTool && !isFileTool && !isCodeNavigationTool && !isPackageTool && !isBinaryTool && !isExecutionTool && !isAnalysisTool) {
     return {
@@ -1680,6 +1690,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
 
     const recoverableScopeRejection = isRecoverableFileScopeErrorOutput(name, output);
+    const executorErrorOutput = isExecutorErrorOutput(name, output);
     if (readCallback && readInvocationBase) {
       const recorded = analysisFailure
         ? {
@@ -1698,6 +1709,15 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
                 ? { readStatus: classifyReadStatus(name, output) }
                 : {}),
             }
+        : executorErrorOutput
+          ? {
+              phase: "recorded" as const,
+              status: "failed" as const,
+              diagnosticCode: "TOOL_EXECUTION_FAILED" as const,
+              ...(name === "read_file" || name === "read_file_range"
+                ? { readStatus: classifyReadStatus(name, output) }
+                : {}),
+            }
         : {
             phase: "recorded" as const,
             status: "completed" as const,
@@ -1708,6 +1728,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           };
       try {
         await readCallback({ ...readInvocationBase, ...recorded });
+        readResultRecorded = true;
       } catch {
         await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
         return {
@@ -1790,7 +1811,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
-    if (isExecutorErrorOutput(name, output)) {
+    if (executorErrorOutput) {
       throw new Error(`${name} returned a reserved executor error diagnostic`);
     }
     await emitTerminalToolLifecycle("completed", {
@@ -1818,7 +1839,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       : gitPathRejected
         ? "unavailable"
         : "execution";
-    if (readCallback && readInvocationBase) {
+    if (readCallback && readInvocationBase && !readResultRecorded) {
       try {
         await readCallback({
           ...readInvocationBase,

@@ -5626,6 +5626,56 @@ describe("executeToolLoop", () => {
     expect(gitStrategy.call).toHaveBeenCalledTimes(1);
   });
 
+  it("records returned read-tool diagnostics as failures without accepting their output hash", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce(
+      "Error: search failed (invalid regular expression or grep error).",
+    );
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-error", "search_code", { pattern: "needle" })]),
+      makeResponse("The search completed.", []),
+    ]);
+    const readEvents: Array<{
+      phase: string;
+      status?: string;
+      diagnosticCode?: string;
+      outputHash?: string;
+    }> = [];
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{
+        type: "function",
+        function: { name: "search_code", description: "", parameters: {} },
+      }],
+      rootPath: "/project",
+      pendingChanges: [],
+      onReadOnlyInvocation: async (event) => { readEvents.push(event); },
+      onToolInvocation: async (event) => { lifecycleEvents.push(event); },
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "search_code",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(readEvents.map((event) => event.phase)).toEqual(["requested", "recorded"]);
+    expect(readEvents[1]).toMatchObject({
+      status: "failed",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(readEvents[1]).not.toHaveProperty("outputHash");
+    expect(lifecycleEvents.map((event) => event.phase))
+      .toEqual(["requested", "started", "failed"]);
+  });
+
   it("keeps file path-scope denials typed, recoverable, and out of source evidence", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK
@@ -5727,6 +5777,34 @@ describe("executeToolLoop", () => {
       powerModel: "powerful",
       provider: "test",
       tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+
+    expect(result.kind).toBe("response");
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps error-looking search snippets successful when prefixed by their source path", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce(
+      "src/example.ts:7:Error: this is ordinary source text.",
+    );
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("error-search-source", "search_code", { pattern: "Error" })]),
+      makeResponse("The matching source was found.", []),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{
+        type: "function",
+        function: { name: "search_code", description: "", parameters: {} },
+      }],
       rootPath: "/project",
       pendingChanges: [],
     });

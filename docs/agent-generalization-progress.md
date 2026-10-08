@@ -4837,6 +4837,17 @@ G9 Revocation Safety
 - **remaining/blocker:** اكتمال جرد جميع ingress والكتّاب والمستهلكين وrecovery edges ما زال `UNKNOWN`؛ لا مقام أو نسبة عامة. التوازي بين wake workers وتغيّر قرار planner بسبب World Fact لم يثبتا. `0/4` يظل إغلاق الطبقات الأربع بالكامل فقط؛ E3 متوقفة وE4 عند بوابتها القائمة.
 - **next step:** أغلق عائلة مصدر واحدة في كل مرة، بدءًا من model/tool ingress ثم proof/acceptance producers وconsumers؛ لا تبدأ E3 أو E4 التنفيذية ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-08 — تصنيف أخطاء أدوات القراءة وGit قبل قبول المخرجات
+
+- **phase/step:** E2 فقط — مخرجات أخطاء read-only file/Git مقابل نص المصدر الصحيح.
+- **status:** `targeted file/Git diagnostic classification verified; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** فُعّل تصنيف بادئة `Error:` المحجوزة لمخرجات أدوات القراءة فقط، مع إبقاء النص داخل أغلفة قراءة الملفات والنتائج المسبوقة بمسار المصدر نجاحًا. تُسجل القراءة الفاشلة بحالة `failed` بلا `outputHash` قبل إنهاء lifecycle كفشل؛ يمنع ذلك تسجيل القراءة نفسها مكتملة ثم فاشلة.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/tool-execution-engine.ts`، `lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا تغييرات schema أو صلاحيات أو workflow.
+- **validation:** الاختبارات المستهدفة نجحت **4/4** عند `--testTimeout=20000`؛ المحاولة الأولى بمهلة Vitest الافتراضية 5 ثوانٍ انتهت بمهلة اختبار قائم، ثم نجح الاختبار منفردًا بالإعادة. نجح ملف `tool-execution-engine.test.ts` كاملًا **191/191**، ونجح `tsc -p tsconfig.json --noEmit` من حزمة `lib/ai-orchestrator` دون `DATABASE_URL` موروث.
+- **authority/safety impact:** نص خطأ التنفيذ لا يعود مخرجًا ناجحًا أو hash دليل مكتمل؛ بقيت حدود الموافقة والتنفيذ دون تغيير. لا يُعد هذا Canonical Proof ولا يغلق E2.
+- **remaining/blocker:** عائلة أخطاء code-navigation/package/binary لم تُصنّف هنا؛ ما زالت قراءة-status sideband محدودة بـ`read_file` و`read_file_range`، وأخطاء أدوات mutation دون callback وقياس اكتمال E2 الكلي تبقى مفتوحة (`UNKNOWN`).
+- **next step:** استمر في E2 فقط، وافحص عائلة مصدر واحدة متبقية لكل مرة؛ لا تبدأ E3 ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
