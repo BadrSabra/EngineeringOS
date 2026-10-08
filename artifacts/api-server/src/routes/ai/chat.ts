@@ -4915,11 +4915,16 @@ function normalizeTaskResultForTurn(
   turnKind: string,
   taskResult: ChatTaskResult | undefined,
 ): ChatTaskResult | undefined {
-  // An implementation plan is executable handoff metadata. A provider must
-  // not be able to attach it to a read-only project question merely because a
-  // previous approved plan appeared in the session history.
-  if (taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT" && turnKind !== "DELIVERY") {
-    return undefined;
+  // Implementation-plan approval is server-owned. A plan may survive only on
+  // an explicit DELIVERY turn, and provider-authored status fields never grant
+  // Build access; only the separate guarded decision route can do that.
+  if (taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
+    if (turnKind !== "DELIVERY") return undefined;
+    return {
+      ...taskResult,
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    };
   }
   if (turnKind !== "CHAT") return taskResult;
   // A grounded behavior answer is the only typed result that can remain on

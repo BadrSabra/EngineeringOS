@@ -139,7 +139,14 @@ export async function createImplementationPlan(
   }
 
   const result = await implementationPlanner.run(input, opts);
-  const { _parseError, ...plan } = result;
+  const { _parseError, _qualityError, ...providerPlan } = result;
+  // Approval is a server-owned decision, never a provider-authored plan field.
+  // Keep useful plan content, but discard any model attempt to pre-approve it.
+  const plan: ImplementationPlan = {
+    ...providerPlan,
+    approvalStatus: "PENDING_APPROVAL",
+    writeAccess: "NOT_AUTHORIZED",
+  };
   const ungroundedPaths = guardPlanPaths(plan, manifest);
   const acceptedEvidencePaths = new Set(
     (sources.files ?? [])
@@ -152,7 +159,11 @@ export async function createImplementationPlan(
       step.files.some((file) => acceptedEvidencePaths.has(normalizePlanPath(file))),
     );
   if (ungroundedPaths.length === 0 && usesAcceptedEvidence) {
-    return { ...result, contextManifest: input.projectContext.contextManifest };
+    return {
+      ...result,
+      ...plan,
+      contextManifest: input.projectContext.contextManifest,
+    };
   }
 
   const guarded = guardedFallback(

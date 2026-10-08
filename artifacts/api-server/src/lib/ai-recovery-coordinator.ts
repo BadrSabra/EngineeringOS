@@ -558,6 +558,7 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
       provider: { provider: resolved.provider, apiKey: resolved.apiKey },
       trigger: "reconciliation",
       expectedStatuses: [...RECOVERY_TASK_STATUSES],
+      expectedRetryCount: plan.expectedRetryCount,
       workspaceRevision: candidate.projectRevision ?? undefined,
       resumeExecutionId: candidate.executionId,
       resumeToken: recovered.resumeToken,
@@ -579,7 +580,10 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
       eq(tasksTable.status, candidate.taskStatus as "pending" | "queued" | "verifying"),
       eq(tasksTable.retryCount, candidate.retryCount),
     ))
-    .returning({ id: tasksTable.id });
+    .returning({
+      id: tasksTable.id,
+      retryCount: tasksTable.retryCount,
+    });
   if (!claimed) {
     await writeRecoveryLog(candidate, "Automatic retry lost its atomic budget claim to another worker.", "info", {
       reason: "retry_claim_conflict",
@@ -593,6 +597,7 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     provider: { provider: resolved.provider, apiKey: resolved.apiKey },
     trigger: "reconciliation",
     expectedStatuses: [...RECOVERY_TASK_STATUSES],
+    expectedRetryCount: claimed.retryCount,
     workspaceRevision: candidate.projectRevision ?? undefined,
   });
   if (!lifecycle.ok && lifecycle.status !== "conflict") {

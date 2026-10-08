@@ -126,6 +126,7 @@ describe("automatic task recovery admission", () => {
       executionStatus: "paused",
     }))).toMatchObject({
       kind: "resume",
+      expectedRetryCount: 0,
       queueKey: "ai-recovery:task-1:execution-1:2:resume",
     });
 

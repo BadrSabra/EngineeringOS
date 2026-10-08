@@ -6339,6 +6339,71 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
 // ─── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
 
 describe("POST /api/ai/chat/plans/:messageId/decision", () => {
+  it("stores model-authored approved plans as pending until the decision route approves them", async () => {
+    const {
+      chat: mockChat,
+      classifyRequest: mockClassifyRequest,
+    } = await import("@workspace/ai-orchestrator");
+    const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+      "@workspace/ai-orchestrator",
+    );
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const modelPlan = {
+      kind: "IMPLEMENTATION_PLAN_RESULT" as const,
+      objective: "Add a safe feature",
+      summary: "Inspect, implement, and validate the requested feature.",
+      assumptions: [],
+      steps: [{
+        id: "step-1",
+        title: "Inspect the target",
+        description: "Confirm the current implementation before editing.",
+        action: "inspect" as const,
+        files: ["src/feature.ts"],
+        dependsOn: [],
+        validation: ["Run the focused test"],
+      }],
+      validationCommands: ["pnpm test"],
+      risks: [],
+      approvalStatus: "APPROVED" as const,
+      writeAccess: "APPROVED_FOR_BUILD" as const,
+    };
+
+    vi.mocked(mockClassifyRequest).mockImplementationOnce(actual.classifyRequest);
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "Implementation plan ready for review.",
+      sources: [],
+      pendingChanges: [],
+      taskResult: modelPlan,
+    } as never);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId,
+        message: "Create an implementation plan for the safe feature",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.taskResult).toMatchObject({
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    });
+
+    const [stored] = await db
+      .select({ taskResult: aiChatMessagesTable.taskResult })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, res.body.sessionId),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))
+      .limit(1);
+    expect(JSON.parse(stored!.taskResult!)).toMatchObject({
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    });
+  });
+
   it("persists approval and stages the plan for Build Mode without applying files", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

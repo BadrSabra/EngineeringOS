@@ -335,6 +335,45 @@ describe("durable automatic task recovery", () => {
         userId: "recovery-test-user",
         trigger: "reconciliation",
         expectedStatuses: ["pending", "queued", "verifying"],
+        expectedRetryCount: 1,
+      }));
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("carries the captured retry generation into an automatic resume", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, fixture.taskId));
+      await db.update(aiExecutionsTable)
+        .set({ status: "paused" })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          reasonCode: "EXECUTION_INTERRUPTED",
+          nextActionCode: "RESUME_ALLOWED",
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+          },
+          resumable: 1,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      await queuedJobs[0]!.run();
+
+      expect(executeTaskLifecycle).toHaveBeenCalledWith(expect.objectContaining({
+        taskId: fixture.taskId,
+        resumeExecutionId: fixture.executionId,
+        expectedRetryCount: 0,
       }));
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));

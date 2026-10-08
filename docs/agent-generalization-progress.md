@@ -6,7 +6,7 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-10-06
+**آخر تحديث:** 2026-10-08
 **تدقيق E2 الحالي:** `CLOSED` لنطاق invariant الخاص بـproof-bound World State materialization: يجوز وجود pending reservation row، لكنه لا ينشئ fact أو materialized transition أو WorldRevision قبل اكتمال proof chain وربطه بالمحاولة والأثر والملاحظات المطلوبة. يظل `/git/push` اليدوي receipt-only ولا يُستنتج منه World Transition. أكدت ذلك مراجعة المسارات والقيود والاختبارات الموجودة؛ وشُغّلت suites سباقات وتسليم GitHub بعد restart على قاعدة PostgreSQL مؤقتة loopback (2 ملفات، 6/6 اختبارات)، إضافةً إلى الأدلة المركزة المسجلة سابقًا. E3 بدأ بتدقيق Forensic Entry Audit موثق في `docs/e3-forensic-entry-audit.md`؛ لا تغييرات إنتاجية ولا تنفيذ لـE3 حتى الآن. هذا إغلاق للـinvariant المحدد، لا ادعاء بجاهزية Learning/Transfer/Generalization أو إغلاق بقية فجوات Agent Core.
 **مراجعة Agent Core code-first:** تقرير `docs/agent-core-forensic-status-report.md` يجمع نتائج تشغيلات محددة مسجلة تاريخيًا حتى 2026-10-06. أحدث متابعة للطبقات الأربع وFinal Gate ذي 19 بندًا في `docs/agent-core-four-agent-forensic-audit-2026-10-06.md`؛ التقرير المؤرخ 2026-10-05 محفوظ كسجل تاريخي. E2 ما زالت `OPEN`، وE3 `STOPPED` إلى أن تجتاز E2 بوابتها صراحةً، وE3.2 replay safety `OPEN`. النسب العامة `UNKNOWN`، ونسبة `14/19` السابقة غير صالحة لأنها استخدمت قائمة مختلفة. حالة قاعدة الإنتاج `UNKNOWN` لعدم وجود قاعدة إنتاج، ولا يحوّل اختبار محدود أو وصف سابق إلى إغلاق شامل.
 **متابعة E2 لـMission repair (2026-10-06):** اختبار process-level اختياري يقتل عامل الخدمة الحقيقي عند ثلاث مراحل: `candidate_ready`، و`committed` بعد دوام حدث `ACTION_COMMITTED` وملاحظة after، و`effect_classified` بعد دوام تصنيف الأثر. في كل حالة يشغّل process مستقل `src/index.ts` لاستعادة startup، ثم يستأنف recovery child المحاولة التالية من checkpoint دائم بعد حذف workspace المؤقت. يثبت قبولًا فاشلًا قابلًا للاستئناف للمحاولة المتروكة بلا `TaskCompleted`، ثم نجاح محاولة جديدة مع بقاء live tree الأصلي. عند دوران المحاولة بعد `effect_classified` يُنشأ effect bundle جديد بدل إعادة قبول دليل المحاولة السابقة. نجح كل سيناريو 1/1 (36 skipped) على PostgreSQL loopback مؤقتة مع provider egress معطّل، ونجح API TypeScript check؛ أُوقفت قواعد الاختبار وحُذفت جذورها. E2 تبقى `OPEN` وE3 `STOPPED`؛ لم يُعد تشغيل أي managed workflow.
@@ -4902,6 +4902,17 @@ G9 Revocation Safety
 - **authority/safety impact:** لا تغيير في السلوك أو الصلاحيات؛ أزيل ادعاء متأخر من قياس E2 فقط.
 - **remaining/blocker:** عائلات ingress والقبول/الأدلة والتأثيرات وrecovery والواجهة ما زالت `UNKNOWN` كجرد شامل. E2 مفتوحة وE3 متوقفة.
 - **next step:** تحقق من provenance لحالة موافقة خطة التنفيذ التي يولدها النموذج؛ لا تبدأ مراحل لاحقة ولا تشغّل workflow مُدار أو Strategy Replay.
+
+### 2026-10-08 — منع خطة النموذج من اعتماد نفسها
+
+- **phase/step:** E2 فقط — provenance لحالة اعتماد implementation plan بين المولّد والتخزين وBuild Mode.
+- **status:** `model-authored approval fields normalized at planner and API persistence boundaries; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** `createImplementationPlan` يحتفظ بمحتوى الخطة الموثق لكنه يفرض `PENDING_APPROVAL` و`NOT_AUTHORIZED` على حقول الاعتماد. ويعيد API تطبيع أي `IMPLEMENTATION_PLAN_RESULT` جديد قبل إرجاعه أو حفظه، حتى لو أعاد مصدر آخر قيم `APPROVED` و`APPROVED_FOR_BUILD`. يظل قرار الموافقة الصريح المنفصل هو المسار الوحيد لتفعيل Build Mode.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/agents/implementation-planner.ts` واختباره؛ `artifacts/api-server/src/routes/ai/chat.ts` واختباره؛ `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل، وذاكرة حدود الموافقة؛ لا schema migration أو workflow.
+- **validation:** نجح `pnpm exec vitest run src/__tests__/implementation-planner-grounding.test.ts` من `lib/ai-orchestrator` (**6/6**)، ونجح اختبار route المحدد من `artifacts/api-server` (**1 passed / 200 skipped**) على PostgreSQL 16.5 مؤقت loopback بعد schema push. نجح TypeScript في الحزمتين، وأُوقفت قاعدة الاختبار وحُذف جذرها. نجح `git diff --check`. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** model output لا يستطيع كتابة زوج الاعتماد الذي يقبله Build handoff؛ المراجعة البشرية/الخادمية الحالية، CAS أحادي القرار، وفحوص النطاق والسياق تظل واجبة.
+- **remaining/blocker:** جرد العائلات العامة والمسارات غير المباشرة في ingress وproof/evidence وeffects وrecovery وDashboard ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تحقق محليًا من regression ثم واصل عائلة E2 التالية فقط؛ لا تبدأ E3 أو أي مرحلة لاحقة، ولا تشغّل workflow مُدارًا أو Strategy Replay.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

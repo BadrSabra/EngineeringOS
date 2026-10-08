@@ -133,6 +133,7 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       provider: { provider, apiKey },
       trigger: "manual",
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      expectedRetryCount: task.retryCount,
       workspaceRevision: ownerProject.updatedAt?.toISOString(),
       resumeExecutionId: execution.id,
       resumeToken: recovered.resumeToken,
@@ -207,6 +208,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       provider: { provider, apiKey },
       trigger: "manual",
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      expectedRetryCount: task.retryCount,
       workspaceRevision: ownerProject.updatedAt?.toISOString(),
     });
   } catch (error) {

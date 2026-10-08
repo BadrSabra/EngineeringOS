@@ -1062,6 +1062,60 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
+  it("rejects a stale retry generation before creating an execution", async () => {
+    const projectId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "lifecycle-test-user",
+      name: `lifecycle-stale-retry-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/lifecycle-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "Stale retry generation fixture",
+      prompt: "Reject execution from an old retry generation",
+      status: "verifying",
+      retryCount: 1,
+      maxRetries: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId: "lifecycle-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "task_state_changed",
+      });
+      expect(runAgentWithFallback).not.toHaveBeenCalled();
+      const executions = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId));
+      expect(executions).toEqual([]);
+    } finally {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("rolls back task success projections when finalization fails after acceptance insert", async () => {
     const projectId = randomUUID();
     const taskId = randomUUID();

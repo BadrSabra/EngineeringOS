@@ -3040,6 +3040,7 @@ export async function executeTaskLifecycle(params: {
   provider: Provider;
   trigger: TaskExecutionTrigger;
   expectedStatuses?: Array<"pending" | "queued" | "verifying">;
+  expectedRetryCount?: number;
   workspaceRevision?: string;
   resumeExecutionId?: string;
   resumeToken?: string;
@@ -3048,6 +3049,16 @@ export async function executeTaskLifecycle(params: {
 }): Promise<TaskExecutionOutcome> {
   const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
+  if (
+    params.expectedRetryCount !== undefined
+    && before.retryCount !== params.expectedRetryCount
+  ) {
+    return { ok: false, status: "conflict", errorCode: "task_state_changed" };
+  }
+  // Bind the execution identity to the retry generation captured above. The
+  // final Task claim repeats this predicate so a counter change during setup
+  // cannot let stale work start against the newer generation.
+  const retryCountAtRead = before.retryCount;
   const [missionGoal] = before.goalId
     ? await db
         .select()
@@ -3285,6 +3296,7 @@ export async function executeTaskLifecycle(params: {
             eq(tasksTable.id, before.id),
             eq(tasksTable.projectId, before.projectId),
             inArray(tasksTable.status, allowed),
+            eq(tasksTable.retryCount, retryCountAtRead),
           ))
           .returning();
         return { task, errorCode: task ? undefined : "task_state_changed" as const };
@@ -3300,7 +3312,11 @@ export async function executeTaskLifecycle(params: {
             idempotencyKey,
             updatedAt: new Date(),
           })
-          .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+          .where(and(
+            eq(tasksTable.id, before.id),
+            inArray(tasksTable.status, allowed),
+            eq(tasksTable.retryCount, retryCountAtRead),
+          ))
           .returning();
         return { task, errorCode: task ? undefined : "task_state_changed" as const };
       })();
