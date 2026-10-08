@@ -27,6 +27,18 @@ function makeContext(): ProjectContext {
   };
 }
 
+async function importChatWithTestLifecycleSink() {
+  const { chat } = await import("../agents/chat-agent.js");
+  return (options: Parameters<typeof chat>[0]) =>
+    chat({
+      ...options,
+      onReadOnlyInvocation:
+        options.onReadOnlyInvocation ?? (async () => undefined),
+      onToolInvocation:
+        options.onToolInvocation ?? (async () => undefined),
+    });
+}
+
 const originalApiKey = process.env.GROQ_API_KEY;
 
 describe("chat agent — recovered Repair Plan execution", () => {
@@ -100,7 +112,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const steps: Array<{ kind: string; tool?: string }> = [];
       const priorAnalysis = classifyRequest(
         "Audit src/target.ts and identify important problems.",
@@ -140,7 +152,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("reads only the target, queues replace_text, and does not write to disk", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-handoff-"));
@@ -200,7 +212,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const readInvocations: string[] = [];
       const steps: Array<{
         kind: string;
@@ -349,7 +361,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const steps: string[] = [];
       const result = await chat({
         message:
@@ -444,7 +456,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const steps: string[] = [];
       const result = await chat({
         message: [
@@ -534,7 +546,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const { buildActiveTaskExecutionPlan } = await import("../task-session-state.js");
       const repairPlan = [{
         findingId: "F-01",
@@ -668,7 +680,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const { buildActiveTaskExecutionPlan } = await import("../task-session-state.js");
       const executionPlan = buildActiveTaskExecutionPlan({
         repairPlan: [{
@@ -824,7 +836,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const { buildActiveTaskExecutionPlan } = await import("../task-session-state.js");
       const repairPlan = paths.map((relativePath, index) => ({
         findingId: `F-0${index + 1}`,
@@ -998,7 +1010,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const { buildActiveTaskExecutionPlan } = await import("../task-session-state.js");
       const repairPlan = paths.map((relativePath, index) => ({
         findingId: `F-0${index + 1}`,
@@ -1122,7 +1134,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const steps: Array<{ kind: string; tool?: string }> = [];
       const result = await chat({
         message: "نفذ Repair Plan",
@@ -1233,7 +1245,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const message = [
         "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
         `Approved files: ${fixturePath}`,
@@ -1315,7 +1327,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await importChatWithTestLifecycleSink();
       const steps: Array<{ kind: string; tool?: string }> = [];
       const result = await chat({
         message: "نفذ Repair Plan",

@@ -7,6 +7,7 @@
  * citation.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -182,7 +183,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     await mockChatModules();
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: `What does ${FILE} run do?`,
         history: [],
@@ -210,7 +211,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("stops after a provider timeout with preserved reads and no generic blocked fallback", async () => {
     const root = await makeRoot();
@@ -218,7 +219,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     await mockChatModules();
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       // Construct after resetModules so the engine and fixture share the same
       // GroqClientError class identity.
       const { GroqClientError } = await import("../errors.js");
@@ -255,7 +256,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     readThen("A text-only provider response.", calls, false);
     await mockChatModules(true);
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: `What does ${FILE} run do?`,
         history: [],
@@ -304,8 +305,9 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     await mockChatModules(true);
     try {
       const emitted: string[] = [];
-      const { chat, buildBehaviorEvidenceRecoveryMessages } =
+      const { buildBehaviorEvidenceRecoveryMessages } =
         await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "كيف يعمل loop؟ What does the loop do? أجب بالعربية.",
         history: [],

@@ -7,6 +7,7 @@
  * PendingChange and confirm the agent drops it via ChatOutputSchema validation.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -856,7 +857,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "What is this project?",
       history: [],
@@ -958,7 +959,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const onOrientationManifest = vi.fn();
     const turnIntent = resolveTurnIntent("What is this project?");
     const resumeMessages = [
@@ -1061,7 +1062,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
         },
       }));
 
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "What is this project?\n\nRESUME CONTEXT: use the retained orientation scope.",
         history: [],
@@ -1153,7 +1154,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "What is this project?",
       history: [],
@@ -1840,7 +1841,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const executionLedger = createExecutionLedger();
       const result = await chat({
@@ -2082,7 +2083,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const executionLedger = createExecutionLedger();
       const steps: AgentStep[] = [];
       const result = await chat({
@@ -2279,7 +2280,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const executionLedger = createExecutionLedger({
         budget: { providerChanges: 0 },
@@ -2437,7 +2438,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const executionLedger = createExecutionLedger();
       await expect(chat({
@@ -3092,7 +3093,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "You are a forensic auditor. Perform a behavioral defect assessment from the completed source reads and return exactly these sections.",
@@ -3244,7 +3245,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "Perform a forensic audit only inside ./root-a then ./root-b, in this order.",
@@ -3426,7 +3427,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "Perform a forensic audit only inside ./root-a then ./root-b, in this order.",
@@ -3582,7 +3583,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "Perform a forensic audit only inside ./root-a then ./root-b, in this order.",
@@ -3726,7 +3727,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "Perform a forensic audit only inside ./root-a then ./root-b, in this order.",
@@ -3842,7 +3843,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "Perform a forensic audit only inside ./root-a then ./root-b, in this order.",
@@ -3984,7 +3985,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
          message: [
            "اختبر قدرة التحليل الجنائي على هذا الملف فقط:",
@@ -4542,7 +4543,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "You are a forensic auditor. Perform a structured forensic audit and return exactly these sections.",
@@ -4772,7 +4773,7 @@ describe("chat agent — Arabic execution intent detection", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: [
         "Please implement this task.",

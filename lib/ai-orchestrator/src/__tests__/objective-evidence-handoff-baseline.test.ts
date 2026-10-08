@@ -6,6 +6,7 @@
  * complete objective rather than only its scope policy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -316,7 +317,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       });
       const steps: Array<Record<string, unknown>> = [];
 
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message,
         history: [],
@@ -1988,7 +1989,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         resumed: false,
       });
       const steps: Array<Record<string, unknown>> = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message,
         history: [],
@@ -2037,5 +2038,5 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });

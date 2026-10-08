@@ -9317,6 +9317,7 @@ export async function chat(opts: {
           missionReadPathScope: opts.missionReadPathScope,
           onReadOnlyInvocation: opts.onReadOnlyInvocation,
           onToolInvocation: opts.onToolInvocation,
+          requireToolLifecycle: true,
           rootPath,
           pendingChanges: nodePendingChanges,
           initialFileContents: nodeInitialContents,
@@ -9872,6 +9873,7 @@ export async function chat(opts: {
     onMutationInvocation: opts.onMutationInvocation,
     onReadOnlyInvocation: opts.onReadOnlyInvocation,
     onToolInvocation: opts.onToolInvocation,
+    requireToolLifecycle: true,
   });
   if (
     capabilityProbeRequest &&
@@ -10133,6 +10135,7 @@ export async function chat(opts: {
           missionReadPathScope: opts.missionReadPathScope,
           onReadOnlyInvocation: replanReadCallback,
           onToolInvocation: opts.onToolInvocation,
+          requireToolLifecycle: true,
           firstEvidenceTargetPath: target.path,
           objectiveScopePolicy: objective.scopePolicy,
           orderedForensicRoots:
@@ -11380,8 +11383,20 @@ export async function chat(opts: {
     const blockedResponse = isArabic
       ? `تم حظر العملية لأن الأداة \`${loopResult.tool}\` لم تكتمل (${loopResult.diagnosticCode}). لم يتم تنفيذ العملية المطلوبة، ولا يمكنني الادعاء بأنها اكتملت.`
       : `The operation is BLOCKED because tool "${loopResult.tool}" did not complete (${loopResult.diagnosticCode}). I cannot claim the requested analysis, validation, repair, or change was completed.`;
+    // Executor failures remain terminal, but any declared objective must still
+    // pass through its canonical gate so the result carries BLOCKED and
+    // evidence-integrity projections instead of bypassing proof accounting.
+    const failureFinalized = finalizeObjectiveAndStream({
+      objective,
+      fileContents: forensicFileContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
+      message,
+      response: blockedResponse,
+      provenEdges: objectiveRuntimeProvenEdges,
+      relayAgentStep,
+    });
     return {
-      response: finalizeTaskResponse(blockedResponse),
+      response: finalizeTaskResponse(failureFinalized.gatedResponse),
       sources: toolSources,
       pendingChanges: getExecutionPendingChanges(),
     };

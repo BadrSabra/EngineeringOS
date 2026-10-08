@@ -345,6 +345,23 @@ const BINARY_TOOL_NAMES_SET = new Set(getToolNamesByExecutor("binary"));
 const FILE_TOOL_NAMES = new Set(getToolNamesByExecutor("file"));
 const EXECUTION_TOOL_NAMES = new Set(getToolNamesByExecutor("execution"));
 const ANALYSIS_TOOL_NAMES = new Set(getToolNamesByExecutor("analysis"));
+
+/**
+ * File and Git executors still expose legacy string results. Only their
+ * reserved error prefixes are classified here; successful file reads carry a
+ * server-owned path wrapper, so source text that begins with "Error:" is not
+ * mistaken for a failed tool call.
+ */
+function isExecutorErrorOutput(name: string, output: string): boolean {
+  const text = output.trimStart();
+  if (FILE_TOOL_NAMES.has(name)) {
+    return /^Error (?:reading|listing)\b/u.test(text)
+      || /^Error: project root path does not exist or is not accessible\./u.test(text);
+  }
+  if (GIT_TOOL_NAMES.has(name)) return /^\[git error\]:/u.test(text);
+  return false;
+}
+
 const TOOL_DEFINITIONS = [
   ...FILE_TOOL_DEFINITIONS,
   ...GIT_TOOL_DEFINITIONS,
@@ -1734,6 +1751,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
+    if (isExecutorErrorOutput(name, output)) {
+      throw new Error(`${name} returned a reserved executor error diagnostic`);
+    }
     await emitTerminalToolLifecycle("completed", {
       outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
     });
@@ -2565,6 +2585,8 @@ export type ToolLoopOpts = {
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
   /** Server-observable lifecycle for every authorized executor dispatch. */
   onToolInvocation?: ToolInvocationLifecycleCallback;
+  /** Chat-owned tool loops fail closed when the durable lifecycle sink is absent. */
+  requireToolLifecycle?: boolean;
 
   /** Request-owned budget shared across every orchestration phase. */
   executionLedger?: ExecutionLedger;
@@ -6160,6 +6182,21 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const forensicBatchKeys = new Set<string>();
     loopPhase = "evidence";
     for (const tc of safeToolCalls) {
+      if (opts.requireToolLifecycle && !opts.onToolInvocation) {
+        const safeMessage =
+          "A durable tool lifecycle sink is required; the requested tool was not executed.";
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: safeMessage,
+        });
+        return failedToolResult(
+          tc.function.name,
+          "unavailable",
+          "TOOL_UNAVAILABLE",
+          safeMessage,
+        );
+      }
       if (oversizedToolCallIds.has(tc.id)) {
         const safeMessage =
           `Tool arguments exceeded the ${MAX_RAW_TOOL_ARGUMENT_BYTES}-byte limit and were rejected before parsing. ` +

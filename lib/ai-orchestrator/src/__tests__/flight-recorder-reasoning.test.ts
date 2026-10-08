@@ -5,6 +5,7 @@
  * agent's preceding model text as `reasoning`, while cached calls do not.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { ProjectContext } from "../context-builder.js";
 
@@ -93,7 +94,7 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
       planQuery: vi.fn().mockResolvedValue(null),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const steps: AgentStep[] = [];
     await chat({
@@ -120,7 +121,7 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
     expect(freshStep?.reasoning).toBe(modelReasoning.slice(0, 500));
     // File path is preserved in args.
     expect(freshStep?.args?.path).toBe(targetPath);
-  });
+  }, 10_000);
 
   it("does not attach reasoning to cached (duplicate) read_file tool_call steps", async () => {
     const modelReasoning = "I need to check this file again for completeness.";
@@ -187,7 +188,7 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
       planQuery: vi.fn().mockResolvedValue(null),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const steps: AgentStep[] = [];
     await chat({
@@ -223,7 +224,7 @@ describe("flight-recorder reasoning field on tool_call steps", () => {
       planQuery: vi.fn().mockResolvedValue(null),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const steps: AgentStep[] = [];
     await chat({

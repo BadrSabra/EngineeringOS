@@ -4701,7 +4701,7 @@ describe("executeToolLoop", () => {
     expect(ledger.snapshot().counts.tool).toBe(1);
   });
 
-  it("does not record a failed read as a source or file content", async () => {
+  it("terminalizes a failed read without recording its text as source evidence", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValueOnce(
       'Error reading "queries.js": ENOENT: no such file or directory',
@@ -4722,9 +4722,14 @@ describe("executeToolLoop", () => {
       pendingChanges: [],
     });
 
-    expect(result.kind).toBe("response");
-    expect(result.toolSources).not.toContain("queries.js");
-    expect(result.fileContents?.has("queries.js")).toBe(false);
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain("ENOENT");
   });
 
   it("requires a tool only on the first execution turn", async () => {
@@ -5535,6 +5540,115 @@ describe("executeToolLoop", () => {
     expect(lifecycleEvents.map((event) => event.phase)).toEqual(["requested", "cancelled"]);
     expect(JSON.stringify(result)).not.toContain("cached-only-secret");
     expect(JSON.stringify(lifecycleEvents)).not.toContain("src/private.ts");
+  });
+
+  it("fails closed before cache replay or execution when the required lifecycle sink is absent", async () => {
+    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("missing-lifecycle", "read_file", { path: "src/private.ts" })]),
+    ]);
+    const cache = new Map<string, string>([
+      [toolCacheKey("read_file", { path: "src/private.ts" }), "cached-only-secret"],
+    ]);
+    FILE_TOOL_MOCK.mockClear();
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      cache,
+      requireToolLifecycle: true,
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("cached-only-secret");
+  });
+
+  it("terminalizes reserved file and Git executor error output as typed failures", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce("Error reading \"src/missing.ts\": the file or directory does not exist.");
+    GIT_TOOL_MOCK.mockResolvedValueOnce("[git error]: Project root could not be verified.");
+
+    const fileStrategy = makeStrategy([
+      makeResponse("", [makeToolCall("missing-file", "read_file", { path: "src/missing.ts" })]),
+      makeResponse("The read failed.", []),
+    ]);
+    const fileResult = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: fileStrategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+    expect(fileResult).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(fileStrategy.call).toHaveBeenCalledTimes(1);
+
+    const gitStrategy = makeStrategy([
+      makeResponse("", [makeToolCall("missing-git-root", "git_status", {})]),
+      makeResponse("The repository check failed.", []),
+    ]);
+    const gitResult = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: gitStrategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "git_status", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+    expect(gitResult).toMatchObject({
+      kind: "failed",
+      tool: "git_status",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(gitStrategy.call).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps error-looking source content successful when it has the read-file wrapper", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce(
+      "=== src/example.ts ===\nError: this is ordinary source text.\n",
+    );
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("error-source", "read_file", { path: "src/example.ts" })]),
+      makeResponse("The source was read.", []),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+
+    expect(result.kind).toBe("response");
+    expect(strategy.call).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when a cached invocation lifecycle write fails", async () => {
@@ -7280,7 +7394,7 @@ describe("executeToolLoop", () => {
     ).toBe(0);
   });
 
-  it("does not let a FAILED source read clear the force or count as progress (FEG-008)", async () => {
+  it("terminalizes a failed source read before later calls can mask it (FEG-008)", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     // Two NO_PROGRESS git calls trip the force. Then a read_file that resolves
     // to an ERROR body must NOT satisfy the mandate: it must neither clear
@@ -7288,7 +7402,9 @@ describe("executeToolLoop", () => {
     // orbiting git call is still rejected at dispatch.
     FILE_TOOL_MOCK.mockImplementation(
       async (_name: string, args?: { path?: string }) =>
-        String(args?.path).includes("missing") ? "Error: no such file" : "file output",
+        String(args?.path).includes("missing")
+          ? 'Error reading "src/missing.ts": the file or directory does not exist.'
+          : "file output",
     );
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("p1", "git_status", {})]),
@@ -7321,14 +7437,16 @@ describe("executeToolLoop", () => {
     expect(steps.some(
       (s) => s.kind === "diagnostic" && s.code === "FORCE_PRIMARY_EVIDENCE_ACTION",
     )).toBe(true);
-    // The failed read did not clear the force: the git_diff after it is still
-    // rejected, so only p1+p2 reach the git mock (p3 is blocked).
+    // The read failure is terminal, so later Git calls and a later read cannot
+    // turn the failed operation into an apparent success.
     expect(GIT_TOOL_MOCK).toHaveBeenCalledTimes(2);
-    // The failed read did not set first-read telemetry. The failed read runs at
-    // iteration 2; only the successful src/executor.ts read (iteration 4)
-    // records the first source read, so iterationsUntilFirstSourceRead is >= 4
-    // and is never the failed read's iteration.
-    expect(result.sourceRetrieval?.iterationsUntilFirstSourceRead).toBeGreaterThanOrEqual(4);
+    expect(result).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    });
+    expect(strategy.call).toHaveBeenCalledTimes(3);
   });
 
   it("clears forced mode when a permitted CACHED read satisfies the mandate (FEG-008)", async () => {
