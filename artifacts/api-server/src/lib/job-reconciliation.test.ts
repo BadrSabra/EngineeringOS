@@ -105,6 +105,70 @@ describe("reconcileStuckJobs", () => {
     }
   });
 
+  it("leaves an AI execution with a live lease to its current worker by default and at startup", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const executionId = randomUUID();
+    const workerId = `live-worker:${randomUUID()}`;
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + 60_000);
+
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId: "test-user",
+      idempotencyKey: `${executionId}:live-startup-lease`,
+      correlationId: executionId,
+      attempt: 0,
+      resumeTokenHash: "c".repeat(64),
+      request: JSON.stringify({
+        projectId,
+        message: "Keep the live execution owned by its worker.",
+        modelMessage: "Keep the live execution owned by its worker.",
+        validationTargetPaths: [],
+        proofRequired: false,
+      }),
+      checkpoint: "{}",
+      status: "running",
+      workerId,
+      leaseUntil,
+      lastHeartbeatAt: now,
+      startedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      expect(await reconcileAiExecutions()).toBe(0);
+      const result = await reconcileStuckJobs();
+      expect(result.aiExecutions).toBe(0);
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(execution).toEqual({
+        status: "running",
+        workerId,
+        leaseUntil,
+      });
+      const acceptances = await db
+        .select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptances).toHaveLength(0);
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+    }
+  });
+
   // ── Scan jobs: running → failed ─────────────────────────────────────────────
 
   it("marks running scan jobs as failed and resets the project to active", async () => {

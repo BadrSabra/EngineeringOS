@@ -3854,10 +3854,14 @@ export function unregisterAiExecutionController(executionId: string, controller:
   if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
 }
 
-export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = {}): Promise<number> {
+export async function reconcileAiExecutions(
+  params: { expiredOnly?: boolean } = { expiredOnly: true },
+): Promise<number> {
   const now = new Date();
+  // A startup worker can coexist with an execution owned by another API
+  // instance. Reclaim live leases only when a caller explicitly opts in.
   const running = await db.select().from(aiExecutionsTable).where(
-    params.expiredOnly
+    params.expiredOnly !== false
       ? or(
           eq(aiExecutionsTable.status, "cancelling"),
           and(

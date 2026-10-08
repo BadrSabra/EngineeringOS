@@ -38,3 +38,9 @@ Proof-bearing Mission Tool Loop attempts bind `workspaceRevision` and `baseRevis
 **Why:** A timestamp is not source content, but generic reporting tasks can validly run without a readable project tree and their completion is not Canonical Proof. Treating every generic receipt as content-bound would break those non-proof paths or imply stronger evidence than they provide.
 
 **How to apply:** For Mission Tool Loop work, hash the established root, pass metadata freshness independently, and reject legacy timestamp-bound resumes before claim. Keep generic Task receipts non-proof unless their execution profile explicitly adds a server-owned objective and evidence contract.
+
+Startup reconciliation must not terminalize a `running` execution while its lease is live; only expired running leases are recovery candidates. `cancelling` executions remain a separate terminalization case.
+
+**Why:** Multiple API instances can overlap during startup, so an instance starting now cannot infer that another worker's unexpired lease is abandoned.
+
+**How to apply:** Make expired-only selection the default, pass it explicitly at startup, and require any broader reconciliation to opt in deliberately.

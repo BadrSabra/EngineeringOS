@@ -1333,7 +1333,7 @@ export async function reconcileStuckJobs(): Promise<{
     // Apply reconciliation depends on execution lease reconciliation. Keep
     // both passes ordered so the delivery reconciler cannot race a proof-bound
     // apply and automatically write files from its promotion journal.
-    const aiExecutions = await reconcileAiExecutions();
+    const aiExecutions = await reconcileAiExecutions({ expiredOnly: true });
     const applyRecovery = await reconcileInterruptedApplyChanges();
     const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
     const deliveries = legacyDeliveries + applyRecovery.reconciled + githubDeliveryRecoveries;
