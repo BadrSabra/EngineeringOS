@@ -2431,6 +2431,81 @@ function recoveryCheckpoint(execution: AiExecution): AiExecutionCheckpoint | und
   return parseAiExecutionCheckpoint(execution.checkpoint);
 }
 
+export async function persistAiExecutionRecoveryResumeToken(params: {
+  executionId: string;
+  userId: string;
+  expectedAttempt: number;
+  expectedCheckpoint: string;
+  expectedCheckpointVersion: number;
+  expectedAcceptance: { resumable: number; nextActionCode: string | null } | null;
+  resumeTokenHash: string;
+  nextCheckpoint: string;
+  nextCheckpointVersion: number;
+  updatedAt: Date;
+}) {
+  return db.transaction(async (tx) => {
+    const [execution] = await tx
+      .select({
+        userId: aiExecutionsTable.userId,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, params.executionId))
+      .limit(1)
+      .for("update");
+    if (
+      !execution
+      || execution.userId !== params.userId
+      || execution.status !== "paused"
+      || execution.attempt !== params.expectedAttempt
+      || execution.checkpoint !== params.expectedCheckpoint
+      || execution.checkpointVersion !== params.expectedCheckpointVersion
+    ) {
+      return undefined;
+    }
+
+    const [acceptance] = await tx
+      .select({
+        resumable: aiExecutionAcceptancesTable.resumable,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, params.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, params.expectedAttempt),
+      ))
+      .limit(1)
+      .for("update");
+    const acceptanceStillMatches = params.expectedAcceptance === null
+      ? !acceptance
+      : acceptance?.resumable === params.expectedAcceptance.resumable
+        && acceptance.nextActionCode === params.expectedAcceptance.nextActionCode;
+    if (!acceptanceStillMatches) return undefined;
+
+    const [updated] = await tx
+      .update(aiExecutionsTable)
+      .set({
+        resumeTokenHash: params.resumeTokenHash,
+        checkpoint: params.nextCheckpoint,
+        checkpointVersion: params.nextCheckpointVersion,
+        updatedAt: params.updatedAt,
+      })
+      .where(and(
+        eq(aiExecutionsTable.id, params.executionId),
+        eq(aiExecutionsTable.userId, params.userId),
+        eq(aiExecutionsTable.status, "paused"),
+        eq(aiExecutionsTable.attempt, params.expectedAttempt),
+        eq(aiExecutionsTable.checkpoint, params.expectedCheckpoint),
+        eq(aiExecutionsTable.checkpointVersion, params.expectedCheckpointVersion),
+      ))
+      .returning();
+    return updated;
+  });
+}
+
 function mergeTerminalCheckpoint(
   execution: AiExecution,
   params: {
@@ -2596,25 +2671,42 @@ export async function requestAiExecutionRecovery(params: {
   ) {
     return { execution: current, outcome: "not_eligible" };
   }
-  if (current.status !== "paused" || operation?.state !== "uncertain") {
+  if (current.status !== "paused" || !checkpoint || operation?.state !== "uncertain") {
     return { execution: current, outcome: "not_eligible" };
   }
 
   if (params.action === "resume") {
     const resumeToken = createResumeToken();
+    const updatedAt = new Date();
+    const nextSequence = Math.max(
+      current.checkpointVersion,
+      typeof checkpoint.sequence === "number" && Number.isFinite(checkpoint.sequence)
+        ? checkpoint.sequence
+        : 0,
+    ) + 1;
     const nextCheckpoint = {
       ...checkpoint,
-      recovery: { action: "resume", outcome: "resume_accepted", updatedAt: new Date().toISOString() },
+      sequence: nextSequence,
+      recovery: { action: "resume", outcome: "resume_accepted", updatedAt: updatedAt.toISOString() },
+      updatedAt: updatedAt.toISOString(),
     };
-    const [updated] = await db.update(aiExecutionsTable).set({
+    const updated = await persistAiExecutionRecoveryResumeToken({
+      executionId: params.executionId,
+      userId: params.userId,
+      expectedAttempt: current.attempt,
+      expectedCheckpoint: current.checkpoint,
+      expectedCheckpointVersion: current.checkpointVersion,
+      expectedAcceptance: priorAcceptance
+        ? {
+            resumable: priorAcceptance.resumable,
+            nextActionCode: priorAcceptance.nextActionCode,
+          }
+        : null,
       resumeTokenHash: hashResumeToken(resumeToken),
-      checkpoint: JSON.stringify(nextCheckpoint),
-      updatedAt: new Date(),
-    }).where(and(
-      eq(aiExecutionsTable.id, params.executionId),
-      eq(aiExecutionsTable.userId, params.userId),
-      eq(aiExecutionsTable.status, "paused"),
-    )).returning();
+      nextCheckpoint: JSON.stringify(nextCheckpoint),
+      nextCheckpointVersion: nextSequence,
+      updatedAt,
+    });
     return updated
       ? { execution: updated, outcome: "resume_accepted", resumeToken }
       : { execution: current, outcome: "not_eligible" };

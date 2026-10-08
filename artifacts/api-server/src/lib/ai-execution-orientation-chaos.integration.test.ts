@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiExecutionAcceptancesTable,
@@ -14,6 +14,7 @@ import {
   failAiExecution,
   heartbeatAiExecution,
   persistAiExecutionOrientationManifest,
+  persistAiExecutionRecoveryResumeToken,
   reconcileAiExecutions,
   requestAiExecutionRecovery,
   recoverAiExecutionResumeToken,
@@ -3196,7 +3197,7 @@ describe("durable project-orientation retry chaos", () => {
         .set({
           status: "paused",
           checkpoint: JSON.stringify(checkpoint),
-          checkpointVersion: checkpoint.sequence,
+          checkpointVersion: 6,
           updatedAt: new Date(),
         })
         .where(eq(aiExecutionsTable.id, fixture.executionId));
@@ -3231,6 +3232,19 @@ describe("durable project-orientation retry chaos", () => {
         },
         resumeToken: expect.any(String),
       });
+      const [prepared] = await db
+        .select({
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(prepared?.checkpointVersion, context).toBe(7);
+      expect(JSON.parse(prepared!.checkpoint), context).toMatchObject({
+        sequence: 7,
+        recovery: { action: "resume", outcome: "resume_accepted" },
+      });
 
       const claimed = await claimAiExecution({
         executionId: fixture.executionId,
@@ -3250,6 +3264,224 @@ describe("durable project-orientation retry chaos", () => {
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       expect(acceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects an operator resume-token write after the execution attempt changes", async () => {
+    const fixture = await createFailedOrientationFixture("operator-recovery-stale-attempt-write");
+    const context = `operator recovery stale attempt write; execution=${fixture.executionId}`;
+    const operation = {
+      ...createAutonomousOperationContract({
+        operationId: fixture.executionId,
+        objective: "Reject a stale operator recovery snapshot",
+        revisionManifest: fixture.manifest.projectRevision,
+      }),
+      state: "uncertain" as const,
+    };
+    const checkpoint = {
+      stage: "failed" as const,
+      sequence: 4,
+      operation,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          status: "paused",
+          checkpoint: JSON.stringify(checkpoint),
+          checkpointVersion: 6,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [snapshot] = await db
+        .select({
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(snapshot, context).toBeDefined();
+      const [acceptance] = await db
+        .select({
+          resumable: aiExecutionAcceptancesTable.resumable,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ))
+        .limit(1);
+      expect(acceptance, context).toBeDefined();
+
+      await db
+        .update(aiExecutionsTable)
+        .set({ attempt: 1, updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const updated = await persistAiExecutionRecoveryResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+        expectedCheckpoint: snapshot!.checkpoint,
+        expectedCheckpointVersion: snapshot!.checkpointVersion,
+        expectedAcceptance: {
+          resumable: acceptance!.resumable,
+          nextActionCode: acceptance!.nextActionCode,
+        },
+        resumeTokenHash: "stale-operator-resume-token-hash",
+        nextCheckpoint: JSON.stringify({
+          ...checkpoint,
+          sequence: 7,
+          recovery: {
+            action: "resume",
+            outcome: "resume_accepted",
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+        nextCheckpointVersion: 7,
+        updatedAt: new Date(),
+      });
+      expect(updated, context).toBeUndefined();
+
+      const [after] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(after, context).toMatchObject({
+        attempt: 1,
+        status: "paused",
+        resumeTokenHash: "pre-race-token-hash",
+        checkpoint: snapshot!.checkpoint,
+        checkpointVersion: 6,
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects an operator resume-token write after same-attempt acceptance becomes ineligible", async () => {
+    const fixture = await createFailedOrientationFixture("operator-recovery-stale-acceptance-write");
+    const context = `operator recovery stale acceptance write; execution=${fixture.executionId}`;
+    const operation = {
+      ...createAutonomousOperationContract({
+        operationId: fixture.executionId,
+        objective: "Reject a stale operator recovery acceptance",
+        revisionManifest: fixture.manifest.projectRevision,
+      }),
+      state: "uncertain" as const,
+    };
+    const checkpoint = {
+      stage: "failed" as const,
+      sequence: 4,
+      operation,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          status: "paused",
+          checkpoint: JSON.stringify(checkpoint),
+          checkpointVersion: 6,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db
+        .update(aiExecutionAcceptancesTable)
+        .set({ resumable: 1, nextActionCode: "RESUME_ALLOWED" })
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+      const [snapshot] = await db
+        .select({
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      const [acceptance] = await db
+        .select({
+          resumable: aiExecutionAcceptancesTable.resumable,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ))
+        .limit(1);
+      expect(snapshot, context).toBeDefined();
+      expect(acceptance, context).toMatchObject({
+        resumable: 1,
+        nextActionCode: "RESUME_ALLOWED",
+      });
+
+      await db
+        .update(aiExecutionAcceptancesTable)
+        .set({ resumable: 0, nextActionCode: "START_NEW_PROBE" })
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+      const updated = await persistAiExecutionRecoveryResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+        expectedCheckpoint: snapshot!.checkpoint,
+        expectedCheckpointVersion: snapshot!.checkpointVersion,
+        expectedAcceptance: {
+          resumable: acceptance!.resumable,
+          nextActionCode: acceptance!.nextActionCode,
+        },
+        resumeTokenHash: "stale-operator-resume-token-hash",
+        nextCheckpoint: JSON.stringify({
+          ...checkpoint,
+          sequence: 7,
+          recovery: {
+            action: "resume",
+            outcome: "resume_accepted",
+            updatedAt: new Date().toISOString(),
+          },
+        }),
+        nextCheckpointVersion: 7,
+        updatedAt: new Date(),
+      });
+      expect(updated, context).toBeUndefined();
+
+      const [after] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(after, context).toMatchObject({
+        status: "paused",
+        resumeTokenHash: "pre-race-token-hash",
+        checkpoint: snapshot!.checkpoint,
+        checkpointVersion: 6,
+      });
     } finally {
       await fixture.cleanup();
     }
