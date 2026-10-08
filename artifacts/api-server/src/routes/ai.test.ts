@@ -9497,11 +9497,13 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
     const created = await createAiExecution({
       userId: "test-user",
       projectId,
       linkedTaskId: taskId,
       idempotencyKey: `${taskId}:attempt:0`,
+      correlationId,
       request: {
         projectId,
         linkedTaskId: taskId,
@@ -9510,6 +9512,9 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
         validationTargetPaths: [],
       },
     });
+    await db.update(tasksTable)
+      .set({ correlationId })
+      .where(eq(tasksTable.id, taskId));
     await db.update(aiExecutionsTable).set({
       status: "failed",
       updatedAt: new Date(),
@@ -9554,11 +9559,13 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const taskId = await insertTask(projectId, "verifying");
+    const correlationId = randomUUID();
     const created = await createAiExecution({
       userId: "test-user",
       projectId,
       linkedTaskId: taskId,
       idempotencyKey: `${taskId}:attempt:0`,
+      correlationId,
       request: {
         projectId,
         linkedTaskId: taskId,
@@ -9567,6 +9574,9 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
         validationTargetPaths: [],
       },
     });
+    await db.update(tasksTable)
+      .set({ correlationId })
+      .where(eq(tasksTable.id, taskId));
     await db.update(aiExecutionsTable).set({
       status: "failed",
       updatedAt: new Date(),
@@ -9591,6 +9601,26 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
       },
       resumable: 1,
     });
+
+    const superseded = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      idempotencyKey: `${taskId}:superseded:${randomUUID()}`,
+      correlationId: randomUUID(),
+      attempt: 9,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Superseded execution",
+        modelMessage: "Superseded execution",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, superseded.execution.id));
 
     const res = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
     expect(res.status).toBe(202);

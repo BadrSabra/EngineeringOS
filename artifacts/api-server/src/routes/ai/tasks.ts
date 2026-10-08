@@ -43,6 +43,12 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
 
   const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
   if (!ownerProject) return;
+  if (!task.correlationId) {
+    return res.status(409).json({
+      error: "task_not_resumable",
+      hint: "The task has no current execution identity to resume.",
+    });
+  }
   if (!["pending", "queued", "verifying"].includes(task.status)) {
     return res.status(409).json({
       error: "task_not_resumable",
@@ -60,6 +66,7 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       eq(aiExecutionsTable.linkedTaskId, task.id),
       eq(aiExecutionsTable.projectId, task.projectId),
       eq(aiExecutionsTable.userId, req.userId),
+      eq(aiExecutionsTable.correlationId, task.correlationId),
       inArray(aiExecutionsTable.status, ["paused", "failed"]),
     ))
     .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
@@ -134,6 +141,7 @@ router.post("/ai/tasks/:taskId/resume", async (req, res) => {
       trigger: "manual",
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
       expectedRetryCount: task.retryCount,
+      expectedCorrelationId: task.correlationId,
       workspaceRevision: ownerProject.updatedAt?.toISOString(),
       resumeExecutionId: execution.id,
       resumeToken: recovered.resumeToken,
@@ -209,6 +217,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       trigger: "manual",
       expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
       expectedRetryCount: task.retryCount,
+      expectedCorrelationId: task.correlationId,
       workspaceRevision: ownerProject.updatedAt?.toISOString(),
     });
   } catch (error) {

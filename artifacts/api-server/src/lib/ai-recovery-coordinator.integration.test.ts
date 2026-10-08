@@ -88,6 +88,7 @@ async function insertFixture() {
     title: "Recoverable task",
     prompt: "Run the bounded recovery",
     status: "verifying",
+    correlationId: executionId,
     retryCount: 0,
     maxRetries: 2,
     createdAt: now,
@@ -325,10 +326,17 @@ describe("durable automatic task recovery", () => {
       await queuedJobs[0]!.run();
 
       const [task] = await db
-        .select({ retryCount: tasksTable.retryCount })
+        .select({
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
         .from(tasksTable)
         .where(eq(tasksTable.id, fixture.taskId));
       expect(task?.retryCount).toBe(1);
+      expect(task?.correlationId).toEqual(expect.any(String));
+      expect(task?.correlationId).not.toBe(fixture.executionId);
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(1);
       expect(executeTaskLifecycle).toHaveBeenCalledTimes(1);
       expect(executeTaskLifecycle).toHaveBeenCalledWith(expect.objectContaining({
         taskId: fixture.taskId,
@@ -349,7 +357,7 @@ describe("durable automatic task recovery", () => {
     const fixture = await insertFixture();
     try {
       await db.update(tasksTable)
-        .set({ status: "queued" })
+        .set({ status: "queued", retryCount: 1 })
         .where(eq(tasksTable.id, fixture.taskId));
       await db.update(aiExecutionsTable)
         .set({ status: "paused" })
@@ -373,11 +381,118 @@ describe("durable automatic task recovery", () => {
       expect(executeTaskLifecycle).toHaveBeenCalledWith(expect.objectContaining({
         taskId: fixture.taskId,
         resumeExecutionId: fixture.executionId,
-        expectedRetryCount: 0,
+        expectedRetryCount: 1,
       }));
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("skips a queued resume when the Task retry generation has advanced", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(tasksTable)
+        .set({ status: "queued" })
+        .where(eq(tasksTable.id, fixture.taskId));
+      await db.update(aiExecutionsTable)
+        .set({ status: "paused" })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          reasonCode: "EXECUTION_INTERRUPTED",
+          nextActionCode: "RESUME_ALLOWED",
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+          },
+          resumable: 1,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await db.update(tasksTable)
+        .set({ retryCount: 2 })
+        .where(eq(tasksTable.id, fixture.taskId));
+      await queuedJobs[0]!.run();
+
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+      const [execution] = await db
+        .select({ resumeTokenHash: aiExecutionsTable.resumeTokenHash })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      expect(execution?.resumeTokenHash).toBe("test-resume-token-hash");
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("dispatches only the execution currently bound to the Task", async () => {
+    const fixture = await insertFixture();
+    const supersededExecutionId = randomUUID();
+    const newerAcceptanceAt = new Date(Date.now() + 10_000);
+    try {
+      await db.insert(aiExecutionsTable).values({
+        id: supersededExecutionId,
+        projectId: fixture.projectId,
+        linkedTaskId: fixture.taskId,
+        userId: "recovery-test-user",
+        idempotencyKey: `${fixture.taskId}:superseded:${supersededExecutionId}`,
+        correlationId: supersededExecutionId,
+        attempt: 0,
+        resumeTokenHash: "superseded-resume-token-hash",
+        request: JSON.stringify({
+          projectId: fixture.projectId,
+          turnIntent: "DELIVERY",
+          message: "Superseded bounded recovery",
+          modelMessage: "Superseded bounded recovery",
+          validationTargetPaths: [],
+          proofRequired: true,
+        }),
+        checkpoint: "{}",
+        status: "failed",
+        createdAt: newerAcceptanceAt,
+        updatedAt: newerAcceptanceAt,
+      });
+      await db.insert(aiExecutionAcceptancesTable).values({
+        id: randomUUID(),
+        executionId: supersededExecutionId,
+        projectId: fixture.projectId,
+        attempt: 0,
+        finalizationKey: `recovery-superseded:${supersededExecutionId}:0`,
+        operationId: supersededExecutionId,
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_FAILED",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+        disposition: {
+          recoveryState: "REQUIRED",
+          nextActionCode: "RETRY_AFTER_TIMEOUT",
+        },
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+        resumable: 0,
+        sourceRevision: newerAcceptanceAt.toISOString(),
+        createdAt: newerAcceptanceAt,
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      expect(queuedJobs[0]?.id).toBe(
+        `ai-recovery:${fixture.taskId}:${fixture.executionId}:0:retry:0`,
+      );
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, supersededExecutionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, supersededExecutionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }

@@ -4914,6 +4914,28 @@ G9 Revocation Safety
 - **remaining/blocker:** جرد العائلات العامة والمسارات غير المباشرة في ingress وproof/evidence وeffects وrecovery وDashboard ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** تحقق محليًا من regression ثم واصل عائلة E2 التالية فقط؛ لا تبدأ E3 أو أي مرحلة لاحقة، ولا تشغّل workflow مُدارًا أو Strategy Replay.
 
+### 2026-10-08 — حراسة جيل retry في Task recovery
+
+- **phase/step:** E2 فقط — حداثة `retryCount` بين اختيار recovery candidate وresume/retry وTask claim.
+- **status:** `PARTIAL — queued stale-generation resume is rejected; linked-execution recency and the in-flight claim race remain open; E2 OPEN; E3 STOPPED`
+- **what changed:** صار فرع resume يعيد قراءة المشروع والحالة و`retryCount` قبل حل provider أو تدوير resume token، ويرفض المرشح الذي تغيّر بعد enqueue. يرفض `executeTaskLifecycle` عدادًا متوقعًا قديمًا قبل إنشاء execution، ويكرر العداد الملتقط في CAS النهائي لصف Task. يعيد فرع retry استخدام العداد الدقيق بعد CAS. مسارات HTTP المباشرة تمرر لقطة العداد التي قرأتها.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-service.ts` و`ai-recovery-coordinator.ts` و`ai-recovery-coordinator.test.ts` و`ai-recovery-coordinator.integration.test.ts` و`task-execution-lifecycle.integration.test.ts` و`routes/ai/tasks.ts`؛ `docs/e2-source-derived-measurement-ledger.md` وهذا السجل و`.agents/memory/recovery-candidate-binding.md`. لا تغيير schema أو workflow.
+- **validation:** نجح API TypeScript check و`ai-recovery-coordinator.test.ts` (**8/8**). نجحت اختبارات PostgreSQL المحددة (**4/4، 55 skipped**) لفرعي retry/resume، ورفض resume قديم بعد enqueue من دون تدوير token، ورفض lifecycle بعداد قديم قبل إنشاء execution؛ استُخدمت قاعدة PostgreSQL 16.5 مؤقتة loopback معزولة بعد schema push ثم أُوقفت وحُذف جذرها. `git diff --check` نجح. لم يُعَد تشغيل أي workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** لا يمنح العداد أي صلاحية؛ يقيّد فقط صلاحية candidate بالنسبة إلى جيل Task. عند فقدان CAS النهائي لا يبدأ provider حسب ترتيب المصدر، لكن التنفيذ وEpisode يمكن أن يكونا قد أُنشئا/طُولبا قبل CAS؛ لم نختبر هذا interleaving وقت التشغيل.
+- **remaining/blocker:** لا يوجد predicate يختار أحدث execution مرتبط بكل Task، ويُعلّم dispatch المهمة `seen` قبل تقييم أول candidate؛ وقد يحجب المرشح الأول الأحدث. لم يُحسم كذلك سباق ما بعد resume preflight وقبل token/task claim. عائلات E2 العامة ما زالت `UNKNOWN`؛ E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل E2 فقط بفحص اختيار أحدث linked execution وترتيب تقييم candidates، مع اختبار متزامن معزول؛ لا تبدأ مرحلة لاحقة، ولا تشغّل workflow مُدارًا أو Strategy Replay، ولا تقترح مهام متابعة أثناء نشاط E2.
+
+### 2026-10-08 — ربط مرشح Task recovery بمؤشر التنفيذ الحالي
+
+- **phase/step:** E2 فقط — هوية execution الحالي عبر اختيار المرشح، وresume/retry، وTask claim.
+- **status:** `PARTIAL — current-execution pointer and retry-marker rotation verified; preflight-to-token/Task-claim race remains open; legacy null pointers fail closed; E2 OPEN; E3 STOPPED`
+- **what changed:** يختار `findRecoveryCandidates` فقط التنفيذ الذي يطابق `aiExecutions.correlationId` مع مؤشر `tasks.correlationId` غير الفارغ. تدوّر manual retry وautomatic retry المؤشر قبل إنشاء execution جديد؛ stale-lease reconciliation تحتفظ بالمؤشر لاستعادة التنفيذ نفسه. يعيد recovery العامل قراءة المؤشر والعداد والحالة قبل provider/token، ويشترط CAS إعادة تطابق المؤشر والعداد. يفحص lifecycle المؤشر المتوقع قبل إنشاء execution ويكرره في CAS النهائي. مسار manual resume يختار التنفيذ المرتبط بالمؤشر بدل ترتيب attempts عبر كل التنفيذات. نُقل تعليم `seenTasks` إلى ما بعد وجود خطة مؤهلة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-recovery-coordinator.ts` و`ai-recovery-coordinator.test.ts` و`ai-recovery-coordinator.integration.test.ts` و`task-execution-service.ts` و`routes/tasks.ts` و`routes/ai/tasks.ts` و`routes/ai.test.ts`؛ `docs/e2-source-derived-measurement-ledger.md` وهذا السجل و`.agents/memory/recovery-candidate-binding.md`. لا تغيير schema أو workflow.
+- **validation:** نجح API TypeScript check و`ai-recovery-coordinator.test.ts` (**8/8**). نجحت PostgreSQL المحددة (**7 passed، 78 skipped**) لمرشح التنفيذ الحالي، retry/resume، stale-generation guards، وmanual retry؛ نجح اختبار manual resume المحدد (**2 passed، 199 skipped**) مع linked execution أقدم ذي attempt أعلى؛ ونجح اختبار تدوير المؤشر ومنع redispatch (**1 passed، 10 skipped**) واختبار lifecycle الذي يرفض counter أو pointer قديمًا (**1 passed، 48 skipped**). كل PostgreSQL مؤقتة loopback ومعزولة ثم أُوقفت وحُذف جذرها. `git diff --check` نجح بعد تحديثات الكود والتوثيق. لم يُعَد تشغيل أي workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** correlation pointer دليل اختيار وربط فقط، ولا يمنح صلاحية أو يثبت acceptance/proof. غياب المؤشر أو عدم تطابقه يمنع recovery التلقائي. أرقام `retryCount` وexecution `attempt` تظل منفصلة.
+- **remaining/blocker:** Task-aware Chat قد يرتبط بالـ Task عبر `linkedTaskId` لكنه ليس execution الخاص بدورة Task؛ candidate filter يستبعده إن اختلف correlation. Token rotation لا يجري ذريًا مع Task claim؛ التنفيذ/episode قد يسبقان CAS النهائي. يبقى ذلك interleaving غير مختبر. `getPublicTaskExecutionAcceptance(s)` وDashboard acceptance projection ما زالا يختاران بحسب attempt، والبيانات القديمة أو auxiliary executions ذات correlation مفقود/غير مطابق لا تدخل Task recovery تلقائيًا. عائلات ingress/proof/evidence/effects/recovery/Dashboard العامة ما زالت غير محصورة؛ E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع تدقيق E2 فقط، بدءًا من acceptance projection وسباق preflight/token/Task claim؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة، ولا تقترح مهام متابعة أثناء نشاط E2.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

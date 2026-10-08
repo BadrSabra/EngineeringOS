@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -53,6 +53,7 @@ export type TaskRecoveryCandidate = {
   executionId: string;
   executionProjectId: string;
   executionLinkedTaskId: string | null;
+  executionCorrelationId: string;
   executionStatus: string;
   executionAttempt: number;
   userId: string;
@@ -414,6 +415,7 @@ async function findRecoveryCandidates(scope: {
       executionId: aiExecutionsTable.id,
       executionProjectId: aiExecutionsTable.projectId,
       executionLinkedTaskId: aiExecutionsTable.linkedTaskId,
+      executionCorrelationId: aiExecutionsTable.correlationId,
       executionStatus: aiExecutionsTable.status,
       executionAttempt: aiExecutionsTable.attempt,
       userId: aiExecutionsTable.userId,
@@ -437,6 +439,8 @@ async function findRecoveryCandidates(scope: {
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
+      isNotNull(aiExecutionsTable.correlationId),
+      eq(aiExecutionsTable.correlationId, tasksTable.correlationId),
       scope.projectId ? eq(projectsTable.id, scope.projectId) : undefined,
     ))
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
@@ -444,6 +448,7 @@ async function findRecoveryCandidates(scope: {
 
   return rows.map((row) => ({
     ...row,
+    executionCorrelationId: row.executionCorrelationId!,
     projectRevision: row.projectRevision?.toISOString() ?? null,
   }));
 }
@@ -515,6 +520,33 @@ async function writeRecoveryLog(
 }
 
 async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskRecoveryPlan, { kind: "resume" | "retry" }>): Promise<void> {
+  if (plan.kind === "resume") {
+    const [taskSnapshot] = await db
+      .select({
+        projectId: tasksTable.projectId,
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.id, candidate.taskId),
+        eq(tasksTable.projectId, candidate.taskProjectId),
+      ))
+      .limit(1);
+    if (
+      !taskSnapshot
+      || taskSnapshot.retryCount !== plan.expectedRetryCount
+      || taskSnapshot.correlationId !== candidate.executionCorrelationId
+      || !RECOVERY_TASK_STATUSES.includes(taskSnapshot.status as RecoveryTaskStatus)
+    ) {
+      await writeRecoveryLog(candidate, "Automatic resume skipped because the Task changed after recovery was planned.", "info", {
+        reason: "task_generation_changed",
+      });
+      return;
+    }
+  }
+
   const resolved = await resolveProvider(candidate.userId, { qualityProfile: "task_execution" });
   if (!resolved) {
     await writeRecoveryLog(candidate, "Automatic recovery deferred: no AI provider is available.", "warn", {
@@ -559,6 +591,7 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
       trigger: "reconciliation",
       expectedStatuses: [...RECOVERY_TASK_STATUSES],
       expectedRetryCount: plan.expectedRetryCount,
+      expectedCorrelationId: candidate.executionCorrelationId,
       workspaceRevision: candidate.projectRevision ?? undefined,
       resumeExecutionId: candidate.executionId,
       resumeToken: recovered.resumeToken,
@@ -569,16 +602,21 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     return;
   }
 
-  // A new retry must advance the task-owned budget before creating the next
-  // execution. The expected retry count is the cross-process idempotency fence.
+  // A new retry advances the task-owned budget and rotates its execution
+  // marker before creating the next execution. Both values fence this CAS.
   const [claimed] = await db
     .update(tasksTable)
-    .set({ retryCount: candidate.retryCount + 1, updatedAt: new Date() })
+    .set({
+      retryCount: candidate.retryCount + 1,
+      correlationId: randomUUID(),
+      updatedAt: new Date(),
+    })
     .where(and(
       eq(tasksTable.id, candidate.taskId),
       eq(tasksTable.projectId, candidate.taskProjectId),
       eq(tasksTable.status, candidate.taskStatus as "pending" | "queued" | "verifying"),
       eq(tasksTable.retryCount, candidate.retryCount),
+      eq(tasksTable.correlationId, candidate.executionCorrelationId),
     ))
     .returning({
       id: tasksTable.id,
@@ -662,9 +700,9 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
     const seenTasks = new Set<string>();
     for (const candidate of rows) {
       if (seenTasks.has(candidate.taskId)) continue;
-      seenTasks.add(candidate.taskId);
       const plan = planTaskRecovery(candidate);
       if (plan.kind === "skip") continue;
+      seenTasks.add(candidate.taskId);
       if (heavyJobQueue.enqueueWithId(plan.queueKey, async () => {
         try {
           await runRecovery(candidate, plan);

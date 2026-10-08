@@ -1062,9 +1062,10 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("rejects a stale retry generation before creating an execution", async () => {
+  it("rejects a stale retry generation or execution pointer before creating an execution", async () => {
     const projectId = randomUUID();
     const taskId = randomUUID();
+    const currentCorrelationId = randomUUID();
     const now = new Date();
     await db.insert(projectsTable).values({
       id: projectId,
@@ -1082,6 +1083,7 @@ describe("real durable task execution lifecycle", () => {
       title: "Stale retry generation fixture",
       prompt: "Reject execution from an old retry generation",
       status: "verifying",
+      correlationId: currentCorrelationId,
       retryCount: 1,
       maxRetries: 3,
       createdAt: now,
@@ -1096,9 +1098,24 @@ describe("real durable task execution lifecycle", () => {
         trigger: "reconciliation",
         expectedStatuses: ["verifying"],
         expectedRetryCount: 0,
+        expectedCorrelationId: currentCorrelationId,
       });
 
       expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "task_state_changed",
+      });
+      const stalePointerOutcome = await executeTaskLifecycle({
+        taskId,
+        userId: "lifecycle-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 1,
+        expectedCorrelationId: randomUUID(),
+      });
+      expect(stalePointerOutcome).toMatchObject({
         ok: false,
         status: "conflict",
         errorCode: "task_state_changed",

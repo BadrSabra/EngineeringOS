@@ -18,6 +18,7 @@ function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecovery
     executionId: "execution-1",
     executionProjectId: "project-1",
     executionLinkedTaskId: "task-1",
+    executionCorrelationId: "execution-correlation-1",
     executionStatus: "failed",
     executionAttempt: 2,
     userId: "user-1",

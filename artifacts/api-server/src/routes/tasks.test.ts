@@ -90,17 +90,34 @@ describe("Task lifecycle", () => {
   it("includes the allowlisted current acceptance in the task list", async () => {
     const { projectId, taskId } = await createTask();
     const executionId = randomUUID();
+    await db.update(tasksTable)
+      .set({ correlationId: executionId })
+      .where(eq(tasksTable.id, taskId));
     await db.insert(aiExecutionsTable).values({
       id: executionId,
       projectId,
       linkedTaskId: taskId,
       userId: "test-user",
       idempotencyKey: executionId,
+      correlationId: executionId,
       attempt: 1,
       resumeTokenHash: "task-list-acceptance-hash",
       request: "{}",
       checkpoint: "{}",
       status: "completed",
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: randomUUID(),
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+      attempt: 9,
+      resumeTokenHash: "superseded-task-list-resume-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "failed",
     });
     await db.insert(aiExecutionAcceptancesTable).values({
       id: randomUUID(),
@@ -151,14 +168,31 @@ describe("Task lifecycle", () => {
   it("returns the allowlisted acceptance for the task's current execution attempt", async () => {
     const { projectId, taskId } = await createTask();
     const executionId = randomUUID();
+    await db.update(tasksTable)
+      .set({ correlationId: executionId })
+      .where(eq(tasksTable.id, taskId));
     await db.insert(aiExecutionsTable).values({
       id: executionId,
       projectId,
       linkedTaskId: taskId,
       userId: "test-user",
       idempotencyKey: executionId,
+      correlationId: executionId,
       attempt: 2,
       resumeTokenHash: "task-detail-acceptance-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "failed",
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: randomUUID(),
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      correlationId: randomUUID(),
+      attempt: 9,
+      resumeTokenHash: "superseded-task-detail-resume-hash",
       request: "{}",
       checkpoint: "{}",
       status: "failed",
@@ -512,6 +546,7 @@ describe("Task lifecycle", () => {
     expect(retried.status).toBe(202);
     expect(retried.body.status).toBe("queued");
     expect(retried.body.retryCount).toBe(1);
+    expect(retried.body.correlationId).toEqual(expect.any(String));
 
     await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
     const secondRetry = await request(app).post(`/api/tasks/${taskId}/retry`);

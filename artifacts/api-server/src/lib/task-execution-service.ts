@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { posix as posixPath } from "node:path";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
@@ -3041,6 +3041,7 @@ export async function executeTaskLifecycle(params: {
   trigger: TaskExecutionTrigger;
   expectedStatuses?: Array<"pending" | "queued" | "verifying">;
   expectedRetryCount?: number;
+  expectedCorrelationId?: string | null;
   workspaceRevision?: string;
   resumeExecutionId?: string;
   resumeToken?: string;
@@ -3055,10 +3056,20 @@ export async function executeTaskLifecycle(params: {
   ) {
     return { ok: false, status: "conflict", errorCode: "task_state_changed" };
   }
-  // Bind the execution identity to the retry generation captured above. The
-  // final Task claim repeats this predicate so a counter change during setup
-  // cannot let stale work start against the newer generation.
+  if (
+    params.expectedCorrelationId !== undefined
+    && before.correlationId !== params.expectedCorrelationId
+  ) {
+    return { ok: false, status: "conflict", errorCode: "task_state_changed" };
+  }
+  // Bind execution identity to the retry generation and current pointer
+  // captured above. The final Task claim repeats both predicates so a Task
+  // change during setup cannot let stale work start against a newer execution.
   const retryCountAtRead = before.retryCount;
+  const correlationIdAtRead = before.correlationId;
+  const correlationFence = correlationIdAtRead === null
+    ? isNull(tasksTable.correlationId)
+    : eq(tasksTable.correlationId, correlationIdAtRead);
   const [missionGoal] = before.goalId
     ? await db
         .select()
@@ -3297,6 +3308,7 @@ export async function executeTaskLifecycle(params: {
             eq(tasksTable.projectId, before.projectId),
             inArray(tasksTable.status, allowed),
             eq(tasksTable.retryCount, retryCountAtRead),
+            correlationFence,
           ))
           .returning();
         return { task, errorCode: task ? undefined : "task_state_changed" as const };
@@ -3316,6 +3328,7 @@ export async function executeTaskLifecycle(params: {
             eq(tasksTable.id, before.id),
             inArray(tasksTable.status, allowed),
             eq(tasksTable.retryCount, retryCountAtRead),
+            correlationFence,
           ))
           .returning();
         return { task, errorCode: task ? undefined : "task_state_changed" as const };

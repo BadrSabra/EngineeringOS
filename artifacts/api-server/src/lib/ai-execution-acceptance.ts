@@ -1400,9 +1400,8 @@ export function projectExecutionAcceptance(
 }
 
 /**
- * Resolve the acceptance for the latest server-owned attempt associated with
- * a standalone task. The latest execution is selected first so an older
- * accepted retry cannot be shown after a newer attempt has started.
+ * Resolve acceptance only for the execution currently bound to the Task.
+ * Attempt ordering is not global across separate executions linked to one task.
  */
 export async function getPublicTaskExecutionAcceptance(
   taskId: string,
@@ -1413,6 +1412,10 @@ export async function getPublicTaskExecutionAcceptance(
       attempt: aiExecutionsTable.attempt,
     })
     .from(aiExecutionsTable)
+    .innerJoin(tasksTable, and(
+      eq(tasksTable.id, aiExecutionsTable.linkedTaskId),
+      eq(tasksTable.correlationId, aiExecutionsTable.correlationId),
+    ))
     .where(eq(aiExecutionsTable.linkedTaskId, taskId))
     .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
     .limit(1);
@@ -1431,9 +1434,8 @@ export async function getPublicTaskExecutionAcceptance(
 }
 
 /**
- * Resolve the current public acceptance projection for a list of standalone
- * tasks without exposing execution/provider rows or issuing one query per
- * task. The newest execution attempt wins, matching the detail endpoint.
+ * Resolve current Task-bound acceptance projections for a list without
+ * exposing execution/provider rows or issuing one query per task.
  */
 export async function getPublicTaskExecutionAcceptances(
   taskIds: readonly string[],
@@ -1448,6 +1450,10 @@ export async function getPublicTaskExecutionAcceptances(
       attempt: aiExecutionsTable.attempt,
     })
     .from(aiExecutionsTable)
+    .innerJoin(tasksTable, and(
+      eq(tasksTable.id, aiExecutionsTable.linkedTaskId),
+      eq(tasksTable.correlationId, aiExecutionsTable.correlationId),
+    ))
     .where(inArray(aiExecutionsTable.linkedTaskId, [...taskIds]))
     .orderBy(
       desc(aiExecutionsTable.attempt),

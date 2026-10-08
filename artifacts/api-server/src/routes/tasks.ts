@@ -960,7 +960,12 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
       // retryCount or racing with another retry/execute call.
       const [row] = await tx
         .update(tasksTable)
-        .set({ status: "queued", retryCount: retryCount + 1, updatedAt: now })
+        .set({
+          status: "queued",
+          retryCount: retryCount + 1,
+          correlationId,
+          updatedAt: now,
+        })
         .where(
           and(
             eq(tasksTable.id, taskId),
