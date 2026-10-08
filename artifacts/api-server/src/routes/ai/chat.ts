@@ -6436,7 +6436,7 @@ router.post("/ai/chat", async (req, res) => {
       return terminalized;
     };
     try {
-      if (chatCanonicalProjectQueryProofRequired) {
+      if (turnIntent.requiresTools || chatCanonicalProjectQueryProofRequired) {
         await ensureChatObservationLifecycle();
       }
       const chatOut = await chatWithFallback(

@@ -20,7 +20,7 @@
 - [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI tests fail closed; chat history tests isolate ledger persistence without weakening lease checks.
-- [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
+- [Tool failure terminality](tool-failure-terminality.md) — execution failures remain terminal; server-rejected read paths are retryable diagnostics, not evidence or permission.
 - [Analysis deadline race](analysis-deadline-race.md) — timeout-triggered abort can win as cancellation; classify expiry from a timer-owned flag.
 - [Reliable Tool Agent scope](reliable-tool-agent-scope.md) — preserve delegation/approval boundaries; durably terminalize bound attempts denied before start, not just console-log them.
 - [Tool I/O resource bounds](tool-input-resource-bounds.md) — preserve grep semantics, cap provider inputs, and fail closed on oversized serialized outputs before proof.

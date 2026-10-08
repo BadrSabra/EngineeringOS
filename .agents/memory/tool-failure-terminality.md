@@ -3,8 +3,8 @@ name: Tool failure terminality
 description: The contract for handling agent tool failures across orchestration, persistence, and UI.
 ---
 
-Required tool failures must be represented as typed failed or unavailable results with stable diagnostic codes. The model may receive only bounded safe context; raw exception details belong in server logs. A required failure must terminalize the operation so analysis, validation, repair, apply, commit, or push cannot be described as complete.
+Failures that make requested work untrustworthy must remain typed and terminal, with stable diagnostic codes and only bounded safe context exposed to the model; raw exceptions belong in server logs. A read-only path-scope rejection is a narrow retryable exception: it records a failed attempt without retaining evidence, so the model may try another server-authorized path without gaining scope.
 
-**Why:** Treating exceptions as ordinary tool text let the model continue and produce plausible but unsupported completion claims.
+**Why:** Treating execution failures as ordinary tool text let the model continue and produce plausible but unsupported completion claims. A path rejection is different: it is an authorization boundary, not an execution result, and withholding its content preserves evidence integrity while allowing a bounded correction.
 
-**How to apply:** Preserve the failure kind and diagnostic code through the agent trace, API/SSE boundary, persisted execution summary, and dashboard terminal state. Cancellation is also incomplete, not a successful result.
+**How to apply:** Preserve execution failure kinds and diagnostic codes through the agent trace, API/SSE boundary, persisted execution summary, and dashboard terminal state. Retry only typed read-path scope rejections after server-side validation; keep actual executor failures and cancellation incomplete, never successful.

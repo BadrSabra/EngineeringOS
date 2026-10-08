@@ -1125,6 +1125,66 @@ describe("POST /api/ai/chat", () => {
       .where(eq(aiAgentEpisodesTable.projectId, projectId))).toEqual([]);
   });
 
+  it("creates the Episode before provider work for non-proof turns that require tools", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat, classifyRequest: mockClassifyRequest, resolveTurnIntent } =
+      await import("@workspace/ai-orchestrator");
+    const message = "Audit src/auth.ts for security issues.";
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: true,
+      orderedForensicRoots: ["src/auth.ts"],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "FULL_FORENSIC_AUDIT",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+    vi.mocked(mockClassifyRequest).mockReturnValueOnce(forensicClassification);
+    expect(resolveTurnIntent(message, { classification: forensicClassification })).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      requiresTools: true,
+    });
+
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const chatInput = input as unknown as {
+        turnIntent?: { kind: string; requiresTools: boolean };
+      };
+      expect(chatInput.turnIntent).toMatchObject({
+        kind: "FORENSIC_AUDIT",
+        requiresTools: true,
+      });
+      const episodes = await db.select().from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, projectId));
+      expect(episodes).toHaveLength(1);
+      return {
+        response: "The scoped audit is ready for review.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message });
+
+    expect(response.status).toBe(200);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
   it("terminalizes the observation execution when provider work fails after a read starts", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

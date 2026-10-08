@@ -362,6 +362,20 @@ function isExecutorErrorOutput(name: string, output: string): boolean {
   return false;
 }
 
+const RECOVERABLE_SCOPE_READ_TOOLS = new Set([
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+]);
+
+function isRecoverableFileScopeErrorOutput(name: string, output: string): boolean {
+  if (!RECOVERABLE_SCOPE_READ_TOOLS.has(name)) return false;
+  const text = output.trim();
+  return /^Error: .+ resolves outside the project root\.$/u.test(text)
+    || /^Error: (?:reading|listing|searching) .+ is not allowed because (?:the path is classified as sensitive|its resolved path is outside the allowed project source scope)\.$/u.test(text);
+}
+
 const TOOL_DEFINITIONS = [
   ...FILE_TOOL_DEFINITIONS,
   ...GIT_TOOL_DEFINITIONS,
@@ -874,6 +888,8 @@ export type SingleToolResult =
       failureKind: "execution" | "unavailable" | "cancelled";
       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
       analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
+      /** A server-owned read-path denial may be retried with a different in-scope path. */
+      recoverableScopeRejection?: true;
       /** Safe, bounded context forwarded to the model. Raw diagnostics stay in logs. */
       safeMessage: string;
     };
@@ -1663,6 +1679,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       pendingChanges.push(...stagedFileChanges);
     }
 
+    const recoverableScopeRejection = isRecoverableFileScopeErrorOutput(name, output);
     if (readCallback && readInvocationBase) {
       const recorded = analysisFailure
         ? {
@@ -1672,6 +1689,15 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               : "failed" as const,
             diagnosticCode: analysisFailure?.diagnosticCode ?? "TOOL_EXECUTION_FAILED",
           }
+        : recoverableScopeRejection
+          ? {
+              phase: "recorded" as const,
+              status: "failed" as const,
+              diagnosticCode: "TOOL_UNAVAILABLE" as const,
+              ...(name === "read_file" || name === "read_file_range"
+                ? { readStatus: classifyReadStatus(name, output) }
+                : {}),
+            }
         : {
             phase: "recorded" as const,
             status: "completed" as const,
@@ -1691,6 +1717,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           safeMessage: "The server could not record the read result; the read output was withheld.",
         };
       }
+    }
+
+    if (recoverableScopeRejection) {
+      await emitTerminalToolLifecycle("failed", { diagnosticCode: "TOOL_UNAVAILABLE" });
+      return {
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        recoverableScopeRejection: true,
+        safeMessage:
+          "The requested path is outside the permitted project scope or is not readable under the current policy. " +
+          "Choose another in-scope path and retry.",
+      };
     }
 
     if (analysisFailure) {
@@ -1822,6 +1861,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       kind: "failed",
       failureKind,
       diagnosticCode,
+      ...(gitPathRejected ? { recoverableScopeRejection: true as const } : {}),
       safeMessage: cancelled
         ? `Tool "${name}" was cancelled; the operation did not complete.`
         : toolTimedOut
@@ -7633,11 +7673,29 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (toolResult.kind === "failed") {
+        const toolMessage = `${toolResult.safeMessage} Diagnostic code: ${toolResult.diagnosticCode}.`;
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: `${toolResult.safeMessage} Diagnostic code: ${toolResult.diagnosticCode}.`,
+          content: toolMessage,
         });
+        if (toolResult.recoverableScopeRejection) {
+          try {
+            onStep?.({
+              kind: "tool_result",
+              tool: tc.function.name,
+              cached: false,
+              outputLength: toolMessage.length,
+              resultKind: "unavailable",
+              diagnosticCode: toolResult.diagnosticCode,
+              ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+                ? { readStatus: "READ_FAILED" as const }
+                : {}),
+              resultSummary: "Scope denied; retry only with a path inside the permitted project root.",
+            });
+          } catch { /* ignore */ }
+          continue;
+        }
         return failedToolResult(
           tc.function.name,
           toolResult.failureKind,

@@ -5626,6 +5626,90 @@ describe("executeToolLoop", () => {
     expect(gitStrategy.call).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps file path-scope denials typed, recoverable, and out of source evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK
+      .mockResolvedValueOnce('Error: "src/linked.ts" resolves outside the project root.')
+      .mockResolvedValueOnce("export const safe = true;");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("linked-read", "read_file", { path: "src/linked.ts" })]),
+      makeResponse("", [makeToolCall("safe-read", "read_file", { path: "src/safe.ts" })]),
+      makeResponse("Recovered using the in-scope source.", []),
+    ]);
+    const steps: AgentStep[] = [];
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      onStep: (step) => steps.push(step),
+      onToolInvocation: async (event) => { lifecycleEvents.push(event); },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.fileContents?.get("src/linked.ts")).toBeUndefined();
+    expect(result.fileContents?.get("src/safe.ts")).toContain("safe");
+    expect(strategy.call).toHaveBeenCalledTimes(3);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(steps.find((step) => step.kind === "tool_result" && step.tool === "read_file"))
+      .toMatchObject({
+        resultKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        readStatus: "READ_FAILED",
+      });
+    expect(lifecycleEvents.slice(0, 3).map((event) => event.phase))
+      .toEqual(["requested", "started", "failed"]);
+    expect(lifecycleEvents.slice(3, 6).map((event) => event.phase))
+      .toEqual(["requested", "started", "completed"]);
+  });
+
+  it("continues after a Git diff path rejection without making the scope denial terminal", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const { GitToolPathRejectedError } = await import("../tools/git-tools.js");
+    GIT_TOOL_MOCK
+      .mockRejectedValueOnce(new GitToolPathRejectedError())
+      .mockResolvedValueOnce("diff from the verified project path");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("rejected-diff", "git_diff", { path: "src/linked.ts" })]),
+      makeResponse("", [makeToolCall("verified-diff", "git_diff", { path: "src/safe.ts" })]),
+      makeResponse("Recovered using the verified Git path.", []),
+    ]);
+    const steps: AgentStep[] = [];
+    const lifecycleEvents: ToolInvocationLifecycleEvent[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "git_diff", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      onStep: (step) => steps.push(step),
+      onToolInvocation: async (event) => { lifecycleEvents.push(event); },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(strategy.call).toHaveBeenCalledTimes(3);
+    expect(GIT_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(steps.find((step) => step.kind === "tool_result" && step.tool === "git_diff"))
+      .toMatchObject({
+        resultKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+      });
+    expect(lifecycleEvents.slice(0, 3).map((event) => event.phase))
+      .toEqual(["requested", "started", "failed"]);
+    expect(lifecycleEvents.slice(3, 6).map((event) => event.phase))
+      .toEqual(["requested", "started", "completed"]);
+  });
+
   it("keeps error-looking source content successful when it has the read-file wrapper", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValueOnce(
