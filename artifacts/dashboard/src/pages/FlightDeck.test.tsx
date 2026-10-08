@@ -11,6 +11,12 @@ vi.mock('wouter', () => ({
   Link: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a href={href} {...props}>{children}</a>,
 }));
 
+vi.mock('@/components/MissionCapsule', () => ({
+  MissionCapsule: ({ taskId }: { taskId?: string | null }) => (
+    <div data-testid="mission-capsule-task-id">{taskId ?? 'none'}</div>
+  ),
+}));
+
 vi.mock('@workspace/api-client-react', () => ({
   useGetAiExecution: vi.fn(() => ({
     data: mocks.execution,
@@ -115,6 +121,7 @@ describe('Flight Deck mission control', () => {
     mocks.execution = baseExecution(state, nodeStatus);
     renderDeck();
 
+    expect(screen.getByTestId('mission-capsule-task-id')).toHaveTextContent('task-1');
     expect(screen.getAllByText(state.replaceAll('_', ' ').toUpperCase()).length).toBeGreaterThan(0);
     expect(screen.getByText('Repair the authentication scope check')).toBeInTheDocument();
     expect(screen.getAllByText('1m 05s').length).toBeGreaterThan(0);

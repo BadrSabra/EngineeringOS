@@ -36,6 +36,27 @@ describe('execution recovery presentation', () => {
     }, false).action).toBeNull();
   });
 
+  it('routes Task-linked recovery through the owning Task lifecycle', () => {
+    const paused = getExecutionRecoveryView({
+      status: 'paused',
+      linkedTaskId: 'task-1',
+      resumable: true,
+      acceptance: { resumable: true, nextActionCode: 'RESUME_ALLOWED' },
+      projection: { allowedActions: ['RESUME_CHECKPOINT'] },
+    }, false);
+    expect(paused.title).toBe('Task-owned execution — recover it from Tasks');
+    expect(paused.nextStep).toBe('Open the owning Task in Tasks');
+    expect(paused.action).toBeNull();
+
+    const failed = getExecutionRecoveryView({
+      status: 'failed',
+      linkedTaskId: 'task-1',
+      acceptance: { resumable: false, nextActionCode: 'RETRY_AFTER_TIMEOUT' },
+      projection: { allowedActions: ['RETRY_CHECKPOINT'] },
+    }, false);
+    expect(failed.action).toBeNull();
+  });
+
   it('does not treat completion or a historical audit as permission to continue', () => {
     const completed = getExecutionRecoveryView({
       status: 'completed', proofRequired: true, evidenceVerdict: 'BLOCKED',

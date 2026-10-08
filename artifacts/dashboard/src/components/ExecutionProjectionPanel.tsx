@@ -13,6 +13,11 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  getGetTaskLogsQueryKey,
+  getGetTaskQueryKey,
+  getListTasksQueryKey,
+} from '@workspace/api-client-react';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { getMissionState } from './mission-state';
@@ -63,6 +68,12 @@ const actionLabels: Record<ProjectionAction, string> = {
   REVIEW_DIFF: 'Review changes',
   APPROVE_CHANGES: 'Approve changes',
 };
+
+function actionLabel(action: ProjectionAction, taskId?: string | null): string {
+  if (taskId && action === 'RESUME_CHECKPOINT') return 'Resume Task';
+  if (taskId && action === 'RETRY_CHECKPOINT') return 'Retry Task';
+  return actionLabels[action];
+}
 
 const actionOrder: ProjectionAction[] = [
   'APPROVE_CHANGES',
@@ -289,13 +300,17 @@ export function ExecutionProjectionPanel({
     setPendingAction(action);
     setActionError(null);
     try {
-      if (onAction) {
+      const taskRecoveryAction = Boolean(taskId)
+        && (action === 'RETRY_CHECKPOINT' || action === 'RESUME_CHECKPOINT');
+      if (onAction && !taskRecoveryAction) {
         await onAction(action);
       } else {
         let endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/cancel`;
         let body: Record<string, string> | undefined;
         if (action === 'RETRY_CHECKPOINT') {
-          endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/retry-capability`;
+          endpoint = taskId
+            ? `/api/tasks/${encodeURIComponent(taskId)}/retry`
+            : `/api/ai/executions/${encodeURIComponent(executionId)}/retry-capability`;
         } else if (action === 'RESUME_CHECKPOINT') {
           endpoint = taskId
             ? `/api/ai/tasks/${encodeURIComponent(taskId)}/resume`
@@ -314,6 +329,13 @@ export function ExecutionProjectionPanel({
         });
         const responseBody = await response.json().catch(() => ({})) as { error?: string };
         if (!response.ok) throw new Error(responseBody.error || 'The execution action was rejected.');
+      }
+      if (taskId && (action === 'RETRY_CHECKPOINT' || action === 'RESUME_CHECKPOINT')) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) }),
+          queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) }),
+        ]);
       }
       await queryClient.invalidateQueries({ queryKey: [`/api/ai/executions/${executionId}`] });
     } catch (error) {
@@ -525,7 +547,7 @@ export function ExecutionProjectionPanel({
               {pendingAction === primaryAction
                 ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 : actionIcon(primaryAction)}
-              {pendingAction === primaryAction ? 'Working…' : actionLabels[primaryAction]}
+              {pendingAction === primaryAction ? 'Working…' : actionLabel(primaryAction, taskId)}
             </button>
           )}
         </div>
@@ -656,7 +678,7 @@ export function ExecutionProjectionPanel({
                       title={onAction ? undefined : 'This action is handled by the owning execution surface'}
                     >
                       {pending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : actionIcon(action)}
-                      {pending ? 'Working…' : actionLabels[action]}
+                      {pending ? 'Working…' : actionLabel(action, taskId)}
                     </button>
                   );
                 })}

@@ -785,6 +785,7 @@ type ActiveExecution = {
   id: string;
   projectId: string;
   sessionId?: string;
+  linkedTaskId?: string | null;
   resumeToken?: string;
   resumable?: boolean;
   proofRequired?: boolean;
@@ -9891,6 +9892,7 @@ export default function AiChat() {
     }
   }, [
     activeExecutionStatus?.status,
+    activeExecutionStatus?.linkedTaskId,
     activeExecution?.id,
     activeExecution?.sessionId,
     isSending,
@@ -10325,6 +10327,18 @@ export default function AiChat() {
     const executionId = failedMessage?.executionId ?? activeExecution?.id;
     const resumableActiveExecution =
       activeExecution && activeExecution.id === executionId ? activeExecution : undefined;
+    const taskLinkedExecution = (
+      activeExecutionStatus && activeExecutionStatus.id === executionId
+        ? activeExecutionStatus.linkedTaskId
+        : undefined
+    ) ?? resumableActiveExecution?.linkedTaskId;
+    if (taskLinkedExecution) {
+      toast({
+        title: 'Task recovery is managed by Tasks',
+        description: 'Open the owning Task to resume or retry this execution.',
+      });
+      return;
+    }
     const messageToResume = originalUserMessage || resumableActiveExecution?.message.trim();
     if (!executionId || !messageToResume) {
       toast({
@@ -11578,6 +11592,7 @@ export default function AiChat() {
             id: event.executionId,
             projectId: requestProjectId,
             ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
+            ...(linkedTaskId ? { linkedTaskId } : {}),
             ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
             resumable: event.resumable,
             proofRequired: event.proofRequired,
@@ -12227,6 +12242,14 @@ export default function AiChat() {
     // timer here also closes the race where the timer fires after the button
     // handler has already sent the same resume request.
     resetAutoReconnect();
+    const ownerTaskId = execution.linkedTaskId
+      ?? (activeExecutionStatus?.id === execution.id
+        ? activeExecutionStatus.linkedTaskId
+        : undefined);
+    if (ownerTaskId) {
+      setResumeRecoveryError('This Task-linked execution must be resumed from its owning Task.');
+      return;
+    }
 
     if (mode === 'resume' && execution.resumeToken) {
       resumeStreamExecutionRef.current = execution.id;
@@ -13913,7 +13936,15 @@ export default function AiChat() {
                     : ''}
                 </div>
               </div>
-               {recoveryView.action && (
+                {scopedExecutionStatus?.linkedTaskId ? (
+                  <Link
+                    href={`/tasks?taskId=${encodeURIComponent(scopedExecutionStatus.linkedTaskId)}`}
+                    className="inline-flex shrink-0 items-center rounded-md border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                    aria-label="Open owning Task"
+                  >
+                    Open Task
+                  </Link>
+                ) : recoveryView.action && (
                 <div className="flex shrink-0 items-center gap-2">
                   {resumeRecoveryError && (
                     <span className="max-w-40 text-right text-[10px] text-destructive">

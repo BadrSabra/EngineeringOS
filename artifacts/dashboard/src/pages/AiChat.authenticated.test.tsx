@@ -1713,6 +1713,42 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByRole('button', { name: 'Recovering…' })).not.toBeInTheDocument();
   });
 
+  it('sends Task-linked recovery to the owning Task instead of generic resume', async () => {
+    mocks.activeExecutionStatus = {
+      id: 'execution-task-linked',
+      status: 'paused',
+      linkedTaskId: 'task-1',
+      resumable: true,
+      proofRequired: true,
+      acceptance: {
+        nextActionCode: 'RESUME_ALLOWED',
+        resumable: true,
+      },
+      projection: {
+        allowedActions: ['RESUME_CHECKPOINT'],
+      },
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-task-linked',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      linkedTaskId: 'task-1',
+      resumeToken: 'stale-task-resume-token',
+      message: 'Continue the Task-owned execution',
+      proofRequired: true,
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByTestId('execution-recovery-banner'))
+      .toHaveTextContent('Task-owned execution — recover it from Tasks');
+    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open owning Task' }))
+      .toHaveAttribute('href', '/tasks?taskId=task-1');
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
   it('does not use a status row belonging to another execution after switching sessions', async () => {
     mocks.activeExecutionStatus = {
       id: 'execution-from-other-session',

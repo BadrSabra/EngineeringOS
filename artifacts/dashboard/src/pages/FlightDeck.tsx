@@ -468,6 +468,7 @@ export default function FlightDeck() {
             executionId={executionId}
             operationId={operationId}
             proposalId={execution.proposalId}
+            taskId={execution.linkedTaskId}
             executionStatus={execution.status}
             flightState={state}
             evidenceVerdict={evidenceVerdict}

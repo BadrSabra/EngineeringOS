@@ -2,6 +2,7 @@ import type { AiExecutionProjection } from '@workspace/api-client-react';
 
 export type ExecutionRecoveryStatus = {
   status?: string;
+  linkedTaskId?: string | null;
   resumable?: boolean;
   proofRequired?: boolean;
   evidenceVerdict?: string | null;
@@ -23,7 +24,11 @@ export type ExecutionRecoveryView = {
 export function executionCanResume(
   execution: ExecutionRecoveryStatus | null | undefined,
 ): boolean {
-  if (!execution || (execution.status !== 'paused' && execution.status !== 'failed')) {
+  if (
+    !execution
+    || execution.linkedTaskId
+    || (execution.status !== 'paused' && execution.status !== 'failed')
+  ) {
     return false;
   }
   // The durable status response is authoritative. Older records may not
@@ -59,6 +64,19 @@ export function getExecutionRecoveryView(
       action: null,
       actionLabel: null,
       nextStep: 'Wait for the server status',
+    };
+  }
+
+  if (
+    execution.linkedTaskId
+    && (execution.status === 'paused' || execution.status === 'failed')
+  ) {
+    return {
+      title: 'Task-owned execution — recover it from Tasks',
+      detail: 'This execution is controlled by its Task. Resume or retry it from the owning Task so its lifecycle and remaining budget are checked.',
+      action: null,
+      actionLabel: null,
+      nextStep: 'Open the owning Task in Tasks',
     };
   }
 

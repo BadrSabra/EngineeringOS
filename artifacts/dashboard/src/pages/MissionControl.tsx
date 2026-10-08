@@ -37,6 +37,7 @@ type JsonRecord = Record<string, unknown>;
 
 type MissionExecution = {
   id: string;
+  linkedTaskId?: string | null;
   state?: unknown;
   objective?: unknown;
   provider?: unknown;
@@ -1289,12 +1290,27 @@ export default function MissionControl() {
   const selectedImportedExecution = importedHistory?.executions.find((execution) => execution.id === comparisonImportedId)
     ?? importedHistory?.executions[0];
   const updatedLabel = formatDate(typedData?.updatedAt);
+  const selectedExecutionTaskId = selectedExecution?.linkedTaskId
+    ?? (selectedExecution && selectedExecutionDetail?.id === selectedExecution.id
+      ? selectedExecutionDetail.linkedTaskId
+      : undefined);
+  const selectedExecutionDetailIsBound = Boolean(
+    selectedExecution && selectedExecutionDetail?.id === selectedExecution.id,
+  );
   const [recoveryPendingId, setRecoveryPendingId] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
 
   async function recoverExecution(execution: MissionExecution, action: 'resume' | 'abandon') {
     const recovery = asRecord(execution.recovery);
     if (recovery?.uncertain !== true || recoveryPendingId) return;
+    const owningTaskId = execution.linkedTaskId
+      ?? (selectedExecutionDetail?.id === execution.id
+        ? selectedExecutionDetail.linkedTaskId
+        : undefined);
+    if (owningTaskId) {
+      setRecoveryMessage('This execution is owned by a Task. Use the Task page for recovery.');
+      return;
+    }
     setRecoveryPendingId(execution.id);
     setRecoveryMessage(null);
     try {
@@ -1878,14 +1894,31 @@ export default function MissionControl() {
                      Operation {textValue(selectedExecution.operationId) ?? selectedExecution.id} · revision {textValue(selectedExecution.revision) ?? 'not recorded'} · phase {textValue(selectedExecution.phase) ?? 'unknown'}.
                      The original user turn and evidence receipt are preserved.
                    </p>
-                   <div className="mt-3 flex flex-wrap gap-2">
-                     <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
-                       {recoveryPendingId === selectedExecution.id ? 'Working…' : 'Resume once'}
-                     </button>
-                     <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
-                       Abandon safely
-                     </button>
-                   </div>
+                   {selectedExecutionTaskId ? (
+                     <div className="mt-3 flex flex-wrap items-center gap-2">
+                       <span className="text-xs text-muted-foreground">Recovery is controlled by the owning Task.</span>
+                       <Link
+                         href={`/tasks?taskId=${encodeURIComponent(selectedExecutionTaskId)}`}
+                         className="rounded-md border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover-elevate"
+                         aria-label="Open owning Task"
+                       >
+                         Open Task
+                       </Link>
+                     </div>
+                   ) : selectedExecutionDetailIsBound ? (
+                     <div className="mt-3 flex flex-wrap gap-2">
+                       <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
+                         {recoveryPendingId === selectedExecution.id ? 'Working…' : 'Resume once'}
+                       </button>
+                       <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
+                         Abandon safely
+                       </button>
+                     </div>
+                   ) : (
+                     <p className="mt-3 text-xs text-muted-foreground" role="status">
+                       Checking the execution owner before offering recovery.
+                     </p>
+                   )}
                    {recoveryMessage && <p className="mt-2 text-[11px] text-amber-100" role="status">{recoveryMessage}</p>}
                  </div>
                </div>

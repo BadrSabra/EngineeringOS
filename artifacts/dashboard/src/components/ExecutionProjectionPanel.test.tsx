@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  getGetTaskLogsQueryKey,
+  getGetTaskQueryKey,
+  getListTasksQueryKey,
+} from '@workspace/api-client-react';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { ExecutionProjectionPanel } from './ExecutionProjectionPanel';
 
@@ -48,11 +53,11 @@ const projection: AiExecutionProjection = {
   allowedActions: ['CANCEL', 'REVIEW_DIFF', 'APPROVE_CHANGES'],
 };
 
-function renderPanel(ui: React.ReactNode) {
-  const queryClient = new QueryClient({
+function renderPanel(ui: React.ReactNode, queryClient?: QueryClient) {
+  const client = queryClient ?? new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
 describe('ExecutionProjectionPanel', () => {
@@ -164,6 +169,44 @@ describe('ExecutionProjectionPanel', () => {
       'href',
       '/tasks?taskId=task-1',
     );
+  });
+
+  it('routes a linked Task retry through the Task retry lifecycle', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ id: 'task-1' }),
+      { status: 202, headers: { 'Content-Type': 'application/json' } },
+    ));
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{ ...projection, allowedActions: ['RETRY_CHECKPOINT'] }}
+        executionId="execution-task-linked"
+        executionStatus="failed"
+        taskId="task-1"
+      />,
+      queryClient,
+    );
+
+    expect(screen.getByRole('button', { name: 'Retry Task' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-action-retry_checkpoint'));
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/tasks/task-1/retry',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    ));
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      '/api/ai/executions/execution-task-linked/retry-capability',
+      expect.anything(),
+    );
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getListTasksQueryKey() });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetTaskQueryKey('task-1') });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetTaskLogsQueryKey('task-1') });
+    });
+    fetchSpy.mockRestore();
   });
 
   it('keeps destination links in natural order with visible keyboard focus styling', () => {

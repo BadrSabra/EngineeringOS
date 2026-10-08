@@ -297,6 +297,31 @@ describe('Mission Control', () => {
     expect(screen.queryByTestId('link-mission-control-ai')).not.toBeInTheDocument();
   });
 
+  it('routes uncertain Task-linked recovery to Tasks instead of generic resume or abandon', () => {
+    const originalPath = window.location.pathname + window.location.search;
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        recovery: { uncertain: true },
+      }],
+    } as typeof missionControlFixture;
+    currentExecutionDetail = { id: 'execution-1', projectId: 'project-1', linkedTaskId: 'task-1' };
+
+    try {
+      window.history.pushState({}, '', '/mission-control?projectId=project-1&executionId=execution-1');
+      renderPage();
+
+      const recovery = screen.getByRole('region', { name: 'Uncertain execution recovery' });
+      expect(within(recovery).getByRole('link', { name: 'Open owning Task' }))
+        .toHaveAttribute('href', '/tasks?taskId=task-1');
+      expect(within(recovery).queryByRole('button', { name: 'Resume once' })).not.toBeInTheDocument();
+      expect(within(recovery).queryByRole('button', { name: 'Abandon safely' })).not.toBeInTheDocument();
+    } finally {
+      window.history.pushState({}, '', originalPath);
+    }
+  });
+
   it('shows execution state, operational metrics, evidence, and Flight Deck link', async () => {
     renderPage();
 
