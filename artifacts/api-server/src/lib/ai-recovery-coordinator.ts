@@ -55,6 +55,8 @@ export type TaskRecoveryCandidate = {
   executionCorrelationId: string;
   executionStatus: string;
   executionAttempt: number;
+  acceptanceId: string;
+  acceptanceFinalizationKey: string;
   userId: string;
   action: string;
   resumable: number;
@@ -65,8 +67,18 @@ export type TaskRecoveryCandidate = {
 
 export type TaskRecoveryPlan =
   | {
-    kind: "resume" | "retry";
-    action: RecoveryAction;
+    kind: "resume";
+    action: "RESUME_ALLOWED";
+    taskId: string;
+    executionId: string;
+    executionAttempt: number;
+    expectedRetryCount: number;
+    delayMs: number;
+    queueKey: string;
+  }
+  | {
+    kind: "retry";
+    action: "RETRY_AFTER_TIMEOUT" | "RETRY_AFTER_RATE_LIMIT";
     taskId: string;
     executionId: string;
     executionAttempt: number;
@@ -396,13 +408,9 @@ export function planChatRecovery(
   };
 }
 
-type RecoveryRow = TaskRecoveryCandidate & {
-  acceptanceCreatedAt: Date;
-};
-
 async function findRecoveryCandidates(scope: {
   projectId?: string;
-} = {}): Promise<RecoveryRow[]> {
+} = {}): Promise<TaskRecoveryCandidate[]> {
   const rows = await db
     .select({
       taskId: tasksTable.id,
@@ -417,13 +425,14 @@ async function findRecoveryCandidates(scope: {
       executionCorrelationId: aiExecutionsTable.correlationId,
       executionStatus: aiExecutionsTable.status,
       executionAttempt: aiExecutionsTable.attempt,
+      acceptanceId: aiExecutionAcceptancesTable.id,
+      acceptanceFinalizationKey: aiExecutionAcceptancesTable.finalizationKey,
       userId: aiExecutionsTable.userId,
       action: aiExecutionAcceptancesTable.nextActionCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       disposition: aiExecutionAcceptancesTable.disposition,
       sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
       projectRevision: projectsTable.updatedAt,
-      acceptanceCreatedAt: aiExecutionAcceptancesTable.createdAt,
     })
     .from(aiExecutionAcceptancesTable)
     .innerJoin(
@@ -518,6 +527,94 @@ async function writeRecoveryLog(
   }
 }
 
+async function claimTaskRetry(
+  candidate: TaskRecoveryCandidate,
+  plan: Extract<TaskRecoveryPlan, { kind: "retry" }>,
+): Promise<{ retryCount: number } | undefined> {
+  return db.transaction(async (tx) => {
+    // Finalization locks these rows in the same execution → acceptance order.
+    // Holding both locks through the Task budget CAS makes the queued decision
+    // current at the point it is consumed, not only when it was discovered.
+    const [execution] = await tx
+      .select({
+        projectId: aiExecutionsTable.projectId,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
+        correlationId: aiExecutionsTable.correlationId,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, candidate.executionId))
+      .for("update")
+      .limit(1);
+    if (
+      !execution
+      || execution.projectId !== candidate.taskProjectId
+      || execution.linkedTaskId !== candidate.taskId
+      || execution.correlationId !== candidate.executionCorrelationId
+      || execution.attempt !== candidate.executionAttempt
+      || !RECOVERY_EXECUTION_STATUSES.includes(execution.status as "paused" | "failed")
+    ) {
+      return undefined;
+    }
+
+    const [acceptance] = await tx
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, candidate.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, candidate.executionAttempt),
+      ))
+      .for("update")
+      .limit(1);
+    const disposition = asDisposition(acceptance?.disposition);
+    const retryAtMs = parseRetryAt(disposition.retryAt);
+    if (
+      !acceptance
+      || acceptance.id !== candidate.acceptanceId
+      || acceptance.finalizationKey !== candidate.acceptanceFinalizationKey
+      || acceptance.outcome !== "FAILED"
+      || acceptance.nextActionCode !== plan.action
+      || acceptance.nextActionCode !== candidate.action
+      || acceptance.resumable !== 0
+      || disposition.recoveryState !== "REQUIRED"
+      || (retryAtMs !== undefined && retryAtMs > Date.now())
+      || plan.expectedRetryCount !== candidate.retryCount
+      || candidate.retryCount >= candidate.maxRetries
+    ) {
+      return undefined;
+    }
+
+    const [claimed] = await tx
+      .update(tasksTable)
+      .set({
+        retryCount: candidate.retryCount + 1,
+        correlationId: randomUUID(),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(tasksTable.id, candidate.taskId),
+        eq(tasksTable.projectId, candidate.taskProjectId),
+        eq(tasksTable.status, candidate.taskStatus as "pending" | "queued" | "verifying"),
+        eq(tasksTable.retryCount, plan.expectedRetryCount),
+        eq(tasksTable.maxRetries, candidate.maxRetries),
+        eq(tasksTable.correlationId, candidate.executionCorrelationId),
+      ))
+      .returning({
+        id: tasksTable.id,
+        retryCount: tasksTable.retryCount,
+      });
+    return claimed ? { retryCount: claimed.retryCount } : undefined;
+  });
+}
+
 async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskRecoveryPlan, { kind: "resume" | "retry" }>): Promise<void> {
   if (plan.kind === "resume") {
     const [taskSnapshot] = await db
@@ -588,29 +685,10 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
     return;
   }
 
-  // A new retry advances the task-owned budget and rotates its execution
-  // marker before creating the next execution. Both values fence this CAS.
-  const [claimed] = await db
-    .update(tasksTable)
-    .set({
-      retryCount: candidate.retryCount + 1,
-      correlationId: randomUUID(),
-      updatedAt: new Date(),
-    })
-    .where(and(
-      eq(tasksTable.id, candidate.taskId),
-      eq(tasksTable.projectId, candidate.taskProjectId),
-      eq(tasksTable.status, candidate.taskStatus as "pending" | "queued" | "verifying"),
-      eq(tasksTable.retryCount, candidate.retryCount),
-      eq(tasksTable.correlationId, candidate.executionCorrelationId),
-    ))
-    .returning({
-      id: tasksTable.id,
-      retryCount: tasksTable.retryCount,
-    });
+  const claimed = await claimTaskRetry(candidate, plan);
   if (!claimed) {
-    await writeRecoveryLog(candidate, "Automatic retry lost its atomic budget claim to another worker.", "info", {
-      reason: "retry_claim_conflict",
+    await writeRecoveryLog(candidate, "Automatic retry was skipped because its acceptance or Task generation changed after recovery was planned.", "info", {
+      reason: "retry_claim_rejected",
     });
     return;
   }

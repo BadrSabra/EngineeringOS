@@ -44,3 +44,9 @@ Use a source-derived measurement ledger for E2, not test totals, `PROVEN` row co
 **Why:** The user specified that the denominator itself must be evidence-based and that partial behaviors must not receive fractional credit.
 
 **How to apply:** Record source anchors and exact evidence boundaries for each unit; close source families before calculating any total. Preserve the existing stage gates regardless of the number of passing rows.
+
+During the active E2 closeout, do not restart managed workflows, run Strategy Replay, begin E3 or later, or propose follow-up tasks.
+
+**Why:** The user explicitly limited work to E2 and prohibited those actions while E2 remains open.
+
+**How to apply:** Keep code, documentation, and isolated tests scoped to E2. Wait for explicit E2 closure before proposing or starting downstream work.

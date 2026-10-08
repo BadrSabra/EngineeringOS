@@ -21,6 +21,8 @@ function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecovery
     executionCorrelationId: "execution-correlation-1",
     executionStatus: "failed",
     executionAttempt: 2,
+    acceptanceId: "acceptance-1",
+    acceptanceFinalizationKey: "finalization-1",
     userId: "user-1",
     action: "RETRY_AFTER_TIMEOUT",
     resumable: 0,

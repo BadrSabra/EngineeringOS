@@ -353,6 +353,73 @@ describe("durable automatic task recovery", () => {
     }
   });
 
+  it("does not consume a queued retry after its acceptance decision changes", async () => {
+    const fixture = await insertFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          outcome: "SUCCEEDED",
+          terminalStatus: "completed",
+          reasonCode: "EXECUTION_COMPLETED",
+          nextActionCode: "NONE",
+          disposition: {
+            recoveryState: "COMPLETE",
+            nextActionCode: "NONE",
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db
+        .select({
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      });
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("does not consume a queued retry for a replaced acceptance row", async () => {
+    const fixture = await insertFixture();
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ finalizationKey: `recovery-replaced:${fixture.executionId}:0` })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      await queuedJobs[0]!.run();
+
+      const [task] = await db
+        .select({ retryCount: tasksTable.retryCount })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId));
+      expect(task?.retryCount).toBe(0);
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
   it("carries the captured retry generation into an automatic resume", async () => {
     const fixture = await insertFixture();
     try {
