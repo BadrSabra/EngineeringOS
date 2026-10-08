@@ -26,3 +26,15 @@ Authorization inputs must also survive the final dispatcher boundary: a compound
 **Why:** a missing request-scoped mode is indistinguishable from an unapproved mutation at dispatch time, causing safe pending proposals to fail closed as unavailable.
 
 **How to apply:** when adding an authorization field to the loop options, trace it through the loop's executeSingleTool call and cover both the allowed proposal and blocked ordinary-write cases. Recovered Repair Plan edits are also deferred proposals: derive their approved paths from the server-owned executable phase, keep approval pending unless explicitly approved, and never write bytes during handoff.
+
+An absent explicit tool allowlist is not an unrestricted allowlist. Direct single-tool dispatch fails closed; a chat loop may derive its effective set only from the full server-owned manifest, intersecting any explicit narrower subset with that manifest. This is distinct from the per-iteration provider-facing list, which can be narrowed without replacing the full authorization manifest.
+
+**Why:** treating an omitted helper argument as “no extra restriction” made direct callers bypass the server-owned manifest boundary.
+
+**How to apply:** default direct dispatch to an empty set; for loops, derive from `toolManifest` (or the server-owned tools when no separate full manifest exists), then pass the resolved set to the final dispatcher.
+
+Tool-enabled calls to the exported chat entry must also reject before provider work when no lifecycle callback exists. Keep the dispatch-time `requireToolLifecycle` check as defense in depth; benchmark and test callers that intentionally execute tools must pass an explicitly scoped observer.
+
+**Why:** the API fallback wrapper is not the only route to the package-exported `chat()` function, and relying on a late dispatch rejection still lets an unowned turn call a provider with tools exposed.
+
+**How to apply:** after resolving turn intent, detect whether the selected provider policy can expose tools and reject a missing lifecycle sink before any provider request. Keep no-tool chat and plan-only paths available, and do not treat an in-memory benchmark observer as Canonical Proof.

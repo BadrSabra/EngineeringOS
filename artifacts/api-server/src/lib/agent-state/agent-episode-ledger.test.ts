@@ -430,6 +430,48 @@ describe("agent episode ledger", () => {
     }))).rejects.toMatchObject({ code: "invalid_contract" });
   });
 
+  it("rejects conflicting terminal phases for the same tool invocation", async () => {
+    const episode = await startEpisode(startInput());
+    const lifecycleEvent = (
+      phase: "requested" | "started" | "completed" | "failed" | "cancelled",
+      details: { outputHash?: string; diagnosticCode?: string } = {},
+    ) => createToolInvocationEpisodeEventInput({
+      episodeId: episode.episodeId,
+      projectId,
+      executionId,
+      attempt: episode.attempt,
+      workerId,
+      projectRevision: "revision-1",
+      invocation: {
+        phase,
+        toolCallId: "provider-call-terminal-ambiguity",
+        executionId: "tool-loop-terminal-ambiguity",
+        scopeHash: "c".repeat(64),
+        toolName: "read_file",
+        inputHash: "a".repeat(64),
+        manifestHash: "b".repeat(64),
+        ...details,
+      },
+    });
+
+    await appendEpisodeEvent(lifecycleEvent("requested"));
+    await appendEpisodeEvent(lifecycleEvent("started"));
+    const completed = await appendEpisodeEvent(lifecycleEvent("completed", {
+      outputHash: "d".repeat(64),
+    }));
+    const acknowledgedRetry = await appendEpisodeEvent(lifecycleEvent("completed", {
+      outputHash: "d".repeat(64),
+    }));
+    expect(acknowledgedRetry.eventId).toBe(completed.eventId);
+
+    await expect(appendEpisodeEvent(lifecycleEvent("failed", {
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
+    await expect(appendEpisodeEvent(lifecycleEvent("cancelled", {
+      diagnosticCode: "TOOL_CANCELLED",
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
+  });
+
   it("keeps terminal outcomes immutable, including cancellation", async () => {
     const episode = await startEpisode(startInput());
     const closed = await closeEpisode({

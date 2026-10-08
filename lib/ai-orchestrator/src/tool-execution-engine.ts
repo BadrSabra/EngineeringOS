@@ -1365,7 +1365,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   }
   let lifecycleRequested = false;
   let lifecycleStarted = false;
-  let lifecycleTerminal = false;
+  let lifecycleTerminalAttempted = false;
   const emitToolLifecycle = async (
     phase: ToolInvocationLifecycleEvent["phase"],
     details: Pick<ToolInvocationLifecycleEvent, "outputHash" | "diagnosticCode"> = {},
@@ -1386,8 +1386,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     phase: Extract<ToolInvocationLifecycleEvent["phase"], "completed" | "failed" | "cancelled">,
     details: Pick<ToolInvocationLifecycleEvent, "outputHash" | "diagnosticCode"> = {},
   ): Promise<void> => {
+    // Once a terminal write is attempted, its acknowledgement may be
+    // ambiguous. Do not replace it with a conflicting terminal phase.
+    lifecycleTerminalAttempted = true;
     await emitToolLifecycle(phase, details);
-    lifecycleTerminal = true;
   };
 
   try {
@@ -1412,7 +1414,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       compoundWriteMode: opts.compoundWriteMode,
       ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
       ...(opts.approvedValidationProfiles ? { approvedValidationProfiles: opts.approvedValidationProfiles } : {}),
-      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+      allowedTools: opts.allowedToolNames ?? new Set(),
     });
     if (!authorization.allowed) {
       return {
@@ -1956,7 +1958,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       }
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
-    if (lifecycleRequested) {
+    if (lifecycleRequested && !lifecycleTerminalAttempted) {
       try {
         await emitTerminalToolLifecycle(
           cancelled ? "cancelled" : "failed",
@@ -1995,7 +1997,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
     };
   } finally {
-    if (lifecycleRequested && !lifecycleTerminal) {
+    if (lifecycleRequested && !lifecycleTerminalAttempted) {
       const cancelled = opts.signal?.aborted === true;
       try {
         await emitTerminalToolLifecycle(
@@ -4283,16 +4285,20 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   };
 
   const allowedTools = (() => {
-    const requested = allowedToolNames ? new Set(allowedToolNames) : null;
+    const authorizationManifest = toolManifest ?? opts.tools ?? [];
+    const manifestNames = new Set(
+      authorizationManifest.map((tool) => tool.function.name),
+    );
+    const requested = allowedToolNames === undefined
+      ? manifestNames
+      : new Set([...allowedToolNames].filter((name) => manifestNames.has(name)));
     if (!phase) return requested;
     const phaseTools = new Set(
-      (opts.tools ?? [])
+      authorizationManifest
         .map((tool) => tool.function.name)
         .filter((name) => isToolAllowedInPhase(phase, name)),
     );
-    return requested
-      ? new Set([...requested].filter((name) => phaseTools.has(name)))
-      : phaseTools;
+    return new Set([...requested].filter((name) => phaseTools.has(name)));
   })();
   // First-Evidence Gate: the explicit primary evidence target is always
   // readable as the first source read, even under an allow-list policy. The
@@ -5327,7 +5333,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
     const iterationTools = availableIterationTools?.filter(
       (tool) =>
-        (allowedTools === null || allowedTools.has(tool.function.name)) &&
+        allowedTools.has(tool.function.name) &&
         !disabledForThisIteration.has(tool.function.name) &&
         !(searchBudgetEnabled && searchBudgetExhausted && tool.function.name === "search_code"),
     );
@@ -6822,7 +6828,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         continue;
       }
 
-      if (allowedTools && !allowedTools.has(tc.function.name)) {
+      if (
+        TOOL_DEFINITION_BY_NAME.has(tc.function.name) &&
+        !allowedTools.has(tc.function.name)
+      ) {
         if (!(await recordLoopPreflightFailure())) return failClosedOnLifecycleWrite();
         messages.push({
           role: "tool",
@@ -7606,7 +7615,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         compoundWriteMode,
         approvedFilePaths,
         approvedValidationProfiles,
-        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+        allowedToolNames: new Set(allowedTools),
         allowedReadPaths,
         objectiveScopePolicy,
         missionReadPathScope: opts.missionReadPathScope,

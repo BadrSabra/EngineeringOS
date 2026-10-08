@@ -4859,6 +4859,50 @@ G9 Revocation Safety
 - **remaining/blocker:** اكتمال جرد E2 الكلي وعائلات المصدر والمستهلكين غير المفحوصة ما زال `UNKNOWN`؛ لا ينتج عن هذه الفحوص إغلاق E2.
 - **next step:** مواصلة E2 وفق ledger، عائلة مصدر واحدة في كل مرة؛ إبقاء E3 متوقفة، وعدم إعادة Strategy Replay receipts أو أي workflow مُدار.
 
+### 2026-10-08 — رفض تنفيذ الأداة عند غياب allowlist
+
+- **phase/step:** E2 فقط — ربط dispatch الأداة بmanifest الخادمي عند غياب subset صريح.
+- **status:** `omitted-allowlist denial verified (505/505 targeted tests); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** أصبح `authorizeToolInvocation` يرفض غياب allowlist بدل السماح الضمني. عند غياب `allowedToolNames` صريح، يستمد `executeToolLoop` قائمة dispatch من manifest الخادمي الكامل، ويقاطع أي subset صريح معه ثم يمرر الناتج إلى `executeSingleTool`. أضيف اختبار يثبت أن الاستدعاء المباشر بلا manifest يُرفض قبل تشغيل الأداة؛ وتم ضبط fixtures المباشرة لتعلن أدواتها، وإضافة `read_file_range` إلى fixture FEG-015.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/tool-policy.ts`، `lib/ai-orchestrator/src/tool-execution-engine.ts`، اختبارات `tool-execution-engine.test.ts` و`untrusted-content.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا schema أو تغييرات workflow.
+- **validation:** نجحت اختبارات `tool-execution-engine.test.ts` و`reliable-tool-agent-100.test.ts` و`chat-agent-execution-handoff.test.ts` و`untrusted-content.test.ts` (**505/505**)، ونجح `pnpm exec tsc -p tsconfig.json --noEmit` من `lib/ai-orchestrator` و`git diff --check`. لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** غياب manifest لا يمنح صلاحية؛ manifest الخادمي هو حد dispatch، وsubset صريح لا يوسعه. لم تتغير موافقات الكتابة أو شروط Canonical Proof؛ الاختبارات لا تثبت إغلاق E2.
+- **remaining/blocker:** direct `chat()` المصدّر دون `onToolInvocation` ما زال gap منفصلاً، إضافةً إلى غموض terminal persistence وUNKNOWN العام لجرد E2.
+- **next step:** افحص مدخل `chat()` المباشر وامنع tool-enabled provider work دون lifecycle sink؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-08 — رفض chat() المصدّر لطلب الأدوات قبل provider work عند غياب lifecycle sink
+
+- **phase/step:** E2 فقط — preflight لمدخل `chat()` المصدّر عند غياب سجل lifecycle.
+- **status:** `direct chat no-sink preflight verified (506/506 targeted tests); E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يتحقق `chat()` من نية استخدام الأدوات وسياسة provider قبل أي provider request؛ إذا كان الطلب قد يعرض أدوات ولا يوجد `onToolInvocation`، يعيد رفضًا آمنًا بلا provider work أو dispatch. تبقى بوابة `requireToolLifecycle` داخل جميع chat-owned loops كدفاع ثانٍ. أضيف اختبار يستدعي `chat()` مباشرةً دون callback ويتحقق من عدم استدعاء Groq. Benchmark entry points توفر collectors in-memory لكل حالة، وهي ملاحظة اختبارية وليست Canonical Proof.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/agents/chat-agent.ts`، `lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts`، مدخلا benchmark في `lib/ai-orchestrator/src/benchmark/`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا schema أو workflow.
+- **validation:** نجحت الملفات المستهدفة الأربعة **506/506**؛ نجح `pnpm exec tsc -p tsconfig.json --noEmit` من `lib/ai-orchestrator`. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** طلب الأدوات بلا lifecycle sink لا يكشف manifest لمزوّد ولا يشغّل أداة؛ لا يتغير نطاق الموافقة أو Canonical Proof. collectors الخاصة بالbenchmark محلية ولا تثبت قبولًا دائمًا.
+- **remaining/blocker:** غموض ترتيب/إقرار terminal lifecycle بعد تنفيذ الأداة ما زال مفتوحًا، كما يبقى اكتمال جرد E2 الكلي `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** افحص غموض terminal lifecycle persistence بfixture معزول؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار.
+
+### 2026-10-08 — منع تضارب terminal phases عند فشل إقرار lifecycle
+
+- **phase/step:** E2 فقط — phase ordering وterminal uniqueness لتسجيل tool invocation.
+- **status:** `terminal lifecycle ambiguity closed at dispatcher and durable ledger; E2 remains OPEN; E3 remains STOPPED`
+- **what changed:** يعلّم `executeSingleTool` محاولة terminal قبل استدعاء callback؛ إذا كان الإقرار ملتبسًا، لا يرسل `catch/finally` phase بديلة. `appendEpisodeEvent` يتحقق من هوية invocation وترتيب phases تحت قفل Episode: `requested` ثم `started`، و`completed` بعد `started`؛ `failed/cancelled` بعد `requested`، مع terminal واحد فقط. المحاولة المطابقة تمامًا تعيد الحدث القائم، والterminal المختلف يُرفض.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/tool-execution-engine.ts` واختباره؛ `artifacts/api-server/src/lib/agent-state/agent-episode-ledger.ts` واختباره؛ `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا schema migration.
+- **validation:** `tool-execution-engine.test.ts` نجح **201/201**؛ `agent-episode-ledger.test.ts` نجح **17/17** على PostgreSQL مؤقت مربوط بـloopback وبـ`DATABASE_URL` محلي صريح؛ نجح typecheck لكل من API server وorchestrator. تم إيقاف cluster المؤقت وحذفه بعد الاختبار.
+- **authority/safety impact:** لا يمكن لacknowledgement ملتبس إنشاء completion وfailure متضاربين لنفس invocation. إذا كان `completed` قد حُفظ لكن إقراره ضاع، تبقى نتيجة الأداة محجوبة؛ سجل lifecycle provenance فقط وليس Canonical Proof.
+- **remaining/blocker:** اكتمال جرد E2 الكلي ما زال `UNKNOWN`، وأخطاء file/Git العامة ليست كلها typed. E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل جرد E2 فقط؛ لا تبدأ E3 أو Learning/Transfer/Generalization، ولا تُعِد تشغيل Strategy Replay receipts أو أي workflow مُدار، ولا تقترح مهام متابعة أثناء نشاط E2.
+
+### 2026-10-08 — تصحيح بند file/Git المتبقي في سجل E2
+
+- **phase/step:** E2 فقط — تصحيح سجل القياس بعد مقارنة findings السابقة.
+- **status:** `reserved file/read and Git error classification already verified; previous remaining note was stale`
+- **what changed:** أظهر فحص السجل والاختبارات أن `tool-execution-engine.test.ts` يحتوي اختبارًا لـfile وGit error outputs كإخفاقات typed، واختبارًا مستقلًا لـreturned read diagnostics وعدم قبول `outputHash`. كانت عبارة «file/Git العامة ليست كلها typed» في الخطوة السابقة تعيد فتح فجوة عالجتها إدخالات 2026-10-08 الأسبق؛ تم تصحيح ledger لتحديد ما يغطيه الاختبار وما لا يدعيه.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل؛ لا تغييرات source أو schema.
+- **validation:** تحقق source test الحالي في `tool-execution-engine.test.ts` من `Error reading ...` و`[git error]: ...` مع `TOOL_EXECUTION_FAILED`؛ الملف كاملًا كان قد نجح **201/201** بعد تحديث terminal lifecycle. لا حاجة لإعادة الاختبار لتعديل التوثيق.
+- **authority/safety impact:** لا تغيير في السلوك أو الصلاحيات؛ أزيل ادعاء متأخر من قياس E2 فقط.
+- **remaining/blocker:** عائلات ingress والقبول/الأدلة والتأثيرات وrecovery والواجهة ما زالت `UNKNOWN` كجرد شامل. E2 مفتوحة وE3 متوقفة.
+- **next step:** تحقق من provenance لحالة موافقة خطة التنفيذ التي يولدها النموذج؛ لا تبدأ مراحل لاحقة ولا تشغّل workflow مُدار أو Strategy Replay.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

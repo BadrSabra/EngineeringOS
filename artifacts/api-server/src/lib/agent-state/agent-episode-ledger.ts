@@ -368,6 +368,21 @@ async function appendLocked(
     }
   }
   const payloadHash = canonicalJsonHash(payload);
+  let toolInvocationIdentity: { invocationId: string; phase: string } | undefined;
+  if (input.eventType === "TOOL_INVOCATION_RECORDED") {
+    const lifecyclePayload = asRecord(payload);
+    const invocationId = lifecyclePayload?.invocationId;
+    const phase = lifecyclePayload?.phase;
+    if (
+      typeof invocationId !== "string"
+      || !/^[a-f0-9]{64}$/u.test(invocationId)
+      || typeof phase !== "string"
+      || !["requested", "started", "completed", "failed", "cancelled"].includes(phase)
+    ) {
+      ledgerError("invalid_contract", "TOOL_INVOCATION_RECORDED requires a bound invocation identity and phase.");
+    }
+    toolInvocationIdentity = { invocationId, phase };
+  }
   const aggregateMissionRepairActionId = missionRepairAggregateCommitActionId(input, payload);
   if (aggregateMissionRepairActionId) {
     const priorCommits = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
@@ -412,6 +427,43 @@ async function appendLocked(
       await persistRequestedActionReferences(tx, episode, input, requestedAction);
     }
     return eventToContract(existing);
+  }
+  if (toolInvocationIdentity) {
+    const priorToolEvents = await tx
+      .select({ payload: aiAgentEpisodeEventsTable.payload })
+      .from(aiAgentEpisodeEventsTable)
+      .where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
+        eq(aiAgentEpisodeEventsTable.eventType, "TOOL_INVOCATION_RECORDED"),
+        sql`${aiAgentEpisodeEventsTable.payload}->>'invocationId' = ${toolInvocationIdentity.invocationId}`,
+      ))
+      .orderBy(asc(aiAgentEpisodeEventsTable.sequence));
+    const priorPhases = priorToolEvents
+      .map((row) => asRecord(row.payload)?.phase)
+      .filter((phase): phase is string => typeof phase === "string");
+    const terminalPhases = new Set(["completed", "failed", "cancelled"]);
+    if (priorPhases.some((phase) => terminalPhases.has(phase))) {
+      ledgerError("invalid_contract", "Tool invocation already has a terminal lifecycle phase.");
+    }
+    if (
+      (toolInvocationIdentity.phase === "requested" && priorPhases.length > 0)
+      || (
+        toolInvocationIdentity.phase === "started"
+        && (!priorPhases.includes("requested") || priorPhases.includes("started"))
+      )
+      || (
+        terminalPhases.has(toolInvocationIdentity.phase)
+        && (
+          !priorPhases.includes("requested")
+          || (
+            toolInvocationIdentity.phase === "completed"
+            && !priorPhases.includes("started")
+          )
+        )
+      )
+    ) {
+      ledgerError("invalid_contract", "Tool invocation lifecycle phase is out of order or conflicts with an existing phase.");
+    }
   }
   if (input.eventType === "ACTION_REQUESTED" && requestedAction) {
     const priorRequests = await tx.select().from(aiAgentEpisodeEventsTable).where(and(

@@ -53,6 +53,38 @@ describe("chat agent — recovered Repair Plan execution", () => {
     else process.env.GROQ_API_KEY = originalApiKey;
   });
 
+  it("rejects a direct tool-enabled chat without a lifecycle sink before provider work", async () => {
+    const create = vi.fn();
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+
+    const request = "Audit src/target.ts and identify important problems.";
+    const classification = classifyRequest(request);
+    const turnIntent = resolveTurnIntent(request, { classification });
+    expect(turnIntent.requiresTools).toBe(true);
+    expect(turnIntent.scopeClarificationRequired).toBe(false);
+
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: request,
+      history: [],
+      projectContext: makeContext(),
+      rootPath: tmpdir(),
+      turnIntent,
+      onDelta: (delta) => deltas.push(delta),
+    });
+
+    expect(create).not.toHaveBeenCalled();
+    expect(result.response).toContain("durable tool lifecycle recording");
+    expect(result.sources).toEqual([]);
+    expect(result.pendingChanges).toEqual([]);
+    expect(deltas).toEqual([result.response]);
+  });
+
   it("starts a proposed analysis with a read and never exposes write tools", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));
     const relativePath = "src/target.ts";

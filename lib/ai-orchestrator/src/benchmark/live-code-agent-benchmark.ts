@@ -357,6 +357,8 @@ export function createChatCodeAgentBenchmarkExecutor(
           throw new Error("Benchmark Build handoff does not match the isolated case scope.");
         }
       }
+      // Benchmark-local observation only; this is not durable acceptance proof.
+      const benchmarkToolLifecycleEvents: unknown[] = [];
       const result = await awaitWithinCaseDeadline(chat({
         message: buildHandoff?.message ?? prompt,
         history: opts.historyForCase?.(testCase) ?? [],
@@ -378,6 +380,9 @@ export function createChatCodeAgentBenchmarkExecutor(
         provider: opts.provider,
         apiKey: opts.apiKey,
         model: opts.model,
+        onToolInvocation: (event) => {
+          benchmarkToolLifecycleEvents.push(event);
+        },
         includeTestSourcesOverride: opts.includeTestSources,
         signal,
         assertExecutionOwned: assertCaseNotTimedOut,

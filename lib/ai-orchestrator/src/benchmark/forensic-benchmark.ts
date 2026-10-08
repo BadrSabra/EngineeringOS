@@ -662,6 +662,8 @@ export async function runLiveForensicBenchmark(opts: {
   const results: BenchmarkCaseResult[] = [];
   for (const testCase of CASES) {
     const steps: AgentStep[] = [];
+    // Benchmark-local observation only; this is not durable acceptance proof.
+    const toolLifecycleEvents: unknown[] = [];
     const started = performance.now();
     try {
       const result: ChatResult = await chat({
@@ -672,6 +674,9 @@ export async function runLiveForensicBenchmark(opts: {
         provider: opts.provider,
         apiKey: opts.apiKey,
         model: opts.model,
+        onToolInvocation: (event) => {
+          toolLifecycleEvents.push(event);
+        },
         onStep: (step) => steps.push(step),
       });
       const liveSourcePaths = observedReadPaths(steps);

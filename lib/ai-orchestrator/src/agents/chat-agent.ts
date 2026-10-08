@@ -6447,7 +6447,7 @@ export async function chat(opts: {
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
-  /** Server-owned durable lifecycle sink for model-dispatched tool calls. */
+  /** Required before provider work on tool-enabled turns; records tool lifecycle. */
   onToolInvocation?: ToolInvocationLifecycleCallback;
   /** Server-owned complete provider manifest for a scoped Mission execution. */
   authorizedToolManifestNames?: readonly string[];
@@ -6714,6 +6714,35 @@ export async function chat(opts: {
     const response = arabic
       ? "قبل أن أبدأ فحصًا واسعًا، ما النطاق الذي تريده؟ اختر: الملفات الإنتاجية الأساسية، مجلدًا أو ملفات محددة، أو المشروع كاملًا."
       : "Before I start a broad audit, what scope should I use? Choose the core production files, a specific folder/files, or the entire project.";
+    onDelta?.(response);
+    return {
+      response,
+      sources: [],
+      pendingChanges: [],
+    };
+  }
+
+  // Direct package callers bypass chatWithFallback's sink preflight. Do not
+  // send tool-enabled requests to a provider unless lifecycle recording exists.
+  const planOnlyTurn =
+    classification.implementationPlanMode &&
+    !buildHandoff &&
+    !turnIntent.implementationPlanResume;
+  const toolSurfaceMayBeEnabled =
+    turnIntent.requiresTools ||
+    (turnIntent.kind === "PROJECT_QUERY" && !turnIntent.requiresEvidence);
+  if (
+    !planOnlyTurn &&
+    rootPath &&
+    toolSurfaceMayBeEnabled &&
+    resolveToolPolicy({ provider, rootPath }).enabled &&
+    !opts.onToolInvocation
+  ) {
+    const arabic = /[\u0600-\u06FF]/.test(message);
+    const response = arabic
+      ? "لا يمكن بدء هذا الطلب لأنه يتطلب أدوات من دون تسجيل دورة حياتها؛ لم يُرسل طلب إلى المزوّد ولم تُنفَّذ أي أداة."
+      : "This tool-enabled request cannot start without durable tool lifecycle recording. No provider request or tool execution was started.";
+    executionLedger.setTerminal("failed");
     onDelta?.(response);
     return {
       response,

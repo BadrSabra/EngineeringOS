@@ -192,10 +192,7 @@ export function authorizeToolInvocation(opts: {
   if (!metadata || !Object.hasOwn(TOOL_OPERATIONAL_METADATA, opts.toolName)) {
     return { allowed: false, reason: "unknown_tool" };
   }
-  if (opts.toolName === "project.list_tree" && !opts.allowedTools?.has(opts.toolName)) {
-    return { allowed: false, reason: "tool_not_in_manifest" };
-  }
-  if (opts.allowedTools && !opts.allowedTools.has(opts.toolName)) {
+  if (!opts.allowedTools?.has(opts.toolName)) {
     return { allowed: false, reason: "tool_not_in_manifest" };
   }
   const isWrite = metadata.authorizationGroup === "file_write";

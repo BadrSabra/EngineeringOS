@@ -202,6 +202,24 @@ describe("executeSingleTool", () => {
     vi.clearAllMocks();
   });
 
+  it("fails closed when direct tool execution has no allowed-tool manifest", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const result = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/unapproved.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(result.kind === "failed" ? result.safeMessage : "").toContain("tool_not_in_manifest");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed and oversized arguments before hooks or handlers run", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const readCallback = vi.fn(async () => undefined);
@@ -273,12 +291,14 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", complete: true },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
     });
     const rangedRead = await executeSingleTool({
       name: "read_file_range",
       args: { path: "src/foo.ts", startLine: 2, endLine: 5 },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["read_file_range"]),
     });
 
     expect(completeRead.kind).toBe("ok");
@@ -321,6 +341,7 @@ describe("executeSingleTool", () => {
       args: {},
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["query_knowledge_graph"]),
       analysisToolRunner: analysisRunner,
       analysisCorrelation: correlation,
     });
@@ -341,6 +362,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
     });
 
     expect(result.kind).toBe("ok");
@@ -569,6 +591,7 @@ describe("executeSingleTool", () => {
       rootPath: "/tmp",
       pendingChanges: [],
       completeReads: true,
+      allowedToolNames: new Set(["read_file"]),
     });
 
     expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
@@ -588,6 +611,7 @@ describe("executeSingleTool", () => {
       args: { path: "src" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["list_directory"]),
       toolCallId: "provider-list-1",
       toolManifestHash: "d".repeat(64),
       onReadOnlyInvocation: callback,
@@ -743,6 +767,7 @@ describe("executeSingleTool", () => {
       args: { pattern: "useAuth" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["search_code"]),
     });
 
     expect(result.kind).toBe("ok");
@@ -758,6 +783,7 @@ describe("executeSingleTool", () => {
       args: {},
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["git_status"]),
     });
 
     expect(result.kind).toBe("ok");
@@ -781,6 +807,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/auth.ts" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["git_diff"]),
     });
 
     expect(result.kind).toBe("ok");
@@ -796,6 +823,7 @@ describe("executeSingleTool", () => {
       args: {},
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["git_log"]),
     });
 
     expect(result.kind).toBe("ok");
@@ -832,6 +860,39 @@ describe("executeSingleTool", () => {
     expect(lifecycle.map((event) => event.phase)).toEqual(["requested", "started", "failed"]);
   });
 
+  it("does not emit a conflicting terminal phase after a completion callback throws", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce("read result");
+    const lifecycle: ToolInvocationLifecycleEvent[] = [];
+    const result = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/app.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
+      executionId: "tool-loop-terminal-ack",
+      toolCallId: "provider-read-terminal-ack",
+      toolManifestHash: "a".repeat(64),
+      scopeHash: "b".repeat(64),
+      onToolInvocation: async (event) => {
+        lifecycle.push(event);
+        if (event.phase === "completed") {
+          throw new Error("terminal acknowledgement was lost");
+        }
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "execution",
+    });
+    expect(lifecycle.map((event) => event.phase)).toEqual([
+      "requested",
+      "started",
+      "completed",
+    ]);
+  });
+
   it("returns no source for write_file (produces a pending change instead)", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const pending: PendingChange[] = [];
@@ -851,6 +912,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
+      allowedToolNames: new Set(["write_file"]),
       approvalState: "APPROVED",
       approvedFilePaths: ["src/foo.ts"],
     });
@@ -887,6 +949,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
+      allowedToolNames: new Set(["write_file"]),
       approvalState: "APPROVED",
       approvedFilePaths: ["src/foo.ts"],
       toolCallId: "provider-call-1",
@@ -935,6 +998,7 @@ describe("executeSingleTool", () => {
       },
       rootPath: "/project",
       pendingChanges: pending,
+      allowedToolNames: new Set(["replace_text"]),
       approvalState: "APPROVED",
       approvedFilePaths: ["src/foo.ts"],
       toolCallId: "provider-call-replace-1",
@@ -956,6 +1020,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["write_file"]),
       approvalState: "PENDING_APPROVAL",
       approvedFilePaths: [],
       toolCallId: "provider-call-denied",
@@ -970,6 +1035,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
       toolCallId: "provider-call-read",
       onMutationInvocation: callback,
     });
@@ -986,6 +1052,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
+      allowedToolNames: new Set(["write_file"]),
       approvalState: "APPROVED",
       approvedFilePaths: ["src/foo.ts"],
       toolCallId: "provider-call-failed",
@@ -1019,6 +1086,7 @@ describe("executeSingleTool", () => {
       args: { path: "src/foo.ts", content: "x", reason: "test write" },
       rootPath: "/project",
       pendingChanges: pending,
+      allowedToolNames: new Set(["write_file"]),
       approvalState: "APPROVED",
       approvedFilePaths: ["src/foo.ts"],
       toolCallId: "provider-call-commit-failed",
@@ -1053,6 +1121,7 @@ describe("executeSingleTool", () => {
       args: { operation: "search" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["query_knowledge_graph"]),
       analysisToolRunner: async () => ({
         status: "unavailable",
         output: "safe unavailable diagnostic",
@@ -1101,6 +1170,7 @@ describe("executeSingleTool", () => {
       rootPath: "/project",
       pendingChanges: [],
       analysisToolRunner,
+      allowedToolNames: new Set(["query_knowledge_graph"]),
       analysisCorrelation: correlation,
     });
 
@@ -1121,6 +1191,7 @@ describe("executeSingleTool", () => {
       args: { operation: "search" },
       rootPath: "/project",
       pendingChanges: [],
+      allowedToolNames: new Set(["query_knowledge_graph"]),
       analysisToolRunner: async () => ({
         status: "failed",
         output: "safe failure diagnostic",
@@ -6946,7 +7017,10 @@ describe("executeToolLoop", () => {
       model: "fast",
       powerModel: "powerful",
       provider: "test",
-      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
       rootPath: "/project",
       pendingChanges: [],
       maxIterations: 6,
