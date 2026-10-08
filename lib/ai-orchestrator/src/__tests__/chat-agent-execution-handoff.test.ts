@@ -603,7 +603,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
       expect(validationRunner).toHaveBeenCalledWith(
         "workspace-typecheck",
         [relativePath],
-        undefined,
+        expect.any(AbortSignal),
         expect.any(Array),
       );
       expect(result.pendingChanges).toHaveLength(1);

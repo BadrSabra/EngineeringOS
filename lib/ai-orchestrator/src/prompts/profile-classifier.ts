@@ -187,12 +187,15 @@ function detectImplementationTaskMode(message: string): boolean {
     /^\s*(?:you\s+are\s+working\s+on\s+)?task\s*#?\s*\d+\b/im.test(message.slice(0, 500));
   const hasTaskCardAction =
     hasTaskCardHeader && clauses.some(hasPositiveImplementationAction);
-  const hasStructuredTaskAction = clauses.some(
-    (clause) =>
-      /\b(?:done\s+looks\s+like|acceptance\s+criteria|relevant\s+files|implementation\s+task)\b|مهمة\s*#?\s*\d+/iu.test(
-        clause,
-      ) && hasPositiveImplementationAction(clause),
+  const hasStructuredTaskHeader = clauses.some((clause) =>
+    /\b(?:done\s+looks\s+like|acceptance\s+criteria|relevant\s+files|implementation\s+task)\b|مهمة\s*#?\s*\d+/iu.test(
+      clause,
+    ),
   );
+  // Task cards place their acceptance header and actionable checklist on
+  // separate lines; treat the complete message as one structured task.
+  const hasStructuredTaskAction =
+    hasStructuredTaskHeader && clauses.some(hasPositiveImplementationAction);
   // Product/UX planning is an implementation-oriented request, but it is not
   // a forensic repair analysis. Keep it on the normal task path so a phrase
   // like "ضع خطة تنفيذية لتحسين تجربة المستخدم" cannot trigger the generic

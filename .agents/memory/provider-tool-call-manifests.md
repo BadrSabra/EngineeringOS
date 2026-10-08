@@ -9,6 +9,12 @@ Provider responses must be normalized against the complete server-authorized exe
 
 **How to apply:** carry both values through provider strategy options; omit the full manifest only for deliberate no-tool synthesis calls. Normalized calls still enter the existing tool loop so root, scope, phase, validation, and approval gates remain authoritative.
 
+Nested execution children must receive their own complete, policy-scoped execution manifest. Do not reuse a parent's read-only evidence manifest when the child is authorized to edit or validate.
+
+**Why:** a parent chat can intentionally hold a read-only source-evidence manifest while a bounded Repair Plan child is authorized for writes and validation. Reusing the parent manifest makes allowed child calls such as `run_validation` appear unregistered before dispatch.
+
+**How to apply:** pass the child's complete server-authorized tool surface as its full manifest, and leave per-iteration narrowing to the execution loop. The child's dispatcher still enforces path, phase, validation, and approval gates.
+
 For ordered forensic runs, do not generally intersect the full authorized manifest with the narrower provider-facing list: hidden range reads can be needed to recover complete evidence from a large file. Keep stale-call normalization intact and enforce ordered roots at dispatch for every path-based reader, including range reads and searches. Check both the normalized request path and the filesystem-resolved target so an in-project symlink cannot cross a nested audit root.
 
 **Why:** the provider list is an iteration exposure, not the whole authorization contract. Blanket intersection can strand legitimate evidence recovery, while a lexical-only path gate lets a symlinked `search_code` target escape the requested subroots.

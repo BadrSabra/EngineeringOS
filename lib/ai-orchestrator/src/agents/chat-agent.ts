@@ -9310,7 +9310,9 @@ export async function chat(opts: {
           provider: providerId,
           apiKey,
           tools,
-          toolManifest: executionToolManifest,
+          // Repair-plan children use the server-authorized execution surface,
+          // not the read-only evidence manifest used by the outer chat loop.
+          toolManifest: tools,
           allowedToolNames: opts.allowedToolNames
             ? [...opts.allowedToolNames]
             : undefined,
