@@ -14,3 +14,9 @@ Project progress should be judged by whether the internal agent can complete a b
 **Why:** the user identified closed-loop engineering capability as the decisive milestone, rather than expanding the tool or test inventory.
 
 **How to apply:** Prefer one isolated end-to-end objective run that spans execution, independent effect observation, interruption/drift recovery, and a server-owned next decision. Treat provider prose, tool invocation counts, and fixture-only lifecycle as insufficient proof.
+
+For approved Mission repairs, derive the chat turn intent from the persisted objective and mark it as server-owned delivery intent; do not let the internal prompt wrapper reclassify it as a read-only project query. This routing decision does not grant write authority: approval state and the scoped tool manifest remain authoritative.
+
+**Why:** A live run classified the wrapped Mission prompt as PROJECT_QUERY and exposed no tools. Supplying the approved objective's intent routed it to DELIVERY, but the provider still returned an invalid result, so this routing fix alone is not completion proof.
+
+**How to apply:** Apply this only to approved `mission_repair` execution. Keep observation/validation and unapproved repairs on their existing read-only or approval-gated routes, and require canonical proof before completion.

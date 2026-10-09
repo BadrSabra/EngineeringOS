@@ -68,7 +68,7 @@ import {
   readMissionExecutionProfile,
   type MissionExecutionProfile,
 } from "./mission-execution-profile.js";
-import { parseBinaryEvidencePacket } from "@workspace/ai-orchestrator";
+import { parseBinaryEvidencePacket, resolveTurnIntent } from "@workspace/ai-orchestrator";
 import {
   runRepairValidation,
   createValidationWorkspace,
@@ -2358,6 +2358,15 @@ async function executeMissionToolLoop(params: {
       message,
       history: [],
       projectContext: params.projectContext,
+      // The message includes a server-owned wrapper. Route from the persisted
+      // objective instead, so the wrapper cannot turn an approved repair into
+      // a read-only project query. Approval and file scope still gate writes.
+      turnIntent: resolveTurnIntent(policy.objective, {
+        authoritativeKind:
+          params.profile === "mission_repair" && approvalState === "APPROVED"
+            ? "DELIVERY"
+            : undefined,
+      }),
       rootPath: root.canonicalPath,
       projectId: params.task.projectId,
       activeTask: {
