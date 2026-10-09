@@ -5147,6 +5147,39 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يُختبر طلب resume كاملًا حتى finalizer؛ السجلات القديمة التي تفتقد range metadata، وخلط collector المستقل بين body وspan، يظلان `UNKNOWN`. تبقى عائلة evidence وE2 مفتوحتين.
 - **next step:** تابع مستهلكي recovery/evidence المباشرين والديناميكيين، وافصل نتيجة helper عن نتيجة المسار الكامل؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — ربط targeted span بنتيجة القراءة
+
+- **phase/step:** E2 فقط — تثبيت هوية body/span عند بناء evidence snapshot.
+- **status:** `PARTIAL — collector invariant regression-tested; full resume/finalizer remains UNKNOWN`
+- **what changed:** `collectRetainedEvidenceReads` يربط النطاق بنتيجة `tool_result` الناجحة المطابقة للأداة والمسار بعد تطبيعه؛ لا يربط range request فاشلًا بجسم سابق. `read_file` الناجح يمحو span سابقًا، و`READ_TARGETED` بلا span مطابق لا يُسجل كقراءة مكتملة. حدّثت fixture لمسار provider resume ليصرّح بـ`READ_COMPLETE` بدل الاعتماد على غياب status.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/api-server/src/routes/ai-stream-integration.test.ts`, `docs/e2-source-derived-measurement-ledger.md` وهذا السجل، وذاكرة حد evidence؛ لا تعديل schema أو workflow.
+- **validation:** API typecheck نجح؛ حالات collector المحددة نجحت **5/5** (`112` skipped) على PostgreSQL مؤقتة loopback بعد تطبيق schema عليها فقط؛ أوقفت الخادم وحذفت جذر الاختبار؛ `git diff --check` نجح قبل تحديث التوثيق.
+- **authority/safety impact:** fail-closed provenance projection فقط؛ لا يمنح proof أو قبولًا. يحافظ على range لجسم targeted ناجح، ولا يسمح لـspan قديم أن يصف body كاملًا أو لقراءة مجهولة status أن تصبح كاملة.
+- **remaining/blocker:** لم يُختبر مسار Chat resume/finalizer كاملًا بعد تعديل collector؛ trace قديم بلا status لا يثبت success؛ عائلات المستهلكين الديناميكية والخارجية تبقى `UNKNOWN` وE2 مفتوحة.
+- **next step:** تابع جرد source families وواجهات API الديناميكية ومسارات resume/finalizer داخل E2؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — ربط استئناف Chat بعقد source evidence وفصل مراجعة proposal عن Canonical Proof
+
+- **phase/step:** E2 فقط — مسار جمع source evidence بعد resume وحدّ finalization لاقتراح مراجعة معلّق.
+- **status:** `PARTIAL — sampled Chat resume and proposal-acceptance paths verified; broader source-family census remains UNKNOWN`
+- **what changed:** أصبح جمع source reads عند resume مشتقًا من عقد proof المحفوظ بدل الاعتماد على تصنيف turn الحالي، مع إبقاء أوضاع `artifact_only` و`mission_validation_v1` و`apply_changes_v1` وruntime-start مستثناة من source bodies. يقبل finalizer حالة مراجعة مكتملة لاقتراح معلّق ذي project/session/operation/message bindings متطابقة مع حفظ `evidenceComplete=0`؛ لا ينتج ذلك Canonical Proof، والاقتراح ذو operation غير مطابق لا يتجاوز بوابة evidence الناقص. أضيف سياق أحداث SSE عند إخفاق الاختبار وحالة مضادة للربط الخاطئ.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/api-server/src/lib/ai-execution-acceptance.ts`, `artifacts/api-server/src/routes/ai-stream-integration.test.ts`, `docs/e2-source-derived-measurement-ledger.md`, وهذا السجل، وذاكرة عقد acceptance؛ لا تغيير schema أو workflow.
+- **validation:** 12 اختبارًا مركّزًا **12/12** على PostgreSQL مؤقتة loopback بعد تطبيق schema عليها فقط، تشمل collector وresume/finalizer وproposal review وربط proposal؛ API typecheck و`git diff --check` نجحا. أُوقفت قاعدة الاختبار وحُذف جذرها؛ لم يُشغّل أو يُعد تشغيل workflow مُدار. إخفاقات تشغيل ملف integration كامل سابقًا ما زالت غير مصنفة.
+- **authority/safety impact:** source reads لا تمنح proof وحدها؛ review-ready acceptance تحفظ evidence ناقصًا ولا تُقبل كـCanonical Proof. الربط الخاطئ للاقتراح يفشل مغلقًا.
+- **remaining/blocker:** مسارات Chat التي اختُبرت لا تحصر كل source families أو مستهلكي API الديناميكيين والخارجيين أو كل مسارات recovery/finalizer؛ إخفاقات suite الكامل السابقة لم تُصنف. E2 مفتوحة ولا denominator أو نسبة إغلاق صالحة.
+- **next step:** تابع جرد E2 لمستهلكي evidence/status الديناميكيين والخارجيين وبقية مسارات recovery/finalizer، وصنّف الإخفاقات السابقة قبل إعلان أي إغلاق؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — تصحيح قبول project orientation وتصنيف إخفاقات no-op workflow
+
+- **phase/step:** E2 فقط — جمع source evidence في project orientation، إيصال registered validation في Plan-to-Push، وتفسير إخفاقي workflow السابقين.
+- **status:** `partial — focused acceptance and test-contract gaps verified; source-family and dynamic-consumer census remains UNKNOWN`
+- **what changed:** ثبت أن fixture العربية كانت ترسل جسم القراءة و`READ_COMPLETE` من دون `source` في `tool_result`؛ لذلك رفضها collector كما ينبغي. أضافت fixture مسار المصدر المطابق، وأصبح project orientation يستخدم بوابة تغطية الأدوار الكاملة بدل اشتراط graph خاص بعملية مستقلة، مع بقاء إثبات القراءة والإيصال المقيّد بالمراجعة مطلوبين. إيصال Plan-to-Push يأخذ `validatorProfile` من نتيجة التحقق المملوكة للخادم بعد التحقق من schema، ويتأكد من تطابق نسخة evidence إن وجدت. الإخفاقان السابقان كانا حالتي JSON وSSE للاختبار نفسه: المسار الداخلي يسجل no-op بمرحلة `steps: []` ويصرّح `serviceControl: NOT_PERFORMED`، بينما كان الاختبار يتوقع خطوة نصية قديمة؛ صُحح التوقع من دون تغيير سلوك الإنتاج.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-acceptance.ts`, `artifacts/api-server/src/lib/ai-execution-state.ts`, `artifacts/api-server/src/routes/ai/chat.ts`, `artifacts/api-server/src/routes/ai-stream-integration.test.ts`, هذا السجل، وسجل القياس وذاكرة orientation؛ لا تغيير schema.
+- **validation:** 5/5 اختبارات integration مركزة نجحت، منها capability probe وforensic resume وout-of-order completion وPlan-to-Push وشرح العربية؛ حالتا no-op JSON/SSE نجحتا 2/2 بعد تصحيح التوقع. `pnpm exec tsc --noEmit` و`git diff --check` نجحا. PostgreSQL الاختبارية كانت loopback مؤقتة وطُبق schema عليها فقط ثم حُذفت؛ لم يُشغّل أو يُعد تشغيل workflow مُدار.
+- **authority/safety impact:** القراءة لا تثبت الاكتمال إلا بربط المصدر والحالة والجسم؛ orientation لا يكتمل دون تغطية أدوار مقبولة وإيصال validator مربوط؛ registered validation يبقى profile/schema/evidence-bound؛ no-op الداخلي يسجل الطلب ولا يدّعي إعادة تشغيل الخدمات أو Canonical Proof.
+- **remaining/blocker:** جرد عائلات المصادر ومستهلكي evidence/status الديناميكيين والخارجيين وبقية recovery/finalizer غير مكتمل؛ لم يُعد تشغيل suite الكامل، وأي إخفاقات تاريخية أخرى تبقى غير مصنفة. E2 مفتوحة ولا denominator أو نسبة إغلاق صالحة.
+- **next step:** تابع جرد E2 وتصنيف الإخفاقات المتبقية فقط؛ أبقِ العناصر غير المحصورة `UNKNOWN`، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

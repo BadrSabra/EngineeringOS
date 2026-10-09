@@ -4943,7 +4943,7 @@ type RetainedEvidenceRead = {
   truncated: boolean;
 };
 
-function collectRetainedEvidenceReads(
+export function collectRetainedEvidenceReads(
   retainedEvidence: ReadonlyMap<string, string>,
   requiresEvidence: boolean,
   retainedReadStatuses?: ReadonlyMap<string, ReadStatus>,
@@ -4975,6 +4975,11 @@ function collectRetainedEvidenceReads(
   }
   const readStatuses = new Map<string, ReadStatus>();
   const readSpans = new Map<string, { lineStart?: number; lineEnd?: number }>();
+  let pendingReadCall: {
+    tool: "read_file" | "read_file_range";
+    source: string;
+    span?: { lineStart: number; lineEnd: number };
+  } | undefined;
   for (const [filePath, status] of retainedReadStatuses ?? []) {
     const normalizedPath = normalizePath(filePath);
     if (normalizedPath) {
@@ -4985,33 +4990,71 @@ function collectRetainedEvidenceReads(
     }
   }
   for (const step of traceSteps ?? []) {
-    if (step.kind === "tool_call" && (step.tool === "read_file" || step.tool === "read_file_range")) {
-      const source = typeof step.args.path === "string" ? normalizePath(step.args.path) : "";
-      if (source && step.tool === "read_file_range") {
+    if (step.kind === "tool_call") {
+      if (step.tool === "read_file" || step.tool === "read_file_range") {
+        const source = typeof step.args.path === "string" ? normalizePath(step.args.path) : "";
         const lineStart = Number(step.args.startLine);
         const lineEnd = Number(step.args.endLine);
-        if (Number.isInteger(lineStart) && lineStart > 0 && Number.isInteger(lineEnd) && lineEnd >= lineStart) {
-          readSpans.set(source, { lineStart, lineEnd });
-        }
+        const validRange =
+          step.tool === "read_file_range"
+          && Number.isInteger(lineStart)
+          && lineStart > 0
+          && Number.isInteger(lineEnd)
+          && lineEnd >= lineStart;
+        pendingReadCall = source
+          ? {
+              tool: step.tool,
+              source,
+              ...(validRange ? { span: { lineStart, lineEnd } } : {}),
+            }
+          : undefined;
+      } else {
+        pendingReadCall = undefined;
       }
       continue;
     }
+    if (step.kind !== "tool_result") {
+      continue;
+    }
+    // AgentStep has no tool-call ID. The tool loop emits one call followed by
+    // its result; consume only that ordered pair, and drop the span whenever
+    // the result cannot be matched unambiguously.
+    const pending = pendingReadCall;
+    pendingReadCall = undefined;
     if (
-      step.kind !== "tool_result"
-      || (step.tool !== "read_file" && step.tool !== "read_file_range")
+      (step.tool !== "read_file" && step.tool !== "read_file_range")
       || !step.source?.trim()
     ) {
       continue;
     }
     const normalizedPath = normalizePath(step.source);
     if (!normalizedPath) continue;
-    const status = step.readStatus
-      ?? (step.resultKind === "failed" ? "READ_FAILED" : undefined);
+    const failedResult =
+      step.resultKind === "failed"
+      || step.resultKind === "unavailable"
+      || step.resultKind === "cancelled";
+    const status = failedResult ? "READ_FAILED" : step.readStatus;
     if (status) {
       readStatuses.set(
         normalizedPath,
         mergeReadStatus(readStatuses.get(normalizedPath), status),
       );
+    }
+    const matchesPending =
+      pending?.tool === step.tool
+      && pending.source === normalizedPath;
+    if (
+      matchesPending
+      && step.tool === "read_file_range"
+      && status === "READ_TARGETED"
+      && pending.span
+    ) {
+      readSpans.set(normalizedPath, pending.span);
+    } else if (
+      step.tool === "read_file"
+      && (status === "READ_COMPLETE" || status === "READ_CACHED")
+    ) {
+      readSpans.delete(normalizedPath);
     }
   }
   const paths = [...new Set([...retainedBodies.keys(), ...readStatuses.keys()])];
@@ -5021,14 +5064,14 @@ function collectRetainedEvidenceReads(
       const status = readStatuses.get(filePath);
       const body = retainedBodies.get(filePath) ?? "";
       const hasRetainedBody = retainedBodies.has(filePath);
-      const completeStatus = status === undefined
-        || status === "READ_COMPLETE"
+      const span = status === "READ_TARGETED" ? readSpans.get(filePath) : undefined;
+      const completeStatus = status === "READ_COMPLETE"
         || status === "READ_CACHED"
-        || status === "READ_TARGETED";
+        || (status === "READ_TARGETED" && span !== undefined);
       return {
         path: filePath,
         readType: "source" as const,
-        ...(readSpans.get(filePath) ?? {}),
+        ...(span ?? {}),
         body,
         complete: hasRetainedBody && completeStatus,
         truncated: status === "READ_TRUNCATED",
@@ -8296,6 +8339,35 @@ export async function handleChatStream(req: Request, res: Response) {
   const retainedEvidence = new Map<string, string>();
   const retainedReadStatuses = new Map<string, ReadStatus>();
   const traceSteps: AgentStep[] = [];
+  const sourceEvidenceRequirementForExecution = (
+    request: Pick<
+      AiExecutionRequestEnvelope,
+      | "applyChangesProofMode"
+      | "capabilityProbe"
+      | "factInvestigation"
+      | "proofEvidenceMode"
+      | "projectOrientation"
+      | "recipeProofMode"
+      | "resumeContract"
+    >,
+    proofRequired: boolean,
+    intentRequiresEvidence: boolean,
+  ): boolean => {
+    if (
+      request.applyChangesProofMode === "apply_changes_v1"
+      || request.recipeProofMode === "runtime_start_gate_c_v1"
+    ) {
+      return false;
+    }
+    if (proofRequired) {
+      return request.proofEvidenceMode !== "artifact_only"
+        && request.proofEvidenceMode !== "mission_validation_v1";
+    }
+    return intentRequiresEvidence
+      || request.resumeContract?.requiresEvidence === true
+      || request.projectOrientation === true
+      || Boolean(request.factInvestigation || request.capabilityProbe);
+  };
   let sourceEvidenceRequiredForTurn =
     streamTurnIntent.requiresEvidence || projectOrientationExecution;
   let factInvestigationExecution = false;
@@ -8963,6 +9035,11 @@ export async function handleChatStream(req: Request, res: Response) {
         )
       ),
     );
+    sourceEvidenceRequiredForTurn = sourceEvidenceRequirementForExecution(
+      {},
+      taskObjectiveProofRequired,
+      sourceEvidenceRequiredForTurn,
+    );
     const taskObjective = factInvestigationContract ? undefined : buildTaskObjectiveContract({
       message,
       projectId,
@@ -9032,9 +9109,11 @@ export async function handleChatStream(req: Request, res: Response) {
     let orientationManifest: AiOrientationRoleManifest | undefined =
       executionRequest.resumeContract?.orientationManifest;
     let proofRequired = executionRequest.proofRequired === true;
-    sourceEvidenceRequiredForTurn =
-      sourceEvidenceRequiredForTurn
-      || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
+    sourceEvidenceRequiredForTurn = sourceEvidenceRequirementForExecution(
+      executionRequest,
+      proofRequired,
+      sourceEvidenceRequiredForTurn,
+    );
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
     if (effectiveExecutionId && !aiExecution) {
@@ -9241,11 +9320,11 @@ export async function handleChatStream(req: Request, res: Response) {
       };
       projectOrientationExecution =
         projectOrientationTurn || executionRequest.projectOrientation === true;
-      sourceEvidenceRequiredForTurn =
-        streamTurnIntent.requiresEvidence
-        || projectOrientationExecution
-        || Boolean(executionRequest.factInvestigation)
-        || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
+      sourceEvidenceRequiredForTurn = sourceEvidenceRequirementForExecution(
+        executionRequest,
+        proofRequired,
+        streamTurnIntent.requiresEvidence || projectOrientationExecution,
+      );
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       orientationManifest =
@@ -9273,7 +9352,11 @@ export async function handleChatStream(req: Request, res: Response) {
           sourceRevision: storedRequest.workspaceRevision,
         });
         for (const read of reusableEvidence) {
+          // The loader only returns validated complete, un-ranged source rows.
+          // Restore their status with the body so the terminal collector does
+          // not have to infer completeness from the body alone.
           retainedEvidence.set(read.path, read.body);
+          retainedReadStatuses.set(read.path, "READ_COMPLETE");
         }
       }
       const claimed = await claimAiExecution({
@@ -12201,9 +12284,9 @@ export async function handleChatStream(req: Request, res: Response) {
           messageId: proposalMessageId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
+           operationId: preparedDeliveryWorkspace?.operationId ?? operationId,
            ...(preparedDeliveryWorkspace
              ? {
-                 operationId: preparedDeliveryWorkspace.operationId,
                  workspaceRoot: preparedDeliveryWorkspace.workspaceRoot,
                  baseRevision: preparedDeliveryWorkspace.baseRevision,
                  baseTreeHash: preparedDeliveryWorkspace.baseTreeHash,
@@ -12582,10 +12665,19 @@ export async function handleChatStream(req: Request, res: Response) {
                 artifactRef: `analysis-evidence:${operationId}`,
               }];
             }
+            const registeredValidationProfile =
+              finalValidation?.kind === "validation" && finalValidation.status === "passed"
+                ? ValidationProfileSchema.safeParse(finalValidation.result.profile)
+                : undefined;
             if (
               validatorId === "registered-validation.v1"
               && finalValidation?.kind === "validation"
               && finalValidation.status === "passed"
+              && registeredValidationProfile?.success === true
+              && (
+                finalValidation.result.evidence.validatorProfile === undefined
+                || finalValidation.result.evidence.validatorProfile === registeredValidationProfile.data
+              )
               && finalValidation.result.evidence.operationId === operationId
               && finalValidation.result.evidence.projectRevision === workspaceRevision
             ) {
@@ -12596,10 +12688,7 @@ export async function handleChatStream(req: Request, res: Response) {
                 projectId,
                 workspaceRevision,
                 artifactRef: finalValidation.result.evidence.artifactRef,
-                ...(validatorId === "registered-validation.v1"
-                  && typeof finalValidation.result.evidence.validatorProfile === "string"
-                  ? { validatorProfile: finalValidation.result.evidence.validatorProfile }
-                  : {}),
+                validatorProfile: registeredValidationProfile.data,
               }];
             }
             if (
@@ -12655,7 +12744,9 @@ export async function handleChatStream(req: Request, res: Response) {
         evidenceVerdict: terminalEvidenceVerdict,
         evidenceReason: terminalEvidenceReason,
         ...(analysisEvidence ? { analysisEvidence } : {}),
-        ...(forensicExecution ? { forensicAccepted: finalForensicAccepted === true } : {}),
+        ...(forensicExecution
+          ? { forensicAccepted: finalForensicAccepted === true || capabilityProbeAccepted }
+          : {}),
         ...(capabilityProbeTerminal ? { capabilityProbe: capabilityProbeTerminal } : {}),
         proofRequired,
         operationId: aiExecution.operationId ?? aiExecution.id,

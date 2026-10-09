@@ -3348,7 +3348,7 @@ export async function completeAiExecution(params: {
       if (!objectiveCheck.allowed) return false;
     }
     if (forensicExecution && params.forensicAccepted !== true) return false;
-    if (!operation) return false;
+    if (!operation && !projectOrientationAcceptance) return false;
     if (!request?.workspaceRevision) return false;
     if (
       params.workspaceRoot !== undefined
@@ -3366,7 +3366,20 @@ export async function completeAiExecution(params: {
           operationId: params.operationId ?? durableOperationId,
           sourceRevision: request.workspaceRevision,
         })
+      : projectOrientationAcceptance
+        ? {
+            allowed: params.orientationCoverageComplete === true,
+            reasons: params.orientationCoverageComplete === true
+              ? []
+              : ["project orientation role coverage is incomplete"],
+          }
       : (() => {
+          if (!operation) {
+            return {
+              allowed: false,
+              reasons: ["autonomous operation is missing"],
+            };
+          }
           return validateAutonomousOperationCompletion(operation, {
             // A complete retained source read is server-owned acceptance
             // evidence even when the provider did not produce a separate

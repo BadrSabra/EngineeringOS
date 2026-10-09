@@ -27,6 +27,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import app from "../app.js";
+import { collectRetainedEvidenceReads } from "./ai/chat.js";
 import {
   db,
   projectsTable,
@@ -72,7 +73,9 @@ import {
   hashPatchBase,
   hashProjectQueryFactManifest,
   hashProjectQueryFactQuestion,
+  type AgentStep,
   type ExecutionNode,
+  type ReadStatus,
 } from "@workspace/ai-orchestrator";
 import { CAPABILITY_PROBE_MESSAGE } from "../../../../lib/ai-orchestrator/src/prompts/capability-probe.js";
 import {
@@ -619,8 +622,12 @@ async function createReconnectedProofFixture(params: {
 const PROOF_FIXTURE_BODY = "export const proofFixture = true;\n";
 
 function retainProofFixtureEvidence(args: unknown[], fixture: Awaited<ReturnType<typeof createReconnectedProofFixture>>): void {
-  const input = args[1] as { retainedEvidence?: Map<string, string> } | undefined;
-  input?.retainedEvidence?.set(fixture.evidence.artifactRef, PROOF_FIXTURE_BODY);
+  const input = args[1] as {
+    retainedEvidence?: Map<string, string>;
+    retainedReadStatuses?: Map<string, string>;
+  } | undefined;
+  input?.retainedEvidence?.set("src/proof-fixture.ts", PROOF_FIXTURE_BODY);
+  input?.retainedReadStatuses?.set("src/proof-fixture.ts", "READ_COMPLETE");
 }
 
 const projectIds: string[] = [];
@@ -1343,16 +1350,19 @@ describe("AI execution resume-capability recovery", () => {
         );
       })
       .mockImplementationOnce(async (...args) => {
-        (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
-          "src/provider-resume.ts",
-          "export const resumed = true;\n",
-        );
+        const options = args[1] as {
+          retainedEvidence?: Map<string, string>;
+          retainedReadStatuses?: Map<string, string>;
+        };
+        options.retainedEvidence?.set("src/provider-resume.ts", "export const resumed = true;\n");
+        options.retainedReadStatuses?.set("src/provider-resume.ts", "READ_COMPLETE");
         args[6]?.({
           kind: "tool_result",
           tool: "read_file",
           source: "src/provider-resume.ts",
           cached: false,
           outputLength: 30,
+          readStatus: "READ_COMPLETE",
         });
         args[3]?.("Resumed successfully.");
         args[6]?.({
@@ -1624,6 +1634,141 @@ describe("AI execution resume-capability recovery", () => {
         terminalProjection: resumedProjection,
       }),
     ]));
+  });
+});
+
+describe("Retained evidence read span binding", () => {
+  const rangeCall = (
+    source: string,
+    lineStart: number,
+    lineEnd: number,
+  ): AgentStep => ({
+    kind: "tool_call",
+    tool: "read_file_range",
+    args: {
+      path: source,
+      startLine: String(lineStart),
+      endLine: String(lineEnd),
+    },
+    cached: false,
+  });
+  const fullReadCall = (source: string): AgentStep => ({
+    kind: "tool_call",
+    tool: "read_file",
+    args: { path: source },
+    cached: false,
+  });
+  const readResult = (
+    tool: "read_file" | "read_file_range",
+    source: string,
+    readStatus: ReadStatus,
+  ): AgentStep => ({
+    kind: "tool_result",
+    tool,
+    source,
+    cached: false,
+    outputLength: 20,
+    readStatus,
+    ...(readStatus === "READ_FAILED" ? { resultKind: "failed" as const } : {}),
+  });
+
+  it("binds a targeted span only to its successful targeted result", () => {
+    const path = "src/targeted.ts";
+    expect(collectRetainedEvidenceReads(
+      new Map([[path, "partial source"]]),
+      true,
+      new Map<string, ReadStatus>([[path, "READ_TARGETED"]]),
+      [
+        rangeCall(path, 12, 18),
+        readResult("read_file_range", path, "READ_TARGETED"),
+      ],
+    )).toMatchObject([{
+      path,
+      lineStart: 12,
+      lineEnd: 18,
+      body: "partial source",
+      complete: true,
+      truncated: false,
+    }]);
+  });
+
+  it("keeps the last successful span when a later range read fails", () => {
+    const path = "src/targeted.ts";
+    expect(collectRetainedEvidenceReads(
+      new Map([[path, "previous targeted body"]]),
+      true,
+      new Map<string, ReadStatus>([[path, "READ_TARGETED"]]),
+      [
+        rangeCall(path, 12, 18),
+        readResult("read_file_range", path, "READ_TARGETED"),
+        rangeCall(path, 40, 45),
+        readResult("read_file_range", path, "READ_FAILED"),
+      ],
+    )).toMatchObject([{
+      path,
+      lineStart: 12,
+      lineEnd: 18,
+      body: "previous targeted body",
+      complete: true,
+    }]);
+  });
+
+  it("does not attach a later targeted span to a retained full-file body", () => {
+    const path = "src/source.ts";
+    const reads = collectRetainedEvidenceReads(
+      new Map([[path, "complete file body"]]),
+      true,
+      new Map<string, ReadStatus>([[path, "READ_COMPLETE"]]),
+      [
+        fullReadCall(path),
+        readResult("read_file", path, "READ_COMPLETE"),
+        rangeCall(path, 12, 18),
+        readResult("read_file_range", path, "READ_TARGETED"),
+      ],
+    );
+    expect(reads).toMatchObject([{
+      path,
+      body: "complete file body",
+      complete: true,
+    }]);
+    expect(reads?.[0]).not.toHaveProperty("lineStart");
+    expect(reads?.[0]).not.toHaveProperty("lineEnd");
+  });
+
+  it("clears a prior targeted span after a successful full-file read", () => {
+    const path = "src/source.ts";
+    const reads = collectRetainedEvidenceReads(
+      new Map([[path, "complete file body"]]),
+      true,
+      new Map<string, ReadStatus>([[path, "READ_COMPLETE"]]),
+      [
+        rangeCall(path, 12, 18),
+        readResult("read_file_range", path, "READ_TARGETED"),
+        fullReadCall(path),
+        readResult("read_file", path, "READ_COMPLETE"),
+      ],
+    );
+    expect(reads).toMatchObject([{
+      path,
+      body: "complete file body",
+      complete: true,
+    }]);
+    expect(reads?.[0]).not.toHaveProperty("lineStart");
+    expect(reads?.[0]).not.toHaveProperty("lineEnd");
+  });
+
+  it("fails closed when targeted status has no matching successful span", () => {
+    const path = "src/targeted.ts";
+    expect(collectRetainedEvidenceReads(
+      new Map([[path, "partial source"]]),
+      true,
+      new Map<string, ReadStatus>([[path, "READ_TARGETED"]]),
+      [readResult("read_file_range", path, "READ_TARGETED")],
+    )).toMatchObject([{
+      path,
+      body: "partial source",
+      complete: false,
+    }]);
   });
 });
 
@@ -2384,7 +2529,9 @@ describe("Durable AI completion identity", () => {
     expect(resumed.status).toBe(200);
     const events = parseSseEvents(resumed.text);
     const done = events.find((event) => event.type === "done");
-    expect(done).toMatchObject({
+    expect(done, JSON.stringify(events.filter((event) =>
+      event.type === "done" || event.type === "error"
+    ))).toMatchObject({
       operationId,
       sessionId,
       message: {
@@ -2503,7 +2650,9 @@ describe("Durable AI completion identity", () => {
     expect(resumed.status).toBe(200);
     const events = parseSseEvents(resumed.text);
     const done = events.find((event) => event.type === "done");
-    expect(done).toMatchObject({
+    expect(done, JSON.stringify(events.filter((event) =>
+      event.type === "done" || event.type === "error"
+    ))).toMatchObject({
       operationId,
       proposalId: expect.any(String),
       message: {
@@ -2661,6 +2810,78 @@ describe("Durable AI completion identity", () => {
     }));
     expect(proof.accepted).toBe(false);
     expect(proof.failureReasons).toContain("evidence_incomplete");
+  });
+
+  it("does not allow a misbound pending proposal to bypass incomplete evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Misbound pending proposal");
+    const operationId = `misbound-proposal-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+    });
+    const proposalId = randomUUID();
+    const messageId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      executionId: fixture.created.execution.id,
+      role: "assistant",
+      content: "Proposal ready for review.",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "pending",
+      operationId: `${operationId}-other`,
+      createdAt: now,
+    });
+    const [execution] = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        workerId: aiExecutionsTable.workerId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    const finalized = await finalizeExecutionAcceptance({
+      executionId: fixture.created.execution.id,
+      expectedAttempt: execution!.attempt,
+      workerId: fixture.workerId,
+      finalMessageId: messageId,
+      finalMessageContent: "Proposal ready for review.",
+      finalizationKey: `misbound-review-proposal:${randomUUID()}`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "PROPOSAL_REVIEW_READY",
+      recoveryState: "NONE",
+      resumable: false,
+      proposalId,
+      workspaceRoot: fixture.workspaceRoot,
+      sourceRevision: fixture.request.workspaceRevision,
+      candidateIdentity: fixture.operation.candidateIdentity,
+      evidence: {
+        required: true,
+        sourceEvidenceRequired: true,
+        workspaceRoot: fixture.workspaceRoot,
+        sourceRevision: fixture.request.workspaceRevision,
+        candidateIdentity: fixture.operation.candidateIdentity,
+        operationId,
+        verdict: "PARTIAL",
+        reads: [],
+        artifacts: [],
+      },
+    });
+    expect(finalized.accepted).toBe(false);
+    expect(finalized.acceptance).toBeUndefined();
   });
 });
 
@@ -3097,6 +3318,9 @@ describe("Durable AI execution crash/reconnect", () => {
       },
     });
 
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
     // This is the same durable startup reconciliation used after a process
     // restart: the in-memory worker is gone, while the DB checkpoint remains.
     expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
@@ -3237,6 +3461,9 @@ describe("Durable AI execution crash/reconnect", () => {
       },
     });
 
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
     expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
     const paused = await db
       .select({ status: aiExecutionsTable.status })
@@ -3390,6 +3617,9 @@ describe("Durable AI execution crash/reconnect", () => {
         updatedAt: new Date().toISOString(),
       },
     });
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
     expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
 
     let resumedInput: {
@@ -3611,6 +3841,7 @@ describe("Durable AI execution crash/reconnect", () => {
       projectId,
       sessionId: plan.sessionId,
       buildPlanMessageId: plan.messageId,
+      workspaceRoot: rootPath,
     });
     expect(created.resumeToken).toBeTruthy();
 
@@ -3670,6 +3901,9 @@ describe("Durable AI execution crash/reconnect", () => {
         updatedAt: new Date().toISOString(),
       },
     });
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
     expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
 
     const proposedChange = {
@@ -3701,6 +3935,18 @@ describe("Durable AI execution crash/reconnect", () => {
         retainedEvidence?: Map<string, string>;
       }).analysisCorrelation;
       (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(relativePath, original);
+      args[6]?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: relativePath },
+        cached: false,
+      } as never);
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: relativePath,
+        cached: false,
+      } as never);
       args[6]?.({
         kind: "validation",
         status: "passed",
@@ -3754,6 +4000,25 @@ describe("Durable AI execution crash/reconnect", () => {
     });
 
     const proposalId = resumedDone!["proposalId"] as string;
+    const [reviewableProposal] = await db
+      .select({
+        projectId: aiChangeProposalsTable.projectId,
+        messageId: aiChangeProposalsTable.messageId,
+        sessionId: aiChangeProposalsTable.sessionId,
+        status: aiChangeProposalsTable.status,
+        operationId: aiChangeProposalsTable.operationId,
+      })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId))
+      .limit(1);
+    expect(reviewableProposal).toMatchObject({
+      projectId,
+      messageId: plan.messageId,
+      sessionId: plan.sessionId,
+      status: "pending",
+      operationId: created.execution.operationId ?? created.execution.id,
+    });
+
     const drifted = `// user edit\n${original}`;
     await fs.writeFile(absolutePath, drifted, "utf8");
 
@@ -4562,7 +4827,9 @@ describe("Plan-to-push agent cycle", () => {
     expect(buildValidationSeen).toBe(true);
     expect(buildNodesSeen.length).toBeGreaterThan(0);
     const buildDone = buildEvents.find((event) => event["type"] === "done");
-    expect(buildDone).toBeDefined();
+    expect(buildDone, JSON.stringify(buildEvents.filter((event) =>
+      event["type"] === "done" || event["type"] === "error"
+    ))).toBeDefined();
     expect(buildEvents.find((event) => event["type"] === "error")).toBeUndefined();
     await expect(fs.access(proposedChange.absolutePath)).rejects.toThrow();
 
@@ -6132,7 +6399,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       expect.objectContaining({ type: "stream_reset" }),
       expect.objectContaining({ type: "done" }),
     ]));
-    expect(done).toMatchObject({
+    expect(done, JSON.stringify(events.filter((event) =>
+      event["type"] === "done" || event["type"] === "error"
+    ))).toMatchObject({
       projectQueryResponseSource: "provider_synthesis",
       message: {
         content: response,
@@ -12482,6 +12751,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           source,
           cached: false,
           prefetched: true,
+          readStatus: "READ_COMPLETE",
           outputLength: sourceContents.get(source)!.length,
         });
       }
@@ -12613,7 +12883,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       retainedBodyFiles: sources,
       acceptedEvidenceFiles: sources,
     });
-    expect(done).toMatchObject({
+    expect(done, JSON.stringify(events.filter((event) =>
+      event.type === "done" || event.type === "error"
+    ))).toMatchObject({
       sessionId,
       sources,
       message: {
@@ -12996,19 +13268,36 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       scopedFindingStatus: "PRODUCTION_PROVEN" as const,
     }];
     const runContinuation = async (...args: Parameters<typeof chatWithFallback>) => {
+      const sourcePath = "src/unsafe.ts";
+      const sourceBody = "export const safe = true;\n";
       (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
-        "src/unsafe.ts",
-        "export const safe = true;\n",
+        sourcePath,
+        sourceBody,
       );
       seenInputs.push(args[1] as typeof seenInputs[number]);
       args[3]?.("continued");
       args[6]?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: sourcePath },
+        cached: false,
+      } as never);
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: sourcePath,
+        args: { path: sourcePath },
+        result: sourceBody,
+        readStatus: "READ_COMPLETE",
+        outputLength: sourceBody.length,
+      } as never);
+      args[6]?.({
         kind: "done",
         iterations: 1,
         maxIterations: 1,
-        toolCalls: 0,
+        toolCalls: 1,
         prefetchToolCalls: 0,
-        loopToolCalls: 0,
+        loopToolCalls: 1,
         stopReason: "response",
         synthesisStarted: false,
         diagnosticCodes: [],
@@ -13080,7 +13369,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(first.status).toBe(200);
     const firstDone = parseSseEvents(first.text).find((event) => event["type"] === "done");
     const sessionId = firstDone?.["sessionId"] as string;
-    expect(sessionId).toBeTruthy();
+    expect(sessionId, JSON.stringify(parseSseEvents(first.text).filter((event) =>
+      event["type"] === "done" || event["type"] === "error"
+    ))).toBeTruthy();
 
     const persistedAfterFirst = await db
       .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
@@ -13206,10 +13497,34 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       }],
     });
     const initial = makeResult("src/initial.ts");
+    const recordCompleteRead = (
+      args: Parameters<typeof chatWithFallback>,
+      path: string,
+      body: string,
+    ) => {
+      (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(path, body);
+      args[6]?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path },
+        cached: false,
+      } as never);
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: path,
+        args: { path },
+        result: body,
+        readStatus: "READ_COMPLETE",
+        outputLength: body.length,
+      } as never);
+    };
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
-      (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
+      const initialBody = "export const initial = true;\n";
+      recordCompleteRead(
+        args,
         "src/initial.ts",
-        "export const initial = true;\n",
+        initialBody,
       );
       args[6]?.({
         kind: "forensic_status",
@@ -13241,8 +13556,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .set("Content-Type", "application/json")
       .send({ projectId, message: "forensic audit" });
     expect(first.status).toBe(200);
-    const sessionId = parseSseEvents(first.text).find((event) => event["type"] === "done")?.["sessionId"] as string;
-    expect(sessionId).toBeTruthy();
+    const firstEvents = parseSseEvents(first.text);
+    const sessionId = firstEvents.find((event) => event["type"] === "done")?.["sessionId"] as string;
+    expect(sessionId, JSON.stringify(firstEvents.filter((event) =>
+      event["type"] === "done" || event["type"] === "error"
+    ))).toBeTruthy();
 
     let releaseOld!: () => void;
     let releaseNew!: () => void;
@@ -13266,7 +13584,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       concurrentCalls += 1;
       if (concurrentCalls === 2) resolveConcurrentCalls();
         if (turnMessage === "continue older work") {
-        (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
+        recordCompleteRead(
+          args,
           "src/older.ts",
           "export const older = true;\n",
         );
@@ -13296,7 +13615,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         } as Awaited<ReturnType<typeof chatWithFallback>>;
       }
         if (turnMessage === "continue newer work") {
-        (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
+        recordCompleteRead(
+          args,
           "src/newer.ts",
           "export const newer = true;\n",
         );
@@ -13537,6 +13857,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         onStep?.({
           kind: "tool_result",
           tool: "read_file",
+          source: path,
           args: { path },
           result: `source for ${path}`,
           readStatus: "READ_COMPLETE",
@@ -13617,11 +13938,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         sessionId,
         message: "اشرح المشروع",
       });
-    const explanationDone = parseSseEvents(explanation.text)
-      .find((event) => event.type === "done");
+    const explanationEvents = parseSseEvents(explanation.text);
+    const explanationDone = explanationEvents.find((event) => event.type === "done");
 
     expect(explanation.status).toBe(200);
-    expect(explanationDone).toBeDefined();
+    expect(explanationDone, JSON.stringify(explanationEvents.filter((event) =>
+      event["type"] === "done" || event["type"] === "error"
+    ))).toBeDefined();
     expect(explanationInputs).toHaveLength(2);
     for (const explanationInput of explanationInputs) {
       expect(explanationInput.turnIntent).toMatchObject({
@@ -16171,7 +16494,7 @@ describe("operational command routing", () => {
       currentPhase: "record_restart_request",
       phases: [{
         name: "record_restart_request",
-        steps: ["Record the requested service restart in the EngineeringOS workflow ledger."],
+        steps: [],
       }],
     });
 

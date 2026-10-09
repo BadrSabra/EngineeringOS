@@ -2024,6 +2024,49 @@ export async function finalizeExecutionAcceptance(
         ))
         .limit(1)
       : [];
+    const reviewProposalId = params.proposalId ?? execution.proposalId;
+    const proposalReferenceMatches =
+      !params.proposalId
+      || !execution.proposalId
+      || params.proposalId === execution.proposalId;
+    const [reviewProposal] = reviewProposalId && execution.sessionId
+      ? await tx
+        .select({
+          id: aiChangeProposalsTable.id,
+          status: aiChangeProposalsTable.status,
+          sessionId: aiChangeProposalsTable.sessionId,
+          messageId: aiChangeProposalsTable.messageId,
+          operationId: aiChangeProposalsTable.operationId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, reviewProposalId),
+          eq(aiChangeProposalsTable.projectId, execution.projectId),
+          eq(aiChangeProposalsTable.sessionId, execution.sessionId),
+        ))
+        .limit(1)
+      : [];
+    const [reviewProposalMessage] = reviewProposal?.messageId && execution.sessionId
+      ? await tx
+        .select({ id: aiChatMessagesTable.id, role: aiChatMessagesTable.role })
+        .from(aiChatMessagesTable)
+        .where(and(
+          eq(aiChatMessagesTable.id, reviewProposal.messageId),
+          eq(aiChatMessagesTable.sessionId, execution.sessionId),
+        ))
+        .limit(1)
+      : [];
+    const expectedProposalOperationId = execution.operationId ?? storedRequest?.operationId ?? null;
+    const proposalOperationBound = expectedProposalOperationId
+      ? reviewProposal?.operationId === expectedProposalOperationId
+      : execution.proposalId === reviewProposal?.id && reviewProposal?.operationId == null;
+    const pendingReviewProposal = Boolean(
+      proposalReferenceMatches
+      && reviewProposal?.status === "pending"
+      && reviewProposal.messageId === reviewProposalMessage?.id
+      && reviewProposalMessage?.role === "assistant"
+      && proposalOperationBound,
+    );
     const taskObjective = params.taskObjective
       ?? parseTaskObjectiveContract(storedRequest?.taskObjective);
     const storedProofRequired = storedRequest?.proofRequired === true;
@@ -2293,7 +2336,18 @@ export async function finalizeExecutionAcceptance(
         reason: "Apply proof evidence is missing, stale, or mismatched.",
       };
     }
-    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete) {
+    const reviewReadyProposalCompletion =
+      pendingReviewProposal
+      && params.outcome === "SUCCEEDED"
+      && params.terminalStatus === "completed";
+    // A pending proposal may finish as review-ready with incomplete evidence.
+    // Its persisted evidenceComplete=0 keeps it ineligible for Canonical Proof.
+    if (
+      params.outcome === "SUCCEEDED"
+      && evidenceRequired
+      && !evidence.complete
+      && !reviewReadyProposalCompletion
+    ) {
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
     }
 

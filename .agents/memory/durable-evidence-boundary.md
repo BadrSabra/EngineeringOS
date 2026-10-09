@@ -60,3 +60,9 @@ An oversized prefetch remains incomplete until a later targeted window is accept
 **Why:** Leaving the path marked incomplete makes the runtime ledger discard the accepted targeted body, so telemetry can report a successful claim while terminal acceptance still blocks on missing completed reads.
 
 **How to apply:** Reconcile each complete evidence window into the retained-body map and clear its path from incomplete-prefetch tracking before building the final ledger.
+
+Evidence snapshot collectors must bind a targeted line span to its matching successful read result, not to the latest range request for that path. A successful full-file read supersedes any prior range span, while a targeted status without a validated matching span remains incomplete.
+
+**Why:** `AgentStep` does not carry tool-call IDs, and retained-body selection preserves a prior complete body over later targeted windows. A range request can fail or refer to a different body, so independently collecting call arguments and retained content can misstate source provenance.
+
+**How to apply:** Match the ordered tool/result pair by tool and normalized path, update spans only from successful targeted results, clear them after successful full reads, and test both orderings plus failed and unmatched calls. On resume, restore `READ_COMPLETE` only alongside rows already validated as complete, source-only, un-ranged reads; body presence by itself is not a read status.

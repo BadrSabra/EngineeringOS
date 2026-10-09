@@ -44,3 +44,9 @@ During live verification, zero accepted behavioral evidence is a non-terminal st
 **Why:** Streaming verification telemetry is emitted before the terminal projection and can legitimately carry zero behavioral claims for a complete orientation read.
 
 **How to apply:** Render a neutral pending state during the stream; use the persisted source-selection record or execution projection for the terminal orientation status, without changing behavioral evidence counters.
+
+Project orientation must not require a generic autonomous-operation completion graph. Its proof-required terminal gate is complete, revision-bound role coverage plus the server-owned validator receipt; missing coverage or a stale/missing receipt remains fail-closed.
+
+**Why:** Orientation is a read-only coverage contract, not a mutation-node graph. Requiring generic operation completion can reject a valid orientation when no autonomous operation exists, even though the orientation-specific proof is complete.
+
+**How to apply:** Keep orientation on its separate coverage path through completion and finalization. Do not treat provider prose or retained bodies without validated complete-read status as proof.
