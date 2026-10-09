@@ -50,7 +50,7 @@
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable writes require the current lease; Episode actor IDs remain provenance across same-attempt recovery.
 - [Periodic write attempt fences](periodic-write-attempt-fence.md) — checkpoints, orientation manifests, and heartbeats must bind worker identity to the durable attempt, not worker ID alone.
-- [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
+- [Objective execution binding](objective-execution-binding.md) — prioritize a real engineering-goal loop with verified effects, safe recovery, and a state-bound next decision over tool/test counts.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.

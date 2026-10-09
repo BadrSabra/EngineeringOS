@@ -8,3 +8,9 @@ Autonomous terminal success requires a server-owned objective, expected behavior
 **Why:** Provider responses, leases, and validation callbacks can complete without proving that the requested behavior or bytes were accepted; treating them as success makes reconnects and delivery state misleading.
 
 **How to apply:** Keep legacy records readable, but classify missing or stale contract fields as incomplete/blocked. Preserve ordinary non-proof chat compatibility while gating proof-required executions at the durable completion boundary. A pending approval proposal may finalize as review-ready/PARTIAL only after identity, scope, node, and evidence-reference checks; PROVEN remains exclusive to autonomous terminal success.
+
+Project progress should be judged by whether the internal agent can complete a bounded engineering objective, verify its real effect with independent evidence, handle interruption and workspace/world-state drift safely, and choose its next action from the latest durable accepted state—not by the number of tools or tests added.
+
+**Why:** the user identified closed-loop engineering capability as the decisive milestone, rather than expanding the tool or test inventory.
+
+**How to apply:** Prefer one isolated end-to-end objective run that spans execution, independent effect observation, interruption/drift recovery, and a server-owned next decision. Treat provider prose, tool invocation counts, and fixture-only lifecycle as insufficient proof.
