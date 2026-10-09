@@ -3745,7 +3745,7 @@ async function programmaticSignIn(
   const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
   let signInLoaded = false;
   for (let attempt = 0; attempt < 3 && !signInLoaded; attempt += 1) {
-    await page.goto(DASHBOARD_PATH);
+    await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
     try {
       await expect(signInLink).toBeVisible({ timeout: 5_000 });
       signInLoaded = true;

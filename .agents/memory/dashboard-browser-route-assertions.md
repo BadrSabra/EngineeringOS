@@ -14,3 +14,9 @@ For Firefox reload assertions, use `page.reload({ waitUntil: "domcontentloaded" 
 **Why:** A multi-route Firefox journey showed the Flight Deck proof fully rendered in the failure screenshot, while `page.reload()` still waited for `load` until the test timed out.
 
 **How to apply:** Prefer the DOM-content milestone for reload persistence checks, then let accessible UI assertions verify that data has reloaded. Keep full-load waits only when the test specifically depends on all page resources completing.
+
+For Clerk-backed Firefox journeys, use `page.goto(path, { waitUntil: "domcontentloaded" })` for the initial signed-out dashboard navigation, then wait for the sign-in controls and authenticated dashboard readiness.
+
+**Why:** The release journey stalled at the initial navigation while external Clerk scripts were still loading; DOM-ready navigation plus UI readiness assertions passed the protected-dashboard and isolated-user checks.
+
+**How to apply:** Use a DOM-content milestone for initial Clerk handoffs and reloads, keep browser-error assertions after authentication, and reserve full-load waits for tests that explicitly require every external resource to finish.
