@@ -5738,3 +5738,36 @@ G9 Revocation Safety
 - **authority/safety impact:** لا token/marker لـproof-required resume دون acceptance حالية؛ إثبات legacy غير proof لم يُوسّع إلى Canonical Proof. لا تغيير في قرار البوابات ولا بدء لـE3 أو Strategy Replay.
 - **remaining/blocker:** جرد المستهلكين الديناميكيين/الخارجيين ووجود قاعدة domain تثبت انتقال `World Fact` إلى plan-step ما زالا `UNKNOWN`؛ E2 مفتوحة.
 - **next step:** واصل E2 على هاتين الفجوتين فقط، ولا تبدأ E3 أو Strategy Replay قبل اجتياز E2 صراحةً.
+
+### 2026-10-09 — حصر مستهلكي Recovery في واجهة Dashboard والعميل المولّد
+
+- **phase/step:** E2 فقط — census bounded لواجهات resume/retry/operator recovery في العميل الداخلي.
+- **status:** `bounded in-workspace callsites mapped; external/dynamic consumers remain UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** مطابقة المسارات الثلاثة في API (`recovery`, `resume-capability`, `retry-capability`) مع callsites. AiChat يخفي recovery actions داخل MissionCapsule ويستخدم مسارًا صريحًا يطلب capability ثم يعاود Chat؛ Tasks يفعّل recovery فقط بعد مطابقة execution correlation بالـTask الحالي، ويستخدم Task lifecycle. Mission Control وFlight Deck لا يمران callback للـcapsule؛ المسارات المرتبطة بـTask مخفية هناك، وغير المرتبطة تستخدم fallback العام. Mission Control يملك كذلك operator action منفصلًا يتحقق من execution detail identity ويطلب فتح AI Assistant للمتابعة. generated React Query wrappers الثلاثة موجودة، لكن لم يظهر لها مستهلك غير مولّد داخل workspace؛ الواجهات تستخدم fetch مباشر. fallback الخاص بالـcapsule يتجاهل token العائد ويحدّث projection فقط، ولا ينفذ Chat continuation.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** بحث `rg` عبر API routes وDashboard وgenerated clients، ثم تتبع callsites في AiChat وTasks وMission Control وFlight Deck و`ExecutionProjectionPanel`؛ `git diff --check` بعد التحرير. لم تُشغّل اختبارات لأن التغيير توثيقي فقط.
+- **authority/safety impact:** لا مسار داخلي غير Task-linked يتجاوز generic route؛ مسارات Task تبقى عبر Task lifecycle، والـcapsule لا يحوّل capability إلى متابعة للمحادثة. لا تغيير سلطة أو proof.
+- **remaining/blocker:** العملاء الخارجيون وdynamic imports/dispatch خارج workspace غير قابلين للحصر بهذا المصدر؛ لذلك source-family completeness تبقى `UNKNOWN`، وكذلك `World Fact → planner action`. E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل جرد E2 لمستهلك أو source edge أخرى غير محسومة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — ربط استعادة Recipe ببوابات التنفيذ والقبول
+
+- **phase/step:** E2 فقط — consumer مباشر آخر لـresume-token recovery داخل recipe runner.
+- **status:** `bounded recipe recovery path mapped; full source family UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** تتبّع المصدر يثبت أن `runRecipeOperation` يفحص أي `beforeClaim` authorization مهيأ قبل الاستئناف؛ execution بحالة `paused` يطلب token من `recoverAiExecutionResumeToken` مع `expectedAttempt` الملتقط، ثم يمرر token و`recipeBinding` إلى `claimAiExecution`. helper يعيد فحص عقد الطلب والـacceptance الحالية والمحاولة وربط Task؛ recipe claim يبقى مربوطًا بالـbinding المحسوب على الخادم. الاختبارات الموجودة تغطي استئناف recipe من checkpoint وعدم إعادة تشغيل العقد المنجزة، ورفض node evidence من attempt سابقة عند proof-required resume.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** بحث callsites غير الاختبارية في workspace وقراءة `recipe-operation-runner.ts` و`ai-execution-state.ts` والاختبارات المرتبطة؛ لم تُشغّل اختبارات في هذه الخطوة، ولم يُعَد تشغيل أي workflow مُدار.
+- **authority/safety impact:** استئناف recipe لا يستعمل generic operator recovery ولا يتخطى recipe binding أو current-attempt acceptance؛ لا تغيير في authority أو proof.
+- **remaining/blocker:** كل callers الداخليين الديناميكيين/الخارجيين ما زالوا غير محصورين، ولم يُحسم اختبار سباق مستقل خاص بتبدل acceptance بين recipe preflight وclaim. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 على consumer/recovery boundary آخر غير محسوم؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — تدقيق بوابة generic retry capability
+
+- **phase/step:** E2 فقط — current-attempt acceptance عند إصدار retry token اليدوي والآلي.
+- **status:** `bounded retry admission is acceptance-gated and transaction-locked; other consumers remain UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** مسار `retry-capability` يقرأ execution وacceptance للمحاولة الحالية بقفلين داخل transaction واحدة، ويرفض الطلب التالف أو المرتبط بـTask أو غير المدعوم؛ ويتطلب acceptance مطابقة للمشروع/العملية والمراجعة المحفوظة عند وجودها، مع `RETRY_AFTER_TIMEOUT` أو `RETRY_AFTER_RATE_LIMIT`، و`resumable=0` و`recoveryState=REQUIRED`، وموعد retry مستحق. Chat العادي يشترط كذلك سبب `EXECUTION_PROVIDER_FAILURE`. الـcoordinator يمرر `expectedAttempt` الذي التقطه قبل إعادة الدخول إلى Chat؛ route اليدوي يختار المحاولة الحالية المقفلة.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** مراجعة `recoverAiExecutionRetryToken` وroute و`runChatExecutionRecovery` واختبار route واختبار تداخل acceptance الموجودين؛ لم تُشغّل الاختبارات في هذه الخطوة ولم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** لا إصدار generic retry token دون acceptance حالية مؤهلة؛ صلاحية الرمز تبقى capability ويعيد claim فحص acceptance. لا تغيير في Canonical Proof أو سلطة Task lifecycle.
+- **remaining/blocker:** لم يُختبر في هذه الخطوة تداخل تغيّر acceptance بعد إصدار الرمز وقبل claim عبر واجهة HTTP الحية؛ census الخارجي/dynamic العام ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل E2 على آخر consumers ومسارات الاستهلاك/claim غير المحسومة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
