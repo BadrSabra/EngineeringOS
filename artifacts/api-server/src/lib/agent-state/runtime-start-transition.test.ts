@@ -206,6 +206,69 @@ async function waitForRuntimeTransitionApiLockWait(
   throw new Error(`Timed out waiting for runtime transition API to block on its transition row; ${api.output()}`);
 }
 
+async function waitForRuntimeTransitionApiMaterializationSleep(
+  api: RuntimeTransitionApiProcess,
+  timeoutMs = 90_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (api.child.exitCode !== null || api.child.signalCode !== null) {
+      throw new Error(`Runtime transition API exited before the materialization commit pause; ${api.output()}`);
+    }
+    const result = await db.execute(sql`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = ${api.applicationName}
+        AND wait_event = 'PgSleep'
+        AND query ILIKE '%ai_world_transitions%'
+    `);
+    if (result.rows.length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for runtime transition materialization commit pause; ${api.output()}`);
+}
+
+type RuntimeTransitionCommitPause = {
+  functionName: string;
+  triggerName: string;
+};
+
+async function installRuntimeTransitionCommitPause(
+  projectId: string,
+): Promise<RuntimeTransitionCommitPause> {
+  const suffix = projectId.replaceAll("-", "");
+  const functionName = `e2_runtime_transition_pause_${suffix}`;
+  const triggerName = `e2_runtime_transition_trigger_${suffix}`;
+  await db.execute(sql.raw(`
+    CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.project_id = '${projectId}'
+        AND NEW.status = 'materialized'
+        AND OLD.status IS DISTINCT FROM 'materialized' THEN
+        PERFORM pg_sleep(5);
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `));
+  await db.execute(sql.raw(`
+    CREATE TRIGGER ${triggerName}
+    BEFORE UPDATE OF status ON ai_world_transitions
+    FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+  `));
+  return { functionName, triggerName };
+}
+
+async function dropRuntimeTransitionCommitPause(
+  pause: RuntimeTransitionCommitPause,
+): Promise<void> {
+  await db.execute(sql.raw(
+    `DROP TRIGGER IF EXISTS ${pause.triggerName} ON ai_world_transitions`,
+  ));
+  await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${pause.functionName}()`));
+}
+
 async function waitForRuntimeTransitionApiDatabaseDisconnect(
   applicationName: string,
   timeoutMs = 20_000,
@@ -1477,6 +1540,209 @@ describe("runtime.start transition retry scheduling", () => {
         if (crashedApi) {
           await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
         }
+        if (replacementApi) await stopRuntimeTransitionApiProcess(replacementApi);
+      }
+    },
+    240_000,
+  );
+
+  it.skipIf(process.env.RUN_RUNTIME_MISSION_MATERIALIZATION_CRASH_RECOVERY !== "1")(
+    "rolls back World State writes when the API is SIGKILLed inside transition materialization",
+    async () => {
+      const databaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+      const fixture = await transitionFixture({ missionHandoff: true });
+      const mission = fixture.missionHandoff;
+      if (!mission) throw new Error("Mission handoff fixture was not created.");
+      await insertValidRuntimeStartObservations(fixture);
+      const [transitionEvidence] = await db.select({
+        beforeObservationIds: aiWorldTransitionsTable.beforeObservationIds,
+        afterObservationIds: aiWorldTransitionsTable.afterObservationIds,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+      if (!transitionEvidence) throw new Error("Runtime transition fixture was not persisted.");
+      const linkedObservationIds = [
+        ...(Array.isArray(transitionEvidence.beforeObservationIds)
+          ? transitionEvidence.beforeObservationIds.filter((id): id is string => typeof id === "string")
+          : []),
+        ...(Array.isArray(transitionEvidence.afterObservationIds)
+          ? transitionEvidence.afterObservationIds.filter((id): id is string => typeof id === "string")
+          : []),
+      ];
+      if (linkedObservationIds.length === 0) {
+        throw new Error("Runtime transition fixture has no linked observations.");
+      }
+
+      const isolatedRoot = await mkdtemp(
+        path.join(os.tmpdir(), "runtime-transition-api-midcommit-"),
+      );
+      createdWorkspaceRoots.push(isolatedRoot);
+      await db.update(projectsTable)
+        .set({ rootPath: path.join(isolatedRoot, "unavailable-project-root") })
+        .where(eq(projectsTable.id, fixture.projectId));
+
+      const beforeFacts = await db.select({
+        id: aiWorldFactsTable.id,
+        status: aiWorldFactsTable.status,
+        sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+        updatedAt: aiWorldFactsTable.updatedAt,
+      }).from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+      const pause = await installRuntimeTransitionCommitPause(fixture.projectId);
+      const firstPort = await reserveRuntimeTransitionApiPort();
+      const firstApplicationName = `runtime-transition-midcommit-${crypto.randomUUID().slice(0, 12)}`;
+      const replacementPort = await reserveRuntimeTransitionApiPort();
+      const replacementApplicationName = `runtime-transition-midretry-${crypto.randomUUID().slice(0, 12)}`;
+      let pauseInstalled = true;
+      let crashedApi: RuntimeTransitionApiProcess | undefined;
+      let replacementApi: RuntimeTransitionApiProcess | undefined;
+      try {
+        crashedApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          firstApplicationName,
+          firstPort,
+        );
+        await waitForRuntimeTransitionApiMaterializationSleep(crashedApi);
+
+        crashedApi.child.kill("SIGKILL");
+        const crashedExit = await crashedApi.exit;
+        expect(crashedExit.signal).toBe("SIGKILL");
+        await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+        await dropRuntimeTransitionCommitPause(pause);
+        pauseInstalled = false;
+
+        const [afterCrashTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+          materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+          nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const afterCrashFacts = await db.select({
+          id: aiWorldFactsTable.id,
+          status: aiWorldFactsTable.status,
+          sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+          updatedAt: aiWorldFactsTable.updatedAt,
+        }).from(aiWorldFactsTable)
+          .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+        const factsForTransition = afterCrashFacts.filter((fact) =>
+          Array.isArray(fact.sourceObservationIds)
+          && fact.sourceObservationIds.some((id: unknown) => linkedObservationIds.includes(String(id)))
+        );
+        const crashDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [acceptanceAfterCrash] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        const snapshotFacts = (rows: typeof beforeFacts) => rows
+          .map((fact) => JSON.stringify(fact))
+          .sort();
+        expect(afterCrashTransition).toMatchObject({
+          status: "retrying",
+          resultingWorldRevision: null,
+          materializedAt: null,
+          materializedObservationIds: [],
+        });
+        expect(afterCrashTransition?.nextRetryAt).toEqual(expect.any(Date));
+        expect(snapshotFacts(afterCrashFacts)).toEqual(snapshotFacts(beforeFacts));
+        expect(factsForTransition).toHaveLength(0);
+        expect(crashDispatches).toHaveLength(0);
+        expect(acceptanceAfterCrash).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+
+        replacementApi = startRuntimeTransitionApiProcess(
+          databaseUrl,
+          replacementApplicationName,
+          replacementPort,
+        );
+        await waitForRuntimeTransitionApiReady(replacementApi, replacementPort);
+        expect(replacementApi.output()).toContain("RUNTIME_START_TRANSITION_INDEX_IMPORTED");
+
+        let transitionStatus: string | undefined;
+        let dispatchCount = 0;
+        const recoveryDeadline = Date.now() + 120_000;
+        while (Date.now() < recoveryDeadline) {
+          if (replacementApi.child.exitCode !== null || replacementApi.child.signalCode !== null) {
+            throw new Error(`Replacement API exited during transition recovery; ${replacementApi.output()}`);
+          }
+          const [transition] = await db.select({
+            status: aiWorldTransitionsTable.status,
+          }).from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+          transitionStatus = transition?.status;
+          const dispatches = await db.select({
+            id: eventsTable.id,
+          }).from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+          dispatchCount = dispatches.length;
+          if (transitionStatus === "materialized" && dispatchCount > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const [recoveredTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+          materializedAt: aiWorldTransitionsTable.materializedAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const recoveredFacts = await db.select({
+          sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
+        }).from(aiWorldFactsTable)
+          .where(eq(aiWorldFactsTable.projectId, fixture.projectId));
+        const recoveredFactsForTransition = recoveredFacts.filter((fact) =>
+          Array.isArray(fact.sourceObservationIds)
+          && fact.sourceObservationIds.some((id: unknown) => linkedObservationIds.includes(String(id)))
+        );
+        const recoveredDispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+
+        expect(transitionStatus).toBe("materialized");
+        expect(recoveredTransition).toMatchObject({
+          status: "materialized",
+          materializedAt: expect.any(Date),
+        });
+        expect(recoveredTransition?.resultingWorldRevision).toEqual(expect.any(String));
+        expect(recoveredFactsForTransition.length).toBeGreaterThan(0);
+        expect(dispatchCount).toBe(1);
+        expect(recoveredDispatches).toHaveLength(1);
+      } finally {
+        if (crashedApi
+          && crashedApi.child.exitCode === null
+          && crashedApi.child.signalCode === null) {
+          crashedApi.child.kill("SIGKILL");
+          await crashedApi.exit;
+        }
+        if (crashedApi) {
+          await waitForRuntimeTransitionApiDatabaseDisconnect(firstApplicationName);
+        }
+        if (pauseInstalled) await dropRuntimeTransitionCommitPause(pause);
         if (replacementApi) await stopRuntimeTransitionApiProcess(replacementApi);
       }
     },
