@@ -155,3 +155,4 @@
 - [AI conversation route precedence](ai-conversation-route-precedence.md) — explicit project/session links beat stale local execution pointers; unavailable targets must not silently open another session.
 - [Benchmark smoke environment](benchmark-smoke-database-env.md) — an unset DATABASE_URL can masquerade as provider failure during orchestrator import; use a non-production local DSN.
 - [Nested pnpm project isolation](pnpm-project-isolation.md) — generated roots under the monorepo need explicit workspace isolation, or pnpm may report “No projects found”.
+- [EngineeringOS audience](engineeringos-audience.md) — prioritize a goal-first Arabic experience for users without programming or engineering expertise.
