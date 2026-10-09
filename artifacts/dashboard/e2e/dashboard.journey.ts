@@ -3717,8 +3717,31 @@ async function navigateClerkHandoff(page: Page, url: string): Promise<void> {
     // failed page load.
     await page.goto(url, { waitUntil: "commit" });
   } catch (error) {
-    if (!isClerkHandoffNavigationAbort(error)) throw error;
+    if (isClerkHandoffNavigationAbort(error)) return;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Clerk handoff navigation failed: ${redactBrowserDiagnostic(message)}`,
+    );
   }
+}
+
+async function expectDashboardPath(
+  page: Page,
+  timeoutMs: number,
+): Promise<void> {
+  const expectedPath = new URL(DASHBOARD_PATH, page.url()).pathname;
+  await expect
+    .poll(
+      () => {
+        try {
+          return new URL(page.url()).pathname;
+        } catch {
+          return "";
+        }
+      },
+      { timeout: timeoutMs },
+    )
+    .toBe(expectedPath);
 }
 
 async function navigateBrowserHistory(
@@ -3765,9 +3788,9 @@ async function programmaticSignIn(
       );
     }
     await navigateClerkHandoff(page, await createReleaseSignInUrl(page, user));
-    await expect(page).toHaveURL(
-      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-      { timeout: options.handoffTimeoutMs ?? clerkHandoffTimeoutMs() },
+    await expectDashboardPath(
+      page,
+      options.handoffTimeoutMs ?? clerkHandoffTimeoutMs(),
     );
     await completeReadinessHandshake(page, options);
     return;
@@ -3778,9 +3801,9 @@ async function programmaticSignIn(
     basePath: DASHBOARD_PATH,
   });
   await navigateClerkHandoff(page, signInUrl);
-  await expect(page).toHaveURL(
-    new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-    { timeout: options.handoffTimeoutMs ?? clerkHandoffTimeoutMs() },
+  await expectDashboardPath(
+    page,
+    options.handoffTimeoutMs ?? clerkHandoffTimeoutMs(),
   );
   await completeReadinessHandshake(page, options);
 }

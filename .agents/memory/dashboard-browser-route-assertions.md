@@ -20,3 +20,9 @@ For Clerk-backed Firefox journeys, use `page.goto(path, { waitUntil: "domcontent
 **Why:** The release journey stalled at the initial navigation while external Clerk scripts were still loading; DOM-ready navigation plus UI readiness assertions passed the protected-dashboard and isolated-user checks.
 
 **How to apply:** Use a DOM-content milestone for initial Clerk handoffs and reloads, keep browser-error assertions after authentication, and reserve full-load waits for tests that explicitly require every external resource to finish.
+
+When asserting that proof content is unchanged after reload, compare `textContent` rather than exact `innerText` if layout is not part of the contract. Keep separate visible assertions for the proof verdict and reason.
+
+**Why:** Firefox changed CSS-derived line breaks in `innerText` after reload even though the Flight Deck proof content and blocked verdict were unchanged.
+
+**How to apply:** Use DOM text for persistence equality and accessible visible assertions for user-facing state; do not make layout-generated whitespace part of a proof persistence check.
