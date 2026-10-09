@@ -5782,3 +5782,14 @@ G9 Revocation Safety
 - **authority/safety impact:** لا قاعدة خادمية تربط predicate/value محددًا بخطوة planner في هذا المسار؛ facts ليست proof أو permission. قد تؤثر في فهم model داخل prompt، لكن الاختبار لا يثبت تغير فعل model ولا يجعل ذلك إذنًا.
 - **remaining/blocker:** النتيجة محصورة في automatic replan والـintent المختبر؛ قواعد domain، سلوك model تحت prompt مختلف، وبقية planners/consumers الديناميكية ما زالت `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** واصل جرد E2 على مصدر أو مستهلك داخلي آخر غير محسوم؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — تصنيف قراءات World State في runtime وRecipe
+
+- **phase/step:** E2 فقط — direct `getProjectWorldState` readers خارج automatic planner.
+- **status:** `bounded direct readers classified; one tested runtime.status veto; planner action mapping still UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** في `mission-runtime` تُستخدم القراءة scoped لمقارنة `worldRevision` الحالية بالمراجعة المتوقعة للـEpisode/transition، وهي بوابة freshness/completion لا اختيار خطوة. في Recipe، يثبّت runtime.start parent revision ثم يقرأ facts في project/task scopes؛ إذا تعارض `runtime.status` مع pre-state مستقل مباشر، يمنع D1 الأثر قبل استدعاء start. الاختبار الموجود يثبت الحالة الملموسة: fact=`running` مع pre-state=`stopped` يؤدي إلى blocked بلا start أو World Transition أو acceptance ناجحة. GitHub delivery وApply Changes يقرآن parent revision/fact refs لربط transition بالأثر والملاحظات؛ لا يستخدمانها لاختيار الأثر. `GET /projects/:id/world-state` إسقاط read-only؛ لم يظهر له caller في Dashboard/API client search. `readWorldStateForDecision` مُعرّف لكن لا مستهلك production داخليًا ظهر في البحث.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** بحث production-wide عن `getProjectWorldState` و`readWorldStateForDecision`، وتتبع المقاطع في `mission-runtime.ts` و`recipe-operation-runner.ts` و`runtime-start-transition.ts` وApply route؛ راجعت assertion في اختبار تعارض `runtime.status` ولم أعد تشغيله.
+- **authority/safety impact:** الحقائق لا تختار `runtime.start`؛ العامل الحاسم هو pre-state المباشر، بينما تناقض fact موثوق يمنع الأثر. لا تحول القراءة أو التناقض إلى proof أو إذن، وparent refs تبقى ربط transition.
+- **remaining/blocker:** الاستدعاءات الداخلية المعروفة لا تثبت قاعدة عامة من facts إلى planner actions؛ model-level behavior في prompt غير مقاس، وexported helper/API consumers خارج workspace أو dynamic تظل `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 على المصدر أو المستهلك الداخلي غير المحسوم التالي؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
