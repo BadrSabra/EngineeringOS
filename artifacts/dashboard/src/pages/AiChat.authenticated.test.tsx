@@ -9,6 +9,7 @@ import AiChat, {
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 import { HOME_GOAL_DRAFT_HANDOFF_KEY } from '../lib/home-goal-handoff';
+import { classifyProjectError, useListProjects } from '@workspace/api-client-react';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
 type TaskResultFixture =
@@ -240,7 +241,7 @@ vi.mock('@workspace/api-client-react', () => {
       error: null,
     })),
     getListProjectsQueryKey: () => ['projects'],
-    classifyProjectError: () => null,
+    classifyProjectError: vi.fn(() => null),
     isRetryableProjectError: () => false,
     emitProjectLoadFailed: vi.fn(),
     useAiChatStream: vi.fn(() => ({
@@ -523,6 +524,15 @@ beforeEach(() => {
     timeline: [],
   });
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
+  vi.mocked(useListProjects).mockReset().mockImplementation(() => ({
+    data: mocks.projects,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }) as ReturnType<typeof useListProjects>);
+  vi.mocked(classifyProjectError).mockReset().mockReturnValue(
+    null as unknown as ReturnType<typeof classifyProjectError>,
+  );
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
   mocks.sessionsError = false;
@@ -624,20 +634,76 @@ describe('AiChat route target parsing', () => {
 });
 
 describe('workspace goal draft handoff', () => {
-  it('prefills the composer without sending the goal and removes the one-time value', async () => {
+  it('prefills the composer, waits for an explicit send, and consumes the one-time value', async () => {
     const goal = 'ساعدني أفهم سبب بطء صفحة تسجيل الدخول';
     window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, goal);
 
     renderAiChat();
 
-    const composer = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const composer = screen.getByTestId('input-ai-chat-composer');
     await waitFor(() => expect(composer).toHaveValue(goal));
 
     expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
     expect(screen.getByTestId('status-project-planning-handoff')).toHaveTextContent(
-      'مسودة غير مرسلة',
+      'مسودة مؤقتة لهذه الجلسة',
     );
     expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId('button-send-ai-message'));
+
+    await waitFor(() => {
+      expect(mocks.sentParams?.message ?? mocks.taskSentParams?.task).toBe(goal);
+    });
+    expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
+  });
+
+  it('does not reinsert a consumed goal when the assistant is reopened', async () => {
+    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, 'افحص سبب بطء صفحة الدخول');
+
+    const firstOpen = renderAiChat();
+    const firstComposer = screen.getByTestId('input-ai-chat-composer');
+    await waitFor(() => expect(firstComposer).toHaveValue('افحص سبب بطء صفحة الدخول'));
+    firstOpen.unmount();
+
+    renderAiChat();
+    const reopenedComposer = screen.getByTestId('input-ai-chat-composer');
+    await waitFor(() => expect(reopenedComposer).toHaveValue(''));
+
+    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
+    expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the goal visible when the assistant cannot load projects', async () => {
+    const goal = 'اشرح لي سبب بطء صفحة تسجيل الدخول';
+    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, goal);
+    const projectError = new Error('API unavailable');
+
+    vi.mocked(useListProjects).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: projectError,
+    } as ReturnType<typeof useListProjects>);
+    vi.mocked(classifyProjectError).mockReturnValue({
+      kind: 'server_error',
+      message: 'Projects are temporarily unavailable.',
+      status: 503,
+    });
+
+    renderAiChat();
+
+    const composer = screen.getByTestId('input-ai-chat-composer');
+    await waitFor(() => expect(composer).toHaveValue(goal));
+
+    expect(screen.getByTestId('button-retry-projects')).toBeInTheDocument();
+    expect(composer).toBeDisabled();
+    expect(screen.getByTestId('status-project-planning-handoff')).toBeVisible();
+    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
   });
 });
 

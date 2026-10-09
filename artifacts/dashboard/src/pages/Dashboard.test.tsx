@@ -114,6 +114,31 @@ describe("Dashboard goal-first home", () => {
     expect(screen.getByTestId("text-completed-work-home")).toHaveTextContent("1");
     expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
   });
+
+  it("does not show stale counters when the dashboard request fails", () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: new Error("Dashboard API unavailable"),
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: Date.now(),
+    } as ReturnType<typeof useGetDashboard>);
+
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: { alerts: [] },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("تعذر تحميل مساحة العمل");
+    expect(screen.queryByTestId("section-home-work-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("section-home-recent-activity")).not.toBeInTheDocument();
+  });
 });
 
 describe("Dashboard operator alerts", () => {

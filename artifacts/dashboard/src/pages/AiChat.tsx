@@ -11592,6 +11592,8 @@ export default function AiChat() {
         ...(requestSessionId ? { sessionId: requestSessionId } : {}),
       };
     }
+    setPlanningHandoffNotice(false);
+    setPlanningHandoffReadOnly(false);
     setAgentStage('Connecting…');
     setStreamingContent('');
     setAgentSteps([]);
@@ -14012,7 +14014,7 @@ export default function AiChat() {
             />
             {planningHandoffNotice && (
               <div role="status" data-testid="status-project-planning-handoff" className="mb-2 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">مسودة غير مرسلة.</span> لن تُرسل حتى تضغط زر الإرسال، ولا تمنح موافقة على تعديل المشروع.</span>
+                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">مسودة مؤقتة لهذه الجلسة.</span> لن تُرسل تلقائيًا، ولا تمنح موافقة على تعديل المشروع. إذا غادرت المساعد أو أعدت تحميل الصفحة، قد تحتاج إلى إدخالها مجددًا.</span>
                 {planningHandoffReadOnly && (
                   <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="تعديل المسودة">تعديل المسودة</button>
                 )}
@@ -14022,6 +14024,7 @@ export default function AiChat() {
             <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
             <Textarea
               ref={textareaRef}
+              data-testid="input-ai-chat-composer"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -14032,6 +14035,7 @@ export default function AiChat() {
               disabled={!isLoaded || projectsLoading || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
             />
             <Button
+              data-testid="button-send-ai-message"
               size="icon"
               onClick={handleSend}
                disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
