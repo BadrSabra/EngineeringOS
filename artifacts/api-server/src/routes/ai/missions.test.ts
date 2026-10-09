@@ -1240,6 +1240,92 @@ describe("AI missions and goals", () => {
     )).toBe(true);
   });
 
+  it("uses the current Task correlation pointer instead of a higher historical Goal attempt", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Current Task attempt projection",
+      intent: "Show the execution bound to the Task's current correlation pointer",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Task-backed Goal",
+    });
+    const goalId = goal.body.id as string;
+    const taskId = randomUUID();
+    const historicalExecutionId = randomUUID();
+    const currentExecutionId = randomUUID();
+    const historicalCorrelationId = `historical:${taskId}`;
+    const currentCorrelationId = `current:${taskId}`;
+    const now = new Date();
+
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Current Task",
+      prompt: "Run the current Task execution",
+      status: "verifying",
+      priority: "p2",
+      correlationId: currentCorrelationId,
+      createdAt: new Date(now.getTime() - 60_000),
+      updatedAt: now,
+    });
+    await db.update(aiGoalsTable)
+      .set({ nextAction: { kind: "task", taskId, purpose: "execution" } })
+      .where(eq(aiGoalsTable.id, goalId));
+    await db.insert(aiExecutionsTable).values([
+      {
+        id: historicalExecutionId,
+        projectId,
+        goalId,
+        linkedTaskId: taskId,
+        userId: "test-user",
+        correlationId: historicalCorrelationId,
+        idempotencyKey: `mission-current-task-${historicalExecutionId}`,
+        attempt: 9,
+        resumeTokenHash: `historical-${taskId}`,
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+        createdAt: new Date(now.getTime() - 60_000),
+        updatedAt: new Date(now.getTime() - 30_000),
+      },
+      {
+        id: currentExecutionId,
+        projectId,
+        goalId,
+        linkedTaskId: taskId,
+        userId: "test-user",
+        correlationId: currentCorrelationId,
+        idempotencyKey: `mission-current-task-${currentExecutionId}`,
+        attempt: 1,
+        resumeTokenHash: `current-${taskId}`,
+        request: "{}",
+        checkpoint: "{}",
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    const projectedGoal = projection.body.goals.find(
+      (item: { goal: { id: string } }) => item.goal.id === goalId,
+    );
+
+    expect(projection.status).toBe(200);
+    expect(projectedGoal.currentAttempt).toMatchObject({
+      id: currentExecutionId,
+      linkedTaskId: taskId,
+      correlationId: currentCorrelationId,
+      attempt: 1,
+      status: "running",
+    });
+    expect(projectedGoal.executions.map((execution: { id: string }) => execution.id).sort())
+      .toEqual([historicalExecutionId, currentExecutionId].sort());
+  });
+
   it("accepts an authenticated Goal event idempotently and wakes the waiting Goal", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({

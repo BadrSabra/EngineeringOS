@@ -1628,7 +1628,7 @@ describe("AI execution resume-capability recovery", () => {
 });
 
 describe("Durable AI completion identity", () => {
-  it("reloads only complete source bodies from the prior execution attempt", async () => {
+  it("reloads only complete un-ranged source bodies from the prior execution attempt", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const sessionId = await insertChatSession(projectId, "Reusable evidence reads");
@@ -1660,7 +1660,7 @@ describe("Durable AI completion identity", () => {
       sourceRevision,
       verdict: "UNAVAILABLE",
       complete: 0,
-      readCount: 2,
+      readCount: 3,
       totalBytes: 64,
     });
     await db.insert(aiExecutionEvidenceReadsTable).values([
@@ -1674,6 +1674,19 @@ describe("Durable AI completion identity", () => {
         complete: 1,
         truncated: 0,
         body: PROOF_FIXTURE_BODY,
+      },
+      {
+        id: randomUUID(),
+        snapshotId,
+        path: "src/targeted.ts",
+        readType: "source",
+        lineStart: 12,
+        lineEnd: 18,
+        contentHash: "targeted-hash",
+        byteLength: 14,
+        complete: 1,
+        truncated: 0,
+        body: "partial source",
       },
       {
         id: randomUUID(),

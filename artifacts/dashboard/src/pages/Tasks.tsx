@@ -329,6 +329,7 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
       operationId={execution.operationId}
       proposalId={execution.proposalId}
       taskId={taskId}
+      allowTaskRecovery={executionMatchesCurrentTask}
       executionStatus={execution.status}
       flightState={execution.flightState}
       evidenceVerdict={execution.evidenceVerdict}

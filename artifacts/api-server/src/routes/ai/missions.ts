@@ -1215,9 +1215,30 @@ async function buildMissionProjection(
     )),
   ]);
   const currentPlanGoalIds = new Set(currentPlan.goalIds);
+  const currentTaskIdByGoalId = new Map<string, string>();
+  for (const goal of goals) {
+    const nextAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    if (nextAction.success && nextAction.data.kind === "task") {
+      currentTaskIdByGoalId.set(goal.id, nextAction.data.taskId);
+    }
+  }
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
   const currentExecutionByGoalId = new Map<string, typeof executions[number]>();
   for (const execution of executions) {
     if (!execution.goalId || !currentPlanGoalIds.has(execution.goalId)) continue;
+    const currentTaskId = currentTaskIdByGoalId.get(execution.goalId);
+    if (currentTaskId) {
+      const currentTask = taskById.get(currentTaskId);
+      if (
+        !currentTask
+        || currentTask.goalId !== execution.goalId
+        || execution.linkedTaskId !== currentTaskId
+        || !currentTask.correlationId
+        || execution.correlationId !== currentTask.correlationId
+      ) {
+        continue;
+      }
+    }
     const current = currentExecutionByGoalId.get(execution.goalId);
     if (
       !current

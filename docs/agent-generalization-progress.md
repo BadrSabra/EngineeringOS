@@ -6,8 +6,10 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-10-08
-**تدقيق E2 الحالي:** `CLOSED` لنطاق invariant الخاص بـproof-bound World State materialization: يجوز وجود pending reservation row، لكنه لا ينشئ fact أو materialized transition أو WorldRevision قبل اكتمال proof chain وربطه بالمحاولة والأثر والملاحظات المطلوبة. يظل `/git/push` اليدوي receipt-only ولا يُستنتج منه World Transition. أكدت ذلك مراجعة المسارات والقيود والاختبارات الموجودة؛ وشُغّلت suites سباقات وتسليم GitHub بعد restart على قاعدة PostgreSQL مؤقتة loopback (2 ملفات، 6/6 اختبارات)، إضافةً إلى الأدلة المركزة المسجلة سابقًا. E3 بدأ بتدقيق Forensic Entry Audit موثق في `docs/e3-forensic-entry-audit.md`؛ لا تغييرات إنتاجية ولا تنفيذ لـE3 حتى الآن. هذا إغلاق للـinvariant المحدد، لا ادعاء بجاهزية Learning/Transfer/Generalization أو إغلاق بقية فجوات Agent Core.
+**التصحيح والحالة الفعلية لهذه المتابعة (2026-10-09):** E2 `OPEN`؛ جرد عائلات المصادر العامة/الديناميكية ومستهلكيها لم يكتمل، لذلك لا denominator أو نسبة إجمالية صالحة. إغلاق invariant proof-bound World State materialization السابق محدود بنطاقه ولا يغلق E2. هذه المتابعة تقتصر على E2؛ E3 متوقفة ضمن هذا النطاق، ولا يبدأ Strategy Replay أو workflow مُدار ولا تُقترح مهام متابعة أثناء E2.
+
+**آخر تحديث:** 2026-10-09
+**سجل تاريخي (2026-10-08، وليس الحالة الحالية):** أُغلق آنذاك invariant المحدد الخاص بـproof-bound World State materialization: يجوز وجود pending reservation row، لكنه لا ينشئ fact أو materialized transition أو WorldRevision قبل اكتمال proof chain وربطه بالمحاولة والأثر والملاحظات المطلوبة. يظل `/git/push` اليدوي receipt-only ولا يُستنتج منه World Transition. أكدت ذلك مراجعة المسارات والقيود والاختبارات الموجودة؛ وشُغّلت suites سباقات وتسليم GitHub بعد restart على قاعدة PostgreSQL مؤقتة loopback (2 ملفات، 6/6 اختبارات)، إضافةً إلى الأدلة المركزة المسجلة سابقًا. يوثق السجل السابق وجود `docs/e3-forensic-entry-audit.md` دون تغييرات إنتاجية أو تنفيذ E3؛ وهذا لا يغيّر توقف E3 ضمن نطاق هذه المتابعة. الإغلاق المذكور يخص الـinvariant المحدد ولا يغلق E2 أو فجوات Agent Core الأخرى.
 **مراجعة Agent Core code-first:** تقرير `docs/agent-core-forensic-status-report.md` يجمع نتائج تشغيلات محددة مسجلة تاريخيًا حتى 2026-10-06. أحدث متابعة للطبقات الأربع وFinal Gate ذي 19 بندًا في `docs/agent-core-four-agent-forensic-audit-2026-10-06.md`؛ التقرير المؤرخ 2026-10-05 محفوظ كسجل تاريخي. E2 ما زالت `OPEN`، وE3 `STOPPED` إلى أن تجتاز E2 بوابتها صراحةً، وE3.2 replay safety `OPEN`. النسب العامة `UNKNOWN`، ونسبة `14/19` السابقة غير صالحة لأنها استخدمت قائمة مختلفة. حالة قاعدة الإنتاج `UNKNOWN` لعدم وجود قاعدة إنتاج، ولا يحوّل اختبار محدود أو وصف سابق إلى إغلاق شامل.
 **متابعة E2 لـMission repair (2026-10-06):** اختبار process-level اختياري يقتل عامل الخدمة الحقيقي عند ثلاث مراحل: `candidate_ready`، و`committed` بعد دوام حدث `ACTION_COMMITTED` وملاحظة after، و`effect_classified` بعد دوام تصنيف الأثر. في كل حالة يشغّل process مستقل `src/index.ts` لاستعادة startup، ثم يستأنف recovery child المحاولة التالية من checkpoint دائم بعد حذف workspace المؤقت. يثبت قبولًا فاشلًا قابلًا للاستئناف للمحاولة المتروكة بلا `TaskCompleted`، ثم نجاح محاولة جديدة مع بقاء live tree الأصلي. عند دوران المحاولة بعد `effect_classified` يُنشأ effect bundle جديد بدل إعادة قبول دليل المحاولة السابقة. نجح كل سيناريو 1/1 (36 skipped) على PostgreSQL loopback مؤقتة مع provider egress معطّل، ونجح API TypeScript check؛ أُوقفت قواعد الاختبار وحُذفت جذورها. E2 تبقى `OPEN` وE3 `STOPPED`؛ لم يُعد تشغيل أي managed workflow.
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
@@ -5023,6 +5025,127 @@ G9 Revocation Safety
 - **authority/safety impact:** قبول retry يظل مقيدًا بمحاولة التنفيذ الحالية وبالقرار الذي يبقى مقفولًا أثناء إصدار الرمز. القراءات التاريخية صُنفت كسجل/receipt ولا تمنح إذن resume أو Canonical Proof حاليًا. لم يُعلن إغلاق عائلة القراء، ولم يبدأ E3.
 - **remaining/blocker:** جرد Canonical Proof ذي override للمحاولة، Mission World State planning عند وجود أكثر من acceptance تاريخية، بقية Skill/Flight Deck/API-client المستهلكة، واختبار recipe-lease الفاشل ما زالت مفتوحة. عائلات المصدر العامة والديناميكية تظل `UNKNOWN`.
 - **next step:** تابع جرد callsites والروابط غير المباشرة داخل E2؛ لا تبدأ E3 أو Strategy Replay، ولا تعِد تشغيل workflow مُدارًا، ولا تقترح متابعة ما دامت E2 مفتوحة.
+
+### 2026-10-09 — إصلاح checkpoint استعادة recipe lease وتصنيف محاولات Canonical Proof
+
+- **phase/step:** E2 فقط — استعادة recipe lease بعد reconciliation وجرد callsites التي تمرر attempt صريحًا.
+- **status:** `PARTIAL — expired recipe-lease reclaim and direct attempt binding verified; public/dynamic source-family inventory remains UNKNOWN`
+- **what changed:** كان fallback في `finalizeExecutionAcceptance` يكتب حالة execution `paused` كمرحلة checkpoint غير صالحة. صار يحافظ على آخر مرحلة مسموحة عند الإيقاف، مع fallback fail-closed إلى `failed` للمرحلة غير الصالحة. اختبار استعادة recipe lease يتحقق الآن من قابلية تحليل checkpoint، وبقاء `tool_loop` وربط recipe، ثم نجاح claim العامل الثاني. جرد المصدر المباشر وجد أن explicit attempts في قارئات Canonical Proof إما المحاولة الحالية أو attempt مرتبطًا بـEpisode/Replay؛ ويشترط الـcomposer تطابق acceptance مع attempt الحالية. أضيف اختبار يرفض قبولًا تاريخيًا كـCanonical Proof للمحاولة الحالية، وصُنفت إسقاطات Flight Deck/Missions/Skill Registry دون ترقية العرض إلى authority.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-acceptance.ts`، `artifacts/api-server/src/lib/ai-execution-retry.integration.test.ts`، `artifacts/api-server/src/lib/proof-foundation.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** اختبار lease المعزول **1/1** ثم ملف `ai-execution-retry.integration.test.ts` كاملًا **7/7** على PostgreSQL مؤقت loopback بعد schema push؛ `proof-foundation.test.ts` **11/11** مع عنوان قاعدة محلي غير مستمع؛ API typecheck و`git diff --check` ناجحان. أُوقفت قاعدة الاختبار المؤقتة وحُذف جذرها.
+- **authority/safety impact:** استعادة العامل لا تتعطل بسبب checkpoint غير قابل للتحليل، وتبقى كتابات العامل القديم مرفوضة. محاولة acceptance تاريخية لا تنتج Canonical Proof مقبولًا للمحاولة الحالية؛ لا تغيير في صلاحيات الاستعادة أو proof.
+- **remaining/blocker:** جرد المستهلكين العامين/الديناميكيين لا يزال `UNKNOWN`. يبقى سؤال Mission World State planning عند تعدد acceptances تاريخية، إلى جانب بقية روابط Mission/Skill Registry/Flight Deck/API-client والقراء غير المباشرين.
+- **next step:** افحص قارئ Mission World State planning عند تعدد acceptances، وحدد إن كان يمكن اختيار acceptance الحالية بهويتها الدائمة بأمان؛ أبقِ E2 مفتوحة ولا تبدأ مراحل لاحقة أو Strategy Replay ولا تعِد تشغيل workflows مُدارة أو تقترح مهام متابعة.
+
+### 2026-10-09 — اختيار acceptance المرتبطة بهوية Goal عند تعدد المحاولات
+
+- **phase/step:** E2 فقط — قارئ Mission World State planning مع acceptances تاريخية متعددة.
+- **status:** `PARTIAL — exact Goal acceptance identity selects current advisory source; broader planning/recovery interleavings remain open`
+- **what changed:** لم يعد القارئ يرفض القراءة لمجرد وجود acceptances تاريخية متعددة للتنفيذ؛ صار يجلب `acceptanceId` المحددة في Goal outcome projection مع project/execution IDs، ثم يحافظ على تحقق تطابقها مع المحاولة الحالية وEpisode والمراجعة. أضيف اختبار يضع قبول attempt 1 تاريخيًا إلى جانب القبول المسجل للمحاولة 2، ويثبت استمرار اختيار قراءة المحاولة 2.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/mission-world-state-planning-read.ts`، `artifacts/api-server/src/lib/mission-auto-replan-evidence.integration.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** PostgreSQL مؤقتة loopback بعد schema push: ملف `mission-auto-replan-evidence.integration.test.ts` **10/10**؛ API typecheck و`git diff --check` ناجحان. أُوقفت قاعدة الاختبار وحُذف جذرها.
+- **authority/safety impact:** الاختيار يستند إلى هوية acceptance الدائمة من سجل Goal ولا ينتقي أحدث صف زمنيًا؛ stale attempt أو ID mismatch يظل fail-closed. World State يبقى سياق تخطيط advisory فقط، لا إثباتًا أو إذنًا.
+- **remaining/blocker:** عائلات E2 العامة والديناميكية لا تزال `UNKNOWN`، كما أن سلوك القراء الآخرين وتداخلات التخطيط/التعافي خارج هذه الحالة لم تُغلق.
+- **next step:** واصل تتبع حقول proof/status من API إلى Flight Deck وMission وSkill Registry وAPI client، مع فصل العرض عن authority؛ أبقِ E2 مفتوحة ولا تبدأ مراحل لاحقة أو Strategy Replay ولا تعِد تشغيل workflows مُدارة أو تقترح مهام متابعة.
+
+### 2026-10-09 — توسيع خريطة مستهلكي إسقاطات الحالة في Dashboard
+
+- **phase/step:** E2 فقط — تتبع direct `useGetAiExecution` callers وواجهات Mission وSkill Registry.
+- **status:** `PARTIAL — direct dashboard consumers and sampled registry approval path mapped; dynamic and external callers remain UNKNOWN`
+- **what changed:** تتبعت الاستدعاءات المباشرة لـ`useGetAiExecution` في AiChat وFlight Deck وMission Control وTasks إلى GET المالك-المقيّد، الذي يختار acceptance للمحاولة الحالية ويعيد operation evidence منقحًا. واجهة Tasks تتحقق أيضًا من correlation pointer و`linkedTaskId`. وثّقت أن Mission يعرض إسقاط proof/source من الخادم، وأن قائمة Skill Registry تعرض صفًا مخزنًا عبر helper مخصص، بينما approval يعيد التحقق من proof والهوية ويقفل الصف؛ لم يُعثر على استدعاء Dashboard مباشر للـgenerated skill-list hook في المصدر المفحوص.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير تطبيق أو schema أو workflow.
+- **validation:** بحث callsites وقراءة مواضع المصدر للـroutes/consumers؛ لا اختبار runtime مطلوب لتحديث توثيق هذا الجرد. `git diff --check` نجح بعد تحديث السجل والledger.
+- **authority/safety impact:** إسقاطات الواجهة لا تمنح صلاحية؛ العمليات المحمية تظل تعيد التحقق على الخادم. لا إغلاق لعائلة API-client أو المستهلكين الديناميكيين أو الخارجيين.
+- **remaining/blocker:** Canonical Proof override paths وبعض Mission/Skill consumers والقراء غير المباشرين وexternal callers ما زالوا غير محصورين (`UNKNOWN`)، لذا E2 مفتوحة.
+- **next step:** تابع جرد الاسترجاع والقراءات الديناميكية والتخزين ذي provenance؛ لا تبدأ مرحلة لاحقة أو Strategy Replay، ولا تشغّل/تعِد تشغيل workflow مُدارًا، ولا تقترح مهام متابعة أثناء بقاء E2 مفتوحة.
+
+### 2026-10-09 — تثبيت مصدر acceptance في قائمة Mission Control
+
+- **phase/step:** E2 فقط — إسقاط execution/acceptance في `/ai/mission-control`.
+- **status:** `PARTIAL — source joins are attempt-bound; historical-row route case is not exercised`
+- **what changed:** تتبع route قائمة Mission Control حتى `projectExecution`: يقيد exec rows بمالك الطلب، يربط acceptance باستخدام مفتاح `(executionId, attempt)`، ثم يمرر صف `execution.attempt` فقط، ويحمّل operation evidence من execution. الواجهة تستخدم هذا الإسقاط للحالة في القائمة وتحمّل التفاصيل المختارة عبر المسار المنفصل الذي سبق توثيقه. اختبارات route الحالية تغطي envelope/redaction ولا تختبر صفوف قبول متعددة للمحاولات نفسها.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير تطبيق أو schema أو workflow.
+- **validation:** مراجعة source anchors واختبارات route القائمة؛ لا ترقية إلى `PASS` بلا اختبار صفوف قبول متنافسة. `git diff --check` مطلوب بعد تحديث التوثيق.
+- **authority/safety impact:** الإسقاط مربوط بالمحاولة الحالية حسب المصدر، لكنه عرض لا يمنح صلاحية؛ الأثر runtime للحالة المتنافسة غير متحقق.
+- **remaining/blocker:** اختبار route لمزج current/historical acceptances، ومستهلكو API غير المباشرين والديناميكيون/الخارجيون، ما زالوا غير محسومين؛ E2 مفتوحة.
+- **next step:** تابع قراءات recovery/proof غير المباشرة وبيانات provenance؛ أبقِ E2 وحدها، ولا تشغّل أو تعِد تشغيل workflows مُدارة ولا Strategy Replay ولا تقترح مهام متابعة.
+
+### 2026-10-09 — اختبار ربط acceptance الحالي في قائمة Mission Control
+
+- **phase/step:** E2 فقط — إثبات DB-backed لربط `/ai/mission-control` بـacceptance المحاولة الحالية.
+- **status:** `PARTIAL — route-level current-attempt join verified for historical/current acceptance coexistence`
+- **what changed:** أضيف اختبار مسار ينشئ execution بمحاولة 2 وقبولين للمحاولتين 1 و2، ثم يثبت أن قائمة Mission Control تعرض بيانات acceptance للمحاولة 2 لا التاريخية. حدث سجل القياس من مصدر-مراجع فقط إلى هذا الحد المختبر.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/benchmark.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل. لا تغيير في route production أو schema أو workflow.
+- **validation:** ملف `benchmark.test.ts` كاملًا **9/9** على PostgreSQL مؤقت loopback بعد schema push؛ API typecheck ناجح. سيُعاد `git diff --check` بعد تحديث التوثيق النهائي.
+- **authority/safety impact:** يؤكد الاختبار إسقاط current attempt في قائمة عرض Mission Control؛ لا يمنح قبولًا أو إذنًا ولا يثبت تداخلات crash/recovery أو production.
+- **remaining/blocker:** Dynamic/external API consumers وقراءات proof/recovery الأخرى وinterleavings غير المختبرة تبقى `UNKNOWN`، لذا E2 مفتوحة.
+- **next step:** واصل جرد المستهلكين غير المباشرين وقراءات recovery/provenance داخل E2؛ لا تبدأ مراحل لاحقة أو Strategy Replay، ولا تشغّل أو تعِد تشغيل workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — حصر مراجع acceptance المباشرة
+
+- **phase/step:** E2 فقط — جرد حرفي لمراجع acceptance-table في مصادر workspace.
+- **status:** `PARTIAL — literal ORM reference set bounded in scanned workspace sources; source-family completeness remains UNKNOWN`
+- **what changed:** البحث غير الاختباري عن `aiExecutionAcceptancesTable` حصر 24 ملف تنفيذ في API server. خارجها ظهرت فقط schema/export وفاحص جاهزية schema في `lib/db`؛ بحث الاسم الفيزيائي وجد metadata الـschema وتعليقًا، لا قارئ SQL خام. طابق فحص أسماء الملفات كل مراجع API server مع ledger. هذا يحدّد مجموعة المراجع الحرفية فقط، ولا يثبت تصنيف كل query أو اكتمال الروابط الديناميكية.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** بحث `rg` غير الاختباري في `artifacts` و`lib` وcross-check لأسماء الملفات؛ `benchmark.test.ts` **9/9** وAPI typecheck ناجحان قبل تحديث التوثيق. أُعيد `git diff --check` بعد تحديث هذا الإدخال ونجح.
+- **authority/safety impact:** لا تغيير في قبول أو صلاحيات؛ وجود مرجع ORM ليس إثباتًا لسلوكه أو لصحة مساراته التشغيلية.
+- **remaining/blocker:** aliases الديناميكية، التجميعات غير المباشرة، API clients/external consumers واللغات أو المصادر خارج البحث تبقى `UNKNOWN`؛ E2 مفتوحة.
+- **next step:** واصل ربط قارئات proof/recovery وAPI-client بمستهلكيها ومساراتهم، مع إبقاء أي عائلة غير محصورة `UNKNOWN`؛ لا مراحل لاحقة أو Strategy Replay أو workflows مُدارة أو مهام متابعة أثناء E2.
+
+### 2026-10-09 — ربط محاولة Mission الجارية بمؤشر Task الحالي
+
+- **phase/step:** E2 فقط — مستهلك Chat اليدوي لـMission projection ومطابقة `currentAttempt`.
+- **status:** `PARTIAL — direct handoff consumer mapped and task attempt bound to current Goal action; recipe/non-Task and dynamic/external consumers remain UNKNOWN`
+- **what changed:** فُحص `ChatSessionMissionHandoffs`: يحمّل الإسقاط عند التوسيع وبعد مطابقة جلسة handoff، ويتحقق من mission/project، ثم يعرض أهداف الخطة النشطة وحالة المحاولة. كشف اختبار مضاد أن اختيار أعلى `execution.attempt` قد يعرض execution تاريخيًا (attempt 9) بدل الجاري (attempt 1) بعد تبدل correlation. رُبط الإسقاط الآن بـTask المحددة في `Goal.nextAction` وبالتطابق بين `Task.correlationId` و`execution.linkedTaskId/correlationId`؛ تبقى executions التاريخية ظاهرة في قائمة السجل.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/missions.ts`، `artifacts/api-server/src/routes/ai/missions.test.ts`، `docs/e2-source-derived-measurement-ledger.md` وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** PostgreSQL مؤقتة loopback بعد schema push: اختباري إسقاط الخطة الحالي وربط Task **2/2**؛ API typecheck ناجح؛ `git diff --check` ناجح بعد هذا التحديث. أُوقفت قاعدة الاختبار وحُذف جذرها.
+- **authority/safety impact:** الإسقاط للعرض فقط ولا يمنح proof أو قبولًا أو صلاحية؛ تنفيذ Mission يبقى وراء بوابات الخادم. استبعاد المحاولات غير المطابقة يمنع عرض Task execution قديم باعتباره الحالي.
+- **remaining/blocker:** اختيار المحاولة لمسارات recipe/non-Task والقراء الديناميكية أو الخارجية لم يُحسم؛ عائلات API client/alias غير المحصورة تبقى `UNKNOWN`، لذا E2 مفتوحة.
+- **next step:** واصل حصر مستهلكي proof/status غير المباشرين والديناميكيين ومسارات non-Task داخل E2 مع إبقاء غير المحسوم `UNKNOWN`؛ لا تبدأ E3، ولا Strategy Replay أو workflows مُدارة أو مهام متابعة.
+
+### 2026-10-09 — حصر مستهلكي Mission projection المباشرين
+
+- **phase/step:** E2 فقط — تتبع direct Dashboard callers لمسار Mission projection.
+- **status:** `PARTIAL — both direct Dashboard consumers traced; generated client, recipe/non-task behavior and external callers remain UNKNOWN`
+- **what changed:** أثبت البحث أن `ChatSessionMissionHandoffs` وصفحة `Missions.tsx` تستدعيان wrapper يدويًا واحدًا. Chat يطلب عند التوسيع وبعد مطابقة الجلسة ويتحقق من هوية Mission/project، ثم يعرض أهداف الخطة الحالية. صفحة الإدارة تطلب للمهمة المختارة، تلغي الطلبات القديمة، وتعيد التحميل كل 3 ثوانٍ ما دامت المهمة نشطة؛ تعرض execution history كاملًا ولا تستخدم `currentAttempt`. رابط Mission Control فيها يختار execution بترتيب `completedAt ?? updatedAt` وبوصف فحص، لا كإثبات للمحاولة الحالية. hook generated موجود لكن لم يظهر له استدعاء مباشر في شجرة Dashboard المفحوصة.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير تطبيق أو schema أو workflow في هذه الخطوة.
+- **validation:** بحث `rg` في Dashboard والعملاء المولّدين وقراءة مواضع الاستدعاء والعرض؛ لم يُشغّل workflow أو اختبار واجهة امتثالًا لنطاق E2 الحالي؛ أُعيد `git diff --check` بعد تحديث التوثيق ونجح.
+- **authority/safety impact:** المستهلكان يعرضان بيانات فقط؛ لا تمنح projection أو رابط Mission Control قبولًا أو صلاحية. رابط التاريخ الزمني منفصل عن `currentAttempt` المربوط بـTask.
+- **remaining/blocker:** السلوك غير المحسوم لمسارات recipe/non-Task، استعمالات API الديناميكية أو aliases والعملاء الخارجيين يبقى `UNKNOWN`؛ E2 مفتوحة.
+- **next step:** واصل حصر مستهلكي proof/status الديناميكيين وغير المباشرين ضمن E2، ولا تعمم نتيجة هذا المسح أو تبدأ E3 أو Strategy Replay أو workflows مُدارة أو مهام متابعة.
+
+### 2026-10-09 — قصر Task recovery في مكوّن Mission المشترك
+
+- **phase/step:** E2 فقط — تتبع أزرار Task recovery من projection إلى مستهلكيها ونقاط API.
+- **status:** `PARTIAL — known Dashboard consumers mapped and stale Task-action display closed; dynamic/external consumers remain UNKNOWN`
+- **what changed:** كشف التتبع أن `allowedActions` مشتقة من execution acceptance ولا تطابق وحدها correlation الحالي للمهمة. أصبحت أزرار `RESUME_CHECKPOINT` و`RETRY_CHECKPOINT` في `ExecutionProjectionPanel` مخفية افتراضيًا لأي execution يحمل `taskId`. صفحة Tasks وحدها تسمح بها بعد تحقق تطابق `linkedTaskId` و`correlationId` مع سجل Task الحالي؛ Mission Control وFlight Deck يحتفظان بالتصفح لكن لا يعيدان توجيه أزرار تنفيذ تاريخي إلى Task الحالي. Chat كان يخفي recovery في هذا المكوّن أصلًا. أُضيف اختبار لسلوك الحجب، وحُدّث اختبار retry لإثبات opt-in الصريح.
+- **files/schema/contracts touched:** `artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx`, `artifacts/dashboard/src/components/ExecutionProjectionPanel.test.tsx`, `artifacts/dashboard/src/pages/Tasks.tsx`, `docs/e2-source-derived-measurement-ledger.md` وهذا السجل؛ لا تغيير API أو schema أو workflow.
+- **validation:** اختبارات Dashboard المحددة للمكوّن وTasks وFlightDeck وMissionControl نجحت **63/63**؛ `pnpm --filter @workspace/dashboard exec tsc --noEmit` نجح؛ `git diff --check` بعد تحديث التوثيق نجح؛ لم يُشغّل workflow مُدار.
+- **authority/safety impact:** هذا حاجز عرض fail-closed فقط؛ إجراءات Task/execution على الخادم لم تتغير وتظل مرجع الصلاحية والحالة. `APPROVE_CHANGES` يراجع proposal، أما apply الفعلي فيمر بمسار منفصل يتحقق من proposal والنطاق.
+- **remaining/blocker:** الجرد يغطي المستهلكين المباشرين الظاهرين فقط؛ aliases الديناميكية ومستهلكو API والعملاء خارج workspace ومسارات أخرى غير محصورة تبقى `UNKNOWN`، لذلك E2 مفتوحة.
+- **next step:** واصل جرد المستهلكين غير المباشرين وواجهات API الديناميكية والـproof/status ضمن E2؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة أثناء بقاء E2 مفتوحة.
+
+### 2026-10-09 — حصر URL اليدوية لـMission وSkill
+
+- **phase/step:** E2 فقط — جرد محدود لمصادر URL اليدوية ومستهلكي wrappers داخل workspace.
+- **status:** `PARTIAL — handwritten direct callers mapped; generated/dynamic/external aliases remain UNKNOWN`
+- **what changed:** بحث غير اختباري في TS/TSX/JS لم يجد إنشاءً يدويًا لـ`/api/ai/missions` و`/api/ai/skill-registry` خارج wrapperَي Dashboard. المستهلكون المباشرون لهذه الوظائف في AiChat وChatSessionMissionHandoffs وMissions وSkillRegistry؛ MissionControl يستخدم generated Mission Control hook منفصلًا. لا مستهلك Dashboard مباشر ظاهر لـ`useGetAiMissionProjection` أو`useListAiSkillRegistry`. التطابقات الإضافية الوحيدة كانت mock/assertion داخل رحلة e2e، لا عميل إنتاج.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل؛ لا تغيير تطبيق أو API أو schema.
+- **validation:** جرد exports/imports/calls ومسح literals المباشر؛ لم يُشغّل workflow مُدار.
+- **authority/safety impact:** لا تغيير صلاحيات؛ معلومات proof والـregistry في الواجهة تظل إسقاطًا، وتبقى مسارات الخادم مصدر التحقق.
+- **remaining/blocker:** البحث المعجمي لا يغطي generated code ككل أو dynamic strings/imports أو لغات أخرى أو عملاء خارج workspace؛ هذه الروابط تظل `UNKNOWN` وE2 مفتوحة.
+- **next step:** تابع عائلات المستهلكين غير المباشرين والديناميكيين، مع تثبيت كل نتيجة على مسار مصدر وخادم محدد؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — عدم إعادة استخدام targeted reads كملفات كاملة
+
+- **phase/step:** E2 فقط — إغلاق مسار محدد لفقدان line-span metadata عند إعادة تحميل evidence reads.
+- **status:** `PARTIAL — range-bearing rows are excluded and helper-tested; full resume/finalizer path and evidence family remain UNKNOWN`
+- **what changed:** `loadReusableEvidenceReads` يشترط الآن خلو `lineStart` و`lineEnd` معًا قبل إعادة استخدام source body؛ هذا يمنع تحويل targeted-range snapshot إلى سياق ملف كامل في مساري Chat resume وإنهاء recovery المستنفد. يظل محتوى targeted متاحًا لإعادة القراءة في المحاولة الجديدة بدل إسقاطه على أنه ملف كامل.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-acceptance.ts`, `artifacts/api-server/src/routes/ai-stream-integration.test.ts`, `docs/e2-source-derived-measurement-ledger.md` وهذا السجل؛ لا تعديل schema أو workflow.
+- **validation:** API typecheck نجح؛ اختبار DB-backed محدد لعملية إعادة الاستخدام نجح **1/1** على PostgreSQL مؤقتة loopback مع schema مطبقة عليها فقط؛ أوقفت الخادم وحذفت جذر الاختبار؛ لا workflow مُدار.
+- **authority/safety impact:** حارس نقل evidence فقط؛ لا يمنح Canonical Proof أو قبولًا، ويمنع نطاقًا جزئيًا ذي metadata محفوظة من الظهور كقراءة كاملة.
+- **remaining/blocker:** لم يُختبر طلب resume كاملًا حتى finalizer؛ السجلات القديمة التي تفتقد range metadata، وخلط collector المستقل بين body وspan، يظلان `UNKNOWN`. تبقى عائلة evidence وE2 مفتوحتين.
+- **next step:** تابع مستهلكي recovery/evidence المباشرين والديناميكيين، وافصل نتيجة helper عن نتيجة المسار الكامل؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

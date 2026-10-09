@@ -454,6 +454,41 @@ async function sourceRowsSnapshot(fixture: ReplanEvidenceFixture) {
 }
 
 describe("DB-backed automatic Mission replan evidence boundary", () => {
+  it("selects the outcome-bound current acceptance when historical attempts remain", async () => {
+    const fixture = await createReplanEvidenceFixture();
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: fixture.executionId,
+      projectId: fixture.projectId,
+      attempt: 1,
+      finalizationKey: `final:${fixture.executionId}:1`,
+      operationId: `operation:${fixture.executionId}`,
+      workerId: "historical-test-worker",
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: FAILURE_DIAGNOSIS.reasonCode,
+      nextActionCode: FAILURE_DIAGNOSIS.nextActionCode,
+      sourceRevision: PROJECT_REVISION,
+      createdAt: new Date(fixture.now.getTime() - 1_000),
+    });
+
+    const planningRead = await db.transaction((tx) =>
+      loadMissionWorldStatePlanningRead(tx, {
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+        goalId: fixture.goalId,
+        outcomeContract: fixture.outcomeContract,
+        nextAction: fixture.nextAction,
+        successCriteria: fixture.successCriteria,
+      }),
+    );
+
+    expect(planningRead).toMatchObject({
+      sourceExecutionId: fixture.executionId,
+      sourceAttempt: 2,
+    });
+  });
+
   it("binds a changed trusted fact to the replan revision and advisory task prompt", async () => {
     const fixture = await createReplanEvidenceFixture();
     const [failedGoal] = await db.select({

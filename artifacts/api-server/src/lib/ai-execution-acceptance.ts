@@ -1888,10 +1888,10 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
 }
 
 /**
- * Load only complete source bodies from the prior attempt of an execution.
+ * Load only complete, un-ranged source bodies from the prior attempt of an execution.
  * The snapshot itself may be incomplete because another required read failed;
  * individually complete reads are still safe to reuse, while truncated reads
- * must never become provider context or proof.
+ * or targeted spans must never be promoted to full-file provider context.
  */
 export async function loadReusableEvidenceReads(params: {
   executionId: string;
@@ -1907,6 +1907,8 @@ export async function loadReusableEvidenceReads(params: {
     eq(aiExecutionEvidenceReadsTable.complete, 1),
     eq(aiExecutionEvidenceReadsTable.truncated, 0),
     eq(aiExecutionEvidenceReadsTable.readType, "source"),
+    isNull(aiExecutionEvidenceReadsTable.lineStart),
+    isNull(aiExecutionEvidenceReadsTable.lineEnd),
   ];
   if (params.operationId) {
     conditions.push(eq(aiExecutionEvidenceSnapshotsTable.operationId, params.operationId));
@@ -2868,9 +2870,30 @@ export async function finalizeExecutionAcceptance(
     const checkpoint = params.checkpoint ?? (() => {
       try {
         const parsed = JSON.parse(execution.checkpoint) as Record<string, unknown>;
+        const checkpointStages = new Set([
+          "queued",
+          "running",
+          "client_disconnected",
+          "model_call",
+          "tool_loop",
+          "finalizing",
+          "completed",
+          "failed",
+          "cancelled",
+        ]);
+        const retainedStage = typeof parsed.stage === "string" && checkpointStages.has(parsed.stage)
+          ? parsed.stage
+          : "failed";
+        const checkpointStage = outcome === "SUCCEEDED"
+          ? "completed"
+          : terminalStatus === "paused"
+            ? retainedStage
+            : terminalStatus;
         return JSON.stringify({
           ...parsed,
-          stage: outcome === "SUCCEEDED" ? "completed" : terminalStatus,
+          // `paused` is an execution-row status, not a checkpoint stage. Keep
+          // the last resumable stage so a reconciled checkpoint stays parseable.
+          stage: checkpointStage,
           acceptance: {
             id: acceptance.id,
             attempt: execution.attempt,

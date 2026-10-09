@@ -292,6 +292,7 @@ export async function loadMissionWorldStatePlanningRead(
     .where(and(
       eq(aiExecutionAcceptancesTable.projectId, input.projectId),
       eq(aiExecutionAcceptancesTable.executionId, executionId),
+      eq(aiExecutionAcceptancesTable.id, acceptanceId),
     ))
     .limit(2);
   if (acceptanceRows.length !== 1) return undefined;

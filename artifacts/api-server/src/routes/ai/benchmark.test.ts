@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { eq } from "drizzle-orm";
+import {
+  aiExecutionAcceptancesTable,
+  aiExecutionsTable,
+  db,
+  projectsTable,
+} from "@workspace/db";
 import app from "../../app.js";
 
 const originalOutputDir = process.env.BENCHMARK_OUTPUT_DIR;
@@ -13,6 +21,7 @@ const scorecardFile = path.join(outputDir, "code-agent-benchmark-live.json");
 const envelopeFile = path.join(outputDir, "free-tier-quality-envelope.json");
 const empiricalFile = path.join(outputDir, "empirical-quality-scorecard.json");
 const releaseFile = path.join(outputDir, "ai-release-quality-decision.json");
+const projectIds: string[] = [];
 
 async function writeScorecard(value: unknown): Promise<void> {
   await fs.mkdir(outputDir, { recursive: true });
@@ -30,6 +39,9 @@ async function writeFile(filePath: string, value: unknown): Promise<void> {
 }
 
 afterEach(async () => {
+  for (const projectId of projectIds.splice(0)) {
+    await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+  }
   if (originalOutputDir === undefined) delete process.env.BENCHMARK_OUTPUT_DIR;
   else process.env.BENCHMARK_OUTPUT_DIR = originalOutputDir;
   if (originalEmpiricalPath === undefined) delete process.env.EMPIRICAL_QUALITY_SCORECARD_PATH;
@@ -175,6 +187,91 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
 });
 
 describe.sequential("GET /api/ai/mission-control", () => {
+  it("projects the acceptance for the execution's current attempt when history is present", async () => {
+    const projectId = randomUUID();
+    const executionId = randomUUID();
+    const historicalAcceptanceId = randomUUID();
+    const currentAcceptanceId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-control-attempt-${projectId.slice(0, 8)}`,
+      rootPath: path.join(os.tmpdir(), "mission-control-test", projectId),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      operationId: `operation:${executionId}`,
+      userId: "test-user",
+      idempotencyKey: `execution:${executionId}`,
+      resumeTokenHash: `resume:${executionId}`,
+      request: JSON.stringify({ intent: "inspect current acceptance" }),
+      checkpoint: JSON.stringify({ stage: "failed" }),
+      status: "failed",
+      attempt: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values([
+      {
+        id: historicalAcceptanceId,
+        executionId,
+        projectId,
+        attempt: 1,
+        finalizationKey: `final:${executionId}:1`,
+        operationId: `operation:${executionId}`,
+        workerId: "mission-control-test-worker",
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "HISTORICAL_ATTEMPT",
+        nextActionCode: "NONE",
+        sourceRevision: "mission-control-test-revision",
+        createdAt: new Date(now.getTime() - 1_000),
+      },
+      {
+        id: currentAcceptanceId,
+        executionId,
+        projectId,
+        attempt: 2,
+        finalizationKey: `final:${executionId}:2`,
+        operationId: `operation:${executionId}`,
+        workerId: "mission-control-test-worker",
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "CURRENT_ATTEMPT",
+        nextActionCode: "NONE",
+        sourceRevision: "mission-control-test-revision",
+        createdAt: now,
+      },
+    ]);
+
+    const response = await request(app).get("/api/ai/mission-control");
+
+    expect(response.status).toBe(200);
+    const projected = response.body.executions.find(
+      (execution: { id?: string }) => execution.id === executionId,
+    );
+    expect(projected).toMatchObject({
+      id: executionId,
+      acceptance: {
+        attempt: 2,
+        outcome: "FAILED",
+        reasonCode: "CURRENT_ATTEMPT",
+      },
+    });
+    expect(projected.acceptance).not.toMatchObject({
+      attempt: 1,
+      reasonCode: "HISTORICAL_ATTEMPT",
+    });
+  });
+
   it("returns a bounded benchmark and execution ledger envelope", async () => {
     process.env.BENCHMARK_OUTPUT_DIR = outputDir;
     await writeScorecard({

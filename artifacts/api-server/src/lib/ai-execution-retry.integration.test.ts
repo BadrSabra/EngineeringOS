@@ -13,12 +13,14 @@ import {
   createServerCapabilityRegistry,
 } from "@workspace/ai-orchestrator";
 import {
+  checkRecipeOperationBinding,
   claimAiExecution,
   checkpointAiExecution,
   completeAiExecution,
   createAiExecution,
   createAutonomousOperationContract,
   createRecipeOperationBinding,
+  parseAiExecutionCheckpoint,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
   recoverAiExecutionRetryToken,
@@ -348,6 +350,18 @@ describe("durable conversational retry authorization", () => {
         phase: "running",
         leaseOwner: workerA,
       });
+      const parsedReconciledCheckpoint = parseAiExecutionCheckpoint(reconciled!.checkpoint);
+      expect(parsedReconciledCheckpoint, "reconciled recipe checkpoint must remain parseable").toBeDefined();
+      expect(parsedReconciledCheckpoint?.stage).toBe("tool_loop");
+      expect(parsedReconciledCheckpoint?.recipeBinding).toMatchObject({
+        candidateIdentity: binding.candidateIdentity,
+        candidateWorkspace: binding.candidateWorkspace,
+      });
+      expect(checkRecipeOperationBinding(binding, {
+        projectId,
+        operationId,
+        sourceRevision,
+      }).allowed).toBe(true);
 
       const secondClaim = await claimAiExecution({
         executionId: created.execution.id,

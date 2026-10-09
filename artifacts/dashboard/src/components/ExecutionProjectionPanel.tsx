@@ -49,6 +49,11 @@ export type ExecutionProjectionPanelProps = {
    * routing; the owning surface still controls execution actions.
    */
   taskId?: string | null;
+  /**
+   * Only the Task surface may enable recovery after matching this execution
+   * to the Task's current correlation identity.
+   */
+  allowTaskRecovery?: boolean;
     /** Actual Mission identity only; never infer it from operation or execution IDs. */
   missionId?: string | null;
   operationId?: string | null;
@@ -198,6 +203,7 @@ export function ExecutionProjectionPanel({
   compact = false,
   onAction,
   taskId,
+  allowTaskRecovery = false,
   missionId,
   operationId,
   proposalId,
@@ -223,7 +229,10 @@ export function ExecutionProjectionPanel({
   const allowedActions = projection.allowedActions ?? [];
   const orderedActions = allowedActions.filter((action) => {
     if (readOnly && action !== 'REVIEW_PROOF' && action !== 'REVIEW_DIFF') return false;
-    if (hideRecoveryActions && (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT')) return false;
+    if (
+      (hideRecoveryActions || (taskId && !allowTaskRecovery))
+      && (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT')
+    ) return false;
     if (recoveryView && (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT')) {
       return action === (recoveryView.action === 'retry' ? 'RETRY_CHECKPOINT'
         : recoveryView.action === 'resume' ? 'RESUME_CHECKPOINT' : null);

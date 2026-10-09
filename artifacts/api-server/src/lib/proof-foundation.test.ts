@@ -286,6 +286,16 @@ describe("composeCanonicalProof", () => {
     ]));
   });
 
+  it("rejects a historical acceptance as proof for the current execution attempt", () => {
+    const result = fixture({
+      acceptance: { attempt: 1 },
+      evidence: { attempt: 1 },
+    });
+
+    expect(result.accepted).toBe(false);
+    expect(result.failureReasons).toContain("acceptance_attempt_mismatch");
+  });
+
   it("loads the current durable execution attempt before composing proof", async () => {
     const projected = buildExecutionProofProjection({
       outcome: "SUCCEEDED",

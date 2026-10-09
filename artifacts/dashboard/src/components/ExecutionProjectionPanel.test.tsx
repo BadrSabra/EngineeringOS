@@ -186,6 +186,7 @@ describe('ExecutionProjectionPanel', () => {
         executionId="execution-task-linked"
         executionStatus="failed"
         taskId="task-1"
+        allowTaskRecovery
       />,
       queryClient,
     );
@@ -207,6 +208,21 @@ describe('ExecutionProjectionPanel', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetTaskLogsQueryKey('task-1') });
     });
     fetchSpy.mockRestore();
+  });
+
+  it('hides Task recovery actions unless the owning Task surface opts in', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{ ...projection, allowedActions: ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'REVIEW_PROOF'] }}
+        executionId="execution-task-linked"
+        executionStatus="failed"
+        taskId="task-1"
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Resume Task' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry Task' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review proof' })).toBeInTheDocument();
   });
 
   it('keeps destination links in natural order with visible keyboard focus styling', () => {
