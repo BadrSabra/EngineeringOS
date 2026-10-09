@@ -5716,3 +5716,14 @@ G9 Revocation Safety
 - **authority/safety impact:** قبول محاولة قديمة لا يطلق linked-Task أو Chat recovery في الحالات المختبرة. اختبار القفل يثبت حجز قرار resume linked to Task أثناء تدوير الرمز؛ هذا لا يوحّد Canonical Proof عبر بقية المنتج.
 - **remaining/blocker:** لم يُفرض اختبار queued Task resume مع تبدّل acceptance للمحاولة نفسها قبل بدء transaction؛ helper يعيد فحص الأهلية عند التنفيذ. بقية recovery consumers والمصادر الديناميكية تظل غير محصورة؛ E2 مفتوحة و`World Fact → planner action` ما زال `UNKNOWN`.
 - **next step:** واصل E2 على حد recovery أو consumer آخر بعد تمييز source edges غير المغلقة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — ربط Chat exhaustion callback بالمحاولة الملتقطة
+
+- **phase/step:** E2 فقط — dequeue-time identity fence لمسار إنهاء الاستنفاد.
+- **status:** `PASS for captured-attempt propagation and settlement no-mutation fence; end-to-end delayed route interleaving remains untested; E2 OPEN; E3 STOPPED`
+- **what changed:** كان مفتاح طابور الاستنفاد يحوي المحاولة، لكن callback لا يمررها، والـfinalizer كان يقرأ execution والمحاولة الأحدث. أُضيف `expectedAttempt` من المرشح إلى runner ثم finalizer؛ finalizer يرفض تغيّرها قبل قراءة الأدلة، وsettlement يعيد التحقق بعد قفل execution ويقفل acceptance المطابقة ويقيّد الكتابات بالمحاولة نفسها. اختبار coordinator يثبت تمرير attempt 3؛ اختبار settlement يمرر expectedAttempt 2 أمام سجلات attempt 3 ويثبت رفضًا بلا أي تغيير في execution أو acceptance أو الرسالة. اختبار settlement الإيجابي ما زال يثبت السلوك idempotent للمحاولة المطابقة.
+- **files/schema/contracts touched:** `ai-recovery-coordinator.ts`، `chat-recovery-runner.ts`، `routes/ai/chat.ts`، `ai-execution-acceptance.ts`، `ai-recovery-coordinator.integration.test.ts`، والـledger وسجل التقدم؛ لا schema أو workflow.
+- **validation:** `ai-recovery-coordinator.integration.test.ts` نجح **16/16** على PostgreSQL مؤقتة loopback بعد schema apply/check؛ `pnpm exec tsc --noEmit` و`git diff --check` نجحا. provider egress معطّل، وأُوقفت القاعدة وحُذف جذرها.
+- **authority/safety impact:** callback من محاولة قديمة لا يستطيع الآن إعادة تصنيف acceptance أو الرسالة أو execution لمحاولة أحدث عبر settlement. لا يثبت هذا Canonical Proof موحدًا أو صلاحية بقية consumers.
+- **remaining/blocker:** اختبار enqueue ما زال يسخر finalizer، واختبار settlement يستدعي helper مباشرة؛ لم نختبر interleaving كاملًا عبر queue ثم route أثناء تبدل المحاولة. قابلية وقوع هذا الترتيب في الإنتاج غير محسومة. census الديناميكي و`World Fact → planner action` ما زالا `UNKNOWN`.
+- **next step:** واصل E2 بفحص consumer أو source edge أخرى غير محسومة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.

@@ -797,6 +797,7 @@ export async function dispatchAutonomousTaskRecoveries(scope: {
               const result = await runChatRecoveryExhaustionFinalization({
                 executionId: candidate.executionId,
                 userId: candidate.userId,
+                expectedAttempt: candidate.executionAttempt,
               });
               if (!result.ok) {
                 logger.warn(

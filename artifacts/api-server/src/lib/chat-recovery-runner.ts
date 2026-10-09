@@ -167,6 +167,7 @@ export async function runChatExecutionRecovery(params: {
 export async function runChatRecoveryExhaustionFinalization(params: {
   executionId: string;
   userId: string;
+  expectedAttempt: number;
 }): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
   return finalizeChatRecoveryExhaustion(params);
 }

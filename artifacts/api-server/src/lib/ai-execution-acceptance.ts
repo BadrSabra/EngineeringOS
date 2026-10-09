@@ -291,6 +291,7 @@ export type FinalizeExecutionAcceptanceParams = {
 export async function settleExhaustedExecutionRecovery(params: {
   executionId: string;
   userId: string;
+  expectedAttempt: number;
   finalMessageId: string;
   content: string;
   errorMessage: string;
@@ -309,6 +310,9 @@ export async function settleExhaustedExecutionRecovery(params: {
       ))
       .for("update");
     if (!execution) return { settled: false, reason: "execution_not_found" };
+    if (execution.attempt !== params.expectedAttempt) {
+      return { settled: false, reason: "execution_attempt_changed" };
+    }
     if (execution.status === "cancelled" || execution.status === "completed") {
       return { settled: false, reason: "execution_already_terminal" };
     }
@@ -321,8 +325,9 @@ export async function settleExhaustedExecutionRecovery(params: {
       .from(aiExecutionAcceptancesTable)
       .where(and(
         eq(aiExecutionAcceptancesTable.executionId, execution.id),
-        eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+        eq(aiExecutionAcceptancesTable.attempt, params.expectedAttempt),
       ))
+      .for("update")
       .limit(1);
     if (!acceptance) return { settled: false, reason: "acceptance_not_found" };
     if (acceptance.outcome !== "FAILED" && acceptance.outcome !== "INTERRUPTED") {
@@ -354,7 +359,11 @@ export async function settleExhaustedExecutionRecovery(params: {
         disposition,
         resumable: 0,
       })
-      .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+      .where(and(
+        eq(aiExecutionAcceptancesTable.id, acceptance.id),
+        eq(aiExecutionAcceptancesTable.executionId, execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, params.expectedAttempt),
+      ));
 
     await tx
       .update(aiChatMessagesTable)
@@ -397,6 +406,7 @@ export async function settleExhaustedExecutionRecovery(params: {
       })
       .where(and(
         eq(aiExecutionsTable.id, execution.id),
+        eq(aiExecutionsTable.attempt, params.expectedAttempt),
         eq(aiExecutionsTable.finalMessageId, params.finalMessageId),
       ));
 

@@ -3316,9 +3316,13 @@ async function persistFailedChatTurn(params: {
 export async function finalizeChatRecoveryExhaustion(params: {
   executionId: string;
   userId: string;
+  expectedAttempt: number;
 }): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
   const execution = await getAiExecutionForUser(params.executionId, params.userId);
   if (!execution) return { ok: false, reason: "execution_not_found" };
+  if (execution.attempt !== params.expectedAttempt) {
+    return { ok: false, reason: "execution_attempt_changed" };
+  }
 
   const request = parseExecutionRequest(execution.request);
   if (
@@ -3359,6 +3363,7 @@ export async function finalizeChatRecoveryExhaustion(params: {
   const settled = await settleExhaustedExecutionRecovery({
     executionId: execution.id,
     userId: params.userId,
+    expectedAttempt: params.expectedAttempt,
     finalMessageId: execution.finalMessageId,
     content,
     errorMessage: evidenceReason,

@@ -832,6 +832,7 @@ describe("durable automatic conversational recovery", () => {
       expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
+        expectedAttempt: 3,
       });
       expect(runChatExecutionRecovery).not.toHaveBeenCalled();
     } finally {
@@ -864,6 +865,7 @@ describe("durable automatic conversational recovery", () => {
       expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
+        expectedAttempt: 3,
       });
       expect(runChatExecutionRecovery).not.toHaveBeenCalled();
     } finally {
@@ -900,6 +902,7 @@ describe("durable automatic conversational recovery", () => {
       const params = {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
+        expectedAttempt: 3,
         finalMessageId: messageId,
         content: "ANALYSIS_INCOMPLETE — no verified conclusion was accepted.",
         errorMessage: "Recovery budget exhausted.",
@@ -943,6 +946,102 @@ describe("durable automatic conversational recovery", () => {
         id: messageId,
         content: "ANALYSIS_INCOMPLETE — no verified conclusion was accepted.",
       }]);
+    } finally {
+      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("does not settle a newer attempt from a stale exhaustion callback", async () => {
+    const fixture = await insertChatFixture();
+    const messageId = randomUUID();
+    try {
+      await db.insert(aiChatMessagesTable).values({
+        id: messageId,
+        sessionId: fixture.sessionId,
+        role: "assistant",
+        content: "provider failed on the newer attempt",
+        turnIntent: "PROJECT_QUERY",
+        executionId: fixture.executionId,
+        outcome: "FAILED",
+        errorCode: "EXECUTION_PROVIDER_FAILURE",
+        errorMessage: "provider unavailable",
+        createdAt: new Date(),
+      });
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 3, finalMessageId: messageId })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const [executionBefore] = await db.select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [acceptanceBefore] = await db.select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      const [messageBefore] = await db.select({
+        content: aiChatMessagesTable.content,
+        outcome: aiChatMessagesTable.outcome,
+        errorCode: aiChatMessagesTable.errorCode,
+        errorMessage: aiChatMessagesTable.errorMessage,
+      }).from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, messageId));
+
+      const settled = await settleExhaustedExecutionRecovery({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        expectedAttempt: 2,
+        finalMessageId: messageId,
+        content: "stale exhaustion result",
+        errorMessage: "stale exhaustion result",
+        evidenceReason: "stale callback",
+      });
+
+      expect(settled).toEqual({ settled: false, reason: "execution_attempt_changed" });
+      const [executionAfter] = await db.select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [acceptanceAfter] = await db.select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      const [messageAfter] = await db.select({
+        content: aiChatMessagesTable.content,
+        outcome: aiChatMessagesTable.outcome,
+        errorCode: aiChatMessagesTable.errorCode,
+        errorMessage: aiChatMessagesTable.errorMessage,
+      }).from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, messageId));
+
+      expect(executionAfter).toEqual(executionBefore);
+      expect(acceptanceAfter).toEqual(acceptanceBefore);
+      expect(messageAfter).toEqual(messageBefore);
     } finally {
       await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
