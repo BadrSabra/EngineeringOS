@@ -2289,6 +2289,11 @@ export async function recoverAiExecutionResumeToken(params: {
     && (priorAcceptance.nextActionCode === "RETRY_AFTER_TIMEOUT"
       || priorAcceptance.nextActionCode === "RETRY_AFTER_RATE_LIMIT")
     && priorAcceptance.resumable === 0;
+  // A paused proof-required request needs a current-attempt acceptance to
+  // authorize recovery; status alone cannot substitute for that decision.
+  if (candidate.status === "paused" && request?.proofRequired === true && !priorAcceptance) {
+    return undefined;
+  }
   // Ordinary chat has no durable resume contract. This guard also protects
   // legacy paused rows created before reconciliation learned that distinction.
   if (

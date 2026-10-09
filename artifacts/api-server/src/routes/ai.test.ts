@@ -9984,6 +9984,87 @@ describe("autonomous task acceptance finalization races", () => {
     expect(proof.failureReasons).toContain("acceptance_not_completed");
   });
 
+  it("serializes concurrent cancellation finalizers under the same key", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId, { proofRequired: true });
+
+    await db.update(aiExecutionsTable).set({
+      status: "cancelling",
+      cancelRequestedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    const finalizationKey =
+      `execution:${fixture.executionId}:attempt:${fixture.attempt}:concurrent-cancellation`;
+    const finalizationInput: Parameters<typeof finalizeExecutionAcceptance>[0] = {
+      executionId: fixture.executionId,
+      expectedAttempt: fixture.attempt,
+      workerId: fixture.workerId,
+      finalizationKey,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      recoveryState: "REQUIRED",
+      resumable: true,
+      error: "The provider returned after cancellation won.",
+      taskFinalization: {
+        taskId: fixture.taskId,
+        workerId: fixture.workerId,
+        status: "cancelled",
+        agentResponse: "cancelled task receipt",
+        log: {
+          level: "warn",
+          message: "AI task execution cancelled",
+        },
+        event: {
+          type: "TaskExecutionCancelled",
+          severity: "warning",
+          message: "AI task execution cancelled",
+        },
+      },
+    };
+
+    const results = await Promise.all([
+      finalizeExecutionAcceptance(finalizationInput),
+      finalizeExecutionAcceptance(finalizationInput),
+    ]);
+
+    expect(results.every((result) => result.accepted)).toBe(true);
+    expect(results.filter((result) => !result.duplicate)).toHaveLength(1);
+    expect(results.filter((result) => result.duplicate)).toHaveLength(1);
+    expect(results[0].acceptance?.id).toBeTruthy();
+    expect(results[1].acceptance?.id).toBe(results[0].acceptance?.id);
+
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, fixture.taskId));
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, fixture.taskId));
+    const acceptances = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(task).toMatchObject({
+      status: "cancelled",
+      agentResponse: "cancelled task receipt",
+      workerId: null,
+      leaseUntil: null,
+    });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ message: "AI task execution cancelled" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "TaskExecutionCancelled" });
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]).toMatchObject({
+      id: results[0].acceptance?.id,
+      attempt: fixture.attempt,
+      finalizationKey,
+      terminalStatus: "cancelled",
+      outcome: "INTERRUPTED",
+      reasonCode: "EXECUTION_CANCELLED",
+    });
+  });
+
   it("creates one recovery acceptance for an expired execution lease and preserves its attempt", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

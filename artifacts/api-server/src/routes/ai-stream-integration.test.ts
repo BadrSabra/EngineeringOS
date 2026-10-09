@@ -1014,6 +1014,45 @@ describe("AI execution resume-capability recovery", () => {
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
   });
 
+  it("does not issue a proof-required resume capability without a current acceptance", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Proof-required resume without acceptance");
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "Resume the proof-required analysis.",
+        modelMessage: "Resume the proof-required analysis.",
+        turnIntent: "PROJECT_QUERY",
+        proofRequired: true,
+        workspaceRevision: "proof-required-resume-revision",
+        validationTargetPaths: ["src/index.ts"],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({ status: "paused", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const acceptances = await db.select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    expect(acceptances).toHaveLength(0);
+
+    const recovered = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(recovered.status).toBe(409);
+    expect(recovered.body).toMatchObject({
+      code: "EXECUTION_NOT_RESUMABLE",
+      status: "paused",
+    });
+    expect(recovered.body).not.toHaveProperty("resumeToken");
+  });
+
   it("projects a completed lifecycle row without same-attempt acceptance as unknown", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

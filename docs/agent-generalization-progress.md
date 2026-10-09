@@ -5224,6 +5224,50 @@ G9 Revocation Safety
 - **remaining/blocker:** التزامن المثبت محصور في coordinator وحالات lease المختارة؛ قبول متزامن لنفس finalization key، وبقية crash windows/legacy layouts والعائلات الديناميكية ما زالت تحتاج أدلة. E2 مفتوحة وE3 متوقفة.
 - **next step:** استمر في E2 فقط، وراجع invariant مصدر واحدة أو writer/recovery edge في كل خطوة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — سباق finalization متزامن بالمفتاح نفسه
+
+- **phase/step:** E2 فقط — acceptance writer idempotency وتكرار آثار إنهاء Task.
+- **status:** `same-key concurrent cancellation race passes (1/1); E2 OPEN; E3 STOPPED`
+- **what changed:** أُضيف اختبار يرسل طلبَي finalization بالتوازي على execution واحد وبـ`finalizationKey` واحد. يثبت نتيجة فائزة واحدة ونتيجة duplicate واحدة، acceptance ID واحدًا، وسجل Task وحدث إلغاء واحدًا فقط.
+- **files/schema/contracts touched:** اختبار `artifacts/api-server/src/routes/ai.test.ts` وسجل القياس وهذا السجل؛ لا تغيير production code أو schema أو workflow.
+- **validation:** الاختبار المحدد نجح **1/1** على PostgreSQL loopback مؤقتة بعد `schema:apply` مع provider egress معطّل؛ اختبارات الملف الأخرى كانت skipped، ثم أُوقفت القاعدة وحُذف جذرها. `pnpm --filter @workspace/api-server exec tsc --noEmit` نجح.
+- **authority/safety impact:** يؤكد قفل execution-row وidempotency في حالة cancellation المتزامنة نفسها؛ لا يثبت سلامة كل outcomes أو كل surfaces ولا يمنح Canonical Proof.
+- **remaining/blocker:** سباقات `SUCCEEDED`/`FAILED` الأخرى، crash windows متعددة العمال، legacy acceptance layouts، وحصر consumers ما زالت غير مكتملة. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 بعائلة مصدر أو invariant منفصلة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — حد World Fact بين prompt وقرار الخطة
+
+- **phase/step:** E2 فقط — مراجعة ما إذا كان World Fact يغيّر خطة Mission أو يظل سياقًا استشاريًا.
+- **status:** `revision/prompt binding PASS; action change UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** تتبّع المصدر يبيّن أن `autoReplanMission` يستدعي `buildMissionPlanPreview` الحتمي ثم يمرّر preview إلى `createMissionPlanGoal`؛ يستدعي builder `buildGeneralTaskPlan` بالرسالة والهدف، ثم يضيف `worldStatePlanningRead` إلى `replanContext`. الاختبار DB-backed يغيّر `repository.branch` من `main` إلى `release` ويثبت revision/prompt الجديدين، لكنه يتوقع صراحةً بقاء `plan.steps` كما هي. intent fixture عام، لذلك لا يثبت أن القيمة كانت ذات صلة بقرار بعينه.
+- **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** فحص `mission-auto-replan.ts` و`mission-planning.ts` والاختبار DB-backed القائم؛ لم يُضف اختبار مزود وهمي ولم يُشغّل مزود حي.
+- **authority/safety impact:** World State يظل advisory context؛ لم أرفع prompt أو revision إلى دليل على تغيّر الفعل، ولم أعدّل سلطة قبول أو تنفيذ.
+- **remaining/blocker:** لا يوجد invariant موثق يحدد متى يكون fact ذا صلة بقرار، ولا دليل على تغيّر action الناتج عبر مسار اختيار الأفعال. تظل هذه الخانة `UNKNOWN`؛ E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 بحصر/review لمسار قرار فعلي ذي evidence مستقل؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — التحقق من كاتب EffectBundle على acceptance
+
+- **phase/step:** E2 فقط — writer edge من effect observer إلى acceptance.
+- **status:** `bounded observer-link invariants pass (4/4); source family remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** شُغّل `agent-state/effect-observer.test.ts` كاملًا: observed EffectBundle يُربط مرة واحدة وretry يعيد النتيجة نفسها؛ after-observation القديمة لا تُصنّف observed ولا تسمح بـPROVEN؛ العامل الذي فقد lease يُرفض؛ owner بديل للمحاولة نفسها يُقبل مع actor provenance محفوظ.
+- **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير production code أو schema أو workflow.
+- **validation:** الاختبارات **4/4** على PostgreSQL loopback مؤقتة بعد `schema:apply`، مع provider egress معطّل؛ أُوقفت القاعدة وحُذف جذرها.
+- **authority/safety impact:** ربط EffectBundle لا يحل محل observation، ويظل نجاح acceptance مشروطًا بالأثر observed؛ الأدلة محصورة بهذا writer والـfixture.
+- **remaining/blocker:** بقية acceptance consumers وطرق القراءة غير المباشرة/الديناميكية لم تُراجع؛ جرد source family ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع جرد E2 لمستهلك قبول مباشر أو recovery boundary محدد؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — حراسة resume proof-required بلا acceptance حالية
+
+- **phase/step:** E2 فقط — generic resume capability لحالة paused legacy أو ناقصة.
+- **status:** `proof-required resume gate passes (3/3 selected); E2 OPEN; E3 STOPPED`
+- **what changed:** مراجعة المصدر وجدت أن `recoverAiExecutionResumeToken` قد يصدر token من `paused` مع غياب acceptance حتى لو كان الطلب يتطلب proof. أضيف رفض هذه الحالة إذا لم توجد acceptance للمحاولة الحالية؛ سلوك non-proof legacy يبقى منفصلًا، والاستئناف المدعوم بقبول proof حالي يظل مسموحًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، واختبار route في `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، وسجل القياس وسجل التقدم وذاكرة عقد القبول؛ لا تغيير schema أو workflow.
+- **validation:** `pnpm --filter @workspace/api-server exec tsc --noEmit` نجح. نجحت **3/3** حالات route محددة على PostgreSQL loopback مؤقتة بعد `schema:apply` مع provider egress معطّل: الرفض بلا acceptance، تدوير token non-proof القديم، والاستئناف بقبول proof مطابق.
+- **authority/safety impact:** paused status وحده لم يعد كافيًا لمنح resume capability لطلب proof-required؛ وجود token لا يُعامل كـCanonical Proof أو كقبول ناجح.
+- **remaining/blocker:** malformed persisted-request behavior، مسارات recovery البديلة، وجرد كل مستهلكي acceptance ما زالت غير محسومة. E2 مفتوحة وE3 متوقفة.
+- **next step:** استمر في E2 على consumer/recovery boundary منفصل، مع إبقاء كل نتائج هذا المسار محدودة بنطاقها؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
