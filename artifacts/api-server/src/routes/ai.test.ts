@@ -9603,6 +9603,103 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
     });
   });
 
+  it.each([
+    {
+      name: "execution recovered before the Task",
+      taskStatus: "running",
+      executionStatus: "paused",
+      hasResumeAcceptance: true,
+      expectedHint: "current server-provided next action",
+    },
+    {
+      name: "Task recovered before its execution",
+      taskStatus: "verifying",
+      executionStatus: "running",
+      hasResumeAcceptance: false,
+      expectedHint: "no current recoverable execution",
+    },
+  ] as const)(
+    "rejects Task resume during split Task/execution reconciliation: $name",
+    async ({ taskStatus, executionStatus, hasResumeAcceptance, expectedHint }) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const taskId = await insertTask(projectId, taskStatus);
+      const correlationId = randomUUID();
+      const created = await createAiExecution({
+        userId: "test-user",
+        projectId,
+        linkedTaskId: taskId,
+        idempotencyKey: `${taskId}:split-reconciliation`,
+        correlationId,
+        request: {
+          projectId,
+          linkedTaskId: taskId,
+          message: "Recover during reconciliation.",
+          modelMessage: "Recover during reconciliation.",
+          validationTargetPaths: [],
+          proofRequired: false,
+        },
+      });
+      await db.update(tasksTable)
+        .set({ correlationId, retryCount: 1, maxRetries: 3 })
+        .where(eq(tasksTable.id, taskId));
+      await db.update(aiExecutionsTable)
+        .set({ status: executionStatus, updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, created.execution.id));
+
+      if (hasResumeAcceptance) {
+        await db.insert(aiExecutionAcceptancesTable).values({
+          id: randomUUID(),
+          executionId: created.execution.id,
+          projectId,
+          attempt: created.execution.attempt,
+          finalizationKey: randomUUID(),
+          terminalStatus: "paused",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          disposition: {
+            outcome: "FAILED",
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+          },
+          resumable: 1,
+        });
+      }
+
+      const [taskBefore] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, taskId));
+      const [executionBefore] = await db.select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, created.execution.id));
+
+      const res = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({
+        error: "task_not_resumable",
+        hint: expect.stringContaining(expectedHint),
+      });
+
+      const [taskAfter] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, taskId));
+      const [executionAfter] = await db.select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, created.execution.id));
+      expect(taskAfter).toEqual(taskBefore);
+      expect(executionAfter).toEqual(executionBefore);
+    },
+  );
+
   it("resumes the current accepted execution and advances its attempt", async () => {
     const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockExecuteTask).mockResolvedValue({

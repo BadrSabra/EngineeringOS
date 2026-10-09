@@ -5683,3 +5683,25 @@ G9 Revocation Safety
 - **authority/safety impact:** E2 تبقى مفتوحة؛ E3 وStrategy Replay لم يبدأا، وworkflow المُدار لم يُعد تشغيله.
 - **remaining/blocker:** اكتمال census ووجود domain-specific World Fact يغير plan step ما زالا غير مثبتين؛ لا تُعمّم advisory facts إلى action.
 - **next step:** تابع E2 على هذه الفجوات فقط، ولا تُغلقها أو تبدأ E3 دون اجتيازها صراحةً.
+
+### 2026-10-09 — مزامنة التقرير والـledger مع Task process recovery
+
+- **phase/step:** E2 فقط — تسوية الأدلة الزمنية مع الحالة الرئيسية.
+- **status:** `bounded Task recovery evidence synchronized; E2 OPEN; E3 STOPPED`
+- **what changed:** أضيفت نتيجة crash-recovery لمسار Task إلى سجل E2، ووُثق إصلاح pointer/claim في التقرير الرئيسي. بقيت نتيجة المصدر والحلقة الأخرى كما هي؛ لم يُغيّر أي gate status.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md`, `docs/agent-core-forensic-status-report.md`, وسجل التقدم؛ لا تغييرات runtime أو schema.
+- **validation:** مطابقة التوثيق مع تشغيل الاختبار المسجل **3/3** وroute suite **18/18** ونجاح typecheck؛ لم تُعَد الاختبارات لأن هذه الخطوة توثيقية فقط.
+- **authority/safety impact:** يثبت الدليل استعادة Task HTTP المحددة ولا يثبت وحدة Canonical Proof عبر المستهلكين؛ E2 ما زالت `ACTIVE`, الطبقات `0/4` fully closed، وE3 `STOPPED`.
+- **remaining/blocker:** عائلات المصدر الديناميكية وغير المباشرة لم تُغلق؛ `World Fact → planner action` ما زال `UNKNOWN`.
+- **next step:** واصل فقط حدود E2 غير المحسومة، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — رفض Task resume خلال split reconciliation
+
+- **phase/step:** E2 فقط — حالة Task/execution الوسيطة أثناء المصالحة الدورية.
+- **status:** `PASS for two seeded route states; real interleaving order remains unproven; E2 OPEN; E3 STOPPED`
+- **what changed:** أضيفت حالتا route: Task `running` مع linked execution موقوف وقبول صالح، وTask `verifying` مع execution ما زال `running`. كلاهما يرفض resume، ويثبت الاختبار أن Task status/pointer/retry count وحالة execution/attempt/token hash لم تتغير. راجعت المصدر: generic recovery يرفض Task-linked execution، وTask route يعيد فحص Task والـpointer والقبول الحالي قبل استدعاء lifecycle.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai.test.ts`، الـledger، تقرير الحالة، وسجل التقدم؛ لا تغييرات runtime أو schema.
+- **validation:** targeted `routes/ai.test.ts` نجح **2/2** (204 skipped) على قاعدة PostgreSQL loopback مؤقتة `e2_disposable` بعد schema apply/check، مع `AI_PROVIDER_EGRESS_DISABLED=1`; API typecheck و`git diff --check` نجحا. أُوقف PostgreSQL وحُذف الجذر المؤقت.
+- **authority/safety impact:** لم يظهر bypass في هاتين الحالتين الوسيطتين؛ إثبات route-safety لا يثبت أن كل interleaving أو consumer مشمول.
+- **remaining/blocker:** اختبار المصالحة القائم يتحقق من النتيجة النهائية لميزانيتي retry، وليس ترتيبًا مضبوطًا بين الكتابتين. بقيت بقية source-family census و`World Fact → planner action` غير محسومتين.
+- **next step:** واصل E2 بفجوة مصدر/مستهلك واحدة قابلة للإثبات؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
