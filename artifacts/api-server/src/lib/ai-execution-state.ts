@@ -2526,7 +2526,15 @@ export async function persistAiExecutionRecoveryResumeToken(params: {
   expectedAttempt: number;
   expectedCheckpoint: string;
   expectedCheckpointVersion: number;
-  expectedAcceptance: { resumable: number; nextActionCode: string | null } | null;
+  expectedAcceptance: {
+    id: string;
+    projectId: string;
+    operationId: string | null;
+    sourceRevision: string | null;
+    reasonCode: string | null;
+    resumable: number;
+    nextActionCode: string | null;
+  } | null;
   resumeTokenHash: string;
   nextCheckpoint: string;
   nextCheckpointVersion: number;
@@ -2558,6 +2566,11 @@ export async function persistAiExecutionRecoveryResumeToken(params: {
 
     const [acceptance] = await tx
       .select({
+        id: aiExecutionAcceptancesTable.id,
+        projectId: aiExecutionAcceptancesTable.projectId,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
         resumable: aiExecutionAcceptancesTable.resumable,
         nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
       })
@@ -2570,7 +2583,12 @@ export async function persistAiExecutionRecoveryResumeToken(params: {
       .for("update");
     const acceptanceStillMatches = params.expectedAcceptance === null
       ? !acceptance
-      : acceptance?.resumable === params.expectedAcceptance.resumable
+      : acceptance?.id === params.expectedAcceptance.id
+        && acceptance.projectId === params.expectedAcceptance.projectId
+        && acceptance.operationId === params.expectedAcceptance.operationId
+        && acceptance.sourceRevision === params.expectedAcceptance.sourceRevision
+        && acceptance.reasonCode === params.expectedAcceptance.reasonCode
+        && acceptance.resumable === params.expectedAcceptance.resumable
         && acceptance.nextActionCode === params.expectedAcceptance.nextActionCode;
     if (!acceptanceStillMatches) return undefined;
 
@@ -2746,8 +2764,14 @@ export async function requestAiExecutionRecovery(params: {
   }
   const [priorAcceptance] = await db
     .select({
+      id: aiExecutionAcceptancesTable.id,
+      projectId: aiExecutionAcceptancesTable.projectId,
+      operationId: aiExecutionAcceptancesTable.operationId,
+      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      disposition: aiExecutionAcceptancesTable.disposition,
     })
     .from(aiExecutionAcceptancesTable)
     .where(and(
@@ -2755,12 +2779,23 @@ export async function requestAiExecutionRecovery(params: {
       eq(aiExecutionAcceptancesTable.attempt, current.attempt),
     ))
     .limit(1);
-  if (
-    params.action === "resume"
-    && priorAcceptance
-    && (priorAcceptance.resumable !== 1 || priorAcceptance.nextActionCode === "START_NEW_PROBE")
-  ) {
-    return { execution: current, outcome: "not_eligible" };
+  if (params.action === "resume") {
+    const acceptanceEligible = isAiExecutionResumeAcceptanceEligible({
+      projectId: current.projectId,
+      operationId: current.operationId,
+      status: current.status,
+      request,
+      checkpoint,
+      acceptance: priorAcceptance,
+    });
+    const explicitlyAllowsResume = !priorAcceptance
+      || (
+        priorAcceptance.resumable === 1
+        && priorAcceptance.nextActionCode !== "START_NEW_PROBE"
+      );
+    if (!acceptanceEligible || !explicitlyAllowsResume) {
+      return { execution: current, outcome: "not_eligible" };
+    }
   }
   if (current.status !== "paused" || !checkpoint || operation?.state !== "uncertain") {
     return { execution: current, outcome: "not_eligible" };
@@ -2789,6 +2824,11 @@ export async function requestAiExecutionRecovery(params: {
       expectedCheckpointVersion: current.checkpointVersion,
       expectedAcceptance: priorAcceptance
         ? {
+            id: priorAcceptance.id,
+            projectId: priorAcceptance.projectId,
+            operationId: priorAcceptance.operationId,
+            sourceRevision: priorAcceptance.sourceRevision,
+            reasonCode: priorAcceptance.reasonCode,
             resumable: priorAcceptance.resumable,
             nextActionCode: priorAcceptance.nextActionCode,
           }

@@ -3446,6 +3446,11 @@ describe("durable project-orientation retry chaos", () => {
       expect(snapshot, context).toBeDefined();
       const [acceptance] = await db
         .select({
+          id: aiExecutionAcceptancesTable.id,
+          projectId: aiExecutionAcceptancesTable.projectId,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
           resumable: aiExecutionAcceptancesTable.resumable,
           nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
         })
@@ -3469,6 +3474,11 @@ describe("durable project-orientation retry chaos", () => {
         expectedCheckpoint: snapshot!.checkpoint,
         expectedCheckpointVersion: snapshot!.checkpointVersion,
         expectedAcceptance: {
+          id: acceptance!.id,
+          projectId: acceptance!.projectId,
+          operationId: acceptance!.operationId,
+          sourceRevision: acceptance!.sourceRevision,
+          reasonCode: acceptance!.reasonCode,
           resumable: acceptance!.resumable,
           nextActionCode: acceptance!.nextActionCode,
         },
@@ -3510,7 +3520,12 @@ describe("durable project-orientation retry chaos", () => {
     }
   });
 
-  it("rejects an operator resume-token write after same-attempt acceptance becomes ineligible", async () => {
+  it.each([
+    { label: "resume eligibility", mutation: "eligibility" },
+    { label: "operation identity", mutation: "identity" },
+  ] as const)(
+    "rejects an operator resume-token write after same-attempt acceptance $label changes",
+    async ({ mutation }) => {
     const fixture = await createFailedOrientationFixture("operator-recovery-stale-acceptance-write");
     const context = `operator recovery stale acceptance write; execution=${fixture.executionId}`;
     const operation = {
@@ -3556,6 +3571,11 @@ describe("durable project-orientation retry chaos", () => {
         .limit(1);
       const [acceptance] = await db
         .select({
+          id: aiExecutionAcceptancesTable.id,
+          projectId: aiExecutionAcceptancesTable.projectId,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
           resumable: aiExecutionAcceptancesTable.resumable,
           nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
         })
@@ -3571,9 +3591,12 @@ describe("durable project-orientation retry chaos", () => {
         nextActionCode: "RESUME_ALLOWED",
       });
 
+      const acceptanceMutation = mutation === "identity"
+        ? { operationId: randomUUID() }
+        : { resumable: 0, nextActionCode: "START_NEW_PROBE" };
       await db
         .update(aiExecutionAcceptancesTable)
-        .set({ resumable: 0, nextActionCode: "START_NEW_PROBE" })
+        .set(acceptanceMutation)
         .where(and(
           eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
           eq(aiExecutionAcceptancesTable.attempt, 0),
@@ -3586,6 +3609,11 @@ describe("durable project-orientation retry chaos", () => {
         expectedCheckpoint: snapshot!.checkpoint,
         expectedCheckpointVersion: snapshot!.checkpointVersion,
         expectedAcceptance: {
+          id: acceptance!.id,
+          projectId: acceptance!.projectId,
+          operationId: acceptance!.operationId,
+          sourceRevision: acceptance!.sourceRevision,
+          reasonCode: acceptance!.reasonCode,
           resumable: acceptance!.resumable,
           nextActionCode: acceptance!.nextActionCode,
         },
@@ -3623,7 +3651,8 @@ describe("durable project-orientation retry chaos", () => {
     } finally {
       await fixture.cleanup();
     }
-  });
+    },
+  );
 
   it("terminalizes operator abandon instead of treating an existing recovery acceptance as a duplicate", async () => {
     const fixture = await createFailedOrientationFixture("operator-abandon-acceptance");

@@ -10272,6 +10272,182 @@ describe("autonomous task acceptance finalization races", () => {
     });
   });
 
+  it.each([
+    { label: "proof-required", proofRequired: true, expectedStatus: 409 },
+    { label: "legacy non-proof", proofRequired: false, expectedStatus: 200 },
+  ] as const)(
+    "keeps operator resume admission aligned with claim when acceptance is absent: $label",
+    async ({ proofRequired, expectedStatus }) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const created = await createAiExecution({
+        userId: "test-user",
+        projectId,
+        idempotencyKey: `${projectId}:operator-recovery-without-acceptance`,
+        request: {
+          projectId,
+          turnIntent: "DELIVERY",
+          message: "Resume the uncertain operation.",
+          modelMessage: "Resume the uncertain operation.",
+          validationTargetPaths: [],
+          proofRequired,
+        },
+      });
+      const operation = {
+        ...aiExecutionState.createAutonomousOperationContract({
+          operationId: created.execution.operationId ?? created.execution.id,
+          objective: "Resume only under the persisted recovery contract.",
+        }),
+        state: "uncertain" as const,
+        updatedAt: new Date().toISOString(),
+      };
+      const checkpoint = JSON.stringify({
+        stage: "failed",
+        sequence: 1,
+        operation,
+        updatedAt: new Date().toISOString(),
+      });
+      await db.update(aiExecutionsTable)
+        .set({ status: "paused", checkpoint, updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, created.execution.id));
+
+      const [before] = await db.select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, created.execution.id));
+      const res = await request(app)
+        .post(`/api/ai/executions/${created.execution.id}/recovery`)
+        .send({ action: "resume" });
+
+      expect(res.status).toBe(expectedStatus);
+      if (proofRequired) {
+        expect(res.body.code).toBe("EXECUTION_NOT_RECOVERABLE");
+        const [after] = await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, created.execution.id));
+        expect(after).toEqual(before);
+      } else {
+        expect(res.body).toMatchObject({
+          executionId: created.execution.id,
+          outcome: "resume_accepted",
+          resumeToken: expect.any(String),
+        });
+        const claimed = await aiExecutionState.claimAiExecution({
+          executionId: created.execution.id,
+          userId: "test-user",
+          workerId: "operator-recovery-legacy-claim",
+          resumeToken: res.body.resumeToken,
+        });
+        expect(claimed).toMatchObject({
+          status: "running",
+          attempt: created.execution.attempt + 1,
+        });
+      }
+
+      const acceptances = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+      expect(acceptances).toHaveLength(0);
+    },
+  );
+
+  it("resumes a proof-required uncertain operation only with a current matching acceptance", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: `${projectId}:operator-recovery-current-acceptance`,
+      request: {
+        projectId,
+        turnIntent: "DELIVERY",
+        message: "Resume the accepted uncertain operation.",
+        modelMessage: "Resume the accepted uncertain operation.",
+        validationTargetPaths: [],
+        proofRequired: true,
+      },
+    });
+    const operationId = created.execution.operationId ?? created.execution.id;
+    const operation = {
+      ...aiExecutionState.createAutonomousOperationContract({
+        operationId,
+        objective: "Resume only under the matching attempt acceptance.",
+      }),
+      state: "uncertain" as const,
+      updatedAt: new Date().toISOString(),
+    };
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "paused",
+        checkpoint: JSON.stringify({
+          stage: "failed",
+          sequence: 1,
+          operation,
+          updatedAt: new Date().toISOString(),
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      operationId,
+      attempt: created.execution.attempt,
+      finalizationKey: randomUUID(),
+      terminalStatus: "paused",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+      },
+      resumable: 1,
+    });
+
+    const res = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/recovery`)
+      .send({ action: "resume" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      executionId: created.execution.id,
+      operationId,
+      outcome: "resume_accepted",
+      resumeToken: expect.any(String),
+    });
+
+    const claimed = await aiExecutionState.claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId: "operator-recovery-current-acceptance",
+      resumeToken: res.body.resumeToken,
+    });
+    expect(claimed).toMatchObject({
+      status: "running",
+      attempt: created.execution.attempt + 1,
+    });
+    const [priorAcceptance] = await db.select({
+      attempt: aiExecutionAcceptancesTable.attempt,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+    }).from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    expect(priorAcceptance).toEqual({
+      attempt: created.execution.attempt,
+      nextActionCode: "RESUME_ALLOWED",
+    });
+  });
+
   it("keeps generic resume, retry, and operator recovery off Task-linked executions", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

@@ -5720,10 +5720,21 @@ G9 Revocation Safety
 ### 2026-10-09 — ربط Chat exhaustion callback بالمحاولة الملتقطة
 
 - **phase/step:** E2 فقط — dequeue-time identity fence لمسار إنهاء الاستنفاد.
-- **status:** `PASS for captured-attempt propagation and settlement no-mutation fence; end-to-end delayed route interleaving remains untested; E2 OPEN; E3 STOPPED`
-- **what changed:** كان مفتاح طابور الاستنفاد يحوي المحاولة، لكن callback لا يمررها، والـfinalizer كان يقرأ execution والمحاولة الأحدث. أُضيف `expectedAttempt` من المرشح إلى runner ثم finalizer؛ finalizer يرفض تغيّرها قبل قراءة الأدلة، وsettlement يعيد التحقق بعد قفل execution ويقفل acceptance المطابقة ويقيّد الكتابات بالمحاولة نفسها. اختبار coordinator يثبت تمرير attempt 3؛ اختبار settlement يمرر expectedAttempt 2 أمام سجلات attempt 3 ويثبت رفضًا بلا أي تغيير في execution أو acceptance أو الرسالة. اختبار settlement الإيجابي ما زال يثبت السلوك idempotent للمحاولة المطابقة.
+- **status:** `PASS for queued stale-callback rejection through real runner/finalizer and settlement fence; E2 OPEN; E3 STOPPED`
+- **what changed:** كان مفتاح طابور الاستنفاد يحوي المحاولة، لكن callback لا يمررها، والـfinalizer كان يقرأ execution والمحاولة الأحدث. أُضيف `expectedAttempt` من المرشح إلى runner ثم finalizer؛ finalizer يرفض تغيّرها قبل قراءة الأدلة، وsettlement يعيد التحقق بعد قفل execution ويقفل acceptance المطابقة ويقيّد الكتابات بالمحاولة نفسها. الاختبار يؤخر job المحاولة 3 حتى تصبح السجلات على المحاولة 4 ثم يشغّل runner والـroute finalizer الحقيقيين؛ يرفضها بلا تغيير في execution أو acceptance أو الرسالة. اختبار منفصل يثبت حارس settlement، والإيجابي يثبت idempotency للمحاولة المطابقة.
 - **files/schema/contracts touched:** `ai-recovery-coordinator.ts`، `chat-recovery-runner.ts`، `routes/ai/chat.ts`، `ai-execution-acceptance.ts`، `ai-recovery-coordinator.integration.test.ts`، والـledger وسجل التقدم؛ لا schema أو workflow.
-- **validation:** `ai-recovery-coordinator.integration.test.ts` نجح **16/16** على PostgreSQL مؤقتة loopback بعد schema apply/check؛ `pnpm exec tsc --noEmit` و`git diff --check` نجحا. provider egress معطّل، وأُوقفت القاعدة وحُذف جذرها.
+- **validation:** `ai-recovery-coordinator.integration.test.ts` نجح **17/17** على PostgreSQL مؤقتة loopback بعد schema apply/check؛ `pnpm exec tsc --noEmit` و`git diff --check` نجحا. provider egress معطّل، وأُوقفت القاعدة وحُذف جذرها.
 - **authority/safety impact:** callback من محاولة قديمة لا يستطيع الآن إعادة تصنيف acceptance أو الرسالة أو execution لمحاولة أحدث عبر settlement. لا يثبت هذا Canonical Proof موحدًا أو صلاحية بقية consumers.
-- **remaining/blocker:** اختبار enqueue ما زال يسخر finalizer، واختبار settlement يستدعي helper مباشرة؛ لم نختبر interleaving كاملًا عبر queue ثم route أثناء تبدل المحاولة. قابلية وقوع هذا الترتيب في الإنتاج غير محسومة. census الديناميكي و`World Fact → planner action` ما زالا `UNKNOWN`.
+- **remaining/blocker:** لم نحقن تبدل المحاولة بعد القراءة الأولية داخل finalizer وقبل settlement، لكن settlement يعيد التحقق من المحاولة تحت قفل execution؛ تكرار هذا الترتيب في الإنتاج غير محسوم. census الديناميكي و`World Fact → planner action` ما زالا `UNKNOWN`.
 - **next step:** واصل E2 بفحص consumer أو source edge أخرى غير محسومة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — Mission Control operator-resume acceptance parity
+
+- **phase/step:** E2 فقط — توحيد admission والـclaim حول acceptance الحالية وربط write fence بهويتها.
+- **status:** `PARTIAL — bounded acceptance gate and snapshot fence proven; E2 remains open`
+- **what changed:** صار operator resume يستعمل predicate eligibility نفسه المستخدم عند claim. غياب acceptance يرفض execution المطالب بـproof قبل كتابة token أو recovery marker؛ مسار legacy غير المطالب بـproof يظل قابلًا للـresume والـclaim، والـacceptance الحالية المطابقة تسمح بمحاولة جديدة. داخل transaction تتم مقارنة row ID وproject/operation/revision/reason وresumability وnext action، مع إعادة التحقق من الغياب أيضًا.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`؛ اختبارات `routes/ai.test.ts` و`ai-execution-orientation-chaos.integration.test.ts`؛ `docs/e2-source-derived-measurement-ledger.md` وهذا السجل. لا تغييرات schema أو workflow.
+- **validation:** اختبارات route المحددة **3/3**؛ اختبارات snapshot write المحددة **3/3**؛ `pnpm exec tsc --noEmit` و`git diff --check` نجحا. استخدمت الاختبارات PostgreSQL محلية مؤقتة مع `AI_PROVIDER_EGRESS_DISABLED=1`، ثم أوقفتها وحذفت جذرها. لم يُعَد تشغيل API workflow المُدار.
+- **authority/safety impact:** لا token/marker لـproof-required resume دون acceptance حالية؛ إثبات legacy غير proof لم يُوسّع إلى Canonical Proof. لا تغيير في قرار البوابات ولا بدء لـE3 أو Strategy Replay.
+- **remaining/blocker:** جرد المستهلكين الديناميكيين/الخارجيين ووجود قاعدة domain تثبت انتقال `World Fact` إلى plan-step ما زالا `UNKNOWN`؛ E2 مفتوحة.
+- **next step:** واصل E2 على هاتين الفجوتين فقط، ولا تبدأ E3 أو Strategy Replay قبل اجتياز E2 صراحةً.
