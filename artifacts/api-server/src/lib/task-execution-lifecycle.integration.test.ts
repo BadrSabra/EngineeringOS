@@ -3691,6 +3691,36 @@ describe("real durable task execution lifecycle", () => {
       });
 
       const response = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+      const [taskState] = await db
+        .select({
+          status: tasksTable.status,
+          retryCount: tasksTable.retryCount,
+          correlationId: tasksTable.correlationId,
+          workerId: tasksTable.workerId,
+          leaseUntil: tasksTable.leaseUntil,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+      const executionState = await db
+        .select({
+          id: aiExecutionsTable.id,
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          workerId: aiExecutionsTable.workerId,
+          correlationId: aiExecutionsTable.correlationId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+        .limit(3);
+      await writeFile(readySignalFile, JSON.stringify({
+        taskId,
+        stage: "http_route_returned",
+        response: { status: response.status, body: response.body },
+        taskState: taskState ?? null,
+        executionState,
+      }), "utf8");
       throw new Error(
         `AI task route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
       );

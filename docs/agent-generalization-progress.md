@@ -5364,3 +5364,322 @@ G9 Revocation Safety
 - **authority/safety impact:** لا يُعد prompt/revision وحدهما قرارًا متغيرًا أو proof؛ لا تُمنح facts صلاحية تنفيذية.
 - **remaining/blocker:** لا يوجد حتى الآن عقد domain محدد يربط action-effect observed موثوقًا بتغير plan step محدد؛ يجب العثور على عقد موجود أو إبقاء invariant غير مثبت.
 - **next step:** تتبع fixture من action/effect materialization إلى World State planning read ثم plan-step selection، واختبار مسارات التعافي/التزامن/السجلات القديمة الموجودة قبل إضافة سياسة جديدة.
+
+### 2026-10-09 — فصل حلقة runtime المعتمدة عن World Fact الإرشادي
+
+- **phase/step:** E2 فقط — تحديد حلقة action-to-decision التي يملكها النظام حاليًا.
+- **status:** `bounded runtime.start loop previously PASS; World Fact → planner action remains UNKNOWN`
+- **what changed:** التتبع يثبت أن `buildMissionPlanPreview` يبني `GeneralTaskPlan` من الرسالة/النية/هدف runtime فقط؛ ثم يضيف `worldStatePlanningRead` إلى سياق replan بعد بناء الخطوات. كما أن اختبار تغيير `repository.branch` يبدل صفوف observation/fact مباشرةً ويثبت revision/prompt، لكنه يثبت صراحةً أن خطوات الخطة لا تتغير. بالمقابل، ledger يسجل حلقة `runtime.start` الحالية: transition/effect مقيد بقبول المحاولة نفسها ولا يُطلق successor إلا بعد materialization مطابق، بنتيجة 22/22 سابقًا.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغيير runtime أو schema.
+- **validation:** قراءة مصادر التخطيط والـreplan والـWorld State واختبار integration؛ reconciliation مع نتائج `runtime-start-transition.test.ts` **22/22** و`mission-auto-replan-evidence.integration.test.ts` **9/9** المسجلة سابقًا. لم يُشغّل اختبار جديد في هذه الخطوة.
+- **authority/safety impact:** حلقة runtime-start لا تحول World Facts الإرشادية إلى إذن. لا يصح احتساب تغيّر prompt/hash بوصفه تغيّر قرار planner.
+- **remaining/blocker:** نحتاج إعادة إثبات حلقة runtime-start على الشفرة الحالية، مع اختبارات recovery/concurrency/legacy المرتبطة؛ يظل تغيير قرار planner بfact إرشادي غير مثبت ولا يجوز اختلاق mapping عام.
+- **next step:** شغّل اختبارات loop وclaim/recovery/legacy المستهدفة على PostgreSQL مؤقتة loopback مع egress معطّل، ثم حدّث ledger وفق النتائج الفعلية.
+
+### 2026-10-09 — تجهيز قاعدة تحقق معزولة
+
+- **phase/step:** E2 فقط — إعداد PostgreSQL مؤقتة للاختبارات المستهدفة.
+- **status:** `partial; disposable server ready`
+- **what changed:** شُغّلت قاعدة PostgreSQL مؤقتة على `127.0.0.1` بمنفذ عشوائي؛ لم يُطبّق schema بعد ولم تُكتب بيانات إلى قاعدة التطوير أو الإنتاج.
+- **files/schema/contracts touched:** لا ملفات مشروع أو schema؛ جذر مؤقت `/tmp/e2-proof-loop-validation.ME0tV3`.
+- **validation:** `initdb` و`pg_ctl start` نجحا؛ المنفذ `33333`.
+- **authority/safety impact:** القاعدة محصورة محليًا للاختبارات؛ لا provider حي ولا managed workflow.
+- **remaining/blocker:** يلزم schema apply ثم تشغيل اختبارات proof/loop/recovery والتزامن والحالات القديمة.
+- **next step:** طبّق `schema:apply` على قاعدة الاختبار وحدها مع تعطيل provider egress، ثم شغّل الاختبارات المحددة.
+
+### 2026-10-09 — محاولة schema apply الأولى
+
+- **phase/step:** E2 فقط — تهيئة مخطط قاعدة الاختبار.
+- **status:** `blocked; schema apply exited 1`
+- **what changed:** انتهى `drizzle-kit push` عند قراءة المخطط من PostgreSQL؛ لا يظهر من المخرجات أن أي تغييرات schema طُبّقت.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ قاعدة مؤقتة فقط، والمنفذ `33333`.
+- **validation:** فشل `pnpm --filter @workspace/db run schema:apply` مع `DATABASE_URL` محلية صريحة و`AI_PROVIDER_EGRESS_DISABLED=1`؛ سبب الفشل التفصيلي غير ظاهر في خرج الأمر المختصر.
+- **authority/safety impact:** لم يُستخدم DB التطوير/الإنتاج أو provider حي؛ لم يُعَد تشغيل workflow مُدار.
+- **remaining/blocker:** معرفة هل الخلل اتصال/تهيئة قاعدة أم فشل مخطط، ثم إعادة schema apply على القاعدة المؤقتة فقط.
+- **next step:** افحص جاهزية PostgreSQL وسجلها واتصال `psql` محليًا قبل إعادة المحاولة.
+
+### 2026-10-09 — تشخيص اختفاء PostgreSQL المؤقت
+
+- **phase/step:** E2 فقط — تشخيص تهيئة قاعدة الاختبار.
+- **status:** `blocked; postmaster did not persist across shell calls`
+- **what changed:** سجل الخادم يثبت أنه وصل إلى `ready to accept connections`، لكن `pg_isready` و`psql` أعادا `connection refused` بعد انتهاء أمر تشغيله؛ لا يظهر shutdown نظيف، ولم يحدث schema apply.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ قاعدة الاختبار السابقة غير متاحة على المنفذ `33333`.
+- **validation:** فحوص loopback وقراءة سجل PostgreSQL؛ فشل الاتصال بسبب غياب الخادم، لا دليل على خطأ مخطط.
+- **authority/safety impact:** لم تُمس قاعدة مشتركة أو workflow مُدار؛ لا provider حي.
+- **remaining/blocker:** تشغيل Postgres كجلسة خلفية مؤقتة حية، ثم إعادة schema apply والاختبارات.
+- **next step:** أنشئ قاعدة loopback جديدة تحت عملية خلفية مراقبة، واختبر readiness قبل schema apply.
+
+### 2026-10-09 — PostgreSQL مؤقتة مستمرة للاختبار
+
+- **phase/step:** E2 فقط — إعادة تجهيز مخزن الاختبار بعد تشخيص عمر العملية.
+- **status:** `ready; isolated server accepting connections`
+- **what changed:** بدأ cluster جديد تحت جلسة shell خلفية حية حتى لا يُقتل postmaster عند انتهاء أمر الإعداد القصير.
+- **files/schema/contracts touched:** لا ملفات مصدر أو مخطط؛ الجذر المؤقت `/tmp/e2-proof-loop-validation-bg.mYqYzo`.
+- **validation:** `pg_isready` أكد قبول الاتصال عبر loopback على المنفذ `36239`.
+- **authority/safety impact:** الخادم disposable محلي فقط؛ لا قاعدة مشتركة، provider حي، أو managed workflow.
+- **remaining/blocker:** schema غير مطبق بعد؛ اختبارات API لا تبدأ حتى نجاحه.
+- **next step:** أعد تشغيل `schema:apply` بقاعدة `runner` المحلية وegress معطّل.
+
+### 2026-10-09 — schema apply يفشل مع خادم جاهز
+
+- **phase/step:** E2 فقط — تشخيص تطبيق المخطط.
+- **status:** `blocked; schema apply exited 1 twice`
+- **what changed:** حتى بعد بقاء قاعدة loopback جاهزة، ينتهي `drizzle-kit push` عند `Pulling schema from database...` بالرمز 1 دون تفصيل في الخرج المختصر؛ لم يجرِ تشغيل الاختبارات.
+- **files/schema/contracts touched:** لا تغييرات مصدرية أو schema؛ قاعدة مؤقتة فقط على المنفذ `36239`.
+- **validation:** إعادة `pnpm --filter @workspace/db run schema:apply` مع URL محلية صريحة و`AI_PROVIDER_EGRESS_DISABLED=1`؛ تأكدت readiness قبلها.
+- **authority/safety impact:** لا استخدام لقاعدة التطوير/الإنتاج أو provider حي؛ لم يُعَد تشغيل workflow مُدار.
+- **remaining/blocker:** تحديد ما إذا كان السبب اتصال Drizzle أو تعريف config/المخطط؛ لا تكرر الدفع قبل معرفة التفصيل.
+- **next step:** افحص `drizzle.config.ts` وسجل PostgreSQL واتصال Node/pg المباشر لتضييق سبب الخروج.
+
+### 2026-10-09 — سبب فشل schema apply: اسم قاعدة غير موجود
+
+- **phase/step:** E2 فقط — تصحيح عنوان قاعدة الاختبار.
+- **status:** `diagnosed; database not yet migrated`
+- **what changed:** `initdb -U runner` أنشأ دور `runner` وقاعدة `postgres` الافتراضية، لا قاعدة باسم `runner`. كان عنوان الاختبار يشير إلى `/runner`؛ خطأ السجل عن دور `postgres` ناتج من readiness polling الذي ورث `PGUSER` الافتراضي، لا من app logic.
+- **files/schema/contracts touched:** لا تغييرات مصدرية أو schema؛ cluster المؤقت الحالي بقي حيًا.
+- **validation:** فحص `drizzle.config.ts` يؤكد أخذ الاتصال من `DATABASE_URL`؛ `pg_isready` أكد الخادم، ومحاولة `psql` إلى `/runner` أظهرت صراحةً `database "runner" does not exist`.
+- **authority/safety impact:** عزل قاعدة الاختبار ما زال قائمًا؛ لا قاعدة مشتركة أو workflow مُدار أو provider حي.
+- **remaining/blocker:** schema لم يُطبّق بعد.
+- **next step:** تحقق من اتصال `runner` بقاعدة `postgres`، ثم وجّه `schema:apply` إلى `/postgres`.
+
+### 2026-10-09 — schema apply ناجح على القاعدة المؤقتة
+
+- **phase/step:** E2 فقط — تجهيز مخطط قاعدة الاختبار.
+- **status:** `PASS; schema ready`
+- **what changed:** استخدمت عنوان القاعدة الافتراضية الصحيحة `/postgres`؛ طبّق Drizzle التغييرات وأكد فاحص المخطط جداول التطبيق الحرجة.
+- **files/schema/contracts touched:** لا تغييرات مصدرية أو schema يدوي؛ schema مؤقتة فقط داخل cluster الاختبار.
+- **validation:** `psql` أعاد `runner|postgres`؛ `pnpm --filter @workspace/db run schema:apply` نجح و`check-schema.ts` أكد الجاهزية.
+- **authority/safety impact:** قاعدة loopback محلية فقط وprovider egress معطّل؛ لا workflow مُدار أُعيد تشغيله.
+- **remaining/blocker:** لم تبدأ الاختبارات بعد.
+- **next step:** أعد إثبات حلقة runtime.start واختبار replan الذي يفصل أثر World State على prompt عن تغير خطوات القرار.
+
+### 2026-10-09 — تحقق حلقة runtime.start وإعادة التخطيط
+
+- **phase/step:** E2 فقط — فعل مقبول إلى قرار dispatch، ومقارنة أثر World State.
+- **status:** `PASS for runtime.start loop; World Fact step-selection remains UNKNOWN`
+- **what changed:** شُغّل الاختبار الكامل الحالي لحلقة `runtime.start`: انتقال/EffectBundle مربوطان بقبول Gate C، ثم materialization دقيق يطلق successor واحدًا؛ كما رُفضت حالات scope/evidence الخاطئة. اختبار replan يثبت أن fact موثوقًا مغيرًا يبدل revision وadvisory prompt، لكنه لا يغير خطوات الخطة.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ نتائج الاختبارات وسجل التقدم فقط.
+- **validation:** `runtime-start-transition.test.ts` نجح **23/23**؛ `mission-auto-replan-evidence.integration.test.ts` نجح **10/10**، على PostgreSQL loopback المؤقتة بعد schema apply و`AI_PROVIDER_EGRESS_DISABLED=1`.
+- **authority/safety impact:** حلقة action→effect-bound acceptance→successor dispatch مثبتة على الشفرة الحالية؛ World State لا يمنح إذنًا ولا يغيّر قرار planner تلقائيًا.
+- **remaining/blocker:** لا يغلق ذلك سؤال `World Fact → planner action` أو source-family census؛ لا يبدأ E3.
+- **next step:** اختبر recovery/claim المتزامن ومسارات legacy الحالية، ثم شغّل سيناريو crash-recovery المعزول إن اجتاز preflight.
+
+### 2026-10-09 — فحص preflight لاختبار crash-recovery
+
+- **phase/step:** E2 فقط — مراجعة شروط اختبار استعادة HTTP Task بعد SIGKILL.
+- **status:** `eligible only with a named disposable database`
+- **what changed:** الاختبار يقصر اتصال العمليات الفرعية على loopback، ويعطل provider egress، ويستخدم provider dummy؛ كما يختبر إيقاف worker/API صراحةً أثناء execute وresume ثم استعادة acceptance غير ناجحة حتى نجاح resume لاحق.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ فحص نطاق الاختبار.
+- **validation:** تحقق المصدر يفرض اسم قاعدة يتضمن `test` أو `disposable`؛ قاعدة `/postgres` الحالية لا تجتاز هذا الشرط، لذا لم يُشغّل crash test عليها.
+- **authority/safety impact:** الاختبار ليس managed workflow، لكنه يطلق عمليات API/worker اختبارية منفصلة؛ لا provider حي.
+- **remaining/blocker:** يلزم إنشاء قاعدة `e2_disposable` داخل cluster loopback وتطبيق schema عليها، ثم مراجعة التنظيف والتشغيل.
+- **next step:** افحص finally-cleanup كاملًا، ثم جهز القاعدة ذات الاسم المقبول للاختبار المعزول.
+
+### 2026-10-09 — مراجعة تنظيف اختبار crash-recovery
+
+- **phase/step:** E2 فقط — مراجعة أثر اختبار process-level قبل تشغيله.
+- **status:** `preflight PASS`
+- **what changed:** فحص finally-block يؤكد قتل كل worker/API child ما يزال حيًا، وانتظار الخروج وانفصال اتصال DB، ثم حذف بيانات المشروع/المهمة التي أنشأها الاختبار ومجلد signal المؤقت الخاص به.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ لا تشغيل اختبار حتى الآن.
+- **validation:** fixture child يعمل في test mode مع egress معطّل ومفتاح provider dummy؛ مسارات الاختبار تتطلب loopback واسم DB disposable/test.
+- **authority/safety impact:** لا workflow مُدار يُعاد تشغيله؛ تنظيف الاختبار scoped إلى صفوفه ومعرّفاته وجذر signal المؤقت.
+- **remaining/blocker:** قاعدة `/postgres` الحالية لا تحقق شرط اسم DB.
+- **next step:** أنشئ `e2_disposable` داخل cluster المحلي، طبّق schema، ثم شغّل recovery/concurrency/legacy suites.
+
+### 2026-10-09 — قاعدة e2_disposable جاهزة
+
+- **phase/step:** E2 فقط — تهيئة قاعدة crash-recovery المؤقتة.
+- **status:** `PASS; disposable schema ready`
+- **what changed:** أُنشئت قاعدة `e2_disposable` داخل cluster loopback المؤقت وطُبّق عليها مخطط التطبيق.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ قاعدة اختبار مؤقتة فقط.
+- **validation:** `CREATE DATABASE e2_disposable` و`schema:apply` و`check-schema.ts` نجحت.
+- **authority/safety impact:** يطابق الاسم شرط اختبار process-recovery؛ URL loopback صريحة وprovider egress معطّل.
+- **remaining/blocker:** لم تُشغّل اختبارات الاستعادة/التزامن/الحالات القديمة بعد.
+- **next step:** شغّل اختبارات acceptance/recovery والـlegacy ومنافسة claim على هذه القاعدة.
+
+### 2026-10-09 — recovery/claim/legacy integrations
+
+- **phase/step:** E2 فقط — إعادة تحقق القبول الحالي، التزامن، وتوافق السجلات القديمة.
+- **status:** `PASS for selected boundaries`
+- **what changed:** حالات chaos المستهدفة أثبتت رفض قبول retry legacy عند انعدام العقد الحديث فقط ضمن حدوده الموروثة، رفض خلط هويات executions المتزامنة، recheck للقبول الحالي عند استهلاك token، رفض snapshot reconciliation القديم، وعدم double-advance، ورفض كتابة operator token بعد تغيّر المحاولة أو أهلية القبول. ملف retry غطى قفل acceptance حتى commit، expired lease، token rotation، وفشل proof-required عند الاكتفاء بقراءات كاملة.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ اختبارات تكامل على قاعدة `e2_disposable`.
+- **validation:** `ai-execution-orientation-chaos.integration.test.ts` المحدد **7/7** (59 skipped)؛ `ai-execution-retry.integration.test.ts` كامل **7/7**، مع `AI_PROVIDER_EGRESS_DISABLED=1`.
+- **authority/safety impact:** لا يُقبل دليل قراءة وحده كإثبات، وقرار recovery يبقى مربوطًا بالقبول الحالي والمحاولة/الهوية المتطابقة.
+- **remaining/blocker:** لم تُعد بعد اختبارات Task route، Task-pointer race، legacy timestamp-bound، أو process crash-recovery.
+- **next step:** شغّل حالات route/lifecycle المركزة للحالة الحالية وlegacy، ثم اختبار SIGKILL ذي URL disposable.
+
+### 2026-10-09 — فشل استئناف Task صالح في اختبار route
+
+- **phase/step:** E2 فقط — تحقق admission لمسار Task-linked resume.
+- **status:** `FAIL; one expected-valid resume returned 409`
+- **what changed:** ضمن مجموعة route المركزة، نجحت خمس حالات رفض/استعادة/عزل عامة، لكن اختبار `resumes the current accepted execution and advances its attempt` تلقى HTTP 409 بدل 202. بسبب `&&` لم يبدأ ملف Task lifecycle في هذا التشغيل.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ قاعدة `e2_disposable` فقط.
+- **validation:** `routes/ai.test.ts` أعاد 1 failed، 5 passed، 198 skipped؛ موضع التوقع في الاختبار عند السطر 9682، والاختبارات الأخرى كانت skipped عمدًا بالـfilter.
+- **authority/safety impact:** المسار أغلق الفعل بدل تجاوز القبول؛ لا يُعد ذلك نجاحًا، ويجب تحديد هل fixture قديم أم gate فعلي يرفض حالة صالحة.
+- **remaining/blocker:** سبب 409 غير ظاهر في assertion الحالي؛ لم تُشغّل اختبارات lifecycle التابعة بعد.
+- **next step:** افحص fixture والـresponse/route gate في هذا الاختبار، وأعد الحالة المنفردة فقط للحصول على السبب قبل تعديل أي كود.
+
+### 2026-10-09 — تشخيص 409: acceptance fixture بلا operation identity
+
+- **phase/step:** E2 فقط — تحديد سبب رفض resume المتوقع قبوله.
+- **status:** `fixture contract mismatch; production gate fail-closed`
+- **what changed:** route اجتاز فحوص Task/correlation/acceptance الأولية، ثم `recoverAiExecutionResumeToken` يرفض القبول إذا لم يطابق `acceptance.operationId` هوية execution. fixture اليدوي للحالة الإيجابية كتب project/attempt وRESUME_ALLOWED لكنه أغفل `operationId`؛ لذلك 409 مناسب للصف المزروع وليس دليلاً على خلل في gate.
+- **files/schema/contracts touched:** تشخيص source/test فقط؛ لا تعديل بعد.
+- **validation:** استُعيد invariant من helper الفعلي: projectId وoperationId الحاليان يجب أن يطابقا execution قبل token rotation.
+- **authority/safety impact:** لا نخفف عقد الإثبات أو نقبل acceptance غير مربوط بهوية العملية؛ سيُصلح seed الإيجابي ليحاكي durable acceptance صحيحًا.
+- **remaining/blocker:** يلزم تأكيد السبب في الاختبار المنفرد ثم إصلاح fixture وإعادة route/lifecycle tests.
+- **next step:** أعد الاختبار مع إخراج body، ثم أضف operationId الصحيح إلى acceptance fixture فقط إذا طابق سبب الرفض.
+
+### 2026-10-09 — تأكيد contract الخاص بـoperationId
+
+- **phase/step:** E2 فقط — حسم سبب 409 قبل تغيير fixture.
+- **status:** `root cause confirmed in source`
+- **what changed:** `createAiExecution` يولد `operationId` من request أو message ID أو execution ID؛ في هذا fixture لا يمرر request قيمة، لذا الهوية تساوي execution ID. acceptance اليدوي يترك عمود `operationId` null، وhelper يرفض الاختلاف قبل إصدار resume token.
+- **files/schema/contracts touched:** لا تغييرات مصدرية حتى الآن؛ قراءة source/fixture فقط.
+- **validation:** مطابقة توليد الهوية مع المقارنة المنفذة داخل أهلية resume؛ سبب 409 محسوم دون الحاجة إلى تعديل assertion لإظهار الجسم.
+- **authority/safety impact:** القبول الذي لا يربط العملية الحالية يظل مرفوضًا؛ إصلاح الاختبار سيضيف الربط الصحيح لا استثناءً للـgate.
+- **remaining/blocker:** fixture الإيجابي ما زال غير صالح بالنسبة للعقد الحالي.
+- **next step:** أضف `operationId: created.execution.operationId` إلى acceptance المزروع في الحالة الإيجابية، ثم أعد اختبارها وحدها.
+
+### 2026-10-09 — ربط acceptance fixture بهوية التنفيذ
+
+- **phase/step:** E2 فقط — تصحيح بيانات الحالة الإيجابية لاختبار Task resume.
+- **status:** `pending focused validation`
+- **what changed:** أضيف `operationId` المأخوذ من execution الحالي إلى صف acceptance المزروع؛ لم يتغير production code أو contract.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai.test.ts` فقط.
+- **validation:** لم يُعَد تشغيل الاختبار بعد التعديل.
+- **authority/safety impact:** الاختبار الآن يزرع acceptance مطابقًا لهوية العملية بدل الاعتماد على صف بلا ربط.
+- **remaining/blocker:** يلزم تأكيد نجاح الحالة المنفردة ثم استئناف اختبارات lifecycle.
+- **next step:** أعد تشغيل test `resumes the current accepted execution and advances its attempt` وحده على `e2_disposable`.
+
+### 2026-10-09 — إعادة اختبار Task resume بعد تصحيح fixture
+
+- **phase/step:** E2 فقط — تأكيد acceptance المرتبط بهوية العملية.
+- **status:** `PASS; fixture now matches the acceptance contract`
+- **what changed:** الحالة الإيجابية عادت HTTP 202، وتقدمت المحاولة، واستُعيد Canonical Proof المرتبط بالقبول الجديد لا القديم.
+- **files/schema/contracts touched:** تغيير الاختبار في `routes/ai.test.ts` لتمرير `operationId` الصحيح؛ لا تغيير production.
+- **validation:** الاختبار المستهدف نجح **1/1** على PostgreSQL `e2_disposable` مع provider egress معطّل.
+- **authority/safety impact:** لم يُخفف gate؛ صار fixture يطابق execution identity المطلوبة قبل استعادة الرمز.
+- **remaining/blocker:** يلزم إعادة مجموعة route كاملة والتحقق من Task lifecycle race وlegacy timestamp.
+- **next step:** أعد مجموعة route المركزة ذات الحالات الست، ثم شغّل اختبارات lifecycle المحددة.
+
+### 2026-10-09 — Task route وlifecycle recovery gates
+
+- **phase/step:** E2 فقط — التحقق من admission الحالي، fencing، ورفض state القديمة.
+- **status:** `PASS for targeted route/lifecycle boundaries`
+- **what changed:** route tests أثبتت رفض acceptance غير المؤهلة والـTask الفاشلة، resume من acceptance الحالية بهوية operation صحيحة، إنشاء recovery acceptance للمحاولة الحالية، إبعاد Task-linked عن generic recovery، ومنع stale worker من الكتابة فوق recovery winner. lifecycle tests أثبتت rollback للtoken/attempt claim عند تبدل Task pointer، ورفض legacy timestamp-bound Mission resume قبل claim.
+- **files/schema/contracts touched:** fixture الوحيد تغيّر في `routes/ai.test.ts`؛ لا production code.
+- **validation:** `routes/ai.test.ts` **6/6** (198 skipped)؛ `task-execution-lifecycle.integration.test.ts` **2/2** (50 skipped)، على `e2_disposable` مع egress معطّل.
+- **authority/safety impact:** resume يظل محصورًا في execution/acceptance الحالية؛ old timestamp لا يتحول إلى revision content أو إذن.
+- **remaining/blocker:** لم يُشغّل process-level SIGKILL recovery بعد.
+- **next step:** شغّل سيناريو HTTP Task recovery بعد crash أثناء execute وresume باستخدام `RUN_TASK_ROUTE_PROCESS_RECOVERY=1` على `e2_disposable`.
+
+### 2026-10-09 — process-level Task recovery توقف قبل SIGKILL
+
+- **phase/step:** E2 فقط — اختبار recovery من worker/API process death.
+- **status:** `BLOCKED before crash phase`
+- **what changed:** اختبار SIGKILL بدأ subprocess worker، لكن مسار HTTP execute رجع `409 task_state_changed_concurrently` قبل كتابة signal file؛ لذلك لم يُقتل worker ولم يُختبر startup recovery أو resume بعد crash.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ الاختبار فقط.
+- **validation:** `recovers the HTTP AI task route after crashes during execute and resume attempts` فشل عند مرحلة `process-level AI task route worker fixture`؛ 1 failed، 51 skipped، والـchild خرج قبل signal.
+- **authority/safety impact:** الـroute أغلق التنفيذ بتعارض بدل تخطي lease؛ لا دليل حتى الآن هل race حقيقي أم process fixture misconfiguration.
+- **remaining/blocker:** سبب 409 قبل crash غير معروف؛ SIGKILL recovery غير مثبت.
+- **next step:** افحص worker fixture والـspawned process environment والـTask state عند 409، ثم أعد fixture المستقل قبل إعادة تشغيل السيناريو الكامل.
+
+### 2026-10-09 — تضييق سبب 409 في process worker
+
+- **phase/step:** E2 فقط — عزل تعارض claim قبل crash.
+- **status:** `investigating; no production cause established`
+- **what changed:** تأكدت أن child يشير إلى قاعدة disposable نفسها مع application_name مستقل وegress مغلق، ولا توجد child processes باقية. الـTask المزروع يبدأ `pending`، وانتقال `pending -> running` مسموح في state machine.
+- **files/schema/contracts touched:** لا تغييرات مصدرية؛ مراجعة fixture وtransition contract فقط.
+- **validation:** PostgreSQL ما زال يقبل الاتصالات على loopback؛ child خرج بعد HTTP 409 قبل كتابة ready signal.
+- **authority/safety impact:** لا تغيير؛ conflict guard ما زال يغلق بدل الاستمرار على هوية غير مؤكدة.
+- **remaining/blocker:** route يعيد رسالة عامة بلا `errorCode` lifecycle، وstate بعد rollback لم يُلتقط.
+- **next step:** أضف تشخيصًا test-only لحالة Task/Executions بعد رد child، ثم شغّل worker fixture المعزول لمعرفة أي fence اختلف.
+
+### 2026-10-09 — إضافة signal تشخيصي لفشل route child
+
+- **phase/step:** E2 فقط — جعل إخفاق process fixture سريعًا وقابلًا للتشخيص.
+- **status:** `diagnostic instrumentation added; pending rerun`
+- **what changed:** عند رجوع HTTP مبكرًا، child يكتب status/body وحالة Task وExecution إلى ready signal قبل الفشل؛ parent يستطيع إنهاء الاختبار فورًا بدل انتظار المهلة.
+- **files/schema/contracts touched:** test-only في `task-execution-lifecycle.integration.test.ts`؛ لا production changes.
+- **validation:** لم يُعَد التشغيل بعد.
+- **authority/safety impact:** لا تغيير في runtime أو حدود السلطة؛ معلومات التشخيص تبقى في اختبار disposable.
+- **remaining/blocker:** سبب lifecycle conflict لا يزال مجهولًا.
+- **next step:** أعد اختبار process recovery المركّز واقرأ حالة Task/Execution الملتقطة.
+
+### 2026-10-09 — process signal كشف rollback قبل بدء التنفيذ
+
+- **phase/step:** E2 فقط — تحديد موضع HTTP 409 في worker fixture.
+- **status:** `claim-path conflict; exact fence pending`
+- **what changed:** rerun كتب الحالة قبل فشل child: Task بقي `pending`, `retryCount=0`, `correlationId=null`, ولا توجد Execution rows. إذن لم يصل إلى model call، وأي execution أُنشئ داخل transaction قد تراجع؛ كما لا توجد علامة على أن worker آخر غيّر Task.
+- **files/schema/contracts touched:** تشخيص test-only في `task-execution-lifecycle.integration.test.ts`؛ لا production change.
+- **validation:** الاختبار الآن يفشل خلال 23 ثانية، والـready signal يلتقط حالة Task/Execution؛ route ما زال يرجع 409.
+- **authority/safety impact:** القفل/claim لم يترك آثارًا جزئية ظاهرة؛ السلوك fail-closed.
+- **remaining/blocker:** يلزم تحديد هل رفض `claimAiExecution` أم CAS داخل transaction؛ لا يثبت هذا run crash recovery.
+- **next step:** افحص preconditions الخاصة بـ`claimAiExecution` وقارنها بالصف المنشأ في worker route.
+
+### 2026-10-09 — root cause: claim يتحقق من Task pointer قبل تعيينه
+
+- **phase/step:** E2 فقط — تشخيص fresh Task execution في process fixture.
+- **status:** `runtime ordering bug confirmed`
+- **what changed:** `executeTaskLifecycle` ينشئ execution بمعرّف correlation جديد، ثم يستدعي `claimAiExecution`، وبعده فقط يحدّث Task pointer. لكن `claimAiExecution` يرفض أي Task-linked execution إن لم يطابق `tasks.correlationId` قيمة execution؛ عند أول تنفيذ يكون المؤشر null/قديم. الرفض يطلق conflict ويُرجع transaction كاملة، ما يطابق Task pending بلا execution في signal.
+- **files/schema/contracts touched:** تم تحديد الترتيب المتعارض في task lifecycle وشرط claim؛ لم يُعدل production بعد.
+- **validation:** المصدر يسمح بـ`pending -> running`؛ `claimAiExecution` يطلب correlation match قبل claim؛ fixture أثبت عدم بقاء صفوف بعد rollback.
+- **authority/safety impact:** الخلل يمنع بدء تنفيذ Task جديد، ولا يخلق تنفيذًا غير مربوط؛ الإصلاح يجب أن يظل CAS/claim/Task transition ذريًا.
+- **remaining/blocker:** يلزم ترتيب pointer claim داخل transaction مع fence على الحالة والمؤشر السابق، ثم ربط transition النهائي بالمؤشر الجديد.
+- **next step:** أصلح ترتيب transaction، ثم أعد Task route والـprocess recovery للتحقق من أن fresh claim يبدأ وأن crash/recovery/resume يكمل.
+
+### 2026-10-09 — إصلاح ترتيب Task pointer وexecution claim
+
+- **phase/step:** E2 فقط — السماح ببدء fresh Task مع حفظ الملكية الذرية.
+- **status:** `implementation complete; validation pending`
+- **what changed:** lifecycle صار يحدّث correlation pointer داخل transaction بشرط حالة Task/retry/original pointer، ثم ينفذ `claimAiExecution`; انتقال Task إلى `running` يعيد الفحص على execution correlation الجديد. فشل claim ما زال يعيد transaction كاملة.
+- **files/schema/contracts touched:** production change واحد في `task-execution-service.ts`; test-only diagnostic ما زال موجودًا لالتقاط أي استجابة مبكرة.
+- **validation:** لم تُشغّل الاختبارات بعد التعديل.
+- **authority/safety impact:** لم يُخفف validator؛ أُعيد ترتيب claims لتلبية شرطه، مع بقاء CAS على الحالة والمؤشر السابق والربط النهائي بالمؤشر الجديد.
+- **remaining/blocker:** يلزم إثبات initial route execution، Task-pointer race rollback، وSIGKILL recovery من execute/resume.
+- **next step:** أعد اختبارات Task pointer/legacy، ثم process-level recovery، ثم route execution المركزة.
+
+### 2026-10-09 — نجاح claim order وSIGKILL recovery الكامل
+
+- **phase/step:** E2 فقط — fresh Task start، race rollback، legacy resume، ثم crash recovery.
+- **status:** `PASS; process recovery proven end-to-end`
+- **what changed:** بعد تحديث pointer الذري قبل execution claim، نجح worker في بدء التنفيذ. الاختبار قتل worker أثناء execute، استعاد paused acceptance عند startup، بدأ resume بالمحاولة التالية، قتله ثانية، استعاد المحاولة وقبول recovery الجديد، ثم أكمل محاولة ثالثة بقبول SUCCEEDED وحالة Task completed.
+- **files/schema/contracts touched:** إصلاح production في `task-execution-service.ts`؛ diagnostics test-only باقية.
+- **validation:** `task-execution-lifecycle.integration.test.ts` **3/3** (49 skipped): Task-pointer concurrent rollback، HTTP task execute/resume recovery عبر SIGKILL/startup مرتين، ورفض legacy timestamp-bound قبل claim.
+- **authority/safety impact:** لم يُنشأ success قبل acceptance؛ كل crash ولّد قبول recovery للمحاولة الصحيحة، والنهائي فقط أنشأ TaskCompleted.
+- **remaining/blocker:** يلزم تشغيل مجموعة HTTP route المعتادة وفحص نوعية الحزمة؛ E2 وقرار World Fact → تغيير plan ما زالا غير محسومين.
+- **next step:** شغّل execute/resume route tests المعتادة بعد إعادة الترتيب، ثم تحقق من build/typecheck قبل استنتاج الإغلاق.
+
+### 2026-10-09 — HTTP execute/resume route suite بعد الإصلاح
+
+- **phase/step:** E2 فقط — فحص route contract خارج process fixture.
+- **status:** `PASS`
+- **what changed:** HTTP route المعتاد نفّذ/رفض حالات execute وresume حسب contract؛ acceptance الحالي استؤنف إلى attempt جديد وبقي proof مربوطًا به.
+- **files/schema/contracts touched:** لا تغييرات منذ إصلاح lifecycle وoperationId fixture.
+- **validation:** `routes/ai.test.ts` بفلتر execute/resume: **18/18**، مع 186 حالة skipped.
+- **authority/safety impact:** المسارات العامة ما زالت مرفوضة لـTask-linked executions؛ route لا يقبل acceptance غير المؤهلة.
+- **remaining/blocker:** يلزم typecheck للحزمة؛ لا يُعاد تشغيل API workflow وفق قيد التحقق الحالي.
+- **next step:** شغّل `pnpm run typecheck` من `artifacts/api-server` ثم افحص diff النهائي.
+
+### 2026-10-09 — typecheck وفحص diff
+
+- **phase/step:** E2 فقط — تحقق ما بعد الإصلاح.
+- **status:** `PASS for scoped changes; E2 remains open`
+- **what changed:** لا تعديلات جديدة بعد route suite.
+- **files/schema/contracts touched:** لا تغييرات إضافية.
+- **validation:** `pnpm run typecheck` خرج بنجاح؛ `git diff --check` نظيف؛ مراجعة diff أكدت أن التغييرات محصورة في lifecycle CAS، acceptance fixture، process-test diagnostics، وسجل التقدم.
+- **authority/safety impact:** إصلاح claim لم يغير قرار E2 أو يبدأ E3؛ لا workflow مُدار أُعيد تشغيله.
+- **remaining/blocker:** قاعدة `e2_disposable` والخادم PostgreSQL الخلفي مؤقتان ويجب إيقافهما وتنظيفهما؛ E2 ما زالت مفتوحة بسبب census وWorld Fact → plan-step غير المحسومين.
+- **next step:** أوقف PostgreSQL الاختباري ونظف جذره المؤقت، ثم سلّم النتائج مع إبقاء E3 متوقفة.
+
+### 2026-10-09 — تنظيف بيئة الاختبار مع إبقاء البوابة مفتوحة
+
+- **phase/step:** E2 فقط — إنهاء تشغيل الاختبارات دون تغيير قرار البوابات.
+- **status:** `PASS; disposable test environment cleaned`
+- **what changed:** أُوقف PostgreSQL المؤقت وحُذفت قاعدة البيانات وجذرها وملفات المنفذ؛ لا تبقى child processes من اختبارات SIGKILL.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغييرات runtime إضافية.
+- **validation:** تأكد توقف المنفذ `36239` واختفاء ملفات/root المؤقتة بعد التنظيف.
+- **authority/safety impact:** E2 تبقى مفتوحة؛ E3 وStrategy Replay لم يبدأا، وworkflow المُدار لم يُعد تشغيله.
+- **remaining/blocker:** اكتمال census ووجود domain-specific World Fact يغير plan step ما زالا غير مثبتين؛ لا تُعمّم advisory facts إلى action.
+- **next step:** تابع E2 على هذه الفجوات فقط، ولا تُغلقها أو تبدأ E3 دون اجتيازها صراحةً.

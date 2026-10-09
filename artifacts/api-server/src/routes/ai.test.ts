@@ -9642,6 +9642,7 @@ describe("POST /api/ai/tasks/:taskId/resume", () => {
       id: previousAcceptanceId,
       executionId: created.execution.id,
       projectId,
+      operationId: created.execution.operationId,
       attempt: created.execution.attempt,
       finalizationKey: randomUUID(),
       terminalStatus: "failed",

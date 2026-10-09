@@ -3342,6 +3342,22 @@ export async function executeTaskLifecycle(params: {
         throw new TaskLifecycleClaimConflict("execution_identity_changed");
       }
 
+      // claimAiExecution verifies that a linked Task already points at this
+      // execution. Advance the pointer under the original Task CAS first; both
+      // writes stay in this transaction, so a failed execution claim rolls the
+      // pointer back and the final status transition is fenced by the new ID.
+      const [pointedTask] = await tx.update(tasksTable)
+        .set({ correlationId: executionCorrelationId })
+        .where(and(
+          eq(tasksTable.id, before.id),
+          eq(tasksTable.projectId, before.projectId),
+          inArray(tasksTable.status, allowed),
+          eq(tasksTable.retryCount, retryCountAtRead),
+          correlationFence,
+        ))
+        .returning({ id: tasksTable.id });
+      if (!pointedTask) throw new TaskLifecycleClaimConflict("task_state_changed");
+
       const claimedExecution = await claimAiExecution({
         executionId: durable.execution.id,
         userId: params.userId,
@@ -3369,7 +3385,7 @@ export async function executeTaskLifecycle(params: {
           eq(tasksTable.projectId, before.projectId),
           inArray(tasksTable.status, allowed),
           eq(tasksTable.retryCount, retryCountAtRead),
-          correlationFence,
+          eq(tasksTable.correlationId, executionCorrelationId),
         ))
         .returning();
       if (!claimedTask) throw new TaskLifecycleClaimConflict("task_state_changed");
