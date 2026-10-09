@@ -5837,3 +5837,25 @@ G9 Revocation Safety
 - **authority/safety impact:** يثبت هذا الاختبار استهلاك صف acceptance محفوظ ومطابق، واستعادة transition من startup scheduler، وإطلاق D2 مرة واحدة ضمن تشغيل API كامل. القبول مزروع كـfixture ولا يعيد الاختبار إنشاء Canonical Proof أو التحقق من منشئه. لا يحاكي SIGKILL بين Gate C وmaterialization، ولا يثبت اكتمال وصفة successor أو كل interleavings.
 - **remaining/blocker:** crash recovery لزوج Mission acceptance/World Transition عبر قتل عامل API واستبداله، layouts التاريخية الأخرى، المستهلكون raw-SQL/constructed/out-of-workspace، و`World Fact → تغيير خطوة planner` ما زالت غير محسومة. E2 مفتوحة؛ E3 تبقى متوقفة.
 - **next step:** واصل جرد المستهلكات والـlegacy layouts داخل E2؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — تدقيق تاريخ مخطط World Transition وحدود المستهلكات
+
+- **phase/step:** E2 فقط — تحديد الأدلة المتاحة عن layouts التاريخية وصف legacy-defaulted، واستكمال البحث الحرفي عن مستهلكات SQL.
+- **status:** `bounded tracked-source literal census PASS; one synthetic legacy-default shape safely rejected PASS; deployed schema history UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** راجعت مصدر Drizzle وتوثيق تسليم schema وسجل Git المحلي. المستودع يعلن `src/schema` مصدر الحقيقة ويطبق التغييرات عبر `drizzle-kit push`؛ لا توجد ملفات migration/SQL متعقبة تخص World Transition، وسجل Git المحلي يسجل إنشاء schema في 2026-09-25 دون تطور لاحق. اختبار `mission-runtime.test.ts` يزرع صفًا اصطناعيًا ماديًا بالـdefaults (`project` scope، `unknown` freshness/environment key، null revision وEffectBundle، وقوائم ملاحظات/حقائق/أدلة فارغة)؛ D2 يضع الهدف في `needs_replan` دون dispatch أو queue. البحث عن الاسم الحرفي وORM symbols لم يعثر على raw-SQL table reference متعقب؛ الأدوار الظاهرة تبقى lifecycle/retry، D2، Apply gate/read projection، Chat projection، وMission Control timeline.
+- **files/schema/contracts touched:** سجل القياس، تقرير الحالة، وسجل التقدم فقط؛ لم تُعدّل الشفرة أو schema ولم تُقرأ أو تُغيّر قواعد بيانات.
+- **validation:** عمليات قراءة فقط (`git ls-files`, `git grep`, `rg`, `git log`) على المستودع؛ لم تُشغّل اختبارات لأنها لم تتغير، ولم تُشغّل workflows أو Strategy Replay.
+- **authority/safety impact:** يثبت البحث حدود ما هو متعقب في هذا المستودع فقط، ويثبت اختبارًا واحدًا أن الصف ذي proof defaults لا يصرّح successor. لا يثبت أن هذا الصف يمثل كل layout تاريخي، ولا يثبت مخطط أي قاعدة منشورة أو غياب SQL مركب وقت التشغيل أو مستهلك خارجي.
+- **remaining/blocker:** مخططات deployed التاريخية وlayouts الجزئية الأخرى، أسماء/استعلامات مبنية وقت التشغيل ومستهلكات خارج المستودع ما زالت `UNKNOWN`. سؤال `World Fact → تغيير خطوة planner` مستقل وما زال `UNKNOWN`. E2 مفتوحة؛ E3 تبقى متوقفة.
+- **next step:** افحص داخل E2 هل يمكن لتغيير World Fact مؤهل أن يغيّر اختيار/خطوة الخطة، مع فصل أثر السياق عن veto تنفيذ ثابت؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — فصل World Fact عن اختيار خطة Mission وتنفيذ المهمة
+
+- **phase/step:** E2 فقط — تتبع ما إذا كان World Fact يغيّر بنية الخطة الحتمية أو يصل كسياق إلى agent تنفيذ المهمة.
+- **status:** `deterministic plan topology unchanged by World Fact PASS; updated advisory fact reaches the stored/execution prompt PASS; changed provider/tool action UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** راجعت مسار `buildMissionPlanPreview` و`autoReplanMission` وmaterialization و`task-execution-service`. `buildGeneralTaskPlan` يستقبل message/objective دون `worldStatePlanningRead`؛ القراءة تُنظّف وتُرفق بعد اكتمال plan. اختبار `mission-auto-replan-evidence.integration.test.ts` يقارن preview بلا قراءة ومع `repository.branch=main` ثم `release`: الخطوات ثابتة، لكن revision يتغير ويرى Task prompt القيمة الجديدة دون القديمة. `task-execution-service` يضم `task.prompt` في message الممرر إلى `chatWithFallback`، لذا ثبت تدفق السياق لا أثره السلوكي على قرار الأداة.
+- **files/schema/contracts touched:** سجل القياس، تقرير الحالة، وسجل التقدم فقط؛ لا تعديل شفرة أو schema أو قاعدة بيانات.
+- **validation:** تتبّع ساكن لمواضع الاستدعاء مع assertions الموجودة في الاختبار المتكامل؛ لم تُعد الاختبارات أو تستخدم provider فعليًا لأن الشفرة لم تتغير، ولم تُشغّل workflows.
+- **authority/safety impact:** World Fact يصل كبيانات إرشادية غير موثوقة، لا يغيّر بذاته خطة الخطوات الحتمية ولا يمنح صلاحية. حتى لو اختلف قرار provider لاحقًا، تبقى الأدوات والأدلة والقبول server-gated؛ هذه المراجعة لا تثبت اختيارًا فعليًا.
+- **remaining/blocker:** هل يغيّر السياق الأداة أو الإجراء الذي يختاره task agent ما زال `UNKNOWN`؛ اختبار مزوّد وهمي يثبت عقد prompt فقط ولا يثبت parity لسلوك provider. كذلك تبقى layouts المنشورة التاريخية ومستهلكات SQL الديناميكية/الخارجية وأسئلة E2 الأخرى مفتوحة.
+- **next step:** واصل E2 على boundary منفصل قابل للاختبار؛ لا تعامل prompt coverage كإثبات action، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
