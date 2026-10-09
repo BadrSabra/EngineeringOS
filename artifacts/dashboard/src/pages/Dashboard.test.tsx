@@ -1,11 +1,27 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
+import { HOME_GOAL_DRAFT_HANDOFF_KEY } from "../lib/home-goal-handoff";
+
+const { mockSetLocation } = vi.hoisted(() => ({
+  mockSetLocation: vi.fn(),
+}));
 
 vi.mock("wouter", () => ({
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
+  Link: ({
+    href,
+    children,
+    className,
+    "data-testid": dataTestId,
+  }: {
+    href: string;
+    children: React.ReactNode;
+    className?: string;
+    "data-testid"?: string;
+  }) => (
+    <a href={href} className={className} data-testid={dataTestId}>{children}</a>
   ),
+  useLocation: () => ["/", mockSetLocation],
 }));
 
 vi.mock("@/components/OperatorResilience", () => ({
@@ -35,6 +51,7 @@ const dashboard = {
   completedTaskCount: 1,
   failedTaskCount: 0,
   activeTaskCount: 0,
+  projectCount: 1,
   taskStatusBreakdown: {},
   projectScores: [],
   recentEvents: [],
@@ -43,6 +60,8 @@ const dashboard = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSetLocation.mockReset();
+  window.sessionStorage.clear();
   vi.mocked(useGetDashboard).mockReturnValue({
     data: dashboard,
     isLoading: false,
@@ -55,6 +74,46 @@ beforeEach(() => {
     data: { aiDiagnosticsRetention: { status: "success", completedAt: new Date() } },
     refetch: vi.fn(),
   } as ReturnType<typeof useGetHealth>);
+});
+
+describe("Dashboard goal-first home", () => {
+  it("hands the goal to the assistant as an unsent one-time draft", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: { alerts: [] },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+
+    fireEvent.change(screen.getByTestId("input-home-goal"), {
+      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول" },
+    });
+    fireEvent.click(screen.getByTestId("button-start-goal"));
+
+    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBe(
+      "ساعدني أفهم سبب بطء صفحة تسجيل الدخول",
+    );
+    expect(mockSetLocation).toHaveBeenCalledWith("/ai");
+    expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
+  });
+
+  it("labels task totals as recorded status rather than proof", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: { alerts: [] },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+
+    expect(screen.getByTestId("text-completed-work-home")).toHaveTextContent("1");
+    expect(screen.getByText(/تفاصيل القبول والإثبات تبقى ضمن المهمة/)).toBeInTheDocument();
+  });
 });
 
 describe("Dashboard operator alerts", () => {
@@ -85,6 +144,7 @@ describe("Dashboard operator alerts", () => {
     } as ReturnType<typeof useListOperatorAlerts>);
 
     render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     const alerts = screen.getByRole("region", { name: "Operator alerts" });
     expect(within(alerts).getByText("Groq Fast model is unavailable")).toBeInTheDocument();
@@ -103,6 +163,7 @@ describe("Dashboard operator alerts", () => {
     } as ReturnType<typeof useListOperatorAlerts>);
 
     render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     expect(screen.getByRole("region", { name: "Operator alerts" })).toHaveTextContent(
       "No active provider alerts",
@@ -120,6 +181,7 @@ describe("Dashboard operator alerts", () => {
     } as ReturnType<typeof useListOperatorAlerts>);
 
     render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     const diagnostics = screen.getByTestId("details-ai-diagnostics");
     expect(diagnostics).not.toHaveAttribute("open");
@@ -159,6 +221,7 @@ describe("Dashboard operator alerts", () => {
     } as ReturnType<typeof useListOperatorAlerts>);
 
     render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
     const alerts = screen.getByRole("region", { name: "Operator alerts" });
     expect(within(alerts).getByText("Temporary outage")).toBeInTheDocument();

@@ -8,6 +8,7 @@ import AiChat, {
   parseAiChatRouteTarget,
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
+import { HOME_GOAL_DRAFT_HANDOFF_KEY } from '../lib/home-goal-handoff';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
 type TaskResultFixture =
@@ -619,6 +620,24 @@ describe('AiChat route target parsing', () => {
       messageId: 'assistant-message-1',
     });
     expect(parseAiChatRouteTarget('?sessionId=session-1&messageId=assistant-message-1')).toBeNull();
+  });
+});
+
+describe('workspace goal draft handoff', () => {
+  it('prefills the composer without sending the goal and removes the one-time value', async () => {
+    const goal = 'ساعدني أفهم سبب بطء صفحة تسجيل الدخول';
+    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, goal);
+
+    renderAiChat();
+
+    const composer = await screen.findByPlaceholderText(/Ask about your codebase/);
+    await waitFor(() => expect(composer).toHaveValue(goal));
+
+    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
+    expect(screen.getByTestId('status-project-planning-handoff')).toHaveTextContent(
+      'مسودة غير مرسلة',
+    );
+    expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
   });
 });
 

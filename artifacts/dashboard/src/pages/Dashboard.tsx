@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import {
   getGetHealthQueryKey,
   getListOperatorAlertsQueryKey,
@@ -16,10 +16,15 @@ import {
   Database,
   TrendingUp,
   ChevronDown,
+  ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useMonotonicData } from '@/lib/freshness';
+import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
   if (!value) return 'Not recorded';
@@ -176,6 +181,9 @@ function OperatorAlertsCard() {
 }
 
 export default function Dashboard() {
+  const [, setLocation] = useLocation();
+  const [goalDraft, setGoalDraft] = useState('');
+  const [goalHandoffError, setGoalHandoffError] = useState('');
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
   const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
@@ -194,6 +202,19 @@ export default function Dashboard() {
     totalFinished > 0
       ? Math.round(((dashboard?.completedTaskCount ?? 0) / totalFinished) * 100)
       : null;
+
+  function continueWithGoal() {
+    const normalizedGoal = goalDraft.trim();
+    if (!normalizedGoal) return;
+
+    if (!storeHomeGoalDraft(normalizedGoal)) {
+      setGoalHandoffError('تعذر نقل المسودة إلى المساعد. احتفظ بنصك وحاول مرة أخرى.');
+      return;
+    }
+
+    setGoalHandoffError('');
+    setLocation('/ai');
+  }
 
   if (isLoading) {
     return (
@@ -215,9 +236,9 @@ export default function Dashboard() {
   if (error || !dashboard) {
     return (
       <RequestError
-        title="Failed to load dashboard"
-        message="Could not connect to the EngineeringOS API."
-        retryLabel="Retry Connection"
+        title="تعذر تحميل مساحة العمل"
+        message="لم نتمكن من جلب حالة العمل الآن."
+        retryLabel="أعد المحاولة"
         onRetry={() => void refetch()}
       />
     );
@@ -225,39 +246,257 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between" dir="rtl">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">System Overview</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Real-time status of all autonomous engineering operations.
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">EngineeringOS</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">مساحة العمل</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            ابدأ بالنتيجة التي تريدها، وتابع العمل وما تغيّر من مكان واحد.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <RefreshButton
-            onRefresh={async () => { await refetch(); await refetchHealth(); }}
-            isRefreshing={isRefetching}
-            lastUpdated={dataUpdatedAt}
-            label="Refresh status"
-          />
-          <span className="flex items-center gap-2 text-xs font-mono font-medium text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            SYSTEM ONLINE
-          </span>
-        </div>
+        <RefreshButton
+          onRefresh={async () => { await refetch(); await refetchHealth(); }}
+          isRefreshing={isRefetching}
+          lastUpdated={dataUpdatedAt}
+          label="تحديث البيانات"
+        />
       </div>
 
-      <OperatorAlertsCard />
+      <section
+        aria-labelledby="home-goal-heading"
+        data-testid="section-home-goal"
+        dir="rtl"
+        className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-5 shadow-sm sm:p-7"
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+            <Sparkles aria-hidden="true" className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="home-goal-heading" className="text-lg font-semibold">
+              ما الذي تريد إنجازه؟
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+              اكتب هدفك بلغتك. ستراجع المسودة والمشروع المناسب داخل المساعد قبل إرسالها.
+            </p>
+          </div>
+        </div>
 
-      {/* Retention health is deliberately limited to content-free sweep metadata. */}
+        <label htmlFor="home-goal-draft" className="sr-only">
+          اكتب هدفك
+        </label>
+        <Textarea
+          id="home-goal-draft"
+          data-testid="input-home-goal"
+          dir="auto"
+          maxLength={HOME_GOAL_MAX_LENGTH}
+          value={goalDraft}
+          onChange={(event) => {
+            setGoalDraft(event.target.value);
+            if (goalHandoffError) setGoalHandoffError('');
+          }}
+          placeholder="مثال: ساعدني أفهم سبب بطء صفحة تسجيل الدخول وأقترح حلًا آمنًا."
+          className="mt-5 min-h-28 resize-y border-border/80 bg-background/80 text-sm leading-6"
+        />
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-5 text-muted-foreground">
+            لن يُرسل النص تلقائيًا، وكتابته لا توافق على أي تغييرات.
+            <span className="mr-2 font-mono" data-testid="text-home-goal-length">
+              {goalDraft.length}/{HOME_GOAL_MAX_LENGTH}
+            </span>
+          </p>
+          <Button
+            type="button"
+            data-testid="button-start-goal"
+            disabled={!goalDraft.trim()}
+            onClick={continueWithGoal}
+            className="w-full gap-2 sm:w-auto"
+          >
+            ابدأ مع المساعد
+            <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        </div>
+        {goalHandoffError && (
+          <p
+            role="alert"
+            data-testid="status-home-goal-error"
+            className="mt-3 text-sm text-destructive"
+          >
+            {goalHandoffError}
+          </p>
+        )}
+      </section>
+
+      <section
+        aria-labelledby="home-work-summary-heading"
+        data-testid="section-home-work-summary"
+        dir="rtl"
+        className="space-y-3"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="home-work-summary-heading" className="text-lg font-semibold">
+              متابعة العمل
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              ملخص لحالات المهام المسجلة؛ تفاصيل القبول والإثبات تبقى ضمن المهمة.
+            </p>
+          </div>
+          <Link
+            href="/tasks"
+            data-testid="link-tasks-from-home"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            عرض المهام
+          </Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Link
+            href="/tasks"
+            data-testid="card-active-work-home"
+            className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+          >
+            <p className="text-sm text-muted-foreground">عمل جارٍ</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-active-work-home">
+              {dashboard.activeTaskCount}
+            </p>
+          </Link>
+          <Link
+            href="/tasks"
+            data-testid="card-completed-work-home"
+            className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+          >
+            <p className="text-sm text-muted-foreground">مهام بحالة مكتملة</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-completed-work-home">
+              {dashboard.completedTaskCount}
+            </p>
+          </Link>
+          <Link
+            href="/tasks"
+            data-testid="card-failed-work-home"
+            className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-destructive/40"
+          >
+            <p className="text-sm text-muted-foreground">مهام بحالة متعثرة</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-failed-work-home">
+              {dashboard.failedTaskCount}
+            </p>
+          </Link>
+          <Link
+            href="/projects"
+            data-testid="card-project-count-home"
+            className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
+          >
+            <p className="text-sm text-muted-foreground">المشاريع</p>
+            <p className="mt-2 text-3xl font-semibold tabular-nums" data-testid="text-project-count-home">
+              {dashboard.projectCount}
+            </p>
+          </Link>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="home-recent-activity-heading"
+        data-testid="section-home-recent-activity"
+        dir="rtl"
+        className="overflow-hidden rounded-xl border border-border bg-card"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+          <div>
+            <h2 id="home-recent-activity-heading" className="font-semibold">
+              آخر التحديثات
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">أحدث ما سجله النظام عن المشاريع والمهام.</p>
+          </div>
+          <Link
+            href="/events"
+            data-testid="link-events-from-home"
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            سجل التحديثات
+          </Link>
+        </div>
+        {dashboard.recentEvents?.length ? (
+          <div className="divide-y divide-border">
+            {dashboard.recentEvents.slice(0, 3).map((event) => (
+              <div
+                key={event.id}
+                data-testid={`event-home-${event.id}`}
+                className="flex gap-3 px-4 py-3 sm:px-5"
+              >
+                <div className="mt-0.5 shrink-0">
+                  {event.severity === 'error' || event.severity === 'warning' ? (
+                    <AlertTriangle
+                      aria-hidden="true"
+                      className={`h-4 w-4 ${event.severity === 'error' ? 'text-destructive' : 'text-yellow-500'}`}
+                    />
+                  ) : event.severity === 'success' ? (
+                    <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <Activity aria-hidden="true" className="h-4 w-4 text-primary" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{event.message || event.type}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatHealthTimestamp(event.timestamp)}
+                    {event.projectId && (
+                      <span className="mr-2 font-mono" dir="ltr">
+                        {event.projectId.slice(0, 8)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-4 py-6 text-sm text-muted-foreground sm:px-5">
+            <p>لا توجد تحديثات مسجلة بعد.</p>
+            <Link
+              href="/projects"
+              data-testid="link-connect-project-from-home"
+              className="mt-2 inline-flex font-medium text-primary hover:underline"
+            >
+              افتح المشاريع للبدء
+            </Link>
+          </div>
+        )}
+      </section>
+
       <details
-        aria-label="AI diagnostics retention health"
-        data-testid="details-ai-diagnostics"
+        aria-label="تفاصيل التشغيل المتقدمة"
+        data-testid="details-advanced-dashboard"
         className="group rounded-xl border border-border bg-card"
       >
         <summary
-          data-testid="summary-ai-diagnostics"
+          data-testid="summary-advanced-dashboard"
+          dir="rtl"
           className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-xl p-4 outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden"
         >
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">تفاصيل تقنية اختيارية</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              التنبيهات، صحة المشاريع، سجل الأحداث، ومؤشرات التشغيل.
+            </p>
+          </div>
+          <ChevronDown
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+          />
+        </summary>
+        <div className="space-y-6 border-t border-border p-4 sm:p-5" dir="ltr">
+          <OperatorAlertsCard />
+
+          {/* Retention health is deliberately limited to content-free sweep metadata. */}
+          <details
+            aria-label="AI diagnostics retention health"
+            data-testid="details-ai-diagnostics"
+            className="group rounded-xl border border-border bg-card"
+          >
+            <summary
+              data-testid="summary-ai-diagnostics"
+              className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-xl p-4 outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden"
+            >
           <div className="flex min-w-0 items-center gap-3">
             <div
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
@@ -312,33 +551,33 @@ export default function Dashboard() {
             />
           </div>
         </summary>
-        <section
-          aria-label="AI diagnostics retention details"
-          className="border-t border-border px-4 py-3"
-        >
-          {retention?.status === 'failed' ? (
-            <p className="text-xs text-destructive/80">
-              The sweep will be retried automatically on the next startup.
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Last completed {formatHealthTimestamp(retention?.completedAt)}
-            </p>
-          )}
-          {retention?.status === 'success' && (
-            <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:max-w-xl">
-              <span className="text-muted-foreground">Chat rows</span>
-              <span className="font-mono font-medium">
-                {retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned
-              </span>
-              <span className="text-muted-foreground">Execution rows</span>
-              <span className="font-mono font-medium">
-                {retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned
-              </span>
-            </div>
-          )}
-        </section>
-      </details>
+            <section
+              aria-label="AI diagnostics retention details"
+              className="border-t border-border px-4 py-3"
+            >
+              {retention?.status === 'failed' ? (
+                <p className="text-xs text-destructive/80">
+                  The sweep will be retried automatically on the next startup.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Last completed {formatHealthTimestamp(retention?.completedAt)}
+                </p>
+              )}
+              {retention?.status === 'success' && (
+                <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:max-w-xl">
+                  <span className="text-muted-foreground">Chat rows</span>
+                  <span className="font-mono font-medium">
+                    {retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned
+                  </span>
+                  <span className="text-muted-foreground">Execution rows</span>
+                  <span className="font-mono font-medium">
+                    {retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned
+                  </span>
+                </div>
+              )}
+            </section>
+          </details>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -575,6 +814,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+        </div>
+      </details>
     </div>
   );
 }

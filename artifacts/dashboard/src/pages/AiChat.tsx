@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { consumeHomeGoalDraft } from '@/lib/home-goal-handoff';
 import {
   useListProjects,
   getListProjectsQueryKey,
@@ -11106,6 +11107,15 @@ export default function AiChat() {
     }
   }, [projects, selectedProjectId, chatRouteTarget]);
 
+  useEffect(() => {
+    const goalDraft = consumeHomeGoalDraft();
+    if (!goalDraft) return;
+
+    setInput((current) => current.trim() ? current : goalDraft);
+    setPlanningHandoffNotice(true);
+    setPlanningHandoffReadOnly(false);
+  }, []);
+
   // A project created from the starter may hand its description to this
   // existing composer once. The text remains an unsent planning prompt and
   // does not imply approval for any changes.
@@ -14002,11 +14012,11 @@ export default function AiChat() {
             />
             {planningHandoffNotice && (
               <div role="status" data-testid="status-project-planning-handoff" className="mb-2 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">Unsent planning prompt.</span> This read-only handoff does not approve project edits.</span>
+                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">مسودة غير مرسلة.</span> لن تُرسل حتى تضغط زر الإرسال، ولا تمنح موافقة على تعديل المشروع.</span>
                 {planningHandoffReadOnly && (
-                  <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="Edit planning prompt">Edit prompt</button>
+                  <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="تعديل المسودة">تعديل المسودة</button>
                 )}
-                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Dismiss planning prompt">Dismiss</button>
+                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="حذف المسودة">حذف المسودة</button>
               </div>
             )}
             <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
