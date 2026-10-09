@@ -1,5 +1,8 @@
-import { and, eq } from "drizzle-orm";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { and, eq, sql } from "drizzle-orm";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -57,6 +60,162 @@ import {
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
 const createdWorkspaceRoots: string[] = [];
+
+type RuntimeTransitionApiProcess = {
+  child: ChildProcessWithoutNullStreams;
+  applicationName: string;
+  exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  output: () => string;
+};
+
+function requireRuntimeTransitionDisposableDatabaseUrl(): URL {
+  const rawDatabaseUrl = process.env.DATABASE_URL;
+  if (!rawDatabaseUrl) {
+    throw new Error("Runtime transition startup recovery requires an explicit disposable DATABASE_URL.");
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\/+/, ""));
+  if (
+    !["127.0.0.1", "localhost", "::1", "[::1]"].includes(databaseUrl.hostname)
+    || !/(?:^|[_-])(?:test|disposable)(?:[_-]|$)/i.test(databaseName)
+  ) {
+    throw new Error("Runtime transition startup recovery requires a loopback disposable/test database.");
+  }
+  return databaseUrl;
+}
+
+async function reserveRuntimeTransitionApiPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Could not reserve a loopback API port for runtime transition recovery.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+  return address.port;
+}
+
+function startRuntimeTransitionApiProcess(
+  databaseUrl: URL,
+  applicationName: string,
+  port: number,
+): RuntimeTransitionApiProcess {
+  const childDatabaseUrl = new URL(databaseUrl.toString());
+  childDatabaseUrl.searchParams.set("application_name", applicationName);
+  const source = [
+    "(async () => {",
+    '  const { isProviderEgressDisabled } = await import("@workspace/ai-orchestrator");',
+    '  if (!isProviderEgressDisabled()) throw new Error("Provider egress guard is not active.");',
+    '  await import("./src/index.ts");',
+    '  process.stdout.write("RUNTIME_START_TRANSITION_INDEX_IMPORTED");',
+    "})().catch((error) => {",
+    "  console.error(error);",
+    "  process.exitCode = 1;",
+    "});",
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "-e", source], {
+    cwd: process.cwd(),
+    env: {
+      DATABASE_URL: childDatabaseUrl.toString(),
+      NODE_ENV: "test",
+      LOG_LEVEL: "warn",
+      PATH: process.env.PATH ?? "",
+      HOME: os.homedir(),
+      PGAPPNAME: applicationName,
+      PORT: String(port),
+      APP_ORIGINS: "",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      AI_CREDENTIALS_ENCRYPTION_KEY:
+        `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`,
+    },
+    stdio: "pipe",
+  });
+  child.stdin.end();
+  let output = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+    output = `${output}${chunk}`.slice(-32_000);
+  });
+  return {
+    child,
+    applicationName,
+    exit: new Promise((resolve) => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    }),
+    output: () => output,
+  };
+}
+
+async function waitForRuntimeTransitionApiReady(
+  api: RuntimeTransitionApiProcess,
+  port: number,
+): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    if (api.child.exitCode !== null || api.child.signalCode !== null) {
+      throw new Error(`Runtime transition API exited before healthz was ready; ${api.output()}`);
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/healthz`, {
+        signal: AbortSignal.timeout(1_000),
+      });
+      await response.arrayBuffer();
+      if (response.ok) return;
+    } catch {
+      // Keep waiting while the isolated API finishes its startup sequence.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for runtime transition API healthz; ${api.output()}`);
+}
+
+async function waitForRuntimeTransitionApiDatabaseDisconnect(
+  applicationName: string,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = ${applicationName}
+    `);
+    if (result.rows.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Runtime transition API kept a PostgreSQL session open: ${applicationName}`);
+}
+
+async function stopRuntimeTransitionApiProcess(
+  api: RuntimeTransitionApiProcess,
+): Promise<void> {
+  if (api.child.exitCode === null && api.child.signalCode === null) {
+    api.child.kill("SIGTERM");
+    const gracefullyExited = await Promise.race([
+      api.exit.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
+    ]);
+    if (!gracefullyExited && api.child.exitCode === null && api.child.signalCode === null) {
+      api.child.kill("SIGKILL");
+      await api.exit;
+    }
+  }
+  await waitForRuntimeTransitionApiDatabaseDisconnect(api.applicationName);
+}
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -991,6 +1150,106 @@ describe("runtime.start transition retry scheduling", () => {
       clearInterval(dispatcher);
     }
   });
+
+  it.skipIf(process.env.RUN_RUNTIME_MISSION_STARTUP_RECOVERY !== "1")(
+    "recovers a persisted Mission acceptance and World Transition through full API startup",
+    async () => {
+      const databaseUrl = requireRuntimeTransitionDisposableDatabaseUrl();
+      const fixture = await transitionFixture({ missionHandoff: true });
+      const mission = fixture.missionHandoff;
+      if (!mission) throw new Error("Mission handoff fixture was not created.");
+      await insertValidRuntimeStartObservations(fixture);
+
+      const isolatedRoot = await mkdtemp(
+        path.join(os.tmpdir(), "runtime-transition-api-startup-"),
+      );
+      createdWorkspaceRoots.push(isolatedRoot);
+      await db.update(projectsTable)
+        .set({ rootPath: path.join(isolatedRoot, "unavailable-project-root") })
+        .where(eq(projectsTable.id, fixture.projectId));
+
+      const port = await reserveRuntimeTransitionApiPort();
+      const applicationName = `runtime-transition-startup-${crypto.randomUUID().slice(0, 12)}`;
+      let api: RuntimeTransitionApiProcess | undefined;
+      try {
+        api = startRuntimeTransitionApiProcess(databaseUrl, applicationName, port);
+        await waitForRuntimeTransitionApiReady(api, port);
+        expect(api.output()).toContain("RUNTIME_START_TRANSITION_INDEX_IMPORTED");
+
+        let transitionStatus: string | undefined;
+        let dispatchCount = 0;
+        const deadline = Date.now() + 45_000;
+        while (Date.now() < deadline) {
+          if (api.child.exitCode !== null || api.child.signalCode !== null) {
+            throw new Error(`Runtime transition API exited during durable recovery; ${api.output()}`);
+          }
+          const [transition] = await db.select({
+            status: aiWorldTransitionsTable.status,
+          }).from(aiWorldTransitionsTable)
+            .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+          transitionStatus = transition?.status;
+          const dispatches = await db.select({
+            id: eventsTable.id,
+          }).from(eventsTable).where(and(
+            eq(eventsTable.projectId, fixture.projectId),
+            eq(eventsTable.goalId, mission.targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+          dispatchCount = dispatches.length;
+          if (transitionStatus === "materialized" && dispatchCount > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          projectId: aiWorldTransitionsTable.projectId,
+          executionId: aiWorldTransitionsTable.executionId,
+          attempt: aiWorldTransitionsTable.attempt,
+          effectBundleId: aiWorldTransitionsTable.effectBundleId,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        const dispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        const [acceptance] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          operationId: aiExecutionAcceptancesTable.operationId,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+        expect(transitionStatus).toBe("materialized");
+        expect(transition).toMatchObject({
+          status: "materialized",
+          projectId: fixture.projectId,
+          executionId: fixture.executionId,
+          attempt: 0,
+          effectBundleId: fixture.effectBundleId,
+        });
+        expect(acceptance).toMatchObject({
+          attempt: 0,
+          operationId: fixture.operationId,
+          outcome: "SUCCEEDED",
+          reasonCode: "CANONICAL_PROOF_PROVEN",
+          effectBundleId: fixture.effectBundleId,
+        });
+        expect(dispatchCount).toBe(1);
+        expect(dispatches).toHaveLength(1);
+      } finally {
+        if (api) await stopRuntimeTransitionApiProcess(api);
+      }
+    },
+    240_000,
+  );
 
   it("keeps Gate C acceptance when due transition projection fails", async () => {
     const fixture = await transitionFixture();
