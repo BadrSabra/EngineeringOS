@@ -15,8 +15,8 @@ On resume, the persisted request also drives source-read collection; the current
 
 **How to apply:** Keep resume collection aligned with stored proof modes, and preserve both the valid review-ready case and a misbound-proposal rejection test whenever finalization or Canonical Proof gates change.
 
-For generic resume-capability issuance, when the persisted request parses with `proofRequired: true`, require a current-attempt acceptance authorizing resumability; a `paused` status without that acceptance is not sufficient. Keep non-proof legacy token refresh separate from proof-bearing recovery. Malformed-request handling is a separate boundary.
+For generic resume-capability issuance, the persisted request must parse before recovery can be authorized. If it parses with `proofRequired: true`, require a current-attempt acceptance authorizing resumability; a `paused` status without that acceptance is not sufficient. Keep valid non-proof legacy token refresh separate from proof-bearing recovery; an unparseable request fails closed without rotating the token.
 
-**Why:** A legacy or incomplete paused row has no server-owned acceptance decision. Issuing a proof-bearing execution capability from status alone would bypass that decision boundary even though token issuance is not itself proof of success.
+**Why:** A legacy or incomplete paused row has no server-owned acceptance decision. Issuing a proof-bearing execution capability from status alone would bypass that decision boundary even though token issuance is not itself proof of success. An unparseable request also cannot establish its proof obligation, scope, or revision, so guessing could downgrade recovery authority.
 
-**How to apply:** Check the current-attempt acceptance while holding the execution/acceptance recovery transaction. Preserve the proof obligation from the persisted request, and assess operator-recovery paths under their own explicit contract rather than assuming this generic-token rule covers them.
+**How to apply:** Parse the stored request before status or acceptance fallback and issue a token only after all eligibility checks. Check the current-attempt acceptance while holding the execution/acceptance recovery transaction. Assess operator-recovery and other resume paths under their own explicit contracts rather than assuming this generic-token rule covers them.

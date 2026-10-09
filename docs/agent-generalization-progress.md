@@ -5279,6 +5279,17 @@ G9 Revocation Safety
 - **remaining/blocker:** ثبتت هذه الحلقة المحددة فقط؛ جرد المستهلكين ومسارات recovery البديلة، السجلات القديمة غير القابلة للتحليل، وبقية mutation/crash surfaces لم تكتمل. invariant أن fact ذات صلة تغيّر action المختار ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** واصل E2 على حدود consumer/recovery المتبقية فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — رفض استئناف السجلات ذات الطلب المحفوظ غير القابل للتحليل
+
+- **phase/step:** E2 فقط — generic resume capability للحالات القديمة أو التالفة.
+- **status:** `malformed request fails closed; route recovery/legacy cases pass (3/3); acceptance-lock interleaving passes (1/1); E2 OPEN; E3 STOPPED`
+- **what changed:** صار `recoverAiExecutionResumeToken` يرفض الطلب المحفوظ الذي لا ينجح في `parseExecutionRequest` قبل فحص مسارات fallback أو تدوير الرمز. الاختبار ينشئ سجلًا قديمًا في paused بحقل request غير صالح، ويثبت استجابة `EXECUTION_NOT_RESUMABLE` وبقاء status وrequest وresumeTokenHash كما هي. تبقى طلبات legacy القابلة للتحليل، التي لا تحتوي حقولًا اختيارية أحدث، منفصلة وتحتفظ بمسار تدوير non-proof.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، سجل القياس وهذا السجل وذاكرة عقد القبول؛ لا schema أو workflow.
+- **validation:** API `tsc --noEmit` نجح. اختبارات resume-capability المركزة نجحت **3/3** (117 skipped)، واختبار قفل acceptance المتزامن نجح **1/1** (13 skipped). استُخدمت PostgreSQL loopback مؤقتة بعد `schema:apply` مع `AI_PROVIDER_EGRESS_DISABLED=1`، ثم أُوقفت وحُذفت جذورها؛ سُجل `git diff --check` بعد تحرير السجلات. لم يُشغّل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** لا يكفي `paused` أو `failed` وحده ولا acceptance منفصل لترميم عقد طلب غير قابل للتحليل؛ لا يصدر الرمز ولا يتغير hash. الطلبات القابلة للتحليل تظل محكومة بمتطلب proof والـacceptance الحالية المقفلة في المعاملة نفسها.
+- **remaining/blocker:** يغلق هذا حد generic resume فقط؛ مسارات operator/recipe/recovery البديلة، المستهلكون الديناميكيون، بقية mutation/crash surfaces وجرد عائلات المصادر لا تزال غير مكتملة. دليل تغيّر قرار planner بسبب fact ذات صلة ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** استمر في E2 على حدود consumer/recovery المتبقية فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
