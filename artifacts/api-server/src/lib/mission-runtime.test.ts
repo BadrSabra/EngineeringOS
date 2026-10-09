@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   aiWorldFactsTable,
   aiExecutionsTable,
@@ -94,6 +94,14 @@ async function createRuntimeTransitionFixture(
   const executionId = randomUUID();
   const episodeId = randomUUID();
   const effectBundleId = randomUUID();
+  const episodeScope = { kind: "project" } as const;
+  const taskScope = taskScopeIdentity({
+    id: episodeId,
+    projectId: fixture.projectId,
+    missionId: fixture.missionId,
+    goalId: sourceId,
+    scope: episodeScope,
+  });
   const actionId = `action:${executionId}:gate-c`;
   const requirement = {
     kind: "runtime.start",
@@ -153,7 +161,7 @@ async function createRuntimeTransitionFixture(
     worldRevision: "c".repeat(64),
     planRevision,
     intentKind: "recipe",
-    scope: { kind: "project" },
+    scope: episodeScope,
     workerId: "test-worker",
     leaseUntil: new Date(Date.now() + 60_000),
     idempotencyKey: `episode:${episodeId}`,
@@ -205,7 +213,7 @@ async function createRuntimeTransitionFixture(
     [statusId, "runtime.status", "running"],
   ] as const) {
     await db.insert(aiAgentObservationsTable).values({
-      id, projectId: fixture.projectId, executionId, episodeId, taskScope: "project",
+      id, projectId: fixture.projectId, executionId, episodeId, taskScope,
       environmentRevisionKey: `revision:${environmentRevision}`, kind: "direct_observation",
       provenance: "DIRECT_OBSERVATION", observationRole: predicate, sourceType: "direct_observation",
       sourceId: id, sourceVersion: sourceRevision, subject: `runtime:${fixture.projectId}`,
@@ -219,7 +227,7 @@ async function createRuntimeTransitionFixture(
     id: transitionId, projectId: fixture.projectId, executionId, attempt: 0, episodeId,
     actionId, effectBundleId, parentWorldRevision: "c".repeat(64),
     resultingWorldRevision: status === "materialized" ? "d".repeat(64) : null,
-    taskScope: "project", environmentRevisionKey: `revision:${environmentRevision}`,
+    taskScope, environmentRevisionKey: `revision:${environmentRevision}`,
     environmentRevision, freshness: status === "materialized" ? "fresh" : "unknown",
     beforeObservationIds: [beforeId], afterObservationIds: [afterId, statusId],
     materializedObservationIds: status === "materialized" ? [beforeId, afterId, statusId] : [],
@@ -1077,6 +1085,43 @@ describe("Mission goal runtime", () => {
       blockedReason: aiGoalsTable.blockedReason,
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
     expect(goal?.status).toBe("needs_replan");
+  });
+
+  it("does not dispatch from legacy materialized transitions with only schema-default proof fields", async () => {
+    const fixture = await createRuntimeTransitionFixture("materialized");
+    await db.update(aiWorldTransitionsTable).set({
+      effectBundleId: null,
+      taskScope: "project",
+      environmentRevisionKey: "unknown",
+      environmentRevision: null,
+      freshness: "unknown",
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      materializedObservationIds: [],
+      parentFactRefs: [],
+      changedFactRefs: [],
+      evidenceRefs: [],
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+    expect(goal).toEqual({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+    });
+    const dispatches = await db.select({
+      id: eventsTable.id,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, fixture.targetId),
+      eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+    ));
+    expect(dispatches).toHaveLength(0);
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -897,6 +897,54 @@ describe("runtime.start transition retry scheduling", () => {
     });
   });
 
+  it("serializes concurrent runtime.start claims and D2 successor dispatch", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject");
+    const finalizeInput = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    };
+
+    const finalizations = await Promise.all([
+      finalizeRuntimeStartTransition(finalizeInput),
+      finalizeRuntimeStartTransition(finalizeInput),
+    ]);
+    expect(finalizations.every((result) =>
+      result.status === "materialized" || result.status === "pending",
+    )).toBe(true);
+    expect(finalizations.some((result) => result.status === "materialized")).toBe(true);
+    expect(materializer).toHaveBeenCalledTimes(1);
+
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition?.status).toBe("materialized");
+
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    const wakeCounts = await Promise.all([
+      wakeRuntimeTransitionMissionGoals(),
+      wakeRuntimeTransitionMissionGoals(),
+    ]);
+    expect(wakeCounts.reduce((total, count) => total + count, 0)).toBe(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const dispatches = await db.select({
+      id: eventsTable.id,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, fixture.projectId),
+      eq(eventsTable.goalId, mission.targetGoalId),
+      eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+    ));
+    expect(dispatches).toHaveLength(1);
+  });
+
   it("keeps Gate C acceptance when due transition projection fails", async () => {
     const fixture = await transitionFixture();
     expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
