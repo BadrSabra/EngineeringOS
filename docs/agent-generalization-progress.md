@@ -5771,3 +5771,14 @@ G9 Revocation Safety
 - **authority/safety impact:** لا إصدار generic retry token دون acceptance حالية مؤهلة؛ صلاحية الرمز تبقى capability ويعيد claim فحص acceptance. لا تغيير في Canonical Proof أو سلطة Task lifecycle.
 - **remaining/blocker:** لم يُختبر في هذه الخطوة تداخل تغيّر acceptance بعد إصدار الرمز وقبل claim عبر واجهة HTTP الحية؛ census الخارجي/dynamic العام ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** واصل E2 على آخر consumers ومسارات الاستهلاك/claim غير المحسومة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — تتبع أثر World State facts على خطة Mission
+
+- **phase/step:** E2 فقط — `World Fact → planner action` في automatic Mission replan.
+- **status:** `bounded adapter traced; facts alter context/revision, not tested plan steps; domain mapping UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** تتبع المصدر من acceptance/Episode المحددين إلى `loadMissionWorldStatePlanningRead` يثبت أن الحقائق تُصفّى حسب scope والمراجعتين ومصادر الملاحظات الطازجة، ثم تدخل `buildReplanContext`. `buildMissionPlanPreview` يستدعي `buildGeneralTaskPlan` اعتمادًا على intent/message/objective، ولا يمرر `replanContext` أو facts إلى اختيار الخطوات؛ يرفق القراءة بعد بناء الخطة فقط. `autoReplanMission` يربط `planningReadRevision` بمراجعة إعادة التخطيط، و`createMissionPlanGoal` يضمّن الحقائق في task prompt مع تحذير صريح بأنها advisory/untrusted وبوجوب التحقق بأدلة جديدة قبل العمل.
+- **files/schema/contracts touched:** `docs/e2-source-derived-measurement-ledger.md` وهذا السجل فقط؛ لا تغيير runtime أو schema أو workflow.
+- **validation:** راجعت `mission-world-state-planning-read.ts` و`mission-auto-replan.ts` و`mission-planning.ts` وبناء prompt في `routes/ai/missions.ts`، واختبار DB الموجود. الاختبار يقارن خطة بلا حقائق وبحقيقة ثم بقيمة متغيرة: `plan.steps` ثابتة، بينما revision وprompt يعكسان القراءة؛ لم أعد تشغيل الاختبار في هذه الخطوة.
+- **authority/safety impact:** لا قاعدة خادمية تربط predicate/value محددًا بخطوة planner في هذا المسار؛ facts ليست proof أو permission. قد تؤثر في فهم model داخل prompt، لكن الاختبار لا يثبت تغير فعل model ولا يجعل ذلك إذنًا.
+- **remaining/blocker:** النتيجة محصورة في automatic replan والـintent المختبر؛ قواعد domain، سلوك model تحت prompt مختلف، وبقية planners/consumers الديناميكية ما زالت `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل جرد E2 على مصدر أو مستهلك داخلي آخر غير محسوم؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
