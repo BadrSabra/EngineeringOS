@@ -5290,6 +5290,17 @@ G9 Revocation Safety
 - **remaining/blocker:** يغلق هذا حد generic resume فقط؛ مسارات operator/recipe/recovery البديلة، المستهلكون الديناميكيون، بقية mutation/crash surfaces وجرد عائلات المصادر لا تزال غير مكتملة. دليل تغيّر قرار planner بسبب fact ذات صلة ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** استمر في E2 على حدود consumer/recovery المتبقية فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — إعادة فحص سلطة القبول واستهلاك رمز الاستئناف عند claim
+
+- **phase/step:** E2 فقط — claim-time acceptance، استهلاك الرمز مرة واحدة، وربط Task lifecycle.
+- **status:** `claim revalidation and one-use token rotation pass focused integration; E2 OPEN; E3 STOPPED`
+- **what changed:** صار claim يقفل execution ويفحص acceptance الخاصة بالمحاولة الحالية داخل transaction واحدة، ويرفض acceptance غير المطابقة للمشروع/العملية/المراجعة أو التي لم تعد مؤهلة. عند النجاح يُبدّل hash الرمز إلى hash غير مُصدَر بالتزامن مع تدوير attempt. ربطت رموز الإنشاء والاسترداد ببايتات الطلب الدائم، وصار claim لـTask-linked يتطلب معرّف Task مطابقًا من مسار دورة حياة Task. أضيفت حالات لإعادة استخدام رمز المحاولة 0 بعد انتهاء lease للمحاولة 1، ولتغيير acceptance بعد إصدار الرمز، ولمنع claim عام لـTask-linked. حُدّث fixture التزامن ليحمل operation identity الصحيحة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، اختبارات `ai-execution-orientation-chaos.integration.test.ts` و`ai-execution-state.test.ts` و`task-execution-lifecycle.integration.test.ts` و`task-execution-service.test.ts`، `task-execution-service.ts`، `routes/ai.test.ts`، عقدي memory للقبول وتدوير المحاولة؛ لا schema.
+- **validation:** نجح `tsc --noEmit`. نجح `ai-execution-orientation-chaos.integration.test.ts` **66/66**، و`ai-execution-retry.integration.test.ts` **7/7**، ومسار Task-linked في `routes/ai.test.ts` **1/1**، واختبار سباق مؤشر Task **1/1**، واختبارا الوحدة `ai-execution-state.test.ts` و`task-execution-service.test.ts` **38/38**. طُبّق schema على PostgreSQL مؤقتة محصورة على `127.0.0.1` فقط، ثم أُوقفت وحُذفت؛ لم تُستخدم قاعدة التطوير أو الإنتاج. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** رمز الاستئناف قدرة مؤقتة لا Canonical Proof؛ صلاحية القبول الحالية تُعاد مراجعتها عند الاستهلاك، والرمز السابق لا يبقى صالحًا بعد claim ناجح. مسارات Task تبقى داخل lifecycle المالك.
+- **remaining/blocker:** E2 ما زالت مفتوحة؛ جرد مستهلكي recovery وواجهات mutation/crash وعائلات المصادر غير مكتمل، وتأثير fact ذات صلة على قرار planner ما زال `UNKNOWN`. E3 متوقفة.
+- **next step:** استمر في جرد حدود E2 المتبقية فقط؛ لا تغلق E2 ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة أو اقتراحات مهام متابعة.
+
 ### 2026-10-09 — تعافي المشغّل يرفض الطلب المحفوظ غير القابل للتحليل
 
 - **phase/step:** E2 فقط — operator recovery وحدّ منع تجاوز Task-linked recovery.
@@ -5320,3 +5331,14 @@ G9 Revocation Safety
 
 لا تحذف الإدخالات التاريخية. إذا تغير الحكم، أضف إدخال تصحيحًا يوضح سبب
 التغيير بدل تعديل السجل بصمت.
+
+### 2026-10-09 — تصحيح موضع سجل claim-time
+
+- **phase/step:** E2 فقط — claim-time acceptance، استهلاك الرمز مرة واحدة، وربط Task lifecycle.
+- **status:** `verified for this E2 slice; E2 OPEN; E3 STOPPED`
+- **what changed:** هذا هو الإدخال الختامي بعد القالب؛ بقي الإدخال السابق محفوظًا كما هو، لكن أُضيف هذا التصحيح لأن موضعه الأول سبق إدخال operator recovery التاريخي بدل أن يأتي بعد السجل كله. التغيير البرمجي نفسه يعيد فحص acceptance الحالية داخل claim transaction، يستهلك الرمز بتبديل hash عند claim ناجح، ويربط claim الخاص بـTask بمعرّف دورة حياته.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، اختبارات `ai-execution-orientation-chaos.integration.test.ts` و`ai-execution-state.test.ts` و`task-execution-lifecycle.integration.test.ts`، `task-execution-service.ts`، `routes/ai.test.ts`، ذاكرتا acceptance/attempt rotation؛ لا schema.
+- **validation:** `tsc --noEmit` و`git diff --check` نجحا. النتائج: orientation chaos **66/66**، retry integration **7/7**، Task-linked route **1/1**، Task-pointer race **1/1**، ووحدتا execution state وtask service **38/38**. استُخدمت PostgreSQL مؤقتة على loopback فقط وأُوقفت وحُذف جذرها؛ لا workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** الرمز قدرة لا Canonical Proof؛ صلاحية القبول والهوية يعاد التحقق منهما عند الاستهلاك، والرمز القديم لا يُعاد استخدامه بعد claim ناجح. E2 لم تُغلق.
+- **remaining/blocker:** جرد مستهلكي recovery وواجهات mutation/crash وعائلات المصادر غير مكتمل، وتأثير fact ذات صلة على قرار planner ما زال `UNKNOWN`. E3 متوقفة.
+- **next step:** تابع حدود E2 المتبقية فقط؛ لا تغلق E2 أو تبدأ E3 أو Strategy Replay أو workflows مُدارة أو تقترح مهام متابعة.

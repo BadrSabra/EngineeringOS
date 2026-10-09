@@ -1207,6 +1207,7 @@ describe("real durable task execution lifecycle", () => {
         id: randomUUID(),
         executionId: created.execution.id,
         projectId,
+        operationId: created.execution.operationId ?? created.execution.id,
         attempt: created.execution.attempt,
         finalizationKey: randomUUID(),
         terminalStatus: "failed",

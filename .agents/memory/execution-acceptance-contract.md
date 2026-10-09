@@ -20,3 +20,9 @@ For generic resume-capability issuance, the persisted request must parse before 
 **Why:** A legacy or incomplete paused row has no server-owned acceptance decision. Issuing a proof-bearing execution capability from status alone would bypass that decision boundary even though token issuance is not itself proof of success. An unparseable request also cannot establish its proof obligation, scope, revision, or linked-Task identity; guessing could downgrade proof or route Task-linked work around lifecycle authorization.
 
 **How to apply:** For generic capabilities, parse the stored request before status or acceptance fallback and issue a token only after all eligibility checks. For operator recovery, parse before the linked-Task check and reject unparseable requests for both resume and abandon; then enforce its checkpoint and acceptance bindings. Keep current-attempt acceptance locked through generic token persistence. A resume token remains a capability, never Canonical Proof.
+
+Claim-time recovery must revalidate the acceptance for the locked execution's current attempt, including project, operation, and stored revision identity. A Task-linked execution is claimable only through its owning Task lifecycle with the matching Task identity; possession of a generic chat token is not Task authorization.
+
+**Why:** Acceptance or Task state can change after capability issuance. Letting issuance-time checks stand in for claim-time authority leaves a race window where stale tokens can resume work under a different decision or bypass Task lifecycle gates.
+
+**How to apply:** Lock execution and current acceptance in the claim transaction, require the Task lifecycle to supply the linked Task ID, and consume the token atomically with the attempt transition. Keep token consumption separate from Canonical Proof.

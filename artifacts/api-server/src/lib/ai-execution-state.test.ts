@@ -2,8 +2,34 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@workspace/db", () => {
   const executionTable = {
+    id: "id",
     userId: "user_id",
     idempotencyKey: "idempotency_key",
+    operationId: "operation_id",
+    linkedTaskId: "linked_task_id",
+    attempt: "attempt",
+    status: "status",
+    resumeTokenHash: "resume_token_hash",
+    request: "request",
+    projectId: "project_id",
+    correlationId: "correlation_id",
+  };
+  const acceptanceTable = {
+    executionId: "execution_id",
+    attempt: "attempt",
+    projectId: "project_id",
+    operationId: "operation_id",
+    sourceRevision: "source_revision",
+    reasonCode: "reason_code",
+    resumable: "resumable",
+    nextActionCode: "next_action_code",
+    disposition: "disposition",
+  };
+  const taskTable = {
+    id: "task_id",
+    projectId: "project_id",
+    correlationId: "correlation_id",
+    status: "status",
   };
   const now = new Date("2026-01-01T00:00:00.000Z");
   const request = {
@@ -40,6 +66,15 @@ vi.mock("@workspace/db", () => {
     startedAt: null,
     completedAt: null,
   };
+  const acceptance = {
+    projectId: "project-1",
+    operationId: "execution-1",
+    sourceRevision: null,
+    reasonCode: "MODEL_OUTPUT_INVALID",
+    resumable: 1,
+    nextActionCode: "RESUME_ALLOWED",
+    disposition: {},
+  };
 
   let selectCount = 0;
   let insertCount = 0;
@@ -48,11 +83,13 @@ vi.mock("@workspace/db", () => {
     releaseInitialReads = resolve;
   });
 
-  const db = {
+  const db: any = {
+    transaction: async (callback: (transaction: any) => Promise<unknown>) => callback(db),
     select: () => ({
-      from: () => ({
+      from: (table: unknown) => ({
         where: () => ({
           limit: async () => {
+            if (table === acceptanceTable) return [acceptance];
             selectCount += 1;
             if (selectCount <= 2) {
               if (selectCount === 2) releaseInitialReads();
@@ -61,6 +98,18 @@ vi.mock("@workspace/db", () => {
             }
             return [execution];
           },
+          for: () => ({
+            limit: async () => {
+              if (table === acceptanceTable) return [acceptance];
+              selectCount += 1;
+              if (selectCount <= 2) {
+                if (selectCount === 2) releaseInitialReads();
+                await initialReadsReleased;
+                return [];
+              }
+              return [execution];
+            },
+          }),
         }),
       }),
     }),
@@ -93,6 +142,8 @@ vi.mock("@workspace/db", () => {
   return {
     db,
     aiExecutionsTable: executionTable,
+    aiExecutionAcceptancesTable: acceptanceTable,
+    tasksTable: taskTable,
     __executionFixture: execution,
   };
 });
@@ -103,6 +154,7 @@ import {
   createAutonomousOperationContract,
   createRecipeOperationBinding,
   checkRecipeOperationBinding,
+  hashResumeToken,
   hasAiExecutionResumeContract,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
@@ -206,9 +258,11 @@ describe("claimAiExecution", () => {
       };
     });
     const completedAt = new Date("2026-01-01T00:02:00.000Z");
+    const resumeToken = "resume-token-that-is-long-enough-for-the-test";
     Object.assign(dbModule.__executionFixture, {
       status: "failed",
       attempt: 1,
+      resumeTokenHash: hashResumeToken(resumeToken),
       finalMessageId: "assistant-attempt-1",
       completedAt,
     });
@@ -217,7 +271,7 @@ describe("claimAiExecution", () => {
       executionId: "execution-1",
       userId: "user-1",
       workerId: "worker-2",
-      resumeToken: "resume-token-that-is-long-enough-for-the-test",
+      resumeToken,
     });
 
     expect(claimed).toMatchObject({

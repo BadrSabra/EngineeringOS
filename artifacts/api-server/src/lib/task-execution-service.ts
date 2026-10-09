@@ -3347,6 +3347,7 @@ export async function executeTaskLifecycle(params: {
         userId: params.userId,
         workerId,
         ...(resumeToken ? { resumeToken } : {}),
+        linkedTaskId: before.id,
         transaction: tx,
       });
       if (!claimedExecution) {

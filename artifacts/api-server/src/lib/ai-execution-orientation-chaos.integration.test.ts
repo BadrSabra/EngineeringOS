@@ -2322,6 +2322,13 @@ describe("durable project-orientation retry chaos", () => {
         request: originalRow!.request,
       });
 
+      await expect(claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "replayed-attempt-zero-token",
+        resumeToken: currentAttemptZeroToken,
+      }), context).resolves.toBeUndefined();
+
       // Issue a token from a second request-byte generation on attempt 1, then
       // restore the request. It must fail even though the semantic JSON value
       // is equivalent; the token is bound to the exact durable request bytes.
@@ -2573,6 +2580,56 @@ describe("durable project-orientation retry chaos", () => {
       expect(acceptances).toHaveLength(2);
     } finally {
       await Promise.all([left.cleanup(), right.cleanup()]);
+    }
+  });
+
+  it("rechecks current-attempt acceptance when consuming an already-issued retry token", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-acceptance-change-before-claim");
+    const context = `acceptance claim recheck; execution=${fixture.executionId}`;
+
+    try {
+      const issued = await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      });
+      expect(issued?.resumeToken, context).toEqual(expect.any(String));
+      const [before] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ nextActionCode: "START_NEW_PROBE", resumable: 0 })
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ));
+
+      await expect(claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "stale-acceptance-worker",
+        resumeToken: issued!.resumeToken,
+      }), context).resolves.toBeUndefined();
+
+      const [after] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(after, context).toEqual(before);
+    } finally {
+      await fixture.cleanup();
     }
   });
 

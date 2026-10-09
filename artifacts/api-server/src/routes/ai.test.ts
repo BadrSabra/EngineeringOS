@@ -10236,6 +10236,13 @@ describe("autonomous task acceptance finalization races", () => {
       resumable: 1,
     });
 
+    await expect(aiExecutionState.claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId: "generic-task-link-bypass",
+      resumeToken: created.resumeToken,
+    })).resolves.toBeUndefined();
+
     const resumeCapability = await request(app)
       .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
     expect(resumeCapability.status).toBe(409);

@@ -2009,6 +2009,7 @@ export async function createAiExecution(params: {
       : {}),
     ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
   });
+  const serializedRequest = JSON.stringify(params.request);
   const [execution] = await query
     .insert(aiExecutionsTable)
     .values({
@@ -2024,8 +2025,8 @@ export async function createAiExecution(params: {
       idempotencyKey: params.idempotencyKey,
       correlationId: params.correlationId ?? null,
       attempt: params.attempt ?? 0,
-      resumeTokenHash: hashResumeToken(resumeToken),
-      request: JSON.stringify(params.request),
+      resumeTokenHash: hashResumeTokenForRequest(resumeToken, serializedRequest),
+      request: serializedRequest,
       checkpoint: JSON.stringify({
         stage: "queued",
         sequence: 0,
@@ -2206,6 +2207,108 @@ export async function authorizeRecipeNodeExecution(params: {
   return { allowed: true };
 }
 
+type AiExecutionRecoveryAcceptance = {
+  projectId?: string | null;
+  operationId?: string | null;
+  sourceRevision?: string | null;
+  reasonCode: string | null;
+  resumable: number;
+  nextActionCode: string | null;
+  disposition?: unknown;
+};
+
+function recoveryDispositionValue(disposition: unknown, key: string): unknown {
+  if (!disposition || typeof disposition !== "object" || Array.isArray(disposition)) {
+    return undefined;
+  }
+  return (disposition as Record<string, unknown>)[key];
+}
+
+function isAiExecutionResumeAcceptanceEligible(params: {
+  projectId: string;
+  operationId: string | null;
+  status: AiExecution["status"];
+  request: AiExecutionRequestEnvelope;
+  checkpoint: AiExecutionCheckpoint | undefined;
+  acceptance: AiExecutionRecoveryAcceptance | undefined;
+}): boolean {
+  const { projectId, operationId, status, request, checkpoint, acceptance } = params;
+  if (
+    acceptance
+    && (
+      acceptance.projectId !== projectId
+      || acceptance.operationId !== operationId
+      || (
+        typeof request.workspaceRevision === "string"
+        && acceptance.sourceRevision !== request.workspaceRevision
+      )
+    )
+  ) {
+    return false;
+  }
+  const ordinaryChat = request.turnIntent === "CHAT" && request.proofRequired !== true;
+  const parserFailureRecovery = ordinaryChat
+    && acceptance?.reasonCode === "MODEL_OUTPUT_INVALID"
+    && acceptance.nextActionCode === "RESUME_ALLOWED"
+    && acceptance.resumable === 1;
+  const transientProviderRecovery = ordinaryChat
+    && acceptance?.reasonCode === "EXECUTION_PROVIDER_FAILURE"
+    && (acceptance.nextActionCode === "RETRY_AFTER_TIMEOUT"
+      || acceptance.nextActionCode === "RETRY_AFTER_RATE_LIMIT")
+    && acceptance.resumable === 0;
+
+  if (status === "paused" && request.proofRequired === true && !acceptance) return false;
+  if (
+    (ordinaryChat && !parserFailureRecovery && !transientProviderRecovery)
+    || (acceptance && acceptance.resumable !== 1 && !transientProviderRecovery)
+  ) {
+    return false;
+  }
+  if (
+    status === "failed"
+    && (checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
+      || acceptance?.resumable !== 1
+      || acceptance.nextActionCode === "START_NEW_PROBE")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isAiExecutionRetryAcceptanceEligible(params: {
+  projectId: string;
+  operationId: string | null;
+  request: AiExecutionRequestEnvelope;
+  acceptance: AiExecutionRecoveryAcceptance | undefined;
+  nowMs?: number;
+}): boolean {
+  const { projectId, operationId, request, acceptance } = params;
+  if (
+    !acceptance
+    || acceptance.projectId !== projectId
+    || acceptance.operationId !== operationId
+    || (
+      typeof request.workspaceRevision === "string"
+      && acceptance.sourceRevision !== request.workspaceRevision
+    )
+    || (request.turnIntent === "CHAT"
+      && request.proofRequired !== true
+      && acceptance.reasonCode !== "EXECUTION_PROVIDER_FAILURE")
+    || (acceptance.nextActionCode !== "RETRY_AFTER_TIMEOUT"
+      && acceptance.nextActionCode !== "RETRY_AFTER_RATE_LIMIT")
+    || acceptance.resumable !== 0
+    || recoveryDispositionValue(acceptance.disposition, "recoveryState") !== "REQUIRED"
+  ) {
+    return false;
+  }
+
+  const retryAt = recoveryDispositionValue(acceptance.disposition, "retryAt");
+  if (retryAt === undefined) return true;
+  if (typeof retryAt !== "string") return false;
+  const retryAtMs = Date.parse(retryAt);
+  return Number.isFinite(retryAtMs) && retryAtMs <= (params.nowMs ?? Date.now());
+}
+
 export async function recoverAiExecutionResumeToken(params: {
   executionId: string;
   userId: string;
@@ -2243,6 +2346,9 @@ export async function recoverAiExecutionResumeToken(params: {
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
   const [priorAcceptance] = await query
     .select({
+      projectId: aiExecutionAcceptancesTable.projectId,
+      operationId: aiExecutionAcceptancesTable.operationId,
+      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
@@ -2280,37 +2386,14 @@ export async function recoverAiExecutionResumeToken(params: {
       .limit(1);
     if (!task) return undefined;
   }
-  const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
-  const parserFailureRecovery =
-    ordinaryChat
-    && priorAcceptance?.reasonCode === "MODEL_OUTPUT_INVALID"
-    && priorAcceptance.nextActionCode === "RESUME_ALLOWED"
-    && priorAcceptance.resumable === 1;
-  const transientProviderRecovery =
-    ordinaryChat
-    && priorAcceptance?.reasonCode === "EXECUTION_PROVIDER_FAILURE"
-    && (priorAcceptance.nextActionCode === "RETRY_AFTER_TIMEOUT"
-      || priorAcceptance.nextActionCode === "RETRY_AFTER_RATE_LIMIT")
-    && priorAcceptance.resumable === 0;
-  // A paused proof-required request needs a current-attempt acceptance to
-  // authorize recovery; status alone cannot substitute for that decision.
-  if (candidate.status === "paused" && request?.proofRequired === true && !priorAcceptance) {
-    return undefined;
-  }
-  // Ordinary chat has no durable resume contract. This guard also protects
-  // legacy paused rows created before reconciliation learned that distinction.
-  if (
-    (ordinaryChat && !parserFailureRecovery && !transientProviderRecovery)
-    || (priorAcceptance && priorAcceptance.resumable !== 1)
-  ) {
-    return undefined;
-  }
-  if (
-    candidate.status === "failed" &&
-    (checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
-      || priorAcceptance?.resumable !== 1
-      || priorAcceptance?.nextActionCode === "START_NEW_PROBE")
-  ) {
+  if (!isAiExecutionResumeAcceptanceEligible({
+    projectId: candidate.projectId,
+    operationId: candidate.operationId,
+    status: candidate.status,
+    request,
+    checkpoint,
+    acceptance: priorAcceptance,
+  })) {
     return undefined;
   }
   const resumeToken = createResumeToken();
@@ -2368,7 +2451,8 @@ export async function recoverAiExecutionRetryToken(params: {
   if (!candidate) return undefined;
 
   const request = parseExecutionRequest(candidate.request);
-  const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  if (!request) return undefined;
+  const ordinaryChat = request.turnIntent === "CHAT" && request.proofRequired !== true;
   if (candidate.linkedTaskId || request?.linkedTaskId) return undefined;
   if (!hasAiExecutionResumeContract(request) && !ordinaryChat) return undefined;
 
@@ -2389,35 +2473,13 @@ export async function recoverAiExecutionRetryToken(params: {
     ))
     .for("update")
     .limit(1);
-  if (
-    !priorAcceptance
-    || priorAcceptance.projectId !== candidate.projectId
-    || priorAcceptance.operationId !== candidate.operationId
-    || (
-      typeof request?.workspaceRevision === "string"
-      && priorAcceptance.sourceRevision !== request.workspaceRevision
-    )
-    || (ordinaryChat
-      && priorAcceptance.reasonCode !== "EXECUTION_PROVIDER_FAILURE")
-    || (priorAcceptance.nextActionCode !== "RETRY_AFTER_TIMEOUT"
-      && priorAcceptance.nextActionCode !== "RETRY_AFTER_RATE_LIMIT")
-    || priorAcceptance.resumable !== 0
-  ) {
+  if (!isAiExecutionRetryAcceptanceEligible({
+    projectId: candidate.projectId,
+    operationId: candidate.operationId,
+    request,
+    acceptance: priorAcceptance,
+  })) {
     return undefined;
-  }
-
-  const disposition = priorAcceptance.disposition;
-  const recoveryState = disposition && typeof disposition === "object"
-    ? (disposition as { recoveryState?: unknown }).recoveryState
-    : undefined;
-  const retryAt = disposition && typeof disposition === "object"
-    ? (disposition as { retryAt?: unknown }).retryAt
-    : undefined;
-  if (recoveryState !== "REQUIRED") return undefined;
-  if (retryAt !== undefined) {
-    if (typeof retryAt !== "string") return undefined;
-    const retryAtMs = Date.parse(retryAt);
-    if (!Number.isFinite(retryAtMs) || retryAtMs > Date.now()) return undefined;
   }
 
   const [execution] = await query
@@ -2731,7 +2793,7 @@ export async function requestAiExecutionRecovery(params: {
             nextActionCode: priorAcceptance.nextActionCode,
           }
         : null,
-      resumeTokenHash: hashResumeToken(resumeToken),
+      resumeTokenHash: hashResumeTokenForRequest(resumeToken, current.request),
       nextCheckpoint: JSON.stringify(nextCheckpoint),
       nextCheckpointVersion: nextSequence,
       updatedAt,
@@ -2775,41 +2837,130 @@ export async function claimAiExecution(params: {
   userId: string;
   workerId: string;
   resumeToken?: string;
+  linkedTaskId?: string;
   recipeBinding?: RecipeOperationBinding;
   transaction?: AiExecutionTransaction;
 }): Promise<AiExecution | undefined> {
-  const query = params.transaction ?? db;
-  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
-  const [tokenState] = params.resumeToken
-    ? await query
-        .select({ request: aiExecutionsTable.request })
-        .from(aiExecutionsTable)
-        .where(and(
-          eq(aiExecutionsTable.id, params.executionId),
-          eq(aiExecutionsTable.userId, params.userId),
-        ))
-        .limit(1)
-    : [];
-  if (params.resumeToken && !tokenState) return undefined;
-  const requestBoundTokenHash = params.resumeToken && tokenState
-    ? hashResumeTokenForRequest(params.resumeToken, tokenState.request)
-    : undefined;
-  const [existing] = params.recipeBinding
-    ? await query
-        .select()
-        .from(aiExecutionsTable)
-        .where(and(
-          eq(aiExecutionsTable.id, params.executionId),
-          eq(aiExecutionsTable.userId, params.userId),
-        ))
-        .limit(1)
-    : [];
-  const claimCheckpoint = existing && params.recipeBinding
+  if (!params.transaction) {
+    return db.transaction((transaction) =>
+      claimAiExecution({ ...params, transaction }),
+    );
+  }
+
+  const query = params.transaction;
+  const [existing] = await query
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!existing) return undefined;
+
+  const request = parseExecutionRequest(existing.request);
+  const rowLinkedTaskId = existing.linkedTaskId ?? null;
+  const requestLinkedTaskId = request?.linkedTaskId ?? null;
+  const expectedLinkedTaskId = params.linkedTaskId ?? null;
+  if (
+    rowLinkedTaskId !== expectedLinkedTaskId
+    || (requestLinkedTaskId !== null && requestLinkedTaskId !== expectedLinkedTaskId)
+  ) {
+    return undefined;
+  }
+  if (rowLinkedTaskId !== null) {
+    if (!request || !existing.correlationId) return undefined;
+    const [task] = await query
+      .select({ id: tasksTable.id })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.id, rowLinkedTaskId),
+        eq(tasksTable.projectId, existing.projectId),
+        eq(tasksTable.correlationId, existing.correlationId),
+        inArray(tasksTable.status, ["pending", "queued", "verifying"]),
+      ))
+      .limit(1);
+    if (!task) return undefined;
+  }
+
+  const hasResumeToken = Boolean(params.resumeToken);
+  const tokenHash = hasResumeToken ? hashResumeToken(params.resumeToken!) : undefined;
+  let requestBoundTokenHash: string | undefined;
+  let tokenClaimCheckpoint: AiExecutionCheckpoint | undefined;
+  if (hasResumeToken) {
+    if (!request || !["paused", "failed"].includes(existing.status)) return undefined;
+    requestBoundTokenHash = hashResumeTokenForRequest(params.resumeToken!, existing.request);
+    if (
+      existing.resumeTokenHash !== tokenHash
+      && existing.resumeTokenHash !== requestBoundTokenHash
+    ) {
+      return undefined;
+    }
+
+    tokenClaimCheckpoint = parseAiExecutionCheckpoint(existing.checkpoint);
+    const [acceptance] = await query
+      .select({
+        projectId: aiExecutionAcceptancesTable.projectId,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        disposition: aiExecutionAcceptancesTable.disposition,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, existing.id),
+        eq(aiExecutionAcceptancesTable.attempt, existing.attempt),
+      ))
+      .for("update")
+      .limit(1);
+    const resumeEligible = isAiExecutionResumeAcceptanceEligible({
+      projectId: existing.projectId,
+      operationId: existing.operationId,
+      status: existing.status,
+      request,
+      checkpoint: tokenClaimCheckpoint,
+      acceptance,
+    });
+    const retryEligible = isAiExecutionRetryAcceptanceEligible({
+      projectId: existing.projectId,
+      operationId: existing.operationId,
+      request,
+      acceptance,
+    });
+    const recoveryMarker = (
+      tokenClaimCheckpoint as (AiExecutionCheckpoint & {
+        recovery?: { action?: unknown; outcome?: unknown };
+      }) | undefined
+    )?.recovery;
+    const operatorResumeEligible = existing.status === "paused"
+      && tokenClaimCheckpoint?.operation?.state === "uncertain"
+      && recoveryMarker?.action === "resume"
+      && recoveryMarker.outcome === "resume_accepted"
+      && (request.proofRequired !== true || Boolean(acceptance))
+      && (
+        !acceptance
+        || (
+          acceptance.projectId === existing.projectId
+          && acceptance.operationId === existing.operationId
+          && (
+            typeof request.workspaceRevision !== "string"
+            || acceptance.sourceRevision === request.workspaceRevision
+          )
+          && acceptance.resumable === 1
+          && acceptance.nextActionCode !== "START_NEW_PROBE"
+        )
+      );
+    if (!resumeEligible && !retryEligible && !operatorResumeEligible) return undefined;
+  }
+
+  const claimCheckpoint = params.recipeBinding
     ? parseAiExecutionCheckpoint(existing.checkpoint)
-    : undefined;
+    : tokenClaimCheckpoint;
   const storedBinding = claimCheckpoint?.recipeBinding ?? claimCheckpoint?.operation?.binding;
   if (params.recipeBinding) {
-    if (!existing) return undefined;
     if (!storedBinding || !recipeBindingMatches(existing.checkpoint, params.recipeBinding)) return undefined;
     try {
       assertRecipeOperationBinding(params.recipeBinding, {
@@ -2830,6 +2981,9 @@ export async function claimAiExecution(params: {
   const claimedBinding = bindingToClaim
     ? { ...bindingToClaim, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
     : undefined;
+  const consumedTokenHash = hasResumeToken
+    ? hashResumeToken(createResumeToken())
+    : undefined;
   const [claimed] = await query
     .update(aiExecutionsTable)
     .set({
@@ -2841,6 +2995,7 @@ export async function claimAiExecution(params: {
       updatedAt: claimTime,
       error: null,
       cancelRequestedAt: null,
+      ...(consumedTokenHash ? { resumeTokenHash: consumedTokenHash } : {}),
       ...(claimedBinding && claimCheckpoint ? {
         checkpoint: JSON.stringify({
           ...claimCheckpoint,
@@ -2851,7 +3006,7 @@ export async function claimAiExecution(params: {
         } satisfies AiExecutionCheckpoint),
         checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
       } : {}),
-      ...(tokenHash
+      ...(hasResumeToken
         ? {
             // A resume is a new auditable attempt. The previous attempt's
             // assistant row remains linked from its acceptance record, but it
@@ -2866,18 +3021,17 @@ export async function claimAiExecution(params: {
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.status, existing.status),
+      eq(aiExecutionsTable.attempt, existing.attempt),
       ...(params.recipeBinding ? [
         eq(aiExecutionsTable.projectId, params.recipeBinding.projectId),
         eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
       ] : []),
       inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
-      ...(tokenHash && requestBoundTokenHash && tokenState
+      ...(hasResumeToken && requestBoundTokenHash
         ? [
-            eq(aiExecutionsTable.request, tokenState.request),
-            or(
-              eq(aiExecutionsTable.resumeTokenHash, tokenHash),
-              eq(aiExecutionsTable.resumeTokenHash, requestBoundTokenHash),
-            ),
+            eq(aiExecutionsTable.request, existing.request),
+            eq(aiExecutionsTable.resumeTokenHash, existing.resumeTokenHash),
           ]
         : []),
     ))
