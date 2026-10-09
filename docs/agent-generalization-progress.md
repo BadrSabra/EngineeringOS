@@ -5705,3 +5705,14 @@ G9 Revocation Safety
 - **authority/safety impact:** لم يظهر bypass في هاتين الحالتين الوسيطتين؛ إثبات route-safety لا يثبت أن كل interleaving أو consumer مشمول.
 - **remaining/blocker:** اختبار المصالحة القائم يتحقق من النتيجة النهائية لميزانيتي retry، وليس ترتيبًا مضبوطًا بين الكتابتين. بقيت بقية source-family census و`World Fact → planner action` غير محسومتين.
 - **next step:** واصل E2 بفجوة مصدر/مستهلك واحدة قابلة للإثبات؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — استبعاد acceptance قديمة من Task automatic recovery
+
+- **phase/step:** E2 فقط — ربط اختيار recovery acceptance بمحاولة execution الحالية.
+- **status:** `PASS for sampled Task and Chat stale-attempt selectors (15/15); E2 OPEN; E3 STOPPED`
+- **what changed:** أُضيف اختبار DB-backed يقدّم execution إلى attempt 1 مع إبقاء acceptance محاولة 0 القابلة لإعادة المحاولة، ثم يضع acceptance الحالية على `ABANDON_EXECUTION`. المصالحة لا تنشئ queued job ولا تغيّر Task أو تستدعي lifecycle. طابق ذلك اختبار Chat القديم. صححنا fixture اختبار قفل resume ليحمل execution وacceptance نفس `operationId`؛ helper كان يرفض التباين بشكل صحيح. مراجعة المصدر أثبتت أن linked Task lifecycle يقفل execution وقبول المحاولة الحالية، ثم يدوّر token ويطالب execution وTask داخل transaction واحدة؛ قبول متزامن لا يمكنه التبدل حتى commit، وفشل CAS يراجع الكتابات.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-recovery-coordinator.integration.test.ts`، الـledger، وسجل التقدم؛ لا تعديل production أو schema أو workflow.
+- **validation:** `ai-recovery-coordinator.integration.test.ts` نجح **15/15** على PostgreSQL مؤقتة loopback بعد schema apply/check؛ `pnpm exec tsc --noEmit` و`git diff --check` نجحا. provider egress معطّل، وأُوقفت القاعدة المؤقتة وحُذف جذرها.
+- **authority/safety impact:** قبول محاولة قديمة لا يطلق linked-Task أو Chat recovery في الحالات المختبرة. اختبار القفل يثبت حجز قرار resume linked to Task أثناء تدوير الرمز؛ هذا لا يوحّد Canonical Proof عبر بقية المنتج.
+- **remaining/blocker:** لم يُفرض اختبار queued Task resume مع تبدّل acceptance للمحاولة نفسها قبل بدء transaction؛ helper يعيد فحص الأهلية عند التنفيذ. بقية recovery consumers والمصادر الديناميكية تظل غير محصورة؛ E2 مفتوحة و`World Fact → planner action` ما زال `UNKNOWN`.
+- **next step:** واصل E2 على حد recovery أو consumer آخر بعد تمييز source edges غير المغلقة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.

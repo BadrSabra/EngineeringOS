@@ -100,6 +100,7 @@ async function insertFixture() {
     projectId,
     linkedTaskId: taskId,
     userId: "recovery-test-user",
+    operationId: executionId,
     idempotencyKey: `${taskId}:attempt:0`,
     correlationId: executionId,
     attempt: 0,
@@ -715,6 +716,57 @@ describe("durable automatic conversational recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("ignores a stale Task acceptance after the execution advances to a later attempt", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 1 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.insert(aiExecutionAcceptancesTable).values({
+        id: randomUUID(),
+        executionId: fixture.executionId,
+        projectId: fixture.projectId,
+        attempt: 1,
+        finalizationKey: `recovery-task-stale-attempt:${fixture.executionId}:1`,
+        operationId: fixture.executionId,
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        nextActionCode: "ABANDON_EXECUTION",
+        disposition: {
+          recoveryState: "INCOMPLETE",
+          nextActionCode: "ABANDON_EXECUTION",
+        },
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+        resumable: 0,
+        sourceRevision: null,
+        createdAt: new Date(),
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(0);
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({
+        status: "verifying",
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      });
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
