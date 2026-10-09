@@ -2659,7 +2659,9 @@ export async function requestAiExecutionRecovery(params: {
 }): Promise<AiExecutionRecoveryResult | undefined> {
   const current = await getAiExecutionForUser(params.executionId, params.userId);
   if (!current) return undefined;
-  if (current.linkedTaskId || parseExecutionRequest(current.request)?.linkedTaskId) {
+  const request = parseExecutionRequest(current.request);
+  if (!request) return { execution: current, outcome: "not_eligible" };
+  if (current.linkedTaskId || request.linkedTaskId) {
     return { execution: current, outcome: "not_eligible" };
   }
   const checkpoint = recoveryCheckpoint(current);

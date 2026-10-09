@@ -3269,6 +3269,87 @@ describe("durable project-orientation retry chaos", () => {
     }
   });
 
+  it.each(["resume", "abandon"] as const)(
+    "rejects malformed operator recovery requests for %s without mutating state",
+    async (action) => {
+      const fixture = await createFailedOrientationFixture(`operator-malformed-request-${action}`);
+      const context = `operator malformed request action=${action}; execution=${fixture.executionId}`;
+      const operation = {
+        ...createAutonomousOperationContract({
+          operationId: fixture.executionId,
+          objective: "Reject operator recovery without a parseable request contract",
+          revisionManifest: fixture.manifest.projectRevision,
+        }),
+        state: "uncertain" as const,
+      };
+      const checkpoint = {
+        stage: "failed" as const,
+        sequence: 4,
+        operation,
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        await db.update(aiExecutionsTable)
+          .set({
+            status: "paused",
+            request: '{"linkedTaskId":"legacy-task",',
+            checkpoint: JSON.stringify(checkpoint),
+            checkpointVersion: 6,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiExecutionsTable.id, fixture.executionId));
+        await db.update(aiExecutionAcceptancesTable)
+          .set({
+            terminalStatus: "paused",
+            nextActionCode: "RESUME_ALLOWED",
+            resumable: 1,
+            disposition: {
+              recoveryState: "REQUIRED",
+              nextActionCode: "RESUME_ALLOWED",
+              operatorAction: "RESUME_CHECKPOINT",
+            },
+          })
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ));
+
+        const [before] = await db.select({
+          request: aiExecutionsTable.request,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId))
+          .limit(1);
+
+        const recovered = await requestAiExecutionRecovery({
+          executionId: fixture.executionId,
+          userId: fixture.userId,
+          action,
+          revision: fixture.manifest.projectRevision,
+        });
+        expect(recovered, context).toMatchObject({ outcome: "not_eligible" });
+        expect(recovered, context).not.toHaveProperty("resumeToken");
+
+        const [after] = await db.select({
+          request: aiExecutionsTable.request,
+          status: aiExecutionsTable.status,
+          resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId))
+          .limit(1);
+        expect(after, context).toEqual(before);
+      } finally {
+        await fixture.cleanup();
+      }
+    },
+  );
+
   it("rejects an operator resume-token write after the execution attempt changes", async () => {
     const fixture = await createFailedOrientationFixture("operator-recovery-stale-attempt-write");
     const context = `operator recovery stale attempt write; execution=${fixture.executionId}`;

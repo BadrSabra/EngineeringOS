@@ -5290,6 +5290,17 @@ G9 Revocation Safety
 - **remaining/blocker:** يغلق هذا حد generic resume فقط؛ مسارات operator/recipe/recovery البديلة، المستهلكون الديناميكيون، بقية mutation/crash surfaces وجرد عائلات المصادر لا تزال غير مكتملة. دليل تغيّر قرار planner بسبب fact ذات صلة ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** استمر في E2 على حدود consumer/recovery المتبقية فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — تعافي المشغّل يرفض الطلب المحفوظ غير القابل للتحليل
+
+- **phase/step:** E2 فقط — operator recovery وحدّ منع تجاوز Task-linked recovery.
+- **status:** `malformed operator resume/abandon rejected without mutation (2/2); valid/stale recovery checks pass (3/3); E2 OPEN; E3 STOPPED`
+- **what changed:** صار `requestAiExecutionRecovery` يحلل الطلب الدائم قبل فحص رابط Task أو قبول resume/abandon. إذا تعذر التحليل يعيد `not_eligible`؛ يمنع ذلك إخفاء `linkedTaskId` داخل طلب تالف ثم تجاوز مسار Task lifecycle. الاختبار يستخدم عملية `uncertain` وacceptance تسمح بالتعافي، ثم يثبت عدم إصدار token وعدم تغيير status أو checkpoint أو token hash في الفعلين.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، `artifacts/api-server/src/lib/ai-execution-orientation-chaos.integration.test.ts`، سجل القياس وهذا السجل وذاكرة عقد القبول؛ لا schema أو workflow.
+- **validation:** API `tsc --noEmit` نجح. الاختبارات المركزة نجحت **5/5** (60 skipped): حالتا malformed operator recovery، نجاح resume صالح، ورفضا كتابة token بعد تغيّر المحاولة أو أهلية acceptance. PostgreSQL loopback مؤقتة بعد `schema:apply` مع `AI_PROVIDER_EGRESS_DISABLED=1`؛ أُوقفت وحُذفت جذورها. فحص `git diff --check` بعد تحرير السجلات. لم يُشغّل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** لا يمكن لمسار المشغّل استنتاج غياب ارتباط Task من request غير قابل للتحليل؛ تظل بوابة checkpoint/acceptance الخاصة به مستقلة عن Canonical Proof، ولا يمنح token قبول نتيجة.
+- **remaining/blocker:** بقيت مسارات recovery الأخرى ومستهلكو الإثبات الديناميكيون وبقية mutation/crash surfaces والجرد العام غير مكتملة. تغيّر قرار planner استجابةً إلى fact ذات صلة ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 على حدود consumer/recovery غير المفحوصة فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
