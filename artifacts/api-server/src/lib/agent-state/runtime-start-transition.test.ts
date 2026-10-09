@@ -37,6 +37,7 @@ import {
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
 import { wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
+import { startDurableJobDispatcher } from "../job-reconciliation.js";
 import { evaluateApplyChangesD2 } from "./apply-changes-mission-gate.js";
 import { heavyJobQueue } from "../job-queue.js";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
@@ -943,6 +944,52 @@ describe("runtime.start transition retry scheduling", () => {
       eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
     ));
     expect(dispatches).toHaveLength(1);
+  });
+
+  it("recovers a persisted accepted transition through the startup dispatcher before releasing D2", async () => {
+    const fixture = await transitionFixture({ missionHandoff: true });
+    const mission = fixture.missionHandoff;
+    if (!mission) throw new Error("Mission handoff fixture was not created.");
+    await insertValidRuntimeStartObservations(fixture);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    const dispatcher = startDurableJobDispatcher();
+    let status: string | undefined;
+    let dispatchCount = 0;
+
+    try {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline) {
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        status = transition?.status;
+        const dispatches = await db.select({
+          id: eventsTable.id,
+        }).from(eventsTable).where(and(
+          eq(eventsTable.projectId, fixture.projectId),
+          eq(eventsTable.goalId, mission.targetGoalId),
+          eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+        ));
+        dispatchCount = dispatches.length;
+        if (status === "materialized" && dispatchCount > 0 && enqueue.mock.calls.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const dispatches = await db.select({
+        id: eventsTable.id,
+      }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, mission.targetGoalId),
+        eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+      ));
+      dispatchCount = dispatches.length;
+      expect(status).toBe("materialized");
+      expect(dispatchCount).toBe(1);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+    } finally {
+      clearInterval(dispatcher);
+    }
   });
 
   it("keeps Gate C acceptance when due transition projection fails", async () => {
