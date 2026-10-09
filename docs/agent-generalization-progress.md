@@ -5859,3 +5859,14 @@ G9 Revocation Safety
 - **authority/safety impact:** World Fact يصل كبيانات إرشادية غير موثوقة، لا يغيّر بذاته خطة الخطوات الحتمية ولا يمنح صلاحية. حتى لو اختلف قرار provider لاحقًا، تبقى الأدوات والأدلة والقبول server-gated؛ هذه المراجعة لا تثبت اختيارًا فعليًا.
 - **remaining/blocker:** هل يغيّر السياق الأداة أو الإجراء الذي يختاره task agent ما زال `UNKNOWN`؛ اختبار مزوّد وهمي يثبت عقد prompt فقط ولا يثبت parity لسلوك provider. كذلك تبقى layouts المنشورة التاريخية ومستهلكات SQL الديناميكية/الخارجية وأسئلة E2 الأخرى مفتوحة.
 - **next step:** واصل E2 على boundary منفصل قابل للاختبار؛ لا تعامل prompt coverage كإثبات action، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — استعادة الانتقال المقبول بعد SIGKILL قبل materialization
+
+- **phase/step:** E2 فقط — اختبار استعادة startup بعد انقطاع API child مع وجود Mission acceptance وWorld Transition محفوظين.
+- **status:** `persisted accepted transition survives API SIGKILL before materialization PASS; replacement full API materializes and emits one D2 dispatch PASS; actual Gate C writer crash and mid-transaction SIGKILL UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** أضفت حالة opt-in إلى `runtime-start-transition.test.ts`: acceptance ناجحة وانتقال pending وملاحظات صحيحة تُزرع كـfixtures؛ معاملة الاختبار تمسك صف الانتقال، ويُنتظر حتى يحجب API child استعلامه على الصف، ثم يُقتل child بـ`SIGKILL`. بعد فك القفل وانقطاع جلسة DB، يثبت الاختبار بقاء القبول والانتقال pending بلا dispatch. API بديل يبدأ من `src/index.ts`، يعيد materialization ويصدر `AiGoalRecipeDispatchRequested` واحدًا.
+- **files/schema/contracts touched:** اختبار `runtime-start-transition`؛ لا تغيير إنتاجي أو schema أو قاعدة تطوير.
+- **validation:** PostgreSQL جديدة مؤقتة loopback-only، جرى تطبيق schema عليها وحدها؛ الاختبار المستهدف نجح `1/1`، وAPI `tsc --noEmit` و`git diff --check` نجحا. المحاولة الأولى كشفت أن جلسة PostgreSQL المنتظرة لقفل لا تنتهي قبل فك القفل؛ عُدّل ترتيب الاختبار ليفك القفل قبل انتظار انقطاع الجلسة. أُوقفت القاعدة المؤقتة وحُذف جذرها.
+- **authority/safety impact:** هذا يثبت استعادة صف انتقال pending بعد موت API كامل، مع بقاء acceptance مستقلة وdispatch مرة واحدة. القبول مزروع ولا يعيد Canonical Proof؛ القفل يحاكي نافذة ما قبل materialization ولا يثبت تعطل العامل الذي كتب قبول Gate C أو rollback لمعاملة materialization دخلت بالفعل.
+- **remaining/blocker:** crash windows الأخرى، خاصة تعطل العامل الفعلي بعد commit Gate C أو SIGKILL خلال معاملة projection، ما زالت `UNKNOWN`. لا يثبت ذلك إكمال successor أو provider حيًا. E2 مفتوحة؛ E3 متوقفة.
+- **next step:** واصل فقط حدود E2 غير المثبتة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.

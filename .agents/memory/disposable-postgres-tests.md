@@ -9,11 +9,11 @@ Do not use an inherited `DATABASE_URL` for an integration test that inserts, upd
 
 **How to apply:** Create a unique PostgreSQL cluster under `/tmp`, bind TCP only to `127.0.0.1`, place its socket directory inside that temporary root, and pass an explicit local `DATABASE_URL` to schema setup and the test process. On this host, `initdb` under the `runner` account creates the `runner` role and `postgres` database by default; target that pair explicitly rather than assuming a database named `runner`. Unset inherited `PG*` connection variables, apply the current schema only to that cluster, and run the narrow intended test. While the tracked shell task is still alive, stop PostgreSQL with `pg_ctl -D "$ROOT/data" -m fast -w stop`; then stop the shell task and remove only the exact temporary root. If no local server is available, stop and establish a disposable database rather than falling back to Replit development or production.
 
-In a SIGKILL recovery test, terminating the client during a server-side `pg_sleep` does not immediately stop that PostgreSQL backend; it may notice the closed socket only after the sleep finishes.
+In a SIGKILL recovery test, terminating a client during server-side `pg_sleep` or while it waits on a row lock does not immediately stop that PostgreSQL backend; it may notice the closed socket only after the blocking operation ends.
 
-**Why:** A long sleep can hold the transaction and block the test's cleanup long after the client process has been killed.
+**Why:** A long sleep keeps its backend active, and a held row lock can keep a killed client's transaction waiting. Waiting for the session to disappear before releasing the test-owned lock can deadlock cleanup.
 
-**How to apply:** Use a short bounded sleep to expose the in-flight transaction, kill the client, then wait for that exact `application_name` session to disappear before restarting recovery or dropping the test trigger.
+**How to apply:** Use a short bounded sleep for sleep-based tests. For row-lock tests, release the test-owned lock immediately after killing the client, then wait for the exact `application_name` session to disappear before recovery or cleanup.
 
 ## Child-process SIGKILL tests
 
