@@ -37,6 +37,12 @@ checkpoint progress advisory until the required body is available. Carry span
 and integrity metadata through cache seeding and terminal snapshot creation,
 and test crash recovery and targeted-range reuse.
 
+Reusable retained reads also need an explicit metadata version. Null span fields alone cannot distinguish a current full-file read from a legacy row whose range metadata was never recorded; unversioned rows must not be promoted to full-file context.
+
+**Why:** Older targeted reads can look complete and un-ranged after schema evolution, so trusting NULL span columns can silently elevate partial source into accepted context.
+
+**How to apply:** Default pre-version rows to an unusable version and require the current version alongside complete, untruncated, un-ranged source checks before reuse. The version marker is provenance metadata, not proof by itself.
+
 Runtime failure summaries must use the same byte-limit and read-status normalization as acceptance snapshots. A retained prefetch body larger than the acceptance limit is not a complete proof, even if the in-memory map still contains the raw body.
 
 **Why:** A provider failure can otherwise produce a message saying complete evidence was retained while the durable snapshot correctly marks the same body truncated, making reload and resume disagree with the original turn.

@@ -66,7 +66,7 @@
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
 - [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
-- [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
+- [Durable evidence boundary](durable-evidence-boundary.md) — version reusable reads; legacy rows without span metadata cannot imply whole-file completeness.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate on claim and verify acceptance against the current attempt, not a stale row.
 - [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.

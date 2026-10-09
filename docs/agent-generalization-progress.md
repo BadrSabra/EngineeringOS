@@ -5180,6 +5180,39 @@ G9 Revocation Safety
 - **remaining/blocker:** جرد عائلات المصادر ومستهلكي evidence/status الديناميكيين والخارجيين وبقية recovery/finalizer غير مكتمل؛ لم يُعد تشغيل suite الكامل، وأي إخفاقات تاريخية أخرى تبقى غير مصنفة. E2 مفتوحة ولا denominator أو نسبة إغلاق صالحة.
 - **next step:** تابع جرد E2 وتصنيف الإخفاقات المتبقية فقط؛ أبقِ العناصر غير المحصورة `UNKNOWN`، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — إعادة تحقق حلقة runtime.start حتى قرار Mission
+
+- **phase/step:** E2 فقط — إعادة تحقق المسار من التنفيذ المقبول وملاحظات الأثر إلى World Transition ثم قرار تحرير successor.
+- **status:** `bounded loop reverified (22/22); E2 OPEN; E3 STOPPED`
+- **what changed:** أُعيد تشغيل suite `runtime-start-transition.test.ts` كاملة على PostgreSQL مؤقتة loopback. الاختبار المحدد ينفذ finalizer الحقيقي للانتقال من بيانات التنفيذ/القبول/EffectBundle والملاحظات المرتبطة، ويتحقق من إنشاء World Facts و`resultingWorldRevision`؛ ثم يستهلك scheduler الانتقال المطابق، وينقل successor من `waiting_for_event` إلى `running`، ويصدر dispatch واحدًا فقط، بينما يعيد wake المكرر صفرًا. suite تغطي كذلك retry/idempotency واستعادة projection وبعض حدود Apply/GitHub، ولا تحتوي اختبارًا لحالات legacy في هذا المسار.
+- **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير production code أو schema أو workflow.
+- **validation:** `pnpm --filter @workspace/db run schema:apply` على قاعدة PostgreSQL loopback مؤقتة؛ `cd artifacts/api-server && pnpm exec vitest run src/lib/agent-state/runtime-start-transition.test.ts --pool=threads --reporter=verbose` نجح **22/22**. أُوقفت القاعدة المؤقتة وحُذف جذرها. لم يُعد تشغيل workflow مُدار.
+- **authority/safety impact:** القرار المثبت هو تحرير successor المقيد بهوية transition/materialized revision وخطة المصدر والهدف، وليس إثبات أن auto-replan يغير خطواته استجابةً إلى fact جديدة. لم يُشغّل runtime process أو provider حي؛ fixture يثبت مسار الخادم والـscheduler لا البيئة الحية.
+- **remaining/blocker:** source-family census ما زال `UNKNOWN`؛ invariant «تغيير World Fact ذي صلة يغير action المختار» باقٍ `UNKNOWN`، ولا توجد تغطية legacy لهذا transition. هذا يغلق فقط إعادة تحقق الشريحة المحددة؛ E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 فقط: جرد المصادر/المستهلكين المتبقين واختبار invariant تغيّر قرار planner بحد واضح؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — رفض إعادة استخدام retained reads القديمة الملتبسة
+
+- **phase/step:** E2 فقط — legacy-state boundary لإعادة استخدام أجسام المصدر في Chat resume.
+- **status:** `ambiguous legacy read rejected (1/1); E2 OPEN; E3 STOPPED`
+- **what changed:** أُضيف إصدار metadata لكل evidence-read؛ الصفوف القديمة تأخذ `0` تلقائيًا، والكتابات الحالية فقط تحمل الإصدار `1`. يتطلب loader الإصدار الحالي إضافةً إلى شروط source/complete/not-truncated وغياب النطاق قبل إعادة جسم القراءة كسياق ملف كامل. الاختبار يزرع صفًا قديمًا بلا الإصدار، يبدو كاملًا وغير محدد النطاق في الأعمدة الحالية، ويتحقق أن default هو `0` وأنه لا يظهر ضمن الأجسام القابلة لإعادة الاستخدام.
+- **files/schema/contracts touched:** `lib/db/src/schema/ai_execution_acceptances.ts`, عقد schema واختباره، `artifacts/api-server/src/lib/ai-execution-acceptance.ts`, واختبار route integration، هذا السجل وسجل القياس وذاكرة evidence؛ إضافة عمود فقط، بلا تعديل أو حذف بيانات موجودة.
+- **validation:** `pnpm run typecheck:libs`؛ `pnpm --filter @workspace/db run test` نجح **18/18**؛ `pnpm --filter @workspace/api-server exec tsc --noEmit`؛ وعلى PostgreSQL مؤقتة loopback: `schema:apply` ثم الاختبار المستهدف نجح **1/1**. أُوقفت القاعدة وحُذف جذرها. لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** غياب span metadata القديم لم يعد يُعامل كإثبات لقراءة كاملة؛ علامة الإصدار لا تمنح Canonical Proof، وتسمح فقط بإعادة الاستخدام عند تحقق كل شروط loader الأخرى وربط snapshot الحالي.
+- **remaining/blocker:** حُسم هذا الشكل المحدد من legacy ambiguity فقط؛ legacy read-status غير المثبت، وبقية source families والمستهلكين الديناميكيين ما زالت `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع جرد E2 وإغلاق invariant واحدة محددة في كل مرة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — حصر حرفي لمستهلكي Canonical Proof
+
+- **phase/step:** E2 فقط — census محدود للاستدعاءات الحرفية لـ`loadCanonicalProof` ومراجع جدول acceptance في TypeScript الإنتاجي.
+- **status:** `direct inventory recorded; proof/acceptance source family remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** بحث حرفي في `artifacts/` و`lib/`، مع استبعاد ملفات الاختبار، وجد **22** استدعاءً مباشرًا لـ`loadCanonicalProof` في **11** وحدة TypeScript إنتاجية، ومراجع `aiExecutionAcceptancesTable` أو اسم الجدول في **28** ملفًا إنتاجيًا. هذا يسجل قائمة مصادر مباشرة فقط؛ لم يُراجع معنى السلطة في كل مستهلك ولم تُحل aliases أو الاستدعاءات الديناميكية.
+- **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير production code أو schema أو workflow.
+- **validation:** أعيد تنفيذ بحثي `rg` المباشرين اللذين ينتجان عدد الاستدعاءات وقائمة الوحدات/الملفات؛ لم يُشغّل اختبار لأن الخطوة جرد مصادر فقط.
+- **authority/safety impact:** لا يتغير أي قرار قبول أو Canonical Proof؛ لا تُرقّى مراجع الجدول أو نتائج البحث إلى إثبات.
+- **remaining/blocker:** consumer semantics التفصيلية، الاستدعاءات غير المباشرة/الديناميكية والخارجية، وبقية عائلات المصادر لا تزال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** تابع E2 فقط عبر جرد ومراجعة عائلة مصدر محددة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

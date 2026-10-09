@@ -194,6 +194,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "snapshot_id", dataType: "text", udtName: "text", nullable: false },
       { name: "path", dataType: "text", udtName: "text", nullable: false },
       { name: "read_type", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'source'::text/ },
+      { name: "read_metadata_version", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /(?:^|[^0-9])0(?:[^0-9]|$)/ },
       { name: "line_start", dataType: "integer", udtName: "int4", nullable: true },
       { name: "line_end", dataType: "integer", udtName: "int4", nullable: true },
       { name: "content_hash", dataType: "text", udtName: "text", nullable: false },

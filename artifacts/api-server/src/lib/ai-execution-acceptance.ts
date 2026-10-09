@@ -41,6 +41,8 @@ import {
 } from "./agent-state/apply-changes-proof.js";
 import { canonicalJsonHash, ValidationProfileSchema } from "@workspace/ai-orchestrator";
 
+const CURRENT_EVIDENCE_READ_METADATA_VERSION = 1;
+
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
   "RESUME_ALLOWED",
@@ -1907,6 +1909,10 @@ export async function loadReusableEvidenceReads(params: {
     eq(aiExecutionEvidenceReadsTable.complete, 1),
     eq(aiExecutionEvidenceReadsTable.truncated, 0),
     eq(aiExecutionEvidenceReadsTable.readType, "source"),
+    eq(
+      aiExecutionEvidenceReadsTable.readMetadataVersion,
+      CURRENT_EVIDENCE_READ_METADATA_VERSION,
+    ),
     isNull(aiExecutionEvidenceReadsTable.lineStart),
     isNull(aiExecutionEvidenceReadsTable.lineEnd),
   ];
@@ -2653,6 +2659,7 @@ export async function finalizeExecutionAcceptance(
           snapshotId: evidenceSnapshotId!,
           path: read.path.slice(0, 500),
           readType: (read.readType ?? "source").slice(0, 40),
+          readMetadataVersion: CURRENT_EVIDENCE_READ_METADATA_VERSION,
           lineStart: read.lineStart ?? null,
           lineEnd: read.lineEnd ?? null,
           contentHash: read.contentHash,

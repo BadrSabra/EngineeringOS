@@ -49,6 +49,8 @@ export const aiExecutionEvidenceReadsTable = pgTable("ai_execution_evidence_read
     .references(() => aiExecutionEvidenceSnapshotsTable.id, { onDelete: "cascade" }),
   path: text("path").notNull(),
   readType: text("read_type").notNull().default("source"),
+  /** Legacy rows default to version 0 and are never reused as complete file reads. */
+  readMetadataVersion: integer("read_metadata_version").notNull().default(0),
   lineStart: integer("line_start"),
   lineEnd: integer("line_end"),
   contentHash: text("content_hash").notNull(),

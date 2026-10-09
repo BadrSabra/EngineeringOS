@@ -1773,7 +1773,7 @@ describe("Retained evidence read span binding", () => {
 });
 
 describe("Durable AI completion identity", () => {
-  it("reloads only complete un-ranged source bodies from the prior execution attempt", async () => {
+  it("reloads only versioned complete un-ranged source bodies and skips ambiguous legacy rows", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const sessionId = await insertChatSession(projectId, "Reusable evidence reads");
@@ -1805,7 +1805,7 @@ describe("Durable AI completion identity", () => {
       sourceRevision,
       verdict: "UNAVAILABLE",
       complete: 0,
-      readCount: 3,
+      readCount: 4,
       totalBytes: 64,
     });
     await db.insert(aiExecutionEvidenceReadsTable).values([
@@ -1814,6 +1814,7 @@ describe("Durable AI completion identity", () => {
         snapshotId,
         path: "src/complete.ts",
         readType: "source",
+        readMetadataVersion: 1,
         contentHash: "complete-hash",
         byteLength: PROOF_FIXTURE_BODY.length,
         complete: 1,
@@ -1823,8 +1824,20 @@ describe("Durable AI completion identity", () => {
       {
         id: randomUUID(),
         snapshotId,
+        path: "src/legacy-ambiguous.ts",
+        readType: "source",
+        contentHash: "legacy-hash",
+        byteLength: 14,
+        complete: 1,
+        truncated: 0,
+        body: "partial legacy",
+      },
+      {
+        id: randomUUID(),
+        snapshotId,
         path: "src/targeted.ts",
         readType: "source",
+        readMetadataVersion: 1,
         lineStart: 12,
         lineEnd: 18,
         contentHash: "targeted-hash",
@@ -1838,6 +1851,7 @@ describe("Durable AI completion identity", () => {
         snapshotId,
         path: "src/truncated.ts",
         readType: "source",
+        readMetadataVersion: 1,
         contentHash: "truncated-hash",
         byteLength: 8,
         complete: 0,
@@ -1845,6 +1859,12 @@ describe("Durable AI completion identity", () => {
         body: "prefix",
       },
     ]);
+
+    const [legacyRead] = await db.select({
+      readMetadataVersion: aiExecutionEvidenceReadsTable.readMetadataVersion,
+    }).from(aiExecutionEvidenceReadsTable)
+      .where(eq(aiExecutionEvidenceReadsTable.path, "src/legacy-ambiguous.ts"));
+    expect(legacyRead?.readMetadataVersion).toBe(0);
 
     await expect(loadReusableEvidenceReads({
       executionId: created.execution.id,

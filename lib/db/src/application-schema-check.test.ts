@@ -138,7 +138,11 @@ function completeSnapshot() {
     ) {
       return "'[]'::jsonb";
     }
-    if (columnName === "retry_count" || columnName === "attempts") return "0";
+    if (
+      columnName === "retry_count"
+      || columnName === "attempts"
+      || columnName === "read_metadata_version"
+    ) return "0";
     if (columnName === "max_retries") return "3";
     if (columnName === "relevance") return "1.0";
     if (
