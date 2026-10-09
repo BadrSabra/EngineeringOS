@@ -5206,12 +5206,23 @@ G9 Revocation Safety
 
 - **phase/step:** E2 فقط — census محدود للاستدعاءات الحرفية لـ`loadCanonicalProof` ومراجع جدول acceptance في TypeScript الإنتاجي.
 - **status:** `direct inventory recorded; proof/acceptance source family remains UNKNOWN; E2 OPEN; E3 STOPPED`
-- **what changed:** بحث حرفي في `artifacts/` و`lib/`، مع استبعاد ملفات الاختبار، وجد **22** استدعاءً مباشرًا لـ`loadCanonicalProof` في **11** وحدة TypeScript إنتاجية، ومراجع `aiExecutionAcceptancesTable` أو اسم الجدول في **28** ملفًا إنتاجيًا. هذا يسجل قائمة مصادر مباشرة فقط؛ لم يُراجع معنى السلطة في كل مستهلك ولم تُحل aliases أو الاستدعاءات الديناميكية.
+- **what changed:** مسح حرفي على مساحة العمل، مع استبعاد الاختبارات و`dist` و`node_modules`، وجد **22** تطابقًا لـ`loadCanonicalProof` تشمل تعريف الدالة، أي **21** استدعاءً فعليًا في **11** وحدة إنتاجية. وُجدت مراجع acceptance table في **27** ملفًا إنتاجيًا (**24** ملف API و**3** ملفات DB). الكتابات المباشرة تقع في نهائي acceptance/terminalization، وكتابة backoff للتعافي، وربط EffectBundle؛ لم يظهر حذف مباشر. هذا يسجل حدودًا حرفية فقط؛ لم يُراجع معنى السلطة لكل مستهلك ولم تُحل aliases أو الاستدعاءات الديناميكية.
 - **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير production code أو schema أو workflow.
 - **validation:** أعيد تنفيذ بحثي `rg` المباشرين اللذين ينتجان عدد الاستدعاءات وقائمة الوحدات/الملفات؛ لم يُشغّل اختبار لأن الخطوة جرد مصادر فقط.
 - **authority/safety impact:** لا يتغير أي قرار قبول أو Canonical Proof؛ لا تُرقّى مراجع الجدول أو نتائج البحث إلى إثبات.
 - **remaining/blocker:** consumer semantics التفصيلية، الاستدعاءات غير المباشرة/الديناميكية والخارجية، وبقية عائلات المصادر لا تزال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
 - **next step:** تابع E2 فقط عبر جرد ومراجعة عائلة مصدر محددة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-09 — اختبارات DB للاسترداد والتزامن بعد انتهاء lease
+
+- **phase/step:** E2 فقط — recovery coordinator، lease expiry، وحماية نتيجة العامل الفائز.
+- **status:** `bounded recovery/concurrency cases pass (17/17 selected); E2 OPEN; E3 STOPPED`
+- **what changed:** شُغّلت suite `ai-recovery-coordinator.integration.test.ts` كاملة ونجحت **14/14**؛ وتشمل dedup للتشغيل المتزامن، قفل قرار resume حتى commit، رفض retry ذي القرار/الجيل المتقادم، وإنهاء recovery المستنفد. وشُغّلت ثلاثة اختبارات محددة من `routes/ai.test.ts` ونجحت **3/3**: إنشاء acceptance واحدة بعد lease منتهٍ مع حفظ attempt، حفظ proof contract، ومنع العامل المتقادم من استبدال نتيجة التعافي.
+- **files/schema/contracts touched:** سجل القياس وهذا السجل فقط؛ لا تغيير production code أو schema أو workflow.
+- **validation:** كل suite شُغّلت على PostgreSQL loopback مؤقتة منفصلة بعد `schema:apply`؛ `AI_PROVIDER_EGRESS_DISABLED=1` في اختبارات API. أُوقفت القاعدتان وحُذفت جذورهما. لم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** هذه نتائج DB-level عن قرار recovery وربط attempt/worker الحالي؛ لا تثبت استرداد process-kill/startup لكل worker، ولا تستبدل Canonical Proof أو تحسم bypassات المستهلكين.
+- **remaining/blocker:** التزامن المثبت محصور في coordinator وحالات lease المختارة؛ قبول متزامن لنفس finalization key، وبقية crash windows/legacy layouts والعائلات الديناميكية ما زالت تحتاج أدلة. E2 مفتوحة وE3 متوقفة.
+- **next step:** استمر في E2 فقط، وراجع invariant مصدر واحدة أو writer/recovery edge في كل خطوة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
