@@ -5268,6 +5268,17 @@ G9 Revocation Safety
 - **remaining/blocker:** malformed persisted-request behavior، مسارات recovery البديلة، وجرد كل مستهلكي acceptance ما زالت غير محسومة. E2 مفتوحة وE3 متوقفة.
 - **next step:** استمر في E2 على consumer/recovery boundary منفصل، مع إبقاء كل نتائج هذا المسار محدودة بنطاقها؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
 
+### 2026-10-09 — إثبات حلقة Mission `runtime.start` حتى قرار D2
+
+- **phase/step:** E2 فقط — تنفيذ Goal فعليًا، قبول Gate C، materialize World Transition، ثم قرار تحرير successor.
+- **status:** `Mission-bound action-to-D2 loop passes (1/1); Mission recipe and transition suites pass (46/46); exact-scope mismatch blocks dispatch; E2 OPEN; E3 STOPPED`
+- **what changed:** اختبار DB-backed جديد يستدعي `runMissionGoal`، ويشغّل `runtime.start` الفعلي داخل مشروع Git مؤقت وعملية Runtime معزولة، ثم يتحقق من قبول Gate C وإكمال source Goal وmaterialization الانتقال، وبعدها يثبت أن `wakeRuntimeTransitionMissionGoals` ينقل successor إلى dispatch واحد يحمل هويات الانتقال والمهمة والخطة نفسها. أصلح المسار المنتج بعد كشفه أنه كان يمرر `proofRequired` العام إلى `runtime.start` رغم أن الوصفة ترفضه ولها Gate C خاص. صار D2 يحمّل Episode ويطابق المشروع والتنفيذ والمحاولة والـMission وsource Goal والخطة، ويشترط تطابق `taskScope` حرفيًا مع هوية Episode المحسوبة؛ اختبار سلبي يثبت أن تحويل نطاق Mission إلى `project` يمنع dispatch ويطلب replan. حُدث fixture D2 لإنشاء Mission وGoal وربط Episode قبل إنشاء الانتقال.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/mission-runtime.ts`، `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`، `artifacts/api-server/src/lib/agent-state/runtime-start-transition.test.ts`، هذا السجل وذاكرة عقد runtime transition؛ لا schema أو workflow.
+- **validation:** `pnpm --filter @workspace/api-server exec tsc --noEmit` نجح. `mission-runtime-recipe.test.ts` و`runtime-start-transition.test.ts` كاملين نجحا **46/46**؛ اختبار الحلقة المتكاملة المحدد نجح **1/1**. كل اختبارات DB استخدمت PostgreSQL loopback مؤقتة بعد `schema:apply` مع `AI_PROVIDER_EGRESS_DISABLED=1`؛ أُوقفت القواعد وحُذفت جذورها. لم يُعَد تشغيل workflow مُدار أو Strategy Replay.
+- **authority/safety impact:** `runtime.start` يبقى على Gate C ولا يُرقّى عبر proof flag عام؛ الوصفات الأخرى تحتفظ بمتطلبها العام. نطاق Mission يظل مشتقًا من Episode ولا يتحول إلى نطاق مشروع عام؛ لا استثناء لـ`project` عند فشل تطابق الهوية المحسوبة.
+- **remaining/blocker:** ثبتت هذه الحلقة المحددة فقط؛ جرد المستهلكين ومسارات recovery البديلة، السجلات القديمة غير القابلة للتحليل، وبقية mutation/crash surfaces لم تكتمل. invariant أن fact ذات صلة تغيّر action المختار ما زال `UNKNOWN`. E2 مفتوحة وE3 متوقفة.
+- **next step:** واصل E2 على حدود consumer/recovery المتبقية فقط؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

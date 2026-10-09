@@ -21,6 +21,7 @@ import {
   aiStrategyReplayCasesTable,
   aiWorldFactsTable,
   db,
+  eventsTable,
   projectsTable,
 } from "@workspace/db";
 import {
@@ -46,6 +47,8 @@ import {
   serverEnvironmentProfile,
 } from "./agent-state/environment-attestation.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
+import { heavyJobQueue } from "./job-queue.js";
+import { runMissionGoal, wakeRuntimeTransitionMissionGoals } from "./mission-runtime.js";
 import {
   createRuntimeStartRunner,
   collectTrustedRecipeValidationEvidence,
@@ -53,6 +56,7 @@ import {
   prepareRecipeOperation,
   runRecipeOperation,
 } from "./recipe-operation-runner.js";
+import * as recipeOperationRunnerModule from "./recipe-operation-runner.js";
 import { buildTaskObjectiveContract } from "./task-objective-contract.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
@@ -2940,6 +2944,274 @@ describe("recipe operation preparation", () => {
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
       await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("executes a Mission runtime.start action through its World Transition to the D2 dispatch decision", async () => {
+    const fixture = await createGateCRecipeFixture("runtime.start");
+    const { projectId, userId, rootPath } = fixture.params;
+    const missionId = crypto.randomUUID();
+    const sourceGoalId = crypto.randomUUID();
+    const targetGoalId = crypto.randomUUID();
+    const planRevision = `mission-runtime-start-loop:${projectId}`;
+    const transitionRequirement = {
+      kind: "runtime.start",
+      version: 1,
+      sourceStepId: "runtime-start",
+      targetStepId: "target-step",
+      from: "stopped",
+      to: "running",
+    } as const;
+    const plan = {
+      hash: planRevision,
+      transitionRequirements: [transitionRequirement],
+    };
+    const queuedJobs: Array<() => Promise<void>> = [];
+    let recipeResult: Awaited<ReturnType<typeof runRecipeOperation>> | undefined;
+    let executionId: string | undefined;
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      workerId: `mission-runtime-start-loop:${projectId}`,
+      startPreStateObserver: async ({
+        projectId: observedProjectId,
+        revision,
+      }: {
+        projectId: string;
+        revision: string;
+      }) => ({
+        status: "observed" as const,
+        runtimeStatus: "stopped" as const,
+        projectId: observedProjectId,
+        revision,
+        sessionId: null,
+        pid: null,
+        port: null,
+        processAlive: false,
+        portReady: false,
+        source: "test_observer" as const,
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        observedAt: new Date().toISOString(),
+        detail: "The isolated test observer confirms the runtime is stopped.",
+      }),
+    });
+    const actualRunRecipeOperation = recipeOperationRunnerModule.runRecipeOperation;
+    const runnerSpy = vi.spyOn(recipeOperationRunnerModule, "runRecipeOperation")
+      .mockImplementation(async (params) => {
+        const result = await actualRunRecipeOperation({
+          ...params,
+          runtimeStartRunner: createRuntimeStartRunner(manager),
+        });
+        recipeResult = result;
+        executionId = result.executionId;
+        return result;
+      });
+    const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
+      .mockImplementation((_id, job) => {
+        queuedJobs.push(job);
+        return true;
+      });
+
+    try {
+      await writeFile(
+        path.join(rootPath, "package.json"),
+        JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+        "utf8",
+      );
+      await writeFile(
+        path.join(rootPath, "server.mjs"),
+        [
+          "import http from 'node:http';",
+          "import { readFileSync } from 'node:fs';",
+          "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
+          "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
+          "server.listen(Number(process.env.PORT), '127.0.0.1');",
+          "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+        ].join("\n"),
+        "utf8",
+      );
+      await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+      await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "package.json", "server.mjs"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "runtime start mission loop"]);
+      const sourceRevision = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", "HEAD"],
+      )).stdout.trim();
+      await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
+      await writeFile(
+        path.join(rootPath, "node_modules/.cache/revision.txt"),
+        `${sourceRevision}\n`,
+        "utf8",
+      );
+
+      const now = new Date();
+      await db.insert(aiMissionsTable).values({
+        id: missionId,
+        projectId,
+        userId,
+        title: "Runtime start decision loop",
+        intent: "Start the runtime and dispatch its transition-bound successor",
+        status: "active",
+        scope: { kind: "project", projectId },
+        autonomyPolicy: { activePlanRevision: planRevision },
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiGoalsTable).values([
+        {
+          id: sourceGoalId,
+          missionId,
+          projectId,
+          title: "Start runtime",
+          status: "queued",
+          nextAction: { kind: "recipe", recipeId: "runtime.start", recipeVersion: 1 },
+          successCriteria: { stepId: "runtime-start", planRevision: plan },
+          outcomeContract: { planRevision: { hash: planRevision } },
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: targetGoalId,
+          missionId,
+          projectId,
+          title: "Verify runtime",
+          status: "waiting_for_event",
+          nextAction: {
+            kind: "recipe",
+            recipeId: "candidate.verify",
+            recipeVersion: 1,
+            approvedPaths: ["package.json"],
+          },
+          successCriteria: {
+            stepId: "target-step",
+            planRevision: plan,
+            transitionRequirement,
+          },
+          outcomeContract: { planRevision: { hash: planRevision } },
+          blockedReason: "runtime_transition_pending",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const start = await runMissionGoal({
+        goalId: sourceGoalId,
+        userId,
+        trigger: "wake",
+      });
+      expect(start).toMatchObject({ status: "scheduled", goalId: sourceGoalId });
+      const sourceJob = queuedJobs.shift();
+      if (!sourceJob) throw new Error("Mission runtime.start dispatch was not queued.");
+      await sourceJob();
+      if (!recipeResult || !executionId) {
+        throw new Error("Mission recipe did not execute runtime.start.");
+      }
+      expect(recipeResult.status).toBe("completed");
+      expect(runnerSpy).toHaveBeenCalledOnce();
+
+      const [sourceGoal] = await db.select({
+        status: aiGoalsTable.status,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, sourceGoalId));
+      expect(sourceGoal?.status).toBe("completed");
+      const [acceptance] = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      expect(acceptance).toMatchObject({
+        attempt: 0,
+        outcome: "SUCCEEDED",
+        sourceRevision,
+        effectBundleId: expect.any(String),
+      });
+      const [transition] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, executionId))
+        .limit(1);
+      expect(transition).toMatchObject({
+        status: "materialized",
+        freshness: "fresh",
+        taskScope: expect.stringMatching(/^scope:[a-f0-9]{64}$/),
+        attempt: acceptance?.attempt,
+        episodeId: expect.any(String),
+        effectBundleId: acceptance?.effectBundleId,
+        parentWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+        resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+        environmentRevision: expect.stringMatching(/^env-v1:/),
+      });
+      expect(transition?.resultingWorldRevision).not.toBe(transition?.parentWorldRevision);
+      expect(queuedJobs).toHaveLength(0);
+
+      const woken = await wakeRuntimeTransitionMissionGoals();
+      const [targetAfterWake] = await db.select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, targetGoalId));
+      const [missionAfterWake] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const events = await db.select({
+        type: eventsTable.type,
+        goalId: eventsTable.goalId,
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(eq(eventsTable.projectId, projectId));
+      expect(woken, JSON.stringify({
+        mission: missionAfterWake?.status,
+        target: targetAfterWake,
+        transitionEvents: events.filter((event) =>
+          event.goalId === targetGoalId
+          && (event.type.includes("Transition") || event.type === "AiGoalRecipeDispatchRequested"),
+        ),
+      })).toBe(1);
+      expect(targetAfterWake).toEqual({ status: "running", blockedReason: null });
+      const targetDispatches = events.filter((event) =>
+        event.type === "AiGoalRecipeDispatchRequested"
+        && event.goalId === targetGoalId,
+      );
+      expect(targetDispatches).toHaveLength(1);
+      expect(targetDispatches[0]?.payload).toMatchObject({
+        transitionProof: {
+          transitionId: transition?.id,
+          executionId,
+          attempt: acceptance?.attempt,
+          episodeId: transition?.episodeId,
+          actionId: transition?.actionId,
+          effectBundleId: acceptance?.effectBundleId,
+          parentWorldRevision: transition?.parentWorldRevision,
+          resultingWorldRevision: transition?.resultingWorldRevision,
+          projectRevision: sourceRevision,
+          environmentRevision: transition?.environmentRevision,
+          beforeObservationIds: transition?.beforeObservationIds,
+          afterObservationIds: transition?.afterObservationIds,
+          sourceStepId: "runtime-start",
+          targetStepId: "target-step",
+          activePlanHash: planRevision,
+        },
+      });
+      expect(queuedJobs).toHaveLength(1);
+    } finally {
+      runnerSpy.mockRestore();
+      queueSpy.mockRestore();
+      await manager.shutdown();
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      for (const execution of executions) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution.id));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.id));
+      }
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await fixture.cleanup();
     }
   });
 

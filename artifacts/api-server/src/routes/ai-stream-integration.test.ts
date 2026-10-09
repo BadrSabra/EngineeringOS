@@ -1053,6 +1053,52 @@ describe("AI execution resume-capability recovery", () => {
     expect(recovered.body).not.toHaveProperty("resumeToken");
   });
 
+  it("fails closed when a legacy paused execution has an unparseable stored request", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Malformed legacy resume request");
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "Resume this legacy execution.",
+        modelMessage: "Resume this legacy execution.",
+        validationTargetPaths: [],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({ status: "paused", request: "{", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const [before] = await db.select({
+      status: aiExecutionsTable.status,
+      request: aiExecutionsTable.request,
+      resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const recovered = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(recovered.status).toBe(409);
+    expect(recovered.body).toMatchObject({
+      code: "EXECUTION_NOT_RESUMABLE",
+      status: "paused",
+    });
+    expect(recovered.body).not.toHaveProperty("resumeToken");
+
+    const [after] = await db.select({
+      status: aiExecutionsTable.status,
+      request: aiExecutionsTable.request,
+      resumeTokenHash: aiExecutionsTable.resumeTokenHash,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(after).toEqual(before);
+  });
+
   it("projects a completed lifecycle row without same-attempt acceptance as unknown", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

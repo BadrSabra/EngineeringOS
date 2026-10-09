@@ -947,12 +947,32 @@ async function evaluateRuntimeStartTransitionGate(
   if (transition.status !== "materialized") {
     return failed("transition_terminal_failure", { transition });
   }
+  const [sourceEpisode] = await tx
+    .select()
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.id, transition.episodeId),
+      eq(aiAgentEpisodesTable.projectId, input.goal.projectId),
+      eq(aiAgentEpisodesTable.executionId, transition.executionId),
+      eq(aiAgentEpisodesTable.attempt, transition.attempt),
+    ))
+    .for("update")
+    .limit(1);
+  if (
+    !sourceEpisode
+    || sourceEpisode.missionId !== input.goal.missionId
+    || sourceEpisode.goalId !== source.id
+    || sourceEpisode.planRevision !== input.activePlanRevision
+  ) {
+    return failed("transition_identity_invalid", { transition });
+  }
+  const sourceEpisodeTaskScope = taskScopeIdentity(sourceEpisode);
   if (
     !transition.resultingWorldRevision
     || !/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)
     || !/^[a-f0-9]{64}$/.test(transition.resultingWorldRevision)
     || transition.freshness !== "fresh"
-    || transition.taskScope !== "project"
+    || transition.taskScope !== sourceEpisodeTaskScope
   ) {
     return failed("transition_identity_invalid", { transition });
   }
@@ -1859,7 +1879,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       runtimeStartRunner: createRuntimeStartRunner(),
       ...(skillBinding ? { skillBinding } : {}),
       parentExecutionId: dispatch.delegation.parentExecutionId,
-      proofRequired: true,
+      ...(dispatch.action.recipeId === "runtime.start" ? {} : { proofRequired: true }),
       ...(dispatch.expectedExecutionId
         ? { expectedExecutionId: dispatch.expectedExecutionId }
         : {}),

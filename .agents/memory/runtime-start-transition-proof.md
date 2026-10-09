@@ -98,3 +98,21 @@ execution acceptance remains an independent contract.
 `runtime.start` pilot and preserve atomic World State commit and existing
 attempt/lease fences. Do not extend it to restart, stop, or P7.5 as part of this
 slice.
+
+For Mission-bound `runtime.start`, the recipe adapter must not pass the generic
+`proofRequired` flag; Gate C owns that recipe's proof path. D2 must reload the
+exact Episode, bind it to project/execution attempt/Mission/source Goal/active
+plan, and compare the transition scope with `taskScopeIdentity(episode)`.
+Do not special-case `"project"` when the computed identity differs; that value
+is valid only when the helper itself resolves the Episode to project scope.
+
+**Why:** Mission-bound Episodes intentionally hash their task scope. Requiring
+the literal `project` scope blocks the real Mission path, while accepting any
+other scope could mix evidence partitions. The generic proof flag conflicts
+with `runtime.start`'s server-owned Gate C contract. A fixture that binds
+Mission/Goal metadata after transition creation can hide a wrong-scope row.
+
+**How to apply:** Compare scopes exactly. Do not broaden observation scope,
+change acceptance authority, or treat a materialized transition as execution
+proof. Create Mission-bound test Episodes and their transitions with the
+Mission/Goal identity already present.

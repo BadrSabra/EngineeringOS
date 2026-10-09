@@ -2220,7 +2220,6 @@ export async function recoverAiExecutionResumeToken(params: {
   }
 
   const query = params.transaction ?? db;
-  const resumeToken = createResumeToken();
   const [candidate] = await query
     .select()
     .from(aiExecutionsTable)
@@ -2236,6 +2235,11 @@ export async function recoverAiExecutionResumeToken(params: {
     .for("update")
     .limit(1);
   if (!candidate) return undefined;
+  const request = parseExecutionRequest(candidate.request);
+  // A malformed stored request cannot establish whether this execution is
+  // proof-bearing or preserve its scope and revision, so legacy recovery fails
+  // closed instead of rotating a capability from lifecycle status alone.
+  if (!request) return undefined;
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
   const [priorAcceptance] = await query
     .select({
@@ -2250,7 +2254,6 @@ export async function recoverAiExecutionResumeToken(params: {
     ))
     .for("update")
     .limit(1);
-  const request = parseExecutionRequest(candidate.request);
   const expectedLinkedTaskId = params.linkedTaskId ?? null;
   const rowLinkedTaskId = candidate.linkedTaskId ?? null;
   const requestLinkedTaskId = request?.linkedTaskId ?? null;
@@ -2310,6 +2313,7 @@ export async function recoverAiExecutionResumeToken(params: {
   ) {
     return undefined;
   }
+  const resumeToken = createResumeToken();
   const [execution] = await query
     .update(aiExecutionsTable)
     .set({
