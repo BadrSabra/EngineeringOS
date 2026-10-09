@@ -5013,6 +5013,17 @@ G9 Revocation Safety
 - **remaining/blocker:** ما زال جرد القراء العامين والديناميكي خارج recovery routes غير مكتمل، وعمليات reconciliation المنفصلة لم تُتحقق في إنتاج/runtime. E2 تبقى مفتوحة.
 - **next step:** واصل إحصاء مستهلكي acceptance والهوية الديناميكيين في E2؛ لا تبدأ E3 أو أي مرحلة لاحقة، ولا Strategy Replay، ولا تعِد تشغيل workflows مُدارة، ولا تقترح مهام متابعة أثناء E2.
 
+### 2026-10-09 — تثبيت قبول retry capability وجرد قراء acceptance
+
+- **phase/step:** E2 فقط — قفل قرار acceptance أثناء إصدار retry capability، وتصنيف مجموعة محددة من القراءات العامة والتاريخية.
+- **status:** `PARTIAL — retry-token race closed and bounded consumers classified; full public/dynamic inventory remains UNKNOWN`
+- **what changed:** `recoverAiExecutionResumeToken` ينشئ معاملة عند غيابها ويقفل execution ثم acceptance exact-attempt حتى حفظ الرمز؛ اختبار PostgreSQL السابق أثبت رفض تعديل متزامن للقبول برمز `55P03`. وبالمثل صار `recoverAiExecutionRetryToken` يقفل execution ثم acceptance حتى حفظ hash الرمز؛ أُضيف له اختبار تزامن مستقل. جرى تصنيف محدد: execution history وanalysis وTask/MissionControl status تقرأ المحاولة الحالية؛ Chat history وTask terminal logs وStrategy Replay receipts تقرأ بيانات تاريخية مربوطة برسالة/محاولة؛ قارئات Canonical Proof ذات `attempt` الصريح وقراءات Skill/Mission غير المحصورة ما زالت تحتاج مراجعة callsites.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/ai-execution-state.ts`، `artifacts/api-server/src/lib/ai-execution-retry.integration.test.ts`، `docs/e2-source-derived-measurement-ledger.md`، وهذا السجل. لا تغيير schema أو workflow.
+- **validation:** اختبارات retry capability المركزة **3/3** على PostgreSQL مؤقتة loopback بعد تطبيق schema؛ اختبار `ai-recovery-coordinator.integration.test.ts` السابق **14/14**، ويتضمن تداخل قفل resume-token؛ API typecheck و`git diff --check` ناجحان. تشغيل `ai-execution-retry.integration.test.ts` كاملًا: **6 passed / 1 failed**؛ الفشل في استعادة recipe lease وتكرر منفردًا في مسار `reconcileAiExecutions`/`claimAiExecution` الذي لا يستدعي helper المعدّل، ولم يُصلح هنا. أُوقفت قواعد الاختبار المؤقتة وحُذفت جذورها.
+- **authority/safety impact:** قبول retry يظل مقيدًا بمحاولة التنفيذ الحالية وبالقرار الذي يبقى مقفولًا أثناء إصدار الرمز. القراءات التاريخية صُنفت كسجل/receipt ولا تمنح إذن resume أو Canonical Proof حاليًا. لم يُعلن إغلاق عائلة القراء، ولم يبدأ E3.
+- **remaining/blocker:** جرد Canonical Proof ذي override للمحاولة، Mission World State planning عند وجود أكثر من acceptance تاريخية، بقية Skill/Flight Deck/API-client المستهلكة، واختبار recipe-lease الفاشل ما زالت مفتوحة. عائلات المصدر العامة والديناميكية تظل `UNKNOWN`.
+- **next step:** تابع جرد callsites والروابط غير المباشرة داخل E2؛ لا تبدأ E3 أو Strategy Replay، ولا تعِد تشغيل workflow مُدارًا، ولا تقترح متابعة ما دامت E2 مفتوحة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

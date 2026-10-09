@@ -2213,6 +2213,12 @@ export async function recoverAiExecutionResumeToken(params: {
   expectedAttempt?: number;
   transaction?: AiExecutionTransaction;
 }): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  if (!params.transaction) {
+    return db.transaction((transaction) =>
+      recoverAiExecutionResumeToken({ ...params, transaction }),
+    );
+  }
+
   const query = params.transaction ?? db;
   const resumeToken = createResumeToken();
   const [candidate] = await query
@@ -2227,6 +2233,7 @@ export async function recoverAiExecutionResumeToken(params: {
         ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
         : []),
     ))
+    .for("update")
     .limit(1);
   if (!candidate) return undefined;
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
@@ -2241,6 +2248,7 @@ export async function recoverAiExecutionResumeToken(params: {
       eq(aiExecutionAcceptancesTable.executionId, candidate.id),
       eq(aiExecutionAcceptancesTable.attempt, candidate.attempt),
     ))
+    .for("update")
     .limit(1);
   const request = parseExecutionRequest(candidate.request);
   const expectedLinkedTaskId = params.linkedTaskId ?? null;
@@ -2325,9 +2333,17 @@ export async function recoverAiExecutionRetryToken(params: {
   executionId: string;
   userId: string;
   expectedAttempt?: number;
+  transaction?: AiExecutionTransaction;
 }): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  if (!params.transaction) {
+    return db.transaction((transaction) =>
+      recoverAiExecutionRetryToken({ ...params, transaction }),
+    );
+  }
+
+  const query = params.transaction;
   const resumeToken = createResumeToken();
-  const [candidate] = await db
+  const [candidate] = await query
     .select()
     .from(aiExecutionsTable)
     .where(and(
@@ -2338,6 +2354,7 @@ export async function recoverAiExecutionRetryToken(params: {
         ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
         : []),
     ))
+    .for("update")
     .limit(1);
   if (!candidate) return undefined;
 
@@ -2346,7 +2363,7 @@ export async function recoverAiExecutionRetryToken(params: {
   if (candidate.linkedTaskId || request?.linkedTaskId) return undefined;
   if (!hasAiExecutionResumeContract(request) && !ordinaryChat) return undefined;
 
-  const [priorAcceptance] = await db
+  const [priorAcceptance] = await query
     .select({
       projectId: aiExecutionAcceptancesTable.projectId,
       operationId: aiExecutionAcceptancesTable.operationId,
@@ -2361,6 +2378,7 @@ export async function recoverAiExecutionRetryToken(params: {
       eq(aiExecutionAcceptancesTable.executionId, candidate.id),
       eq(aiExecutionAcceptancesTable.attempt, candidate.attempt),
     ))
+    .for("update")
     .limit(1);
   if (
     !priorAcceptance
@@ -2393,7 +2411,7 @@ export async function recoverAiExecutionRetryToken(params: {
     if (!Number.isFinite(retryAtMs) || retryAtMs > Date.now()) return undefined;
   }
 
-  const [execution] = await db
+  const [execution] = await query
     .update(aiExecutionsTable)
     .set({
       resumeTokenHash: hashResumeTokenForRequest(resumeToken, candidate.request),

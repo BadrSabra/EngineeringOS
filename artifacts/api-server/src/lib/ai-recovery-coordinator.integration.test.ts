@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiChatMessagesTable,
@@ -11,6 +11,7 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
+import { recoverAiExecutionResumeToken } from "./ai-execution-state.js";
 
 const queuedJobs = vi.hoisted(() => [] as Array<{ id: string; run: () => Promise<void> }>);
 const queuedIds = vi.hoisted(() => new Set<string>());
@@ -305,6 +306,13 @@ async function cleanupRecoveryFixtures() {
     .where(inArray(projectsTable.id, projectIds));
 }
 
+function postgresErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (typeof candidate.code === "string") return candidate.code;
+  return postgresErrorCode(candidate.cause);
+}
+
 describe("durable automatic task recovery", () => {
   afterEach(async () => {
     vi.clearAllMocks();
@@ -412,6 +420,62 @@ describe("durable automatic task recovery", () => {
         .where(eq(tasksTable.id, fixture.taskId));
       expect(task?.retryCount).toBe(0);
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("holds the accepted resume decision locked until resume-token recovery commits", async () => {
+    const fixture = await insertFixture();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({ status: "paused" })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          reasonCode: "EXECUTION_INTERRUPTED",
+          nextActionCode: "RESUME_ALLOWED",
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+          },
+          resumable: 1,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      await db.transaction(async (tx) => {
+        const recovered = await recoverAiExecutionResumeToken({
+          executionId: fixture.executionId,
+          userId: "recovery-test-user",
+          linkedTaskId: fixture.taskId,
+          expectedAttempt: 0,
+          transaction: tx,
+        });
+        expect(recovered).toBeDefined();
+
+        let competingUpdateError: unknown;
+        try {
+          await db.transaction(async (competingTx) => {
+            await competingTx.execute(sql`SET LOCAL lock_timeout = '200ms'`);
+            await competingTx.update(aiExecutionAcceptancesTable)
+              .set({ nextActionCode: "NONE" })
+              .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+          });
+        } catch (error) {
+          competingUpdateError = error;
+        }
+
+        expect(postgresErrorCode(competingUpdateError)).toBe("55P03");
+      });
+
+      const [acceptance] = await db.select({
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptance?.nextActionCode).toBe("RESUME_ALLOWED");
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));

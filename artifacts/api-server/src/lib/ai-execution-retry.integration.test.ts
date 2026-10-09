@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiExecutionAcceptancesTable,
@@ -38,6 +38,13 @@ function orientationManifest(projectRevision: string, rootPath: string): AiOrien
       uncertainty: ["tests/app.test.ts"],
     },
   };
+}
+
+function postgresErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (typeof candidate.code === "string") return candidate.code;
+  return postgresErrorCode(candidate.cause);
 }
 
 describe("durable conversational retry authorization", () => {
@@ -527,6 +534,99 @@ describe("durable conversational retry authorization", () => {
     }
     },
   );
+
+  it("holds the current acceptance locked until retry-token recovery commits", async () => {
+    const projectId = randomUUID();
+    const executionId = randomUUID();
+    const now = new Date();
+    const userId = "retry-lock-test-user";
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `retry-lock-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/retry-lock-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      userId,
+      idempotencyKey: `${executionId}:retry-lock`,
+      operationId: executionId,
+      attempt: 0,
+      resumeTokenHash: "old-retry-lock-token",
+      request: JSON.stringify({
+        projectId,
+        turnIntent: "CHAT",
+        message: "Retry this response",
+        modelMessage: "Retry this response",
+        validationTargetPaths: [],
+      }),
+      checkpoint: "{}",
+      status: "failed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `${executionId}:attempt:0`,
+      operationId: executionId,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+      },
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      resumable: 0,
+      sourceRevision: null,
+      createdAt: now,
+    });
+
+    try {
+      await db.transaction(async (tx) => {
+        const recovered = await recoverAiExecutionRetryToken({
+          executionId,
+          userId,
+          expectedAttempt: 0,
+          transaction: tx,
+        });
+        expect(recovered).toBeDefined();
+
+        let competingUpdateError: unknown;
+        try {
+          await db.transaction(async (competingTx) => {
+            await competingTx.execute(sql`SET LOCAL lock_timeout = '200ms'`);
+            await competingTx.update(aiExecutionAcceptancesTable)
+              .set({ nextActionCode: "NONE" })
+              .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+          });
+        } catch (error) {
+          competingUpdateError = error;
+        }
+        expect(postgresErrorCode(competingUpdateError)).toBe("55P03");
+      });
+
+      const [acceptance] = await db.select({
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      expect(acceptance?.nextActionCode).toBe("RETRY_AFTER_TIMEOUT");
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
 
   it("persists one verified orientation manifest and rejects drift, incomplete, or stale replacements", async () => {
     const projectId = randomUUID();
