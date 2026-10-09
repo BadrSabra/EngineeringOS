@@ -5342,3 +5342,25 @@ G9 Revocation Safety
 - **authority/safety impact:** الرمز قدرة لا Canonical Proof؛ صلاحية القبول والهوية يعاد التحقق منهما عند الاستهلاك، والرمز القديم لا يُعاد استخدامه بعد claim ناجح. E2 لم تُغلق.
 - **remaining/blocker:** جرد مستهلكي recovery وواجهات mutation/crash وعائلات المصادر غير مكتمل، وتأثير fact ذات صلة على قرار planner ما زال `UNKNOWN`. E3 متوقفة.
 - **next step:** تابع حدود E2 المتبقية فقط؛ لا تغلق E2 أو تبدأ E3 أو Strategy Replay أو workflows مُدارة أو تقترح مهام متابعة.
+
+### 2026-10-09 — مطابقة بوابة E2 قبل استئناف الإغلاق
+
+- **phase/step:** E2 فقط — reconciliation لحالة البوابة واختيار النطاق التالي.
+- **status:** `partial; E2 OPEN; E3 STOPPED`
+- **what changed:** طابقت سجل التنفيذ الزمني مع عقد المراحل؛ آخر إصلاح claim-time يغلق حدًا واحدًا فقط. ما زالت عائلات recipe/non-Task recovery، المستهلكات الديناميكية/الخارجية، ومسارات mutation/crash غير محسومة، كما أن حلقة fact → action → تغير قرار planner ما زالت `UNKNOWN`.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغيير تطبيق أو schema.
+- **validation:** بحث في السجل الزمني ومذكرة E1–E8 ومذكرات proof/effect الحالية؛ لم تُشغّل اختبارات أو workflows في خطوة المطابقة.
+- **authority/safety impact:** لا تغيير في السلطة أو الإذن؛ E2 تبقى مفتوحة ولا يبدأ E3.
+- **remaining/blocker:** نحتاج مطابقة ledger واختبارات الحلقة الموجودة قبل إضافة تغطية جديدة، لتجنب تكرار دليل محلي لا يثبت end-to-end.
+- **next step:** افحص ledger واختبارات decision/effect الحالية لاختيار أصغر حلقة end-to-end قابلة للإثبات؛ لا Strategy Replay أو workflows مُدارة أو اقتراحات متابعة.
+
+### 2026-10-09 — تحديد فجوة حلقة fact إلى قرار planner
+
+- **phase/step:** E2 فقط — مراجعة invariant `World Fact → changed planner action`.
+- **status:** `UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** ledger يحدد فجوة قابلة للاختبار: الاختبار الحالي يبدّل observation/fact مباشرةً من `main` إلى `release`، ويثبت تغير revision/prompt فقط، فيما تبقى deterministic preview steps متطابقة. هذا لا يثبت فعلًا أدى إلى fact ثم غيّر القرار. مذكرة World State تمنع تحويل facts الإرشادية إلى صلاحية أو قواعد عامة؛ لذلك يجب تتبع المصدر والفعل والقرار المختار قبل أي تعديل.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغيير تطبيق أو schema.
+- **validation:** مطابقة صفوف ledger 330–343 مع `mission-auto-replan-evidence.integration.test.ts` و`mission-auto-replan.ts` و`mission-planning.ts`؛ لا اختبار جديد في هذه الخطوة.
+- **authority/safety impact:** لا يُعد prompt/revision وحدهما قرارًا متغيرًا أو proof؛ لا تُمنح facts صلاحية تنفيذية.
+- **remaining/blocker:** لا يوجد حتى الآن عقد domain محدد يربط action-effect observed موثوقًا بتغير plan step محدد؛ يجب العثور على عقد موجود أو إبقاء invariant غير مثبت.
+- **next step:** تتبع fixture من action/effect materialization إلى World State planning read ثم plan-step selection، واختبار مسارات التعافي/التزامن/السجلات القديمة الموجودة قبل إضافة سياسة جديدة.
