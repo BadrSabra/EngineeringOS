@@ -5870,3 +5870,14 @@ G9 Revocation Safety
 - **authority/safety impact:** هذا يثبت استعادة صف انتقال pending بعد موت API كامل، مع بقاء acceptance مستقلة وdispatch مرة واحدة. القبول مزروع ولا يعيد Canonical Proof؛ القفل يحاكي نافذة ما قبل materialization ولا يثبت تعطل العامل الذي كتب قبول Gate C أو rollback لمعاملة materialization دخلت بالفعل.
 - **remaining/blocker:** crash windows الأخرى، خاصة تعطل العامل الفعلي بعد commit Gate C أو SIGKILL خلال معاملة projection، ما زالت `UNKNOWN`. لا يثبت ذلك إكمال successor أو provider حيًا. E2 مفتوحة؛ E3 متوقفة.
 - **next step:** واصل فقط حدود E2 غير المثبتة؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — rollback ذري عند SIGKILL داخل materialization
+
+- **phase/step:** E2 فقط — اختبار فقدان API خلال معاملة World State بعد كتابة Facts وقبل commit انتقال Mission.
+- **status:** `SIGKILL inside the materialization transaction rolls back facts and transition atomically PASS; replacement API recovers after natural lease expiry and dispatches once PASS; actual Gate C writer crash UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** أضفت حالة opt-in تستخدم trigger خاصًا بقاعدة الاختبار يوقف تحديث الانتقال إلى `materialized` خمس ثوانٍ بعد أن يكتب materializer الـfacts ضمن المعاملة نفسها. يثبت الاختبار عبر `pg_stat_activity` أن API child كاملًا وصل إلى هذا التحديث، ثم يقتله بـ`SIGKILL`. بعد انقطاع جلسة PostgreSQL، تقارن الحالة لقطة facts قبل/بعد، وتتحقق من غياب facts المرتبطة بالملاحظات وغياب D2 dispatch. بعد حذف trigger، يبدأ API بديل وينتظر انتهاء claim lease دون تعديل يدوي لها، ثم يعيد الإسقاط ويصدر dispatch واحدًا.
+- **files/schema/contracts touched:** اختبار `runtime-start-transition` وسجل القياس والتقرير وسجل التقدم؛ لا تعديل production code أو schema أو قاعدة تطوير.
+- **validation:** PostgreSQL جديدة loopback-only مع schema مطبقة عليها وحدها؛ الاختبار المستهدف نجح `1/1` في 105.58 ثانية، وAPI `tsc --noEmit` و`git diff --check` نجحا. القاعدة المؤقتة أُوقفت وحُذف جذرها؛ لم يُشغّل provider حي أو workflow مُدار.
+- **authority/safety impact:** يثبت الاختبار أن facts والتحديث النهائي للانتقال لا يُعتمدان منفصلين عند قتل API داخل transaction؛ تبقى acceptance منفصلة وصالحة، ويحدث D2 بعد retry مرة واحدة. trigger يخلق نافذة اختبار حتمية داخل قاعدة مؤقتة فقط.
+- **remaining/blocker:** acceptance والانتقال ما زالا fixture-seeded؛ لا يثبت هذا تعطل العامل الفعلي بعد commit Gate C أو إعادة إنشاء Canonical Proof، ولا يختبر provider حيًا. المستهلكات الديناميكية/الخارجية وسلوك provider مع World Fact ما زالا `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
+- **next step:** واصل E2 على حدود لم تُثبت بعد؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
