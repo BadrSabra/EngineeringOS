@@ -29,6 +29,11 @@ export function managedProjectRootForSession(sessionId: string): string {
   return join(MANAGED_PROJECT_ROOTS_DIR, sessionId);
 }
 
+export interface MaterializeProjectRootOptions {
+  /** Omit known generated directories from a server-owned template copy. */
+  excludeTopLevel?: readonly string[];
+}
+
 /**
  * Copy a resolver-owned temporary directory into an app-owned durable root.
  * The destination must not already exist; a partially copied destination is
@@ -37,6 +42,7 @@ export function managedProjectRootForSession(sessionId: string): string {
 export async function materializeProjectRoot(
   sourcePath: string,
   sessionId: string,
+  options: MaterializeProjectRootOptions = {},
 ): Promise<string> {
   const destination = managedProjectRootForSession(sessionId);
   const sourceCanonical = await realpath(sourcePath);
@@ -46,12 +52,19 @@ export async function materializeProjectRoot(
   }
 
   await mkdir(MANAGED_PROJECT_ROOTS_DIR, { recursive: true });
+  const excludedTopLevel = new Set(options.excludeTopLevel ?? []);
   try {
     await cp(sourceCanonical, destination, {
       recursive: true,
       force: false,
       errorOnExist: true,
       dereference: false,
+      filter: (entryPath) => {
+        const relativePath = relative(sourceCanonical, entryPath);
+        if (!relativePath) return true;
+        const firstSegment = relativePath.split(sep, 1)[0];
+        return !excludedTopLevel.has(firstSegment);
+      },
     });
     await writeFile(
       join(destination, MANAGED_ROOT_MARKER),

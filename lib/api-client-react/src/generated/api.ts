@@ -80,6 +80,10 @@ import type {
   ExportAiMetricsParams,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
+  GeneralChatMessage,
+  GeneralChatMessageOutput,
+  GeneralChatMessageRequest,
+  GeneralChatSession,
   GetAiChatFileContentParams,
   GetAiDeliveryPolicyParams,
   GetAiExecution200,
@@ -139,6 +143,8 @@ import type {
   OperatorAlertsResponse,
   Plugin,
   Project,
+  ProjectBootstrapOperation,
+  ProjectBootstrapRequest,
   ProjectPluginBindingUpdate,
   ProjectPluginState,
   ProjectSummary,
@@ -442,6 +448,163 @@ export const useCreateProject = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateProjectMutationOptions(options));
     }
+
+export const getStartProjectBootstrapUrl = () => {
+
+
+
+
+  return `/api/projects/bootstrap`
+}
+
+/**
+ * @summary Create a project from the locked React and Vite template
+ */
+export const startProjectBootstrap = async (projectBootstrapRequest: ProjectBootstrapRequest, options?: Parameters<typeof customFetch>[1]): Promise<ProjectBootstrapOperation> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<ProjectBootstrapOperation>(getStartProjectBootstrapUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(projectBootstrapRequest)
+  }
+);}
+
+
+
+
+
+export const getStartProjectBootstrapMutationKey = () => ['startProjectBootstrap'] as const;
+
+export const getStartProjectBootstrapMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startProjectBootstrap>>, TError,StartProjectBootstrapMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startProjectBootstrap>>, TError,StartProjectBootstrapMutationVariables, TContext> => {
+
+const mutationKey = getStartProjectBootstrapMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startProjectBootstrap>>, StartProjectBootstrapMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  startProjectBootstrap(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartProjectBootstrapMutationResult = NonNullable<Awaited<ReturnType<typeof startProjectBootstrap>>>
+    export type StartProjectBootstrapMutationBody = BodyType<ProjectBootstrapRequest>
+    export type StartProjectBootstrapMutationError = ErrorType<ApiError>
+    export type StartProjectBootstrapMutationVariables = {data: BodyType<ProjectBootstrapRequest>}
+
+    /**
+ * @summary Create a project from the locked React and Vite template
+ */
+export const useStartProjectBootstrap = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startProjectBootstrap>>, TError,StartProjectBootstrapMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startProjectBootstrap>>,
+        TError,
+        StartProjectBootstrapMutationVariables,
+        TContext
+      > => {
+      return useMutation(getStartProjectBootstrapMutationOptions(options));
+    }
+
+export const getGetProjectBootstrapUrl = (bootstrapId: string,) => {
+
+
+
+
+  return `/api/projects/bootstrap/${bootstrapId}`
+}
+
+/**
+ * @summary Get the status of a project creation operation
+ */
+export const getProjectBootstrap = async (bootstrapId: string, options?: Parameters<typeof customFetch>[1]): Promise<ProjectBootstrapOperation> => {
+
+  return customFetch<ProjectBootstrapOperation>(getGetProjectBootstrapUrl(bootstrapId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProjectBootstrapQueryKey = (bootstrapId: string,) => {
+    return [
+    `/api/projects/bootstrap/${bootstrapId}`
+    ] as const;
+    }
+
+
+export const getGetProjectBootstrapQueryOptions = <TData = Awaited<ReturnType<typeof getProjectBootstrap>>, TError = ErrorType<void>>(bootstrapId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectBootstrap>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProjectBootstrapQueryKey(bootstrapId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectBootstrap>>> = ({ signal }) => getProjectBootstrap(bootstrapId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: bootstrapId !== null && bootstrapId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProjectBootstrap>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProjectBootstrapQueryResult = NonNullable<Awaited<ReturnType<typeof getProjectBootstrap>>>
+export type GetProjectBootstrapQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the status of a project creation operation
+ */
+
+export function useGetProjectBootstrap<TData = Awaited<ReturnType<typeof getProjectBootstrap>>, TError = ErrorType<void>>(
+ bootstrapId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectBootstrap>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProjectBootstrapQueryOptions(bootstrapId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetProjectUrl = (projectId: string,) => {
 
@@ -5415,6 +5578,389 @@ export const useAiChat = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAiChatMutationOptions(options));
+    }
+
+export const getListGeneralChatSessionsUrl = () => {
+
+
+
+
+  return `/api/ai/general-chat/sessions`
+}
+
+/**
+ * @summary List the authenticated user's general engineering conversations
+ */
+export const listGeneralChatSessions = async ( options?: Parameters<typeof customFetch>[1]): Promise<GeneralChatSession[]> => {
+
+  return customFetch<GeneralChatSession[]>(getListGeneralChatSessionsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGeneralChatSessionsQueryKey = () => {
+    return [
+    `/api/ai/general-chat/sessions`
+    ] as const;
+    }
+
+
+export const getListGeneralChatSessionsQueryOptions = <TData = Awaited<ReturnType<typeof listGeneralChatSessions>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGeneralChatSessionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGeneralChatSessions>>> = ({ signal }) => listGeneralChatSessions({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatSessions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGeneralChatSessionsQueryResult = NonNullable<Awaited<ReturnType<typeof listGeneralChatSessions>>>
+export type ListGeneralChatSessionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the authenticated user's general engineering conversations
+ */
+
+export function useListGeneralChatSessions<TData = Awaited<ReturnType<typeof listGeneralChatSessions>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGeneralChatSessionsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateGeneralChatSessionUrl = () => {
+
+
+
+
+  return `/api/ai/general-chat/sessions`
+}
+
+/**
+ * @summary Start a general engineering conversation without project context
+ */
+export const createGeneralChatSession = async ( options?: Parameters<typeof customFetch>[1]): Promise<GeneralChatSession> => {
+
+  return customFetch<GeneralChatSession>(getCreateGeneralChatSessionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateGeneralChatSessionMutationKey = () => ['createGeneralChatSession'] as const;
+
+export const getCreateGeneralChatSessionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGeneralChatSession>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createGeneralChatSession>>, TError,void, TContext> => {
+
+const mutationKey = getCreateGeneralChatSessionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createGeneralChatSession>>, void> = () => {
+
+
+          return  createGeneralChatSession(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateGeneralChatSessionMutationResult = NonNullable<Awaited<ReturnType<typeof createGeneralChatSession>>>
+
+    export type CreateGeneralChatSessionMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Start a general engineering conversation without project context
+ */
+export const useCreateGeneralChatSession = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGeneralChatSession>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createGeneralChatSession>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateGeneralChatSessionMutationOptions(options));
+    }
+
+export const getDeleteGeneralChatSessionUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/ai/general-chat/sessions/${sessionId}`
+}
+
+/**
+ * @summary Delete one of the authenticated user's general conversations
+ */
+export const deleteGeneralChatSession = async (sessionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteGeneralChatSessionUrl(sessionId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteGeneralChatSessionMutationKey = () => ['deleteGeneralChatSession'] as const;
+
+export const getDeleteGeneralChatSessionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGeneralChatSession>>, TError,DeleteGeneralChatSessionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteGeneralChatSession>>, TError,DeleteGeneralChatSessionMutationVariables, TContext> => {
+
+const mutationKey = getDeleteGeneralChatSessionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGeneralChatSession>>, DeleteGeneralChatSessionMutationVariables> = (props) => {
+          const {sessionId} = props ?? {};
+
+          return  deleteGeneralChatSession(sessionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteGeneralChatSessionMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGeneralChatSession>>>
+
+    export type DeleteGeneralChatSessionMutationError = ErrorType<void>
+    export type DeleteGeneralChatSessionMutationVariables = {sessionId: string}
+
+    /**
+ * @summary Delete one of the authenticated user's general conversations
+ */
+export const useDeleteGeneralChatSession = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGeneralChatSession>>, TError,DeleteGeneralChatSessionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteGeneralChatSession>>,
+        TError,
+        DeleteGeneralChatSessionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteGeneralChatSessionMutationOptions(options));
+    }
+
+export const getListGeneralChatMessagesUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/ai/general-chat/sessions/${sessionId}/messages`
+}
+
+/**
+ * @summary Get messages from one of the authenticated user's general conversations
+ */
+export const listGeneralChatMessages = async (sessionId: string, options?: Parameters<typeof customFetch>[1]): Promise<GeneralChatMessage[]> => {
+
+  return customFetch<GeneralChatMessage[]>(getListGeneralChatMessagesUrl(sessionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGeneralChatMessagesQueryKey = (sessionId: string,) => {
+    return [
+    `/api/ai/general-chat/sessions/${sessionId}/messages`
+    ] as const;
+    }
+
+
+export const getListGeneralChatMessagesQueryOptions = <TData = Awaited<ReturnType<typeof listGeneralChatMessages>>, TError = ErrorType<void>>(sessionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGeneralChatMessagesQueryKey(sessionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGeneralChatMessages>>> = ({ signal }) => listGeneralChatMessages(sessionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: sessionId !== null && sessionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGeneralChatMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listGeneralChatMessages>>>
+export type ListGeneralChatMessagesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get messages from one of the authenticated user's general conversations
+ */
+
+export function useListGeneralChatMessages<TData = Awaited<ReturnType<typeof listGeneralChatMessages>>, TError = ErrorType<void>>(
+ sessionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGeneralChatMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGeneralChatMessagesQueryOptions(sessionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSendGeneralChatMessageUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/ai/general-chat/sessions/${sessionId}/messages`
+}
+
+/**
+ * @summary Send a message in a general engineering conversation
+ */
+export const sendGeneralChatMessage = async (sessionId: string,
+    generalChatMessageRequest: GeneralChatMessageRequest, options?: Parameters<typeof customFetch>[1]): Promise<GeneralChatMessageOutput> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<GeneralChatMessageOutput>(getSendGeneralChatMessageUrl(sessionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(generalChatMessageRequest)
+  }
+);}
+
+
+
+
+
+export const getSendGeneralChatMessageMutationKey = () => ['sendGeneralChatMessage'] as const;
+
+export const getSendGeneralChatMessageMutationOptions = <TError = ErrorType<ApiError | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendGeneralChatMessage>>, TError,SendGeneralChatMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendGeneralChatMessage>>, TError,SendGeneralChatMessageMutationVariables, TContext> => {
+
+const mutationKey = getSendGeneralChatMessageMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendGeneralChatMessage>>, SendGeneralChatMessageMutationVariables> = (props) => {
+          const {sessionId,data} = props ?? {};
+
+          return  sendGeneralChatMessage(sessionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendGeneralChatMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendGeneralChatMessage>>>
+    export type SendGeneralChatMessageMutationBody = BodyType<GeneralChatMessageRequest>
+    export type SendGeneralChatMessageMutationError = ErrorType<ApiError | void>
+    export type SendGeneralChatMessageMutationVariables = {sessionId: string;data: BodyType<GeneralChatMessageRequest>}
+
+    /**
+ * @summary Send a message in a general engineering conversation
+ */
+export const useSendGeneralChatMessage = <TError = ErrorType<ApiError | void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendGeneralChatMessage>>, TError,SendGeneralChatMessageMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendGeneralChatMessage>>,
+        TError,
+        SendGeneralChatMessageMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSendGeneralChatMessageMutationOptions(options));
     }
 
 export const getGetAiExecutionUrl = (executionId: string,) => {

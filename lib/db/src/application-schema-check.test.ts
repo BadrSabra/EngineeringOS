@@ -95,6 +95,27 @@ function completeSnapshot() {
     if (tableName === "ai_strategy_replay_case_runs" && columnName === "status") {
       return null;
     }
+    if (tableName === "project_bootstrap_jobs" && columnName === "status") {
+      return "'queued'::project_bootstrap_status";
+    }
+    if (tableName === "ai_general_chat_messages" && columnName === "status") {
+      return "'completed'::ai_general_chat_message_status";
+    }
+    if (tableName === "ai_mission_handoffs" && columnName === "dispatch_status") {
+      return "'pending'::ai_mission_handoff_dispatch_status";
+    }
+    if (tableName === "project_bootstrap_jobs" && columnName === "attempt") {
+      return "0";
+    }
+    if (tableName === "project_bootstrap_jobs" && columnName === "max_attempts") {
+      return "3";
+    }
+    if (tableName === "ai_general_chat_sessions" && columnName === "title") {
+      return "'New conversation'::text";
+    }
+    if (tableName === "ai_general_chat_rate_limits" && columnName === "call_count") {
+      return "1";
+    }
     if (columnName === "status") return "'pending'::task_status";
     if (columnName === "priority") return "'p2'::task_priority";
     if (columnName === "level") return "'info'::log_level";
@@ -173,7 +194,9 @@ function completeSnapshot() {
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
       (table_name) => table_name === "openrouter_model_cooldowns"
         ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
-        : [{ table_name, column_name: "id" }],
+        : table_name === "ai_general_chat_rate_limits"
+          ? ["owner_id", "window_bucket"].map((column_name) => ({ table_name, column_name }))
+          : [{ table_name, column_name: "id" }],
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,

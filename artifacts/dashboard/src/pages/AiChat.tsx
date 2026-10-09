@@ -9467,6 +9467,8 @@ export default function AiChat() {
     return params.get('taskId') ?? undefined;
   });
   const [input, setInput] = useState('');
+  const [planningHandoffNotice, setPlanningHandoffNotice] = useState(false);
+  const [planningHandoffReadOnly, setPlanningHandoffReadOnly] = useState(false);
   const [auditExportPending, setAuditExportPending] = useState(false);
   const [auditPreviewPending, setAuditPreviewPending] = useState(false);
   const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
@@ -11103,6 +11105,28 @@ export default function AiChat() {
       setSelectedProjectId(routeProject?.id ?? projects[0].id);
     }
   }, [projects, selectedProjectId, chatRouteTarget]);
+
+  // A project created from the starter may hand its description to this
+  // existing composer once. The text remains an unsent planning prompt and
+  // does not imply approval for any changes.
+  useEffect(() => {
+    if (
+      !selectedProjectId
+      || chatRouteTarget?.projectId !== selectedProjectId
+    ) return;
+    const handoffKey = `eos_project_planning_handoff:${selectedProjectId}`;
+    let description = '';
+    try {
+      description = sessionStorage.getItem(handoffKey) ?? '';
+      if (description) sessionStorage.removeItem(handoffKey);
+    } catch {
+      return;
+    }
+    if (!description.trim()) return;
+    setInput((current) => current.trim() ? current : description.trim());
+    setPlanningHandoffNotice(true);
+    setPlanningHandoffReadOnly(true);
+  }, [chatRouteTarget, selectedProjectId]);
 
   useEffect(() => {
     const targetMessageId = chatRouteTarget?.messageId;
@@ -13976,12 +14000,22 @@ export default function AiChat() {
               activeProvider={activeProvider}
               metric={activeProviderMetric}
             />
+            {planningHandoffNotice && (
+              <div role="status" data-testid="status-project-planning-handoff" className="mb-2 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">Unsent planning prompt.</span> This read-only handoff does not approve project edits.</span>
+                {planningHandoffReadOnly && (
+                  <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="Edit planning prompt">Edit prompt</button>
+                )}
+                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Dismiss planning prompt">Dismiss</button>
+              </div>
+            )}
             <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
             <Textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              readOnly={planningHandoffReadOnly}
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
               rows={1}

@@ -13,6 +13,8 @@ export * from "./pending_audit_logs.js";
 export * from "./discovery.js";
 export * from "./scan_jobs.js";
 export * from "./ai_chats.js";
+export * from "./ai_general_chat.js";
+export * from "./project_bootstrap_jobs.js";
 export * from "./ai_change_proposals.js";
 export * from "./ai_executions.js";
 export * from "./ai_execution_acceptances.js";

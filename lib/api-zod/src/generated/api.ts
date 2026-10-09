@@ -162,6 +162,64 @@ export const CreateProjectResponse = zod.object({
 
 
 /**
+ * @summary Create a project from the locked React and Vite template
+ */
+export const startProjectBootstrapBodyNameMax = 80;
+
+export const startProjectBootstrapBodyDescriptionMax = 3000;
+
+
+
+export const StartProjectBootstrapBody = zod.object({
+  "idempotencyKey": zod.string().uuid(),
+  "name": zod.string().min(1).max(startProjectBootstrapBodyNameMax),
+  "description": zod.string().max(startProjectBootstrapBodyDescriptionMax)
+})
+
+export const startProjectBootstrapResponseErrorCodeMax = 80;
+
+export const startProjectBootstrapResponseErrorMessageMax = 300;
+
+
+
+export const StartProjectBootstrapResponse = zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['queued', 'running', 'completed', 'failed']),
+  "projectId": zod.string().uuid().nullable(),
+  "templateVersion": zod.string(),
+  "errorCode": zod.string().max(startProjectBootstrapResponseErrorCodeMax).nullish(),
+  "errorMessage": zod.string().max(startProjectBootstrapResponseErrorMessageMax).nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get the status of a project creation operation
+ */
+export const GetProjectBootstrapParams = zod.object({
+  "bootstrapId": zod.string().uuid()
+})
+
+export const getProjectBootstrapResponseErrorCodeMax = 80;
+
+export const getProjectBootstrapResponseErrorMessageMax = 300;
+
+
+
+export const GetProjectBootstrapResponse = zod.object({
+  "id": zod.string().uuid(),
+  "status": zod.enum(['queued', 'running', 'completed', 'failed']),
+  "projectId": zod.string().uuid().nullable(),
+  "templateVersion": zod.string(),
+  "errorCode": zod.string().max(getProjectBootstrapResponseErrorCodeMax).nullish(),
+  "errorMessage": zod.string().max(getProjectBootstrapResponseErrorMessageMax).nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Get a project by ID
  */
 export const GetProjectParams = zod.object({
@@ -4260,6 +4318,133 @@ export const AiChatResponse = zod.object({
   "summary": zod.string().min(1).max(aiChatResponseCapabilityGapOneSummaryMax),
   "suggestedRecipeId": zod.string().max(aiChatResponseCapabilityGapOneSuggestedRecipeIdMax).optional()
 }),zod.null()]).optional()
+})
+
+
+/**
+ * @summary List the authenticated user's general engineering conversations
+ */
+export const listGeneralChatSessionsResponseTitleMax = 100;
+
+
+
+export const ListGeneralChatSessionsResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().max(listGeneralChatSessionsResponseTitleMax),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListGeneralChatSessionsResponse = zod.array(ListGeneralChatSessionsResponseItem)
+
+
+/**
+ * @summary Start a general engineering conversation without project context
+ */
+export const createGeneralChatSessionResponseTitleMax = 100;
+
+
+
+export const CreateGeneralChatSessionResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string().max(createGeneralChatSessionResponseTitleMax),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete one of the authenticated user's general conversations
+ */
+export const DeleteGeneralChatSessionParams = zod.object({
+  "sessionId": zod.string().uuid()
+})
+
+export const DeleteGeneralChatSessionResponse = zod.void()
+
+
+/**
+ * @summary Get messages from one of the authenticated user's general conversations
+ */
+export const ListGeneralChatMessagesParams = zod.object({
+  "sessionId": zod.string().uuid()
+})
+
+export const listGeneralChatMessagesResponseContentMax = 12000;
+
+export const listGeneralChatMessagesResponseErrorCodeMax = 80;
+
+export const listGeneralChatMessagesResponseErrorMessageMax = 300;
+
+
+
+export const ListGeneralChatMessagesResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "turnId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().max(listGeneralChatMessagesResponseContentMax),
+  "status": zod.enum(['pending', 'completed', 'failed']),
+  "errorCode": zod.string().max(listGeneralChatMessagesResponseErrorCodeMax).nullish(),
+  "errorMessage": zod.string().max(listGeneralChatMessagesResponseErrorMessageMax).nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListGeneralChatMessagesResponse = zod.array(ListGeneralChatMessagesResponseItem)
+
+
+/**
+ * @summary Send a message in a general engineering conversation
+ */
+export const SendGeneralChatMessageParams = zod.object({
+  "sessionId": zod.string().uuid()
+})
+
+export const sendGeneralChatMessageBodyMessageMax = 12000;
+
+
+
+export const SendGeneralChatMessageBody = zod.object({
+  "turnId": zod.string().uuid(),
+  "message": zod.string().min(1).max(sendGeneralChatMessageBodyMessageMax)
+})
+
+export const sendGeneralChatMessageResponseUserMessageContentMax = 12000;
+
+export const sendGeneralChatMessageResponseUserMessageErrorCodeMax = 80;
+
+export const sendGeneralChatMessageResponseUserMessageErrorMessageMax = 300;
+
+export const sendGeneralChatMessageResponseAssistantMessageContentMax = 12000;
+
+export const sendGeneralChatMessageResponseAssistantMessageErrorCodeMax = 80;
+
+export const sendGeneralChatMessageResponseAssistantMessageErrorMessageMax = 300;
+
+
+
+export const SendGeneralChatMessageResponse = zod.object({
+  "sessionId": zod.string().uuid(),
+  "userMessage": zod.object({
+  "id": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "turnId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().max(sendGeneralChatMessageResponseUserMessageContentMax),
+  "status": zod.enum(['pending', 'completed', 'failed']),
+  "errorCode": zod.string().max(sendGeneralChatMessageResponseUserMessageErrorCodeMax).nullish(),
+  "errorMessage": zod.string().max(sendGeneralChatMessageResponseUserMessageErrorMessageMax).nullish(),
+  "createdAt": zod.coerce.date()
+}),
+  "assistantMessage": zod.object({
+  "id": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "turnId": zod.string().uuid(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string().max(sendGeneralChatMessageResponseAssistantMessageContentMax),
+  "status": zod.enum(['pending', 'completed', 'failed']),
+  "errorCode": zod.string().max(sendGeneralChatMessageResponseAssistantMessageErrorCodeMax).nullish(),
+  "errorMessage": zod.string().max(sendGeneralChatMessageResponseAssistantMessageErrorMessageMax).nullish(),
+  "createdAt": zod.coerce.date()
+})
 })
 
 

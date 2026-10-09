@@ -87,6 +87,54 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /false/,
       },
     ] satisfies readonly ColumnContract[],
+    project_bootstrap_jobs: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "owner_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "idempotency_key", dataType: "text", udtName: "text", nullable: false },
+      { name: "name", dataType: "text", udtName: "text", nullable: false },
+      { name: "description", dataType: "text", udtName: "text", nullable: false },
+      { name: "template_version", dataType: "text", udtName: "text", nullable: false },
+      { name: "status", dataType: "USER-DEFINED", udtName: "project_bootstrap_status", nullable: false, defaultExpression: /'queued'::project_bootstrap_status/ },
+      { name: "attempt", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /0/ },
+      { name: "max_attempts", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /3/ },
+      { name: "worker_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "lease_until", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+      { name: "last_heartbeat_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+      { name: "working_root_path", dataType: "text", udtName: "text", nullable: true },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "error_code", dataType: "text", udtName: "text", nullable: true },
+      { name: "error_message", dataType: "text", udtName: "text", nullable: true },
+      { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+      { name: "updated_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+      { name: "started_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+      { name: "finished_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+    ] as readonly ColumnContract[],
+    ai_general_chat_sessions: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "owner_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "title", dataType: "text", udtName: "text", nullable: false, defaultExpression: /new.*conversation/i },
+      { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+      { name: "updated_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+    ] as readonly ColumnContract[],
+    ai_general_chat_messages: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "session_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "turn_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "role", dataType: "USER-DEFINED", udtName: "ai_general_chat_message_role", nullable: false },
+      { name: "content", dataType: "text", udtName: "text", nullable: false },
+      { name: "status", dataType: "USER-DEFINED", udtName: "ai_general_chat_message_status", nullable: false, defaultExpression: /'completed'::ai_general_chat_message_status/ },
+      { name: "worker_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "lease_until", dataType: "timestamp without time zone", udtName: "timestamp", nullable: true },
+      { name: "error_code", dataType: "text", udtName: "text", nullable: true },
+      { name: "error_message", dataType: "text", udtName: "text", nullable: true },
+      { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+    ] as readonly ColumnContract[],
+    ai_general_chat_rate_limits: [
+      { name: "owner_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "window_bucket", dataType: "bigint", udtName: "int8", nullable: false },
+      { name: "call_count", dataType: "integer", udtName: "int4", nullable: false, defaultExpression: /1/ },
+      { name: "updated_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /now\(\)/ },
+    ] as readonly ColumnContract[],
     project_plugin_bindings: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       { name: "project_id", dataType: "text", udtName: "text", nullable: false },
@@ -804,6 +852,46 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["project_id", "plugin_id"],
     },
     {
+      name: "uq_project_bootstrap_jobs_owner_idempotency",
+      tableName: "project_bootstrap_jobs",
+      columns: ["owner_id", "idempotency_key"],
+    },
+    {
+      name: "idx_project_bootstrap_jobs_status_created",
+      tableName: "project_bootstrap_jobs",
+      columns: ["status", "created_at"],
+    },
+    {
+      name: "idx_project_bootstrap_jobs_status_lease",
+      tableName: "project_bootstrap_jobs",
+      columns: ["status", "lease_until"],
+    },
+    {
+      name: "idx_project_bootstrap_jobs_owner_created",
+      tableName: "project_bootstrap_jobs",
+      columns: ["owner_id", "created_at"],
+    },
+    {
+      name: "idx_ai_general_chat_sessions_owner_updated",
+      tableName: "ai_general_chat_sessions",
+      columns: ["owner_id", "updated_at"],
+    },
+    {
+      name: "idx_ai_general_chat_sessions_owner_created",
+      tableName: "ai_general_chat_sessions",
+      columns: ["owner_id", "created_at"],
+    },
+    {
+      name: "uq_ai_general_chat_messages_session_turn_role",
+      tableName: "ai_general_chat_messages",
+      columns: ["session_id", "turn_id", "role"],
+    },
+    {
+      name: "idx_ai_general_chat_messages_session_created",
+      tableName: "ai_general_chat_messages",
+      columns: ["session_id", "created_at"],
+    },
+    {
       name: "idx_project_plugin_bindings_project_enabled",
       tableName: "project_plugin_bindings",
       columns: ["project_id", "enabled"],
@@ -1113,6 +1201,20 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly IndexContract[],
   foreignKeys: [
+    {
+      tableName: "project_bootstrap_jobs",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "SET NULL",
+    },
+    {
+      tableName: "ai_general_chat_messages",
+      columnName: "session_id",
+      foreignTableName: "ai_general_chat_sessions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
     {
       tableName: "project_plugin_bindings",
       columnName: "project_id",
@@ -1486,6 +1588,9 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly ForeignKeyContract[],
   enums: {
+    project_bootstrap_status: ["queued", "running", "completed", "failed"],
+    ai_general_chat_message_role: ["user", "assistant"],
+    ai_general_chat_message_status: ["pending", "completed", "failed"],
     ai_mission_handoff_dispatch_status: ["pending", "dispatched"],
     workspace_runtime_status: ["stopped", "starting", "running", "failed"],
     task_status: [
@@ -1721,7 +1826,9 @@ export function findApplicationSchemaIssues(
   for (const tableName of REQUIRED_TABLES) {
     const expectedColumns = tableName === "openrouter_model_cooldowns"
       ? ["provider", "model"]
-      : ["id"];
+      : tableName === "ai_general_chat_rate_limits"
+        ? ["owner_id", "window_bucket"]
+        : ["id"];
     const actualColumns = snapshot.primaryKeys
       .filter((row) => row.table_name === tableName)
       .map((row) => row.column_name);

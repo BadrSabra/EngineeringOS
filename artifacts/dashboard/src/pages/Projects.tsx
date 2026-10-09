@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import {
   useListProjects,
   getListProjectsQueryKey,
+  useStartProjectBootstrap,
+  useGetProjectBootstrap,
+  getGetProjectBootstrapQueryKey,
   classifyProjectError,
   isRetryableProjectError,
   emitProjectLoadFailed,
+  type ProjectBootstrapOperation,
 } from '@workspace/api-client-react';
 import {
   Search,
@@ -12,12 +18,20 @@ import {
   ShieldCheck,
   FolderGit2,
   Radar,
+  Plus,
+  X,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowRight,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 
 export default function Projects() {
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const { data: rawProjects, isLoading, isError, error } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
@@ -26,7 +40,85 @@ export default function Projects() {
   });
   const projects = useMonotonicData(rawProjects, newestUpdatedAt(rawProjects));
   const [showDiscover, setShowDiscover] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
+  const [bootstrapId, setBootstrapId] = useState('');
+  const [initialOperation, setInitialOperation] = useState<ProjectBootstrapOperation | null>(null);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const [pollLimitReached, setPollLimitReached] = useState(false);
+  const idempotencyKey = useRef('');
+  const pollingStartedAt = useRef<number | null>(null);
+  const handoffScheduledForProject = useRef<string | null>(null);
+  const startBootstrap = useStartProjectBootstrap();
+  const bootstrapQuery = useGetProjectBootstrap(bootstrapId, {
+    query: {
+      enabled: Boolean(bootstrapId) && !pollLimitReached,
+      queryKey: getGetProjectBootstrapQueryKey(bootstrapId),
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        const timedOut = pollingStartedAt.current !== null && Date.now() - pollingStartedAt.current >= 120_000;
+        if (status === 'completed' || status === 'failed' || timedOut) return false;
+        return 1500;
+      },
+    },
+  });
+  const operation = bootstrapQuery.data ?? initialOperation;
+
+  useEffect(() => {
+    if (!bootstrapId || pollLimitReached || !pollingStartedAt.current) return;
+    const remaining = Math.max(0, 120_000 - (Date.now() - pollingStartedAt.current));
+    const timer = window.setTimeout(() => setPollLimitReached(true), remaining);
+    return () => window.clearTimeout(timer);
+  }, [bootstrapId, pollLimitReached]);
+
+  useEffect(() => {
+    if (operation?.status !== 'completed' || !operation.projectId) return;
+    if (handoffScheduledForProject.current === operation.projectId) return;
+    handoffScheduledForProject.current = operation.projectId;
+    if (projectDescription.trim()) {
+      try {
+        sessionStorage.setItem(`eos_project_planning_handoff:${operation.projectId}`, projectDescription.trim());
+      } catch {
+        // The project remains available in chat; a storage restriction must not block navigation.
+      }
+    }
+    void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() }).finally(() => {
+      setLocation(`/ai?projectId=${encodeURIComponent(operation.projectId!)}`);
+    });
+  }, [operation?.status, operation?.projectId, projectDescription, queryClient, setLocation]);
+
+  const resetCreate = () => {
+    setShowCreate(false);
+    setProjectName('');
+    setProjectDescription('');
+    setBootstrapId('');
+    setInitialOperation(null);
+    setBootstrapError(null);
+    setPollLimitReached(false);
+    pollingStartedAt.current = null;
+  };
+
+  const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = projectName.trim();
+    if (!name || startBootstrap.isPending) return;
+    if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
+    setBootstrapError(null);
+    setPollLimitReached(false);
+    pollingStartedAt.current = Date.now();
+    startBootstrap.mutate(
+      { data: { idempotencyKey: idempotencyKey.current, name, description: projectDescription.trim() } },
+      {
+        onSuccess: (created) => {
+          setInitialOperation(created);
+          setBootstrapId(created.id);
+        },
+        onError: () => setBootstrapError('The creation request could not be started. No project is confirmed as created. You can retry safely.'),
+      },
+    );
+  };
 
   const projectLoadFailure = isError ? classifyProjectError(error) : null;
 
@@ -43,6 +135,86 @@ export default function Projects() {
   return (
     <>
       {showDiscover && <DiscoverProjectWizard onClose={() => setShowDiscover(false)} />}
+      {showCreate && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="create-project-title" className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-start justify-between border-b border-border px-6 py-5">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">Project bootstrap / React + Vite</div>
+                <h2 id="create-project-title" className="mt-1 text-xl font-semibold">Start from a governed starter</h2>
+                <p className="mt-1 text-sm text-muted-foreground">EngineeringOS provisions the locked template and reports its durable operation status.</p>
+              </div>
+              <button type="button" onClick={resetCreate} aria-label="Close create project" data-testid="button-close-project-create" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            {!bootstrapId ? (
+              <form onSubmit={submitCreate} className="space-y-5 px-6 py-6">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium">Project name</span>
+                  <input autoFocus required maxLength={80} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="e.g. Atlas Field Notes" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium">What are you planning to build?</span>
+                  <textarea maxLength={3000} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="Describe the problem, intended users, and the first useful outcome." data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectDescription.length}/3000</span>
+                </label>
+                <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <p>The starter is server-owned. Your description will arrive in project chat as an unsent planning prompt; it does not authorize edits or start an AI run.</p>
+                </div>
+                {bootstrapError && <p role="alert" data-testid="status-bootstrap-error" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{bootstrapError}</p>}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={resetCreate} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-secondary">Cancel</button>
+                  <button type="submit" disabled={!projectName.trim() || startBootstrap.isPending} data-testid="button-start-project-bootstrap" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+                    {startBootstrap.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {startBootstrap.isPending ? 'Starting operation…' : 'Create project'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="px-6 py-7">
+                <div className="flex items-center gap-3">
+                  {operation?.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : operation?.status === 'failed' || bootstrapQuery.isError ? <AlertTriangle className="h-5 w-5 text-amber-400" /> : <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+                  <div>
+                    <div className="text-sm font-semibold" data-testid="status-bootstrap-operation">{operation?.status ?? (bootstrapQuery.isLoading ? 'queued' : 'checking')}</div>
+                    <div className="text-xs text-muted-foreground">{operation?.status === 'completed' && operation.projectId ? 'Project is ready. Opening its project conversation…' : operation?.status === 'completed' ? 'The operation completed without a project reference. No project chat was opened.' : operation?.status === 'failed' ? 'The starter was not provisioned.' : 'Checking the durable operation. This view will update as the server reports progress.'}</div>
+                  </div>
+                </div>
+                <div className="mt-5 rounded-lg border border-border bg-background/60 p-4 font-mono text-xs">
+                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">Operation</span><span className="break-all text-foreground">{operation?.id ?? bootstrapId}</span></div>
+                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Template</span><span className="text-foreground">{operation?.templateVersion ?? 'Locked React / Vite'}</span></div>
+                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Updated</span><span className="text-foreground">{operation?.updatedAt ? new Date(operation.updatedAt).toLocaleTimeString() : 'Waiting for first status read'}</span></div>
+                </div>
+                {operation?.status === 'failed' && (
+                  <div role="alert" data-testid="status-bootstrap-failed" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+                    <div className="font-medium text-amber-200">{operation.errorMessage || 'Project setup could not be completed.'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">No project chat was opened. The server reported a safe failure state.</div>
+                    {operation.errorCode && <div className="mt-2 font-mono text-[10px] text-muted-foreground">Code: {operation.errorCode}</div>}
+                  </div>
+                )}
+                {operation?.status === 'completed' && !operation.projectId && (
+                  <div role="alert" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-100">
+                    The server returned a completed operation without a project ID. No destination was inferred. Contact your workspace administrator with the operation ID above.
+                  </div>
+                )}
+                {bootstrapQuery.isError && <p role="alert" className="mt-4 text-sm text-amber-200">The operation status is temporarily unavailable. The project was not assumed to be ready.</p>}
+                {pollLimitReached && operation?.status !== 'completed' && operation?.status !== 'failed' && (
+                  <div role="status" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-100">
+                    Status polling paused after the bounded wait. The operation may still be running.
+                    <button type="button" onClick={() => { pollingStartedAt.current = Date.now(); setPollLimitReached(false); void bootstrapQuery.refetch(); }} data-testid="button-resume-bootstrap-polling" className="ml-2 inline-flex items-center gap-1 underline underline-offset-2">Check again <ArrowRight className="h-3 w-3" /></button>
+                  </div>
+                )}
+                {(operation?.status === 'failed' || bootstrapQuery.isError || (operation?.status === 'completed' && !operation.projectId)) && (
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button type="button" onClick={() => void bootstrapQuery.refetch()} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">Retry status check</button>
+                    <button type="button" onClick={resetCreate} className="rounded-lg bg-secondary px-3 py-2 text-sm hover:bg-secondary/80">Close</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -52,7 +224,7 @@ export default function Projects() {
               Manage repositories under autonomous observation.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -68,6 +240,14 @@ export default function Projects() {
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
             >
               <Radar className="w-4 h-4" /> Discover Project
+            </button>
+            <button
+              type="button"
+              onClick={() => { idempotencyKey.current = ''; setShowCreate(true); }}
+              data-testid="button-new-project"
+              className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-secondary"
+            >
+              <Plus className="h-4 w-4" /> New project
             </button>
           </div>
         </div>

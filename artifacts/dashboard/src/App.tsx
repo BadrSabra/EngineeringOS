@@ -16,6 +16,7 @@ import Events from '@/pages/Events';
 import Metrics from '@/pages/Metrics';
 import Graph from '@/pages/Graph';
 import AiChat from '@/pages/AiChat';
+import GeneralChat from '@/pages/GeneralChat';
 import FlightDeck from '@/pages/FlightDeck';
 import MissionControl from '@/pages/MissionControl';
 import Missions from '@/pages/Missions';
@@ -127,6 +128,9 @@ function Router() {
       </Route>
       <Route path="/ai">
         <ProtectedRoute component={AiChat} />
+      </Route>
+      <Route path="/general-chat">
+        <ProtectedRoute component={GeneralChat} />
       </Route>
       <Route path="/flight-deck">
         <ProtectedRoute component={FlightDeck} />

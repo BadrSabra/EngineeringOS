@@ -41,6 +41,26 @@ describe("project materialization", () => {
     await expect(access(durableRoot)).rejects.toThrow();
   });
 
+  it("omits generated top-level directories when copying a fixed template", async () => {
+    await mkdir(join(sourceRoot, "node_modules", "example"), { recursive: true });
+    await mkdir(join(sourceRoot, "dist"), { recursive: true });
+    await writeFile(join(sourceRoot, "node_modules", "example", "index.js"), "generated\n");
+    await writeFile(join(sourceRoot, "dist", "index.html"), "generated\n");
+    const sessionId = `template-${randomUUID()}`;
+    const durableRoot = await materializeProjectRoot(sourceRoot, sessionId, {
+      excludeTopLevel: ["node_modules", "dist"],
+    });
+
+    try {
+      await expect(readFile(join(durableRoot, "README.md"), "utf8"))
+        .resolves.toBe("durable fixture\n");
+      await expect(access(join(durableRoot, "node_modules"))).rejects.toThrow();
+      await expect(access(join(durableRoot, "dist"))).rejects.toThrow();
+    } finally {
+      expect(await removeManagedProjectRoot(durableRoot)).toBe(true);
+    }
+  });
+
   it("does not remove an unmarked user directory even under the managed parent", async () => {
     const userDirectory = managedProjectRootForSession(`user-${randomUUID()}`);
     await mkdir(userDirectory, { recursive: true });

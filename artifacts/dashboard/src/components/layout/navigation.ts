@@ -7,6 +7,7 @@ import {
   GitMerge,
   LayoutDashboard,
   ListTodo,
+  MessageSquareText,
   Network,
   Plane,
   ShieldAlert,
@@ -31,6 +32,7 @@ export const PRIMARY_NAV_ITEMS: NavigationItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/projects', label: 'Projects', icon: FolderGit2 },
   { href: '/ai', label: 'AI Assistant', icon: Bot },
+  { href: '/general-chat', label: 'General Chat', icon: MessageSquareText },
 ];
 
 export const NAV_GROUPS: NavigationGroup[] = [

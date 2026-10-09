@@ -12,6 +12,7 @@
 import { Router } from "express";
 import providersRouter from "./providers.js";
 import chatRouter from "./chat.js";
+import generalChatRouter from "./general-chat.js";
 import analysisRouter from "./analysis.js";
 import workflowsRouter from "./workflows.js";
 import tasksRouter from "./tasks.js";
@@ -26,6 +27,7 @@ const router = Router();
 
 router.use(providersRouter);
 router.use(chatRouter);
+router.use(generalChatRouter);
 router.use(analysisRouter);
 router.use(workflowsRouter);
 router.use(tasksRouter);

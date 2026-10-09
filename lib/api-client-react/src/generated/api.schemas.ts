@@ -4720,6 +4720,95 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface GeneralChatSession {
+  id: string;
+  /** @maxLength 100 */
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GeneralChatMessageRole = typeof GeneralChatMessageRole[keyof typeof GeneralChatMessageRole];
+
+
+export const GeneralChatMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export type GeneralChatMessageStatus = typeof GeneralChatMessageStatus[keyof typeof GeneralChatMessageStatus];
+
+
+export const GeneralChatMessageStatus = {
+  pending: 'pending',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export interface GeneralChatMessage {
+  id: string;
+  sessionId: string;
+  turnId: string;
+  role: GeneralChatMessageRole;
+  /** @maxLength 12000 */
+  content: string;
+  status: GeneralChatMessageStatus;
+  /** @maxLength 80 */
+  errorCode?: string | null;
+  /** @maxLength 300 */
+  errorMessage?: string | null;
+  createdAt: string;
+}
+
+export interface GeneralChatMessageRequest {
+  turnId: string;
+  /**
+     * @minLength 1
+     * @maxLength 12000
+     */
+  message: string;
+}
+
+export interface GeneralChatMessageOutput {
+  sessionId: string;
+  userMessage: GeneralChatMessage;
+  assistantMessage: GeneralChatMessage;
+}
+
+export interface ProjectBootstrapRequest {
+  idempotencyKey: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /** @maxLength 3000 */
+  description: string;
+}
+
+export type ProjectBootstrapOperationStatus = typeof ProjectBootstrapOperationStatus[keyof typeof ProjectBootstrapOperationStatus];
+
+
+export const ProjectBootstrapOperationStatus = {
+  queued: 'queued',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export interface ProjectBootstrapOperation {
+  id: string;
+  status: ProjectBootstrapOperationStatus;
+  projectId: string | null;
+  templateVersion: string;
+  /** @maxLength 80 */
+  errorCode?: string | null;
+  /** @maxLength 300 */
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreateProjectInput {
   name: string;
   description?: string;

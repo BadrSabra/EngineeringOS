@@ -77,6 +77,7 @@ import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
 import { recoverPromotion } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
+import { dispatchProjectBootstrapJobs } from "./project-bootstrap.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 import {
   dispatchPendingMissionRecipes,
@@ -931,7 +932,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount, chatMissionHandoffCount, projectBootstrapCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -946,6 +947,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       replayPendingMissionEvents(),
       dispatchPendingShadowReplays(),
       dispatchPendingMissionChatHandoffs(),
+      dispatchProjectBootstrapJobs(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
@@ -953,6 +955,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
     dispatched += missionEventCount;
     dispatched += shadowReplayCount;
     dispatched += chatMissionHandoffCount;
+    dispatched += projectBootstrapCount;
 
     for (const job of queuedScans) {
       if (
@@ -989,9 +992,10 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           discoveryCount: pendingDiscoveries.length,
           recoveryCount,
           automaticReplanCount,
-            missionRecipeCount,
-            missionEventCount,
-            shadowReplayCount,
+          missionRecipeCount,
+          missionEventCount,
+          shadowReplayCount,
+          projectBootstrapCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );

@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import discoveryRouter from "./discovery.js";
+import projectBootstrapRouter from "./project-bootstrap.js";
 import projectsRouter from "./projects.js";
 import tasksRouter from "./tasks.js";
 import rulesRouter from "./rules.js";
@@ -19,6 +20,7 @@ const router: IRouter = Router();
 // Discovery must come before projectsRouter so /projects/discover/:id
 // is matched before /projects/:projectId
 router.use(discoveryRouter);
+router.use(projectBootstrapRouter);
 router.use(projectsRouter);
 router.use(tasksRouter);
 router.use(rulesRouter);
