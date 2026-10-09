@@ -2056,6 +2056,9 @@ async function executeMissionToolLoop(params: {
       ? `Server-approved target paths: ${policy.targetPaths.join(", ")}`
       : "Use only server-observed project evidence.",
     "Use the available server tools. Do not claim completion without evidence.",
+    params.profile === "mission_repair" && approvalState === "APPROVED"
+      ? "Execute the approved repair now: use replace_text or write_file to stage an in-scope change before running validation. Do not substitute a plan or prose response for the change."
+      : "",
     params.task.prompt ?? params.task.title,
   ].join("\n\n");
 

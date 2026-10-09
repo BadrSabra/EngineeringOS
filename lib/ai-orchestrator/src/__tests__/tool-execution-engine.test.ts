@@ -6370,6 +6370,55 @@ describe("executeToolLoop", () => {
     expect((strategy.call as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps approved Repair Plan mutation tools available after prefetched evidence is complete", async () => {
+    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/greet.cjs";
+    const source = "module.exports = function greet(name) { return `Hello, ${name}!`; };";
+    const strategy = makeStrategy([makeResponse("ready for the edit")]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "replace_text", description: "", parameters: {} } },
+        { type: "function", function: { name: "write_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "run_validation", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      executionMode: "repair_plan",
+      toolChoice: "required",
+      approvalState: "APPROVED",
+      approvedFilePaths: [requiredPath],
+      executionTargetPaths: [requiredPath],
+      allowedToolNames: ["read_file", "replace_text", "write_file", "run_validation"],
+      initialFileContents: new Map([[requiredPath, source]]),
+      initialReadStatuses: new Map([[requiredPath, "READ_COMPLETE"]]),
+      retainedReadStatuses: new Map([[requiredPath, "READ_COMPLETE"]]),
+      cache: new Map([[toolCacheKey("read_file", { path: requiredPath }), source]]),
+      objective: {
+        goal: "Trim greeting names and use a fallback for an empty name.",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    const firstCallOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+      toolChoice?: string;
+    };
+    expect(firstCallOptions.tools?.map((tool) => tool.function.name)).toEqual([
+      "replace_text",
+      "write_file",
+      "run_validation",
+    ]);
+    expect(firstCallOptions.toolChoice).toBe("required");
+  });
+
   it("serves budget-exhausted message when maxToolCalls is reached", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     // Model requests 3 read_file calls on different paths (unique → no cache hit)

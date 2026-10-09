@@ -9763,6 +9763,10 @@ export async function chat(opts: {
     toolChoice:
       capabilityProbeRequest
         ? "required"
+        : opts.executionMode === "repair_plan" &&
+            opts.approvalState === "APPROVED" &&
+            Boolean(opts.approvedFilePaths?.length)
+        ? "required"
         : immediateIntent && priorRepairPlan && executionFilePaths.length > 0
         ? "required"
         : undefined,
@@ -9803,14 +9807,25 @@ export async function chat(opts: {
         ? { type: "json_object" }
         : undefined,
     completeReads: completeReadEvidence,
-    executionMode: repairPlanExecution
+    executionMode:
+      repairPlanExecution ||
+      (opts.executionMode === "repair_plan" &&
+        opts.approvalState === "APPROVED" &&
+        Boolean(opts.approvedFilePaths?.length))
       ? "repair_plan"
       : structuredOutputMode || capabilityProbeRequest
         ? "forensic"
         : undefined,
     assertExecutionOwned,
     compoundWriteMode: deferredWriteProposal,
-    executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
+    executionTargetPaths:
+      repairPlanExecution
+        ? executionFilePaths
+        : opts.executionMode === "repair_plan" &&
+            opts.approvalState === "APPROVED" &&
+            opts.approvedFilePaths?.length
+          ? [...opts.approvedFilePaths]
+          : undefined,
     // A forensic request can be classified as single-file-shaped before a
     // usable file path is actually extracted (for example, when the user names
     // a directory such as `lib/knowledge-engine/`). An empty allow-list would

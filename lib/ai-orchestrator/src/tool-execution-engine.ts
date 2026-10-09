@@ -4423,6 +4423,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const isObjectiveRequiredEvidencePath = (path: string): boolean =>
     objectiveRequiredEvidencePaths.includes(canonicalRel(path));
   const maybeForceObjectiveSynthesis = (): void => {
+    const approvedRepairCanStillMutate =
+      executionMode === "repair_plan" &&
+      opts.approvalState === "APPROVED" &&
+      (allowedTools.has("replace_text") || allowedTools.has("write_file"));
+    if (approvedRepairCanStillMutate) return;
     if (
       objectiveRequiredEvidencePaths.length > 0 &&
       objectiveEvidenceManifestComplete()
