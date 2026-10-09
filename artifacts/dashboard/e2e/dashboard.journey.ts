@@ -5058,14 +5058,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "The push receipt references a different commit than the committed change.",
     );
     await expect(deliveryProof).not.toContainText("Verified chain");
-    const beforeReload = await deliveryProof.innerText();
+    const beforeReload = await deliveryProof.textContent();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     const reloadedProof = page.getByRole("region", {
       name: "Delivery proof chain",
     });
     await expect(reloadedProof).toBeVisible();
-    expect(await reloadedProof.innerText()).toBe(beforeReload);
+    expect(await reloadedProof.textContent()).toBe(beforeReload);
     await expect(reloadedProof).not.toContainText("Verified chain");
   });
 
