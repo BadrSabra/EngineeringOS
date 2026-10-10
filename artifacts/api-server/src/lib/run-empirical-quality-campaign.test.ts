@@ -385,6 +385,88 @@ describe("empirical provider campaign adapter", () => {
     ]);
   });
 
+  it("resumes only the pending case under the exact model, corpus, and mode binding", async () => {
+    const model = "poolside/laguna-xs-2.1:free";
+    const attempted: string[] = [];
+    const review = async ({
+      testCase,
+      onProviderModel,
+    }: Parameters<NonNullable<Parameters<typeof runApiEmpiricalQualityCampaign>[0]["reviewCase"]>>[0]) => {
+      attempted.push(testCase.id);
+      onProviderModel?.(model);
+      if (testCase.outcome === "clean" && attempted.length === 2) {
+        throw new GroqClientError("RATE_LIMITED", "upstream pool unavailable", {
+          context: { rateLimitScope: "upstream_shared_pool" },
+        });
+      }
+      return {
+        summary: "Bounded review",
+        overallScore: testCase.outcome === "defect" ? 40 : 90,
+        strengths: [],
+        issues: testCase.outcome === "defect" ? [{
+          type: "security" as const,
+          severity: "high" as const,
+          file: "src/auth.ts",
+          title: "Unsafe authentication",
+          description: "The selected fixture is unsafe.",
+          suggestion: "Validate the input.",
+        }] : [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: testCase.outcome === "defect" ? "needs_changes" as const : "approved" as const,
+      };
+    };
+    const initial = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      model,
+      reviewContractRevision: "resume-fixture-v1",
+      workspaceFactory: workspaceFor,
+      reviewCase: review,
+    });
+
+    expect(initial.status).toBe("INCOMPLETE");
+    expect(initial.resumeBinding?.corpusSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(initial.cases[0]).toMatchObject({
+      outcome: "COMPLETE",
+      contractPassed: true,
+      semanticVerdictConsistent: true,
+      falseAcceptance: false,
+      falseRejection: false,
+    });
+    expect(initial.cases[1]?.outcome).toBe("PROVIDER_UNAVAILABLE");
+
+    attempted.length = 0;
+    const resumed = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      model,
+      resumeFrom: initial,
+      reviewContractRevision: "resume-fixture-v1",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase, onProviderModel }) => {
+        attempted.push(testCase.id);
+        onProviderModel?.(model);
+        return {
+          summary: "Bounded review",
+          overallScore: 90,
+          strengths: [],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: "approved",
+        };
+      },
+    });
+
+    expect(attempted).toEqual(["clean-001"]);
+    expect(resumed.status).toBe("COMPLETE");
+    expect(resumed.empiricalQualityStatus).toBe("PROVEN");
+    expect(resumed.resumeBinding).toEqual(initial.resumeBinding);
+  });
+
   it("allows reasoning-capable models enough output tokens to return the review JSON", async () => {
     const budgets: Array<number | undefined> = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

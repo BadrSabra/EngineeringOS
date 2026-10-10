@@ -169,11 +169,18 @@ export type EmpiricalQualityMetrics = {
   throughputPerSecond: number | null;
 };
 
+export type EmpiricalQualityResumeBinding = {
+  corpusSha256: string;
+  evaluatorRevision: string;
+  fingerprint: string;
+};
+
 export type EmpiricalQualityScorecard = {
   kind: "empirical-ai-quality-scorecard";
   version: 1;
   generatedAt: string;
   corpusRevision: string;
+  resumeBinding?: EmpiricalQualityResumeBinding;
   provider: string;
   model: string | null;
   structuredOutputMode:
@@ -544,6 +551,7 @@ export function buildEmpiricalQualityScorecard(args: {
   provider: string;
   model?: string | null;
   structuredOutputMode?: EmpiricalQualityScorecard["structuredOutputMode"];
+  resumeBinding?: EmpiricalQualityResumeBinding;
   generatedAt?: string;
 }): EmpiricalQualityScorecard {
   const results = [...args.results].slice(0, args.corpus.cases.length);
@@ -603,6 +611,7 @@ export function buildEmpiricalQualityScorecard(args: {
     version: 1,
     generatedAt: args.generatedAt ?? new Date().toISOString(),
     corpusRevision: args.corpus.corpusRevision,
+    ...(args.resumeBinding ? { resumeBinding: args.resumeBinding } : {}),
     provider: safeLabel(args.provider, "redacted-provider"),
     model: args.model === null || args.model === undefined ? null : safeLabel(args.model, "redacted-model"),
     structuredOutputMode: args.structuredOutputMode ?? "provider_default",
@@ -652,6 +661,8 @@ export async function runEmpiricalQualityCampaign(args: {
   provider: string;
   model?: string | null;
   structuredOutputMode?: EmpiricalQualityScorecard["structuredOutputMode"];
+  resumeBinding?: EmpiricalQualityResumeBinding;
+  resumeFrom?: EmpiricalQualityScorecard;
   caseTimeoutMs?: number;
   campaignTimeoutMs?: number;
   generatedAt?: string;
@@ -662,6 +673,70 @@ export async function runEmpiricalQualityCampaign(args: {
   onProgress?: (scorecard: EmpiricalQualityScorecard) => void | Promise<void>;
 }): Promise<EmpiricalQualityScorecard> {
   const results: EmpiricalCaseScore[] = [];
+  const reusableById = new Map<string, EmpiricalCaseScore>();
+  if (args.resumeFrom) {
+    const prior = args.resumeFrom;
+    if (
+      prior.kind !== "empirical-ai-quality-scorecard" ||
+      prior.version !== 1 ||
+      prior.measurementOnly !== true ||
+      !Array.isArray(prior.cases) ||
+      !Array.isArray(prior.notRunCaseIds) ||
+      !args.resumeBinding ||
+      !prior.resumeBinding ||
+      !/^[a-f0-9]{64}$/i.test(prior.resumeBinding.corpusSha256) ||
+      !/^[a-f0-9]{64}$/i.test(prior.resumeBinding.fingerprint) ||
+      typeof prior.resumeBinding.evaluatorRevision !== "string" ||
+      JSON.stringify(prior.resumeBinding) !== JSON.stringify(args.resumeBinding) ||
+      prior.corpusRevision !== args.corpus.corpusRevision ||
+      prior.provider !== args.provider ||
+      prior.model !== (args.model ?? null) ||
+      prior.structuredOutputMode !== (args.structuredOutputMode ?? "provider_default") ||
+      (prior.status !== "INCOMPLETE" && prior.status !== "UNAVAILABLE") ||
+      prior.empiricalQualityStatus === "PROVEN"
+    ) {
+      throw new Error("Empirical scorecard resume binding does not match this exact campaign.");
+    }
+    const expectedIds = args.corpus.cases.map((entry) => entry.id);
+    const priorIds = prior.cases.map((entry) => entry.caseId);
+    if (
+      priorIds.some((id, index) => id !== expectedIds[index]) ||
+      new Set(priorIds).size !== priorIds.length ||
+      JSON.stringify(prior.notRunCaseIds) !== JSON.stringify(expectedIds.slice(priorIds.length))
+    ) {
+      throw new Error("Empirical scorecard resume cases are not an exact corpus prefix.");
+    }
+    for (let index = 0; index < prior.cases.length; index += 1) {
+      const result = prior.cases[index]!;
+      if (
+        !result ||
+        typeof result !== "object" ||
+        typeof result.caseId !== "string" ||
+        (result.outcome !== "COMPLETE" &&
+          result.outcome !== "PROVIDER_UNAVAILABLE" &&
+          result.outcome !== "TIMEOUT" &&
+          result.outcome !== "ERROR")
+      ) {
+        throw new Error("Empirical scorecard resume contains a malformed case result.");
+      }
+      if (result.outcome === "ERROR") {
+        throw new Error("Empirical scorecard resume cannot retry a completed execution error.");
+      }
+      if (result.outcome !== "COMPLETE") continue;
+      if (
+        !result.contractPassed ||
+        !result.semanticVerdictConsistent ||
+        result.falseAcceptance ||
+        result.falseRejection ||
+        result.expectedFindings !== args.corpus.cases[index]!.findings.length ||
+        (args.model && result.providerModel !== args.model)
+      ) {
+        throw new Error("Empirical scorecard resume contains a completed case that failed acceptance.");
+      }
+      reusableById.set(result.caseId, result);
+    }
+    results.push(...prior.cases.filter((entry) => entry.outcome === "COMPLETE"));
+  }
   const caseTimeoutMs = args.caseTimeoutMs ?? 90_000;
   const generatedAt = args.generatedAt ?? new Date().toISOString();
   const campaignDeadline = args.campaignTimeoutMs === undefined
@@ -678,10 +753,15 @@ export async function runEmpiricalQualityCampaign(args: {
       provider: args.provider,
       model: args.model,
       structuredOutputMode: args.structuredOutputMode,
+      resumeBinding: args.resumeBinding,
       generatedAt,
     }));
   };
   for (const testCase of args.corpus.cases) {
+    if (reusableById.has(testCase.id)) {
+      await emitProgress();
+      continue;
+    }
     if (providerRateLimitScope) {
       results.push(scoreEmpiricalQualityCase(testCase, {
         caseId: testCase.id,
@@ -767,6 +847,7 @@ export async function runEmpiricalQualityCampaign(args: {
     provider: args.provider,
     model: args.model,
     structuredOutputMode: args.structuredOutputMode,
+    resumeBinding: args.resumeBinding,
     generatedAt,
   });
 }

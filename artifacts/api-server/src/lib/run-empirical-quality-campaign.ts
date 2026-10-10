@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -16,6 +17,7 @@ import {
   type EmpiricalCorpusCase,
   type EmpiricalQualityCorpus,
   type EmpiricalQualityScorecard,
+  type EmpiricalQualityResumeBinding,
   type DynamicModelFormatSupport,
   type OpenRouterFreeModel,
   type ProviderId,
@@ -25,6 +27,7 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v2";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
@@ -127,6 +130,9 @@ export type ApiEmpiricalQualityCampaignOptions = {
   provider: ProviderId;
   apiKey: string;
   model?: string;
+  resumeFrom?: EmpiricalQualityScorecard;
+  /** Required to resume campaigns using a custom injected reviewer. */
+  reviewContractRevision?: string;
   caseTimeoutMs?: number;
   campaignTimeoutMs?: number;
   generatedAt?: string;
@@ -134,6 +140,27 @@ export type ApiEmpiricalQualityCampaignOptions = {
   workspaceFactory?: EmpiricalCaseWorkspaceFactory;
   reviewCase?: EmpiricalCaseReview;
 };
+
+function createResumeBinding(args: {
+  corpus: EmpiricalQualityCorpus;
+  provider: ProviderId;
+  model: string | null;
+  structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"];
+  caseTimeoutMs: number;
+  reviewerRevision: string;
+}): EmpiricalQualityResumeBinding {
+  const corpusSha256 = createHash("sha256").update(JSON.stringify(args.corpus)).digest("hex");
+  const evaluatorRevision =
+    `${EMPIRICAL_QUALITY_EVALUATOR_REVISION}:timeout-${args.caseTimeoutMs}:review-${args.reviewerRevision}`;
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    corpusSha256,
+    evaluatorRevision,
+    provider: args.provider,
+    model: args.model,
+    structuredOutputMode: args.structuredOutputMode,
+  })).digest("hex");
+  return { corpusSha256, evaluatorRevision, fingerprint };
+}
 
 function isProvider(value: string): value is ProviderId {
   return SAFE_PROVIDER.has(value);
@@ -353,6 +380,9 @@ export async function runApiEmpiricalQualityCampaign(
 
   if (!isProvider(options.provider)) throw new Error("Unsupported empirical quality provider.");
   if (!options.apiKey.trim()) throw new Error("An API key is required for the empirical quality campaign.");
+  if (options.resumeFrom && review !== defaultReviewCase && !options.reviewContractRevision?.trim()) {
+    throw new Error("Resuming a custom reviewer requires an explicit review contract revision.");
+  }
   if (!Number.isInteger(caseTimeoutMs) || caseTimeoutMs < 1_000) {
     throw new Error("Empirical quality case timeout must be at least 1000ms.");
   }
@@ -376,11 +406,23 @@ export async function runApiEmpiricalQualityCampaign(
     structuredOutputMode = "native_json_object";
   }
 
+  const resumeBinding = createResumeBinding({
+    corpus,
+    provider: options.provider,
+    model: options.model ?? null,
+    structuredOutputMode,
+    caseTimeoutMs,
+    reviewerRevision: review === defaultReviewCase
+      ? "default-reviewer"
+      : options.reviewContractRevision?.trim() ?? "unversioned-injected-reviewer",
+  });
   const scorecard = await runEmpiricalQualityCampaign({
     corpus,
     provider: options.provider,
     model: options.model ?? null,
     structuredOutputMode,
+    resumeBinding,
+    resumeFrom: options.resumeFrom,
     caseTimeoutMs,
     campaignTimeoutMs: options.campaignTimeoutMs,
     generatedAt: options.generatedAt,
@@ -446,6 +488,20 @@ export async function runApiEmpiricalQualityCampaign(
 export async function loadEmpiricalQualityCorpus(filePath: string): Promise<EmpiricalQualityCorpus> {
   const parsed: unknown = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
   return validateEmpiricalQualityCorpus(parsed);
+}
+
+export async function loadEmpiricalQualityResumeScorecard(filePath: string): Promise<EmpiricalQualityScorecard> {
+  const inputPath = path.resolve(filePath);
+  const disposableRoot = path.resolve(HOST_DISPOSABLE_TEMP_ROOT);
+  const relative = path.relative(disposableRoot, inputPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Resume scorecard must be inside the host disposable temp root.");
+  }
+  const parsed: unknown = JSON.parse(await fs.readFile(inputPath, "utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Resume scorecard is malformed.");
+  }
+  return parsed as EmpiricalQualityScorecard;
 }
 
 export async function writeEmpiricalQualityScorecard(filePath: string, scorecard: EmpiricalQualityScorecard): Promise<void> {
@@ -518,6 +574,9 @@ async function main(): Promise<void> {
     provider,
     apiKey,
     model: process.env.EMPIRICAL_QUALITY_MODEL?.trim() || undefined,
+    ...(process.env.EMPIRICAL_QUALITY_RESUME_SCORECARD_PATH?.trim()
+      ? { resumeFrom: await loadEmpiricalQualityResumeScorecard(process.env.EMPIRICAL_QUALITY_RESUME_SCORECARD_PATH.trim()) }
+      : {}),
     ...timeouts,
     onProgress: persistCheckpoint,
   });

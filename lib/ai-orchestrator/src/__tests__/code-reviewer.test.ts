@@ -160,6 +160,9 @@ describe("reviewCode selected-file acceptance", () => {
       expect.any(Array),
       expect.objectContaining({ responseFormat: undefined }),
     );
+    const messages = agentComplete.mock.calls.at(-1)?.[0] as Array<{ role: string; content: string }>;
+    expect(messages.some(({ content }) => content.includes("[FINAL OUTPUT FORMAT — REQUIRED"))).toBe(true);
+    expect(messages.some(({ content }) => content.includes("first non-whitespace character must be {"))).toBe(true);
     expect(result._parseError).toBeUndefined();
     expect(result._qualityError?.code).toBe("QUALITY_REVIEW_LOW");
   });

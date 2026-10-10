@@ -368,6 +368,7 @@ export type {
   EmpiricalCaseObservation,
   EmpiricalCaseScore,
   EmpiricalQualityMetrics,
+  EmpiricalQualityResumeBinding,
   EmpiricalQualityScorecard,
   EmpiricalQualityExecutor,
   EmpiricalIssueType,

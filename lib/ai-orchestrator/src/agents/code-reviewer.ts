@@ -192,6 +192,17 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
           "Preserve the review findings and cite a selected file for any defect finding.",
         ].join("\n"),
       });
+    } else if (this.promptOnlyJson) {
+      messages.push({
+        role: "user",
+        content: [
+          "[FINAL OUTPUT FORMAT — REQUIRED]",
+          "Return only one syntactically valid JSON object. Do not output analysis, commentary, Markdown, or code fences.",
+          "The first non-whitespace character must be { and the last non-whitespace character must be }.",
+          "Include exactly these top-level fields: summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict.",
+          "Use double-quoted JSON strings and keys; escape all quotes and newlines inside strings.",
+        ].join("\n"),
+      });
     }
     return messages;
   }

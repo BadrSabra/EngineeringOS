@@ -164,6 +164,121 @@ describe("empirical AI quality oracle", () => {
     expect(attempted).toEqual([corpus.cases[0]!.id]);
   });
 
+  it("resumes an exact-bound scorecard by reusing only accepted cases", async () => {
+    const binding = {
+      corpusSha256: "a".repeat(64),
+      evaluatorRevision: "review-policy-v1",
+      fingerprint: "b".repeat(64),
+    };
+    const defectFinding = {
+      file: "app/routes/session.js",
+      lineStart: 42,
+      type: "security" as const,
+      severity: "high" as const,
+      citationValid: true,
+      citationSupported: true,
+    };
+    const prior = await runEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      model: "fixture-model",
+      structuredOutputMode: "prompt_only_json",
+      resumeBinding: binding,
+      executeCase: async (testCase) => testCase.outcome === "defect"
+        ? {
+            outcome: "COMPLETE",
+            providerModel: "fixture-model",
+            contractPassed: true,
+            qualityGateAccepted: false,
+            semanticVerdict: "findings",
+            observedFindings: [defectFinding],
+          }
+        : {
+            outcome: "PROVIDER_UNAVAILABLE",
+            contractPassed: false,
+            qualityGateAccepted: false,
+            semanticVerdict: "unknown",
+            observedFindings: [],
+            errorCode: "PROVIDER_UNAVAILABLE",
+          },
+    });
+    const attempted: string[] = [];
+    const resumed = await runEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      model: "fixture-model",
+      structuredOutputMode: "prompt_only_json",
+      resumeBinding: binding,
+      resumeFrom: prior,
+      executeCase: async (testCase) => {
+        attempted.push(testCase.id);
+        return {
+          outcome: "COMPLETE",
+          providerModel: "fixture-model",
+          contractPassed: true,
+          qualityGateAccepted: testCase.expectedGateDecision === "accept",
+          semanticVerdict: testCase.expectedVerdict,
+          observedFindings: testCase.outcome === "defect" ? [defectFinding] : [],
+        };
+      },
+    });
+
+    expect(prior.status).toBe("INCOMPLETE");
+    expect(attempted).toEqual(["clean-001"]);
+    expect(resumed.status).toBe("COMPLETE");
+    expect(resumed.empiricalQualityStatus).toBe("PROVEN");
+    expect(resumed.resumeBinding).toEqual(binding);
+    expect(resumed.cases.map((entry) => entry.caseId)).toEqual(["defect-001", "clean-001"]);
+  });
+
+  it("rejects resumes with a different binding or a failed completed case", async () => {
+    const binding = {
+      corpusSha256: "c".repeat(64),
+      evaluatorRevision: "review-policy-v1",
+      fingerprint: "d".repeat(64),
+    };
+    const prior = await runEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      model: "fixture-model",
+      structuredOutputMode: "prompt_only_json",
+      resumeBinding: binding,
+      executeCase: async (testCase) => testCase.outcome === "defect"
+        ? {
+            outcome: "COMPLETE",
+            providerModel: "fixture-model",
+            contractPassed: true,
+            qualityGateAccepted: false,
+            semanticVerdict: "clean",
+            observedFindings: [],
+          }
+        : {
+            outcome: "PROVIDER_UNAVAILABLE",
+            contractPassed: false,
+            qualityGateAccepted: false,
+            semanticVerdict: "unknown",
+            observedFindings: [],
+            errorCode: "PROVIDER_UNAVAILABLE",
+          },
+    });
+    const resume = (resumeBinding: typeof binding) => runEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      model: "fixture-model",
+      structuredOutputMode: "prompt_only_json",
+      resumeBinding,
+      resumeFrom: prior,
+      executeCase: async () => {
+        throw new Error("must reject before executing another case");
+      },
+    });
+
+    await expect(resume({ ...binding, corpusSha256: "e".repeat(64) }))
+      .rejects.toThrow("does not match this exact campaign");
+    await expect(resume(binding))
+      .rejects.toThrow("completed case that failed acceptance");
+  });
+
   it("calculates discovery, citation, verdict, and gate metrics without raw text", () => {
     const results = corpus.cases.map((testCase) => scoreEmpiricalQualityCase(testCase, {
       caseId: testCase.id,
