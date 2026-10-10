@@ -9,6 +9,12 @@ OpenRouter catalog access and a successful completion are not sufficient for a l
 
 **How to apply:** Keep provider readiness, model fallback, contract parsing, evidence correlation, and final acceptance as separate gates in future live campaigns and release receipts. When reconciling a run, pass partial prefetch paths explicitly so the ledger excludes them while the UI can still report incomplete coverage.
 
+Some free OpenRouter endpoints return substantial reasoning metadata but no usable visible completion, or only an empty JSON object, even when JSON mode is requested. Raising the code-review output budget from 2,048 to 4,096 tokens did not make those candidates reliable; it instead exposed further timeouts and shared-pool throttles. Reasoning metadata must never be treated as the structured answer.
+
+**Why:** Live probes across several free candidates produced zero visible text, malformed/schema-invalid JSON, or timeouts. A larger output allowance did not establish acceptance and must not be confused with a provider-capability fix.
+
+**How to apply:** Inspect visible output length, finish reason, reasoning-only content, and model identity separately. Keep malformed, empty, timed-out, and throttled cases incomplete; probe one candidate before spending the full corpus and stop when automatic fallback would change the model under test.
+
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.
