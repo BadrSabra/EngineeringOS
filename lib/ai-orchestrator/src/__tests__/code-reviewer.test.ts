@@ -7,6 +7,7 @@ const { agentComplete } = vi.hoisted(() => ({
 vi.mock("../agent-complete.js", () => ({ agentComplete }));
 
 import { reviewCode } from "../agents/code-reviewer.js";
+import { buildCodeReviewSystemPrompt } from "../prompts/review.prompt.js";
 
 const context = {
   project: "Small TypeScript utility project",
@@ -28,6 +29,13 @@ const baseReview = {
 } as const;
 
 describe("reviewCode selected-file acceptance", () => {
+  it("provides a syntactically valid JSON example in the system prompt", () => {
+    const prompt = buildCodeReviewSystemPrompt();
+    const block = prompt.match(/```json\s*([\s\S]*?)\s*```/i)?.[1];
+    expect(block).toBeDefined();
+    expect(() => JSON.parse(block!)).not.toThrow();
+  });
+
   it("marks a valid-looking empty finding list as a quality rejection", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({ ...baseReview, issues: [] }),
