@@ -376,7 +376,7 @@ describe("dynamic catalog — runtime model refresh", () => {
         {
           id: supportedModel,
           pricing: { prompt: "0", completion: "0" },
-          supported_parameters: ["response_format"],
+          supported_parameters: ["response_format", "structured_outputs"],
         },
         {
           id: unsupportedModel,
@@ -394,12 +394,15 @@ describe("dynamic catalog — runtime model refresh", () => {
 
     expect(getUsableDynamicModelFormatSupport(supportedModel)).toEqual({
       supportsJsonObject: true,
+      supportsJsonSchema: true,
     });
     expect(getUsableDynamicModelFormatSupport(unsupportedModel)).toEqual({
       supportsJsonObject: false,
+      supportsJsonSchema: false,
     });
     expect(getUsableDynamicModelFormatSupport(unknownModel)).toEqual({
       supportsJsonObject: null,
+      supportsJsonSchema: null,
     });
   });
 
@@ -860,6 +863,70 @@ describe("error classification", () => {
       json_schema: { name: "result", strict: true },
     });
     expect(body.provider).toEqual({ require_parameters: true });
+  });
+
+  it("can require a supporting OpenRouter endpoint for JSON-object mode", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(200, {
+      choices: [{
+        finish_reason: "stop",
+        message: { content: '{"result":"ok"}' },
+      }],
+      model: "same/model:free",
+      usage: {},
+    }));
+    global.fetch = fetchMock as typeof fetch;
+
+    await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: { type: "json_object" },
+      requireResponseFormatParameters: true,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.provider).toEqual({ require_parameters: true });
+  });
+
+  it("does not drop required JSON-object mode after a provider rejection", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(400, {
+      error: { code: "invalid_request", message: "response_format is unsupported" },
+    }));
+    global.fetch = fetchMock as typeof fetch;
+
+    await expect(openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: { type: "json_object" },
+      requireResponseFormatParameters: true,
+    })).rejects.toBeInstanceOf(GroqClientError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not downgrade strict JSON Schema mode after a provider rejection", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(400, {
+      error: { code: "invalid_request", message: "json_schema is unsupported" },
+    }));
+    global.fetch = fetchMock as typeof fetch;
+
+    await expect(openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "result",
+          strict: true,
+          schema: { type: "object", properties: { result: { type: "string" } } },
+        },
+      },
+      requireResponseFormatParameters: true,
+      strictResponseFormat: true,
+    })).rejects.toBeInstanceOf(GroqClientError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from rejected JSON Schema to JSON-object mode before prompt-only mode", async () => {

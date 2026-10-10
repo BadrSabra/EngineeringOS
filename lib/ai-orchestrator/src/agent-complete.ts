@@ -50,6 +50,8 @@ export type AgentCompleteOpts = {
   qualityProfile?: QualityProfile;
   /** Optional provider-native response format for structured single-shot agents. */
   responseFormat?: OpenAICompatibleResponseFormat;
+  /** Preserve the exact structured mode for one-model empirical measurements. */
+  strictResponseFormat?: boolean;
   /** Deterministic repair turns may lower sampling temperature. */
   temperature?: number;
   /** Explicit output-token cap for callers with a measured model-specific need. */
@@ -271,7 +273,10 @@ export async function agentComplete(
         responseFormat: opts.promptOnlyJson
           ? undefined
           : opts.responseFormat ?? (qualityHints?.requireJsonMode ? { type: "json_object" } : undefined),
-        requireResponseFormatParameters: opts.responseFormat?.type === "json_schema",
+        requireResponseFormatParameters:
+          opts.responseFormat?.type === "json_schema" ||
+          (opts.responseFormat?.type === "json_object" && opts.stopAfterFirstModelAttempt === true),
+        strictResponseFormat: opts.strictResponseFormat,
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });

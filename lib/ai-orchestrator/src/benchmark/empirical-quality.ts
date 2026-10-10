@@ -695,7 +695,7 @@ export async function runEmpiricalQualityCampaign(args: {
         latencyMs: 0,
       }));
       await emitProgress();
-      continue;
+      break;
     }
     const controller = new AbortController();
     const startedAt = Date.now();
@@ -736,7 +736,11 @@ export async function runEmpiricalQualityCampaign(args: {
         providerRateLimitScope = observation.providerRateLimitScope;
       }
       await emitProgress();
-      if (observation.outcome === "PROVIDER_UNAVAILABLE" || observation.providerRateLimitScope) break;
+      if (
+        observation.outcome === "PROVIDER_UNAVAILABLE" ||
+        observation.outcome === "TIMEOUT" ||
+        observation.providerRateLimitScope
+      ) break;
     } catch (error) {
       const timedOut = controller.signal.aborted ||
         (error instanceof Error && error.message === "EMPIRICAL_CAMPAIGN_TIMEOUT");
@@ -751,6 +755,7 @@ export async function runEmpiricalQualityCampaign(args: {
         latencyMs: Date.now() - startedAt,
       }));
       await emitProgress();
+      if (timedOut) break;
       void error;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);

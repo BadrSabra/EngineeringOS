@@ -145,17 +145,23 @@ describe("empirical AI quality oracle", () => {
     })).toThrow(/invalid selected files/);
   });
 
-  it("bounds a case that ignores abort and records a timeout", async () => {
+  it("bounds a case that ignores abort and leaves later cases not run", async () => {
+    const attempted: string[] = [];
     const scorecard = await runEmpiricalQualityCampaign({
-      corpus: { ...corpus, cases: [corpus.cases[0]!] },
+      corpus: { ...corpus, cases: corpus.cases.slice(0, 2) },
       provider: "openrouter",
       caseTimeoutMs: 10,
-      executeCase: async () => new Promise<never>(() => undefined),
+      executeCase: async (testCase) => {
+        attempted.push(testCase.id);
+        return new Promise<never>(() => undefined);
+      },
     });
 
     expect(scorecard.status).toBe("UNAVAILABLE");
     expect(scorecard.cases[0]?.outcome).toBe("TIMEOUT");
     expect(scorecard.cases[0]?.errorCode).toBe("TIMEOUT");
+    expect(scorecard.notRunCaseIds).toEqual([corpus.cases[1]!.id]);
+    expect(attempted).toEqual([corpus.cases[0]!.id]);
   });
 
   it("calculates discovery, citation, verdict, and gate metrics without raw text", () => {

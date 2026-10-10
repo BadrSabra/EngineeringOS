@@ -72,19 +72,81 @@ describe("empirical provider campaign adapter", () => {
   it("selects only JSON modes confirmed by live provider capabilities", () => {
     const nativeModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-26b-a4b-it:free");
     const promptOnlyModel = FREE_MODELS.find((model) => model.id === "inclusionai/ling-3.1-flash");
+    const newlyEligiblePromptOnlyModel = FREE_MODELS.find((model) => model.id === "cohere/north-mini-code:free");
+    const poolsidePromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-s-2.1:free");
+    const lightningPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning:free");
+    const inklingSmallPromptOnlyModel = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling-small:free");
+    const ultraPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-ultra-550b-a55b:free");
+    const nanoPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
     const unsupportedModel = FREE_MODELS.find((model) => model.id === "apodex/apodex-1.1-mini:free");
 
-    expect(selectEmpiricalJsonMode(nativeModel, { supportsJsonObject: true })).toEqual({
+    expect(selectEmpiricalJsonMode(nativeModel, { supportsJsonObject: true, supportsJsonSchema: false })).toEqual({
       mode: "native_json_object",
       promptOnlyJson: false,
+      jsonObjectOnly: true,
     });
-    expect(selectEmpiricalJsonMode(promptOnlyModel, { supportsJsonObject: false })).toEqual({
+    expect(selectEmpiricalJsonMode(promptOnlyModel, { supportsJsonObject: false, supportsJsonSchema: false })).toEqual({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+      jsonObjectOnly: false,
+    });
+    expect(selectEmpiricalJsonMode(newlyEligiblePromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toEqual({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+      jsonObjectOnly: false,
+    });
+    expect(selectEmpiricalJsonMode(poolsidePromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
       mode: "prompt_only_json",
       promptOnlyJson: true,
     });
-    expect(() => selectEmpiricalJsonMode(unsupportedModel, { supportsJsonObject: false }))
+    expect(selectEmpiricalJsonMode(lightningPromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
+    expect(selectEmpiricalJsonMode(inklingSmallPromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
+    expect(selectEmpiricalJsonMode(ultraPromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
+    expect(selectEmpiricalJsonMode(nanoPromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
+    expect(selectEmpiricalJsonMode(unsupportedModel, { supportsJsonObject: true, supportsJsonSchema: true })).toEqual({
+      mode: "native_json_object",
+      promptOnlyJson: false,
+      jsonObjectOnly: true,
+    });
+    expect(selectEmpiricalJsonMode(unsupportedModel, { supportsJsonObject: false, supportsJsonSchema: true })).toEqual({
+      mode: "native_json_schema",
+      promptOnlyJson: false,
+      jsonObjectOnly: false,
+    });
+    const modelWithoutNativeFormat = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling:free");
+    expect(() => selectEmpiricalJsonMode(modelWithoutNativeFormat, { supportsJsonObject: false, supportsJsonSchema: false }))
       .toThrow("no verified JSON output mode");
-    expect(() => selectEmpiricalJsonMode(unsupportedModel, null))
+    expect(() => selectEmpiricalJsonMode(modelWithoutNativeFormat, null))
       .toThrow("no verified JSON output mode");
   });
 
@@ -176,6 +238,26 @@ describe("empirical provider campaign adapter", () => {
     expect(scorecard.notRunCaseIds).toEqual(["clean-001"]);
     expect(reviewed).toEqual(["defect-001"]);
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
+  });
+
+  it("stops after a typed provider timeout and records the remaining case as not run", async () => {
+    const reviewed: string[] = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase }) => {
+        reviewed.push(testCase.id);
+        throw new GroqClientError("TIMEOUT", "provider attempt timed out");
+      },
+    });
+
+    expect(scorecard.status).toBe("UNAVAILABLE");
+    expect(scorecard.metrics.timeoutCount).toBe(1);
+    expect(scorecard.cases).toHaveLength(1);
+    expect(scorecard.notRunCaseIds).toEqual(["clean-001"]);
+    expect(reviewed).toEqual(["defect-001"]);
   });
 
   it("classifies an empty provider response as unavailable, not an execution error", async () => {

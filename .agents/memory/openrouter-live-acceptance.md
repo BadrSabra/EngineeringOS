@@ -15,11 +15,11 @@ OpenRouter telemetry's `outputTextLength` measures only top-level `output_text`;
 
 **How to apply:** Interpret `contentLength`, top-level `outputTextLength`, reasoning length, finish reason, and model identity separately. Keep malformed, empty, timed-out, and throttled cases incomplete; probe one candidate before spending the full corpus and stop when automatic fallback would change the model under test.
 
-OpenRouter `structured_outputs` metadata identifies endpoints eligible for JSON Schema routing, not a guarantee of model-level conformance. Strict reviews should send `response_format.type=json_schema` with `provider.require_parameters=true`, then retain local schema and evidence acceptance as authoritative gates.
+OpenRouter `structured_outputs` is coarse metadata, not proof that the chosen endpoint accepts `json_schema`. When both `response_format` and `structured_outputs` are advertised, prefer `json_object`; use schema mode only when it is the sole advertised native format. Keep `provider.require_parameters=true` for either strict native mode and retain local schema and evidence acceptance as authoritative gates.
 
-**Why:** Provider documentation allows endpoint-specific implementations to treat schemas as hints, and live free-model responses still arrived malformed or truncated after structured-output routing.
+**Why:** Provider documentation allows endpoint-specific implementations to treat schemas as hints; Apodex's selected Novita route explicitly rejected `json_schema` despite the catalog's `structured_outputs` flag, while advertising JSON-object support.
 
-**How to apply:** Use metadata to avoid incompatible endpoints, but classify malformed or length-truncated content as incomplete and do not promote it based on the advertised capability alone.
+**How to apply:** Use the exact response-format signal to choose among native modes, treat `structured_outputs` alone as insufficient evidence for schema routing, and classify malformed or truncated content as incomplete.
 
 Exact-model empirical probes must not hide contract failures behind a second model attempt: cap provider fallback at one candidate and stop agent retries after the first response. A parsed-provider response that fails JSON/schema acceptance is an incomplete measurement, not provider unavailability; reserve UNAVAILABLE for runs blocked by timeouts or provider outages.
 

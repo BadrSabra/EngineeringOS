@@ -98,6 +98,8 @@ export type OpenAICompatibleOptions = {
   responseFormat?: OpenAICompatibleResponseFormat;
   /** Restrict OpenRouter routing to endpoints supporting the requested structured format. */
   requireResponseFormatParameters?: boolean;
+  /** Do not silently downgrade the requested format after a provider rejection. */
+  strictResponseFormat?: boolean;
   /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
   baseUrl: string;
   /** Provider name used in error messages (e.g. "OpenRouter"). */
@@ -941,7 +943,7 @@ async function oacCompleteRawUntracked(
   if (
     providerName === "OpenRouter" &&
     opts.requireResponseFormatParameters &&
-    opts.responseFormat?.type === "json_schema"
+    opts.responseFormat
   ) {
     body.provider = { require_parameters: true };
   }
@@ -996,7 +998,7 @@ async function oacCompleteRawUntracked(
       requireResponseFormatParameters: Boolean(
         providerName === "OpenRouter" &&
         opts.requireResponseFormatParameters &&
-        opts.responseFormat?.type === "json_schema",
+        opts.responseFormat,
       ),
       maxTokens,
       temperature,
@@ -1485,6 +1487,11 @@ export async function openrouterCompleteRaw(
     // retry the same model once with the prompt-only contract.
     if (
       fullOpts.responseFormat &&
+      !fullOpts.strictResponseFormat &&
+      !(
+        fullOpts.responseFormat.type === "json_object" &&
+        fullOpts.requireResponseFormatParameters
+      ) &&
       err instanceof GroqClientError &&
       (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
       (err.providerStatus === 400 ||

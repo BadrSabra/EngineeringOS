@@ -100,17 +100,24 @@ export function selectEmpiricalJsonMode(
   model: OpenRouterFreeModel | undefined,
   formatSupport: DynamicModelFormatSupport | null,
 ): {
-  mode: "native_json_object" | "prompt_only_json";
+  mode: "native_json_schema" | "native_json_object" | "prompt_only_json";
   promptOnlyJson: boolean;
+  jsonObjectOnly: boolean;
 } {
   if (!model?.capabilities.includes("coding")) {
     throw new Error("Exact empirical OpenRouter model is not registered for code review.");
   }
+  // OpenRouter's `structured_outputs` flag may still route to a provider that
+  // implements only JSON-object mode. Prefer its explicit response_format
+  // capability; use schema mode only when object mode is not advertised.
   if (formatSupport?.supportsJsonObject === true) {
-    return { mode: "native_json_object", promptOnlyJson: false };
+    return { mode: "native_json_object", promptOnlyJson: false, jsonObjectOnly: true };
+  }
+  if (formatSupport?.supportsJsonSchema === true) {
+    return { mode: "native_json_schema", promptOnlyJson: false, jsonObjectOnly: false };
   }
   if (model.supportsPromptOnlyJson) {
-    return { mode: "prompt_only_json", promptOnlyJson: true };
+    return { mode: "prompt_only_json", promptOnlyJson: true, jsonObjectOnly: false };
   }
   throw new Error("Exact empirical OpenRouter model has no verified JSON output mode.");
 }
@@ -264,6 +271,7 @@ async function cloneReviewedRepository(
 
 const defaultReviewCase: EmpiricalCaseReview = async (input) => {
   let promptOnlyJson = false;
+  let jsonObjectOnly = false;
   if (input.provider === "openrouter" && input.model) {
     const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
     const liveModelIds = getUsableDynamicModelIds();
@@ -271,7 +279,9 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     if (!liveModelIds?.has(input.model)) {
       throw new Error("Exact empirical OpenRouter model is not a currently free, registered code-review model.");
     }
-    promptOnlyJson = selectEmpiricalJsonMode(model, formatSupport).promptOnlyJson;
+    const selectedMode = selectEmpiricalJsonMode(model, formatSupport);
+    promptOnlyJson = selectedMode.promptOnlyJson;
+    jsonObjectOnly = selectedMode.jsonObjectOnly;
     process.env.OPENROUTER_MODEL = input.model;
   }
   const context: ProjectContext = {
@@ -291,6 +301,13 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       typeof priorParseError.raw === "string"
         ? priorParseError.raw.slice(0, 16_000)
         : undefined;
+    const priorParseErrorMessage =
+      typeof priorParseError === "object" &&
+      priorParseError !== null &&
+      "message" in priorParseError &&
+      typeof priorParseError.message === "string"
+        ? priorParseError.message.replace(/\s+/g, " ").trim().slice(0, 240)
+        : undefined;
     return reviewCode(
       context,
       input.fileContents,
@@ -309,8 +326,9 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
         requireSelectedFileFinding: input.testCase.outcome === "defect",
         repairAttempt,
         promptOnlyJson,
-        jsonObjectOnly: input.provider === "openrouter" && Boolean(input.model) && !promptOnlyJson,
+        jsonObjectOnly,
         priorModelOutput,
+        priorParseErrorMessage,
       },
     );
   };

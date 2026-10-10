@@ -30,6 +30,7 @@ type OpenRouterModelEntry = {
 export type DynamicModelFormatSupport = {
   /** null means OpenRouter did not provide supported_parameters for this model. */
   supportsJsonObject: boolean | null;
+  supportsJsonSchema: boolean | null;
 };
 
 let _availableIds: Set<string> | null = null;
@@ -259,14 +260,18 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
 
       const ids = new Set(freeModels.map((m) => m.id));
       const formatSupport = new Map<string, DynamicModelFormatSupport>(
-        freeModels.map((model) => [
-          model.id,
-          {
-            supportsJsonObject: Array.isArray(model.supported_parameters)
-              ? model.supported_parameters.includes("response_format")
-              : null,
-          },
-        ]),
+        freeModels.map((model) => {
+          const supportedParameters = Array.isArray(model.supported_parameters)
+            ? model.supported_parameters.filter((value): value is string => typeof value === "string")
+            : null;
+          return [
+            model.id,
+            {
+              supportsJsonObject: supportedParameters?.includes("response_format") ?? null,
+              supportsJsonSchema: supportedParameters?.includes("structured_outputs") ?? null,
+            },
+          ];
+        }),
       );
        const paidModels = models
          .map(buildPaidCandidate)
