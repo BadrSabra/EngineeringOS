@@ -62,3 +62,9 @@ For empirical-quality runs, classify a typed `EMPTY_RESPONSE` (including a succe
 **Why:** OpenRouter free endpoints returned successful JSON-object-mode responses without choices after rejecting JSON Schema routing; treating that shape as a JavaScript exception obscured the actual provider failure.
 
 **How to apply:** Normalize missing response fields into `EMPTY_RESPONSE` at the client boundary, preserve requested/actual model identity where available, and project it consistently as `PROVIDER_UNAVAILABLE` in empirical scorecards.
+
+Prompt-only JSON is a separate empirical mode, not native structured-output support. It may be enabled only for an explicitly registered, exact-pinned review candidate; skip provider `response_format`, keep local schema and semantic/evidence acceptance unchanged, and stop before any cross-model fallback. Do not advertise this mode as the general `json` capability.
+
+**Why:** A free text model may be eligible for a controlled E2 experiment without advertising `response_format`, but the normal code-review selector requires native JSON capability. Reclassifying it as natively structured would let it enter unrelated flows and obscure what the scorecard measured.
+
+**How to apply:** Register prompt-only eligibility separately, route only the empirical candidate through a coding capability, record the selected and actual model, and allow the existing one same-model repair only after malformed/schema-invalid output—not after an empty response or provider outage.

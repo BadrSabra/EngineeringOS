@@ -144,6 +144,26 @@ describe("reviewCode selected-file acceptance", () => {
     );
   });
 
+  it("uses prompt-only JSON only when explicitly selected and still enforces review quality", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({ ...baseReview, issues: [] }),
+    });
+
+    const result = await reviewCode(
+      context,
+      { "src/example.ts": "export const value = 1;" },
+      { provider: "openrouter", apiKey: "test-key" },
+      { promptOnlyJson: true },
+    );
+
+    expect(agentComplete).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ responseFormat: undefined }),
+    );
+    expect(result._parseError).toBeUndefined();
+    expect(result._qualityError?.code).toBe("QUALITY_REVIEW_LOW");
+  });
+
   it("does not retry another model after an empirical contract failure", async () => {
     agentComplete.mockClear();
     agentComplete.mockResolvedValue({ content: "not JSON" });

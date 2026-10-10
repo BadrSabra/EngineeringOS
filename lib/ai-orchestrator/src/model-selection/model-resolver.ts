@@ -87,6 +87,7 @@ function selectCapability(plan: ExecutionPlan): ModelCapability {
 export function resolveExecutionModel(
   providerId: ProviderId,
   plan: ExecutionPlan,
+  options: { allowPromptOnlyJson?: boolean } = {},
 ): ExecutionModelDecision {
   const provider = loadProvider(providerId);
   // Capability probes are deliberately a fast, tool-capable contract. They
@@ -96,7 +97,9 @@ export function resolveExecutionModel(
   // because its read-only tool loop lives inside chat-agent.
   const isCapabilityProbe = plan.qualityProfile === "capability_probe";
   const wantPowerful = isCapabilityProbe ? false : wantsPowerfulModel(plan);
-  const capability = selectCapability(plan);
+  const capability = options.allowPromptOnlyJson && plan.taskProfile.taskType === "code_review"
+    ? "coding"
+    : selectCapability(plan);
   const requireTools = isCapabilityProbe ? true : plan.strictHints.requireTools ?? false;
 
   let decision: ExecutionModelDecision;

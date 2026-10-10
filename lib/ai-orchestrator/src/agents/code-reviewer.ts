@@ -78,6 +78,8 @@ export type CodeReviewOptions = {
   requireSelectedFileFinding?: boolean;
   /** Adds a bounded correction instruction after an earlier schema failure. */
   repairAttempt?: boolean;
+  /** Omits provider response_format for registered routes that rely on prompt-only JSON. */
+  promptOnlyJson?: boolean;
 };
 
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
@@ -135,6 +137,7 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
   constructor(
     private readonly fileContents?: Record<string, string>,
     private readonly repairAttempt = false,
+    private readonly promptOnlyJson = false,
   ) {
     super();
   }
@@ -173,7 +176,8 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
       maxFallbackModels: 3,
       retryTransient: false,
       waitOnRateLimit: false,
-      responseFormat: CODE_REVIEW_RESPONSE_FORMAT,
+      promptOnlyJson: this.promptOnlyJson,
+      responseFormat: this.promptOnlyJson ? undefined : CODE_REVIEW_RESPONSE_FORMAT,
     };
   }
 
@@ -189,7 +193,11 @@ export async function reviewCode(
   reviewOptions: CodeReviewOptions = {},
 ): Promise<CodeReviewResult & { reviewScope: ReviewScope }> {
   const accounting = normalizeReviewInputs(projectContext, fileContents);
-  const result = await new CodeReviewAgent(fileContents, reviewOptions.repairAttempt).run(projectContext, opts);
+  const result = await new CodeReviewAgent(
+    fileContents,
+    reviewOptions.repairAttempt,
+    reviewOptions.promptOnlyJson,
+  ).run(projectContext, opts);
   const selectedPaths = accounting.includedFilePaths;
   if (
     !result._parseError &&

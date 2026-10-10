@@ -50,6 +50,8 @@ export type AgentCompleteOpts = {
   qualityProfile?: QualityProfile;
   /** Optional provider-native response format for structured single-shot agents. */
   responseFormat?: OpenAICompatibleResponseFormat;
+  /** Preserve local JSON parsing/quality gates while skipping native JSON-mode admission and transport. */
+  promptOnlyJson?: boolean;
   /** Keep empirical model attribution exact by stopping after its first response. */
   stopAfterFirstModelAttempt?: boolean;
   /** Optional explicit capability hints override. */
@@ -215,7 +217,7 @@ export async function agentComplete(
       check: true,
       requirements: {
         requireTools: qualityHints?.requireTools,
-        requireJson: qualityHints?.requireJsonMode,
+        requireJson: qualityHints?.requireJsonMode && !opts.promptOnlyJson,
       },
     });
     if (!lifecycle.selectable) {
@@ -245,7 +247,9 @@ export async function agentComplete(
       // transport. This keeps the initial model and its bounded fallback
       // chain aligned with the currently usable free catalog.
       await refreshDynamicCatalog(apiKey);
-      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+      const modelDecision = resolveExecutionModel(providerId, executionPlan, {
+        allowPromptOnlyJson: opts.promptOnlyJson,
+      });
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
         apiKey,
@@ -258,7 +262,9 @@ export async function agentComplete(
         waitOnRateLimit: opts.waitOnRateLimit,
         allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
         onProviderFallback: opts.onProviderFallback,
-        responseFormat: opts.responseFormat ?? (qualityHints?.requireJsonMode ? { type: "json_object" } : undefined),
+        responseFormat: opts.promptOnlyJson
+          ? undefined
+          : opts.responseFormat ?? (qualityHints?.requireJsonMode ? { type: "json_object" } : undefined),
         requireResponseFormatParameters: opts.responseFormat?.type === "json_schema",
         signal: opts.signal,
         executionLedger: opts.executionLedger,

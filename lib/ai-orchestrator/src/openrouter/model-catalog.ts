@@ -34,6 +34,8 @@ export type OpenRouterFreeModel = {
   supportsTools: boolean;
   /** Supports response_format: { type: "json_object" }. */
   supportsJson: boolean;
+  /** Allows an explicitly pinned empirical review to request JSON by prompt and validate it locally. */
+  supportsPromptOnlyJson?: boolean;
   /** OpenRouter supports streaming for this catalog entry. */
   supportsStreaming?: boolean;
   free: true;
@@ -167,6 +169,17 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     context: 256_000,
     supportsTools: true,
     supportsJson: true,
+    free: true,
+    quality: "powerful",
+  },
+  {
+    id: "inclusionai/ling-3.1-flash",
+    label: "Ling 3.1 Flash",
+    capabilities: ["chat", "coding"],
+    context: 262_144,
+    supportsTools: true,
+    supportsJson: false,
+    supportsPromptOnlyJson: true,
     free: true,
     quality: "powerful",
   },

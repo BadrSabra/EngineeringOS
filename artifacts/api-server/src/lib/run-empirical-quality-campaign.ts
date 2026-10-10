@@ -235,11 +235,13 @@ async function cloneReviewedRepository(
 }
 
 const defaultReviewCase: EmpiricalCaseReview = async (input) => {
+  let promptOnlyJson = false;
   if (input.provider === "openrouter" && input.model) {
     const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
-    if (!model?.capabilities.includes("json") || !model.supportsJson) {
-      throw new Error("Exact empirical OpenRouter model is not registered with JSON review capability.");
+    if (!model?.capabilities.includes("coding") || (!model.supportsJson && !model.supportsPromptOnlyJson)) {
+      throw new Error("Exact empirical OpenRouter model is not registered with a supported code-review JSON mode.");
     }
+    promptOnlyJson = !model.supportsJson && model.supportsPromptOnlyJson === true;
     process.env.OPENROUTER_MODEL = input.model;
   }
   const context: ProjectContext = {
@@ -266,6 +268,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       {
         requireSelectedFileFinding: input.testCase.outcome === "defect",
         repairAttempt,
+        promptOnlyJson,
       },
   );
   if (input.provider === "openrouter" && input.model) {
