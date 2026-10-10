@@ -1,8 +1,8 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
   aiAgentEffectBundlesTable,
@@ -60,7 +60,10 @@ import * as recipeOperationRunnerModule from "./recipe-operation-runner.js";
 import { buildTaskObjectiveContract } from "./task-objective-contract.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
-import { readWorldStateForDecision } from "./agent-state/runtime-start-transition.js";
+import {
+  readWorldStateForDecision,
+  retryPendingRuntimeStartTransitions,
+} from "./agent-state/runtime-start-transition.js";
 import * as worldState from "./agent-state/world-state.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 import {
@@ -2949,6 +2952,7 @@ describe("recipe operation preparation", () => {
 
   it("executes a Mission runtime.start action through its World Transition to the D2 dispatch decision", async () => {
     const fixture = await createGateCRecipeFixture("runtime.start");
+    const exerciseGateCWriterCrash = process.env.RUN_E2_RUNTIME_START_GATE_C_CRASH === "1";
     const { projectId, userId, rootPath } = fixture.params;
     const missionId = crypto.randomUUID();
     const sourceGoalId = crypto.randomUUID();
@@ -2969,6 +2973,12 @@ describe("recipe operation preparation", () => {
     const queuedJobs: Array<() => Promise<void>> = [];
     let recipeResult: Awaited<ReturnType<typeof runRecipeOperation>> | undefined;
     let executionId: string | undefined;
+    let completionParams: Parameters<typeof aiExecutionState.completeAiExecution>[0] | undefined;
+    let triggerInstalled = false;
+    const crashApplicationName = `e2-runtime-start-writer-${projectId.replaceAll("-", "").slice(0, 12)}`;
+    const crashFunctionName = `e2_runtime_start_writer_pause_${projectId.replaceAll("-", "")}`;
+    const crashTriggerName = `e2_runtime_start_writer_trigger_${projectId.replaceAll("-", "")}`;
+    const actualCompleteAiExecution = aiExecutionState.completeAiExecution;
     const manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
       workerId: `mission-runtime-start-loop:${projectId}`,
@@ -3006,6 +3016,108 @@ describe("recipe operation preparation", () => {
         executionId = result.executionId;
         return result;
       });
+    const completionSpy = exerciseGateCWriterCrash
+      ? vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+          completionParams = params;
+          const rawDatabaseUrl = process.env.DATABASE_URL;
+          if (!rawDatabaseUrl) {
+            throw new Error("Gate C writer crash test requires an explicit disposable DATABASE_URL.");
+          }
+          const childDatabaseUrl = new URL(rawDatabaseUrl);
+          const databaseName = decodeURIComponent(childDatabaseUrl.pathname.replace(/^\/+/, ""));
+          if (
+            !["localhost", "127.0.0.1", "::1", "[::1]"].includes(childDatabaseUrl.hostname)
+            || !/(?:^|[_-])(?:test|disposable)(?:[_-]|$)/i.test(databaseName)
+          ) {
+            throw new Error("Gate C writer crash test requires a loopback disposable/test database.");
+          }
+
+          childDatabaseUrl.searchParams.set("application_name", crashApplicationName);
+          await db.execute(sql.raw(`
+            CREATE FUNCTION ${crashFunctionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.operation_id = '${fixture.params.operationId}' THEN
+                PERFORM pg_sleep(5);
+              END IF;
+              RETURN NEW;
+            END;
+            $$
+          `));
+          triggerInstalled = true;
+          await db.execute(sql.raw(`
+            CREATE TRIGGER ${crashTriggerName}
+            BEFORE INSERT ON ai_execution_acceptances
+            FOR EACH ROW EXECUTE FUNCTION ${crashFunctionName}()
+          `));
+
+          const moduleUrl = new URL("./ai-execution-state.ts", import.meta.url).href;
+          const childSource = [
+            "(async () => {",
+            `  const { completeAiExecution } = await import(${JSON.stringify(moduleUrl)});`,
+            `  await completeAiExecution(${JSON.stringify(params)});`,
+            "  process.exit(0);",
+            "})().catch((error) => { console.error(error); process.exit(1); });",
+          ].join("\n");
+          const child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              DATABASE_URL: childDatabaseUrl.toString(),
+              PGAPPNAME: crashApplicationName,
+            },
+            stdio: "pipe",
+          });
+          child.stdin?.end();
+          const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+            (resolve) => child.once("exit", (code, signal) => resolve({ code, signal })),
+          );
+          try {
+            const pauseDeadline = Date.now() + 30_000;
+            let writerPaused = false;
+            while (Date.now() < pauseDeadline) {
+              if (child.exitCode !== null || child.signalCode !== null) {
+                throw new Error("Gate C completion child exited before acceptance transaction pause.");
+              }
+              const activity = await db.execute(sql`
+                SELECT pid FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND application_name = ${crashApplicationName}
+                  AND state = 'active'
+                  AND wait_event = 'PgSleep'
+                  AND query ILIKE '%ai_execution_acceptances%'
+              `);
+              if (activity.rows.length > 0) {
+                writerPaused = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            if (!writerPaused) throw new Error("Timed out waiting for Gate C acceptance transaction pause.");
+            child.kill("SIGKILL");
+            expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
+            const disconnectDeadline = Date.now() + 20_000;
+            let disconnected = false;
+            while (Date.now() < disconnectDeadline) {
+              const sessions = await db.execute(sql`
+                SELECT pid FROM pg_stat_activity
+                WHERE datname = current_database() AND application_name = ${crashApplicationName}
+              `);
+              if (sessions.rows.length === 0) {
+                disconnected = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            if (!disconnected) throw new Error("Killed Gate C writer retained its PostgreSQL session.");
+          } finally {
+            if (child.exitCode === null && child.signalCode === null) {
+              child.kill("SIGKILL");
+              await childExit;
+            }
+          }
+          throw new Error("Injected interruption after SIGKILL inside the Gate C acceptance transaction.");
+        })
+      : undefined;
     const queueSpy = vi.spyOn(heavyJobQueue, "enqueueWithId")
       .mockImplementation((_id, job) => {
         queuedJobs.push(job);
@@ -3066,7 +3178,7 @@ describe("recipe operation preparation", () => {
           missionId,
           projectId,
           title: "Start runtime",
-          status: "queued",
+          status: exerciseGateCWriterCrash ? "completed" : "queued",
           nextAction: { kind: "recipe", recipeId: "runtime.start", recipeVersion: 1 },
           successCriteria: { stepId: "runtime-start", planRevision: plan },
           outcomeContract: { planRevision: { hash: planRevision } },
@@ -3096,6 +3208,94 @@ describe("recipe operation preparation", () => {
           updatedAt: now,
         },
       ]);
+
+      if (exerciseGateCWriterCrash) {
+        const runtimeRunner = createRuntimeStartRunner(manager);
+        let crashRunResult: Awaited<ReturnType<typeof runRecipeOperation>> | undefined;
+        try {
+          crashRunResult = await actualRunRecipeOperation({
+            ...fixture.params,
+            missionId,
+            goalId: sourceGoalId,
+            planRevision,
+            runtimeStartRunner: async (args) => {
+              executionId = args.executionId;
+              return runtimeRunner(args);
+            },
+          });
+        } catch (error) {
+          expect(String(error)).toContain("Injected interruption after SIGKILL");
+        }
+        executionId ??= crashRunResult?.executionId;
+        if (!executionId || !completionParams) {
+          throw new Error(`Gate C runtime.start did not reach the completion acceptance writer: ${
+            JSON.stringify({ executionId, status: crashRunResult?.status, receipt: crashRunResult?.receipt })
+          }`);
+        }
+        const [interruptedExecution] = await db.select({
+          status: aiExecutionsTable.status,
+        }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        const interruptedAcceptances = await db.select({
+          id: aiExecutionAcceptancesTable.id,
+        }).from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        const [pendingTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          effectBundleId: aiWorldTransitionsTable.effectBundleId,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.executionId, executionId));
+        const prematureDispatches = await db.select({ id: eventsTable.id })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, projectId),
+            eq(eventsTable.goalId, targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+        expect(interruptedExecution?.status).toBe("running");
+        expect(interruptedAcceptances).toEqual([]);
+        expect(pendingTransition).toMatchObject({
+          status: "pending",
+          effectBundleId: completionParams.effectBundleId,
+        });
+        expect(completionParams).toMatchObject({
+          executionId,
+          effectRequired: true,
+          effectBundleId: expect.any(String),
+        });
+        expect(prematureDispatches).toEqual([]);
+
+        expect(await actualCompleteAiExecution(completionParams)).toBe(true);
+        expect(await retryPendingRuntimeStartTransitions(10)).toBeGreaterThan(0);
+        expect(await wakeRuntimeTransitionMissionGoals()).toBe(1);
+        const [accepted] = await db.select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        }).from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, executionId),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        )).limit(1);
+        expect(accepted).toMatchObject({
+          outcome: "SUCCEEDED",
+          effectBundleId: completionParams.effectBundleId,
+        });
+        const [recoveredTransition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          effectBundleId: aiWorldTransitionsTable.effectBundleId,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.executionId, executionId));
+        expect(recoveredTransition).toMatchObject({
+          status: "materialized",
+          effectBundleId: accepted?.effectBundleId,
+        });
+        const dispatches = await db.select({ id: eventsTable.id })
+          .from(eventsTable).where(and(
+            eq(eventsTable.projectId, projectId),
+            eq(eventsTable.goalId, targetGoalId),
+            eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+          ));
+        expect(dispatches).toHaveLength(1);
+        await assertCanonicalRecipeProof(fixture.params, executionId);
+        return;
+      }
 
       const start = await runMissionGoal({
         goalId: sourceGoalId,
@@ -3197,9 +3397,14 @@ describe("recipe operation preparation", () => {
       });
       expect(queuedJobs).toHaveLength(1);
     } finally {
+      completionSpy?.mockRestore();
       runnerSpy.mockRestore();
       queueSpy.mockRestore();
       await manager.shutdown();
+      if (triggerInstalled) {
+        await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${crashTriggerName} ON ai_execution_acceptances`));
+        await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${crashFunctionName}()`));
+      }
       await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
       const executions = await db.select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
