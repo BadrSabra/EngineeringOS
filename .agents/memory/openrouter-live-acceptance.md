@@ -15,6 +15,12 @@ OpenRouter telemetry's `outputTextLength` measures only top-level `output_text`;
 
 **How to apply:** Interpret `contentLength`, top-level `outputTextLength`, reasoning length, finish reason, and model identity separately. Keep malformed, empty, timed-out, and throttled cases incomplete; probe one candidate before spending the full corpus and stop when automatic fallback would change the model under test.
 
+OpenRouter `structured_outputs` metadata identifies endpoints eligible for JSON Schema routing, not a guarantee of model-level conformance. Strict reviews should send `response_format.type=json_schema` with `provider.require_parameters=true`, then retain local schema and evidence acceptance as authoritative gates.
+
+**Why:** Provider documentation allows endpoint-specific implementations to treat schemas as hints, and live free-model responses still arrived malformed or truncated after structured-output routing.
+
+**How to apply:** Use metadata to avoid incompatible endpoints, but classify malformed or length-truncated content as incomplete and do not promote it based on the advertised capability alone.
+
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.

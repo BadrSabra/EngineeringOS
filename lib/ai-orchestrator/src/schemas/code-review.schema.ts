@@ -10,7 +10,9 @@ export const SeveritySchema = z.enum(["critical", "high", "medium", "low"]);
 export const CodeIssueSchema = z.object({
   type:        CodeIssueTypeSchema,
   severity:    SeveritySchema,
-  file:        z.string().optional(),
+  // Strict provider JSON Schema requires every key; null represents an
+  // intentionally unavailable path and is normalized to the optional domain field.
+  file:        z.preprocess((value) => value === null ? undefined : value, z.string().optional()),
   title:       z.string().min(1),
   description: z.string().min(1),
   suggestion:  z.string().min(1),

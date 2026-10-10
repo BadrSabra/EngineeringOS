@@ -111,6 +111,39 @@ describe("reviewCode selected-file acceptance", () => {
     expect(result.verdict).toBe("approved");
   });
 
+  it("requests strict OpenRouter JSON Schema and normalizes null file paths", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({
+        ...baseReview,
+        issues: [{
+          type: "bug",
+          severity: "low",
+          file: null,
+          title: "Handle the empty input",
+          description: "The function does not define behavior for an empty value.",
+          suggestion: "Add an explicit empty-input check.",
+        }],
+      }),
+    });
+
+    const result = await reviewCode(context, undefined, {
+      provider: "openrouter",
+      apiKey: "test-key",
+    });
+
+    expect(result._parseError).toBeUndefined();
+    expect(result.issues[0]?.file).toBeUndefined();
+    expect(agentComplete).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        responseFormat: expect.objectContaining({
+          type: "json_schema",
+          json_schema: expect.objectContaining({ name: "engineeringos_code_review", strict: true }),
+        }),
+      }),
+    );
+  });
+
   it("does not normalize unknown issue enums into a passing review", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({

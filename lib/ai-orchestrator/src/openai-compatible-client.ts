@@ -95,7 +95,9 @@ export type OpenAICompatibleOptions = {
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
   toolManifest?: ToolDefinition[];
   toolChoice?: "auto" | "required" | "none";
-  responseFormat?: { type: "json_object" };
+  responseFormat?: OpenAICompatibleResponseFormat;
+  /** Restrict OpenRouter routing to endpoints supporting the requested structured format. */
+  requireResponseFormatParameters?: boolean;
   /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
   baseUrl: string;
   /** Provider name used in error messages (e.g. "OpenRouter"). */
@@ -107,6 +109,17 @@ export type OpenAICompatibleOptions = {
   /** Shared request budget used for each network retry/fallback attempt. */
   executionLedger?: ExecutionLedger;
 };
+
+export type OpenAICompatibleResponseFormat =
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        strict: true;
+        schema: Record<string, unknown>;
+      };
+    };
 
 export type OpenAICompatibleStreamOptions = Omit<
   OpenAICompatibleOptions,
@@ -908,6 +921,13 @@ async function oacCompleteRawUntracked(
     temperature,
     max_tokens: maxTokens,
   };
+  if (
+    providerName === "OpenRouter" &&
+    opts.requireResponseFormatParameters &&
+    opts.responseFormat?.type === "json_schema"
+  ) {
+    body.provider = { require_parameters: true };
+  }
 
   const isGemini = providerName === "Gemini";
   const hasTools = !isGemini && Array.isArray(tools) && tools.length > 0;
@@ -956,6 +976,11 @@ async function oacCompleteRawUntracked(
       responseFormatApplied: !hasTools && opts.responseFormat?.type
         ? opts.responseFormat.type
         : null,
+      requireResponseFormatParameters: Boolean(
+        providerName === "OpenRouter" &&
+        opts.requireResponseFormatParameters &&
+        opts.responseFormat?.type === "json_schema",
+      ),
       maxTokens,
       temperature,
     }),

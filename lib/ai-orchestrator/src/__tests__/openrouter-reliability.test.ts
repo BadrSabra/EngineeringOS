@@ -786,6 +786,45 @@ describe("error classification", () => {
     expect(secondBody.response_format).toBeUndefined();
   });
 
+  it("requires a supporting OpenRouter endpoint for strict structured outputs", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi.fn().mockResolvedValueOnce(fetchResponse(200, {
+      choices: [{
+        finish_reason: "stop",
+        message: { content: '{"result":"ok"}' },
+      }],
+      model: "same/model:free",
+      usage: {},
+    }));
+    global.fetch = fetchMock as typeof fetch;
+
+    await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { result: { type: "string" } },
+            required: ["result"],
+            additionalProperties: false,
+          },
+        },
+      },
+      requireResponseFormatParameters: true,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: { name: "result", strict: true },
+    });
+    expect(body.provider).toEqual({ require_parameters: true });
+  });
+
   it("402 → PLAN_RESTRICTED", async () => {
     await expect(
       callWithStatus(402, { error: { message: "model requires payment" } }),

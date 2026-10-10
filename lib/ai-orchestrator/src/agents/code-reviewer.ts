@@ -7,6 +7,7 @@ import type { ProjectContext } from "../context-builder.js";
 import { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "../prompts/review.prompt.js";
 import { CodeReviewResultSchema, type CodeReviewOutput, type CodeIssue } from "../schemas/code-review.schema.js";
 import type { AgentCompleteOpts, ProviderId } from "../agent-complete.js";
+import type { OpenAICompatibleResponseFormat } from "../openai-compatible-client.js";
 import { GroqClientError, type ProviderRateLimitScope } from "../errors.js";
 import { classifyOpenRouterFailure, type OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type { Message } from "../groq-client.js";
@@ -21,6 +22,51 @@ export type { CodeIssue, CodeReviewOutput };
  * as HTTP 422 instead of a silent 200 with degraded fallback content.
  */
 export type CodeReviewResult = AgentRunResult<CodeReviewOutput>;
+
+const CODE_REVIEW_RESPONSE_FORMAT = {
+  type: "json_schema",
+  json_schema: {
+    name: "engineeringos_code_review",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", minLength: 1 },
+        overallScore: { type: "number", minimum: 0, maximum: 100 },
+        strengths: { type: "array", items: { type: "string", minLength: 1 } },
+        issues: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["bug", "security", "performance", "style", "architecture"] },
+              severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+              file: { type: ["string", "null"] },
+              title: { type: "string", minLength: 1 },
+              description: { type: "string", minLength: 1 },
+              suggestion: { type: "string", minLength: 1 },
+            },
+            required: ["type", "severity", "file", "title", "description", "suggestion"],
+            additionalProperties: false,
+          },
+        },
+        refactoringOpportunities: { type: "array", items: { type: "string", minLength: 1 } },
+        securityConcerns: { type: "array", items: { type: "string", minLength: 1 } },
+        verdict: { type: "string", enum: ["approved", "needs_changes", "major_rework"] },
+      },
+      required: [
+        "summary",
+        "overallScore",
+        "strengths",
+        "issues",
+        "refactoringOpportunities",
+        "securityConcerns",
+        "verdict",
+      ],
+      additionalProperties: false,
+    },
+  },
+} satisfies OpenAICompatibleResponseFormat;
 
 export type CodeReviewOptions = {
   /**
@@ -106,7 +152,12 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     // fallback policy owns bounded model transitions, and a provider-scoped
     // 429 must remain a typed incomplete result instead of becoming a
     // same-model success from a later response.
-    return { maxFallbackModels: 3, retryTransient: false, waitOnRateLimit: false };
+    return {
+      maxFallbackModels: 3,
+      retryTransient: false,
+      waitOnRateLimit: false,
+      responseFormat: CODE_REVIEW_RESPONSE_FORMAT,
+    };
   }
 
   protected fallbackOutput(): CodeReviewOutput {

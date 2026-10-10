@@ -7,7 +7,11 @@
  */
 import { complete, completeRaw } from "./groq-client.js";
 import { deepseekCompleteRaw } from "./deepseek-client.js";
-import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+import {
+  openrouterCompleteWithFallback,
+  geminiCompleteRaw,
+  type OpenAICompatibleResponseFormat,
+} from "./openai-compatible-client.js";
 import { loadProvider } from "./provider-registry.js";
 import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
@@ -44,6 +48,8 @@ export type AgentCompleteOpts = {
    * strongest available runtime for this task type.
    */
   qualityProfile?: QualityProfile;
+  /** Optional provider-native response format for structured single-shot agents. */
+  responseFormat?: OpenAICompatibleResponseFormat;
   /** Optional explicit capability hints override. */
   qualityHints?: ProviderCapabilityHints;
   /**
@@ -250,7 +256,8 @@ export async function agentComplete(
         waitOnRateLimit: opts.waitOnRateLimit,
         allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
         onProviderFallback: opts.onProviderFallback,
-        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+        responseFormat: opts.responseFormat ?? (qualityHints?.requireJsonMode ? { type: "json_object" } : undefined),
+        requireResponseFormatParameters: opts.responseFormat?.type === "json_schema",
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });
