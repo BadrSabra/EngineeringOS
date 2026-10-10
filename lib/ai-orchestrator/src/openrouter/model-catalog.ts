@@ -139,6 +139,7 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     context: 1_048_576,
     supportsTools: true,
     supportsJson: true,
+    supportsPromptOnlyJson: true,
     free: true,
     quality: "fast",
   },

@@ -79,6 +79,7 @@ describe("empirical provider campaign adapter", () => {
     const ultraPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-ultra-550b-a55b:free");
     const nanoPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
     const poolsideXsPromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-xs-2.1:free");
+    const inklingPromptOnlyModel = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling:free");
     const unsupportedModel = FREE_MODELS.find((model) => model.id === "apodex/apodex-1.1-mini:free");
 
     expect(selectEmpiricalJsonMode(nativeModel, { supportsJsonObject: true, supportsJsonSchema: false })).toEqual({
@@ -141,6 +142,13 @@ describe("empirical provider campaign adapter", () => {
       mode: "prompt_only_json",
       promptOnlyJson: true,
     });
+    expect(selectEmpiricalJsonMode(inklingPromptOnlyModel, {
+      supportsJsonObject: false,
+      supportsJsonSchema: false,
+    })).toMatchObject({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
     expect(selectEmpiricalJsonMode(unsupportedModel, { supportsJsonObject: true, supportsJsonSchema: true })).toEqual({
       mode: "native_json_object",
       promptOnlyJson: false,
@@ -151,7 +159,7 @@ describe("empirical provider campaign adapter", () => {
       promptOnlyJson: false,
       jsonObjectOnly: false,
     });
-    const modelWithoutNativeFormat = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling:free");
+    const modelWithoutNativeFormat = FREE_MODELS.find((model) => model.id === "google/gemma-4-26b-a4b-it:free");
     expect(() => selectEmpiricalJsonMode(modelWithoutNativeFormat, { supportsJsonObject: false, supportsJsonSchema: false }))
       .toThrow("no verified JSON output mode");
     expect(() => selectEmpiricalJsonMode(modelWithoutNativeFormat, null))
