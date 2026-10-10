@@ -158,7 +158,7 @@ describe("reviewCode selected-file acceptance", () => {
 
     expect(agentComplete).toHaveBeenLastCalledWith(
       expect.any(Array),
-      expect.objectContaining({ responseFormat: undefined }),
+      expect.objectContaining({ responseFormat: undefined, temperature: 0 }),
     );
     const messages = agentComplete.mock.calls.at(-1)?.[0] as Array<{ role: string; content: string }>;
     expect(messages.some(({ content }) => content.includes("[FINAL OUTPUT FORMAT — REQUIRED"))).toBe(true);

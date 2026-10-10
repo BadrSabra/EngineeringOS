@@ -200,7 +200,8 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
           "Return only one syntactically valid JSON object. Do not output analysis, commentary, Markdown, or code fences.",
           "The first non-whitespace character must be { and the last non-whitespace character must be }.",
           "Include exactly these top-level fields: summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict.",
-          "Use double-quoted JSON strings and keys; escape all quotes and newlines inside strings.",
+          "Use compact single-line JSON, double-quoted keys and strings, and escape any quotes inside strings.",
+          "Keep text fields to one short sentence and report each distinct issue once.",
         ].join("\n"),
       });
     }
@@ -222,7 +223,7 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
       maxFallbackModels: 3,
       retryTransient: false,
       waitOnRateLimit: false,
-      ...(this.repairAttempt ? { temperature: 0 } : {}),
+      ...(this.repairAttempt || this.promptOnlyJson ? { temperature: 0 } : {}),
       promptOnlyJson: this.promptOnlyJson,
       strictResponseFormat: this.strictResponseFormat,
       responseFormat: this.promptOnlyJson
