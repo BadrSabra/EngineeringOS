@@ -5881,3 +5881,14 @@ G9 Revocation Safety
 - **authority/safety impact:** يثبت الاختبار أن facts والتحديث النهائي للانتقال لا يُعتمدان منفصلين عند قتل API داخل transaction؛ تبقى acceptance منفصلة وصالحة، ويحدث D2 بعد retry مرة واحدة. trigger يخلق نافذة اختبار حتمية داخل قاعدة مؤقتة فقط.
 - **remaining/blocker:** acceptance والانتقال ما زالا fixture-seeded؛ لا يثبت هذا تعطل العامل الفعلي بعد commit Gate C أو إعادة إنشاء Canonical Proof، ولا يختبر provider حيًا. المستهلكات الديناميكية/الخارجية وسلوك provider مع World Fact ما زالا `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
 - **next step:** واصل E2 على حدود لم تُثبت بعد؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — توصيل إصلاح Mission ورفض الاستعادة بعد تغيّر مساحة العمل
+
+- **phase/step:** E2 فقط — وصول وضع الإصلاح المعتمد إلى حلقة الأدوات، ثم رفض استعادة المرشح بعد انقطاع وتغيّر المشروع.
+- **status:** `repair-plan tool-loop wiring PASS (9/9); Episode-mismatch and changed-workspace recovery rejection PASS (2/2); E2 OPEN; E3 STOPPED`
+- **what changed:** أضيفت تغطية تثبت أن `turnIntent` الخادمي من نوع DELIVERY مع `executionMode=repair_plan` ونطاق الملفات المعتمد يصل إلى حلقة الأدوات، ويلزم استدعاء أداة ويعرض `write_file` دون استنتاج الإصلاح من نص المستخدم. كما فُصل اختبار استعادة المرشح إلى اختلاف Episode وتغيّر محتوى مساحة العمل أثناء الانقطاع. الحالة الثانية تُرفض عند حاجز ربط idempotency قبل استعادة المرشح؛ بقي التغيير الخارجي كما هو، ولم تُستدعَ validation إضافية أو تُبنَ ملاحظات استعادة.
+- **files/schema/contracts touched:** اختبارات `chat-agent-analysis-wiring.test.ts` و`task-execution-lifecycle.integration.test.ts` فقط؛ لا تعديل production code أو schema أو workflow.
+- **validation:** اختبار توصيل Chat نجح 9/9؛ اختبارا الاستعادة نجحا 2/2 على PostgreSQL loopback مؤقتة بعد تطبيق schema عليها وحدها؛ API typecheck و`git diff --check` نجحا. أُوقفت القاعدة المؤقتة وحُذف جذرها، ولم يُعَد تشغيل workflow مُدار.
+- **authority/safety impact:** يثبت هذا نطاق التوصيل والرفض المختبرين فقط؛ حاجز تغيّر المحتوى هو اختلاف طلب/مراجعة مرتبط بمفتاح idempotency، وليس إثباتًا لكل مسارات Mission repair أو replay.
+- **remaining/blocker:** مراجعة المصدر لمسار `runtime.start` وجدت أن الانتقال pending يُكتب قبل `completeAiExecution`، وأن القبول والتحديث الطرفي يمران عبر معاملة `finalizeExecutionAcceptance`، ثم تأتي materialization للانتقال. اختبارات SIGKILL الحالية تزرع القبول مسبقًا؛ انهيار الكاتب الفعلي عند Gate C ما زال `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
+- **next step:** واصل داخل E2 باختبار process-level يوقف كاتب Gate C الفعلي أثناء معاملة القبول، ويتحقق من rollback وعدم dispatch قبل استعادة API؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
