@@ -1365,6 +1365,46 @@ describe("classifyStatus — non-string provider code does not crash (runtime ty
       err.providerCode === expectedProviderCode
     );
   });
+
+  it("includes the classified rate-limit scope in provider telemetry", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const body = JSON.stringify({
+      error: {
+        code: "rate_limit_exceeded",
+        message: "rate limited",
+        metadata: { limit_source: "upstream_provider_shared_pool" },
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(body, 429)));
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy((err: unknown) =>
+      err instanceof GroqClientError &&
+      err.code === "RATE_LIMITED" &&
+      err.rateLimitScope === "upstream_shared_pool"
+    );
+
+    const classificationLog = warn.mock.calls
+      .map(([entry]) => {
+        try {
+          return JSON.parse(String(entry)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .find((entry) => entry?.action === "classify_status");
+    expect(classificationLog).toMatchObject({
+      providerStatus: 429,
+      rateLimitScope: "upstream_shared_pool",
+    });
+  });
 });
 
 // ── PR-008: error code completeness ──────────────────────────────────────────

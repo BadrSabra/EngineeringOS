@@ -715,6 +715,7 @@ function classifyStatus(
       model,
       providerStatus: status,
       providerCode,
+      rateLimitScope,
       providerMessage: pMessage ?? null,
       bodyPreview: body.slice(0, 300),
     }),
