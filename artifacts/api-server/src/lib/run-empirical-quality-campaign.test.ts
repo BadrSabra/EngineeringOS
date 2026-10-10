@@ -2,11 +2,12 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
+import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
   reviewWithOneSameModelJsonRepair,
   runApiEmpiricalQualityCampaign,
+  selectEmpiricalJsonMode,
 } from "./run-empirical-quality-campaign.js";
 
 const roots: string[] = [];
@@ -68,6 +69,25 @@ async function workspaceFor(
 }
 
 describe("empirical provider campaign adapter", () => {
+  it("selects only JSON modes confirmed by live provider capabilities", () => {
+    const nativeModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-26b-a4b-it:free");
+    const promptOnlyModel = FREE_MODELS.find((model) => model.id === "inclusionai/ling-3.1-flash");
+    const unsupportedModel = FREE_MODELS.find((model) => model.id === "apodex/apodex-1.1-mini:free");
+
+    expect(selectEmpiricalJsonMode(nativeModel, { supportsJsonObject: true })).toEqual({
+      mode: "native_json_object",
+      promptOnlyJson: false,
+    });
+    expect(selectEmpiricalJsonMode(promptOnlyModel, { supportsJsonObject: false })).toEqual({
+      mode: "prompt_only_json",
+      promptOnlyJson: true,
+    });
+    expect(() => selectEmpiricalJsonMode(unsupportedModel, { supportsJsonObject: false }))
+      .toThrow("no verified JSON output mode");
+    expect(() => selectEmpiricalJsonMode(unsupportedModel, null))
+      .toThrow("no verified JSON output mode");
+  });
+
   it("makes at most one repair call while keeping the pinned runner", async () => {
     const invoked: Array<{ repair: boolean; model: string }> = [];
     const priorErrors: unknown[] = [];

@@ -15,12 +15,14 @@ export {
   refreshDynamicCatalog,
   getDynamicModelIds,
   getUsableDynamicModelIds,
+  getUsableDynamicModelFormatSupport,
   isDynamicCatalogLoaded,
   getDynamicCatalogStatus,
   getUsablePaidModelCandidates,
   auditStaticCatalog,
 } from "./dynamic-catalog.js";
 export type { DynamicCatalogStatus } from "./dynamic-catalog.js";
+export type { DynamicModelFormatSupport } from "./dynamic-catalog.js";
 
 // PR-07: circuit breaker
 export {

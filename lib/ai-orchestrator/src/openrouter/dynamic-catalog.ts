@@ -27,8 +27,14 @@ type OpenRouterModelEntry = {
   supported_parameters?: unknown;
 };
 
+export type DynamicModelFormatSupport = {
+  /** null means OpenRouter did not provide supported_parameters for this model. */
+  supportsJsonObject: boolean | null;
+};
+
 let _availableIds: Set<string> | null = null;
 let _availablePaidModels: OpenRouterPaidModel[] | null = null;
+let _modelFormatSupport: Map<string, DynamicModelFormatSupport> | null = null;
 let _lastFetchMs = 0;
 let _inFlight: Promise<void> | null = null;
 let _refreshAttempted = false;
@@ -139,6 +145,12 @@ export function getUsableDynamicModelIds(): Set<string> | null {
   return _availableIds;
 }
 
+/** Live JSON-object support for a model in the current free-model snapshot. */
+export function getUsableDynamicModelFormatSupport(id: string): DynamicModelFormatSupport | null {
+  if (!getUsableDynamicModelIds() || !_modelFormatSupport) return null;
+  return _modelFormatSupport.get(id) ?? null;
+}
+
 /** Configured paid candidates from the last successful live catalog refresh. */
 export function getUsablePaidModelCandidates(): OpenRouterPaidModel[] {
   if (
@@ -246,6 +258,16 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       );
 
       const ids = new Set(freeModels.map((m) => m.id));
+      const formatSupport = new Map<string, DynamicModelFormatSupport>(
+        freeModels.map((model) => [
+          model.id,
+          {
+            supportsJsonObject: Array.isArray(model.supported_parameters)
+              ? model.supported_parameters.includes("response_format")
+              : null,
+          },
+        ]),
+      );
        const paidModels = models
          .map(buildPaidCandidate)
          .filter((model): model is OpenRouterPaidModel => Boolean(model));
@@ -267,6 +289,7 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       }
 
       _availableIds = ids;
+      _modelFormatSupport = formatSupport;
        _availablePaidModels = paidModels;
        _paidPolicyFingerprint = paidPolicyFingerprint();
       _lastFetchMs  = Date.now();
@@ -330,6 +353,7 @@ export function auditStaticCatalog(staticModelIds: readonly string[]): string[] 
 export function _resetForTest(): void {
   _availableIds = null;
   _availablePaidModels = null;
+  _modelFormatSupport = null;
   _paidPolicyFingerprint = null;
   _lastFetchMs  = 0;
   _inFlight     = null;

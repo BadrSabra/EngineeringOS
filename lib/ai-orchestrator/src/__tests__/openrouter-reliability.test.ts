@@ -34,6 +34,7 @@ import {
 } from "../openrouter/model-resolver.js";
 import {
   getDynamicModelIds,
+  getUsableDynamicModelFormatSupport,
   isDynamicCatalogLoaded,
   refreshDynamicCatalog,
   getUsablePaidModelCandidates,
@@ -364,6 +365,42 @@ describe("dynamic catalog — runtime model refresh", () => {
     expect(getDynamicModelIds()).toEqual(new Set([liveFree]));
     expect(isDynamicCatalogLoaded()).toBe(true);
     vi.useRealTimers();
+  });
+
+  it("derives JSON object support from the live supported_parameters list", async () => {
+    const supportedModel = "fixture/json-object";
+    const unsupportedModel = "fixture/no-json-object";
+    const unknownModel = "fixture/unknown-json-support";
+    global.fetch = vi.fn().mockResolvedValue(fetchResponse(200, {
+      data: [
+        {
+          id: supportedModel,
+          pricing: { prompt: "0", completion: "0" },
+          supported_parameters: ["response_format"],
+        },
+        {
+          id: unsupportedModel,
+          pricing: { prompt: "0", completion: "0" },
+          supported_parameters: ["tools"],
+        },
+        {
+          id: unknownModel,
+          pricing: { prompt: "0", completion: "0" },
+        },
+      ],
+    })) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+
+    expect(getUsableDynamicModelFormatSupport(supportedModel)).toEqual({
+      supportsJsonObject: true,
+    });
+    expect(getUsableDynamicModelFormatSupport(unsupportedModel)).toEqual({
+      supportsJsonObject: false,
+    });
+    expect(getUsableDynamicModelFormatSupport(unknownModel)).toEqual({
+      supportsJsonObject: null,
+    });
   });
 
   it("uses a loaded live catalog as a hard boundary for stale candidates", async () => {

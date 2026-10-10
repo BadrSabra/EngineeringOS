@@ -1221,10 +1221,12 @@ export {
   refreshDynamicCatalog,
   getDynamicModelIds,
   getUsableDynamicModelIds,
+  getUsableDynamicModelFormatSupport,
   getDynamicCatalogStatus,
   isDynamicCatalogLoaded,
   auditStaticCatalog,
 } from "./openrouter/dynamic-catalog.js";
+export type { DynamicModelFormatSupport } from "./openrouter/dynamic-catalog.js";
 
 // PR-006: startup validator
 export { validateAiProvidersAtStartup } from "./startup-validator.js";

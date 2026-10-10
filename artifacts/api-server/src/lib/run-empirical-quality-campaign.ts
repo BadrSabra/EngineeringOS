@@ -4,7 +4,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   FREE_MODELS,
+  getUsableDynamicModelFormatSupport,
+  getUsableDynamicModelIds,
   GroqClientError,
+  refreshDynamicCatalog,
   reviewCode,
   runEmpiricalQualityCampaign,
   validateEmpiricalQualityCorpus,
@@ -13,6 +16,8 @@ import {
   type EmpiricalCorpusCase,
   type EmpiricalQualityCorpus,
   type EmpiricalQualityScorecard,
+  type DynamicModelFormatSupport,
+  type OpenRouterFreeModel,
   type ProviderId,
 } from "@workspace/ai-orchestrator";
 import type { ProjectContext } from "@workspace/ai-orchestrator";
@@ -90,6 +95,25 @@ export type EmpiricalCaseWorkspaceFactory = (
 export type EmpiricalCaseReview = (
   input: EmpiricalCaseReviewInput,
 ) => Promise<CodeReviewResult>;
+
+export function selectEmpiricalJsonMode(
+  model: OpenRouterFreeModel | undefined,
+  formatSupport: DynamicModelFormatSupport | null,
+): {
+  mode: "native_json_object" | "prompt_only_json";
+  promptOnlyJson: boolean;
+} {
+  if (!model?.capabilities.includes("coding")) {
+    throw new Error("Exact empirical OpenRouter model is not registered for code review.");
+  }
+  if (formatSupport?.supportsJsonObject === true) {
+    return { mode: "native_json_object", promptOnlyJson: false };
+  }
+  if (model.supportsPromptOnlyJson) {
+    return { mode: "prompt_only_json", promptOnlyJson: true };
+  }
+  throw new Error("Exact empirical OpenRouter model has no verified JSON output mode.");
+}
 
 export type ApiEmpiricalQualityCampaignOptions = {
   corpus: EmpiricalQualityCorpus;
@@ -242,10 +266,12 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
   let promptOnlyJson = false;
   if (input.provider === "openrouter" && input.model) {
     const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
-    if (!model?.capabilities.includes("coding") || (!model.supportsJson && !model.supportsPromptOnlyJson)) {
-      throw new Error("Exact empirical OpenRouter model is not registered with a supported code-review JSON mode.");
+    const liveModelIds = getUsableDynamicModelIds();
+    const formatSupport = getUsableDynamicModelFormatSupport(input.model);
+    if (!liveModelIds?.has(input.model)) {
+      throw new Error("Exact empirical OpenRouter model is not a currently free, registered code-review model.");
     }
-    promptOnlyJson = !model.supportsJson && model.supportsPromptOnlyJson === true;
+    promptOnlyJson = selectEmpiricalJsonMode(model, formatSupport).promptOnlyJson;
     process.env.OPENROUTER_MODEL = input.model;
   }
   const context: ProjectContext = {
@@ -303,12 +329,6 @@ export async function runApiEmpiricalQualityCampaign(
   const registeredModel = options.provider === "openrouter" && options.model
     ? FREE_MODELS.find((candidate) => candidate.id === options.model)
     : undefined;
-  const structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"] =
-    registeredModel?.supportsPromptOnlyJson && !registeredModel.supportsJson
-      ? "prompt_only_json"
-      : registeredModel?.supportsJson
-        ? "native_json_object"
-        : "provider_default";
   const caseTimeoutMs = options.caseTimeoutMs ?? 90_000;
   const workspaceFactory = options.workspaceFactory ?? defaultWorkspaceFactory;
   const review = options.reviewCase ?? defaultReviewCase;
@@ -321,6 +341,21 @@ export async function runApiEmpiricalQualityCampaign(
   if (options.campaignTimeoutMs !== undefined &&
       (!Number.isInteger(options.campaignTimeoutMs) || options.campaignTimeoutMs < caseTimeoutMs)) {
     throw new Error("Empirical quality campaign timeout must cover at least one case timeout.");
+  }
+
+  let structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"] = "provider_default";
+  if (options.provider === "openrouter" && options.model && review === defaultReviewCase) {
+    await refreshDynamicCatalog(options.apiKey);
+    const liveModelIds = getUsableDynamicModelIds();
+    const formatSupport = getUsableDynamicModelFormatSupport(options.model);
+    if (!liveModelIds?.has(options.model)) {
+      throw new Error("Exact empirical OpenRouter model is not a currently free, registered code-review model.");
+    }
+    structuredOutputMode = selectEmpiricalJsonMode(registeredModel, formatSupport).mode;
+  } else if (registeredModel?.supportsPromptOnlyJson && !registeredModel.supportsJson) {
+    structuredOutputMode = "prompt_only_json";
+  } else if (registeredModel?.supportsJson) {
+    structuredOutputMode = "native_json_object";
   }
 
   const scorecard = await runEmpiricalQualityCampaign({
