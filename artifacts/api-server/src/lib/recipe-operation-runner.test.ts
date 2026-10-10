@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -149,7 +150,7 @@ describe("recipe task-objective validator receipts", () => {
       ...common,
       taskObjective: browserObjective,
     })).toEqual([]);
-  });
+  }, process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1" ? 120_000 : 20_000);
 
   it("does not issue a registered-validation receipt for an unknown profile", () => {
     const taskObjective = buildTaskObjectiveContract({
@@ -2952,7 +2953,9 @@ describe("recipe operation preparation", () => {
 
   it("executes a Mission runtime.start action through its World Transition to the D2 dispatch decision", async () => {
     const fixture = await createGateCRecipeFixture("runtime.start");
-    const exerciseGateCWriterCrash = process.env.RUN_E2_RUNTIME_START_GATE_C_CRASH === "1";
+    const exerciseApiStartupRecovery = process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1";
+    const exerciseGateCWriterCrash = process.env.RUN_E2_RUNTIME_START_GATE_C_CRASH === "1"
+      || exerciseApiStartupRecovery;
     const { projectId, userId, rootPath } = fixture.params;
     const missionId = crypto.randomUUID();
     const sourceGoalId = crypto.randomUUID();
@@ -3263,6 +3266,124 @@ describe("recipe operation preparation", () => {
           effectBundleId: expect.any(String),
         });
         expect(prematureDispatches).toEqual([]);
+
+        if (exerciseApiStartupRecovery) {
+          await db.update(aiExecutionsTable)
+            .set({ leaseUntil: new Date(Date.now() - 1_000) })
+            .where(eq(aiExecutionsTable.id, executionId));
+
+          const portServer = createServer();
+          await new Promise<void>((resolve, reject) => {
+            portServer.once("error", reject);
+            portServer.listen(0, "127.0.0.1", () => resolve());
+          });
+          const address = portServer.address();
+          if (!address || typeof address === "string") {
+            throw new Error("Could not reserve a loopback port for API startup recovery.");
+          }
+          const port = address.port;
+          await new Promise<void>((resolve, reject) => {
+            portServer.close((error) => error ? reject(error) : resolve());
+          });
+
+          const apiApplicationName = `e2-runtime-start-api-recovery-${projectId.replaceAll("-", "").slice(0, 12)}`;
+          const apiDatabaseUrl = new URL(process.env.DATABASE_URL!);
+          apiDatabaseUrl.searchParams.set("application_name", apiApplicationName);
+          const apiSource = [
+            "(async () => {",
+            '  const { isProviderEgressDisabled } = await import("@workspace/ai-orchestrator");',
+            '  if (!isProviderEgressDisabled()) throw new Error("Provider egress guard is not active.");',
+            '  await import("./src/index.ts");',
+            "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+          ].join("\n");
+          const apiProcess = spawn(process.execPath, ["--import", "tsx", "-e", apiSource], {
+            cwd: process.cwd(),
+            env: {
+              DATABASE_URL: apiDatabaseUrl.toString(),
+              NODE_ENV: "test",
+              LOG_LEVEL: "warn",
+              PATH: process.env.PATH ?? "",
+              HOME: process.env.HOME ?? "/tmp",
+              PGAPPNAME: apiApplicationName,
+              PORT: String(port),
+              APP_ORIGINS: "",
+              AI_PROVIDER_EGRESS_DISABLED: "1",
+              RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+              DASHBOARD_E2E_TEST_MODE: "fixture",
+              AI_CREDENTIALS_ENCRYPTION_KEY:
+                `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`,
+            },
+            stdio: "pipe",
+          });
+          apiProcess.stdin.end();
+          let apiOutput = "";
+          apiProcess.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+            apiOutput = `${apiOutput}${chunk}`.slice(-32_000);
+          });
+          apiProcess.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+            apiOutput = `${apiOutput}${chunk}`.slice(-32_000);
+          });
+          const apiExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+            (resolve) => apiProcess.once("exit", (code, signal) => resolve({ code, signal })),
+          );
+          try {
+            const recoveryDeadline = Date.now() + 90_000;
+            let reconciled = false;
+            while (Date.now() < recoveryDeadline) {
+              if (apiProcess.exitCode !== null || apiProcess.signalCode !== null) {
+                throw new Error(`Replacement API exited before startup reconciliation: ${apiOutput}`);
+              }
+              const [execution] = await db.select({ status: aiExecutionsTable.status })
+                .from(aiExecutionsTable)
+                .where(eq(aiExecutionsTable.id, executionId))
+                .limit(1);
+              const [acceptance] = await db.select({
+                outcome: aiExecutionAcceptancesTable.outcome,
+                terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+                reasonCode: aiExecutionAcceptancesTable.reasonCode,
+              }).from(aiExecutionAcceptancesTable)
+                .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+                .limit(1);
+              if (execution?.status === "paused" && acceptance?.reasonCode === "EXECUTION_LEASE_EXPIRED") {
+                expect(acceptance).toMatchObject({
+                  outcome: "FAILED",
+                  terminalStatus: "paused",
+                  reasonCode: "EXECUTION_LEASE_EXPIRED",
+                });
+                reconciled = true;
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            if (!reconciled) {
+              throw new Error(`Replacement API did not reconcile the expired execution: ${apiOutput}`);
+            }
+            const [stillPending] = await db.select({ status: aiWorldTransitionsTable.status })
+              .from(aiWorldTransitionsTable)
+              .where(eq(aiWorldTransitionsTable.executionId, executionId));
+            expect(stillPending?.status).toBe("pending");
+            const dispatchesAfterStartup = await db.select({ id: eventsTable.id })
+              .from(eventsTable).where(and(
+                eq(eventsTable.projectId, projectId),
+                eq(eventsTable.goalId, targetGoalId),
+                eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
+              ));
+            expect(dispatchesAfterStartup).toEqual([]);
+          } finally {
+            if (apiProcess.exitCode === null && apiProcess.signalCode === null) {
+              apiProcess.kill("SIGTERM");
+              const graceful = await Promise.race([
+                apiExit.then(() => true),
+                new Promise<false>((resolve) => setTimeout(() => resolve(false), 20_000)),
+              ]);
+              if (!graceful && apiProcess.exitCode === null && apiProcess.signalCode === null) {
+                apiProcess.kill("SIGKILL");
+                await apiExit;
+              }
+            }
+          }
+          return;
+        }
 
         expect(await actualCompleteAiExecution(completionParams)).toBe(true);
         expect(await retryPendingRuntimeStartTransitions(10)).toBeGreaterThan(0);
