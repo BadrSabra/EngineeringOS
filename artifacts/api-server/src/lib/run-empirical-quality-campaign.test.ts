@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
+  reviewWithOneSameModelJsonRepair,
   runApiEmpiricalQualityCampaign,
 } from "./run-empirical-quality-campaign.js";
 
@@ -67,6 +68,22 @@ async function workspaceFor(
 }
 
 describe("empirical provider campaign adapter", () => {
+  it("makes at most one repair call while keeping the pinned runner", async () => {
+    const invoked: Array<{ repair: boolean; model: string }> = [];
+    const result = await reviewWithOneSameModelJsonRepair(async (repairAttempt) => {
+      invoked.push({ repair: repairAttempt, model: "liquid/lfm-2.5-2.6b:free" });
+      return repairAttempt
+        ? { _parseError: undefined, accepted: true }
+        : { _parseError: { code: "MALFORMED_JSON" }, accepted: false };
+    });
+
+    expect(invoked).toEqual([
+      { repair: false, model: "liquid/lfm-2.5-2.6b:free" },
+      { repair: true, model: "liquid/lfm-2.5-2.6b:free" },
+    ]);
+    expect(result.accepted).toBe(true);
+  });
+
   it("runs the isolated review path and records scoring, citation, normalization, and latency", async () => {
     const cleaned: string[] = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

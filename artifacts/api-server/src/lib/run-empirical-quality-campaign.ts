@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  FREE_MODELS,
   GroqClientError,
   reviewCode,
   runEmpiricalQualityCampaign,
@@ -19,6 +20,20 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
+
+export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
+  review: (repairAttempt: boolean) => Promise<T>,
+): Promise<T> {
+  const initial = await review(false);
+  if (!initial._parseError) return initial;
+  console.info(JSON.stringify({
+    scope: "empirical-quality",
+    action: "same_model_json_repair",
+    attempt: 2,
+    reason: "initial_contract_failure",
+  }));
+  return review(true);
+}
 
 class IncompleteEmpiricalEvidenceError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -220,6 +235,10 @@ async function cloneReviewedRepository(
 
 const defaultReviewCase: EmpiricalCaseReview = async (input) => {
   if (input.provider === "openrouter" && input.model) {
+    const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
+    if (!model?.capabilities.includes("json") || !model.supportsJson) {
+      throw new Error("Exact empirical OpenRouter model is not registered with JSON review capability.");
+    }
     process.env.OPENROUTER_MODEL = input.model;
   }
   const context: ProjectContext = {
@@ -231,10 +250,10 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     workflows: "The campaign is isolated and read-only.",
     metricsVerified: true,
   };
-  return reviewCode(
-    context,
-    input.fileContents,
-    {
+  const runReview = (repairAttempt: boolean) => reviewCode(
+      context,
+      input.fileContents,
+      {
       provider: input.provider,
       apiKey: input.apiKey,
       signal: input.signal,
@@ -242,9 +261,16 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       stopAfterFirstModelAttempt: true,
       retryTransient: false,
       qualityProfile: "code_review",
-    },
-    { requireSelectedFileFinding: input.testCase.outcome === "defect" },
+      },
+      {
+        requireSelectedFileFinding: input.testCase.outcome === "defect",
+        repairAttempt,
+      },
   );
+  if (input.provider === "openrouter" && input.model) {
+    return reviewWithOneSameModelJsonRepair(runReview);
+  }
+  return runReview(false);
 };
 
 const defaultWorkspaceFactory: EmpiricalCaseWorkspaceFactory = cloneReviewedRepository;

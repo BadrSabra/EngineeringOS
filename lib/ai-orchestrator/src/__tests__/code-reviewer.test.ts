@@ -158,6 +158,33 @@ describe("reviewCode selected-file acceptance", () => {
     expect(agentComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("adds a repair-only schema instruction without exposing the invalid response", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({
+        ...baseReview,
+        issues: [{
+          type: "security",
+          severity: "high",
+          file: "src/example.ts",
+          title: "Validate the input",
+          description: "The input is used without validation.",
+          suggestion: "Validate before use.",
+        }],
+      }),
+    });
+
+    await reviewCode(
+      context,
+      { "src/example.ts": "export const value = input;" },
+      { provider: "openrouter", apiKey: "test-key", qualityProfile: "code_review" },
+      { repairAttempt: true },
+    );
+
+    const messages = agentComplete.mock.calls.at(-1)?.[0] as Array<{ role: string; content: string }>;
+    expect(messages.at(-1)?.content).toContain("[JSON CONTRACT REPAIR]");
+    expect(messages.at(-1)?.content).not.toContain("raw provider");
+  });
+
   it("does not normalize unknown issue enums into a passing review", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({

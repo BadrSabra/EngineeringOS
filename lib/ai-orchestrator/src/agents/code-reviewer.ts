@@ -76,6 +76,8 @@ export type CodeReviewOptions = {
    * same provider, schema, and bounded source-read path.
    */
   requireSelectedFileFinding?: boolean;
+  /** Adds a bounded correction instruction after an earlier schema failure. */
+  repairAttempt?: boolean;
 };
 
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
@@ -130,15 +132,30 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
   protected readonly scope = "code-reviewer";
   protected readonly schema = CodeReviewResultSchema;
 
-  constructor(private readonly fileContents?: Record<string, string>) {
+  constructor(
+    private readonly fileContents?: Record<string, string>,
+    private readonly repairAttempt = false,
+  ) {
     super();
   }
 
   protected buildMessages(projectContext: ProjectContext): Message[] {
-    return [
+    const messages: Message[] = [
       { role: "system", content: buildCodeReviewSystemPrompt() },
       { role: "user", content: buildCodeReviewUserPrompt(projectContext, this.fileContents) },
     ];
+    if (this.repairAttempt) {
+      messages.push({
+        role: "user",
+        content: [
+          "[JSON CONTRACT REPAIR]",
+          "Your previous response did not satisfy the required code-review JSON schema.",
+          "Return one complete JSON object matching the schema exactly. Include every required field, use only allowed enum values, and do not include markdown or commentary.",
+          "Preserve the review findings and cite a selected file for any defect finding.",
+        ].join("\n"),
+      });
+    }
+    return messages;
   }
 
   protected buildCompleteOpts(): AgentCompleteOpts {
@@ -172,7 +189,7 @@ export async function reviewCode(
   reviewOptions: CodeReviewOptions = {},
 ): Promise<CodeReviewResult & { reviewScope: ReviewScope }> {
   const accounting = normalizeReviewInputs(projectContext, fileContents);
-  const result = await new CodeReviewAgent(fileContents).run(projectContext, opts);
+  const result = await new CodeReviewAgent(fileContents, reviewOptions.repairAttempt).run(projectContext, opts);
   const selectedPaths = accounting.includedFilePaths;
   if (
     !result._parseError &&
