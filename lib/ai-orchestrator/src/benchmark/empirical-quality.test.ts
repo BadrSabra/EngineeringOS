@@ -360,6 +360,39 @@ describe("empirical AI quality oracle", () => {
     expect(scorecard.blockers).toContain("false positives detected");
   });
 
+  it("does not match findings with missing/wrong lines or wrong severity", () => {
+    const defect = corpus.cases.find((entry) => entry.outcome === "defect")!;
+    const score = (finding: {
+      lineStart?: number;
+      severity: "critical" | "high" | "medium" | "low";
+    }) => scoreEmpiricalQualityCase(defect, {
+      caseId: defect.id,
+      outcome: "COMPLETE",
+      contractPassed: true,
+      qualityGateAccepted: false,
+      semanticVerdict: "findings",
+      observedFindings: [{
+        file: "app/routes/session.js",
+        type: "security",
+        severity: finding.severity,
+        ...(finding.lineStart === undefined ? {} : { lineStart: finding.lineStart }),
+        citationValid: true,
+        citationSupported: true,
+      }],
+    });
+
+    for (const finding of [
+      { severity: "high" as const },
+      { lineStart: 87, severity: "high" as const },
+      { lineStart: 42, severity: "medium" as const },
+    ]) {
+      const result = score(finding);
+      expect(result.truePositives).toBe(0);
+      expect(result.falsePositives).toBe(1);
+      expect(result.falseNegatives).toBe(1);
+    }
+  });
+
   it("separates provider unavailability from quality failures", () => {
     const result = scoreEmpiricalQualityCase(corpus.cases[0]!, {
       caseId: "defect-001",

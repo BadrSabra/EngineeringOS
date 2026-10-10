@@ -452,9 +452,15 @@ export function validateEmpiricalQualityCorpus(value: unknown): EmpiricalQuality
 }
 
 function sameFindingLocation(expected: EmpiricalGroundTruthFinding, observed: EmpiricalObservedFinding): boolean {
-  if (expected.file !== observed.file || expected.type !== observed.type) return false;
-  if (expected.lineStart === undefined || observed.lineStart === undefined) return true;
-  return expected.lineStart === observed.lineStart;
+  if (
+    expected.file !== observed.file ||
+    expected.type !== observed.type ||
+    expected.severity !== observed.severity ||
+    observed.lineStart === undefined
+  ) return false;
+  const expectedEnd = expected.lineEnd ?? expected.lineStart;
+  const observedEnd = observed.lineEnd ?? observed.lineStart;
+  return observed.lineStart <= expectedEnd && observedEnd >= expected.lineStart;
 }
 
 function emptyNormalization(): EmpiricalNormalizationCounters {

@@ -165,6 +165,26 @@ describe("CodeIssueSchema", () => {
     expect(CodeIssueSchema.safeParse(validIssue).success).toBe(true);
   });
 
+  it("accepts and normalizes explicit line anchors", () => {
+    expect(CodeIssueSchema.parse({
+      ...validIssue,
+      lineStart: 14,
+      lineEnd: 16,
+    })).toMatchObject({
+      lineStart: 14,
+      lineEnd: 16,
+    });
+    expect(CodeIssueSchema.parse({
+      ...validIssue,
+      lineStart: null,
+      lineEnd: null,
+    })).toMatchObject({
+      lineStart: undefined,
+      lineEnd: undefined,
+    });
+    expect(CodeIssueSchema.safeParse({ ...validIssue, lineStart: 0 }).success).toBe(false);
+  });
+
   it("strips (ignores) extra fields from generous models instead of rejecting them", () => {
     // .strict() was removed so OpenRouter models adding extra fields (e.g. "line",
     // "impact", "code") no longer cause SCHEMA_VALIDATION_FAILED → HTTP 422.

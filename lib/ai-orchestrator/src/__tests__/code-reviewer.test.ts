@@ -34,6 +34,9 @@ describe("reviewCode selected-file acceptance", () => {
     const block = prompt.match(/```json\s*([\s\S]*?)\s*```/i)?.[1];
     expect(block).toBeDefined();
     expect(() => JSON.parse(block!)).not.toThrow();
+    expect(block).toContain('"lineStart"');
+    expect(block).toContain('"lineEnd"');
+    expect(prompt).toContain("Use 1-based source line numbers");
   });
 
   it("marks a valid-looking empty finding list as a quality rejection", async () => {

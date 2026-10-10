@@ -13,6 +13,8 @@ export const CodeIssueSchema = z.object({
   // Strict provider JSON Schema requires every key; null represents an
   // intentionally unavailable path and is normalized to the optional domain field.
   file:        z.preprocess((value) => value === null ? undefined : value, z.string().optional()),
+  lineStart:   z.preprocess((value) => value === null ? undefined : value, z.number().int().min(1).optional()),
+  lineEnd:     z.preprocess((value) => value === null ? undefined : value, z.number().int().min(1).optional()),
   title:       z.string().min(1),
   description: z.string().min(1),
   suggestion:  z.string().min(1),

@@ -27,7 +27,7 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v4";
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v5";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
@@ -199,6 +199,8 @@ function projectReviewObservation(
         const citationValid = testCase.selectedFiles.includes(file);
         return {
           file,
+          ...(typeof issue.lineStart === "number" ? { lineStart: issue.lineStart } : {}),
+          ...(typeof issue.lineEnd === "number" ? { lineEnd: issue.lineEnd } : {}),
           type: issue.type,
           severity: issue.severity,
           citationValid,
