@@ -5905,3 +5905,14 @@ G9 Revocation Safety
 - **authority/safety impact:** يثبت الاختبار صلة `runRecipeOperation(runtime.start)` بمدخلات الكاتب الفعلية وحدود D2، كما يثبت أن API startup لا يعيد تلقائيًا تنفيذ حالة runtime ذات lease منتهٍ وأثر غير محسوم. عملية الاختبار التي شغلت recipe ظلت حية، وجرى إنهاء lease صراحةً؛ قتل عامل recipe/API نفسه ما زال غير مثبت.
 - **remaining/blocker:** استعادة API بعد SIGKILL فعلي للعملية التي نفذت `runtime.start` قبل القبول ما زالت `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
 - **next step:** ابقَ داخل E2؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — محاولات مراجعة OpenRouter المجانية
+
+- **phase/step:** E2 فقط — قبول مراجعة منظمة بمزود حي قبل تشغيل corpus empirical الأصعب.
+- **status:** `free tool-call smoke PASS; structured review ACCEPTANCE NOT MET; upstream_shared_pool RATE_LIMITED; final free candidate TIMEOUT (120s); empirical-quality NOT RUN; E2 OPEN; E3 STOPPED`
+- **what changed:** أضيف إلى إيصال الحملة نطاق rate-limit الخادمي المحدود والنموذج الفاشل بعد تنقيتهما، وأضيفا إلى ملخص stdout الآمن. لم يتغير سلوك fallback أو بوابة القبول.
+- **live results:** أظهر الفهرس 19 نموذجًا مجانيًا. نجح smoke محدود في tool-calling. حملة مراجعة reasoning-only انتهت `MALFORMED_JSON` بلا evidence بعد نماذج مجانية؛ محاولات مجانية منفصلة أعادت `RATE_LIMITED`، وصنّف آخر إيصال النطاق `upstream_shared_pool`. محاولة Inkling المنفصلة انتهت بمهلة 120 ثانية دون receipt. لم يحدث paid fallback، ولم يُقبل finding مرتبط بالملف المحدد.
+- **validation:** اختبار إيصال المراجعة 3/3، API typecheck، `node --check` للـrunner، و`git diff --check` نجحت. أزيل جذر disposable المتروك بعد timeout. سجلات workflows اللاحقة أظهرت API غير جاهز بسبب عمود dev DB مفقود `ai_execution_evidence_reads.read_metadata_version`، وDashboard غير جاهز بسبب تعارض المنفذ 23183؛ لم تُجرَ migration أو إعادة تشغيل مُدارة ضمن هذا التحقق.
+- **authority/safety impact:** لم يُخفّض عقد JSON أو evidence، وبقيت نتائج malformed وrate-limit والtimeout غير مقبولة. أُضيفت البيانات التشخيصية كي تميّز المحاولات القادمة النطاق والنموذج الفاشل دون provider body أو نص المصدر.
+- **remaining/blocker:** انتظار توفر free upstream؛ لا تشغّل empirical-quality حتى ينتج live review إيصالًا `COMPLETE` مع `accepted=true` وfinding واحد مرتبط بالملف. تجنب إعادة النموذج المحدد في إيصال 429 أثناء cooldown، ولا تستخدم paid fallback.
+- **next step:** بعد انقضاء cooldown، جرّب مرشحًا مجانيًا مختلفًا بمحاولة محدودة واحدة؛ إن قُبلت المراجعة، شغّل empirical-quality على corpus المعتمد داخل `HOST_DISPOSABLE_TEMP_ROOT`. إن عاد rate-limit أو timeout، توقف وسجل النتيجة. E2 فقط؛ لا تبدأ E3 أو Strategy Replay ولا تُعِد تشغيل workflows مُدارة.

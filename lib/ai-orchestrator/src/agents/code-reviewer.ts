@@ -7,7 +7,7 @@ import type { ProjectContext } from "../context-builder.js";
 import { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "../prompts/review.prompt.js";
 import { CodeReviewResultSchema, type CodeReviewOutput, type CodeIssue } from "../schemas/code-review.schema.js";
 import type { AgentCompleteOpts, ProviderId } from "../agent-complete.js";
-import { GroqClientError } from "../errors.js";
+import { GroqClientError, type ProviderRateLimitScope } from "../errors.js";
 import { classifyOpenRouterFailure, type OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type { Message } from "../groq-client.js";
 import { BaseAgent, type AgentRunResult } from "./base-agent.js";
@@ -53,6 +53,8 @@ export type CodeReviewCampaignReceipt = {
   outcomeClass: "fallback-success" | "terminal-incomplete";
   terminalStatus: "COMPLETE" | "INCOMPLETE";
   failureCode?: string;
+  rateLimitScope?: ProviderRateLimitScope;
+  failureModel?: string;
   recoveryAction: OpenRouterFailureAction | "retry-review";
   attemptedModels: string[];
   modelAttempts: Array<{ model: string; tier: "free" | "paid" | "unknown" }>;
@@ -237,6 +239,13 @@ export function buildCodeReviewCampaignReceipt(params: {
     params.result?._parseError?.code ??
       (params.error instanceof GroqClientError ? params.error.code : undefined),
   );
+  const rateLimitScope = params.error instanceof GroqClientError
+    && (params.error.code === "RATE_LIMITED" || params.error.code === "QUOTA")
+    ? params.error.rateLimitScope
+    : undefined;
+  const failureModel = params.error instanceof GroqClientError
+    ? safeModels(params.error.providerModel ? [params.error.providerModel] : [])[0]
+    : undefined;
 
   return {
     kind: "code-review-provider-campaign-receipt",
@@ -249,6 +258,8 @@ export function buildCodeReviewCampaignReceipt(params: {
     outcomeClass: hasAcceptedFinding ? "fallback-success" : "terminal-incomplete",
     terminalStatus: hasAcceptedFinding ? "COMPLETE" : "INCOMPLETE",
     ...(errorCode ? { failureCode: errorCode } : {}),
+    ...(rateLimitScope ? { rateLimitScope } : {}),
+    ...(failureModel ? { failureModel } : {}),
     recoveryAction: recoveryActionFor(errorCode),
     attemptedModels: safeModels(params.attemptedModels),
     modelAttempts: (params.modelAttempts ?? [])

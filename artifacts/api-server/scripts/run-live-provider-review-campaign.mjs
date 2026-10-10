@@ -155,6 +155,10 @@ child.on("exit", async (code, signal) => {
       outcome: receipt.outcomeClass,
       terminal: receipt.terminalStatus,
       evidenceCount: receipt.evidence.length,
+      failureCode: receipt.failureCode ?? null,
+      rateLimitScope: receipt.rateLimitScope ?? null,
+      failureModel: receipt.failureModel ?? null,
+      modelAttempts: receipt.modelAttempts,
     }));
     process.exitCode = 0;
   } catch (error) {

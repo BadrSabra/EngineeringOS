@@ -71,7 +71,9 @@ describe("structured live review receipts", () => {
       error: new GroqClientError("RATE_LIMITED", "raw provider response sk-or-v1-secret", {
         context: {
           providerMessage: "raw provider response",
+          providerModel: "second-model:free",
           providerAttemptedModels: ["first-model:free", "second-model?token=secret"],
+          rateLimitScope: "upstream_shared_pool",
         },
       }),
       attemptedModels: ["first-model:free", "second-model?token=secret"],
@@ -87,6 +89,8 @@ describe("structured live review receipts", () => {
     }
     expect(parseReceipt.failureCode).toBe("MALFORMED_JSON");
     expect(outageReceipt.failureCode).toBe("RATE_LIMITED");
+    expect(outageReceipt.rateLimitScope).toBe("upstream_shared_pool");
+    expect(outageReceipt.failureModel).toBe("second-model:free");
     expect(outageReceipt.recoveryAction).toBe("wait");
   });
 
