@@ -94,6 +94,8 @@ export type EmpiricalNormalizationCounters = {
 export type EmpiricalCaseObservation = {
   caseId: string;
   outcome: "COMPLETE" | "PROVIDER_UNAVAILABLE" | "TIMEOUT" | "ERROR";
+  /** Provider-reported model for this case, when a response identifies it. */
+  providerModel?: string;
   contractPassed: boolean;
   qualityGateAccepted: boolean;
   semanticVerdict: "findings" | "clean" | "blocked" | "unknown";
@@ -117,6 +119,7 @@ export type EmpiricalCaseObservation = {
 export type EmpiricalCaseScore = {
   caseId: string;
   outcome: EmpiricalCaseObservation["outcome"];
+  providerModel?: string;
   truePositives: number;
   falsePositives: number;
   falseNegatives: number;
@@ -173,6 +176,9 @@ export type EmpiricalQualityScorecard = {
   corpusRevision: string;
   provider: string;
   model: string | null;
+  structuredOutputMode: "native_json" | "prompt_only_json" | "provider_default";
+  /** Corpus cases omitted because the campaign stopped before sending them. */
+  notRunCaseIds: string[];
   measurementOnly: true;
   status: "COMPLETE" | "INCOMPLETE" | "UNAVAILABLE";
   empiricalQualityStatus: "PROVEN" | "MEASURED" | "INCOMPLETE" | "UNAVAILABLE";
@@ -494,6 +500,9 @@ export function scoreEmpiricalQualityCase(
   return {
     caseId: testCase.id,
     outcome: observation.outcome,
+    ...(observation.providerModel
+      ? { providerModel: safeLabel(observation.providerModel, "redacted-model") }
+      : {}),
     truePositives,
     falsePositives,
     falseNegatives,
@@ -530,9 +539,14 @@ export function buildEmpiricalQualityScorecard(args: {
   results: readonly EmpiricalCaseScore[];
   provider: string;
   model?: string | null;
+  structuredOutputMode?: EmpiricalQualityScorecard["structuredOutputMode"];
   generatedAt?: string;
 }): EmpiricalQualityScorecard {
   const results = [...args.results].slice(0, args.corpus.cases.length);
+  const observedCaseIds = new Set(results.map((result) => result.caseId));
+  const notRunCaseIds = args.corpus.cases
+    .filter((testCase) => !observedCaseIds.has(testCase.id))
+    .map((testCase) => testCase.id);
   const completed = results.filter((result) => result.outcome === "COMPLETE");
   const latencies = completed.flatMap((result) => result.latencyMs === undefined ? [] : [result.latencyMs]);
   const tp = completed.reduce((sum, result) => sum + result.truePositives, 0);
@@ -567,6 +581,7 @@ export function buildEmpiricalQualityScorecard(args: {
       : "INCOMPLETE";
   const blockers: string[] = [];
   if (results.length !== args.corpus.cases.length) blockers.push("corpus cases incomplete");
+  if (notRunCaseIds.length > 0) blockers.push("cases not run after campaign stopped");
   if (results.some((result) => result.outcome === "PROVIDER_UNAVAILABLE")) blockers.push("provider unavailable");
   if (results.some((result) => result.outcome === "TIMEOUT")) blockers.push("campaign timeout");
   if (results.some((result) => result.outcome === "ERROR")) blockers.push("campaign execution error");
@@ -586,6 +601,8 @@ export function buildEmpiricalQualityScorecard(args: {
     corpusRevision: args.corpus.corpusRevision,
     provider: safeLabel(args.provider, "redacted-provider"),
     model: args.model === null || args.model === undefined ? null : safeLabel(args.model, "redacted-model"),
+    structuredOutputMode: args.structuredOutputMode ?? "provider_default",
+    notRunCaseIds,
     measurementOnly: true,
     status,
     empiricalQualityStatus,
@@ -630,6 +647,7 @@ export async function runEmpiricalQualityCampaign(args: {
   executeCase: EmpiricalQualityExecutor;
   provider: string;
   model?: string | null;
+  structuredOutputMode?: EmpiricalQualityScorecard["structuredOutputMode"];
   caseTimeoutMs?: number;
   campaignTimeoutMs?: number;
   generatedAt?: string;
@@ -655,6 +673,7 @@ export async function runEmpiricalQualityCampaign(args: {
       results,
       provider: args.provider,
       model: args.model,
+      structuredOutputMode: args.structuredOutputMode,
       generatedAt,
     }));
   };
@@ -713,6 +732,7 @@ export async function runEmpiricalQualityCampaign(args: {
         providerRateLimitScope = observation.providerRateLimitScope;
       }
       await emitProgress();
+      if (observation.outcome === "PROVIDER_UNAVAILABLE" || observation.providerRateLimitScope) break;
     } catch (error) {
       const timedOut = controller.signal.aborted ||
         (error instanceof Error && error.message === "EMPIRICAL_CAMPAIGN_TIMEOUT");
@@ -737,6 +757,7 @@ export async function runEmpiricalQualityCampaign(args: {
     results,
     provider: args.provider,
     model: args.model,
+    structuredOutputMode: args.structuredOutputMode,
     generatedAt,
   });
 }

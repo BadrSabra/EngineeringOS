@@ -77,6 +77,7 @@ export type EmpiricalCaseReviewInput = {
   apiKey: string;
   model?: string;
   signal: AbortSignal;
+  onProviderModel?: (model: string | null | undefined) => void;
 };
 
 export type EmpiricalCaseWorkspaceFactory = (
@@ -128,6 +129,7 @@ function projectReviewObservation(
   testCase: EmpiricalCorpusCase,
   result: CodeReviewResult,
   latencyMs: number,
+  providerModel?: string,
 ): Omit<EmpiricalCaseObservation, "caseId"> {
   const incomplete = Boolean(result._parseError || result._qualityError);
   const contractFailureCode = result._parseError?.code ?? result._qualityError?.code;
@@ -154,6 +156,7 @@ function projectReviewObservation(
     qualityGateAccepted: !incomplete && result.verdict === "approved",
     semanticVerdict: incomplete ? "unknown" : result.issues.length > 0 ? "findings" : "clean",
     observedFindings,
+    ...(providerModel ? { providerModel } : {}),
     normalization: { droppedCitation },
     latencyMs,
     ...(incomplete ? { errorCode: contractFailureCode ?? "EXECUTION_ERROR" } : {}),
@@ -264,6 +267,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       stopAfterFirstModelAttempt: true,
       retryTransient: false,
       qualityProfile: "code_review",
+        onModelAttempt: ({ model }) => input.onProviderModel?.(model),
       },
       {
         requireSelectedFileFinding: input.testCase.outcome === "defect",
@@ -283,6 +287,15 @@ export async function runApiEmpiricalQualityCampaign(
   options: ApiEmpiricalQualityCampaignOptions,
 ): Promise<EmpiricalQualityScorecard> {
   const corpus = validateEmpiricalQualityCorpus(options.corpus);
+  const registeredModel = options.provider === "openrouter" && options.model
+    ? FREE_MODELS.find((candidate) => candidate.id === options.model)
+    : undefined;
+  const structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"] =
+    registeredModel?.supportsPromptOnlyJson && !registeredModel.supportsJson
+      ? "prompt_only_json"
+      : registeredModel?.supportsJson
+        ? "native_json"
+        : "provider_default";
   const caseTimeoutMs = options.caseTimeoutMs ?? 90_000;
   const workspaceFactory = options.workspaceFactory ?? defaultWorkspaceFactory;
   const review = options.reviewCase ?? defaultReviewCase;
@@ -301,6 +314,7 @@ export async function runApiEmpiricalQualityCampaign(
     corpus,
     provider: options.provider,
     model: options.model ?? null,
+    structuredOutputMode,
     caseTimeoutMs,
     campaignTimeoutMs: options.campaignTimeoutMs,
     generatedAt: options.generatedAt,
@@ -308,6 +322,7 @@ export async function runApiEmpiricalQualityCampaign(
     executeCase: async (testCase, signal) => {
       const startedAt = Date.now();
       let workspace: EmpiricalCaseWorkspace | undefined;
+      let providerModel: string | undefined;
       try {
         workspace = await workspaceFactory(testCase, caseTimeoutMs, signal);
         const fileContents = await readSelectedFiles(testCase, workspace.rootPath);
@@ -319,8 +334,11 @@ export async function runApiEmpiricalQualityCampaign(
           apiKey: options.apiKey,
           model: options.model,
           signal,
+          onProviderModel: (model) => {
+            if (model) providerModel = model;
+          },
         });
-        return projectReviewObservation(testCase, result, Date.now() - startedAt);
+        return projectReviewObservation(testCase, result, Date.now() - startedAt, providerModel);
       } catch (error) {
         const errorCode = classifyProviderError(error);
         console.warn(JSON.stringify({
@@ -345,6 +363,9 @@ export async function runApiEmpiricalQualityCampaign(
           observedFindings: [],
           errorCode,
           ...(providerRateLimitScope ? { providerRateLimitScope } : {}),
+          ...(error instanceof GroqClientError && error.providerModel
+            ? { providerModel: error.providerModel }
+            : {}),
           latencyMs: Date.now() - startedAt,
         };
       } finally {

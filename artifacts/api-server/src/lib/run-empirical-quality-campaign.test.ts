@@ -134,20 +134,24 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("keeps provider outages separate from quality failures", async () => {
+    const reviewed: string[] = [];
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,
       provider: "openrouter",
       apiKey: "provider-key-is-test-only",
       workspaceFactory: workspaceFor,
-      reviewCase: async () => {
+      reviewCase: async ({ testCase }) => {
+        reviewed.push(testCase.id);
         throw new GroqClientError("RATE_LIMITED", "provider response must not escape");
       },
     });
 
     expect(scorecard.status).toBe("UNAVAILABLE");
-    expect(scorecard.metrics.providerUnavailableCount).toBe(2);
+    expect(scorecard.metrics.providerUnavailableCount).toBe(1);
     expect(scorecard.metrics.errorCount).toBe(0);
-    expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
+    expect(scorecard.cases).toHaveLength(1);
+    expect(scorecard.notRunCaseIds).toEqual(["clean-001"]);
+    expect(reviewed).toEqual(["defect-001"]);
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
   });
 
@@ -163,9 +167,10 @@ describe("empirical provider campaign adapter", () => {
     });
 
     expect(scorecard.status).toBe("UNAVAILABLE");
-    expect(scorecard.metrics.providerUnavailableCount).toBe(2);
+    expect(scorecard.metrics.providerUnavailableCount).toBe(1);
     expect(scorecard.metrics.errorCount).toBe(0);
-    expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
+    expect(scorecard.cases).toHaveLength(1);
+    expect(scorecard.notRunCaseIds).toEqual(["clean-001"]);
   });
 
   it("classifies malformed model output as an incomplete contract result, not provider unavailability", async () => {
@@ -216,10 +221,47 @@ describe("empirical provider campaign adapter", () => {
     });
 
     expect(scorecard.status).toBe("UNAVAILABLE");
-    expect(scorecard.metrics.providerUnavailableCount).toBe(2);
+    expect(scorecard.metrics.providerUnavailableCount).toBe(1);
     expect(reviewed).toEqual(["defect-001"]);
+    expect(scorecard.notRunCaseIds).toEqual(["clean-001"]);
     expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
     expect(JSON.stringify(scorecard)).not.toContain("upstream_shared_pool");
+  });
+
+  it("records the structured-output mode and provider-reported model", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      model: "inclusionai/ling-3.1-flash",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase, onProviderModel }) => {
+        onProviderModel?.("inclusionai/ling-3.1-flash");
+        return {
+          summary: "Bounded review",
+          overallScore: testCase.outcome === "defect" ? 40 : 90,
+          strengths: ["Selected fixture"],
+          issues: testCase.outcome === "defect" ? [{
+            type: "security",
+            severity: "high",
+            file: "src/auth.ts",
+            title: "Unsafe authentication",
+            description: "The selected fixture is unsafe.",
+            suggestion: "Validate the input.",
+          }] : [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: testCase.outcome === "defect" ? "needs_changes" : "approved",
+        };
+      },
+    });
+
+    expect(scorecard.structuredOutputMode).toBe("prompt_only_json");
+    expect(scorecard.model).toBe("inclusionai/ling-3.1-flash");
+    expect(scorecard.cases.map((entry) => entry.providerModel)).toEqual([
+      "inclusionai/ling-3.1-flash",
+      "inclusionai/ling-3.1-flash",
+    ]);
   });
 
   it("records oversized selected-file evidence as incomplete instead of scoring it", async () => {

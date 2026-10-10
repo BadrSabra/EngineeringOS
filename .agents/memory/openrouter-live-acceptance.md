@@ -33,6 +33,12 @@ Exact-model probes must use a model registered in `FREE_MODELS` with metadata ma
 
 **How to apply:** For a new live candidate, first verify its provider metadata and register it only if its capabilities fit the test; then assert model identity at resolver and provider-response boundaries before interpreting its scorecard.
 
+Exact-model empirical campaigns must stop after the first provider-unavailable observation because the candidate can no longer pass the full corpus; record remaining case IDs as not run rather than issuing more requests or counting them as attempted failures. Scorecards should preserve the selected structured-output mode and any provider-reported model identity separately from the requested model.
+
+**Why:** A repeated provider outage cannot improve an all-cases acceptance result, while additional calls can waste capacity or trigger a model-scoped upstream cooldown. Separating selected and reported identities prevents routing metadata from being mistaken for measured model identity.
+
+**How to apply:** Break the existing campaign loop on provider unavailability, derive missing case IDs from the corpus, and keep output mode plus per-case reported model in the safe scorecard projection; do not add a parallel scheduler or cooldown store.
+
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.
