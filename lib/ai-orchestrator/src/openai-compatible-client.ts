@@ -32,10 +32,12 @@ import {
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import {
+  MAX_MODEL_COOLDOWN_MS,
   recordModelFailure,
   recordModelSuccess,
 } from "./openrouter/circuit-breaker.js";
 import {
+  clearSharedPoolModelCooldown,
   persistSharedPoolModelCooldown,
   readModelCooldowns,
 } from "./openrouter/model-cooldown-store.js";
@@ -689,18 +691,20 @@ function looksLikeAgentHarnessRestriction(body: string, providerCode?: string): 
   );
 }
 
-const MAX_RETRY_AFTER_MS = 60_000;
+// Preserve a useful upstream hint for durable model cooldowns, but never let
+// an opt-in in-process retry sleep for the full provider cooldown.
+const MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS = 60_000;
 
 function parseRetryAfterMs(headers?: Headers): number | undefined {
   const value = headers?.get("retry-after")?.trim();
   if (!value) return undefined;
   const seconds = Number(value);
   if (Number.isFinite(seconds)) {
-    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.ceil(seconds * 1000)));
+    return Math.min(MAX_MODEL_COOLDOWN_MS, Math.max(0, Math.ceil(seconds * 1000)));
   }
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return undefined;
-  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, timestamp - Date.now()));
+  return Math.min(MAX_MODEL_COOLDOWN_MS, Math.max(0, timestamp - Date.now()));
 }
 
 /** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
@@ -741,6 +745,7 @@ function classifyStatus(
       providerStatus: status,
       providerCode,
       rateLimitScope,
+      retryAfterMs: ctx.retryAfterMs ?? null,
       providerMessage: pMessage ?? null,
       bodyPreview: body.slice(0, 300),
     }),
@@ -1560,6 +1565,7 @@ export async function openrouterCompleteRaw(
         : 0;
       const waitMs = Math.min(
         err.retryAfterMs,
+        MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS,
         Math.max(0, remainingMs - recoveryReserveMs),
       );
       if (waitMs > 0) {
@@ -1822,6 +1828,7 @@ export async function openrouterCompleteWithFallback(
     try {
       const response = await openrouterCompleteRaw(messages, { ...opts, model });
       recordModelSuccess("openrouter", model);
+      await clearSharedPoolModelCooldown("openrouter", model);
       return response;
     } catch (err) {
       // Do not turn a provider-scoped 429 into a burst against the next model
@@ -1843,7 +1850,11 @@ export async function openrouterCompleteWithFallback(
             err instanceof GroqClientError ? err.retryAfterMs : undefined,
           );
           if (providerRateLimitScope === "upstream_shared_pool") {
-            await persistSharedPoolModelCooldown("openrouter", model);
+            await persistSharedPoolModelCooldown(
+              "openrouter",
+              model,
+              err instanceof GroqClientError ? err.retryAfterMs : undefined,
+            );
           }
         }
         if (
@@ -2017,6 +2028,7 @@ export async function* openrouterCompleteStream(
           yield delta;
         }
         recordModelSuccess("openrouter", model);
+        await clearSharedPoolModelCooldown("openrouter", model);
         return;
       } catch (err) {
         const providerError = err instanceof GroqClientError ? err : undefined;
@@ -2027,7 +2039,7 @@ export async function* openrouterCompleteStream(
         ) {
           recordModelFailure("openrouter", model, providerError.retryAfterMs);
           if (providerError.rateLimitScope === "upstream_shared_pool") {
-            await persistSharedPoolModelCooldown("openrouter", model);
+            await persistSharedPoolModelCooldown("openrouter", model, providerError.retryAfterMs);
           }
         }
         // Once bytes have been emitted, retrying would duplicate or splice the

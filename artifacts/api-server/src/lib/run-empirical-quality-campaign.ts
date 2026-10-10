@@ -27,7 +27,7 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v5";
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v6";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
@@ -356,6 +356,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
         repairAttempt,
         promptOnlyJson,
         jsonObjectOnly,
+        empiricalStrictEvidence: true,
         priorModelOutput,
         priorParseErrorMessage,
       },
@@ -449,6 +450,24 @@ export async function runApiEmpiricalQualityCampaign(
             if (model) providerModel = model;
           },
         });
+        console.info(JSON.stringify({
+          scope: "empirical-quality",
+          action: "safe_finding_diagnostics",
+          caseId: testCase.id,
+          verdict: result.verdict,
+          findings: result.issues.map((issue) => {
+            const file = typeof issue.file === "string" && testCase.selectedFiles.includes(issue.file.trim())
+              ? issue.file.trim()
+              : null;
+            return {
+              file,
+              lineStart: Number.isInteger(issue.lineStart) ? issue.lineStart : null,
+              lineEnd: Number.isInteger(issue.lineEnd) ? issue.lineEnd : null,
+              type: issue.type,
+              severity: issue.severity,
+            };
+          }),
+        }));
         return projectReviewObservation(testCase, result, Date.now() - startedAt, providerModel);
       } catch (error) {
         const errorCode = classifyProviderError(error);

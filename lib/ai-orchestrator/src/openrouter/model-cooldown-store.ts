@@ -1,5 +1,6 @@
 import {
   getModelCooldownRemainingMs,
+  MAX_MODEL_COOLDOWN_MS,
   MODEL_COOLDOWN_MS,
   rememberModelCooldownUntil,
 } from "./circuit-breaker.js";
@@ -12,6 +13,7 @@ export type PersistedModelCooldown = {
 export type ModelCooldownPersistence = {
   readActive(provider: string, models: string[]): Promise<PersistedModelCooldown[]>;
   write(provider: string, model: string, cooldownMs: number): Promise<void>;
+  clear(provider: string, model: string): Promise<void>;
 };
 
 const PERSISTENCE_WARNING_INTERVAL_MS = 60_000;
@@ -43,16 +45,39 @@ const postgresPersistence: ModelCooldownPersistence = {
        VALUES ($1, $2, now() + ($3::double precision * interval '1 millisecond'), now())
        ON CONFLICT (provider, model) DO UPDATE
        SET cooling_until = GREATEST(
-             openrouter_model_cooldowns.cooling_until,
-             EXCLUDED.cooling_until
-           ),
+              openrouter_model_cooldowns.cooling_until,
+              now() + (
+                CASE
+                  WHEN openrouter_model_cooldowns.updated_at > now() - interval '24 hours'
+                  THEN LEAST(
+                    $4::double precision,
+                    GREATEST(
+                      $3::double precision,
+                      CEIL(EXTRACT(EPOCH FROM (
+                        openrouter_model_cooldowns.cooling_until -
+                        openrouter_model_cooldowns.updated_at
+                      )) * 2000)
+                    )
+                  )
+                  ELSE $3::double precision
+                END * interval '1 millisecond'
+              )
+            ),
            updated_at = now()`,
-      [provider, model, cooldownMs],
+      [provider, model, cooldownMs, MAX_MODEL_COOLDOWN_MS],
     );
-    // Cooldown records are keyed by provider/model, so expiry cleanup is
-    // bounded by the number of distinct historical model IDs.
+    // Retain expired rows briefly so repeated shared-pool limits can escalate
+    // across process restarts, then prune by model identity.
     await pool.query(
-      "DELETE FROM openrouter_model_cooldowns WHERE cooling_until <= now()",
+      "DELETE FROM openrouter_model_cooldowns WHERE updated_at <= now() - interval '30 days'",
+    );
+  },
+
+  async clear(provider, model) {
+    const { pool } = await import("@workspace/db");
+    await pool.query(
+      "DELETE FROM openrouter_model_cooldowns WHERE provider = $1 AND model = $2",
+      [provider, model],
     );
   },
 };
@@ -60,7 +85,7 @@ const postgresPersistence: ModelCooldownPersistence = {
 let persistence: ModelCooldownPersistence = postgresPersistence;
 let lastPersistenceWarningAt = Number.NEGATIVE_INFINITY;
 
-function logPersistenceUnavailable(operation: "read" | "write"): void {
+function logPersistenceUnavailable(operation: "read" | "write" | "clear"): void {
   const now = Date.now();
   if (now - lastPersistenceWarningAt < PERSISTENCE_WARNING_INTERVAL_MS) return;
   lastPersistenceWarningAt = now;
@@ -115,11 +140,35 @@ export async function readModelCooldowns(
 export async function persistSharedPoolModelCooldown(
   provider: string,
   model: string,
+  retryAfterMs?: number,
 ): Promise<void> {
   try {
-    await persistence.write(provider, model, MODEL_COOLDOWN_MS);
+    const providerRetryAfter = Number.isFinite(retryAfterMs)
+      ? Math.max(0, Math.min(MAX_MODEL_COOLDOWN_MS, Math.floor(retryAfterMs!)))
+      : 0;
+    await persistence.write(
+      provider,
+      model,
+      Math.max(MODEL_COOLDOWN_MS, providerRetryAfter),
+    );
   } catch {
     logPersistenceUnavailable("write");
+  }
+}
+
+/**
+ * A successful response ends the persisted failure streak for this exact
+ * model. Persistence is best-effort: a database outage must not turn a
+ * successful provider response into a failed AI operation.
+ */
+export async function clearSharedPoolModelCooldown(
+  provider: string,
+  model: string,
+): Promise<void> {
+  try {
+    await persistence.clear(provider, model);
+  } catch {
+    logPersistenceUnavailable("clear");
   }
 }
 

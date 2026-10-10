@@ -88,6 +88,8 @@ export type CodeReviewOptions = {
   promptOnlyJson?: boolean;
   /** Uses native JSON object mode instead of the stricter JSON Schema format. */
   jsonObjectOnly?: boolean;
+  /** Applies a conservative evidence-only rubric for empirical campaigns. */
+  empiricalStrictEvidence?: boolean;
 };
 
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
@@ -150,13 +152,16 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     private readonly priorParseErrorMessage?: string,
     private readonly jsonObjectOnly = false,
     private readonly strictResponseFormat = false,
+    private readonly empiricalStrictEvidence = false,
   ) {
     super();
   }
 
   protected buildMessages(projectContext: ProjectContext): Message[] {
     const messages: Message[] = [
-      { role: "system", content: buildCodeReviewSystemPrompt() },
+      { role: "system", content: buildCodeReviewSystemPrompt({
+        empiricalStrictEvidence: this.empiricalStrictEvidence,
+      }) },
       { role: "user", content: buildCodeReviewUserPrompt(projectContext, this.fileContents) },
     ];
     if (this.repairAttempt) {
@@ -256,6 +261,7 @@ export async function reviewCode(
       reviewOptions.priorParseErrorMessage,
       reviewOptions.jsonObjectOnly,
       opts?.stopAfterFirstModelAttempt === true,
+      reviewOptions.empiricalStrictEvidence,
   ).run(projectContext, opts);
   const selectedPaths = accounting.includedFilePaths;
   if (

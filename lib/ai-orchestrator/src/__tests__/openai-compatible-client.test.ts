@@ -36,6 +36,7 @@ import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
 let persistedCooldownWrites: Array<{ provider: string; model: string; cooldownMs: number }> = [];
+let persistedCooldownClears: Array<{ provider: string; model: string }> = [];
 
 function jsonResponse(body: unknown, status = 200, headers?: Record<string, string> | Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
@@ -49,10 +50,14 @@ beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
   persistedCooldownWrites = [];
+  persistedCooldownClears = [];
   _setModelCooldownPersistenceForTest({
     readActive: async () => [],
     write: async (provider, model, cooldownMs) => {
       persistedCooldownWrites.push({ provider, model, cooldownMs });
+    },
+    clear: async (provider, model) => {
+      persistedCooldownClears.push({ provider, model });
     },
   });
 });
@@ -320,6 +325,24 @@ describe("validateGeminiDefaultModels", () => {
 // ── OpenRouter fallback ────────────────────────────────────────────────────────
 
 describe("OpenRouter transport-error redaction", () => {
+  it("clears persisted cooldown history after a successful response", async () => {
+    const model = FREE_MODELS[0]!.id;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      choices: [{ message: { content: "success" } }],
+      model,
+      usage: {},
+    })));
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model,
+      maxFallbackModels: 1,
+    });
+
+    expect(result.content).toBe("success");
+    expect(persistedCooldownClears).toContainEqual({ provider: "openrouter", model });
+  });
+
   it("redacts provider credentials after the bounded transient retry", async () => {
     const secret = "sk-or-v1-fixture-transport-secret";
     const fetchMock = vi.fn(async () => {
@@ -699,7 +722,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(persistedCooldownWrites).toEqual([{
       provider: "openrouter",
       model: attemptedModels[0]!,
-      cooldownMs: 90_000,
+      cooldownMs: 15 * 60_000,
     }]);
   });
 
@@ -812,7 +835,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(callCount).toBe(1);
   });
 
-  it("preserves a bounded Retry-After hint and avoids retrying the same model", async () => {
+  it("preserves a Retry-After hint up to the model cooldown bound and avoids retrying the same model", async () => {
     const fetchMock = vi.fn(async () =>
       textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
@@ -830,9 +853,34 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       (err: unknown) =>
         err instanceof GroqClientError &&
         err.code === "RATE_LIMITED" &&
-        err.retryAfterMs === 60_000,
+        err.retryAfterMs === 120_000,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds extreme Retry-After hints to the maximum model cooldown", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse(
+        '{"error":{"message":"temporarily rate limited"}}',
+        429,
+        new Headers({ "Retry-After": String(7 * 60 * 60) }),
+      )));
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: false,
+        baseUrl: "https://example.test/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        err.retryAfterMs === 6 * 60 * 60_000,
+    );
   });
 
   it("keeps a short Retry-After hint precise for fallback callers", async () => {
@@ -872,7 +920,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.code === "RATE_LIMITED" &&
         typeof err.retryAfterMs === "number" &&
         err.retryAfterMs > 0 &&
-        err.retryAfterMs <= 60_000,
+        err.retryAfterMs <= 6 * 60 * 60_000,
     );
   });
 

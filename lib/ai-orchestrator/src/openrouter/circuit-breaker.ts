@@ -16,11 +16,11 @@
 
 const CIRCUIT_OPEN_THRESHOLD = 5; // consecutive failures before opening
 const COOLDOWN_MS = 2 * 60 * 1_000; // 2 minutes
-// Keep a throttled slug out for longer than a typical empirical case. A
-// 30-second cooldown can expire while the current case is still falling
-// through its bounded model chain, causing the next case to immediately
-// re-admit the same upstream-throttled slug.
-export const MODEL_COOLDOWN_MS = 90 * 1_000;
+// Shared-pool limits can outlast a short per-request retry interval. Keep the
+// exact throttled model out for at least 15 minutes, with bounded in-process
+// exponential backoff for repeated failures.
+export const MODEL_COOLDOWN_MS = 15 * 60 * 1_000;
+export const MAX_MODEL_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
 
 type CircuitState = {
   consecutiveFailures: number;
@@ -226,9 +226,13 @@ export function recordModelFailure(
   const key = modelKey(provider, model);
   const previous = _modelCooldowns.get(key);
   const boundedRetryAfter = Number.isFinite(retryAfterMs)
-    ? Math.max(0, Math.min(60_000, Math.floor(retryAfterMs!)))
+    ? Math.max(0, Math.min(MAX_MODEL_COOLDOWN_MS, Math.floor(retryAfterMs!)))
     : 0;
-  const cooldownMs = Math.max(MODEL_COOLDOWN_MS, boundedRetryAfter);
+  const exponentialCooldown = Math.min(
+    MAX_MODEL_COOLDOWN_MS,
+    MODEL_COOLDOWN_MS * (2 ** Math.min(previous?.failures ?? 0, 5)),
+  );
+  const cooldownMs = Math.max(exponentialCooldown, boundedRetryAfter);
   const state = {
     coolingUntil: Date.now() + cooldownMs,
     failures: (previous?.failures ?? 0) + 1,

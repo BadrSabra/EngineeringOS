@@ -39,6 +39,15 @@ describe("reviewCode selected-file acceptance", () => {
     expect(prompt).toContain("Use 1-based source line numbers");
   });
 
+  it("adds the evidence-only rubric only for empirical evaluation", () => {
+    const regularPrompt = buildCodeReviewSystemPrompt();
+    const strictPrompt = buildCodeReviewSystemPrompt({ empiricalStrictEvidence: true });
+
+    expect(regularPrompt).not.toContain("For this empirical evaluation");
+    expect(strictPrompt).toContain("For this empirical evaluation");
+    expect(strictPrompt).toContain("Prefer an empty issues array to an unsupported finding");
+  });
+
   it("marks a valid-looking empty finding list as a quality rejection", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({ ...baseReview, issues: [] }),

@@ -104,6 +104,7 @@ beforeEach(() => {
   _setModelCooldownPersistenceForTest({
     readActive: async () => [],
     write: async () => {},
+    clear: async () => {},
   });
 });
 
@@ -171,16 +172,18 @@ describe("circuit-breaker", () => {
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(false);
   });
 
-  it("holds a model cooldown for 90 seconds", () => {
+  it("holds a model cooldown for 15 minutes and honors longer provider hints", () => {
     vi.useFakeTimers({ now: 0 });
     try {
       recordModelFailure("openrouter", "fixture/shared-pool-model");
-      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBe(90_000);
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBe(15 * 60_000);
 
-      vi.advanceTimersByTime(89_999);
+      vi.advanceTimersByTime(15 * 60_000 - 1);
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(true);
       vi.advanceTimersByTime(1);
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(false);
+      recordModelFailure("openrouter", "fixture/long-provider-hint", 2 * 60 * 60_000);
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/long-provider-hint")).toBe(2 * 60 * 60_000);
     } finally {
       vi.useRealTimers();
     }
