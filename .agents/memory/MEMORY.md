@@ -37,7 +37,7 @@
 - [Controlled release validation](controlled-release-validation.md) — live recovery needs a disposable DB and isolated receipts; provider-free full-index tests need egress guard and isolated startup effects.
 - [Startup scrub contract preservation](startup-scrub-contract-preservation.md) — a `kind` tag alone cannot distinguish validation-result payloads from typed operation acceptance metadata.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
-- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks; Preview is blocking by default while live providers stay opt-in.
+- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic checks, keep Preview blocking by default, and treat local schema validation as authoritative for live provider JSON.
 - [Task execution lifecycle](task-execution-lifecycle.md) — preserve live worker leases during startup; keep Mission content revisions separate from metadata timestamps.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.

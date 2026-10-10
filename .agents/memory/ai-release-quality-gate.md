@@ -14,3 +14,9 @@ The Preview gate's `diagnostic.testFiles` is not guaranteed to identify the fail
 **Why:** A full release run listed contract-test paths while the saved Playwright artifacts identified different dashboard journey failures.
 
 **How to apply:** When `dashboard-preview-contract` blocks, inspect `.last-run.json`, each failing `error-context.md`, and its trace timeline before changing product behavior. A filtered pass does not replace full-suite acceptance.
+
+Live provider JSON-format support can differ from the static model registry. A successful provider response or a requested native format is not evidence that the body is valid JSON or satisfies the review schema; retain local parsing and schema acceptance as the release gate, and record the exact transport mode requested.
+
+**Why:** Live E2 calls returned malformed or schema-invalid bodies despite native JSON format requests; changing token budgets and repair prompting did not make those responses acceptable.
+
+**How to apply:** Keep each candidate's scorecard isolated, verify current model pricing/cooldown before live calls, and do not infer acceptance from catalog metadata, HTTP success, or provider-reported model identity alone.

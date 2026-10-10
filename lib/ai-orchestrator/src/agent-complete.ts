@@ -50,6 +50,10 @@ export type AgentCompleteOpts = {
   qualityProfile?: QualityProfile;
   /** Optional provider-native response format for structured single-shot agents. */
   responseFormat?: OpenAICompatibleResponseFormat;
+  /** Deterministic repair turns may lower sampling temperature. */
+  temperature?: number;
+  /** Explicit output-token cap for callers with a measured model-specific need. */
+  maxTokens?: number;
   /** Preserve local JSON parsing/quality gates while skipping native JSON-mode admission and transport. */
   promptOnlyJson?: boolean;
   /** Keep empirical model attribution exact by stopping after its first response. */
@@ -253,6 +257,8 @@ export async function agentComplete(
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
         apiKey,
+        maxTokens: opts.maxTokens,
+        temperature: opts.temperature,
         capability: modelDecision.capability,
         quality: modelDecision.quality,
         requireTools: qualityHints?.requireTools ?? false,

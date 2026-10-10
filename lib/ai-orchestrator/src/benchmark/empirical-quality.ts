@@ -176,7 +176,11 @@ export type EmpiricalQualityScorecard = {
   corpusRevision: string;
   provider: string;
   model: string | null;
-  structuredOutputMode: "native_json" | "prompt_only_json" | "provider_default";
+  structuredOutputMode:
+    | "native_json_schema"
+    | "native_json_object"
+    | "prompt_only_json"
+    | "provider_default";
   /** Corpus cases omitted because the campaign stopped before sending them. */
   notRunCaseIds: string[];
   measurementOnly: true;

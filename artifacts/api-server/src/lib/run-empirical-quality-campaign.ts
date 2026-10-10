@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
-  review: (repairAttempt: boolean) => Promise<T>,
+  review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
 ): Promise<T> {
   const initial = await review(false);
   if (!initial._parseError) return initial;
@@ -32,7 +32,7 @@ export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?:
     attempt: 2,
     reason: "initial_contract_failure",
   }));
-  return review(true);
+  return review(true, initial._parseError);
 }
 
 class IncompleteEmpiricalEvidenceError extends Error {
@@ -76,6 +76,7 @@ export type EmpiricalCaseReviewInput = {
   provider: ProviderId;
   apiKey: string;
   model?: string;
+  maxTokens?: number;
   signal: AbortSignal;
   onProviderModel?: (model: string | null | undefined) => void;
 };
@@ -256,7 +257,15 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     workflows: "The campaign is isolated and read-only.",
     metricsVerified: true,
   };
-  const runReview = (repairAttempt: boolean) => reviewCode(
+  const runReview = (repairAttempt: boolean, priorParseError?: unknown) => {
+    const priorModelOutput =
+      typeof priorParseError === "object" &&
+      priorParseError !== null &&
+      "raw" in priorParseError &&
+      typeof priorParseError.raw === "string"
+        ? priorParseError.raw.slice(0, 16_000)
+        : undefined;
+    return reviewCode(
       context,
       input.fileContents,
       {
@@ -267,14 +276,18 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       stopAfterFirstModelAttempt: true,
       retryTransient: false,
       qualityProfile: "code_review",
-        onModelAttempt: ({ model }) => input.onProviderModel?.(model),
+       maxTokens: input.maxTokens,
+       onModelAttempt: ({ model }) => input.onProviderModel?.(model),
       },
       {
         requireSelectedFileFinding: input.testCase.outcome === "defect",
         repairAttempt,
         promptOnlyJson,
+        jsonObjectOnly: input.provider === "openrouter" && Boolean(input.model) && !promptOnlyJson,
+        priorModelOutput,
       },
-  );
+    );
+  };
   if (input.provider === "openrouter" && input.model) {
     return reviewWithOneSameModelJsonRepair(runReview);
   }
@@ -294,7 +307,7 @@ export async function runApiEmpiricalQualityCampaign(
     registeredModel?.supportsPromptOnlyJson && !registeredModel.supportsJson
       ? "prompt_only_json"
       : registeredModel?.supportsJson
-        ? "native_json"
+        ? "native_json_object"
         : "provider_default";
   const caseTimeoutMs = options.caseTimeoutMs ?? 90_000;
   const workspaceFactory = options.workspaceFactory ?? defaultWorkspaceFactory;
@@ -333,6 +346,7 @@ export async function runApiEmpiricalQualityCampaign(
           provider: options.provider,
           apiKey: options.apiKey,
           model: options.model,
+          maxTokens: registeredModel?.capabilities.includes("reasoning") ? 8_192 : undefined,
           signal,
           onProviderModel: (model) => {
             if (model) providerModel = model;

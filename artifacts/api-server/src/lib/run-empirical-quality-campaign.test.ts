@@ -70,8 +70,10 @@ async function workspaceFor(
 describe("empirical provider campaign adapter", () => {
   it("makes at most one repair call while keeping the pinned runner", async () => {
     const invoked: Array<{ repair: boolean; model: string }> = [];
-    const result = await reviewWithOneSameModelJsonRepair(async (repairAttempt) => {
+    const priorErrors: unknown[] = [];
+    const result = await reviewWithOneSameModelJsonRepair(async (repairAttempt, priorError) => {
       invoked.push({ repair: repairAttempt, model: "liquid/lfm-2.5-2.6b:free" });
+      priorErrors.push(priorError);
       return repairAttempt
         ? { _parseError: undefined, accepted: true }
         : { _parseError: { code: "MALFORMED_JSON" }, accepted: false };
@@ -81,6 +83,7 @@ describe("empirical provider campaign adapter", () => {
       { repair: false, model: "liquid/lfm-2.5-2.6b:free" },
       { repair: true, model: "liquid/lfm-2.5-2.6b:free" },
     ]);
+    expect(priorErrors).toEqual([undefined, { code: "MALFORMED_JSON" }]);
     expect(result.accepted).toBe(true);
   });
 
@@ -262,6 +265,40 @@ describe("empirical provider campaign adapter", () => {
       "inclusionai/ling-3.1-flash",
       "inclusionai/ling-3.1-flash",
     ]);
+  });
+
+  it("allows reasoning-capable models enough output tokens to return the review JSON", async () => {
+    const budgets: Array<number | undefined> = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase, maxTokens }) => {
+        budgets.push(maxTokens);
+        return {
+          summary: "Bounded review",
+          overallScore: testCase.outcome === "defect" ? 40 : 90,
+          strengths: [],
+          issues: testCase.outcome === "defect" ? [{
+            type: "security",
+            severity: "high",
+            file: "src/auth.ts",
+            title: "Unsafe authentication",
+            description: "The selected fixture is unsafe.",
+            suggestion: "Validate the input.",
+          }] : [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: testCase.outcome === "defect" ? "needs_changes" : "approved",
+        };
+      },
+    });
+
+    expect(budgets).toEqual([8_192, 8_192]);
+    expect(scorecard.status).toBe("COMPLETE");
+    expect(scorecard.structuredOutputMode).toBe("native_json_object");
   });
 
   it("records oversized selected-file evidence as incomplete instead of scoring it", async () => {
