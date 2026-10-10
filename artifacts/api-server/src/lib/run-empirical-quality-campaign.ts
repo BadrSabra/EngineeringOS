@@ -27,7 +27,7 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v3";
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v4";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,

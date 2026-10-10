@@ -600,6 +600,15 @@ export function buildEmpiricalQualityScorecard(args: {
   if (completed.some((result) => !result.contractPassed)) blockers.push("contract acceptance failure");
   if (falseAcceptanceCount > 0) blockers.push("false acceptance detected");
   if (falseRejectionCount > 0) blockers.push("false rejection detected");
+  if (completed.some((result) => result.falsePositives > 0)) blockers.push("false positives detected");
+  if (completed.some((result) => result.falseNegatives > 0)) blockers.push("false negatives detected");
+  if (completed.some((result) => result.unsupportedCitations > 0)) blockers.push("unsupported citations detected");
+  if (completed.some((result) =>
+    result.expectedFindings > 0 &&
+    result.citationCoveredFindings < result.expectedFindings
+  )) {
+    blockers.push("ground-truth findings lack supported citations");
+  }
 
   const empiricalQualityStatus =
     status === "UNAVAILABLE" ? "UNAVAILABLE" :
@@ -728,6 +737,10 @@ export async function runEmpiricalQualityCampaign(args: {
         !result.semanticVerdictConsistent ||
         result.falseAcceptance ||
         result.falseRejection ||
+        result.falsePositives > 0 ||
+        result.falseNegatives > 0 ||
+        result.unsupportedCitations > 0 ||
+        (result.expectedFindings > 0 && result.citationCoveredFindings < result.expectedFindings) ||
         result.expectedFindings !== args.corpus.cases[index]!.findings.length ||
         (args.model && result.providerModel !== args.model)
       ) {

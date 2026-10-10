@@ -311,6 +311,45 @@ describe("empirical AI quality oracle", () => {
     expect(scorecard.measurementOnly).toBe(true);
   });
 
+  it("does not call an imperfect completed scorecard PROVEN", () => {
+    const defect = corpus.cases.find((entry) => entry.outcome === "defect")!;
+    const result = scoreEmpiricalQualityCase(defect, {
+      caseId: defect.id,
+      outcome: "COMPLETE",
+      contractPassed: true,
+      qualityGateAccepted: false,
+      semanticVerdict: "findings",
+      observedFindings: [
+        {
+          file: "app/routes/session.js",
+          lineStart: 42,
+          type: "security",
+          severity: "high",
+          citationValid: true,
+          citationSupported: true,
+        },
+        {
+          file: "app/routes/session.js",
+          lineStart: 87,
+          type: "bug",
+          severity: "medium",
+          citationValid: true,
+          citationSupported: true,
+        },
+      ],
+    });
+    const scorecard = buildEmpiricalQualityScorecard({
+      corpus,
+      results: [result],
+      provider: "fixture-provider",
+      model: "fixture-model",
+    });
+
+    expect(result.falsePositives).toBe(1);
+    expect(scorecard.empiricalQualityStatus).toBe("INCOMPLETE");
+    expect(scorecard.blockers).toContain("false positives detected");
+  });
+
   it("separates provider unavailability from quality failures", () => {
     const result = scoreEmpiricalQualityCase(corpus.cases[0]!, {
       caseId: "defect-001",
