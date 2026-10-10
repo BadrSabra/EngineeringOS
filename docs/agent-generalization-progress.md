@@ -5896,10 +5896,11 @@ G9 Revocation Safety
 ### 2026-10-10 — SIGKILL داخل كاتب قبول التنفيذ
 
 - **phase/step:** E2 فقط — اختبار ذرّية `completeAiExecution` عند قتل عملية الكاتب أثناء إدراج سجل القبول.
-- **status:** `completion writer acceptance transaction rollback PASS (1/1); runtime.start Gate C recipe/effect path remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **status:** `shared completion writer crash rollback PASS; runtime.start Gate C → effect-bound acceptance → D2 gating PASS (opt-in, 1/1); full API worker restart recovery remains UNKNOWN; E2 OPEN; E3 STOPPED`
 - **what changed:** أضيف اختبار opt-in يجهز تنفيذًا مملوكًا لعامل، ثم يوقف إدراج القبول عبر trigger خاص بقاعدة الاختبار. يراقب `pg_stat_activity` حتى يصل child الذي يستدعي `completeAiExecution` إلى `PgSleep` داخل معاملة الإدراج، ثم يقتله بـ`SIGKILL`. بعد انقطاع جلسة PostgreSQL، تبقى الحالة `running` ولا يوجد قبول؛ بعد إزالة trigger، تنجح إعادة المحاولة بالمالك نفسه وتنتج حالة `completed` وصف قبول واحد.
-- **files/schema/contracts touched:** `ai-execution-retry.integration.test.ts` وسجلا التقدم والقياس فقط؛ لا تعديل production code أو schema أو قاعدة تطوير.
-- **validation:** الاختبار المستهدف نجح `1/1` على PostgreSQL loopback مؤقتة بعد تطبيق schema عليها وحدها؛ API typecheck و`git diff --check` نجحا. أُوقفت القاعدة المؤقتة وحُذف جذرها.
-- **authority/safety impact:** يثبت هذا حد `completeAiExecution` ومعاملة القبول المشتركة فقط. لا يستدعي الاختبار `runRecipeOperation` ولا يمرر effect bundle/recipe binding الخاصين بـ`runtime.start`، لذا لا يثبت crash safety لتدفق Gate C الكامل أو D2 dispatch.
-- **remaining/blocker:** ربط writer crash بالـ`runtime.start` الفعلي، واستعادة العامل/lease عبر API startup، ومنع successor حتى قبول جديد، ما زالت `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
-- **next step:** ابقَ داخل E2: اربط اختبار crash بالمسار الفعلي `runRecipeOperation(runtime.start)` وبـGate C effect والانتقال pending؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+- **Gate C runtime.start extension (opt-in):** يشغّل `runRecipeOperation(runtime.start)` الحقيقي مع runtime manager وMission handoff. ينتج runner بيانات القبول الفعلية المرتبطة بـ`effectRequired` وEffectBundle؛ يقتل الاختبار child الكاتب عند توقف الإدراج. قبل إعادة القبول يبقى التنفيذ `running`، والانتقال `pending`، ولا يوجد D2 dispatch. تعيد المحاولة كتابة القبول نفسه، ثم materialization/يقظة الانتقال تطلق successor واحدًا فقط، ويجتاز Canonical Proof.
+- **files/schema/contracts touched:** `ai-execution-retry.integration.test.ts` و`recipe-operation-runner.test.ts` وسجلا التقدم والقياس فقط؛ لا تعديل production code أو schema أو قاعدة تطوير.
+- **validation:** اختبار كاتب القبول العام واختبار Gate C المستهدف نجح كل منهما `1/1` على PostgreSQL loopback مؤقتة بعد تطبيق schema عليها وحدها؛ API typecheck و`git diff --check` نجحا. أُوقفت قواعد الاختبار المؤقتة وحُذفت جذورها.
+- **authority/safety impact:** يثبت الاختبار صلة `runRecipeOperation(runtime.start)` بمدخلات الكاتب الفعلية وحدود D2 عند انقطاع كاتب القبول. لا يقتل عملية recipe/API worker نفسها ولا يثبت استعادة lease عبر API startup؛ ذلك يظل خارج نطاق هذا الإثبات المحدود.
+- **remaining/blocker:** full process-level recovery بعد قتل recipe/API worker قبل القبول ما زال `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
+- **next step:** ابقَ داخل E2؛ لا تعتبر اختبار الكاتب بديلاً عن اختبار استعادة API/lease الكامل، ولا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.

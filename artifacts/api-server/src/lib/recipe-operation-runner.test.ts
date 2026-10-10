@@ -3215,6 +3215,7 @@ describe("recipe operation preparation", () => {
         try {
           crashRunResult = await actualRunRecipeOperation({
             ...fixture.params,
+            sourceRevision,
             missionId,
             goalId: sourceGoalId,
             planRevision,
@@ -3293,7 +3294,7 @@ describe("recipe operation preparation", () => {
             eq(eventsTable.type, "AiGoalRecipeDispatchRequested"),
           ));
         expect(dispatches).toHaveLength(1);
-        await assertCanonicalRecipeProof(fixture.params, executionId);
+        await assertCanonicalRecipeProof({ ...fixture.params, sourceRevision }, executionId);
         return;
       }
 
