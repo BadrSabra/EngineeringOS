@@ -27,6 +27,12 @@ Exact-model empirical probes must not hide contract failures behind a second mod
 
 **How to apply:** Bind every empirical scorecard to the requested model, retain parser/schema failure codes without raw provider content, and distinguish execution/contract failures from provider health.
 
+Exact-model probes must use a model registered in `FREE_MODELS` with metadata matching the task capability; the live `/models` snapshot filters this registry but does not add arbitrary live IDs as selectable candidates. Verify the resolver's selected model and the provider's requested/actual model against the probe ID before scoring. Discard a run if routing changed the model, and never use an unpinned random alias for a same-model probe.
+
+**Why:** A currently free text model absent from the static catalog was silently ignored as an unusable override, and the resolver selected a different registered candidate. The scorecard's configured model alone did not reveal the mismatch.
+
+**How to apply:** For a new live candidate, first verify its provider metadata and register it only if its capabilities fit the test; then assert model identity at resolver and provider-response boundaries before interpreting its scorecard.
+
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.

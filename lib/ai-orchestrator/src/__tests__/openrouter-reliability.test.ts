@@ -871,6 +871,57 @@ describe("error classification", () => {
     expect(secondBody.provider).toBeUndefined();
   });
 
+  it("falls back on OpenRouter parameter-routing 404s without changing models", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(fetchResponse(404, {
+        error: {
+          message: "No endpoints found that can handle the requested parameters.",
+          code: 404,
+          metadata: { failed_routing_step: "Filter by Parameters" },
+        },
+      }))
+      .mockResolvedValueOnce(fetchResponse(200, {
+        choices: [{
+          finish_reason: "stop",
+          message: { content: '{"result":"ok"}' },
+        }],
+        model: "same/model:free",
+        usage: {},
+      }));
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { result: { type: "string" } },
+            required: ["result"],
+            additionalProperties: false,
+          },
+        },
+      },
+      requireResponseFormatParameters: true,
+    });
+
+    expect(result.content).toContain('"result":"ok"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
+    expect(firstBody.model).toBe("same/model:free");
+    expect(firstBody.response_format.type).toBe("json_schema");
+    expect(secondBody.model).toBe("same/model:free");
+    expect(secondBody.response_format).toEqual({ type: "json_object" });
+    expect(secondBody.provider).toBeUndefined();
+  });
+
   it("402 → PLAN_RESTRICTED", async () => {
     await expect(
       callWithStatus(402, { error: { message: "model requires payment" } }),

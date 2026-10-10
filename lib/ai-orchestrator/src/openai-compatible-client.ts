@@ -651,11 +651,21 @@ function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?:
     normalizedBody.includes("structured outputs") ||
     normalizedBody.includes("unsupported parameter") ||
     normalizedBody.includes("request parameter") ||
+    looksLikeParameterRoutingFailure(body) ||
     normalizedBody.includes("invalid request") ||
     normalizedBody.includes("not supported") ||
     looksLikeAgentHarnessRestriction(body, providerCode) ||
     (providerCode?.includes("invalid_request") ?? false) ||
     (providerCode?.includes("unsupported") ?? false)
+  );
+}
+
+function looksLikeParameterRoutingFailure(body: string): boolean {
+  const normalizedBody = body.toLowerCase();
+  return (
+    normalizedBody.includes("no endpoints found that can handle the requested parameters") ||
+    (normalizedBody.includes("failed_routing_step") &&
+      normalizedBody.includes("filter by parameters"))
   );
 }
 
@@ -807,6 +817,13 @@ function classifyStatus(
   //   402 — model requires a paid plan or the free quota is exhausted.
   //   400 — invalid model slug (body confirms it's a model error).
   if (providerName === "OpenRouter" && status === 404) {
+    if (looksLikeParameterRoutingFailure(body)) {
+      return new GroqClientError(
+        "MODEL_UNAVAILABLE",
+        `OpenRouter has no endpoint for the requested response parameters (404). ${body.slice(0, 200)}`,
+        { context: ctx },
+      );
+    }
     return new GroqClientError(
       "MODEL_NOT_FOUND",
       `OpenRouter model not found (404) — the model has been discontinued or removed. ${body.slice(0, 200)}`,
@@ -1464,7 +1481,8 @@ export async function openrouterCompleteRaw(
       fullOpts.responseFormat &&
       err instanceof GroqClientError &&
       (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
-      err.providerStatus === 400
+      (err.providerStatus === 400 ||
+        (err.providerStatus === 404 && looksLikeParameterRoutingFailure(err.providerMessage ?? err.message)))
     ) {
       console.warn(
         JSON.stringify({
@@ -1487,7 +1505,9 @@ export async function openrouterCompleteRaw(
           if (
             fallbackError instanceof GroqClientError &&
             (fallbackError.code === "NON_200" || fallbackError.code === "MODEL_UNAVAILABLE") &&
-            fallbackError.providerStatus === 400
+            (fallbackError.providerStatus === 400 ||
+              (fallbackError.providerStatus === 404 &&
+                looksLikeParameterRoutingFailure(fallbackError.providerMessage ?? fallbackError.message)))
           ) {
             console.warn(
               JSON.stringify({

@@ -114,7 +114,7 @@
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
 - [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
-- [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
+- [Live provider validation boundary](live-provider-validation-boundary.md) — provider success is not acceptance; exact-model probes verify resolver and actual response identity.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.
