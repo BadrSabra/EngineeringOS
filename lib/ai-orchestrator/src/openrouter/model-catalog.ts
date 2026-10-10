@@ -71,7 +71,7 @@ export type OpenRouterPaidModel = {
  * pre-filters this list to only models currently priced at $0 so the chain
  * stays short and reliable after the first request.
  *
- * Last refreshed: 2026-08-25 — verified against GET /api/v1/models (pricing=0).
+ * Last refreshed: 2026-10-10 — verified against GET /api/v1/models (pricing=0).
  */
 export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
   // ── Fast tier — smaller / lighter models, listed first for cold-start requests
@@ -132,6 +132,16 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     label: "Inkling",
     capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
     context: 1_048_576,
+    supportsTools: true,
+    supportsJson: true,
+    free: true,
+    quality: "fast",
+  },
+  {
+    id: "apodex/apodex-1.1-mini:free",
+    label: "Apodex 1.1 Mini",
+    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+    context: 262_144,
     supportsTools: true,
     supportsJson: true,
     free: true,

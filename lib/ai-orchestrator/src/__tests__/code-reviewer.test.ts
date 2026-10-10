@@ -144,6 +144,20 @@ describe("reviewCode selected-file acceptance", () => {
     );
   });
 
+  it("does not retry another model after an empirical contract failure", async () => {
+    agentComplete.mockClear();
+    agentComplete.mockResolvedValue({ content: "not JSON" });
+
+    const result = await reviewCode(context, undefined, {
+      provider: "openrouter",
+      apiKey: "test-key",
+      stopAfterFirstModelAttempt: true,
+    });
+
+    expect(result._parseError).toBeDefined();
+    expect(agentComplete).toHaveBeenCalledTimes(1);
+  });
+
   it("does not normalize unknown issue enums into a passing review", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({

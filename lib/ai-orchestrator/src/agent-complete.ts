@@ -50,6 +50,8 @@ export type AgentCompleteOpts = {
   qualityProfile?: QualityProfile;
   /** Optional provider-native response format for structured single-shot agents. */
   responseFormat?: OpenAICompatibleResponseFormat;
+  /** Keep empirical model attribution exact by stopping after its first response. */
+  stopAfterFirstModelAttempt?: boolean;
   /** Optional explicit capability hints override. */
   qualityHints?: ProviderCapabilityHints;
   /**

@@ -133,7 +133,8 @@ export abstract class BaseAgent<TInput, TOutput> {
     let attempt = 1;
     let assessment = initialAssessment;
     await reportModelAttempt();
-    while (attempt < executionPlan.retryLimit) {
+    const retryLimit = opts?.stopAfterFirstModelAttempt ? 1 : executionPlan.retryLimit;
+    while (attempt < retryLimit) {
       const retryDecision = decideRetry({
         attempt,
         limit: executionPlan.retryLimit,

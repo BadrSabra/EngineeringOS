@@ -21,6 +21,12 @@ OpenRouter `structured_outputs` metadata identifies endpoints eligible for JSON 
 
 **How to apply:** Use metadata to avoid incompatible endpoints, but classify malformed or length-truncated content as incomplete and do not promote it based on the advertised capability alone.
 
+Exact-model empirical probes must not hide contract failures behind a second model attempt: cap provider fallback at one candidate and stop agent retries after the first response. A parsed-provider response that fails JSON/schema acceptance is an incomplete measurement, not provider unavailability; reserve UNAVAILABLE for runs blocked by timeouts or provider outages.
+
+**Why:** Apodex advertised structured-output support at the model level, but its selected Novita endpoint rejected JSON Schema and then returned malformed JSON in JSON-object mode. Automatic retries could change the model under test, while classifying malformed output as unavailable would hide the actual failure.
+
+**How to apply:** Bind every empirical scorecard to the requested model, retain parser/schema failure codes without raw provider content, and distinguish execution/contract failures from provider health.
+
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
 **Why:** A live run produced 34 U rows from one shared probe sequence (empty response, then timeout), not 34 independent task attempts. A bounded timeout fallback let a later candidate pass the same probe; a subsequent full campaign still had genuine per-case failures and circuit-open U results.

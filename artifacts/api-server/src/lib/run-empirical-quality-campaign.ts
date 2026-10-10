@@ -114,6 +114,7 @@ function projectReviewObservation(
   latencyMs: number,
 ): Omit<EmpiricalCaseObservation, "caseId"> {
   const incomplete = Boolean(result._parseError || result._qualityError);
+  const contractFailureCode = result._parseError?.code ?? result._qualityError?.code;
   const observedFindings = incomplete
     ? []
     : result.issues.map((issue) => {
@@ -139,7 +140,7 @@ function projectReviewObservation(
     observedFindings,
     normalization: { droppedCitation },
     latencyMs,
-    ...(incomplete ? { errorCode: "EXECUTION_ERROR" } : {}),
+    ...(incomplete ? { errorCode: contractFailureCode ?? "EXECUTION_ERROR" } : {}),
   };
 }
 
@@ -237,7 +238,8 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       provider: input.provider,
       apiKey: input.apiKey,
       signal: input.signal,
-      maxFallbackModels: 3,
+      maxFallbackModels: 1,
+      stopAfterFirstModelAttempt: true,
       retryTransient: false,
       qualityProfile: "code_review",
     },

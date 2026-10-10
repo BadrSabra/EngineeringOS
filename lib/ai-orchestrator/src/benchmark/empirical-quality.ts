@@ -100,7 +100,16 @@ export type EmpiricalCaseObservation = {
   observedFindings: readonly EmpiricalObservedFinding[];
   normalization?: Partial<EmpiricalNormalizationCounters>;
   latencyMs?: number;
-  errorCode?: "PROVIDER_UNAVAILABLE" | "RATE_LIMITED" | "TIMEOUT" | "EXECUTION_ERROR" | "INCOMPLETE_EVIDENCE";
+  errorCode?:
+    | "PROVIDER_UNAVAILABLE"
+    | "RATE_LIMITED"
+    | "TIMEOUT"
+    | "EXECUTION_ERROR"
+    | "INCOMPLETE_EVIDENCE"
+    | "EMPTY_MODEL_RESPONSE"
+    | "MALFORMED_JSON"
+    | "SCHEMA_VALIDATION_FAILED"
+    | "QUALITY_REVIEW_LOW";
   /** Internal provider-lane signal; it is not emitted in the quality score. */
   providerRateLimitScope?: Extract<ProviderRateLimitScope, "upstream_shared_pool" | "provider_credential">;
 };
@@ -548,9 +557,14 @@ export function buildEmpiricalQualityScorecard(args: {
     result.citationCoveredFindings === 0 &&
     result.qualityGateAccepted).length;
   const totalDurationMs = latencies.reduce((sum, value) => sum + value, 0);
+  const onlyAvailabilityFailures =
+    results.length > 0 &&
+    results.every((result) => result.outcome === "PROVIDER_UNAVAILABLE" || result.outcome === "TIMEOUT");
   const status = results.length === args.corpus.cases.length && completed.length === args.corpus.cases.length
     ? "COMPLETE"
-    : completed.length === 0 ? "UNAVAILABLE" : "INCOMPLETE";
+    : completed.length === 0 && (results.length === 0 || onlyAvailabilityFailures)
+      ? "UNAVAILABLE"
+      : "INCOMPLETE";
   const blockers: string[] = [];
   if (results.length !== args.corpus.cases.length) blockers.push("corpus cases incomplete");
   if (results.some((result) => result.outcome === "PROVIDER_UNAVAILABLE")) blockers.push("provider unavailable");

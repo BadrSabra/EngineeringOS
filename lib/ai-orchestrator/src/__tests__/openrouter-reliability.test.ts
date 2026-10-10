@@ -825,6 +825,52 @@ describe("error classification", () => {
     expect(body.provider).toEqual({ require_parameters: true });
   });
 
+  it("falls back from rejected JSON Schema to JSON-object mode before prompt-only mode", async () => {
+    const { openrouterCompleteRaw } = await import("../openai-compatible-client.js");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(fetchResponse(400, {
+        error: { code: "invalid_request", message: "json_schema is not supported; json_object is supported" },
+      }))
+      .mockResolvedValueOnce(fetchResponse(200, {
+        choices: [{
+          finish_reason: "stop",
+          message: { content: '{"result":"ok"}' },
+        }],
+        model: "same/model:free",
+        usage: {},
+      }));
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await openrouterCompleteRaw([{ role: "user", content: "return structured JSON" }], {
+      apiKey: "sk-test",
+      model: "same/model:free",
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { result: { type: "string" } },
+            required: ["result"],
+            additionalProperties: false,
+          },
+        },
+      },
+      requireResponseFormatParameters: true,
+    });
+
+    expect(result.content).toContain('"result":"ok"');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
+    expect(firstBody.response_format.type).toBe("json_schema");
+    expect(firstBody.provider).toEqual({ require_parameters: true });
+    expect(secondBody.response_format).toEqual({ type: "json_object" });
+    expect(secondBody.provider).toBeUndefined();
+  });
+
   it("402 → PLAN_RESTRICTED", async () => {
     await expect(
       callWithStatus(402, { error: { message: "model requires payment" } }),

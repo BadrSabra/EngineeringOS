@@ -134,6 +134,36 @@ describe("empirical provider campaign adapter", () => {
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
   });
 
+  it("classifies malformed model output as an incomplete contract result, not provider unavailability", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async () => ({
+        summary: "Code review completed",
+        overallScore: 0,
+        strengths: [],
+        issues: [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: "needs_changes",
+        _parseError: {
+          code: "MALFORMED_JSON",
+          message: "Malformed output",
+          raw: "private provider text must not enter the receipt",
+        },
+      }),
+    });
+
+    expect(scorecard.status).toBe("INCOMPLETE");
+    expect(scorecard.empiricalQualityStatus).toBe("INCOMPLETE");
+    expect(scorecard.metrics.providerUnavailableCount).toBe(0);
+    expect(scorecard.metrics.errorCount).toBe(2);
+    expect(scorecard.cases.every((entry) => entry.errorCode === "MALFORMED_JSON")).toBe(true);
+    expect(JSON.stringify(scorecard)).not.toContain("private provider text");
+  });
+
   it("quarantines remaining empirical cases after a typed shared-pool limit", async () => {
     const reviewed: string[] = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

@@ -1471,10 +1471,46 @@ export async function openrouterCompleteRaw(
           scope: "openrouter-client",
           code: "JSON_MODE_UNSUPPORTED",
           model: fullOpts.model,
-          action: "retry_without_response_format",
+          action: fullOpts.responseFormat.type === "json_schema"
+            ? "retry_with_json_object"
+            : "retry_without_response_format",
         }),
       );
-      return oacCompleteRaw(trimmed, { ...fullOpts, responseFormat: undefined });
+      if (fullOpts.responseFormat.type === "json_schema") {
+        try {
+          return await oacCompleteRaw(trimmed, {
+            ...fullOpts,
+            responseFormat: { type: "json_object" },
+            requireResponseFormatParameters: false,
+          });
+        } catch (fallbackError) {
+          if (
+            fallbackError instanceof GroqClientError &&
+            (fallbackError.code === "NON_200" || fallbackError.code === "MODEL_UNAVAILABLE") &&
+            fallbackError.providerStatus === 400
+          ) {
+            console.warn(
+              JSON.stringify({
+                scope: "openrouter-client",
+                code: "JSON_OBJECT_UNSUPPORTED",
+                model: fullOpts.model,
+                action: "retry_without_response_format",
+              }),
+            );
+            return oacCompleteRaw(trimmed, {
+              ...fullOpts,
+              responseFormat: undefined,
+              requireResponseFormatParameters: false,
+            });
+          }
+          throw fallbackError;
+        }
+      }
+      return oacCompleteRaw(trimmed, {
+        ...fullOpts,
+        responseFormat: undefined,
+        requireResponseFormatParameters: false,
+      });
     }
     if (
       err instanceof GroqClientError &&
