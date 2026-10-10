@@ -313,6 +313,7 @@ describe("empirical AI quality oracle", () => {
 
   it("does not call an imperfect completed scorecard PROVEN", () => {
     const defect = corpus.cases.find((entry) => entry.outcome === "defect")!;
+    const clean = corpus.cases.find((entry) => entry.outcome === "clean")!;
     const result = scoreEmpiricalQualityCase(defect, {
       caseId: defect.id,
       outcome: "COMPLETE",
@@ -338,15 +339,24 @@ describe("empirical AI quality oracle", () => {
         },
       ],
     });
+    const cleanResult = scoreEmpiricalQualityCase(clean, {
+      caseId: clean.id,
+      outcome: "COMPLETE",
+      contractPassed: true,
+      qualityGateAccepted: true,
+      semanticVerdict: "clean",
+      observedFindings: [],
+    });
     const scorecard = buildEmpiricalQualityScorecard({
       corpus,
-      results: [result],
+      results: [result, cleanResult],
       provider: "fixture-provider",
       model: "fixture-model",
     });
 
     expect(result.falsePositives).toBe(1);
-    expect(scorecard.empiricalQualityStatus).toBe("INCOMPLETE");
+    expect(scorecard.status).toBe("COMPLETE");
+    expect(scorecard.empiricalQualityStatus).toBe("MEASURED");
     expect(scorecard.blockers).toContain("false positives detected");
   });
 
