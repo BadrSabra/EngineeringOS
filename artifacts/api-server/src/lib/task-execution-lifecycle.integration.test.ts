@@ -6401,6 +6401,7 @@ describe("real durable task execution lifecycle", () => {
     });
     const candidateContent = "export const value = 'episode-mismatch-candidate';\n";
     let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
+    let recoveryFailure: unknown;
     let observationsBeforeRecovery = -1;
     let observationsAfterRecovery = -1;
     let validationCalls = 0;
@@ -6491,15 +6492,20 @@ describe("real durable task execution lifecycle", () => {
         );
       }
 
-      recoveredOutcome = await executeTaskLifecycle({
-        taskId: fixture.taskId,
-        userId: "mission-effect-test-user",
-        provider: { provider: "groq", apiKey: "fixture-provider" },
-        trigger: "reconciliation",
-        expectedStatuses: ["verifying"],
-        workspaceRevision: fixture.now.toISOString(),
-      });
-      observationsAfterRecovery = await countWorkspaceObservations();
+      try {
+        recoveredOutcome = await executeTaskLifecycle({
+          taskId: fixture.taskId,
+          userId: "mission-effect-test-user",
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision: fixture.now.toISOString(),
+        });
+      } catch (error) {
+        recoveryFailure = error;
+      } finally {
+        observationsAfterRecovery = await countWorkspaceObservations();
+      }
       throw new Error("simulated_worker_exit_after_episode_mismatch_rejection");
     });
 
@@ -6513,9 +6519,12 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
-      expect(recoveredOutcome).toBeDefined();
-      expect(recoveredOutcome).not.toMatchObject({ ok: true, status: "completed" });
       expect(validationCalls).toBe(1);
+      expect(recoveredOutcome ?? recoveryFailure).toBeDefined();
+      expect(recoveredOutcome?.ok).not.toBe(true);
+      if (mismatch === "a changed workspace") {
+        expect(String(recoveryFailure)).toContain("Execution idempotency key is bound to a different request");
+      }
       expect(observationsAfterRecovery).toBe(observationsBeforeRecovery);
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe(mismatch === "a changed workspace"

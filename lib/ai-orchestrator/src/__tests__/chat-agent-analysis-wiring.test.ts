@@ -201,6 +201,10 @@ describe("chat analysis tool wiring", () => {
 
   it("forwards an approved server repair mode without requiring natural-language repair inference", async () => {
     const { chat } = await import("../agents/chat-agent.js");
+    const { resolveTurnIntent } = await import("../turn-intent.js");
+    const turnIntent = resolveTurnIntent("Continue", {
+      authoritativeKind: "DELIVERY",
+    });
     const approvedFilePaths = ["src/server.ts"];
     executeToolLoopMock.mockClear();
     executeToolLoopMock.mockImplementationOnce(async (opts: {
@@ -231,6 +235,7 @@ describe("chat analysis tool wiring", () => {
       rootPath: process.cwd(),
       provider: "openrouter",
       apiKey: "test-key",
+      turnIntent,
       executionMode: "repair_plan",
       approvalState: "APPROVED",
       approvedFilePaths,
