@@ -197,6 +197,43 @@ describe("empirical provider campaign adapter", () => {
     expect(JSON.stringify(scorecard)).not.toContain("xxxxx");
   });
 
+  it("admits the bounded 65 KB Flask corpus source file", async () => {
+    const reviewedLengths: number[] = [];
+    const flaskFileBytes = 65_472;
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: async (testCase) => workspaceFor(
+        testCase,
+        undefined,
+        undefined,
+        testCase.outcome === "defect"
+          ? "x".repeat(flaskFileBytes)
+          : "bounded source fixture\n",
+      ),
+      reviewCase: async ({ fileContents }) => {
+        reviewedLengths.push(Buffer.byteLength(fileContents["src/auth.ts"] ?? "", "utf8"));
+        return {
+          summary: "Bounded review",
+          overallScore: 90,
+          strengths: [],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: "approved",
+        };
+      },
+    });
+
+    expect(scorecard.cases.find((entry) => entry.caseId === "defect-001")).toMatchObject({
+      outcome: "COMPLETE",
+      contractPassed: true,
+    });
+    expect(reviewedLengths[0]).toBe(flaskFileBytes);
+    expect(reviewedLengths).toHaveLength(corpus.cases.length);
+  });
+
   it("records missing selected-file evidence as incomplete", async () => {
     const reviewed: string[] = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

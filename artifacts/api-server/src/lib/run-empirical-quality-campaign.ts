@@ -18,7 +18,7 @@ import type { ProjectContext } from "@workspace/ai-orchestrator";
 import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 
 const execFileAsync = promisify(execFile);
-export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 50_000;
+export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
 
 class IncompleteEmpiricalEvidenceError extends Error {
   constructor(message: string, options?: ErrorOptions) {
