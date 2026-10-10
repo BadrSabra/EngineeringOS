@@ -151,6 +151,23 @@ describe("empirical provider campaign adapter", () => {
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
   });
 
+  it("classifies an empty provider response as unavailable, not an execution error", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async () => {
+        throw new GroqClientError("EMPTY_RESPONSE", "provider returned no choices");
+      },
+    });
+
+    expect(scorecard.status).toBe("UNAVAILABLE");
+    expect(scorecard.metrics.providerUnavailableCount).toBe(2);
+    expect(scorecard.metrics.errorCount).toBe(0);
+    expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
+  });
+
   it("classifies malformed model output as an incomplete contract result, not provider unavailability", async () => {
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,

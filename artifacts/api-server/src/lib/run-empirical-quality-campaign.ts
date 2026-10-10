@@ -59,6 +59,7 @@ const PROVIDER_UNAVAILABLE_CODES = new Set([
   "PLAN_RESTRICTED",
   "MODEL_UNAVAILABLE",
   "INVALID_CONFIG",
+  "EMPTY_RESPONSE",
 ]);
 
 const SAFE_PROVIDER: Set<string> = new Set(Object.keys(PROVIDER_KEY_ENV));
@@ -319,6 +320,14 @@ export async function runApiEmpiricalQualityCampaign(
         return projectReviewObservation(testCase, result, Date.now() - startedAt);
       } catch (error) {
         const errorCode = classifyProviderError(error);
+        console.warn(JSON.stringify({
+          scope: "empirical-quality",
+          action: "case_execution_failed",
+          caseId: testCase.id,
+          errorCode,
+          errorKind: error instanceof Error ? error.name : typeof error,
+          ...(error instanceof GroqClientError ? { providerErrorCode: error.code } : {}),
+        }));
         const providerRateLimitScope =
           error instanceof GroqClientError &&
           (error.rateLimitScope === "upstream_shared_pool" ||

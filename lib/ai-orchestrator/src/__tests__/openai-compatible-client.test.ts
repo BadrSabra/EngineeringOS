@@ -510,6 +510,17 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(seenModels[1]).not.toBe(seenModels[0]);
   });
 
+  it("classifies a successful provider response with no choices as EMPTY_RESPONSE", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ model: primaryModel, usage: {} })));
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 1,
+    })).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+  });
+
   it("INVALID_TOOL_CALL → advances to the next model candidate", async () => {
     let callCount = 0;
     const seenModels: string[] = [];

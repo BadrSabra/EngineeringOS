@@ -1095,10 +1095,16 @@ async function oacCompleteRawUntracked(
   }
   cleanup();
 
-  const choice = data.choices[0];
+  // Some OpenAI-compatible free endpoints return a successful JSON object with
+  // no `choices` array when they cannot satisfy the requested response mode.
+  // Treat that as an empty provider response rather than leaking a TypeError.
+  const responseData = data && typeof data === "object" ? data : {} as typeof data;
+  const choice = Array.isArray(responseData.choices) ? responseData.choices[0] : undefined;
   const msg = choice?.message;
-  const outputText = coerceProviderText(data.output_text);
-  const finishReason = choice?.finish_reason?.trim().toLowerCase();
+  const outputText = coerceProviderText(responseData.output_text);
+  const finishReason = typeof choice?.finish_reason === "string"
+    ? choice.finish_reason.trim().toLowerCase()
+    : undefined;
   if (finishReason === "error") {
     throw new GroqClientError(
       "INVALID_PROVIDER_RESPONSE",
@@ -1123,18 +1129,18 @@ async function oacCompleteRawUntracked(
     coerceProviderText(msg?.reasoning_content) ??
     coerceProviderText(msg?.reasoning);
   const providerUsage = normalizeProviderRequestUsage(
-    data.usage?.prompt_tokens,
-    data.usage?.completion_tokens,
+    responseData.usage?.prompt_tokens,
+    responseData.usage?.completion_tokens,
   );
   const reasoningTokens =
-    data.usage?.reasoning_tokens ??
-    data.usage?.completion_tokens_details?.reasoning_tokens;
+    responseData.usage?.reasoning_tokens ??
+    responseData.usage?.completion_tokens_details?.reasoning_tokens;
   const normalized = normalizeProviderResponse(
     {
       content,
       toolCalls:
         msg?.tool_calls === undefined ? null : msg.tool_calls as ToolCall[],
-      model: data.model,
+      model: responseData.model,
       usage: {
         promptTokens: providerUsage.promptTokens ?? 0,
         completionTokens: providerUsage.completionTokens ?? 0,

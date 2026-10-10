@@ -56,3 +56,9 @@ A case deadline must race all awaited post-setup stages (handoff, chat, final va
 **Why:** A timer that only aborts can still leave the runner waiting on a chat promise that never settles. Returning U promptly is safe only when late provider/tool work cannot stage changes after the disposable candidate root is cleaned up.
 
 **How to apply:** Test both a never-settling chat and a source read that completes after cancellation. Keep candidate identity on timeout U rows, and distinguish provider-level timeouts that occur before the case deadline from deadline expirations themselves.
+
+For empirical-quality runs, classify a typed `EMPTY_RESPONSE` (including a successful HTTP body with no usable `choices`) as provider unavailability, not a generic execution error or malformed JSON. It contains no model output to evaluate.
+
+**Why:** OpenRouter free endpoints returned successful JSON-object-mode responses without choices after rejecting JSON Schema routing; treating that shape as a JavaScript exception obscured the actual provider failure.
+
+**How to apply:** Normalize missing response fields into `EMPTY_RESPONSE` at the client boundary, preserve requested/actual model identity where available, and project it consistently as `PROVIDER_UNAVAILABLE` in empirical scorecards.
