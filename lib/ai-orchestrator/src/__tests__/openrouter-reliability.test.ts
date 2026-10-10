@@ -160,11 +160,11 @@ describe("circuit-breaker", () => {
     expect(cooldownRemainingMs!).toBeLessThanOrEqual(2 * 60 * 1_000);
   });
 
-  it("keeps model cooldown separate from the provider circuit", () => {
+  it("keeps provider-supplied model cooldown separate from the provider circuit", () => {
     recordModelFailure("openrouter", "fixture/model-a", 5_000);
 
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(true);
-    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeGreaterThan(30_000);
+    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBe(5_000);
     expect(isModelCoolingDown("openrouter", "fixture/model-b")).toBe(false);
     expect(isCircuitOpen("openrouter")).toBe(false);
 
@@ -172,13 +172,15 @@ describe("circuit-breaker", () => {
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(false);
   });
 
-  it("holds a model cooldown for 15 minutes and honors longer provider hints", () => {
+  it("does not synthesize a cooldown and uses valid provider Retry-After values", () => {
     vi.useFakeTimers({ now: 0 });
     try {
       recordModelFailure("openrouter", "fixture/shared-pool-model");
-      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBe(15 * 60_000);
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBeNull();
 
-      vi.advanceTimersByTime(15 * 60_000 - 1);
+      recordModelFailure("openrouter", "fixture/shared-pool-model", 5_000);
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/shared-pool-model")).toBe(5_000);
+      vi.advanceTimersByTime(5_000 - 1);
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(true);
       vi.advanceTimersByTime(1);
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(false);
@@ -1170,9 +1172,7 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
         rateLimitScope: scope,
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(
-        scope === "upstream_shared_pool",
-      );
+      expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
     },
   );
 
@@ -1194,7 +1194,13 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
               },
             },
           }),
-          { status: 429, headers: { "content-type": "application/json" } },
+          {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+              "retry-after": "120",
+            },
+          },
         );
       }
       return streamResponse([sseDelta("recovered"), "data: [DONE]\n\n"]);
@@ -1220,6 +1226,8 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
       rateLimitScope: "upstream_shared_pool",
     });
     expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(true);
+    expect(getModelCooldownRemainingMs("openrouter", attemptedModels[0]!)).toBeGreaterThan(119_000);
+    expect(getModelCooldownRemainingMs("openrouter", attemptedModels[0]!)).toBeLessThanOrEqual(120_000);
 
     const chunks: string[] = [];
     for await (const chunk of openrouterCompleteStream(

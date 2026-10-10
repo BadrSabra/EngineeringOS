@@ -1,7 +1,6 @@
 import {
   getModelCooldownRemainingMs,
   MAX_MODEL_COOLDOWN_MS,
-  MODEL_COOLDOWN_MS,
   rememberModelCooldownUntil,
 } from "./circuit-breaker.js";
 
@@ -44,32 +43,13 @@ const postgresPersistence: ModelCooldownPersistence = {
          (provider, model, cooling_until, updated_at)
        VALUES ($1, $2, now() + ($3::double precision * interval '1 millisecond'), now())
        ON CONFLICT (provider, model) DO UPDATE
-       SET cooling_until = GREATEST(
-              openrouter_model_cooldowns.cooling_until,
-              now() + (
-                CASE
-                  WHEN openrouter_model_cooldowns.updated_at > now() - interval '24 hours'
-                  THEN LEAST(
-                    $4::double precision,
-                    GREATEST(
-                      $3::double precision,
-                      CEIL(EXTRACT(EPOCH FROM (
-                        openrouter_model_cooldowns.cooling_until -
-                        openrouter_model_cooldowns.updated_at
-                      )) * 2000)
-                    )
-                  )
-                  ELSE $3::double precision
-                END * interval '1 millisecond'
-              )
-            ),
+       SET cooling_until = now() + ($3::double precision * interval '1 millisecond'),
            updated_at = now()`,
-      [provider, model, cooldownMs, MAX_MODEL_COOLDOWN_MS],
+      [provider, model, cooldownMs],
     );
-    // Retain expired rows briefly so repeated shared-pool limits can escalate
-    // across process restarts, then prune by model identity.
+    // No escalation history is needed; retain active provider-supplied windows only.
     await pool.query(
-      "DELETE FROM openrouter_model_cooldowns WHERE updated_at <= now() - interval '30 days'",
+      "DELETE FROM openrouter_model_cooldowns WHERE cooling_until <= now()",
     );
   },
 
@@ -143,14 +123,13 @@ export async function persistSharedPoolModelCooldown(
   retryAfterMs?: number,
 ): Promise<void> {
   try {
-    const providerRetryAfter = Number.isFinite(retryAfterMs)
-      ? Math.max(0, Math.min(MAX_MODEL_COOLDOWN_MS, Math.floor(retryAfterMs!)))
-      : 0;
-    await persistence.write(
-      provider,
-      model,
-      Math.max(MODEL_COOLDOWN_MS, providerRetryAfter),
+    if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) return;
+    const providerRetryAfter = Math.min(
+      MAX_MODEL_COOLDOWN_MS,
+      Math.floor(retryAfterMs!),
     );
+    if (providerRetryAfter <= 0) return;
+    await persistence.write(provider, model, providerRetryAfter);
   } catch {
     logPersistenceUnavailable("write");
   }

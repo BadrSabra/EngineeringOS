@@ -471,16 +471,17 @@ describe("empirical provider campaign adapter", () => {
     expect(resumed.resumeBinding).toEqual(initial.resumeBinding);
   });
 
-  it("allows reasoning-capable models enough output tokens to return the review JSON", async () => {
-    const budgets: Array<number | undefined> = [];
+  it("keeps reasoning-model provider requests within the case deadline", async () => {
+    const budgets: Array<{ maxTokens: number | undefined; timeoutMs: number }> = [];
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,
       provider: "openrouter",
       apiKey: "provider-key-is-test-only",
       model: "nvidia/nemotron-3-super-120b-a12b:free",
+      caseTimeoutMs: 15_000,
       workspaceFactory: workspaceFor,
-      reviewCase: async ({ testCase, maxTokens }) => {
-        budgets.push(maxTokens);
+      reviewCase: async ({ testCase, maxTokens, timeoutMs }) => {
+        budgets.push({ maxTokens, timeoutMs });
         return {
           summary: "Bounded review",
           overallScore: testCase.outcome === "defect" ? 40 : 90,
@@ -500,7 +501,10 @@ describe("empirical provider campaign adapter", () => {
       },
     });
 
-    expect(budgets).toEqual([8_192, 8_192]);
+    expect(budgets).toHaveLength(2);
+    expect(budgets.every((budget) =>
+      budget.maxTokens === 8_192 && budget.timeoutMs > 0 && budget.timeoutMs <= 15_000,
+    )).toBe(true);
     expect(scorecard.status).toBe("COMPLETE");
     expect(scorecard.structuredOutputMode).toBe("native_json_object");
   });

@@ -56,6 +56,8 @@ export type AgentCompleteOpts = {
   temperature?: number;
   /** Explicit output-token cap for callers with a measured model-specific need. */
   maxTokens?: number;
+  /** Bound each physical provider request when the caller owns a tighter deadline. */
+  timeoutMs?: number;
   /** Preserve local JSON parsing/quality gates while skipping native JSON-mode admission and transport. */
   promptOnlyJson?: boolean;
   /** Keep empirical model attribution exact by stopping after its first response. */
@@ -242,6 +244,7 @@ export async function agentComplete(
         model: modelDecision.model,
         apiKey,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+        timeoutMs: opts.timeoutMs,
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });
@@ -260,6 +263,7 @@ export async function agentComplete(
         model: modelDecision.model,
         apiKey,
         maxTokens: opts.maxTokens,
+        timeoutMs: opts.timeoutMs,
         temperature: opts.temperature,
         capability: modelDecision.capability,
         quality: modelDecision.quality,
@@ -289,6 +293,7 @@ export async function agentComplete(
         model: modelDecision.model,
         apiKey,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+        timeoutMs: opts.timeoutMs,
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });
@@ -301,6 +306,7 @@ export async function agentComplete(
         model: modelDecision.model,
         apiKey: apiKey || undefined,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+        timeoutMs: opts.timeoutMs,
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });

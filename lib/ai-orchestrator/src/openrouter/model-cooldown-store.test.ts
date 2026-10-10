@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   _resetCircuitsForTest,
+  getModelCooldownRemainingMs,
   isModelCoolingDown,
   recordModelFailure,
 } from "./circuit-breaker.js";
@@ -18,7 +19,7 @@ describe("shared OpenRouter model cooldown persistence", () => {
     vi.useRealTimers();
   });
 
-  it("is visible after process-local state is cleared and expires after the model cooldown", async () => {
+  it("uses only the provider Retry-After and expires at that exact duration", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
     const persisted = new Map<string, number>();
@@ -44,7 +45,14 @@ describe("shared OpenRouter model cooldown persistence", () => {
     const failedModel = "fixture/shared-pool-model";
     recordModelFailure("openrouter", failedModel);
     await persistSharedPoolModelCooldown("openrouter", failedModel);
-    expect(persisted.get(`openrouter:${failedModel}`)).toBe(Date.now() + 15 * 60_000);
+    expect(isModelCoolingDown("openrouter", failedModel)).toBe(false);
+    expect(getModelCooldownRemainingMs("openrouter", failedModel)).toBeNull();
+    expect(persisted.has(`openrouter:${failedModel}`)).toBe(false);
+
+    recordModelFailure("openrouter", failedModel, 5_000);
+    await persistSharedPoolModelCooldown("openrouter", failedModel, 5_000);
+    expect(getModelCooldownRemainingMs("openrouter", failedModel)).toBe(5_000);
+    expect(persisted.get(`openrouter:${failedModel}`)).toBe(Date.now() + 5_000);
 
     // A different API process has an empty in-memory cache but shares the DB.
     _resetCircuitsForTest();
@@ -53,11 +61,11 @@ describe("shared OpenRouter model cooldown persistence", () => {
       "fixture/healthy-model",
     ]);
     expect([...recoveredState.keys()]).toEqual([failedModel]);
-    expect(recoveredState.get(failedModel)).toBe(15 * 60_000);
+    expect(recoveredState.get(failedModel)).toBe(5_000);
     expect(isModelCoolingDown("openrouter", failedModel)).toBe(true);
     expect(isModelCoolingDown("openrouter", "fixture/healthy-model")).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(15 * 60_000 + 1);
+    await vi.advanceTimersByTimeAsync(5_000 + 1);
     _resetCircuitsForTest();
     const expiredState = await readModelCooldowns("openrouter", [failedModel]);
     expect(expiredState.size).toBe(0);
@@ -84,8 +92,8 @@ describe("shared OpenRouter model cooldown persistence", () => {
     });
 
     const recoveredModel = "fixture/recovered-model";
-    recordModelFailure("openrouter", recoveredModel);
-    await persistSharedPoolModelCooldown("openrouter", recoveredModel);
+    recordModelFailure("openrouter", recoveredModel, 30_000);
+    await persistSharedPoolModelCooldown("openrouter", recoveredModel, 30_000);
     expect(persisted.has(`openrouter:${recoveredModel}`)).toBe(true);
 
     await clearSharedPoolModelCooldown("openrouter", recoveredModel);

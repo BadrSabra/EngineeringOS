@@ -16,10 +16,8 @@
 
 const CIRCUIT_OPEN_THRESHOLD = 5; // consecutive failures before opening
 const COOLDOWN_MS = 2 * 60 * 1_000; // 2 minutes
-// Shared-pool limits can outlast a short per-request retry interval. Keep the
-// exact throttled model out for at least 15 minutes, with bounded in-process
-// exponential backoff for repeated failures.
-export const MODEL_COOLDOWN_MS = 15 * 60 * 1_000;
+// Safety cap for provider-supplied Retry-After values. Missing/zero hints do
+// not create a synthetic model cooldown.
 export const MAX_MODEL_COOLDOWN_MS = 6 * 60 * 60 * 1_000;
 
 type CircuitState = {
@@ -33,7 +31,7 @@ type CircuitState = {
 };
 
 const _circuits = new Map<string, CircuitState>();
-const _modelCooldowns = new Map<string, { coolingUntil: number; failures: number }>();
+const _modelCooldowns = new Map<string, { coolingUntil: number }>();
 
 function modelKey(provider: string, model: string): string {
   return `${provider}:${model}`;
@@ -214,7 +212,6 @@ export function rememberModelCooldownUntil(
   if (previous && previous.coolingUntil >= coolingUntil) return;
   _modelCooldowns.set(key, {
     coolingUntil,
-    failures: previous?.failures ?? 0,
   });
 }
 
@@ -224,18 +221,20 @@ export function recordModelFailure(
   retryAfterMs?: number,
 ): void {
   const key = modelKey(provider, model);
-  const previous = _modelCooldowns.get(key);
-  const boundedRetryAfter = Number.isFinite(retryAfterMs)
-    ? Math.max(0, Math.min(MAX_MODEL_COOLDOWN_MS, Math.floor(retryAfterMs!)))
-    : 0;
-  const exponentialCooldown = Math.min(
-    MAX_MODEL_COOLDOWN_MS,
-    MODEL_COOLDOWN_MS * (2 ** Math.min(previous?.failures ?? 0, 5)),
-  );
-  const cooldownMs = Math.max(exponentialCooldown, boundedRetryAfter);
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) {
+    console.info(JSON.stringify({
+      scope: "circuit-breaker",
+      code: "MODEL_COOLDOWN_SKIPPED",
+      provider,
+      model,
+      reason: Number.isFinite(retryAfterMs) ? "provider_retry_after_zero" : "provider_retry_after_missing",
+    }));
+    return;
+  }
+  const cooldownMs = Math.min(MAX_MODEL_COOLDOWN_MS, Math.floor(retryAfterMs!));
+  if (cooldownMs <= 0) return;
   const state = {
     coolingUntil: Date.now() + cooldownMs,
-    failures: (previous?.failures ?? 0) + 1,
   };
   _modelCooldowns.set(key, state);
   console.warn(JSON.stringify({
@@ -244,7 +243,6 @@ export function recordModelFailure(
     provider,
     model,
     cooldownMs,
-    failures: state.failures,
   }));
 }
 

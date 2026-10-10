@@ -85,6 +85,7 @@ export type EmpiricalCaseReviewInput = {
   apiKey: string;
   model?: string;
   maxTokens?: number;
+  timeoutMs: number;
   signal: AbortSignal;
   onProviderModel?: (model: string | null | undefined) => void;
 };
@@ -344,6 +345,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       provider: input.provider,
       apiKey: input.apiKey,
       signal: input.signal,
+      timeoutMs: input.timeoutMs,
       maxFallbackModels: 1,
       stopAfterFirstModelAttempt: true,
       retryTransient: false,
@@ -445,6 +447,7 @@ export async function runApiEmpiricalQualityCampaign(
           apiKey: options.apiKey,
           model: options.model,
           maxTokens: registeredModel?.capabilities.includes("reasoning") ? 8_192 : undefined,
+          timeoutMs: Math.max(1, caseTimeoutMs - (Date.now() - startedAt) - 1_000),
           signal,
           onProviderModel: (model) => {
             if (model) providerModel = model;

@@ -80,7 +80,7 @@
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
 - [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.
-- [OpenRouter throttling and checkpoints](openrouter-throttling-checkpoints.md) — keep 429 backoff model-scoped and clear durable failure history after a successful response.
+- [OpenRouter throttling and checkpoints](openrouter-throttling-checkpoints.md) — apply only positive provider Retry-After values; never synthesize or escalate model cooldowns.
 - [OpenRouter provider activation](openrouter-provider-activation.md) — managed provisioning may be blocked by account status; use the existing server-side key path and verify live catalog startup.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.

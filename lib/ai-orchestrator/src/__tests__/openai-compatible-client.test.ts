@@ -643,7 +643,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
-  it("classifies OpenRouter shared-pool metadata without changing same-provider fallback", async () => {
+  it("classifies OpenRouter shared-pool metadata without inventing a cooldown", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
         error: {
           code: 429,
@@ -669,7 +669,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.rateLimitScope === "upstream_shared_pool" &&
         err.upstreamProvider === "Poolside",
     );
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it("cools only the failed model after a shared-pool limit across later requests", async () => {
@@ -688,7 +689,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
                 provider_name: "Poolside",
               },
             },
-          }), 429);
+          }), 429, new Headers({ "Retry-After": "120" }));
       }
       return jsonResponse({
           choices: [{ message: { content: "recovered" } }],
@@ -722,8 +723,30 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(persistedCooldownWrites).toEqual([{
       provider: "openrouter",
       model: attemptedModels[0]!,
-      cooldownMs: 15 * 60_000,
+      cooldownMs: 120_000,
     }]);
+  });
+
+  it("does not create local or durable cooldowns when a shared-pool 429 omits Retry-After", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
+      error: {
+        message: "Provider returned error",
+        metadata: { limit_source: "upstream_provider_shared_pool" },
+      },
+    }), 429)));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        maxFallbackModels: 1,
+        retryTransient: false,
+      }),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "upstream_shared_pool" });
+
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it("does not cool an individual model for a provider-credential limit", async () => {
