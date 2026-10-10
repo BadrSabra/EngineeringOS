@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 import {
   buildActiveTaskExecutionPlan,
@@ -38,6 +38,10 @@ const context = {
 };
 
 describe("chat analysis tool wiring", () => {
+  afterEach(() => {
+    executeToolLoopMock.mockReset();
+  });
+
   it.each([
     "Run a forensic audit of src/server.ts and identify the root causes.",
     "Review the API routes in artifacts/api-server for root causes and provide a forensic report.",
@@ -77,6 +81,7 @@ describe("chat analysis tool wiring", () => {
         correlation,
       }),
       analysisCorrelation: correlation,
+      onToolInvocation: async () => undefined,
     })).rejects.toThrow("analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
   });
@@ -136,6 +141,7 @@ describe("chat analysis tool wiring", () => {
         correlation,
       }),
       analysisCorrelation: correlation,
+      onToolInvocation: async () => undefined,
     })).rejects.toThrow("resumed analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
   });
@@ -187,9 +193,57 @@ describe("chat analysis tool wiring", () => {
       }),
       executionPlanOverride: executionPlan!,
       analysisCorrelation: correlation,
+      onToolInvocation: async () => undefined,
     });
     expect(result.response).toContain("nested analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalled();
+  });
+
+  it("forwards an approved server repair mode without requiring natural-language repair inference", async () => {
+    const { chat } = await import("../agents/chat-agent.js");
+    const approvedFilePaths = ["src/server.ts"];
+    executeToolLoopMock.mockClear();
+    executeToolLoopMock.mockImplementationOnce(async (opts: {
+      executionMode?: string;
+      executionTargetPaths?: string[];
+      toolChoice?: string;
+      allowExecutionTools?: boolean;
+      approvalState?: string;
+      approvedFilePaths?: string[];
+      tools?: Array<{ function?: { name?: string } }>;
+    }) => {
+      expect(opts).toMatchObject({
+        executionMode: "repair_plan",
+        executionTargetPaths: approvedFilePaths,
+        toolChoice: "required",
+        allowExecutionTools: true,
+        approvalState: "APPROVED",
+        approvedFilePaths,
+      });
+      expect(opts.tools?.map((tool) => tool.function?.name)).toContain("write_file");
+      throw new Error("approved Mission repair wiring sentinel");
+    });
+
+    await expect(chat({
+      message: "Continue",
+      history: [],
+      projectContext: context,
+      rootPath: process.cwd(),
+      provider: "openrouter",
+      apiKey: "test-key",
+      executionMode: "repair_plan",
+      approvalState: "APPROVED",
+      approvedFilePaths,
+      allowValidationTools: true,
+      onToolInvocation: async () => undefined,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "workspace-typecheck",
+        command: "pnpm typecheck",
+        exitCode: 0,
+      }),
+    })).rejects.toThrow("approved Mission repair wiring sentinel");
+    expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([

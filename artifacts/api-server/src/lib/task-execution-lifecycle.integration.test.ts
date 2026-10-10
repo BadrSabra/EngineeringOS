@@ -6392,7 +6392,9 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("rejects a candidate-ready recovery manifest bound to another Episode before rebuilding observations", async () => {
+  it.each(["another Episode", "a changed workspace"] as const)(
+    "rejects candidate-ready recovery after %s before rebuilding observations",
+    async (mismatch) => {
     const fixture = await createMissionToolLoopFixture({
       phase: "execute",
       approvalRequired: false,
@@ -6443,26 +6445,28 @@ describe("real durable task execution lifecycle", () => {
       };
       expect(detail.missionRepairRecovery.episodeId).toEqual(expect.any(String));
 
-      const nextSequence = checkpoint.sequence + 1;
-      const persisted = await checkpointAiExecution({
-        executionId: evidenceContext.operationId,
-        expectedAttempt: execution.attempt,
-        workerId: execution.workerId,
-        checkpoint: {
-          stage: "tool_loop",
-          sequence: nextSequence,
-          detail: JSON.stringify({
-            ...detail,
-            missionRepairRecovery: {
-              ...detail.missionRepairRecovery,
-              episodeId: `wrong-episode:${fixture.taskId}`,
-              checkpointSequence: nextSequence,
-            },
-          }),
-          updatedAt: new Date().toISOString(),
-        },
-      });
-      expect(persisted).toBe(true);
+      if (mismatch === "another Episode") {
+        const nextSequence = checkpoint.sequence + 1;
+        const persisted = await checkpointAiExecution({
+          executionId: evidenceContext.operationId,
+          expectedAttempt: execution.attempt,
+          workerId: execution.workerId,
+          checkpoint: {
+            stage: "tool_loop",
+            sequence: nextSequence,
+            detail: JSON.stringify({
+              ...detail,
+              missionRepairRecovery: {
+                ...detail.missionRepairRecovery,
+                episodeId: `wrong-episode:${fixture.taskId}`,
+                checkpointSequence: nextSequence,
+              },
+            }),
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        expect(persisted).toBe(true);
+      }
 
       const countWorkspaceObservations = async () => (await db
         .select({ id: aiAgentObservationsTable.id })
@@ -6479,6 +6483,13 @@ describe("real durable task execution lifecycle", () => {
       await db.update(tasksTable)
         .set({ status: "verifying", workerId: null, leaseUntil: null, updatedAt: new Date() })
         .where(eq(tasksTable.id, fixture.taskId));
+      if (mismatch === "a changed workspace") {
+        await writeFile(
+          join(fixture.rootPath, "src", "target.ts"),
+          "export const value = 'external-change-during-interruption';\n",
+          "utf8",
+        );
+      }
 
       recoveredOutcome = await executeTaskLifecycle({
         taskId: fixture.taskId,
@@ -6507,7 +6518,9 @@ describe("real durable task execution lifecycle", () => {
       expect(validationCalls).toBe(1);
       expect(observationsAfterRecovery).toBe(observationsBeforeRecovery);
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
-        .toBe("export const value = 'base';\n");
+        .toBe(mismatch === "a changed workspace"
+          ? "export const value = 'external-change-during-interruption';\n"
+          : "export const value = 'base';\n");
     } finally {
       runRepairValidation.mockReset().mockImplementation(async (..._args: unknown[]) => ({
         status: "passed" as const,
@@ -6515,7 +6528,8 @@ describe("real durable task execution lifecycle", () => {
       }));
       await fixture.cleanup();
     }
-  });
+    },
+  );
 
   it("reconciles a committed Mission repair after lease handoff without another provider call", async () => {
     const fixture = await createMissionToolLoopFixture({
