@@ -907,4 +907,201 @@ describe("canonical completion evidence", () => {
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
+
+  it.skipIf(process.env.RUN_E2_COMPLETION_WRITER_CRASH !== "1")(
+    "rolls back completion acceptance when the actual writer is SIGKILLed inside its transaction",
+    async () => {
+      const databaseUrlValue = process.env.DATABASE_URL;
+      if (!databaseUrlValue) throw new Error("DATABASE_URL is required for the writer crash test.");
+      const databaseUrl = new URL(databaseUrlValue);
+      const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
+      if (
+        !["localhost", "127.0.0.1", "::1"].includes(databaseUrl.hostname)
+        || !/(test|disposable)/i.test(databaseName)
+      ) {
+        throw new Error("The writer crash test requires a loopback-only disposable PostgreSQL database.");
+      }
+
+      const projectId = randomUUID();
+      const sessionId = randomUUID();
+      const userId = `completion-writer-crash:${projectId}`;
+      const workerId = `completion-writer:${projectId}`;
+      const operationId = `${projectId}:completion-writer-crash`;
+      const applicationName = `e2-completion-writer-${projectId.replaceAll("-", "").slice(0, 16)}`;
+      const functionName = `e2_completion_pause_${projectId.replaceAll("-", "")}`;
+      const triggerName = `e2_completion_trigger_${projectId.replaceAll("-", "")}`;
+      const rootPath = `/tmp/e2-completion-writer-${projectId}`;
+      let executionId: string | undefined;
+      let triggerInstalled = false;
+      let child: ReturnType<typeof spawn> | undefined;
+      let childOutput = "";
+      const now = new Date();
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: userId,
+          name: `completion-writer-${projectId.slice(0, 8)}`,
+          rootPath,
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(aiChatSessionsTable).values({
+          id: sessionId,
+          projectId,
+          title: "Completion writer crash",
+          createdAt: now,
+          updatedAt: now,
+        });
+        const created = await createAiExecution({
+          userId,
+          projectId,
+          sessionId,
+          idempotencyKey: operationId,
+          request: {
+            projectId,
+            sessionId,
+            operationId,
+            message: "Complete this bounded test execution",
+            modelMessage: "Complete this bounded test execution",
+            validationTargetPaths: [],
+          },
+        });
+        executionId = created.execution.id;
+        const claimed = await claimAiExecution({ executionId, userId, workerId });
+        expect(claimed).toMatchObject({ id: executionId, status: "running", workerId });
+
+        await db.execute(sql.raw(`
+          CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW.execution_id = '${executionId}' THEN
+              PERFORM pg_sleep(5);
+            END IF;
+            RETURN NEW;
+          END;
+          $$
+        `));
+        await db.execute(sql.raw(`
+          CREATE TRIGGER ${triggerName}
+          BEFORE INSERT ON ai_execution_acceptances
+          FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+        `));
+        triggerInstalled = true;
+
+        const childDatabaseUrl = new URL(databaseUrl.toString());
+        childDatabaseUrl.searchParams.set("application_name", applicationName);
+        const moduleUrl = new URL("./ai-execution-state.ts", import.meta.url).href;
+        const childSource = [
+          "(async () => {",
+          `  const { completeAiExecution } = await import(${JSON.stringify(moduleUrl)});`,
+          `  await completeAiExecution({ executionId: ${JSON.stringify(executionId)}, workerId: ${JSON.stringify(workerId)}, evidenceVerdict: "PROVEN", evidenceRefs: [] });`,
+          "  process.exit(0);",
+          "})().catch((error) => { console.error(error); process.exit(1); });",
+        ].join("\n");
+        child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            DATABASE_URL: childDatabaseUrl.toString(),
+            PGAPPNAME: applicationName,
+          },
+          stdio: "pipe",
+        });
+        child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
+          childOutput = `${childOutput}${chunk}`.slice(-8_000);
+        });
+        child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+          childOutput = `${childOutput}${chunk}`.slice(-8_000);
+        });
+        child.stdin?.end();
+        const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+          (resolve) => child!.once("exit", (code, signal) => resolve({ code, signal })),
+        );
+
+        const pauseDeadline = Date.now() + 30_000;
+        let writerPaused = false;
+        while (Date.now() < pauseDeadline) {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            throw new Error(`Completion writer exited before transaction pause: ${childOutput}`);
+          }
+          const activity = await db.execute(sql`
+            SELECT pid
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND application_name = ${applicationName}
+              AND state = 'active'
+              AND wait_event = 'PgSleep'
+              AND query ILIKE '%ai_execution_acceptances%'
+          `);
+          if (activity.rows.length > 0) {
+            writerPaused = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(writerPaused, `Timed out waiting for acceptance insert pause: ${childOutput}`).toBe(true);
+        expect(child.kill("SIGKILL")).toBe(true);
+        expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
+
+        const disconnectDeadline = Date.now() + 20_000;
+        let disconnected = false;
+        while (Date.now() < disconnectDeadline) {
+          const sessions = await db.execute(sql`
+            SELECT pid FROM pg_stat_activity
+            WHERE datname = current_database() AND application_name = ${applicationName}
+          `);
+          if (sessions.rows.length === 0) {
+            disconnected = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(disconnected, `Killed writer retained a PostgreSQL session: ${applicationName}`).toBe(true);
+
+        await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_execution_acceptances`));
+        await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+        triggerInstalled = false;
+        const [afterCrash] = await db.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        const acceptancesAfterCrash = await db.select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(afterCrash?.status).toBe("running");
+        expect(acceptancesAfterCrash).toEqual([]);
+
+        expect(await completeAiExecution({
+          executionId,
+          workerId,
+          evidenceVerdict: "PROVEN",
+          evidenceRefs: [],
+        })).toBe(true);
+        const [afterRetry] = await db.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        const acceptedRows = await db.select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(afterRetry?.status).toBe("completed");
+        expect(acceptedRows).toHaveLength(1);
+      } finally {
+        if (child && child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+          await new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+        }
+        if (triggerInstalled) {
+          await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_execution_acceptances`));
+          await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+        }
+        if (executionId) {
+          await db.delete(aiExecutionAcceptancesTable)
+            .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+          await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        }
+        await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      }
+    },
+    90_000,
+  );
 });

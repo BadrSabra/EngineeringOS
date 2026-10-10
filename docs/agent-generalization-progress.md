@@ -5892,3 +5892,14 @@ G9 Revocation Safety
 - **authority/safety impact:** يثبت هذا نطاق التوصيل والرفض المختبرين فقط؛ حاجز تغيّر المحتوى هو اختلاف طلب/مراجعة مرتبط بمفتاح idempotency، وليس إثباتًا لكل مسارات Mission repair أو replay.
 - **remaining/blocker:** مراجعة المصدر لمسار `runtime.start` وجدت أن الانتقال pending يُكتب قبل `completeAiExecution`، وأن القبول والتحديث الطرفي يمران عبر معاملة `finalizeExecutionAcceptance`، ثم تأتي materialization للانتقال. اختبارات SIGKILL الحالية تزرع القبول مسبقًا؛ انهيار الكاتب الفعلي عند Gate C ما زال `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
 - **next step:** واصل داخل E2 باختبار process-level يوقف كاتب Gate C الفعلي أثناء معاملة القبول، ويتحقق من rollback وعدم dispatch قبل استعادة API؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
+
+### 2026-10-10 — SIGKILL داخل كاتب قبول التنفيذ
+
+- **phase/step:** E2 فقط — اختبار ذرّية `completeAiExecution` عند قتل عملية الكاتب أثناء إدراج سجل القبول.
+- **status:** `completion writer acceptance transaction rollback PASS (1/1); runtime.start Gate C recipe/effect path remains UNKNOWN; E2 OPEN; E3 STOPPED`
+- **what changed:** أضيف اختبار opt-in يجهز تنفيذًا مملوكًا لعامل، ثم يوقف إدراج القبول عبر trigger خاص بقاعدة الاختبار. يراقب `pg_stat_activity` حتى يصل child الذي يستدعي `completeAiExecution` إلى `PgSleep` داخل معاملة الإدراج، ثم يقتله بـ`SIGKILL`. بعد انقطاع جلسة PostgreSQL، تبقى الحالة `running` ولا يوجد قبول؛ بعد إزالة trigger، تنجح إعادة المحاولة بالمالك نفسه وتنتج حالة `completed` وصف قبول واحد.
+- **files/schema/contracts touched:** `ai-execution-retry.integration.test.ts` وسجلا التقدم والقياس فقط؛ لا تعديل production code أو schema أو قاعدة تطوير.
+- **validation:** الاختبار المستهدف نجح `1/1` على PostgreSQL loopback مؤقتة بعد تطبيق schema عليها وحدها؛ API typecheck و`git diff --check` نجحا. أُوقفت القاعدة المؤقتة وحُذف جذرها.
+- **authority/safety impact:** يثبت هذا حد `completeAiExecution` ومعاملة القبول المشتركة فقط. لا يستدعي الاختبار `runRecipeOperation` ولا يمرر effect bundle/recipe binding الخاصين بـ`runtime.start`، لذا لا يثبت crash safety لتدفق Gate C الكامل أو D2 dispatch.
+- **remaining/blocker:** ربط writer crash بالـ`runtime.start` الفعلي، واستعادة العامل/lease عبر API startup، ومنع successor حتى قبول جديد، ما زالت `UNKNOWN`. E2 مفتوحة؛ E3 متوقفة.
+- **next step:** ابقَ داخل E2: اربط اختبار crash بالمسار الفعلي `runRecipeOperation(runtime.start)` وبـGate C effect والانتقال pending؛ لا تبدأ E3 أو Strategy Replay أو workflows مُدارة ولا تقترح مهام متابعة.
