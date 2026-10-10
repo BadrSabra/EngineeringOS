@@ -150,7 +150,7 @@ describe("recipe task-objective validator receipts", () => {
       ...common,
       taskObjective: browserObjective,
     })).toEqual([]);
-  }, process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1" ? 120_000 : 20_000);
+  });
 
   it("does not issue a registered-validation receipt for an unknown profile", () => {
     const taskObjective = buildTaskObjectiveContract({
@@ -3540,7 +3540,7 @@ describe("recipe operation preparation", () => {
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await fixture.cleanup();
     }
-  });
+  }, process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1" ? 120_000 : 20_000);
 
   it("rejects proof-required runtime recipes before execution", async () => {
     const fixture = await createGateCRecipeFixture("runtime.start");
