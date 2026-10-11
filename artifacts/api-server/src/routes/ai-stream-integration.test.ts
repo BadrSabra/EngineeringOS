@@ -3142,7 +3142,7 @@ describe("Durable AI execution crash/reconnect", () => {
         });
         expect(created.resumeToken).toBeTruthy();
 
-        const firstStream = fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+        const firstStream = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -3153,6 +3153,7 @@ describe("Durable AI execution crash/reconnect", () => {
             resumeToken: created.resumeToken,
           }),
         });
+        expect(firstStream.status, "initial forensic stream HTTP status").toBe(200);
 
         let checkpointSequence = 0;
         const checkpointDeadline = Date.now() + 45_000;
@@ -3170,9 +3171,7 @@ describe("Durable AI execution crash/reconnect", () => {
 
         await stopProcess(server);
         server = undefined;
-        await firstStream
-          .then(async (response) => response.body?.cancel())
-          .catch(() => undefined);
+        await firstStream.body?.cancel().catch(() => undefined);
 
         server = spawn(process.execPath, ["--enable-source-maps", apiEntryPoint], {
           cwd: process.cwd(),
