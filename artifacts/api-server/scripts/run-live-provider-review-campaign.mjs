@@ -103,13 +103,13 @@ const child = spawn(
   },
 );
 
-const timeoutMs = Number(process.env.LIVE_REVIEW_TIMEOUT_MS ?? 120_000);
+const timeoutMs = Number(process.env.LIVE_REVIEW_TIMEOUT_MS ?? 300_000);
 let timedOut = false;
 const timeout = setTimeout(() => {
   timedOut = true;
   child.kill("SIGTERM");
   setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
-}, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120_000);
+  }, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300_000);
 
 child.on("error", (error) => {
   clearTimeout(timeout);

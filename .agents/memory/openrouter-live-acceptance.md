@@ -74,3 +74,9 @@ Prompt-only JSON is a separate empirical mode, not native structured-output supp
 **Why:** A free text model may be eligible for a controlled E2 experiment without advertising `response_format`, but the normal code-review selector requires native JSON capability. Reclassifying it as natively structured would let it enter unrelated flows and obscure what the scorecard measured.
 
 **How to apply:** Register prompt-only eligibility separately, route only the empirical candidate through a coding capability, record the selected and actual model, and allow the existing one same-model repair only after malformed/schema-invalid output—not after an empty response or provider outage.
+
+Live review campaign wall-clock watchdogs must account for runtime startup in addition to measured provider latency. Keep exact-model receipt validation, but avoid a wrapper default so short that it terminates a valid review before the sanitized receipt is written.
+
+**Why:** A valid free-model review took about 90 seconds of measured work but exceeded the campaign's 120-second wall-clock watchdog once process startup and setup were included; a longer bounded run produced a complete, evidence-backed receipt.
+
+**How to apply:** Use a several-minute outer watchdog for the live review wrapper, retain a disposable workspace and bounded child termination, and inspect the safe receipt before deciding whether a provider failure needs code changes.
