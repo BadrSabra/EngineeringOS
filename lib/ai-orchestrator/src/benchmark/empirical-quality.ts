@@ -756,7 +756,6 @@ export async function runEmpiricalQualityCampaign(args: {
     }
     results.push(...prior.cases.filter((entry) => entry.outcome === "COMPLETE"));
   }
-  const caseTimeoutMs = args.caseTimeoutMs ?? 900_000;
   const generatedAt = args.generatedAt ?? new Date().toISOString();
   const campaignDeadline = args.campaignTimeoutMs === undefined
     ? undefined
@@ -798,10 +797,16 @@ export async function runEmpiricalQualityCampaign(args: {
     }
     const controller = new AbortController();
     const startedAt = Date.now();
+    const remainingCaseMs = args.caseTimeoutMs;
     const remainingCampaignMs = campaignDeadline === undefined
-      ? caseTimeoutMs
-      : Math.min(caseTimeoutMs, campaignDeadline - startedAt);
-    if (remainingCampaignMs <= 0) {
+      ? undefined
+      : campaignDeadline - startedAt;
+    const timeoutMs = remainingCaseMs === undefined
+      ? remainingCampaignMs
+      : remainingCampaignMs === undefined
+        ? remainingCaseMs
+        : Math.min(remainingCaseMs, remainingCampaignMs);
+    if (timeoutMs !== undefined && timeoutMs <= 0) {
       results.push(scoreEmpiricalQualityCase(testCase, {
         caseId: testCase.id,
         outcome: "TIMEOUT",
@@ -817,15 +822,18 @@ export async function runEmpiricalQualityCampaign(args: {
     }
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      const observation = await Promise.race([
-        args.executeCase(testCase, controller.signal),
-        new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => {
-            controller.abort();
-            reject(new Error("EMPIRICAL_CAMPAIGN_TIMEOUT"));
-          }, remainingCampaignMs);
-        }),
-      ]);
+      const execution = args.executeCase(testCase, controller.signal);
+      const observation = timeoutMs === undefined
+        ? await execution
+        : await Promise.race([
+            execution,
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(() => {
+                controller.abort();
+                reject(new Error("EMPIRICAL_CAMPAIGN_TIMEOUT"));
+              }, timeoutMs);
+            }),
+          ]);
       results.push(scoreEmpiricalQualityCase(testCase, {
         ...observation,
         caseId: testCase.id,

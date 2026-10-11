@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
-  empiricalQualityCampaignDefaults,
   reviewWithOneSameModelJsonRepair,
   runApiEmpiricalQualityCampaign,
   selectEmpiricalJsonMode,
@@ -54,9 +53,40 @@ afterEach(async () => {
 });
 
 describe("empirical quality timeout defaults", () => {
-  it("allows a case to use the full 15-minute campaign window", () => {
-    expect(empiricalQualityCampaignDefaults.caseTimeoutMs).toBe(900_000);
-    expect(empiricalQualityCampaignDefaults.campaignTimeoutMs).toBe(900_000);
+  it("does not impose a case or campaign timeout by default", async () => {
+    const observedTimeouts: Array<number | undefined> = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: async (testCase, timeoutMs) => {
+        observedTimeouts.push(timeoutMs);
+        return workspaceFor(testCase, timeoutMs);
+      },
+      reviewCase: async ({ testCase, timeoutMs }) => {
+        observedTimeouts.push(timeoutMs);
+        const hasFinding = testCase.outcome === "defect";
+        return {
+          summary: hasFinding ? "Unsafe authentication" : "Clean review",
+          overallScore: hasFinding ? 40 : 90,
+          strengths: [],
+          issues: hasFinding ? [{
+            type: "security",
+            severity: "high",
+            file: "src/auth.ts",
+            title: "Unsafe authentication",
+            description: "The selected fixture is unsafe.",
+            suggestion: "Validate the input.",
+          }] : [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: hasFinding ? "needs_changes" : "approved",
+        };
+      },
+    });
+
+    expect(observedTimeouts).toEqual([undefined, undefined, undefined, undefined]);
+    expect(scorecard.status).toBe("COMPLETE");
   });
 });
 
@@ -480,7 +510,7 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("keeps reasoning-model provider requests within the case deadline", async () => {
-    const budgets: Array<{ maxTokens: number | undefined; timeoutMs: number }> = [];
+    const budgets: Array<{ maxTokens: number | undefined; timeoutMs: number | undefined }> = [];
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,
       provider: "openrouter",
@@ -511,7 +541,10 @@ describe("empirical provider campaign adapter", () => {
 
     expect(budgets).toHaveLength(2);
     expect(budgets.every((budget) =>
-      budget.maxTokens === 8_192 && budget.timeoutMs > 0 && budget.timeoutMs <= 15_000,
+      budget.maxTokens === 8_192 &&
+      typeof budget.timeoutMs === "number" &&
+      budget.timeoutMs > 0 &&
+      budget.timeoutMs <= 15_000,
     )).toBe(true);
     expect(scorecard.status).toBe("COMPLETE");
     expect(scorecard.structuredOutputMode).toBe("native_json_object");

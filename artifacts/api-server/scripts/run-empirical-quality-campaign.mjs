@@ -55,26 +55,11 @@ const child = spawn(
   },
 );
 
-const timeoutMs = Number(process.env.EMPIRICAL_QUALITY_CAMPAIGN_TIMEOUT_MS ?? 900_000);
-let timedOut = false;
-const timeout = setTimeout(() => {
-  timedOut = true;
-  child.kill("SIGTERM");
-  setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
-}, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 900_000);
-
 child.on("error", (error) => {
-  clearTimeout(timeout);
   console.error(`Empirical quality campaign could not start: ${error.name}.`);
   process.exitCode = 1;
 });
 
 child.on("exit", (code, signal) => {
-  clearTimeout(timeout);
-  if (timedOut) {
-    console.error(`Empirical quality campaign timed out after ${timeoutMs}ms.`);
-    process.exitCode = 1;
-    return;
-  }
   process.exitCode = signal ? 1 : code ?? 1;
 });

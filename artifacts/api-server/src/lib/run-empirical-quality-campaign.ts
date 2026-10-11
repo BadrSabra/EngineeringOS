@@ -85,14 +85,14 @@ export type EmpiricalCaseReviewInput = {
   apiKey: string;
   model?: string;
   maxTokens?: number;
-  timeoutMs: number;
+  timeoutMs?: number;
   signal: AbortSignal;
   onProviderModel?: (model: string | null | undefined) => void;
 };
 
 export type EmpiricalCaseWorkspaceFactory = (
   testCase: EmpiricalCorpusCase,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   signal: AbortSignal,
 ) => Promise<EmpiricalCaseWorkspace>;
 
@@ -147,12 +147,12 @@ function createResumeBinding(args: {
   provider: ProviderId;
   model: string | null;
   structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"];
-  caseTimeoutMs: number;
+  caseTimeoutMs?: number;
   reviewerRevision: string;
 }): EmpiricalQualityResumeBinding {
   const corpusSha256 = createHash("sha256").update(JSON.stringify(args.corpus)).digest("hex");
   const evaluatorRevision =
-    `${EMPIRICAL_QUALITY_EVALUATOR_REVISION}:timeout-${args.caseTimeoutMs}:review-${args.reviewerRevision}`;
+    `${EMPIRICAL_QUALITY_EVALUATOR_REVISION}:timeout-${args.caseTimeoutMs ?? "unbounded"}:review-${args.reviewerRevision}`;
   const fingerprint = createHash("sha256").update(JSON.stringify({
     corpusSha256,
     evaluatorRevision,
@@ -165,12 +165,6 @@ function createResumeBinding(args: {
 
 function isProvider(value: string): value is ProviderId {
   return SAFE_PROVIDER.has(value);
-}
-
-function positiveInteger(value: string | undefined, fallback: number, minimum: number): number {
-  const parsed = Number.parseInt(value ?? "", 10);
-  if (!Number.isInteger(parsed) || parsed < minimum) return fallback;
-  return parsed;
 }
 
 function classifyProviderError(error: unknown): EmpiricalCaseObservation["errorCode"] {
@@ -277,14 +271,18 @@ async function readSelectedFiles(
 
 async function cloneReviewedRepository(
   testCase: EmpiricalCorpusCase,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   signal: AbortSignal,
 ): Promise<EmpiricalCaseWorkspace> {
   const rootPath = await createHostDisposableTempDirectory("engineeringos-empirical-");
   const cleanup = async () => fs.rm(rootPath, { recursive: true, force: true });
   try {
     if (signal.aborted) throw new Error("Campaign was cancelled before repository checkout.");
-    const commandOptions = { timeout: timeoutMs, maxBuffer: 256 * 1024, signal };
+    const commandOptions = {
+      ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+      maxBuffer: 256 * 1024,
+      signal,
+    };
     await execFileAsync(
       "git",
       ["clone", "--depth", "1", "--no-checkout", testCase.repositoryUrl, rootPath],
@@ -379,7 +377,7 @@ export async function runApiEmpiricalQualityCampaign(
   const registeredModel = options.provider === "openrouter" && options.model
     ? FREE_MODELS.find((candidate) => candidate.id === options.model)
     : undefined;
-  const caseTimeoutMs = options.caseTimeoutMs ?? 900_000;
+  const caseTimeoutMs = options.caseTimeoutMs;
   const workspaceFactory = options.workspaceFactory ?? defaultWorkspaceFactory;
   const review = options.reviewCase ?? defaultReviewCase;
 
@@ -388,11 +386,13 @@ export async function runApiEmpiricalQualityCampaign(
   if (options.resumeFrom && review !== defaultReviewCase && !options.reviewContractRevision?.trim()) {
     throw new Error("Resuming a custom reviewer requires an explicit review contract revision.");
   }
-  if (!Number.isInteger(caseTimeoutMs) || caseTimeoutMs < 1_000) {
+  if (caseTimeoutMs !== undefined &&
+      (!Number.isInteger(caseTimeoutMs) || caseTimeoutMs < 1_000)) {
     throw new Error("Empirical quality case timeout must be at least 1000ms.");
   }
   if (options.campaignTimeoutMs !== undefined &&
-      (!Number.isInteger(options.campaignTimeoutMs) || options.campaignTimeoutMs < caseTimeoutMs)) {
+      (!Number.isInteger(options.campaignTimeoutMs) ||
+        (caseTimeoutMs !== undefined && options.campaignTimeoutMs < caseTimeoutMs))) {
     throw new Error("Empirical quality campaign timeout must cover at least one case timeout.");
   }
 
@@ -447,7 +447,9 @@ export async function runApiEmpiricalQualityCampaign(
           apiKey: options.apiKey,
           model: options.model,
           maxTokens: registeredModel?.capabilities.includes("reasoning") ? 8_192 : undefined,
-          timeoutMs: Math.max(1, caseTimeoutMs - (Date.now() - startedAt) - 1_000),
+          timeoutMs: caseTimeoutMs === undefined
+            ? undefined
+            : Math.max(1, caseTimeoutMs - (Date.now() - startedAt) - 1_000),
           signal,
           onProviderModel: (model) => {
             if (model) providerModel = model;
@@ -546,30 +548,6 @@ export function empiricalQualityProviderKey(provider: string): string {
   return PROVIDER_KEY_ENV[provider];
 }
 
-export const empiricalQualityCampaignDefaults = {
-  caseTimeoutMs: 900_000,
-  campaignTimeoutMs: 900_000,
-};
-
-export function parseEmpiricalQualityTimeouts(): {
-  caseTimeoutMs: number;
-  campaignTimeoutMs: number;
-} {
-  const caseTimeoutMs = positiveInteger(
-    process.env.EMPIRICAL_QUALITY_CASE_TIMEOUT_MS,
-    empiricalQualityCampaignDefaults.caseTimeoutMs,
-    1_000,
-  );
-  return {
-    caseTimeoutMs,
-    campaignTimeoutMs: positiveInteger(
-      process.env.EMPIRICAL_QUALITY_CAMPAIGN_TIMEOUT_MS,
-      empiricalQualityCampaignDefaults.campaignTimeoutMs,
-      caseTimeoutMs,
-    ),
-  };
-}
-
 async function main(): Promise<void> {
   if (process.env.RUN_EMPIRICAL_QUALITY_CAMPAIGN !== "1") {
     throw new Error("Empirical quality campaign is opt-in. Set RUN_EMPIRICAL_QUALITY_CAMPAIGN=1.");
@@ -589,7 +567,6 @@ async function main(): Promise<void> {
   const outputPath = process.env.EMPIRICAL_QUALITY_SCORECARD_PATH?.trim();
   if (!outputPath) throw new Error("EMPIRICAL_QUALITY_SCORECARD_PATH is required for live campaign output.");
 
-  const timeouts = parseEmpiricalQualityTimeouts();
   const persistCheckpoint = async (scorecard: EmpiricalQualityScorecard): Promise<void> => {
     await writeEmpiricalQualityScorecard(outputPath, scorecard);
   };
@@ -601,7 +578,6 @@ async function main(): Promise<void> {
     ...(process.env.EMPIRICAL_QUALITY_RESUME_SCORECARD_PATH?.trim()
       ? { resumeFrom: await loadEmpiricalQualityResumeScorecard(process.env.EMPIRICAL_QUALITY_RESUME_SCORECARD_PATH.trim()) }
       : {}),
-    ...timeouts,
     onProgress: persistCheckpoint,
   });
   await writeEmpiricalQualityScorecard(outputPath, scorecard);
