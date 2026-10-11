@@ -27,7 +27,7 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v6";
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v9";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
@@ -124,6 +124,45 @@ export function selectEmpiricalJsonMode(
     return { mode: "prompt_only_json", promptOnlyJson: true, jsonObjectOnly: false };
   }
   throw new Error("Exact empirical OpenRouter model has no verified JSON output mode.");
+}
+
+export type EmpiricalModelCatalogAccess = {
+  refresh: typeof refreshDynamicCatalog;
+  getModelIds: typeof getUsableDynamicModelIds;
+  getFormatSupport: typeof getUsableDynamicModelFormatSupport;
+};
+
+export async function resolveEmpiricalJsonModeForModel(
+  model: OpenRouterFreeModel | undefined,
+  apiKey: string,
+  catalog: EmpiricalModelCatalogAccess = {
+    refresh: refreshDynamicCatalog,
+    getModelIds: getUsableDynamicModelIds,
+    getFormatSupport: getUsableDynamicModelFormatSupport,
+  },
+): Promise<ReturnType<typeof selectEmpiricalJsonMode>> {
+  if (!model?.capabilities.includes("coding")) {
+    throw new Error("Exact empirical OpenRouter model is not registered for code review.");
+  }
+  let liveModelIds = catalog.getModelIds();
+  if (!liveModelIds) {
+    await catalog.refresh(apiKey);
+    liveModelIds = catalog.getModelIds();
+  }
+  if (!liveModelIds?.has(model.id)) {
+    throw new GroqClientError(
+      "MODEL_UNAVAILABLE",
+      "Exact empirical OpenRouter model is not currently available as a free code-review model.",
+    );
+  }
+  return selectEmpiricalJsonMode(model, catalog.getFormatSupport(model.id));
+}
+
+export function empiricalReviewMaxTokens(
+  initialMaxTokens: number | undefined,
+  repairAttempt: boolean,
+): number | undefined {
+  return repairAttempt ? Math.max(initialMaxTokens ?? 0, 16_384) : initialMaxTokens;
 }
 
 export type ApiEmpiricalQualityCampaignOptions = {
@@ -302,12 +341,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
   let jsonObjectOnly = false;
   if (input.provider === "openrouter" && input.model) {
     const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
-    const liveModelIds = getUsableDynamicModelIds();
-    const formatSupport = getUsableDynamicModelFormatSupport(input.model);
-    if (!liveModelIds?.has(input.model)) {
-      throw new Error("Exact empirical OpenRouter model is not a currently free, registered code-review model.");
-    }
-    const selectedMode = selectEmpiricalJsonMode(model, formatSupport);
+    const selectedMode = await resolveEmpiricalJsonModeForModel(model, input.apiKey);
     promptOnlyJson = selectedMode.promptOnlyJson;
     jsonObjectOnly = selectedMode.jsonObjectOnly;
     process.env.OPENROUTER_MODEL = input.model;
@@ -348,7 +382,7 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       stopAfterFirstModelAttempt: true,
       retryTransient: false,
       qualityProfile: "code_review",
-       maxTokens: input.maxTokens,
+        maxTokens: empiricalReviewMaxTokens(input.maxTokens, repairAttempt),
        onModelAttempt: ({ model }) => input.onProviderModel?.(model),
       },
       {
@@ -398,13 +432,7 @@ export async function runApiEmpiricalQualityCampaign(
 
   let structuredOutputMode: EmpiricalQualityScorecard["structuredOutputMode"] = "provider_default";
   if (options.provider === "openrouter" && options.model && review === defaultReviewCase) {
-    await refreshDynamicCatalog(options.apiKey);
-    const liveModelIds = getUsableDynamicModelIds();
-    const formatSupport = getUsableDynamicModelFormatSupport(options.model);
-    if (!liveModelIds?.has(options.model)) {
-      throw new Error("Exact empirical OpenRouter model is not a currently free, registered code-review model.");
-    }
-    structuredOutputMode = selectEmpiricalJsonMode(registeredModel, formatSupport).mode;
+    structuredOutputMode = (await resolveEmpiricalJsonModeForModel(registeredModel, options.apiKey)).mode;
   } else if (registeredModel?.supportsPromptOnlyJson && !registeredModel.supportsJson) {
     structuredOutputMode = "prompt_only_json";
   } else if (registeredModel?.supportsJson) {
@@ -446,7 +474,7 @@ export async function runApiEmpiricalQualityCampaign(
           provider: options.provider,
           apiKey: options.apiKey,
           model: options.model,
-          maxTokens: registeredModel?.capabilities.includes("reasoning") ? 8_192 : undefined,
+          maxTokens: registeredModel ? 8_192 : undefined,
           timeoutMs: caseTimeoutMs === undefined
             ? undefined
             : Math.max(1, caseTimeoutMs - (Date.now() - startedAt) - 1_000),

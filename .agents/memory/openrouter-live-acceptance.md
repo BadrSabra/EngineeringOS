@@ -15,6 +15,12 @@ OpenRouter telemetry's `outputTextLength` measures only top-level `output_text`;
 
 **How to apply:** Interpret `contentLength`, top-level `outputTextLength`, reasoning length, finish reason, and model identity separately. Keep malformed, empty, timed-out, and throttled cases incomplete; probe one candidate before spending the full corpus and stop when automatic fallback would change the model under test.
 
+When a response is truncated (`finish_reason=length`) and fails local JSON parsing, the single same-model repair needs an explicit bounded output budget above the ceiling that was just exhausted; 8,192 tokens is not sufficient when reasoning consumes nearly all of it. Leave acceptance gates unchanged.
+
+**Why:** A live Dots repair was cut off under the default budget, and Nemotron Lightning's 8,192-token repair ended at `finish_reason=length` after 8,027 reasoning tokens. Both failures pointed to output truncation, not grounds to relax JSON or evidence acceptance.
+
+**How to apply:** Raise the budget only on that one repair attempt and only beyond the last observed cap; keep the exact model pinned. A 16,384-token Lightning repair completed with `finish_reason=stop` and passed the structured contract, but its finding still failed semantic/citation acceptance, so budget repair is not quality acceptance.
+
 OpenRouter `structured_outputs` is coarse metadata, not proof that the chosen endpoint accepts `json_schema`. When both `response_format` and `structured_outputs` are advertised, prefer `json_object`; use schema mode only when it is the sole advertised native format. Keep `provider.require_parameters=true` for either strict native mode and retain local schema and evidence acceptance as authoritative gates.
 
 **Why:** Provider documentation allows endpoint-specific implementations to treat schemas as hints; Apodex's selected Novita route explicitly rejected `json_schema` despite the catalog's `structured_outputs` flag, while advertising JSON-object support.
@@ -32,6 +38,12 @@ Exact-model probes must use a model registered in `FREE_MODELS` with metadata ma
 **Why:** A currently free text model absent from the static catalog was silently ignored as an unusable override, and the resolver selected a different registered candidate. The scorecard's configured model alone did not reveal the mismatch.
 
 **How to apply:** For a new live candidate, first verify its provider metadata and register it only if its capabilities fit the test; then assert model identity at resolver and provider-response boundaries before interpreting its scorecard.
+
+Pinned empirical campaigns can outlast the dynamic catalog's freshness window. Refresh an expired snapshot before each case's model-eligibility check; if the refreshed snapshot no longer lists the exact candidate as free, record provider unavailability and stop the pinned campaign rather than emitting generic execution errors for every remaining case.
+
+**Why:** A long corpus run crossed the catalog TTL after several slow model responses. Per-case validation treated the expired snapshot's `null` as an ordinary exception, so later cases failed before review despite successful repository setup.
+
+**How to apply:** Revalidate only after expiry, keep the same exact model binding, fail closed if refresh cannot establish current eligibility, and test both successful refresh and a candidate removed from the refreshed catalog.
 
 Exact-model empirical campaigns must stop after the first provider-unavailable observation because the candidate can no longer pass the full corpus; record remaining case IDs as not run rather than issuing more requests or counting them as attempted failures. Scorecards should preserve the selected structured-output mode and any provider-reported model identity separately from the requested model.
 

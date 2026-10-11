@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
+  empiricalReviewMaxTokens,
   reviewWithOneSameModelJsonRepair,
+  resolveEmpiricalJsonModeForModel,
   runApiEmpiricalQualityCampaign,
   selectEmpiricalJsonMode,
 } from "./run-empirical-quality-campaign.js";
@@ -204,6 +206,39 @@ describe("empirical provider campaign adapter", () => {
       .toThrow("no verified JSON output mode");
   });
 
+  it("refreshes an expired live catalog before continuing a pinned model campaign", async () => {
+    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3-super-120b-a12b:free");
+    expect(model).toBeDefined();
+    let liveIds: Set<string> | null = null;
+    let refreshCalls = 0;
+
+    const mode = await resolveEmpiricalJsonModeForModel(model, "provider-key-is-test-only", {
+      refresh: async () => {
+        refreshCalls += 1;
+        liveIds = new Set([model!.id]);
+      },
+      getModelIds: () => liveIds,
+      getFormatSupport: () => ({ supportsJsonObject: true, supportsJsonSchema: true }),
+    });
+
+    expect(refreshCalls).toBe(1);
+    expect(mode.mode).toBe("native_json_object");
+  });
+
+  it("fails closed when a refreshed catalog no longer lists the pinned model as free", async () => {
+    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3-super-120b-a12b:free");
+    expect(model).toBeDefined();
+    let refreshCalls = 0;
+
+    await expect(resolveEmpiricalJsonModeForModel(model, "provider-key-is-test-only", {
+      refresh: async () => { refreshCalls += 1; },
+      getModelIds: () => null,
+      getFormatSupport: () => null,
+    })).rejects.toMatchObject({ code: "MODEL_UNAVAILABLE" });
+
+    expect(refreshCalls).toBe(1);
+  });
+
   it("makes at most one repair call while keeping the pinned runner", async () => {
     const invoked: Array<{ repair: boolean; model: string }> = [];
     const priorErrors: unknown[] = [];
@@ -221,6 +256,14 @@ describe("empirical provider campaign adapter", () => {
     ]);
     expect(priorErrors).toEqual([undefined, { code: "MALFORMED_JSON" }]);
     expect(result.accepted).toBe(true);
+  });
+
+  it("raises only the bounded same-model repair output budget", () => {
+    expect(empiricalReviewMaxTokens(undefined, false)).toBeUndefined();
+    expect(empiricalReviewMaxTokens(4_096, false)).toBe(4_096);
+    expect(empiricalReviewMaxTokens(undefined, true)).toBe(16_384);
+    expect(empiricalReviewMaxTokens(8_192, true)).toBe(16_384);
+    expect(empiricalReviewMaxTokens(16_384, true)).toBe(16_384);
   });
 
   it("runs the isolated review path and records scoring, citation, normalization, and latency", async () => {
@@ -390,13 +433,15 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("records the structured-output mode and provider-reported model", async () => {
+    const maxTokenBudgets: Array<number | undefined> = [];
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,
       provider: "openrouter",
       apiKey: "provider-key-is-test-only",
       model: "inclusionai/ling-3.1-flash",
       workspaceFactory: workspaceFor,
-      reviewCase: async ({ testCase, onProviderModel }) => {
+      reviewCase: async ({ testCase, onProviderModel, maxTokens }) => {
+        maxTokenBudgets.push(maxTokens);
         onProviderModel?.("inclusionai/ling-3.1-flash");
         return {
           summary: "Bounded review",
@@ -423,6 +468,7 @@ describe("empirical provider campaign adapter", () => {
       "inclusionai/ling-3.1-flash",
       "inclusionai/ling-3.1-flash",
     ]);
+    expect(maxTokenBudgets).toEqual([8_192, 8_192]);
   });
 
   it("resumes only the pending case under the exact model, corpus, and mode binding", async () => {
