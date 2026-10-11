@@ -43,9 +43,7 @@ export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
 export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
 
 const DEEPSEEK_BASE_URL    = "https://api.deepseek.com";
-const DEFAULT_TIMEOUT_MS   = 60_000;
 const DEEPSEEK_MODELS_URL = `${DEEPSEEK_BASE_URL}/models`;
-const DEEPSEEK_MODEL_CHECK_TIMEOUT_MS = 5_000;
 
 export type DeepSeekDefaultModelRole = "fast" | "powerful";
 export type DeepSeekDefaultModelValidation = {
@@ -63,7 +61,7 @@ export async function validateDeepSeekDefaultModels(
   defaults: { fast: string; powerful: string },
 ): Promise<DeepSeekDefaultModelValidation> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEEPSEEK_MODEL_CHECK_TIMEOUT_MS);
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   try {
     assertProviderEgressEnabled();
     const response = await fetch(DEEPSEEK_MODELS_URL, {
@@ -160,10 +158,11 @@ export async function* deepseekCompleteStream(
     model     = DEEPSEEK_MODEL_FAST,
     temperature = 0.2,
     maxTokens = 4096,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    timeoutMs,
     apiKey,
     signal,
   } = opts;
+  void timeoutMs;
 
   const body: Record<string, unknown> = {
     model,
@@ -174,7 +173,7 @@ export async function* deepseekCompleteStream(
   };
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -318,13 +317,14 @@ export async function deepseekCompleteRaw(
     model     = DEEPSEEK_MODEL_FAST,
     temperature = 0.2,
     maxTokens = 4096,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    timeoutMs,
     apiKey,
     signal,
     executionLedger,
     tools,
     toolChoice,
   } = opts;
+  void timeoutMs;
 
   const body: Record<string, unknown> = {
     model,
@@ -343,7 +343,7 @@ export async function deepseekCompleteRaw(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });

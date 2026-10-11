@@ -500,8 +500,11 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
     { role: "user" as const, content: message },
   ];
   const abortController = new AbortController();
-  const deadline = setTimeout(() => abortController.abort(), 55_000);
-  deadline.unref?.();
+  const abortOnDisconnect = () => {
+    if (!res.writableEnded) abortController.abort();
+  };
+  req.once("aborted", abortOnDisconnect);
+  res.once("close", abortOnDisconnect);
 
   try {
     const { result } = await runAgentWithFallback(
@@ -570,7 +573,9 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
       { error, sessionId, turnId, errorCode },
       "General chat provider request failed",
     );
-    const safeMessage = errorCode === "TIMEOUT"
+    const safeMessage = abortController.signal.aborted
+      ? "The response was cancelled."
+      : errorCode === "TIMEOUT"
       ? "The response took too long. Send a new message and try again."
       : "I couldn't generate a response right now. Send a new message to try again.";
     const assistantMessage = await completeAssistantMessage({
@@ -590,7 +595,8 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
       assistantMessage: publicMessage(assistantMessage),
     });
   } finally {
-    clearTimeout(deadline);
+    req.off("aborted", abortOnDisconnect);
+    res.off("close", abortOnDisconnect);
   }
 });
 

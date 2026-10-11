@@ -1456,7 +1456,7 @@ const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
  *
  * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
  *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
- * OR-005: retries once (after 1.5 s back-off) on transient transport errors
+ * OR-005: retries once immediately on transient transport errors
  *         and rate limits without a known broader scope. A shared-pool or
  *         provider-credential limit is surfaced for route-level recovery.
  */
@@ -1472,6 +1472,7 @@ export async function openrouterCompleteRaw(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
+  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
 
   try {
     return await oacCompleteRaw(trimmed, fullOpts);
@@ -1949,8 +1950,6 @@ export async function* openrouterCompleteStream(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
-  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
-
   const capability = opts.capability;
   const initialModel = opts.model;
   if (initialModel && capability && !isCatalogFreeModelForCapability(initialModel, { capability })) {
@@ -2098,7 +2097,6 @@ export async function* openrouterCompleteStream(
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 const GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_MODEL_CHECK_TIMEOUT_MS = 5_000;
 
 export type GeminiDefaultModelRole = "fast" | "powerful";
 
@@ -2136,7 +2134,7 @@ export async function validateGeminiDefaultModels(
   defaults: { fast: string; powerful: string },
 ): Promise<GeminiDefaultModelValidation> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_MODEL_CHECK_TIMEOUT_MS);
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
 
   try {
     assertProviderEgressEnabled();
@@ -2369,8 +2367,9 @@ async function geminiCompleteWithTools(
   let error: unknown;
   let providerUsage: ProviderRequestUsage = { usageStatus: "unknown" };
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  void timeoutMs;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(opts.signal?.reason);
   if (opts.signal?.aborted) onAbort();
   else opts.signal?.addEventListener("abort", onAbort, { once: true });

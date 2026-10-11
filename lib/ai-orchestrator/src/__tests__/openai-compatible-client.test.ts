@@ -596,28 +596,21 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(seenModels[1]).not.toBe(seenModels[0]);
   });
 
-  it("TIMEOUT with transient retries disabled → advances to the next model candidate", async () => {
+  it("network errors with transient retries disabled → advances to the next model candidate", async () => {
     let callCount = 0;
     const seenModels: string[] = [];
-    vi.stubGlobal("fetch", vi.fn((_url: string | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       callCount++;
       seenModels.push(String(body.model));
       if (callCount <= 2) {
-        return new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal;
-          signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("request aborted", "AbortError")),
-            { once: true },
-          );
-        });
+        throw new Error("socket closed");
       }
-      return Promise.resolve(jsonResponse({
-          choices: [{ message: { content: "ok-after-timeout" } }],
+      return jsonResponse({
+          choices: [{ message: { content: "ok-after-network-error" } }],
           model: body.model,
           usage: {},
-        }));
+        });
     }));
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
@@ -629,7 +622,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       maxFallbackModels: 3,
     });
 
-    expect(result.content).toBe("ok-after-timeout");
+    expect(result.content).toBe("ok-after-network-error");
     expect(callCount).toBe(3);
     expect(new Set(seenModels).size).toBe(3);
   });

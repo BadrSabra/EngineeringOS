@@ -342,7 +342,8 @@ export async function validateGroqDefaultModels(
 ): Promise<GroqDefaultModelValidation> {
   const client = getClient(apiKey);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  void timeoutMs;
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
 
   try {
     assertProviderEgressEnabled();
@@ -592,9 +593,11 @@ export async function completeRaw(
         throw new GroqClientError("TIMEOUT", "Groq request cancelled", { cause: lastError });
       }
       if (attempt < maxRetries && isRetryable(lastError.code)) {
-        const delay = retryDelayMs(attempt, lastError.code);
+        const delay = lastError.code === "NETWORK_ERROR"
+          ? 0
+          : retryDelayMs(attempt, lastError.code);
         console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
-        await sleep(delay, signal);
+        if (delay > 0) await sleep(delay, signal);
         continue;
       }
       break;
@@ -712,7 +715,8 @@ function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqC
 
 async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number, signal?: AbortSignal) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  void timeoutMs;
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -830,7 +834,8 @@ export async function* completeStream(
   });
   let providerAttemptError: unknown;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  void timeoutMs;
+  const timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -952,9 +957,11 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
         throw new GroqClientError("TIMEOUT", "Groq request cancelled", { cause: lastError });
       }
       if (attempt < maxRetries && isRetryable(lastError.code)) {
-        const delay = retryDelayMs(attempt, lastError.code);
+        const delay = lastError.code === "NETWORK_ERROR"
+          ? 0
+          : retryDelayMs(attempt, lastError.code);
         console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
-        await sleep(delay, signal);
+        if (delay > 0) await sleep(delay, signal);
         continue;
       }
       break;
