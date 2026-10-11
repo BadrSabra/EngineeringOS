@@ -243,6 +243,10 @@ export type CodeAgentBenchmarkMetrics = {
   firstAttemptRate: number;
   repairedWithinThreeRate: number;
   correctCompletionRate: number;
+  /** Valid positive-task acceptance; provider-unavailable cases are not quality samples. */
+  acceptedCompletionRate?: number | null;
+  acceptedCompletionCases?: number;
+  acceptedCompletionCount?: number;
   /** Positive task cases that need approval or unresolved human follow-up. */
   humanInterventionRate?: number | null;
   humanInterventionCases?: number;
@@ -1012,6 +1016,12 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     const testCase = completionCaseById.get(result.caseId);
     return testCase ? [{ result, testCase }] : [];
   });
+  const acceptedCompletionResults = interventionResults.filter(
+    ({ result }) => result.providerUnavailable !== true,
+  );
+  const acceptedCompletionCount = acceptedCompletionResults.filter(
+    ({ result }) => result.correct,
+  ).length;
   const humanInterventionRequiredCount = interventionResults.filter(
     ({ result, testCase }) => testCase.expected.approvalRequired || !result.correct,
   ).length;
@@ -1087,6 +1097,11 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     firstAttemptRate: qualityRate((result) => result.completedFirstAttempt),
     repairedWithinThreeRate: qualityRate((result) => result.repairedWithinThreeAttempts),
     correctCompletionRate: qualityRate((result) => result.correct),
+    acceptedCompletionRate: acceptedCompletionResults.length === 0
+      ? null
+      : acceptedCompletionCount / acceptedCompletionResults.length,
+    acceptedCompletionCases: acceptedCompletionResults.length,
+    acceptedCompletionCount,
     humanInterventionRate: interventionResults.length === 0
       ? null
       : humanInterventionRequiredCount / interventionResults.length,
@@ -1277,7 +1292,8 @@ export function codeAgentBenchmarkScorecardToMarkdown(
     `- Cases: ${metrics.observedCases}/${metrics.totalCases}`,
     `- First-attempt rate: ${metrics.firstAttemptRate}`,
     `- Repaired within three attempts: ${metrics.repairedWithinThreeRate}`,
-    `- Correct completion rate: ${metrics.correctCompletionRate}`,
+    `- Correct outcome rate: ${metrics.correctCompletionRate}`,
+    `- Accepted task completion: ${metrics.acceptedCompletionCount ?? "not recorded"}/${metrics.acceptedCompletionCases ?? "not recorded"} (${metrics.acceptedCompletionRate == null ? "not recorded" : metrics.acceptedCompletionRate})`,
     `- Human intervention required: ${metrics.humanInterventionRequiredCount ?? "not recorded"}/${metrics.humanInterventionCases ?? "not recorded"} (${metrics.humanInterventionRate == null ? "not recorded" : metrics.humanInterventionRate})`,
     `- Safely blocked rate: ${metrics.safelyBlockedRate}`,
     `- Provider unavailable cases: ${metrics.providerUnavailableCount}`,

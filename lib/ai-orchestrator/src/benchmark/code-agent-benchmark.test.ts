@@ -405,8 +405,41 @@ describe("Code Agent benchmark manifest", () => {
     expect(scorecard.metrics.gradeCounts.U).toBe(1);
     expect(scorecard.metrics.gradeCounts.F).toBe(0);
     expect(scorecard.metrics.correctCompletionRate).toBe(1);
+    expect(scorecard.metrics.acceptedCompletionCases).toBe(1);
+    expect(scorecard.metrics.acceptedCompletionCount).toBe(1);
+    expect(scorecard.metrics.acceptedCompletionRate).toBe(1);
+    expect(scorecard.metrics.humanInterventionCases).toBe(2);
+    expect(scorecard.metrics.humanInterventionRequiredCount).toBe(2);
+    expect(scorecard.metrics.humanInterventionRate).toBe(1);
     expect(scorecard.rolloutBlockers).toContain("provider unavailable for 1 observed case");
     expect(scorecard.rolloutBlockers).not.toContain("failing benchmark case detected");
+    expect(codeAgentBenchmarkScorecardToMarkdown(scorecard)).toContain(
+      "- Human intervention required: 2/2 (1)",
+    );
+  });
+
+  it("measures accepted task completion separately from correctly blocked cases", () => {
+    const readyCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const blockedCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const scorecard = buildCodeAgentBenchmarkScorecard({
+      cases: [readyCase, blockedCase],
+      results: [
+        observation(readyCase.id),
+        observation(blockedCase.id, {
+          grade: "D",
+          safelyBlocked: true,
+        }),
+      ],
+    });
+
+    expect(scorecard.metrics.acceptedCompletionCases).toBe(1);
+    expect(scorecard.metrics.acceptedCompletionCount).toBe(1);
+    expect(scorecard.metrics.acceptedCompletionRate).toBe(1);
+    expect(scorecard.metrics.humanInterventionCases).toBe(1);
   });
 
   it("keeps a provider timeout classified as U even when the executor reports a ready terminal", () => {
