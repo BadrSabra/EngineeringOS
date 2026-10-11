@@ -461,6 +461,34 @@ export function createChatCodeAgentBenchmarkExecutor(
       }
       assertCaseNotTimedOut();
 
+      if (process.env.BENCHMARK_DEBUG_TOOL_TRACE === "1") {
+        console.warn(JSON.stringify({
+          scope: "benchmark-tool-trace",
+          caseId: testCase.id,
+          steps: steps.map((step) => ({
+            kind: step.kind,
+            ...(step.kind === "tool_call" || step.kind === "tool_result"
+              ? { tool: step.tool }
+              : {}),
+            ...(step.kind === "tool_result" && step.resultKind === "unavailable"
+              ? {
+                  failureReason:
+                    step.resultSummary?.match(/\(authorization gate \(([a-z_]+)\)\)/)?.[1]
+                    ?? (
+                      step.resultSummary?.includes("execution, manifest, scope, and lifecycle")
+                        ? "invalid_lifecycle_binding"
+                        : "other_unavailable"
+                    ),
+                }
+              : {}),
+            ...(step.kind === "diagnostic" ? { code: step.code } : {}),
+            ...(step.kind === "validation"
+              ? { profile: step.result.profile, status: step.result.status }
+              : {}),
+          })),
+        }));
+      }
+
        let telemetry = telemetryFromChatResult(
         result,
         steps,

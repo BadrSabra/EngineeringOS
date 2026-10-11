@@ -101,6 +101,7 @@
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation contracts](orientation-proof-recovery-index.md) — responses, source manifests, evidence admission, acceptance, and recovery use one bounded role contract.
+- [Benchmark provider and scope isolation](benchmark-provider-scope-isolation.md) — exact-model caps must reach every tool-loop provider call; read-only forensic narrowing must not override an approved multi-file Build handoff.
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.

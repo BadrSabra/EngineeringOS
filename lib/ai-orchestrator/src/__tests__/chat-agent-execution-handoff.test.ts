@@ -252,7 +252,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
         args?: Record<string, string>;
       }> = [];
       const result = await chat({
-        message: "نفذ Repair Plan",
+        message: `نفذ Repair Plan للملف \`${relativePath}\``,
         history: [
           { role: "user", content: "راجع الكود" },
           {
@@ -1214,16 +1214,18 @@ describe("chat agent — recovered Repair Plan execution", () => {
 
   it("allows a fixture repair only with a server-owned exact-scope benchmark capability", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-benchmark-fixture-handoff-"));
-    const fixturePath = "src/target.ts";
-    const absolutePath = path.join(rootPath, fixturePath);
+    const fixturePaths = ["src/target.ts", "src/companion.ts"];
     const originalContent = "export const enabled = true;\n";
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(absolutePath, originalContent, "utf8");
+    for (const fixturePath of fixturePaths) {
+      const absolutePath = path.join(rootPath, fixturePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, originalContent, "utf8");
+    }
     const projectId = "benchmark-project";
     const executionPlan = buildActiveTaskExecutionPlan({
       repairPlan: [{
         findingId: "F-01",
-        files: [fixturePath],
+        files: fixturePaths,
         steps: ["Apply the requested repair only within the isolated benchmark fixture."],
         validationProfile: "workspace-typecheck",
         verdictScope: "FIXTURE_LOCAL",
@@ -1240,9 +1242,9 @@ describe("chat agent — recovered Repair Plan execution", () => {
         choices: [{
           message: {
             content: "",
-            tool_calls: [{
-              id: "benchmark-fixture-replace",
-              type: "function",
+            tool_calls: fixturePaths.map((fixturePath, index) => ({
+              id: `benchmark-fixture-replace-${index}`,
+              type: "function" as const,
               function: {
                 name: "replace_text",
                 arguments: JSON.stringify({
@@ -1252,7 +1254,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
                   reason: "Disable the fixture flag for the authorized benchmark repair.",
                 }),
               },
-            }],
+            })),
           },
         }],
         model: "handoff-model",
@@ -1263,7 +1265,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
           message: {
             content: JSON.stringify({
               response: "Pending fixture change prepared for server validation.",
-              sources: [fixturePath],
+              sources: fixturePaths,
             }),
           },
         }],
@@ -1280,7 +1282,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
       const chat = await importChatWithTestLifecycleSink();
       const message = [
         "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
-        `Approved files: ${fixturePath}`,
+        `Approved files: ${fixturePaths.join(", ")}`,
       ].join("\n");
       const authorize = vi.fn().mockResolvedValue(true);
       const steps: string[] = [];
@@ -1292,16 +1294,16 @@ describe("chat agent — recovered Repair Plan execution", () => {
         projectId,
         buildHandoff: true,
         approvalState: "APPROVED",
-        approvedFilePaths: [fixturePath],
+        approvedFilePaths: fixturePaths,
         approvedValidationProfiles: ["workspace-typecheck"],
-        validationTargetPaths: [fixturePath],
+        validationTargetPaths: fixturePaths,
         executionPlanOverride: executionPlan!,
         turnIntent: resolveTurnIntent(message, {
           authoritativeKind: "DELIVERY",
           buildHandoff: true,
         }),
         benchmarkFixtureRepairAuthorization: {
-          caseId: "single-file-001",
+          caseId: "multi-file-004",
           authorize,
         },
         onStep: (step) => {
@@ -1309,22 +1311,27 @@ describe("chat agent — recovered Repair Plan execution", () => {
         },
       });
 
+      const firstProviderRequest = (create.mock.calls[0] as unknown as [
+        { tool_choice?: string },
+      ])[0];
+      expect(firstProviderRequest.tool_choice).toBe("required");
       expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
         rootPath,
         projectId,
-        caseId: "single-file-001",
+          caseId: "multi-file-004",
         scopedFindingStatus: "FIXTURE_PROVEN",
         planRootPath: rootPath,
-        planPaths: [fixturePath],
-        approvedPaths: [fixturePath],
-        executionPaths: [fixturePath],
+          planPaths: fixturePaths,
+          approvedPaths: fixturePaths,
+          executionPaths: fixturePaths,
         approvedValidationProfiles: ["workspace-typecheck"],
       }));
-      expect(steps).toContain("replace_text");
-      expect(result.pendingChanges).toHaveLength(1);
-      expect(result.pendingChanges[0]?.path).toBe(fixturePath);
-      expect(result.pendingChanges[0]?.newContent).toContain("enabled = false");
-      expect(await fs.readFile(absolutePath, "utf8")).toBe(originalContent);
+      expect(steps).toEqual(["replace_text", "replace_text"]);
+      expect(result.pendingChanges.map((change) => change.path)).toEqual(fixturePaths);
+      expect(result.pendingChanges.every((change) => change.newContent.includes("enabled = false"))).toBe(true);
+      for (const fixturePath of fixturePaths) {
+        expect(await fs.readFile(path.join(rootPath, fixturePath), "utf8")).toBe(originalContent);
+      }
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

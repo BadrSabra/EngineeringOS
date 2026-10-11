@@ -5015,11 +5015,42 @@ describe("executeToolLoop", () => {
       rootPath: "/project",
       pendingChanges: [],
       toolChoice: "required",
+      maxFallbackModels: 1,
     });
 
     const calls = vi.mocked(strategy.call).mock.calls;
     expect(calls[0]?.[1]).toMatchObject({ toolChoice: "required" });
+    expect(calls[0]?.[1]).toMatchObject({ maxFallbackModels: 1 });
     expect(calls[1]?.[1]).toMatchObject({ toolChoice: "auto" });
+  });
+
+  it("requires a pending-change tool throughout an active compound proposal phase", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("The requested files are ready for the proposed edit."),
+      makeResponse("The edit still needs to be prepared."),
+    ]);
+
+    await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "replace_text", description: "", parameters: {} } },
+        { type: "function", function: { name: "write_file", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      compoundWriteMode: true,
+      initialFileContents: new Map([["src/auth.ts", "export const enabled = true;\n"]]),
+    });
+
+    const calls = vi.mocked(strategy.call).mock.calls;
+    expect(calls[0]?.[1]).toMatchObject({ toolChoice: "required" });
+    expect(calls[1]?.[1]).toMatchObject({ toolChoice: "required" });
   });
 
   it("serves cached result for a duplicate tool call without re-executing", async () => {
@@ -6445,7 +6476,6 @@ describe("executeToolLoop", () => {
     expect(firstCallOptions.tools?.map((tool) => tool.function.name)).toEqual([
       "replace_text",
       "write_file",
-      "run_validation",
     ]);
     expect(firstCallOptions.toolChoice).toBe("required");
   });

@@ -9754,6 +9754,10 @@ export async function chat(opts: {
             opts.approvalState === "APPROVED" &&
             Boolean(opts.approvedFilePaths?.length)
         ? "required"
+         : repairPlanExecution &&
+             opts.approvalState === "APPROVED" &&
+             Boolean(opts.approvedFilePaths?.length)
+         ? "required"
         : immediateIntent && priorRepairPlan && executionFilePaths.length > 0
         ? "required"
         : undefined,
@@ -9764,6 +9768,9 @@ export async function chat(opts: {
           PROJECT_QUERY_FACT_MAX_ITERATIONS,
         )
       : budget.maxIterations,
+    ...(opts.benchmarkFixtureRepairAuthorization
+      ? { maxFallbackModels: 1 }
+      : {}),
     taskType: executionPlan.taskProfile.taskType,
     requiresEvidence: sourceEvidenceRequired,
     deterministicTaskExecution,
@@ -9827,7 +9834,10 @@ export async function chat(opts: {
           ? completeCapabilityProbeEvidence && completeActiveObjectiveManifest
             ? []
             : ["read_file", "read_file_range"]
-          : singleFileForensicMode && singleFilePaths.length > 0
+          : singleFileForensicMode &&
+              !repairPlanExecution &&
+              opts.executionMode !== "repair_plan" &&
+              singleFilePaths.length > 0
             ? ["read_file"]
             : undefined;
       if (opts.allowedToolNames === undefined) return isolatedToolNames;

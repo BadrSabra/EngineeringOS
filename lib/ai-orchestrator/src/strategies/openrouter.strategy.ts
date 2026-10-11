@@ -100,6 +100,7 @@ export const openrouterStrategy: ProviderStrategy = {
         action: "pre_call",
         provider: "openrouter",
         model: opts.model,
+        maxFallbackModels: opts.maxFallbackModels ?? null,
         hasTools: Array.isArray(opts.tools) && opts.tools.length > 0,
         toolCount: Array.isArray(opts.tools) ? opts.tools.length : 0,
       }),

@@ -2665,6 +2665,8 @@ export type ToolLoopOpts = {
 
   /** Enables the server-owned validation tool for an approved Build handoff. */
   allowExecutionTools?: boolean;
+  /** Bound provider-side model routing for exact-model benchmark attempts. */
+  maxFallbackModels?: number;
 
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
@@ -3487,6 +3489,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     try {
       const response = await strategy.call(callMessages, {
         ...callOptions,
+        ...(Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
+          ? { maxFallbackModels: opts.maxFallbackModels }
+          : {}),
         timeoutMs: executionLedger.timeoutMs(callOptions.timeoutMs),
         signal: callSignal ?? executionLedger.signal,
         executionLedger,
@@ -5362,12 +5367,29 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // provider call receives that instruction as well as the retained evidence.
     const safeMessages = stripOrphanedToolMessages(messages);
     const availableIterationTools = synthesisOnly ? [] : compoundProposalTools();
-    const iterationTools = availableIterationTools?.filter(
+    const filteredIterationTools = availableIterationTools?.filter(
       (tool) =>
         allowedTools.has(tool.function.name) &&
         !disabledForThisIteration.has(tool.function.name) &&
         !(searchBudgetEnabled && searchBudgetExhausted && tool.function.name === "search_code"),
     );
+    const approvedRepairMutationPhase =
+      executionMode === "repair_plan" &&
+      approvalState === "APPROVED" &&
+      Boolean(approvedFilePaths?.length) &&
+      pendingChanges.length === 0 &&
+      Boolean(filteredIterationTools) &&
+      !filteredIterationTools!.some((tool) =>
+        tool.function.name === "read_file" || tool.function.name === "read_file_range",
+      ) &&
+      filteredIterationTools!.some((tool) =>
+        tool.function.name === "replace_text" || tool.function.name === "write_file",
+      );
+    const iterationTools = approvedRepairMutationPhase
+      ? filteredIterationTools!.filter((tool) =>
+          tool.function.name === "replace_text" || tool.function.name === "write_file",
+        )
+      : filteredIterationTools;
     // `toolManifest` is a normalization/authorization aid, not a second
     // provider-facing tool list. Once the server has narrowed the current
     // iteration to no executable tools, omit both fields so the provider
@@ -5395,7 +5417,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       iterationTools?.some((tool) =>
         tool.function.name === "read_file" || tool.function.name === "read_file_range",
       );
-    const callToolChoice = forcedReadAvailable
+    const forcedCompoundProposalAvailable =
+      compoundProposalActive &&
+      pendingChanges.length === 0 &&
+      iterationTools?.some((tool) =>
+        tool.function.name === "replace_text" || tool.function.name === "write_file",
+      );
+    const callToolChoice =
+      forcedReadAvailable || forcedCompoundProposalAvailable || approvedRepairMutationPhase
       ? "required"
       : iter === 0
         ? opts.toolChoice
