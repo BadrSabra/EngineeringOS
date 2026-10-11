@@ -424,6 +424,22 @@ function classifyExecutorOutputFailure(
   return undefined;
 }
 
+function safeFileExecutionFailureMessage(name: string, output: string): string {
+  if (
+    name === "replace_text"
+    && /^Error: old_text was not found exactly in\b/u.test(output.trimStart())
+  ) {
+    return "Error: old_text was not found exactly in the selected file. Read the current file and copy the exact text, including whitespace.";
+  }
+  if (
+    name === "replace_text"
+    && /^Error: old_text occurs more than once in\b/u.test(output.trimStart())
+  ) {
+    return "Error: old_text occurs more than once in the selected file. Include more surrounding context so the replacement is unique.";
+  }
+  return `Tool "${name}" reported an execution failure; no result was accepted.`;
+}
+
 const RECOVERABLE_SCOPE_READ_TOOLS = new Set([
   "read_file",
   "read_file_range",
@@ -455,6 +471,42 @@ const MAX_SERIALIZED_TOOL_OUTPUT_BYTES = 2_000_000;
 const MAX_UNSPECIFIED_TOOL_OUTPUT_BYTES = 1_000_000;
 const MAX_DYNAMIC_TOOL_OUTPUT_BYTES = 512_000;
 const TOOL_OUTPUT_PROTOCOL_OVERHEAD_BYTES = 4_096;
+
+function constrainMutationToolPaths(
+  tools: readonly ToolDefinitionLike[] | undefined,
+  approvedFilePaths: readonly string[] | undefined,
+): ToolDefinitionLike[] | undefined {
+  if (!tools || !approvedFilePaths?.length) return tools ? [...tools] : undefined;
+  const approved = [...new Set(approvedFilePaths)];
+  return tools.map((tool) => {
+    if (tool.function.name !== "write_file" && tool.function.name !== "replace_text") {
+      return tool;
+    }
+    const parameters = tool.function.parameters;
+    const properties = parameters.properties;
+    const pathProperty = isRecord(properties) ? properties.path : undefined;
+    if (!isRecord(properties) || !isRecord(pathProperty)) return tool;
+    const existingEnum = Array.isArray(pathProperty.enum)
+      ? pathProperty.enum.filter((value): value is string => typeof value === "string")
+      : undefined;
+    const scopedPaths = existingEnum
+      ? approved.filter((path) => existingEnum.includes(path))
+      : approved;
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: {
+          ...parameters,
+          properties: {
+            ...properties,
+            path: { ...pathProperty, enum: scopedPaths },
+          },
+        },
+      },
+    };
+  });
+}
 
 function getToolOutputLimitBytes(
   name: string,
@@ -1365,8 +1417,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     name === "read_file" || name === "read_file_range"
       ? normalizeRootScopedReadPath(effectiveArgsBase.path, opts.rootPath)
       : undefined;
-  const effectiveArgs = normalizedReadPath
-    ? { ...effectiveArgsBase, path: normalizedReadPath }
+  const normalizedMutationPath =
+    (name === "write_file" || name === "replace_text") && opts.rootPath
+      ? normalizeRootScopedReadPath(effectiveArgsBase.path, opts.rootPath)
+      : undefined;
+  const normalizedToolPath = normalizedReadPath ?? normalizedMutationPath;
+  const effectiveArgs = normalizedToolPath
+    ? { ...effectiveArgsBase, path: normalizedToolPath }
     : effectiveArgsBase;
   const lifecycleInputHash = toolInputHash(effectiveArgs);
   const lifecycleToolCallId = opts.toolCallId?.trim();
@@ -1614,7 +1671,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       ? {
           toolCallId: opts.toolCallId?.trim() ?? "",
           toolName: name as "write_file" | "replace_text",
-          path: validatedArgs.path ?? "",
+          path: effectiveArgs.path ?? "",
           inputHash: createHash("sha256")
             .update(JSON.stringify(Object.fromEntries(
               Object.entries(validatedArgs).sort(([left], [right]) => left.localeCompare(right)),
@@ -1777,6 +1834,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
 
     if (mutationCallback && mutationInvocationBase) {
+      const mutationOutputFailure = classifyExecutorOutputFailure(name, output);
+      if (mutationOutputFailure) {
+        stagedFileChanges.splice(0);
+        await emitTerminalToolLifecycle("failed", {
+          diagnosticCode: mutationOutputFailure.diagnosticCode,
+        });
+        return {
+          kind: "failed",
+          failureKind: mutationOutputFailure.failureKind,
+          diagnosticCode: mutationOutputFailure.diagnosticCode,
+          safeMessage: output,
+        };
+      }
       const queuedSuccessfully = name === "write_file"
         ? output.startsWith('Change queued for "') && stagedFileChanges.length === 1
         : output.startsWith('Focused change queued for "') && stagedFileChanges.length === 1;
@@ -1893,7 +1963,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         ...executorOutputFailure,
         safeMessage: executorOutputFailure.failureKind === "unavailable"
           ? `Tool "${name}" could not inspect its approved input; no result was accepted.`
-          : `Tool "${name}" reported an execution failure; no result was accepted.`,
+          : safeFileExecutionFailureMessage(name, output),
       };
     }
 
@@ -5359,8 +5429,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         role: "user",
         content:
           "The requested source evidence is now available above. Advance to the proposal phase now: " +
-          "use replace_text with an exact unique old_text/new_text pair for the requested fix, " +
-          "or write_file only when the requested file is new. Do not read, search, validate, or apply changes.",
+          "follow any mutation method explicitly requested by the task. Otherwise, for focused edits " +
+          "use replace_text with an exact unique old_text/new_text pair; for a small existing file " +
+          "whose complete current contents are available, use write_file with the complete updated " +
+          "contents (write_file is also available for new files). " +
+          "Do not read, search, validate, or apply changes.",
       });
     }
     // Sanitize after adding the server-owned phase instruction so the current
@@ -5390,6 +5463,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           tool.function.name === "replace_text" || tool.function.name === "write_file",
         )
       : filteredIterationTools;
+    const providerIterationTools =
+      executionMode === "repair_plan" && approvalState === "APPROVED"
+        ? constrainMutationToolPaths(iterationTools, approvedFilePaths)
+        : iterationTools;
     // `toolManifest` is a normalization/authorization aid, not a second
     // provider-facing tool list. Once the server has narrowed the current
     // iteration to no executable tools, omit both fields so the provider
@@ -5397,11 +5474,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // When tools remain exposed, retain the full authorized manifest so a
     // stale call from an earlier narrowed iteration is still validated against
     // the server-owned authorization boundary.
-    const providerToolOptions = iterationTools === undefined
+    const providerToolOptions = providerIterationTools === undefined
       ? {}
-      : iterationTools.length > 0
+      : providerIterationTools.length > 0
         ? {
-            tools: iterationTools,
+            tools: providerIterationTools,
             ...((toolManifest ?? opts.tools) && (toolManifest ?? opts.tools)!.length > 0
               ? { toolManifest: toolManifest ?? opts.tools }
               : {}),
@@ -6256,7 +6333,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             role: "user",
             content:
               "Do not stop after describing the evidence. The requested second phase is to create a pending change now. " +
-              "Call replace_text with an exact unique old_text/new_text pair, or write_file for a new file. " +
+              "Use the mutation method explicitly requested by the task. Otherwise, call replace_text " +
+              "with an exact unique old_text/new_text pair, or use write_file for a new file or a small " +
+              "existing file whose complete current contents were read. " +
               "Do not read, search, validate, or apply changes.",
           },
         );
@@ -7217,7 +7296,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           tool_call_id: tc.id,
           content:
             "read_file is unavailable because every executable Repair Plan target is already loaded. " +
-            "Call replace_text with an exact unique old_text/new_text pair, or write_file only for a new file.",
+            "Follow any mutation method explicitly requested by the task. Otherwise, call replace_text " +
+            "with an exact unique old_text/new_text pair, or use write_file for a new file or a small " +
+            "existing target whose complete current contents are available.",
         });
         continue;
       }

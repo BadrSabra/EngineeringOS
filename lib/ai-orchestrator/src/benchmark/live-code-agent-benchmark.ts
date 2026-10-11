@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
   chat,
   type ChatResult,
@@ -235,6 +236,102 @@ function providerIdForTelemetry(steps: readonly AgentStep[]): string | undefined
   )?.provider;
 }
 
+export function benchmarkToolFailureReason(
+  step: Extract<AgentStep, { kind: "tool_result" }>,
+): string | undefined {
+  if (step.resultKind === "unavailable") {
+    return step.resultSummary?.match(/authorization gate \(([a-z_]+)\)/)?.[1]
+      ?? (
+        step.resultSummary?.includes("execution, manifest, scope, and lifecycle")
+          ? "invalid_lifecycle_binding"
+          : "other_unavailable"
+      );
+  }
+  if (step.resultKind !== "failed") return undefined;
+
+  const summary = step.resultSummary?.trimStart() ?? "";
+  if (/^Error: old_text was not found exactly(?: in\b|\.)/u.test(summary)) {
+    return "replace_text_old_text_not_found";
+  }
+  if (/^Error: old_text occurs more than once\b/u.test(summary)) {
+    return "replace_text_old_text_not_unique";
+  }
+  if (summary.includes("arguments did not match the server input contract")) {
+    return "tool_arguments_contract_mismatch";
+  }
+  if (summary.includes("candidate change could not be staged")) {
+    return "candidate_change_not_staged";
+  }
+  if (summary.includes("server could not record the staged candidate change")) {
+    return "candidate_lifecycle_record_failed";
+  }
+  if (/^Error:/u.test(summary)) return "file_tool_reported_error";
+  return "tool_execution_failed";
+}
+
+export function benchmarkSafeFailureSummary(
+  step: Extract<AgentStep, { kind: "tool_result" }>,
+): string {
+  const summary = step.resultSummary?.trim();
+  if (!summary) return "missing";
+  return summary
+    .replace(/"[^"]*"/gu, '"[redacted]"')
+    .replace(/(?:[a-z]:)?(?:\/[^\s"'`]+)+/giu, "<path>")
+    .slice(0, 160);
+}
+
+export function benchmarkWritePathTrace(
+  value: string | undefined,
+  approvedPaths: readonly string[],
+  rootPath?: string,
+): { approved: boolean; shape: string } {
+  if (!value?.trim()) return { approved: false, shape: "missing" };
+  const normalized = value.replaceAll("\\", "/");
+  const authorizationValue = normalized.replace(/^(\.\/)+/, "");
+  if (/^(?:\/|[a-z]:\/)/i.test(normalized)) {
+    if (rootPath && isAbsolute(normalized)) {
+      const fromRoot = relative(resolve(rootPath), resolve(normalized));
+      if (
+        fromRoot &&
+        fromRoot !== ".." &&
+        !fromRoot.startsWith(`..${sep}`) &&
+        !isAbsolute(fromRoot)
+      ) {
+        const relativePath = fromRoot
+          .split(sep)
+          .filter((segment) => segment && segment !== ".")
+          .join("/");
+        return {
+          approved: approvedPaths.includes(relativePath),
+          shape: "absolute_in_root",
+        };
+      }
+    }
+    return { approved: false, shape: "absolute" };
+  }
+  const segments = normalized.split("/");
+  if (segments.includes("..")) return { approved: false, shape: "parent_segment" };
+  if (segments.includes(".") || normalized.includes("//")) {
+    return {
+      approved: approvedPaths.includes(authorizationValue),
+      shape: "noncanonical_relative",
+    };
+  }
+  if (normalized !== normalized.trim() && approvedPaths.includes(normalized.trim())) {
+    return { approved: false, shape: "relative_whitespace" };
+  }
+  if (approvedPaths.some((path) => path.endsWith(`/${authorizationValue}`))) {
+    return { approved: false, shape: "relative_approved_suffix" };
+  }
+  if (approvedPaths.some((path) => authorizationValue.endsWith(`/${path}`))) {
+    return { approved: false, shape: "relative_extra_prefix" };
+  }
+  return {
+    approved: approvedPaths.includes(authorizationValue),
+    shape: approvedPaths.includes(authorizationValue) ? "relative" : "relative_other",
+  };
+}
+
 /**
  * Build a real executor for runCodeAgentBenchmark().
  *
@@ -470,20 +567,35 @@ export function createChatCodeAgentBenchmarkExecutor(
             ...(step.kind === "tool_call" || step.kind === "tool_result"
               ? { tool: step.tool }
               : {}),
-            ...(step.kind === "tool_result" && step.resultKind === "unavailable"
-              ? {
-                  failureReason:
-                    step.resultSummary?.match(/\(authorization gate \(([a-z_]+)\)\)/)?.[1]
-                    ?? (
-                      step.resultSummary?.includes("execution, manifest, scope, and lifecycle")
-                        ? "invalid_lifecycle_binding"
-                        : "other_unavailable"
-                    ),
-                }
+            ...(step.kind === "tool_call" &&
+              (step.tool === "replace_text" || step.tool === "write_file")
+              ? { pathTrace: benchmarkWritePathTrace(step.args.path, allowedPaths, opts.rootPath) }
+              : {}),
+            ...(step.kind === "tool_result" && benchmarkToolFailureReason(step)
+              ? { failureReason: benchmarkToolFailureReason(step) }
+              : {}),
+            ...(step.kind === "tool_result" &&
+              (step.resultKind === "failed" || step.resultKind === "unavailable")
+              ? { failureSummary: benchmarkSafeFailureSummary(step) }
               : {}),
             ...(step.kind === "diagnostic" ? { code: step.code } : {}),
             ...(step.kind === "validation"
-              ? { profile: step.result.profile, status: step.result.status }
+              ? {
+                  profile: step.result.profile,
+                  status: step.result.status,
+                  ...(step.result.status === "failed"
+                    ? {
+                        failureKind: step.result.failureKind ?? "unspecified",
+                        exitCode: step.result.exitCode,
+                        failedTestCount: step.result.failedTests.length,
+                        failedTestNames: step.result.failedTests
+                          .slice(0, 5)
+                          .map((failure) => failure.name
+                            .replace(/(?:[a-z]:)?(?:\/[^\s"'`]+)+/giu, "<path>")
+                            .slice(0, 120)),
+                      }
+                    : {}),
+                }
               : {}),
           })),
         }));

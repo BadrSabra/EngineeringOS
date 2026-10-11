@@ -81,7 +81,7 @@ const SYNTHETIC_SCENARIOS: Record<string, SyntheticScenario> = {
   },
   "multi-file-004": {
     token: "MIGRATION_EDGE",
-    instruction: "update the data shape and access path together to the exact string \"fixed\"",
+    instruction: "Implement this code change in both approved files. They are small; after reading their complete contents, use write_file to submit each complete updated file, replacing the exact declaration `export const MIGRATION_EDGE = \"broken\";` with `export const MIGRATION_EDGE = \"fixed\";`. Do not use replace_text.",
     profile: "ai-orchestrator-tests",
     fileCount: 2,
   },

@@ -337,7 +337,7 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "write_file",
       description:
-        "Propose a complete file write of at most 128 KB. Existing files over 128 KB cannot be replaced this way; use replace_text for text files up to 2 MB. The change is queued for user approval and is not written to disk until approved.",
+        "Propose a complete file write of at most 128 KB. Use for new files or small existing files whose complete current contents were read. Existing files over 128 KB cannot be replaced this way; use replace_text for text files up to 2 MB. The change is queued for user approval and is not written to disk until approved.",
       parameters: {
         type: "object",
         properties: {

@@ -4,6 +4,9 @@ vi.mock("../agents/chat-agent.js", () => ({ chat: chatMock }));
 
 import {
   applyBenchmarkOracleTerminalGate,
+  benchmarkSafeFailureSummary,
+  benchmarkToolFailureReason,
+  benchmarkWritePathTrace,
   createChatCodeAgentBenchmarkExecutor,
   terminalFromChatResult,
 } from "./live-code-agent-benchmark.js";
@@ -90,6 +93,75 @@ describe("benchmark terminal evidence gate", () => {
     expect(applyBenchmarkOracleTerminalGate(telemetry, "passed").actualTerminal).toBe(
       "READY_FOR_REVIEW",
     );
+  });
+});
+
+describe("benchmark tool failure trace", () => {
+  it("redacts path details from safe failure summaries", () => {
+    expect(benchmarkSafeFailureSummary({
+      kind: "tool_result",
+      tool: "replace_text",
+      cached: false,
+      outputLength: 40,
+      resultKind: "failed",
+      resultSummary: 'Error: old_text was not found in "src/private.ts".',
+    })).toBe('Error: old_text was not found in "[redacted]".');
+  });
+
+  it("reports write-path shape and scope membership without exposing the path", () => {
+    expect(benchmarkWritePathTrace("src/./target.ts", ["src/target.ts"])).toEqual({
+      approved: false,
+      shape: "noncanonical_relative",
+    });
+    expect(benchmarkWritePathTrace("/tmp/private/target.ts", ["src/target.ts"])).toEqual({
+      approved: false,
+      shape: "absolute",
+    });
+    expect(benchmarkWritePathTrace("/project/src/target.ts", ["src/target.ts"], "/project")).toEqual({
+      approved: true,
+      shape: "absolute_in_root",
+    });
+    expect(benchmarkWritePathTrace("src/target.ts ", ["src/target.ts"])).toEqual({
+      approved: false,
+      shape: "relative_whitespace",
+    });
+    expect(benchmarkWritePathTrace("src/target.ts", ["artifacts/api/src/target.ts"])).toEqual({
+      approved: false,
+      shape: "relative_approved_suffix",
+    });
+  });
+
+  it("extracts authorization reasons without exposing the provider's path", () => {
+    expect(benchmarkToolFailureReason({
+      kind: "tool_result",
+      tool: "replace_text",
+      resultKind: "unavailable",
+      resultSummary: 'Tool "replace_text" was blocked by the server authorization gate (path_outside_approved_scope).',
+    } as Extract<AgentStep, { kind: "tool_result" }>)).toBe("path_outside_approved_scope");
+  });
+
+  it("classifies exact-replacement failures without retaining file contents", () => {
+    expect(benchmarkToolFailureReason({
+      kind: "tool_result",
+      tool: "replace_text",
+      resultKind: "failed",
+      resultSummary: 'Error: old_text was not found exactly in "src/target.ts". Read the current file and copy the exact text, including whitespace.',
+    } as Extract<AgentStep, { kind: "tool_result" }>)).toBe("replace_text_old_text_not_found");
+  });
+
+  it("distinguishes rejected tool arguments from candidate staging failures", () => {
+    expect(benchmarkToolFailureReason({
+      kind: "tool_result",
+      tool: "replace_text",
+      resultKind: "failed",
+      resultSummary: 'Tool "replace_text" arguments did not match the server input contract; the operation did not complete.',
+    } as Extract<AgentStep, { kind: "tool_result" }>)).toBe("tool_arguments_contract_mismatch");
+    expect(benchmarkToolFailureReason({
+      kind: "tool_result",
+      tool: "replace_text",
+      resultKind: "failed",
+      resultSummary: "The candidate change could not be staged; no change was retained.",
+    } as Extract<AgentStep, { kind: "tool_result" }>)).toBe("candidate_change_not_staged");
   });
 });
 

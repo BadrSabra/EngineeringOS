@@ -21,6 +21,16 @@ import {
 } from "@workspace/ai-orchestrator";
 
 describe("Code Agent benchmark Build handoff", () => {
+  it("states the exact seeded edit for the multi-file acceptance case", () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.id === "multi-file-004",
+    )!;
+
+    expect(defaultApiBenchmarkPrompt(testCase)).toContain(
+      'Implement this code change in both approved files. They are small; after reading their complete contents, use write_file to submit each complete updated file, replacing the exact declaration `export const MIGRATION_EDGE = "broken";` with `export const MIGRATION_EDGE = "fixed";`. Do not use replace_text.',
+    );
+  });
+
   it("routes the exact repair fixture prompt through a server-owned scoped handoff", async () => {
     const testCase = getCodeAgentBenchmarkCases().find(
       (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
@@ -43,6 +53,8 @@ describe("Code Agent benchmark Build handoff", () => {
       expect(prompt).toBe(fixture.prompt);
       expect(handoff).toBeDefined();
       expect(handoff?.message.startsWith(`${prompt}\n\nBUILD HANDOFF`)).toBe(true);
+      expect(handoff?.message).toContain(`Approved files: ${fixture.allowedPaths.join(", ")}`);
+      expect(handoff?.message).toContain("use one of these exact full paths as the path argument");
       expect(handoff?.turnIntent).toMatchObject({
         kind: "DELIVERY",
         operationMode: "DELIVERY",

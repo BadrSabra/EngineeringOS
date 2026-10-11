@@ -139,6 +139,81 @@ function makeMessages(): RawMessage[] {
   return [{ role: "user", content: "hello" }];
 }
 
+describe("approved repair mutation tool schema", () => {
+  it("limits provider-facing write paths without changing the authorization manifest", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const approvedPaths = ["artifacts/api-server/src/routes/ai/chat.ts", "lib/api-zod/src/generated/api.ts"];
+    const tools = [
+      {
+        type: "function" as const,
+        function: {
+          name: "replace_text",
+          description: "Replace exact text in a file.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Approved source path." },
+              old_text: { type: "string" },
+              new_text: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["path", "old_text", "new_text", "reason"],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: "function" as const,
+        function: {
+          name: "write_file",
+          description: "Write a complete pending file.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              content: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["path", "content", "reason"],
+            additionalProperties: false,
+          },
+        },
+      },
+    ];
+    const strategy = makeStrategy([makeResponse("done")]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "test-model",
+      powerModel: "test-power",
+      provider: "test",
+      tools,
+      rootPath: "/project",
+      pendingChanges: [],
+      executionMode: "repair_plan",
+      approvalState: "APPROVED",
+      approvedFilePaths: approvedPaths,
+      executionTargetPaths: approvedPaths,
+      maxIterations: 1,
+    });
+
+    expect(result.kind).toBe("response");
+    const callOptions = vi.mocked(strategy.call).mock.calls[0]?.[1];
+    expect(callOptions?.tools?.map((tool) =>
+      (tool.function.parameters.properties as {
+        path?: { enum?: string[] };
+      }).path?.enum,
+    )).toEqual([approvedPaths, approvedPaths]);
+    expect(callOptions?.toolManifest?.[0]?.function.parameters).not.toMatchObject({
+      properties: { path: { enum: approvedPaths } },
+    });
+    expect(tools[0]?.function.parameters).not.toMatchObject({
+      properties: { path: { enum: approvedPaths } },
+    });
+  });
+});
+
 describe("durable Mission action replay markers", () => {
   it("skips a previously started write action after reconnect", async () => {
     const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
@@ -1012,6 +1087,49 @@ describe("executeSingleTool", () => {
     expect(pending).toHaveLength(1);
   });
 
+  it("normalizes an absolute in-root write path before exact approved-scope authorization", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const pending: PendingChange[] = [];
+    FILE_TOOL_MOCK.mockImplementation(async (
+      _name: unknown,
+      _args: unknown,
+      _root: unknown,
+      changes: PendingChange[],
+    ) => {
+      changes.push({
+        path: "src/foo.ts",
+        absolutePath: "/project/src/foo.ts",
+        newContent: "updated",
+        originalContent: "old",
+        reason: "test replacement",
+      });
+      return 'Focused change queued for "src/foo.ts" — not written to disk.';
+    });
+    const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
+
+    const result = await executeSingleTool({
+      name: "replace_text",
+      args: {
+        path: "/project/src/foo.ts",
+        old_text: "old",
+        new_text: "updated",
+        reason: "test replacement",
+      },
+      rootPath: "/project",
+      pendingChanges: pending,
+      allowedToolNames: new Set(["replace_text"]),
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-absolute-path",
+      onMutationInvocation: callback,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect(FILE_TOOL_MOCK.mock.calls[0]?.[1]).toMatchObject({ path: "src/foo.ts" });
+    expect(callback.mock.calls[0]?.[0].path).toBe("src/foo.ts");
+    expect(pending).toHaveLength(1);
+  });
+
   it("does not invoke the mutation hook for unauthorized or read-only tools", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
@@ -1042,6 +1160,39 @@ describe("executeSingleTool", () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
+  it("preserves a path-free exact-replacement failure when no mutation lifecycle hook is installed", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const pending: PendingChange[] = [];
+    FILE_TOOL_MOCK.mockImplementationOnce(async () =>
+      'Error: old_text was not found exactly in "src/private.ts". Read the current file and copy the exact text, including whitespace.',
+    );
+
+    const result = await executeSingleTool({
+      name: "replace_text",
+      args: {
+        path: "src/foo.ts",
+        old_text: "old",
+        new_text: "updated",
+        reason: "test replacement",
+      },
+      rootPath: "/project",
+      pendingChanges: pending,
+      allowedToolNames: new Set(["replace_text"]),
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-replacement-error",
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      safeMessage: "Error: old_text was not found exactly in the selected file. Read the current file and copy the exact text, including whitespace.",
+    });
+    expect(pending).toEqual([]);
+    expect(result.kind === "failed" && result.safeMessage).not.toContain("private.ts");
+  });
+
   it("does not commit failed staging and rolls back if the commit hook fails", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const pending: PendingChange[] = [];
@@ -1059,6 +1210,11 @@ describe("executeSingleTool", () => {
       onMutationInvocation: failedCallback,
     });
     expect(failed.kind).toBe("failed");
+    expect(failed).toMatchObject({
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      safeMessage: "Error: blocked path.",
+    });
     expect(failedCallback.mock.calls.map(([invocation]) => invocation.phase))
       .toEqual(["requested"]);
     expect(pending).toEqual([]);

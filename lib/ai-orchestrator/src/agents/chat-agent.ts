@@ -9342,6 +9342,9 @@ export async function chat(opts: {
           cache: new Map<string, string>(),
           toolChoice: "required",
           maxIterations: Math.min(budget.maxIterations, 48),
+          ...(opts.benchmarkFixtureRepairAuthorization
+            ? { maxFallbackModels: 1 }
+            : {}),
           taskType: executionPlan.taskProfile.taskType,
           requiresEvidence: sourceEvidenceRequired,
           deterministicTaskExecution: false,

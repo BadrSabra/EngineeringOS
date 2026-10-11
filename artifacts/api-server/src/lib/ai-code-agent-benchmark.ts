@@ -178,6 +178,7 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
     "",
     "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
     `Approved files: ${allowedPaths.join(", ")}`,
+    "For replace_text and write_file, use one of these exact full paths as the path argument; do not shorten or rewrite a path.",
     "Use scoped reads and deferred changes. Prepare pending changes only; do not apply files, commit, or publish.",
     `Approved plan JSON: ${JSON.stringify({
       objective: args.testCase.id,

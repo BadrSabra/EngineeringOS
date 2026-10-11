@@ -39,6 +39,12 @@ Exact-model probes must use a model registered in `FREE_MODELS` with metadata ma
 
 **How to apply:** For a new live candidate, first verify its provider metadata and register it only if its capabilities fit the test; then assert model identity at resolver and provider-response boundaries before interpreting its scorecard.
 
+Provider health `usable` does not prove a model supports the request's capability. The free catalog can advertise `tool_calling` without `chat`; a generic health probe may pass even though a chat-bound tool-loop request is rejected as `INVALID_CONFIG`.
+
+**Why:** A free coding model passed provider health and tool-calling checks, but the live chat execution was rejected because its catalog metadata lacked `chat`.
+
+**How to apply:** Before a chat-based benchmark attempt, verify `chat` and `tool_calling` in the registered model capabilities. Keep provider health and capability compatibility as separate gates; never treat the probe result as permission to retry an incompatible model.
+
 Pinned empirical campaigns can outlast the dynamic catalog's freshness window. Refresh an expired snapshot before each case's model-eligibility check; if the refreshed snapshot no longer lists the exact candidate as free, record provider unavailability and stop the pinned campaign rather than emitting generic execution errors for every remaining case.
 
 **Why:** A long corpus run crossed the catalog TTL after several slow model responses. Per-case validation treated the expired snapshot's `null` as an ordinary exception, so later cases failed before review despite successful repository setup.
