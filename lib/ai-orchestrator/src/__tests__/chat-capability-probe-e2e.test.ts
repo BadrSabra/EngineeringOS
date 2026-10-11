@@ -174,6 +174,22 @@ async function mockChatProviders(fakeStrategy: unknown): Promise<void> {
   vi.doMock("../openrouter/model-resolver.js", () => ({
     resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
   }));
+  vi.doMock("../agents/chat-agent.js", async () => {
+    const actual = await vi.importActual<typeof import("../agents/chat-agent.js")>(
+      "../agents/chat-agent.js",
+    );
+    return {
+      ...actual,
+      chat: (options: Parameters<typeof actual.chat>[0]) =>
+        actual.chat({
+          ...options,
+          onReadOnlyInvocation:
+            options.onReadOnlyInvocation ?? (async () => undefined),
+          onToolInvocation:
+            options.onToolInvocation ?? (async () => undefined),
+        }),
+    };
+  });
 }
 
 async function makeProbeRoot(): Promise<string> {
@@ -270,10 +286,9 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           options: Record<string, unknown>,
         ) => {
           expect(options).toMatchObject({
-            model: "initial-model",
             quality: "powerful",
             capability: "json",
-            maxFallbackModels: 3,
+            maxTokens: 900,
           });
           return new Promise<{ content: string; model: string }>(() => undefined);
         }),
