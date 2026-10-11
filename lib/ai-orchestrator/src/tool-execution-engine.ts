@@ -5633,6 +5633,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               `fallback provider failure code: ${fallbackErr.code}`,
             ]);
           }
+          if (fallbackErr instanceof GroqClientError && fallbackErr.code === "RATE_LIMITED") {
+            throw fallbackErr;
+          }
           if (fallbackErr instanceof GroqClientError && fallbackErr.code === "INVALID_TOOL_CALL") {
             const recovery = buildServerOwnedEvidenceRecovery("invalid fallback tool call");
             if (recovery) {
@@ -5733,6 +5736,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             reason: err instanceof Error ? err.message : String(err),
           }),
         );
+
+        // A 429 is an admission signal for this model, not a request to repeat
+        // the same work through server-owned evidence recovery. Preserve the
+        // typed failure so the caller can terminalize this attempt.
+        if (err instanceof GroqClientError && err.code === "RATE_LIMITED") {
+          throw err;
+        }
 
         // The selected model may be the power model, so there is no fallback
         // branch to perform this handoff. Reuse the same bounded objective

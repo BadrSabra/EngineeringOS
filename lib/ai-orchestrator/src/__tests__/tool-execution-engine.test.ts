@@ -8471,6 +8471,53 @@ describe("executeToolLoop — provider-scoped rate limits", () => {
       expect(strategy.call).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("does not retry the model for server-owned evidence recovery after a 429", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const rateLimitError = new GroqClientError(
+      "RATE_LIMITED",
+      "Provider rate limit reached",
+      { context: { providerName: "OpenRouter", rateLimitScope: "upstream_shared_pool" } },
+    );
+    FILE_TOOL_MOCK.mockReset().mockResolvedValue("first source");
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn()
+        .mockResolvedValueOnce(
+          makeResponse("", [makeToolCall("read-first", "read_file", { path: "src/first.ts" })]),
+        )
+        .mockRejectedValue(rateLimitError),
+      stream: async function* () { yield ""; },
+    };
+
+    await expect(executeToolLoop({
+        messages: makeMessages(),
+        strategy,
+        model: "same-model",
+        powerModel: "same-model",
+        provider: "openrouter",
+        tools: [
+          { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        ],
+        allowedToolNames: ["read_file"],
+        rootPath: "/project",
+        pendingChanges: [],
+        objective: {
+          goal: "inspect both required source files",
+          requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+          requiredClaims: [],
+        },
+        firstEvidenceTargetPath: "src/first.ts",
+        requiresEvidence: true,
+        executionMode: "forensic",
+        maxIterations: 4,
+        maxToolCalls: 4,
+      })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── _stripOrphanedToolMessages ────────────────────────────────────────────────
