@@ -1111,7 +1111,6 @@ export async function chatWithFallback(
         const health = await probeProviderHealth({
           provider: providerEntry.provider,
           apiKey: providerEntry.apiKey,
-          timeoutMs: 15_000,
           maxFallbackModels: CAPABILITY_PREFLIGHT_MAX_MODELS,
           signal: baseParams.signal,
           executionLedger,

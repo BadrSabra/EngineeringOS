@@ -48,6 +48,11 @@ export function shouldRecordCircuitFailure(error: unknown): boolean {
   if (!(error instanceof GroqClientError)) return true;
   return !(
     error.code === "INVALID_CONFIG" ||
+    // Rate limits and exhausted quota describe admission/billing, not provider
+    // endpoint health. In particular, a model-scoped shared-pool 429 must not
+    // open the provider-wide circuit.
+    error.code === "RATE_LIMITED" ||
+    error.code === "QUOTA" ||
     error.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
     // These are model/contract failures. A healthy OpenRouter endpoint can
     // return either when one free-tier candidate cannot honor this request.

@@ -691,10 +691,6 @@ function looksLikeAgentHarnessRestriction(body: string, providerCode?: string): 
   );
 }
 
-// Preserve a useful upstream hint for durable model cooldowns, but never let
-// an opt-in in-process retry sleep for the full provider cooldown.
-const MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS = 60_000;
-
 function parseRetryAfterMs(headers?: Headers): number | undefined {
   const value = headers?.get("retry-after")?.trim();
   if (!value) return undefined;
@@ -928,7 +924,6 @@ async function oacCompleteRawUntracked(
     model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
     maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
     apiKey,
     tools,
     baseUrl,
@@ -968,12 +963,10 @@ async function oacCompleteRawUntracked(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
   const cleanup = () => {
-    clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   };
 
@@ -1248,7 +1241,6 @@ async function* oacCompleteStreamUntracked(
     model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
     maxTokens = 4096,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
     apiKey,
     baseUrl,
     providerName,
@@ -1265,12 +1257,10 @@ async function* oacCompleteStreamUntracked(
   };
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
   const cleanup = () => {
-    clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   };
 
@@ -1482,7 +1472,6 @@ export async function openrouterCompleteRaw(
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
-  const retrySignal = opts.signal ?? opts.executionLedger?.signal;
 
   try {
     return await oacCompleteRaw(trimmed, fullOpts);
@@ -1563,12 +1552,9 @@ export async function openrouterCompleteRaw(
       const recoveryReserveMs = opts.executionLedger
         ? Math.min(10_000, Math.floor(remainingMs / 4))
         : 0;
-      const waitMs = Math.min(
-        err.retryAfterMs,
-        MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS,
-        Math.max(0, remainingMs - recoveryReserveMs),
-      );
-      if (waitMs > 0) {
+      const availableWaitMs = Math.max(0, remainingMs - recoveryReserveMs);
+      if (err.retryAfterMs > 0 && err.retryAfterMs <= availableWaitMs) {
+        const waitMs = err.retryAfterMs;
         console.warn(
           JSON.stringify({
             scope: "openrouter-client",
@@ -1594,6 +1580,9 @@ export async function openrouterCompleteRaw(
           retryAfterMs: err.retryAfterMs,
           remainingMs,
           recoveryReserveMs,
+          reason: err.retryAfterMs <= 0
+            ? "provider_retry_after_zero"
+            : "provider_retry_after_exceeds_request_budget",
         }),
       );
       throw err;
@@ -1610,10 +1599,9 @@ export async function openrouterCompleteRaw(
         scope: "openrouter-client",
         code: "TRANSIENT_RETRY",
         errorCode: err.code,
-        backoffMs: 1500,
+        retryImmediately: true,
       }),
     );
-    await sleep(1500, retrySignal);
     return oacCompleteRaw(trimmed, fullOpts);
   }
 }
@@ -2067,7 +2055,6 @@ export async function* openrouterCompleteStream(
           providerError.retryAfterMs === undefined
         ) {
           transientRetried = true;
-          await sleep(1500, retrySignal);
           continue;
         }
         const canAdvance = !isProviderScopedRateLimit(providerError) &&

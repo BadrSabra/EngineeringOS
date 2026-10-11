@@ -772,6 +772,41 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(persistedCooldownWrites).toEqual([]);
   });
 
+  it("does not retry before a provider Retry-After that exceeds the remaining request budget", async () => {
+    const fetchMock = vi.fn(async () =>
+      textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
+    vi.stubGlobal("fetch", fetchMock);
+    const executionLedger = createExecutionLedger({
+      budget: { deadlineMs: 90_000 },
+    });
+
+    const completion = oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      timeoutMs: 180_000,
+      waitOnRateLimit: true,
+      executionLedger,
+      baseUrl: "https://example.test/v1",
+      providerName: "OpenRouter",
+    });
+    let rejection: unknown;
+    const result = await Promise.race([
+      completion.then(
+        () => "resolved" as const,
+        (error: unknown) => {
+          rejection = error;
+          return "rejected" as const;
+        },
+      ),
+      new Promise<"still-waiting">((resolve) => setTimeout(() => resolve("still-waiting"), 100)),
+    ]);
+    expect(result).toBe("rejected");
+    expect(rejection).toMatchObject({ code: "RATE_LIMITED", retryAfterMs: 120_000 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    executionLedger.setTerminal("completed");
+  });
+
   it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
     const fetchMock = vi.fn(async () => textResponse(JSON.stringify({
         error: {
@@ -1032,7 +1067,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
   });
 
-  it("keeps the requested model when the response body times out", async () => {
+  it("keeps the requested model when the caller cancels a pending response body", async () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) =>
       new Response(new ReadableStream<Uint8Array>({
         start(controller) {
@@ -1043,15 +1078,18 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         },
       }), { status: 200 })));
 
+    const callerController = new AbortController();
+    const completion = oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerName: "OpenRouter",
+      signal: callerController.signal,
+      maxTokens: 10,
+    });
+    setTimeout(() => callerController.abort(), 25);
     await expect(
-      oacCompleteRaw(baseMessages as any, {
-        apiKey: "test-key",
-        model: primaryModel,
-        baseUrl: "https://openrouter.ai/api/v1",
-        providerName: "OpenRouter",
-        timeoutMs: 5,
-        maxTokens: 10,
-      }),
+      completion,
     ).rejects.toSatisfy(
       (err: unknown) =>
         err instanceof GroqClientError &&

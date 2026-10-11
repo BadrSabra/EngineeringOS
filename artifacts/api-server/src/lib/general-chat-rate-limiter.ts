@@ -36,7 +36,7 @@ export async function checkGeneralChatRateLimit(
         { ownerId, bucket },
         "General chat rate limiter returned no row; denying request",
       );
-      return { allowed: false, retryAfterSec: 60 };
+      return { allowed: false };
     }
     if (row.callCount > GENERAL_CHAT_RATE_LIMIT) {
       return {
@@ -52,7 +52,7 @@ export async function checkGeneralChatRateLimit(
       { error, ownerId, bucket },
       "General chat rate limiter failed; denying request",
     );
-    return { allowed: false, retryAfterSec: 60 };
+    return { allowed: false };
   }
 }
 

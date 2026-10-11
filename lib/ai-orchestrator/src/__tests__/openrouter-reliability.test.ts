@@ -272,6 +272,16 @@ describe("circuit-breaker", () => {
     ).toBe(false);
     expect(
       shouldRecordCircuitFailure(
+        new GroqClientError("RATE_LIMITED", "model-scoped provider limit"),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRecordCircuitFailure(
+        new GroqClientError("QUOTA", "provider quota exhausted"),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRecordCircuitFailure(
         new GroqClientError(
           "INVALID_TOOL_CALL",
           "model returned a tool call outside the request contract",

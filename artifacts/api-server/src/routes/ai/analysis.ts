@@ -52,7 +52,6 @@ import { serializeAiSseEvent } from "@workspace/api-zod";
 
 const router = Router();
 const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
-const STRUCTURED_DEADLINE_MS = 45_000;
 
 type StructuredTask = "analyze" | "review";
 type StructuredAuditTraceEntry = {
@@ -136,12 +135,10 @@ function structuredFailureDetails(err: unknown): {
   const retryAfterCandidate = (err as { retryAfterMs?: unknown }).retryAfterMs;
   const hasProviderRetryAfter =
     typeof retryAfterCandidate === "number"
-    && Number.isFinite(retryAfterCandidate);
-  const retryAfterMs = failureKind === "RATE_LIMIT"
-    ? Math.max(
-        1_000,
-        hasProviderRetryAfter ? retryAfterCandidate as number : 30_000,
-      )
+    && Number.isFinite(retryAfterCandidate)
+    && retryAfterCandidate > 0;
+  const retryAfterMs = failureKind === "RATE_LIMIT" && hasProviderRetryAfter
+    ? Math.ceil(retryAfterCandidate as number)
     : undefined;
   const providerName = (err as { providerName?: unknown }).providerName;
   const providerAttempts =
@@ -158,59 +155,19 @@ function structuredFailureDetails(err: unknown): {
     retryable: failureKind !== "CONFIGURATION",
     ...(parseCode ? { parseCode } : {}),
     retryAfterMs,
-    retryAfterSource: failureKind === "RATE_LIMIT"
-      ? hasProviderRetryAfter ? "provider" : "server_default"
+    retryAfterSource: failureKind === "RATE_LIMIT" && hasProviderRetryAfter
+      ? "provider"
       : undefined,
     providerAttempts,
   };
 }
 
-function structuredDeadlineError(task: StructuredTask): Error {
-  return Object.assign(
-    new Error(`Structured ${task} exceeded its execution deadline.`),
-    { code: "TIMEOUT" },
-  );
-}
-
 async function withStructuredDeadline<T>(
-  task: StructuredTask,
+  _task: StructuredTask,
   work: (signal: AbortSignal) => Promise<T>,
   parentSignal?: AbortSignal,
 ): Promise<T> {
-  const controller = new AbortController();
-  const abortFromParent = () => {
-    const reason = parentSignal?.reason;
-    controller.abort(
-      reason instanceof Error
-        ? reason
-        : Object.assign(new Error("Structured execution was interrupted."), { name: "AbortError" }),
-    );
-  };
-  if (parentSignal?.aborted) abortFromParent();
-  else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
-  const timeout = setTimeout(
-    () => controller.abort(structuredDeadlineError(task)),
-    STRUCTURED_DEADLINE_MS,
-  );
-  let onAbort: (() => void) | undefined;
-  try {
-    return await Promise.race([
-      work(controller.signal),
-      new Promise<T>((_, reject) => {
-        onAbort = () => {
-          const reason = controller.signal.reason;
-          reject(reason instanceof Error ? reason : structuredDeadlineError(task));
-        };
-        if (controller.signal.aborted) onAbort();
-        else controller.signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
-  } finally {
-    clearTimeout(timeout);
-    parentSignal?.removeEventListener("abort", abortFromParent);
-    if (onAbort) controller.signal.removeEventListener("abort", onAbort);
-    controller.abort();
-  }
+  return work(parentSignal ?? new AbortController().signal);
 }
 
 async function persistStructuredFailure(params: {
@@ -569,19 +526,16 @@ async function persistStructuredExecutionFailure(params: {
     return;
   }
   const content = effectiveDetails.message;
-  const providerName = effectiveDetails.providerAttempts?.[0]?.provider;
   const retry = effectiveDetails.failureKind === "RATE_LIMIT"
     ? await resolveStructuredRetryAfter({
-        userId: execution.execution.userId,
-        projectId: execution.execution.projectId,
-        task,
-        providerName,
         providerRetryAfterMs: effectiveDetails.retryAfterMs,
         providerRetryAfterSource: effectiveDetails.retryAfterSource,
       })
     : undefined;
-  const retryAfterMs = retry?.retryAfterMs ?? effectiveDetails.retryAfterMs;
-  const retryAfterSource = retry?.source ?? effectiveDetails.retryAfterSource;
+  const retryAfterMs = effectiveDetails.failureKind === "RATE_LIMIT"
+    ? retry?.retryAfterMs
+    : effectiveDetails.retryAfterMs;
+  const retryAfterSource = retry?.source;
   const retryAt = retryAfterMs !== undefined
     ? new Date(Date.now() + retryAfterMs).toISOString()
     : undefined;
@@ -710,7 +664,9 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     return res.status(429).json({
       error: "The AI provider is temporarily rate-limited.",
       code: "RATE_LIMITED",
-      hint: `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`,
+      hint: rlAnalyze.retryAfterSec !== undefined
+        ? `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`
+        : "The request limit could not be checked. Please try again later.",
       retryable: true,
       failureKind: "RATE_LIMIT",
     });
@@ -860,7 +816,9 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     return res.status(429).json({
       error: "The AI provider is temporarily rate-limited.",
       code: "RATE_LIMITED",
-      hint: `Wait ${rlReview.retryAfterSec}s, then retry the code review.`,
+      hint: rlReview.retryAfterSec !== undefined
+        ? `Wait ${rlReview.retryAfterSec}s, then retry the code review.`
+        : "The request limit could not be checked. Please try again later.",
       retryable: true,
       failureKind: "RATE_LIMIT",
     });
@@ -1057,7 +1015,9 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         failureKind: "RATE_LIMIT",
         message: "The AI provider is temporarily rate-limited.",
         retryable: true,
-        retryAfterMs: (rlAnalyze.retryAfterSec ?? 30) * 1_000,
+        ...(rlAnalyze.retryAfterSec !== undefined
+          ? { retryAfterMs: rlAnalyze.retryAfterSec * 1_000 }
+          : {}),
         retryAfterSource: "project_rate_limit",
       },
       emit,
@@ -1330,7 +1290,9 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         failureKind: "RATE_LIMIT",
         message: "The AI provider is temporarily rate-limited.",
         retryable: true,
-        retryAfterMs: (rlReview.retryAfterSec ?? 30) * 1_000,
+        ...(rlReview.retryAfterSec !== undefined
+          ? { retryAfterMs: rlReview.retryAfterSec * 1_000 }
+          : {}),
         retryAfterSource: "project_rate_limit",
       },
       emit,

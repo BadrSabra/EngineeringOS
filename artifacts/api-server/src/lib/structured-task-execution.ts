@@ -34,10 +34,6 @@ export type StructuredRetryAfterSource =
   | "project_rate_limit";
 type AiExecution = typeof aiExecutionsTable.$inferSelect;
 
-const STRUCTURED_DEFAULT_RETRY_AFTER_MS = 30_000;
-const STRUCTURED_MAX_ADAPTIVE_RETRY_AFTER_MS = 15 * 60_000;
-const STRUCTURED_ADAPTIVE_WINDOW_MS = 15 * 60_000;
-
 export class StructuredExecutionCooldownError extends Error {
   readonly code = "RATE_LIMITED" as const;
   readonly retryAfterMs: number;
@@ -111,11 +107,16 @@ async function findStructuredExecutionCooldown(params: {
     const disposition = row.disposition && typeof row.disposition === "object"
       ? row.disposition as Record<string, unknown>
       : undefined;
+    const retryAfterSource = disposition?.retryAfterSource;
+    // Older releases persisted invented server/adaptive delays when a provider
+    // omitted Retry-After. They are not evidence of a live provider cooldown.
+    if (retryAfterSource === "server_default" || retryAfterSource === "adaptive_default") {
+      continue;
+    }
     const retryAtValue = disposition?.retryAt ?? checkpoint?.retryAt;
     if (typeof retryAtValue !== "string") continue;
     const retryAtMs = Date.parse(retryAtValue);
     if (!Number.isFinite(retryAtMs) || retryAtMs <= now) continue;
-    const retryAfterSource = disposition?.retryAfterSource;
     return new StructuredExecutionCooldownError({
       retryAfterMs: Math.max(1_000, retryAtMs - now),
       retryAt: new Date(retryAtMs).toISOString(),
@@ -139,82 +140,22 @@ async function findStructuredExecutionCooldown(params: {
  * Retry-After value when one exists.
  */
 export async function resolveStructuredRetryAfter(params: {
-  userId: string;
-  projectId: string;
-  task: StructuredTask;
-  providerName?: string;
   providerRetryAfterMs?: number;
   providerRetryAfterSource?: StructuredRetryAfterSource;
-}): Promise<{ retryAfterMs: number; source: StructuredRetryAfterSource }> {
+}): Promise<{ retryAfterMs: number; source: StructuredRetryAfterSource } | undefined> {
   if (
-    params.providerRetryAfterSource === "provider"
+    (params.providerRetryAfterSource === "provider"
+      || params.providerRetryAfterSource === "project_rate_limit")
     && typeof params.providerRetryAfterMs === "number"
     && Number.isFinite(params.providerRetryAfterMs)
+    && params.providerRetryAfterMs > 0
   ) {
     return {
-      retryAfterMs: Math.max(1_000, Math.round(params.providerRetryAfterMs)),
-      source: "provider",
+      retryAfterMs: Math.ceil(params.providerRetryAfterMs),
+      source: params.providerRetryAfterSource,
     };
   }
-  if (
-    params.providerRetryAfterSource === "project_rate_limit"
-    && typeof params.providerRetryAfterMs === "number"
-    && Number.isFinite(params.providerRetryAfterMs)
-  ) {
-    return {
-      retryAfterMs: Math.max(1_000, Math.round(params.providerRetryAfterMs)),
-      source: "project_rate_limit",
-    };
-  }
-
-  const turnIntent = params.task === "review" ? "STRUCTURED_REVIEW" : "STRUCTURED_ANALYZE";
-  const cutoff = new Date(Date.now() - STRUCTURED_ADAPTIVE_WINDOW_MS);
-  const rows = await db
-    .select({
-      request: aiExecutionsTable.request,
-      checkpoint: aiExecutionsTable.checkpoint,
-      createdAt: aiExecutionAcceptancesTable.createdAt,
-    })
-    .from(aiExecutionAcceptancesTable)
-    .innerJoin(
-      aiExecutionsTable,
-      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
-    )
-    .where(and(
-      eq(aiExecutionsTable.userId, params.userId),
-      eq(aiExecutionsTable.projectId, params.projectId),
-      eq(aiExecutionAcceptancesTable.nextActionCode, "RETRY_AFTER_RATE_LIMIT"),
-      eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
-    ))
-    .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
-    .limit(16);
-
-  let recentRateLimits = 0;
-  for (const row of rows) {
-    if (row.createdAt < cutoff) break;
-    const request = parseExecutionRequest(row.request);
-    if (!request || request.turnIntent !== turnIntent) continue;
-    const checkpoint = parseAiExecutionCheckpoint(row.checkpoint);
-    const priorProviders = checkpoint?.providerAttempts ?? [];
-    if (
-      params.providerName
-      && priorProviders.length > 0
-      && !priorProviders.some((attempt) =>
-        attempt.provider.trim().toLowerCase() === params.providerName!.trim().toLowerCase())
-    ) {
-      continue;
-    }
-    recentRateLimits += 1;
-  }
-
-  const multiplier = 2 ** Math.min(recentRateLimits, 4);
-  return {
-    retryAfterMs: Math.min(
-      STRUCTURED_MAX_ADAPTIVE_RETRY_AFTER_MS,
-      STRUCTURED_DEFAULT_RETRY_AFTER_MS * multiplier,
-    ),
-    source: recentRateLimits > 0 ? "adaptive_default" : "server_default",
-  };
+  return undefined;
 }
 
 export type StructuredExecutionStarted = {

@@ -414,7 +414,9 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
     return res.status(429).json({
       error: safeMessage,
       code: "RATE_LIMITED",
-      retryAfterSec: rateLimit.retryAfterSec ?? 60,
+      ...(rateLimit.retryAfterSec !== undefined
+        ? { retryAfterSec: rateLimit.retryAfterSec }
+        : {}),
     });
   }
 
@@ -515,7 +517,6 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
           quality: "fast",
           capability: "chat",
           maxTokens: 1_500,
-          timeoutMs: 20_000,
           retryTransient: false,
           maxFallbackModels: 2,
           signal: signal ?? abortController.signal,
