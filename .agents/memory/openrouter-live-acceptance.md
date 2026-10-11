@@ -51,6 +51,12 @@ Case-level deadlines remain authoritative when the agent resolves normally after
 
 **How to apply:** Preserve bounded partial telemetry, skip remaining validation/oracle work after the deadline, and classify the result as U at every asynchronous boundary.
 
+Empirical-quality case timeouts cover repository checkout and selected-file preparation as well as the provider review. A timeout at the configured boundary is experiment-budget exhaustion, not evidence that the model returned malformed output or that the provider declared a timeout.
+
+**Why:** A real review completed near 90 seconds while the empirical case was aborted at its 90-second end-to-end deadline; setup and review share that budget.
+
+**How to apply:** Compare case latency with its configured deadline before assigning root cause. Use a larger budget for a later controlled run, while preserving the existing stop-on-timeout behavior for the current campaign.
+
 Every provider-unavailable or timed-out observation must retain the candidate hash, even though it contributes no quality evidence. Candidate identity and provider availability are separate facts.
 
 **Why:** A live case timeout returned U but omitted the already-computed candidate hash on an executor error path, creating a separate scorecard blocker and weakening run attribution.
