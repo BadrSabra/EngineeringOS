@@ -76,6 +76,19 @@ reliable JSON and recovery latency is configured. Never infer positive acceptanc
 from complete source reads or partial micro-probe labels; require durable
 `acceptedEvidenceCount` and `acceptedClaimCount` values.
 
+Live free-model project queries can complete scoped reads and still return no
+usable synthesis; a rate-limited alternate free model is a provider constraint,
+not evidence of an application defect.
+
+**Why:** A direct multi-file query retained both requested sources but closed no
+behavioral claim, while a more capable free candidate was rate-limited before
+completion. The server correctly remained incomplete rather than inventing an
+answer.
+
+**How to apply:** Keep these outcomes as incomplete live observations, preserve
+the evidence-acceptance boundary, and do not change application behavior to make
+an unaccepted provider response appear successful.
+
 Bounded capability-probe recovery should request a powerful JSON-capable model
 chain, retry only one candidate after the first bounded chain, and suppress
 request-local recovery failures from the global provider circuit.
