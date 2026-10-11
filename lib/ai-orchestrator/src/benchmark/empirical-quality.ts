@@ -756,7 +756,7 @@ export async function runEmpiricalQualityCampaign(args: {
     }
     results.push(...prior.cases.filter((entry) => entry.outcome === "COMPLETE"));
   }
-  const caseTimeoutMs = args.caseTimeoutMs ?? 90_000;
+  const caseTimeoutMs = args.caseTimeoutMs ?? 900_000;
   const generatedAt = args.generatedAt ?? new Date().toISOString();
   const campaignDeadline = args.campaignTimeoutMs === undefined
     ? undefined

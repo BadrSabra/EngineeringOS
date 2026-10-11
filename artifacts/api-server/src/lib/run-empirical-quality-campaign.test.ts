@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
+  empiricalQualityCampaignDefaults,
   reviewWithOneSameModelJsonRepair,
   runApiEmpiricalQualityCampaign,
   selectEmpiricalJsonMode,
@@ -50,6 +51,13 @@ const corpus: EmpiricalQualityCorpus = {
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+});
+
+describe("empirical quality timeout defaults", () => {
+  it("allows a case to use the full 15-minute campaign window", () => {
+    expect(empiricalQualityCampaignDefaults.caseTimeoutMs).toBe(900_000);
+    expect(empiricalQualityCampaignDefaults.campaignTimeoutMs).toBe(900_000);
+  });
 });
 
 async function workspaceFor(

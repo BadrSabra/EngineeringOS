@@ -379,7 +379,7 @@ export async function runApiEmpiricalQualityCampaign(
   const registeredModel = options.provider === "openrouter" && options.model
     ? FREE_MODELS.find((candidate) => candidate.id === options.model)
     : undefined;
-  const caseTimeoutMs = options.caseTimeoutMs ?? 90_000;
+  const caseTimeoutMs = options.caseTimeoutMs ?? 900_000;
   const workspaceFactory = options.workspaceFactory ?? defaultWorkspaceFactory;
   const review = options.reviewCase ?? defaultReviewCase;
 
@@ -547,7 +547,7 @@ export function empiricalQualityProviderKey(provider: string): string {
 }
 
 export const empiricalQualityCampaignDefaults = {
-  caseTimeoutMs: 90_000,
+  caseTimeoutMs: 900_000,
   campaignTimeoutMs: 900_000,
 };
 
