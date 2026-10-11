@@ -40,6 +40,7 @@ type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
 type RecoveryDisposition = {
   recoveryState?: unknown;
   retryAt?: unknown;
+  automaticRecoveryBlocked?: unknown;
 };
 
 export type TaskRecoveryCandidate = {
@@ -144,6 +145,7 @@ export type ChatRecoveryPlan =
       | "revision_changed"
       | "retry_not_due"
        | "not_a_resumable_turn"
+      | "automatic_recovery_blocked"
        | "automatic_recovery_exhausted";
   };
 
@@ -226,6 +228,57 @@ async function deferRecoveryForRateLimit(params: {
     logger.warn(
       { error, executionId: params.executionId },
       "automatic recovery rate-limit backoff could not be persisted",
+    );
+  }
+}
+
+async function blockAutomaticChatRecovery(params: {
+  executionId: string;
+  executionAttempt: number;
+  action: string;
+  statusCode: number;
+}): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      const [acceptance] = await tx
+        .select({
+          id: aiExecutionAcceptancesTable.id,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, params.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, params.executionAttempt),
+        ))
+        .for("update");
+
+      if (
+        !acceptance
+        || acceptance.outcome !== "FAILED"
+        || acceptance.nextActionCode !== params.action
+      ) {
+        return;
+      }
+
+      await tx
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            ...asRecord(acceptance.disposition),
+            automaticRecoveryBlocked: true,
+            automaticRecoveryBlockReason: "handler_client_rejection",
+            automaticRecoveryBlockStatusCode: params.statusCode,
+            automaticRecoveryBlockedAt: new Date().toISOString(),
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+    });
+  } catch (error) {
+    logger.warn(
+      { error, executionId: params.executionId, statusCode: params.statusCode },
+      "automatic chat recovery rejection could not be persisted",
     );
   }
 }
@@ -375,6 +428,9 @@ export function planChatRecovery(
   const disposition = asDisposition(candidate.disposition);
   if (disposition.recoveryState !== "REQUIRED") {
     return { kind: "skip", reason: "resume_not_authorized" };
+  }
+  if (disposition.automaticRecoveryBlocked === true) {
+    return { kind: "skip", reason: "automatic_recovery_blocked" };
   }
   const retryAtMs = parseRetryAt(disposition.retryAt);
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
@@ -745,6 +801,27 @@ async function runChatRecovery(
     mode: plan.kind,
   });
   if (!result.ok) {
+    if (result.statusCode === 429) {
+      await deferRecoveryForRateLimit({
+        executionId: candidate.executionId,
+        executionAttempt: candidate.executionAttempt,
+        action: candidate.action,
+        retryAfterSec: result.retryAfterSec ?? 60,
+      });
+    } else if (
+      result.statusCode !== undefined
+      && result.statusCode >= 400
+      && result.statusCode < 500
+      && result.statusCode !== 408
+      && result.statusCode !== 425
+    ) {
+      await blockAutomaticChatRecovery({
+        executionId: candidate.executionId,
+        executionAttempt: candidate.executionAttempt,
+        action: candidate.action,
+        statusCode: result.statusCode,
+      });
+    }
     logger.warn(
       { executionId: candidate.executionId, reason: result.reason, statusCode: result.statusCode },
       "automatic chat recovery did not complete",

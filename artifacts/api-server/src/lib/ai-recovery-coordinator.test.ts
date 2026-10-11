@@ -6,6 +6,7 @@ import {
   type ChatRecoveryCandidate,
   type TaskRecoveryCandidate,
 } from "./ai-recovery-coordinator.js";
+import { parseChatRecoveryRetryAfterSeconds } from "./chat-recovery-runner.js";
 
 function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecoveryCandidate {
   return {
@@ -68,6 +69,19 @@ describe("automatic task recovery admission", () => {
       .toBeUndefined();
   });
 
+  it("extracts only bounded numeric retry delays from rate-limit responses", () => {
+    expect(parseChatRecoveryRetryAfterSeconds({
+      error: "LLM rate limit exceeded. Retry in 17s.",
+    })).toBe(17);
+    expect(parseChatRecoveryRetryAfterSeconds({
+      hint: "Try again in 9s.",
+    })).toBe(9);
+    expect(parseChatRecoveryRetryAfterSeconds({
+      error: "Retry later.",
+    })).toBeUndefined();
+    expect(parseChatRecoveryRetryAfterSeconds("Retry in 3s.")).toBeUndefined();
+  });
+
   it("creates a stable retry identity and preserves the retry budget fence", () => {
     const first = planTaskRecovery(candidate(), 1_000);
     const second = planTaskRecovery(candidate(), 1_000);
@@ -119,6 +133,19 @@ describe("automatic task recovery admission", () => {
     }), Date.parse("2026-09-17T12:00:10.000Z"))).toMatchObject({
       kind: "retry",
       action: "RETRY_AFTER_RATE_LIMIT",
+    });
+  });
+
+  it("blocks only automatic recovery after a permanent handler rejection", () => {
+    expect(planChatRecovery(chatCandidate({
+      disposition: {
+        recoveryState: "REQUIRED",
+        automaticRecoveryBlocked: true,
+        automaticRecoveryBlockStatusCode: 409,
+      },
+    }))).toEqual({
+      kind: "skip",
+      reason: "automatic_recovery_blocked",
     });
   });
 

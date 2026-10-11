@@ -13,10 +13,12 @@ import {
 
 type InternalResponse = Response & {
   recoveryStatusCode: number;
+  recoveryBody?: unknown;
 };
 
 type ResponseStub = {
   recoveryStatusCode: number;
+  recoveryBody?: unknown;
   statusCode: number;
   headersSent: boolean;
   writableEnded: boolean;
@@ -56,7 +58,8 @@ function createInternalResponse(): InternalResponse {
       this.headersSent = true;
       return true;
     },
-    json() {
+    json(value: unknown) {
+      this.recoveryBody = value;
       this.headersSent = true;
       this.end();
       return this;
@@ -89,6 +92,18 @@ function createInternalResponse(): InternalResponse {
   return response as unknown as InternalResponse;
 }
 
+export function parseChatRecoveryRetryAfterSeconds(body: unknown): number | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const record = body as Record<string, unknown>;
+  const message = [record.error, record.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const match = message.match(/(?:retry in|try again in)\s+(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/i);
+  if (!match) return undefined;
+  const seconds = Number(match[1]);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
 type RecoveryRequest = Request & {
   userId: string;
   body: Record<string, unknown>;
@@ -108,7 +123,7 @@ export async function runChatExecutionRecovery(params: {
   executionId: string;
   userId: string;
   mode?: "resume" | "retry";
-}): Promise<{ ok: boolean; reason?: string; statusCode?: number }> {
+}): Promise<{ ok: boolean; reason?: string; statusCode?: number; retryAfterSec?: number }> {
   const execution = await getAiExecutionForUser(params.executionId, params.userId);
   if (!execution) return { ok: false, reason: "execution_not_found" };
 
@@ -160,6 +175,9 @@ export async function runChatExecutionRecovery(params: {
   return {
     ok: response.recoveryStatusCode < 400,
     statusCode: response.recoveryStatusCode,
+    ...(response.recoveryStatusCode === 429
+      ? { retryAfterSec: parseChatRecoveryRetryAfterSeconds(response.recoveryBody) }
+      : {}),
     ...(response.recoveryStatusCode >= 400 ? { reason: "chat_recovery_handler_rejected" } : {}),
   };
 }

@@ -20,7 +20,12 @@ const executeTaskLifecycle = vi.hoisted(() => vi.fn(async () => ({
   status: "completed" as const,
   executionId: "replacement-execution",
 })));
-const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async () => ({
+const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async (): Promise<{
+  ok: boolean;
+  statusCode?: number;
+  reason?: string;
+  retryAfterSec?: number;
+}> => ({
   ok: true,
   statusCode: 200,
 })));
@@ -716,6 +721,79 @@ describe("durable automatic conversational recovery", () => {
         mode: "retry",
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("persists a 409 block without deleting the acceptance or disabling manual recovery", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      runChatExecutionRecovery.mockResolvedValueOnce({
+        ok: false,
+        statusCode: 409,
+        reason: "chat_recovery_handler_rejected",
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      await queuedJobs[0]!.run();
+
+      const [acceptance] = await db.select({
+        disposition: aiExecutionAcceptancesTable.disposition,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptance?.nextActionCode).toBe("RESUME_ALLOWED");
+      expect(acceptance?.disposition).toMatchObject({
+        recoveryState: "REQUIRED",
+        automaticRecoveryBlocked: true,
+        automaticRecoveryBlockReason: "handler_client_rejection",
+        automaticRecoveryBlockStatusCode: 409,
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("stores a durable handler-level 429 delay so recovery waits for the limiter", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      runChatExecutionRecovery.mockResolvedValueOnce({
+        ok: false,
+        statusCode: 429,
+        retryAfterSec: 25,
+        reason: "chat_recovery_handler_rejected",
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      await queuedJobs[0]!.run();
+
+      const [acceptance] = await db.select({
+        disposition: aiExecutionAcceptancesTable.disposition,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptance?.disposition).toMatchObject({
+        recoveryState: "REQUIRED",
+        retryAfterMs: 25_000,
+        retryAfterSource: "project_rate_limit",
+      });
+      const retryAt = (acceptance?.disposition as { retryAt?: string } | undefined)?.retryAt;
+      expect(typeof retryAt).toBe("string");
+      expect(Date.parse(retryAt!) - Date.now()).toBeGreaterThan(20_000);
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
