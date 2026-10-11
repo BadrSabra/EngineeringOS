@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { GroqClientError, isProviderScopedRateLimit } from "./errors.js";
 import type {
   AuditState,
@@ -860,6 +861,25 @@ function normalizeMissionScopedReadPath(value: unknown): string | undefined {
   return segments.join("/");
 }
 
+function normalizeRootScopedReadPath(value: unknown, rootPath: string): string | undefined {
+  const relativePath = normalizeMissionScopedReadPath(value);
+  if (relativePath) return relativePath;
+  if (typeof value !== "string" || !isAbsolute(value) || value.includes("\0")) return undefined;
+
+  const resolvedRoot = resolve(rootPath);
+  const resolvedRequest = resolve(value);
+  const fromRoot = relative(resolvedRoot, resolvedRequest);
+  if (
+    !fromRoot ||
+    fromRoot === ".." ||
+    fromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(fromRoot)
+  ) {
+    return undefined;
+  }
+  return normalizeMissionScopedReadPath(fromRoot);
+}
+
 export type SingleToolOpts = {
   /** Registered tool name (e.g. "read_file", "git_status"). */
   name: string;
@@ -1337,10 +1357,17 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       safeMessage: `Tool "${name}" arguments did not match the server input contract; the operation did not complete.`,
     };
   }
-  const effectiveArgs =
+  const effectiveArgsBase =
     opts.completeReads && name === "read_file"
       ? { ...validatedArgs, complete: "true" }
       : validatedArgs;
+  const normalizedReadPath =
+    name === "read_file" || name === "read_file_range"
+      ? normalizeRootScopedReadPath(effectiveArgsBase.path, opts.rootPath)
+      : undefined;
+  const effectiveArgs = normalizedReadPath
+    ? { ...effectiveArgsBase, path: normalizedReadPath }
+    : effectiveArgsBase;
   const lifecycleInputHash = toolInputHash(effectiveArgs);
   const lifecycleToolCallId = opts.toolCallId?.trim();
   if (
@@ -1406,7 +1433,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
     }
     const authorization = authorizeToolInvocation({
       toolName: name,
-      args: validatedArgs,
+      args: effectiveArgs,
       approvalState: opts.approvalState,
       compoundWriteMode: opts.compoundWriteMode,
       ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
@@ -1504,7 +1531,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           .map(normalizeMissionScopedReadPath)
           .filter((value): value is string => Boolean(value)),
       );
-      const requestedPath = normalizeMissionScopedReadPath(effectiveArgs.path);
+      const requestedPath = normalizeRootScopedReadPath(effectiveArgs.path, opts.rootPath);
       const justifiedExpansion =
         typeof effectiveArgs.path === "string"
         && opts.objectiveScopePolicy
@@ -6390,8 +6417,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       try {
         rawArgs = JSON.parse(tc.function.arguments) as unknown;
         if (isRecord(rawArgs)) {
+          let parsedRecord = rawArgs;
+          if (
+            (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
+            typeof parsedRecord.path === "string"
+          ) {
+            const normalizedReadPath = normalizeRootScopedReadPath(parsedRecord.path, rootPath);
+            if (normalizedReadPath) {
+              parsedRecord = { ...parsedRecord, path: normalizedReadPath };
+            }
+          }
+          rawArgs = parsedRecord;
           args = Object.fromEntries(
-            Object.entries(rawArgs).map(([key, value]) => [
+            Object.entries(parsedRecord).map(([key, value]) => [
               key,
               typeof value === "string" ? value : JSON.stringify(value) ?? String(value),
             ]),

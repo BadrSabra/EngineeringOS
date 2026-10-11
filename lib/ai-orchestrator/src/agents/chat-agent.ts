@@ -4752,6 +4752,16 @@ export function buildProviderTools(
       ? tools.filter((tool) => PROJECT_CHAT_READ_TOOL_NAMES.has(tool.function.name))
       : capabilityProbeMode
       ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
+      : executionMode === "repair_plan"
+      ? tools.filter((tool) =>
+          [
+            "read_file",
+            ...(authorizedNames?.has("project.list_tree") ? ["project.list_tree"] : []),
+            "replace_text",
+            "write_file",
+            ...(allowValidationTools ? ["run_validation"] : []),
+          ].includes(tool.function.name),
+        )
       : singleFileForensicMode
       ? tools.filter((tool) => tool.function.name === "read_file")
       : compoundExecution
@@ -4788,16 +4798,6 @@ export function buildProviderTools(
           "query_knowledge_graph",
           "discover_project_apis",
         ].includes(tool.function.name))
-      : executionMode === "repair_plan"
-      ? tools.filter((tool) =>
-          [
-            "read_file",
-            ...(authorizedNames?.has("project.list_tree") ? ["project.list_tree"] : []),
-            "replace_text",
-            "write_file",
-            ...(allowValidationTools ? ["run_validation"] : []),
-          ].includes(tool.function.name),
-        )
       : tools;
 
   if (capabilityProbeMode) {
@@ -4812,7 +4812,7 @@ export function buildProviderTools(
         readOnly: true,
       }),
     );
-  } else if (singleFileForensicMode) {
+  } else if (singleFileForensicMode && executionMode !== "repair_plan") {
     console.info(
       JSON.stringify({
         scope: "chat-agent",
@@ -8032,7 +8032,7 @@ export async function chat(opts: {
     );
   }
 
-  if (singleFileForensicMode) {
+  if (singleFileForensicMode && !repairPlanExecution && opts.executionMode !== "repair_plan") {
     console.info(
       JSON.stringify({
         scope: "chat-agent",

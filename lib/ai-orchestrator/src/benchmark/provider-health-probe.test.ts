@@ -62,6 +62,42 @@ describe("providerHealthProbe", () => {
     });
   });
 
+  it("gives tool and structured probes a full response budget for reasoning models", async () => {
+    const maxTokenBudgets: number[] = [];
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response([{
+        id: "probe-1",
+        type: "function",
+        function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"ok"}' },
+      }])),
+      async call(_messages, options) {
+        maxTokenBudgets.push(options.maxTokens ?? 0);
+        if (options.tools?.length) {
+          return response([{
+            id: "probe-1",
+            type: "function",
+            function: { name: PROBE_TOOL_NAME, arguments: '{"probe":"ok"}' },
+          }]);
+        }
+        return {
+          content: '{"response":"probe","sources":[]}',
+          toolCalls: [],
+          model: "test-model",
+          usage: { promptTokens: 10, completionTokens: 5 },
+        };
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      strategy,
+      requireStructuredOutput: true,
+    });
+
+    expect(result.status).toBe("usable");
+    expect(maxTokenBudgets).toEqual([8_192, 8_192]);
+  });
+
   it("can mirror the target JSON and read-tool contract", async () => {
     let captured: RawGroqResponse | undefined;
     let capturedOptions: Parameters<ProviderStrategy["call"]>[1] | undefined;

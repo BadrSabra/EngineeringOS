@@ -2830,6 +2830,7 @@ describe("executeToolLoop", () => {
   it.each([
     "../secrets.env",
     "/etc/passwd",
+    "/project/src/unmanifested.ts",
     "src/__tests__/hidden.ts",
     "src/unmanifested.ts",
   ])("blocks a FACT read outside its persisted manifest: %s", async (requestedPath) => {
@@ -2863,6 +2864,36 @@ describe("executeToolLoop", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("normalizes an absolute path inside the project root before checking the read manifest", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValue("File: src/auth.ts\n```ts\nexport const ok = true;\n```");
+    const strategy = makeStrategy([
+      makeResponse("", [
+        makeToolCall("absolute-manifest-read", "read_file", {
+          path: "/project/src/auth.ts",
+        }),
+      ]),
+      makeResponse("Read completed."),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      allowedReadPaths: ["src/auth.ts"],
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK.mock.calls[0]?.[1]).toMatchObject({ path: "src/auth.ts" });
   });
 
   it("stops FACT tool execution at its fixed call and iteration budgets", async () => {

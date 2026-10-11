@@ -516,7 +516,10 @@ export async function probeProviderHealth(
   const baseCallOptions: StrategyCallOptions = {
     model: options.model ?? getProvider(options.provider).defaultModels.fast,
     apiKey: options.apiKey,
-    maxTokens: 64,
+    // Reasoning models count hidden reasoning against this budget. A small
+    // probe cap can truncate the response before the required tool call and
+    // incorrectly project a usable provider as unavailable.
+    maxTokens: 8_192,
     timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS,
     retryTransient: false,
     toolChoice: "required",
@@ -567,7 +570,7 @@ export async function probeProviderHealth(
           tools: undefined,
           toolChoice: undefined,
           responseFormat: { type: "json_object" as const },
-          maxTokens: 128,
+          maxTokens: 8_192,
         });
         result = parseStructuredOutput(
           structuredResponse,
