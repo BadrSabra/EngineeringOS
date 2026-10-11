@@ -109,7 +109,7 @@ function parseLiveEvidence(value) {
     checkpointSequence: "non-zero",
     firstProcessStopped: "passed",
     restartHealthyWithinBound: "passed",
-    sameExecutionResumedWithOriginalResumeIdentity: "passed",
+    sameExecutionRecoveredOnSameExecutionIdentity: "passed",
     forensicResponse: "successful",
     expectedSourcePath: "src/process-recovery.ts",
     writeOperations: "none",

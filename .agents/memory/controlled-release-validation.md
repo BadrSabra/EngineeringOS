@@ -139,3 +139,23 @@ the guarded `src/index.ts` child only when startup reconciliation is part of the
 acceptance boundary. Stop the test PostgreSQL process and remove only its
 dedicated temporary data root after verification; state explicitly that managed
 workflows and live providers were not exercised.
+
+## Live process-recovery sequencing
+
+Start the first forensic execution through the chat-stream route without an
+execution ID or resume token, then capture both from `execution_started`.
+Pre-creating a queued execution and submitting its token is not a valid initial
+claim. After killing the worker, expire only that row's lease in the disposable
+database before starting the recovery process; production leases last five
+minutes. Startup dispatch may automatically claim the recovered execution
+before an HTTP resume arrives, so verify the durable result rather than racing
+the dispatcher with a duplicate resume request.
+
+**Why:** `claimAiExecution` accepts a resume token only for paused/failed
+attempts, and startup reconciliation only expires dead workers after their
+lease. The operational dispatcher may then own the new attempt before the test
+client can claim it.
+
+**How to apply:** Keep this choreography inside the opt-in recovery harness,
+using a loopback disposable database and an isolated receipt. Never shorten the
+production lease or change the managed API workflow to make this test pass.

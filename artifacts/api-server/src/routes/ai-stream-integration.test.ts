@@ -148,7 +148,7 @@ type LiveRecoveryEvidence = {
     checkpointSequence: "non-zero";
     firstProcessStopped: "passed";
     restartHealthyWithinBound: "passed";
-    sameExecutionResumedWithOriginalResumeIdentity: "passed";
+    sameExecutionRecoveredOnSameExecutionIdentity: "passed";
     forensicResponse: "successful";
     expectedSourcePath: "src/process-recovery.ts";
     writeOperations: "none";
@@ -3126,22 +3126,6 @@ describe("Durable AI execution crash/reconnect", () => {
         if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
-        const created = await createAiExecution({
-          userId: "test-user",
-          request: {
-            projectId,
-            sessionId,
-            message: "forensic audit of src/process-recovery.ts",
-            modelMessage: "forensic audit of src/process-recovery.ts",
-            validationTargetPaths: [],
-            proofRequired: false,
-          },
-          idempotencyKey: randomUUID(),
-          projectId,
-          sessionId,
-        });
-        expect(created.resumeToken).toBeTruthy();
-
         const firstStream = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -3149,29 +3133,114 @@ describe("Durable AI execution crash/reconnect", () => {
             projectId,
             sessionId,
             message: "forensic audit of src/process-recovery.ts",
-            executionId: created.execution.id,
-            resumeToken: created.resumeToken,
           }),
         });
         expect(firstStream.status, "initial forensic stream HTTP status").toBe(200);
+        const streamReader = firstStream.body?.getReader();
+        const initialSseEvents: string[] = [];
+        const initialSseCodes: string[] = [];
+        let executionId: string | undefined;
+        let resumeToken: string | undefined;
+        const streamReaderTask = streamReader
+          ? (async () => {
+              const decoder = new TextDecoder();
+              while (true) {
+                const chunk = await streamReader.read();
+                if (chunk.done) return;
+                const text = decoder.decode(chunk.value, { stream: true });
+                for (const match of text.matchAll(/(?:^|\n)data:\s*([^\r\n]+)/g)) {
+                  try {
+                    const event = JSON.parse(match[1]!) as {
+                      type?: unknown;
+                      code?: unknown;
+                      executionId?: unknown;
+                      resumeToken?: unknown;
+                    };
+                    if (typeof event.type === "string") initialSseEvents.push(event.type);
+                    if (typeof event.code === "string" && /^[A-Z0-9_]{1,80}$/.test(event.code)) {
+                      initialSseCodes.push(event.code);
+                    }
+                    if (
+                      event.type === "execution_started"
+                      && typeof event.executionId === "string"
+                      && typeof event.resumeToken === "string"
+                    ) {
+                      executionId = event.executionId;
+                      resumeToken = event.resumeToken;
+                    }
+                  } catch {
+                    // Ignore partial SSE payloads; only keep bounded event labels.
+                  }
+                }
+              }
+            })().catch(() => undefined)
+          : Promise.resolve();
+        const initialSseSummary = () => [
+          ...initialSseEvents.slice(-8),
+          ...initialSseCodes.slice(-4).map((code) => `code:${code}`),
+        ].join(",") || "no-event";
 
         let checkpointSequence = 0;
+        let executionStatus = "not-created";
+        let workerClaimed = false;
+        let executionErrorPresent = false;
         const checkpointDeadline = Date.now() + 45_000;
         while (Date.now() < checkpointDeadline) {
-          const [row] = await db
-            .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
-            .from(aiExecutionsTable)
-            .where(eq(aiExecutionsTable.id, created.execution.id));
-          const checkpoint = parseAiExecutionCheckpoint(row?.checkpoint);
-          checkpointSequence = checkpoint?.sequence ?? 0;
-          if (row?.status === "running" && checkpointSequence > 0) break;
+          if (executionId) {
+            const [row] = await db
+              .select({
+                status: aiExecutionsTable.status,
+                checkpoint: aiExecutionsTable.checkpoint,
+                workerId: aiExecutionsTable.workerId,
+                error: aiExecutionsTable.error,
+              })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, executionId));
+            executionStatus = row?.status ?? "missing";
+            workerClaimed = Boolean(row?.workerId);
+            executionErrorPresent = Boolean(row?.error);
+            const checkpoint = parseAiExecutionCheckpoint(row?.checkpoint);
+            checkpointSequence = checkpoint?.sequence ?? 0;
+            if (row?.status === "running" && checkpointSequence > 0) break;
+            if (row?.status === "failed" || row?.status === "completed") break;
+          }
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
-        expect(checkpointSequence).toBeGreaterThan(0);
+        expect(executionId, `execution_started missing: ${initialSseSummary()}`).toBeTruthy();
+        expect(resumeToken, `resume token missing: ${initialSseSummary()}`).toBeTruthy();
+        expect(
+          checkpointSequence,
+          `checkpoint missing: status=${executionStatus}, workerClaimed=${workerClaimed}, errorPresent=${executionErrorPresent}, http=${firstStream.status}, sse=${initialSseSummary()}`,
+        ).toBeGreaterThan(0);
 
         await stopProcess(server);
         server = undefined;
-        await firstStream.body?.cancel().catch(() => undefined);
+        await streamReader?.cancel().catch(() => undefined);
+        await streamReaderTask;
+
+        const [orphanedExecution] = await db
+          .select({
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId!))
+          .limit(1);
+        expect(orphanedExecution?.status).toBe("running");
+        expect(orphanedExecution?.workerId).toBeTruthy();
+        // The production lease lasts five minutes. Expire only this orphaned
+        // row in the disposable test database so startup reconciliation can run
+        // immediately without shortening the production lease policy.
+        const expiredLeaseRows = await db
+          .update(aiExecutionsTable)
+          .set({ leaseUntil: new Date(Date.now() - 1) })
+          .where(and(
+            eq(aiExecutionsTable.id, executionId!),
+            eq(aiExecutionsTable.status, "running"),
+            eq(aiExecutionsTable.workerId, orphanedExecution!.workerId!),
+          ))
+          .returning({ id: aiExecutionsTable.id });
+        expect(expiredLeaseRows).toHaveLength(1);
 
         server = spawn(process.execPath, ["--enable-source-maps", apiEntryPoint], {
           cwd: process.cwd(),
@@ -3182,27 +3251,47 @@ describe("Durable AI execution crash/reconnect", () => {
         if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
-        const resumed = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            projectId,
-            sessionId,
-            message: "forensic audit of src/process-recovery.ts",
-            executionId: created.execution.id,
-            resumeToken: created.resumeToken,
-          }),
-        });
-        const resumedText = await resumed.text();
-        expect(resumed.status).toBe(200);
-        expect(resumedText).toContain(relativePath);
-        expect(resumedText).not.toMatch(/write_file|replace_text|delete_file/);
+        let recoveredExecution: {
+          status: string;
+          attempt: number;
+          finalMessageId: string | null;
+          checkpoint: string;
+        } | undefined;
+        const recoveryDeadline = Date.now() + 75_000;
+        while (Date.now() < recoveryDeadline) {
+          const [row] = await db
+            .select({
+              status: aiExecutionsTable.status,
+              attempt: aiExecutionsTable.attempt,
+              finalMessageId: aiExecutionsTable.finalMessageId,
+              checkpoint: aiExecutionsTable.checkpoint,
+            })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, executionId!))
+            .limit(1);
+          recoveredExecution = row;
+          if (row?.status === "completed" || row?.status === "failed") break;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        expect(
+          recoveredExecution?.status,
+          `automatic recovery status=${recoveredExecution?.status ?? "missing"}, attempt=${recoveredExecution?.attempt ?? "missing"}`,
+        ).toBe("completed");
+        expect(recoveredExecution!.attempt).toBeGreaterThan(0);
+        expect(recoveredExecution!.finalMessageId).toBeTruthy();
+        const [recoveredMessage] = await db
+          .select({ content: aiChatMessagesTable.content, toolTrace: aiChatMessagesTable.toolTrace })
+          .from(aiChatMessagesTable)
+          .where(eq(aiChatMessagesTable.id, recoveredExecution!.finalMessageId!))
+          .limit(1);
+        expect(recoveredMessage?.content).toContain(relativePath);
+        expect(recoveredMessage?.toolTrace ?? "").not.toMatch(/write_file|replace_text|delete_file/);
         expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
 
         const [completedExecution] = await db
           .select({ checkpoint: aiExecutionsTable.checkpoint })
           .from(aiExecutionsTable)
-          .where(eq(aiExecutionsTable.id, created.execution.id))
+          .where(eq(aiExecutionsTable.id, executionId!))
           .limit(1);
         const checkpointRecord = completedExecution?.checkpoint
           ? JSON.parse(completedExecution.checkpoint) as { recentSteps?: unknown }
@@ -3242,7 +3331,7 @@ describe("Durable AI execution crash/reconnect", () => {
             checkpointSequence: "non-zero",
             firstProcessStopped: "passed",
             restartHealthyWithinBound: "passed",
-            sameExecutionResumedWithOriginalResumeIdentity: "passed",
+            sameExecutionRecoveredOnSameExecutionIdentity: "passed",
             forensicResponse: "successful",
             expectedSourcePath: relativePath,
             writeOperations: "none",
