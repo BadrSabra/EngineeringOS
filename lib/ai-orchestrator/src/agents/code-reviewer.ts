@@ -227,7 +227,6 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     // 429 must remain a typed incomplete result instead of becoming a
     // same-model success from a later response.
     return {
-      maxFallbackModels: 3,
       retryTransient: false,
       waitOnRateLimit: false,
       ...(this.repairAttempt || this.promptOnlyJson ? { temperature: 0 } : {}),

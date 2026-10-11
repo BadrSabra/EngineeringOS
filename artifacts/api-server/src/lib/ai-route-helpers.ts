@@ -491,7 +491,6 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
 // Capability preflight owns provider selection, while OpenRouter owns the
 // bounded model chain. A single candidate is insufficient when the first
 // catalog model can reach the provider but cannot emit valid tool arguments.
-const CAPABILITY_PREFLIGHT_MAX_MODELS = 3;
 
 /**
  * Normalize SDK/parser failures that escaped without the typed provider
@@ -1111,7 +1110,6 @@ export async function chatWithFallback(
         const health = await probeProviderHealth({
           provider: providerEntry.provider,
           apiKey: providerEntry.apiKey,
-          maxFallbackModels: CAPABILITY_PREFLIGHT_MAX_MODELS,
           signal: baseParams.signal,
           executionLedger,
            // Capability Probe's effective single-file manifest exposes only

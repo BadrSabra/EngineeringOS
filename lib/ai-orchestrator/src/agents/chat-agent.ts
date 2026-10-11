@@ -781,7 +781,6 @@ const RECOVERY_READ_TOOL_NAMES = new Set([
   "list_directory",
 ]);
 /** Keep no-tools synthesis resilient without allowing an unbounded model fan-out. */
-const PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS = 3;
 /** Cap on recovery tool-call rounds so a confused recovery model cannot loop. */
 const MAX_RECOVERY_TOOL_ROUNDS = 2;
 /** Bound each recovery round-trip tool result so context stays bounded. */
@@ -2978,10 +2977,6 @@ async function callCapabilityRecoveryWithFallback(opts: {
           model: candidate.model,
           apiKey: candidate.apiKey,
           timeoutMs,
-          maxFallbackModels:
-            candidate.provider === "openrouter"
-              ? opts.baseOptions.maxFallbackModels ?? 1
-              : 1,
           ...(candidate.provider !== "openrouter"
             ? { responseFormat: { type: "json_object" as const } }
             : {}),
@@ -3157,10 +3152,6 @@ export async function runCapabilityMicroProbes(opts: {
               : {}),
             maxTokens: retry ? 500 : 900,
             retryTransient: false,
-            maxFallbackModels: retry
-              ? 1
-              : opts.maxFallbackModels ??
-                (opts.provider === "openrouter" ? 3 : 1),
             ...(opts.provider === "openrouter"
               ? { circuitFailurePolicy: "suppress" as const }
               : {}),
@@ -5052,10 +5043,6 @@ function buildForensicRecoveryOptions(
     // timeout across packets and leave an SSE request open for minutes.
     timeoutMs: 30_000,
     retryTransient: false,
-    // The agent owns the ordered recovery chain. Do not add another provider
-    // fallback chain inside each attempt; doing so makes the total duration
-    // depend on packet count × provider candidates.
-    maxFallbackModels: 1,
     apiKey,
     ...(signal ? { signal } : {}),
     // Recovery is now read-capable: the recovery model may re-read the actual
@@ -10660,9 +10647,6 @@ export async function chat(opts: {
                   maxTokens: 1600,
                   timeoutMs,
                   retryTransient: false,
-                  maxFallbackModels: recoveryProvider.provider === "openrouter"
-                    ? PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS
-                    : 1,
                   ...(recoveryProvider.provider === "openrouter"
                     ? { capability: "chat" as const, quality: "fast" as const }
                     : {}),
@@ -13522,7 +13506,6 @@ export async function chat(opts: {
             // response, semantic advancement owns this next candidate. Do not
             // let the provider replay its own transport fallback chain on top
             // of the agent's ordered Recovery chain.
-            recoveryOptions.maxFallbackModels = 1;
           }
           recoveryOptions.executionLedger = executionLedger;
           // Recovery is a read-only verification pass. Pass only the read tools
@@ -14930,7 +14913,6 @@ export async function chat(opts: {
           maxTokens: 1024,
           timeoutMs: 45_000,
           retryTransient: false,
-          maxFallbackModels: 1,
           ...(signal ? { signal } : {}),
           executionLedger,
         },
@@ -15050,11 +15032,6 @@ export async function chat(opts: {
             : {}),
           maxTokens: 1536,
           retryTransient: false,
-          // Source evidence is already retained and this is the final
-          // capability-repair window. Let OpenRouter try a bounded candidate
-          // chain instead of making one rate-limited model terminal; the
-          // execution ledger and recovery deadline remain authoritative.
-          maxFallbackModels: providerId === "openrouter" ? 3 : 1,
           ...(providerId !== "openrouter"
             ? { responseFormat: { type: "json_object" as const } }
             : {}),
@@ -15280,10 +15257,6 @@ export async function chat(opts: {
           ? {
               quality: "powerful" as const,
               capability: "json" as const,
-              // The structured correction above already had one bounded
-              // fallback. Keep micro-probes to one model per group so a
-              // failed synthesis cannot multiply provider latency.
-              maxFallbackModels: 1,
             }
           : {}),
         fallbackProviders: capabilityRecoveryFallbackProviders,

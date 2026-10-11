@@ -3864,10 +3864,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   let synthesisStarted = false;
   const boundedSynthesisTimeoutMs = synthesisTimeoutMs === undefined
     ? undefined
-    : Math.max(1_000, Math.floor(synthesisTimeoutMs));
+    : Math.max(1, Math.floor(synthesisTimeoutMs));
   const boundedSynthesisMaxAttempts = Math.max(
     1,
-    Math.floor(synthesisMaxAttempts ?? maxIterations),
+    Math.floor(synthesisMaxAttempts ?? executionLedger.snapshot().budget.synthesisAttempts),
   );
   let synthesisDeadlineAt: number | null = null;
   let synthesisAttempts = 0;

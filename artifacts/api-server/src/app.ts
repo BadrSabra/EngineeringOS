@@ -105,10 +105,8 @@ app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 // ── Security hardening ──────────────────────────────────────────────────────
 
-// Trust exactly one reverse-proxy hop (Replit's proxy layer) so that
-// express-rate-limit reads the real client IP from X-Forwarded-For rather
-// than always seeing the proxy IP (which would cause everyone to share one
-// rate-limit bucket).
+// Trust exactly one reverse-proxy hop (Replit's proxy layer) so request
+// metadata reports the originating client rather than the proxy.
 app.set("trust proxy", 1);
 
 app.use(helmet({
