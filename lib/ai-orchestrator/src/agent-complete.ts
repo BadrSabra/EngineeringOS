@@ -150,6 +150,7 @@ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promi
         capability: probeModelDecision.capability,
         quality: probeModelDecision.quality,
         requireTools: probePlan.strictHints.requireTools ?? false,
+        allowPaidFallback: false,
       });
       return;
     case "gemini":
@@ -272,7 +273,7 @@ export async function agentComplete(
         excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,
         waitOnRateLimit: opts.waitOnRateLimit,
-        allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
+        allowPaidFallback: false,
         onProviderFallback: opts.onProviderFallback,
         responseFormat: opts.promptOnlyJson
           ? undefined

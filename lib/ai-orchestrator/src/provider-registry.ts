@@ -51,15 +51,10 @@ export type ProviderConfig = {
 };
 
 /**
- * Fallback priority order: openrouter → gemini → deepseek → groq.
- *
- * resolveProvider() returns the first provider in this list whose key is
- * available. resolveFallbackProvider() skips the current provider and returns
- * the next one in this order.
- *
- * To change the ordering, edit this array — no if/else chains to update.
+ * Product AI requests are restricted to OpenRouter. Model selection within
+ * OpenRouter is separately constrained by its free-model catalog.
  */
-export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter"];
 
 export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
   openrouter: {

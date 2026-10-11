@@ -134,7 +134,11 @@ export const openrouterStrategy: ProviderStrategy = {
           }),
         );
       }
-      const result = await openrouterCompleteWithFallback(messages, { ...requestOpts, apiKey: opts.apiKey });
+      const result = await openrouterCompleteWithFallback(messages, {
+        ...requestOpts,
+        apiKey: opts.apiKey,
+        allowPaidFallback: false,
+      });
       // PR-07: successful call closes any open circuit.
       recordCircuitSuccess("openrouter");
       console.info(
