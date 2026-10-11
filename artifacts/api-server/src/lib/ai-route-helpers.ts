@@ -1643,15 +1643,34 @@ export function handleOrchestratorError(
       });
       return true;
     case "RATE_LIMITED":
-      if (err.retryAfterMs !== undefined) {
-        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+      {
+        const retryAfterMs = err.retryAfterMs;
+        const hasValidRetryAfter = typeof retryAfterMs === "number"
+          && Number.isFinite(retryAfterMs)
+          && retryAfterMs >= 0;
+        const retryAfterSeconds = hasValidRetryAfter && retryAfterMs > 0
+          ? Math.ceil(retryAfterMs / 1000)
+          : undefined;
+        if (hasValidRetryAfter) {
+          res.setHeader("Retry-After", String(Math.ceil(retryAfterMs / 1000)));
+        }
+        const retryMessage = retryAfterSeconds !== undefined
+          ? `retry after ${retryAfterSeconds} seconds`
+          : retryAfterMs === 0
+            ? "the provider specified a zero-second retry interval"
+            : "the provider did not specify a retry delay";
+        const retryHint = retryAfterSeconds !== undefined
+          ? `Wait for the provider-specified delay before retrying, or configure another provider at ${providerConsole}.`
+          : retryAfterMs === 0
+            ? `The provider specified no waiting period. If the request remains rate limited, try again later or configure another provider at ${providerConsole}.`
+            : `The provider did not provide a retry delay. Try again later or configure another provider at ${providerConsole}.`;
+        res.status(429).json({
+          ...base,
+          error: `${providerLabel} rate limit reached — ${retryMessage}.`,
+          retryAfterMs,
+          hint: retryHint,
+        });
       }
-      res.status(429).json({
-        ...base,
-        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
-        retryAfterMs: err.retryAfterMs,
-        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
-      });
       return true;
     case "SERVER_ERROR":
       res.status(502).json({

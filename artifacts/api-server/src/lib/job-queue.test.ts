@@ -158,7 +158,7 @@ describe("JobQueue", () => {
     expect(queue.has("running-job")).toBe(false);
   });
 
-  it("keeps a timed-out job ID reserved until the underlying closure settles", async () => {
+  it("keeps a concurrency slot and job ID reserved until the closure settles", async () => {
     vi.useFakeTimers();
     const queue = new JobQueue(1);
     let release!: () => void;
@@ -169,8 +169,8 @@ describe("JobQueue", () => {
     queue.enqueueWithId("stuck-job", () => stuckJob);
     await vi.advanceTimersByTimeAsync(600_000);
 
-    // The watchdog frees capacity, but the original closure still owns its ID.
-    expect(queue.activeCount).toBe(0);
+    // The queue cannot know the work stopped until the promise settles.
+    expect(queue.activeCount).toBe(1);
     expect(queue.has("stuck-job")).toBe(true);
     expect(queue.enqueueWithId("stuck-job", async () => {})).toBe(false);
 
@@ -179,11 +179,12 @@ describe("JobQueue", () => {
       otherJobRan = true;
     });
     await vi.runAllTicks();
-    expect(otherJobRan).toBe(true);
+    expect(otherJobRan).toBe(false);
 
     release();
     await vi.runAllTicks();
     expect(queue.has("stuck-job")).toBe(false);
+    expect(otherJobRan).toBe(true);
   });
 
   it("allows re-enqueueing the same ID after it has completed", async () => {

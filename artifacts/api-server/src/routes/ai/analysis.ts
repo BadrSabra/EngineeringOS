@@ -51,7 +51,6 @@ import type { AiTerminalProjection } from "../../lib/ai-terminal-outcome.js";
 import { serializeAiSseEvent } from "@workspace/api-zod";
 
 const router = Router();
-const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
 
 type StructuredTask = "analyze" | "review";
 type StructuredAuditTraceEntry = {
@@ -1050,7 +1049,6 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         (opts) => analyzeScan(projectContext, {
           ...opts,
           signal,
-          maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
           retryTransient: false,
           onProgress: (message) => emit({
             type: "task_progress",
@@ -1321,7 +1319,6 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         (opts) => reviewCode(projectContext, fileContents, {
           ...opts,
           signal,
-          maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
           retryTransient: false,
           onProgress: (message) => emit({
             type: "task_progress",

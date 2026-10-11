@@ -26,19 +26,6 @@ import { logger } from "./logger.js";
 
 type JobFn = () => Promise<void>;
 
-/**
- * GAP-B1: Maximum wall-clock time a single job may hold a concurrency slot
- * before the watchdog forcibly frees the slot and lets the queue drain.
- *
- * The underlying job closure continues running in the background — it can
- * still complete (or fail) on its own, but it can no longer block new jobs
- * from starting. Set HUNG_JOB_TIMEOUT_MS to override (e.g. for slow scans
- * on very large repos). Default: 10 minutes.
- */
-const HUNG_JOB_TIMEOUT_MS = Number(
-  process.env.HUNG_JOB_TIMEOUT_MS ?? 10 * 60 * 1000,
-);
-
 interface QueueItem {
   /** DB row ID used for deduplication, or null for anonymous jobs. */
   id: string | null;
@@ -184,15 +171,7 @@ export class JobQueue {
       }
 
       this.running++;
-      /**
-       * GAP-B1: release a slot when the watchdog fires so one hung job cannot
-       * wedge the queue. The underlying closure is not cancellable, though, so
-       * its ID must remain in runningIds until that closure actually settles.
-       * Otherwise the durable dispatcher can enqueue the same DB-backed job
-       * again while the first recovery is still running.
-       */
       let slotReleased = false;
-      let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
       const releaseSlot = () => {
         if (slotReleased) return;
         slotReleased = true;
@@ -209,12 +188,10 @@ export class JobQueue {
 
       void jobPromise.then(
         () => {
-          if (watchdogTimer) clearTimeout(watchdogTimer);
           if (item.id) this.runningIds.delete(item.id);
           releaseSlot();
         },
         (err) => {
-          if (watchdogTimer) clearTimeout(watchdogTimer);
           if (item.id) this.runningIds.delete(item.id);
           // Jobs are documented to handle their own errors internally, so
           // reaching here means a job broke that contract (missing top-level
@@ -228,20 +205,6 @@ export class JobQueue {
           releaseSlot();
         },
       );
-
-      watchdogTimer = setTimeout(() => {
-        logger.warn(
-          {
-            scope: "job-queue",
-            code: "HUNG_JOB_TIMEOUT",
-            jobId: item.id,
-            timeoutMs: HUNG_JOB_TIMEOUT_MS,
-          },
-          "job queue: job exceeded timeout watchdog — slot freed, job continues in background",
-        );
-        releaseSlot();
-      }, HUNG_JOB_TIMEOUT_MS);
-      watchdogTimer.unref?.();
     }
   }
 }

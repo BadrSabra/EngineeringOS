@@ -75,6 +75,65 @@ describe("provider fallback error normalization", () => {
   });
 });
 
+describe("provider rate-limit response guidance", () => {
+  function renderRateLimitResponse(retryAfterMs?: number) {
+    let body: Record<string, unknown> | undefined;
+    let statusCode: number | undefined;
+    const headers: Record<string, string> = {};
+    const response = {
+      status: (status: number) => {
+        statusCode = status;
+        return response;
+      },
+      setHeader: (name: string, value: string) => {
+        headers[name] = value;
+        return response;
+      },
+      json: (value: Record<string, unknown>) => {
+        body = value;
+        return response;
+      },
+    } as never;
+    const context = retryAfterMs === undefined ? {} : { retryAfterMs };
+
+    expect(handleOrchestratorError(
+      new GroqClientError("RATE_LIMITED", "provider rate limit", { context }),
+      response,
+      { provider: "openrouter" },
+    )).toBe(true);
+
+    return { body, headers, statusCode };
+  }
+
+  it("does not invent a retry duration when the provider omits Retry-After", () => {
+    const result = renderRateLimitResponse();
+
+    expect(result.statusCode).toBe(429);
+    expect(result.headers).not.toHaveProperty("Retry-After");
+    expect(result.body?.error).toContain("did not specify a retry delay");
+    expect(result.body?.error).not.toContain("30 seconds");
+    expect(result.body?.hint).toContain("did not provide a retry delay");
+  });
+
+  it("reports the provider-supplied retry duration", () => {
+    const result = renderRateLimitResponse(4_500);
+
+    expect(result.statusCode).toBe(429);
+    expect(result.headers["Retry-After"]).toBe("5");
+    expect(result.body?.retryAfterMs).toBe(4_500);
+    expect(result.body?.error).toContain("retry after 5 seconds");
+    expect(result.body?.hint).toContain("provider-specified delay");
+  });
+
+  it("does not turn a provider-supplied zero delay into one second", () => {
+    const result = renderRateLimitResponse(0);
+
+    expect(result.headers["Retry-After"]).toBe("0");
+    expect(result.body?.error).toContain("zero-second retry interval");
+    expect(result.body?.error).not.toContain("1 seconds");
+  });
+});
+
 describe("ledger provider-attempt projection", () => {
   const snapshot = (
     events: ExecutionLedgerSnapshot["events"],

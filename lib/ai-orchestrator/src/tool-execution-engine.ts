@@ -1220,9 +1220,6 @@ export const EMPTY_SOURCE_RETRIEVAL_TELEMETRY: SourceRetrievalTelemetry = {
 };
 
 /** Final reporting is a bounded phase, not another open-ended tool-loop turn. */
-export const DEFAULT_SYNTHESIS_TIMEOUT_MS = 30_000;
-export const DEFAULT_SYNTHESIS_MAX_ATTEMPTS = 2;
-
 /**
  * Fresh per-loop telemetry. `readPaths` is mutable and MUST be a newly
  * allocated array on every loop — never shared from `EMPTY_SOURCE_RETRIEVAL_TELEMETRY`,
@@ -3385,8 +3382,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     maxIterations: requestedMaxIterations,
     maxToolCalls: requestedMaxToolCalls,
     toolCallsDisabledAfter,
-    synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
-    synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
+    synthesisTimeoutMs,
+    synthesisMaxAttempts,
     executionMode,
     compoundWriteMode = false,
     executionTargetPaths = [],
@@ -3429,11 +3426,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // maxIterations counts loop turns, while the request ledger counts
         // every provider attempt (empty-response retry, model fallback and
         // truncated-output repair included).
-        modelCalls:
-          (requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS) * 3 +
-          synthesisMaxAttempts,
+        modelCalls: (requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS) * 3 +
+          (synthesisMaxAttempts ?? requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS),
         toolCalls: requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
-        synthesisAttempts: synthesisMaxAttempts,
+        synthesisAttempts:
+          synthesisMaxAttempts ?? requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS,
       },
     });
   const phaseBudget = phase ? getPhaseBudget(phase) : undefined;
@@ -3865,8 +3862,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const failedValidationFingerprints = new Map<string, string>();
   const validationAttemptPatches = new Map<string, RepairPatchSnapshot>();
   let synthesisStarted = false;
-  const boundedSynthesisTimeoutMs = Math.max(1_000, Math.floor(synthesisTimeoutMs));
-  const boundedSynthesisMaxAttempts = Math.max(1, Math.floor(synthesisMaxAttempts));
+  const boundedSynthesisTimeoutMs = synthesisTimeoutMs === undefined
+    ? undefined
+    : Math.max(1_000, Math.floor(synthesisTimeoutMs));
+  const boundedSynthesisMaxAttempts = Math.max(
+    1,
+    Math.floor(synthesisMaxAttempts ?? maxIterations),
+  );
   let synthesisDeadlineAt: number | null = null;
   let synthesisAttempts = 0;
   let synthesisTimedOut = false;
@@ -4662,25 +4664,20 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const abortFromParent = () => controller.abort();
       if (opts.signal?.aborted) controller.abort();
       else opts.signal?.addEventListener("abort", abortFromParent, { once: true });
-      const remaining = Math.max(
-        1,
-        (synthesisDeadlineAt ?? Date.now() + boundedSynthesisTimeoutMs) - Date.now(),
-      );
-      const timer = setTimeout(() => {
-        synthesisTimedOut = true;
-        sourceRetrieval.synthesisTimedOut = true;
-        controller.abort();
-      }, remaining);
+      const remaining = synthesisDeadlineAt === null
+        ? undefined
+        : Math.max(1, synthesisDeadlineAt - Date.now());
+      const timer = remaining === undefined
+        ? undefined
+        : setTimeout(() => {
+            synthesisTimedOut = true;
+            sourceRetrieval.synthesisTimedOut = true;
+            controller.abort();
+          }, remaining);
       try {
-        // Preserve the configured timeout for the first synthesis attempt.
-        // Computing the shared deadline and setting up the abort timer can
-        // consume a millisecond, which otherwise turns a requested 5,000 ms
-        // provider timeout into 4,999 ms and makes the contract needlessly
-        // timing-sensitive. The local timer still enforces the shared
-        // deadline; retries use the remaining time.
-        const attemptTimeoutMs = synthesisAttempts === 1
-          ? Math.min(options.timeoutMs ?? 60_000, boundedSynthesisTimeoutMs)
-          : Math.min(options.timeoutMs ?? 60_000, remaining);
+        const attemptTimeoutMs = remaining === undefined
+          ? options.timeoutMs
+          : Math.min(options.timeoutMs ?? remaining, remaining);
         // A tool-capable forensic model is not necessarily a conversational
         // model. Once the loop enters no-tools synthesis, OpenRouter must
         // resolve a fresh chat-capable candidate instead of validating the
@@ -4700,7 +4697,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               };
         return await callWithExecutionBudget(callMessages, {
           ...synthesisOptions,
-          timeoutMs: attemptTimeoutMs,
+          ...(attemptTimeoutMs !== undefined ? { timeoutMs: attemptTimeoutMs } : {}),
           signal: controller.signal,
         }, "synthesis", controller.signal);
       } catch (error) {
@@ -4713,7 +4710,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           throw error;
         }
       } finally {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         opts.signal?.removeEventListener("abort", abortFromParent);
         sourceRetrieval.synthesisElapsedMs =
           (sourceRetrieval.synthesisElapsedMs ?? 0) + (Date.now() - startedAt);
@@ -5306,7 +5303,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           "using only the retained evidence and follow the required output contract.",
       });
       synthesisStarted = true;
-      synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
+      synthesisDeadlineAt = boundedSynthesisTimeoutMs === undefined
+        ? null
+        : Date.now() + boundedSynthesisTimeoutMs;
       try {
         onStep?.({
           kind: "synthesis_start",
@@ -6109,7 +6108,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       ) {
         prefetchedSynthesisAttempted = true;
         synthesisStarted = true;
-        synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
+        synthesisDeadlineAt = boundedSynthesisTimeoutMs === undefined
+          ? null
+          : Date.now() + boundedSynthesisTimeoutMs;
         try {
           onStep?.({ kind: "synthesis_start", iter, maxIterations });
         } catch { /* ignore */ }

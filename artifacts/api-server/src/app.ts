@@ -1,7 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
@@ -116,17 +115,6 @@ app.use(helmet({
   // Allow inline scripts/styles for the Vite dev banner in development
   contentSecurityPolicy: config.isProduction,
 }));
-
-// Rate limiting: 300 req / 5 min per IP — generous for an internal tool
-app.use(
-  rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 300,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: "Too many requests, please try again later." },
-  }),
-);
 
 app.use(
   pinoHttp({

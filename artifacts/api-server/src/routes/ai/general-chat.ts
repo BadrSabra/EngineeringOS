@@ -479,7 +479,6 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
           capability: "chat",
           maxTokens: 1_500,
           retryTransient: false,
-          maxFallbackModels: 2,
           signal: signal ?? abortController.signal,
           executionLedger,
           toolChoice: "none",

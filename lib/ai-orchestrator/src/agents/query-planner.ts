@@ -200,15 +200,11 @@ export function reconcileProjectOrientationSources(
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const PLANNER_TIMEOUT_MS = 5_000;
 const MAX_GRAPH_CHARS = 3_000;
 const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
 /** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
 const MAX_GRAPH_FILES = 15;
-/** Hard timeout for the graph enrichment step (task spec: ≤ 2 seconds). */
-const GRAPH_ENRICH_TIMEOUT_MS = 2_000;
-const GRAPH_GUIDANCE_TIMEOUT_MS = 2_000;
 const MAX_GRAPH_GUIDED_FILES = 10;
 const MAX_GRAPH_GUIDED_ROOTS = 4;
 const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
@@ -1095,26 +1091,7 @@ export async function buildMentionedFileGraphGuidance(opts: {
     };
   };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => {
-      console.warn(
-        JSON.stringify({
-          scope: "query-planner",
-          code: "GRAPH_GUIDANCE_TIMEOUT",
-          projectId: opts.projectId,
-          timeoutMs: GRAPH_GUIDANCE_TIMEOUT_MS,
-        }),
-      );
-      resolve(null);
-    }, GRAPH_GUIDANCE_TIMEOUT_MS);
-  });
-
-  try {
-    return await Promise.race([build().catch(() => null), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  return build().catch(() => null);
 }
 
 // ── Graph enrichment ──────────────────────────────────────────────────────────
@@ -1197,21 +1174,7 @@ async function enrichPlanWithGraph(
     return { ...plan, targetFiles: merged };
   };
 
-  const timeout = new Promise<QueryPlan>((resolve) =>
-    setTimeout(() => {
-      console.warn(
-        JSON.stringify({
-          scope: "query-planner",
-          code: "GRAPH_ENRICH_TIMEOUT",
-          projectId,
-          timeoutMs: GRAPH_ENRICH_TIMEOUT_MS,
-        }),
-      );
-      resolve(plan);
-    }, GRAPH_ENRICH_TIMEOUT_MS),
-  );
-
-  return Promise.race([enrichAsync().catch(() => plan), timeout]);
+  return enrichAsync().catch(() => plan);
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -1285,13 +1248,10 @@ export async function planQuery(opts: {
     { role: "user", content: message },
   ];
 
-  // Race the model call against a hard timeout so planning never blocks the
-  // main request even when the provider is slow or unresponsive.
   const plannerCall = strategy
     .call(messages, {
       model,
       maxTokens: 512,
-      timeoutMs: executionLedger?.timeoutMs(PLANNER_TIMEOUT_MS) ?? PLANNER_TIMEOUT_MS,
       apiKey,
       signal: executionLedger?.signal ?? signal,
       // No tools — the planner is a pure text completion
@@ -1309,11 +1269,7 @@ export async function planQuery(opts: {
       return null;
     });
 
-  const timeoutSignal = new Promise<null>((resolve) =>
-    setTimeout(() => resolve(null), PLANNER_TIMEOUT_MS),
-  );
-
-  const result = await Promise.race([plannerCall, timeoutSignal]);
+  const result = await plannerCall;
   executionLedger?.complete("planner", {
     model,
     operation: "query_plan",
