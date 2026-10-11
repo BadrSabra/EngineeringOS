@@ -7,7 +7,7 @@
  */
 
 export const APPROVED_BENCHMARK_SOURCE_REVISION =
-  "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
+  "a4c2b8b1fd9ff00566c3b2a7899ac926fab1a0bd";
 
 const SOURCE_REVISION_PATTERN = /^[a-f0-9]{40}$|^[a-f0-9]{64}$/;
 

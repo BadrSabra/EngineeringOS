@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { APPROVED_BENCHMARK_SOURCE_REVISION } from "./benchmark-source-policy.js";
 import {
   buildApiCodeAgentBenchmarkBuildHandoff,
   buildApiCodeAgentBenchmarkPreflightBlockedRun,
@@ -138,7 +139,7 @@ describe("Code Agent benchmark runtime-oracle preflight", () => {
       providerOrder: ["openrouter", "gemini"],
       runId: "airlock-preflight-blocked",
       generatedAt: "2026-09-01T19:00:00.000Z",
-      sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+      sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
       candidateHash: "a".repeat(64),
     });
 
@@ -149,7 +150,7 @@ describe("Code Agent benchmark runtime-oracle preflight", () => {
     expect(run.scorecard).toMatchObject({
       suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
       candidateHash: "a".repeat(64),
-      sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+      sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
       rolloutAllowed: false,
     });
     expect(run.scorecard.metrics).toMatchObject({

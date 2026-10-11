@@ -4,7 +4,10 @@ import type {
   CodeAgentBenchmarkBaseline,
   CodeAgentBenchmarkScorecard,
 } from "@workspace/ai-orchestrator";
-import { evaluateBenchmarkReleaseGate } from "./benchmark-release-gate.js";
+import {
+  APPROVED_BENCHMARK_SOURCE_REVISION,
+  evaluateBenchmarkReleaseGate,
+} from "./benchmark-release-gate.js";
 
 function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAgentBenchmarkScorecard {
   return {
@@ -14,7 +17,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAg
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
     candidateHash: "a".repeat(64),
-    sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+    sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
     missingCaseIds: [],
     metrics: {
       totalCases: 34,
@@ -59,7 +62,7 @@ function run(overrides: Partial<BenchmarkAirlockRun> = {}): BenchmarkAirlockRun 
     partial: false,
     baselineEligibility: "quality-gates-required",
     suiteVersion: "flight-deck-v2",
-    sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+    sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
     runId: "clean-witness-run",
     startedAt: "2026-08-19T02:00:00.000Z",
     completedAt: "2026-08-19T02:10:00.000Z",
@@ -220,7 +223,7 @@ describe("benchmark release gate", () => {
         observation: {
           caseId: "single-file-001",
           candidateHash: "b".repeat(64),
-          sourceRevision: "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a",
+          sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
           grade: "A",
           correct: true,
           completedFirstAttempt: true,
