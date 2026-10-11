@@ -886,7 +886,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(callCount).toBe(1);
   });
 
-  it("preserves a Retry-After hint up to the model cooldown bound and avoids retrying the same model", async () => {
+  it("preserves Retry-After and avoids retrying the same model", async () => {
     const fetchMock = vi.fn(async () =>
       textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
@@ -909,7 +909,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("bounds extreme Retry-After hints to the maximum model cooldown", async () => {
+  it("preserves provider Retry-After hints longer than six hours", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       textResponse(
         '{"error":{"message":"temporarily rate limited"}}',
@@ -930,7 +930,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       (err: unknown) =>
         err instanceof GroqClientError &&
         err.code === "RATE_LIMITED" &&
-        err.retryAfterMs === 6 * 60 * 60_000,
+        err.retryAfterMs === 7 * 60 * 60_000,
     );
   });
 
@@ -953,8 +953,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
   });
 
-  it("parses an HTTP-date Retry-After hint and keeps it bounded", async () => {
-    const retryAt = new Date(Date.now() + 5_000).toUTCString();
+  it("parses an HTTP-date Retry-After hint without an artificial six-hour cap", async () => {
+    const retryAt = new Date(Date.now() + 7 * 60 * 60_000).toUTCString();
     vi.stubGlobal("fetch", vi.fn(async () =>
       textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": retryAt }))));
 
@@ -970,8 +970,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err instanceof GroqClientError &&
         err.code === "RATE_LIMITED" &&
         typeof err.retryAfterMs === "number" &&
-        err.retryAfterMs > 0 &&
-        err.retryAfterMs <= 6 * 60 * 60_000,
+        err.retryAfterMs > 6 * 60 * 60_000 &&
+        err.retryAfterMs <= 7 * 60 * 60_000,
     );
   });
 

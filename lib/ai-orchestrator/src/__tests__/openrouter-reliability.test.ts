@@ -113,58 +113,25 @@ beforeEach(() => {
 describe("circuit-breaker", () => {
   beforeEach(() => _resetCircuitsForTest());
 
-  it("starts closed with zero failures", () => {
+  it("does not locally block a provider after repeated failures", () => {
+    for (let i = 0; i < 20; i++) recordCircuitFailure("openrouter");
     expect(isCircuitOpen("openrouter")).toBe(false);
-    const state = getCircuitState("openrouter");
-    expect(state.open).toBe(false);
-    expect(state.consecutiveFailures).toBe(0);
-  });
-
-  it("stays closed below the threshold", () => {
-    for (let i = 0; i < 4; i++) recordCircuitFailure("openrouter");
-    expect(isCircuitOpen("openrouter")).toBe(false);
-    expect(getCircuitState("openrouter").consecutiveFailures).toBe(4);
-  });
-
-  it("opens at the threshold (5 consecutive failures)", () => {
-    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-    expect(isCircuitOpen("openrouter")).toBe(true);
-    expect(getCircuitState("openrouter").open).toBe(true);
-  });
-
-  it("closes immediately on success", () => {
-    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-    expect(isCircuitOpen("openrouter")).toBe(true);
-    // Simulate cooldown elapsed by patching openedAt
-    const state = getCircuitState("openrouter");
-    expect(state.open).toBe(true);
-
-    // Reset so we can test the success path without waiting
-    _resetCircuitsForTest();
+    expect(getCircuitState("openrouter")).toEqual({
+      open: false,
+      halfOpen: false,
+      consecutiveFailures: 0,
+      cooldownRemainingMs: null,
+    });
     recordCircuitSuccess("openrouter");
     expect(isCircuitOpen("openrouter")).toBe(false);
-    expect(getCircuitState("openrouter").consecutiveFailures).toBe(0);
-  });
-
-  it("resets consecutive-failure counter on success", () => {
-    for (let i = 0; i < 3; i++) recordCircuitFailure("openrouter");
-    recordCircuitSuccess("openrouter");
-    expect(getCircuitState("openrouter").consecutiveFailures).toBe(0);
-  });
-
-  it("provides cooldownRemainingMs when open", () => {
-    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-    const { cooldownRemainingMs } = getCircuitState("openrouter");
-    expect(cooldownRemainingMs).not.toBeNull();
-    expect(cooldownRemainingMs!).toBeGreaterThan(0);
-    expect(cooldownRemainingMs!).toBeLessThanOrEqual(2 * 60 * 1_000);
   });
 
   it("keeps provider-supplied model cooldown separate from the provider circuit", () => {
     recordModelFailure("openrouter", "fixture/model-a", 5_000);
 
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(true);
-    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBe(5_000);
+    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeGreaterThan(4_990);
+    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeLessThanOrEqual(5_000);
     expect(isModelCoolingDown("openrouter", "fixture/model-b")).toBe(false);
     expect(isCircuitOpen("openrouter")).toBe(false);
 
@@ -184,70 +151,11 @@ describe("circuit-breaker", () => {
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(true);
       vi.advanceTimersByTime(1);
       expect(isModelCoolingDown("openrouter", "fixture/shared-pool-model")).toBe(false);
-      recordModelFailure("openrouter", "fixture/long-provider-hint", 2 * 60 * 60_000);
-      expect(getModelCooldownRemainingMs("openrouter", "fixture/long-provider-hint")).toBe(2 * 60 * 60_000);
+      recordModelFailure("openrouter", "fixture/long-provider-hint", 7 * 60 * 60_000);
+      expect(getModelCooldownRemainingMs("openrouter", "fixture/long-provider-hint")).toBe(7 * 60 * 60_000);
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("allows only one probe after cooldown and blocks concurrent callers", () => {
-    vi.useFakeTimers({ now: 0 });
-    try {
-      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-      expect(isCircuitOpen("openrouter")).toBe(true);
-
-      vi.setSystemTime(2 * 60 * 1_000 + 1);
-      expect(isCircuitOpen("openrouter")).toBe(false);
-      expect(getCircuitState("openrouter").halfOpen).toBe(true);
-
-      // The reserved probe remains in flight until its strategy records a
-      // success or failure; another caller must not reach the provider.
-      expect(isCircuitOpen("openrouter")).toBe(true);
-      expect(getCircuitState("openrouter").halfOpen).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("releases the half-open reservation on probe success", () => {
-    vi.useFakeTimers({ now: 0 });
-    try {
-      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-      vi.setSystemTime(2 * 60 * 1_000 + 1);
-
-      expect(isCircuitOpen("openrouter")).toBe(false);
-      recordCircuitSuccess("openrouter");
-      expect(isCircuitOpen("openrouter")).toBe(false);
-      expect(getCircuitState("openrouter")).toMatchObject({
-        open: false,
-        halfOpen: false,
-        consecutiveFailures: 0,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("releases the half-open reservation and restarts cooldown on probe failure", () => {
-    vi.useFakeTimers({ now: 0 });
-    try {
-      for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-      vi.setSystemTime(2 * 60 * 1_000 + 1);
-
-      expect(isCircuitOpen("openrouter")).toBe(false);
-      recordCircuitFailure("openrouter");
-      expect(isCircuitOpen("openrouter")).toBe(true);
-      expect(getCircuitState("openrouter").halfOpen).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("isolates circuits per provider", () => {
-    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
-    expect(isCircuitOpen("openrouter")).toBe(true);
-    expect(isCircuitOpen("groq")).toBe(false);
   });
 
   it("does not count local capability/configuration mismatches as provider failures", () => {

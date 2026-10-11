@@ -27,7 +27,6 @@ import type {
 import { performScan, ScanRootUnavailableError } from "./scan-runner.js";
 
 const MAX_OUTPUT = MAX_ANALYSIS_TOOL_OUTPUT_BYTES;
-const HARD_MAX_MS = 30_000;
 const MAX_GIT_HISTORY_PATHS = 6;
 const MAX_GIT_HISTORY_ENTRIES_PER_PATH = 8;
 const MAX_GIT_HISTORY_BUFFER = 256 * 1024;
@@ -321,7 +320,7 @@ export function createProjectAnalysisToolRunner(
     let advancedRevision = correlationSnapshot.projectRevision !== requestCorrelation.projectRevision;
     const deadlineAt = () => {
       const parent = parentDeadlineAt ?? parentDeadlineAtFactory?.();
-      return parent === undefined ? undefined : Math.min(parent, Date.now() + HARD_MAX_MS);
+      return parent;
     };
     const unavailable = (message: string, failureCategory: AnalysisFailureCategory = "unavailable_dependency"): AnalysisToolResult => ({
       status: "unavailable",
@@ -492,14 +491,17 @@ export function createProjectAnalysisToolRunner(
         ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
       };
     })();
-    const timeout = new Promise<AnalysisToolResult>((resolve) => {
-      const remaining = Math.max(1, (deadlineAt() ?? (Date.now() + HARD_MAX_MS)) - Date.now());
-      timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        resolve(unavailable("Analysis exceeded its execution deadline and was not completed.", "timeout"));
-      }, remaining);
-    });
+    const currentDeadline = deadlineAt();
+    const timeout = currentDeadline === undefined
+      ? new Promise<AnalysisToolResult>(() => {})
+      : new Promise<AnalysisToolResult>((resolve) => {
+        const remaining = Math.max(1, currentDeadline - Date.now());
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          resolve(unavailable("Analysis exceeded its execution deadline and was not completed.", "timeout"));
+        }, remaining);
+      });
     try {
       const result = await Promise.race([
         work,

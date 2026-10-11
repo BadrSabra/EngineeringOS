@@ -32,7 +32,6 @@ import {
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import {
-  MAX_MODEL_COOLDOWN_MS,
   recordModelFailure,
   recordModelSuccess,
 } from "./openrouter/circuit-breaker.js";
@@ -696,11 +695,12 @@ function parseRetryAfterMs(headers?: Headers): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
   if (Number.isFinite(seconds)) {
-    return Math.min(MAX_MODEL_COOLDOWN_MS, Math.max(0, Math.ceil(seconds * 1000)));
+    const milliseconds = Math.ceil(seconds * 1000);
+    return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : undefined;
   }
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return undefined;
-  return Math.min(MAX_MODEL_COOLDOWN_MS, Math.max(0, timestamp - Date.now()));
+  return Math.max(0, timestamp - Date.now());
 }
 
 /** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */

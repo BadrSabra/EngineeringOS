@@ -23,7 +23,6 @@ import {
   resolveProvider,
   runAgentWithFallback,
 } from "../../lib/ai-route-helpers.js";
-import { checkGeneralChatRateLimit } from "../../lib/general-chat-rate-limiter.js";
 import { logger } from "../../lib/logger.js";
 
 const router = Router();
@@ -376,47 +375,6 @@ router.post("/ai/general-chat/sessions/:sessionId/messages", async (req, res) =>
       sessionId,
       userMessage: publicMessage(claim.userMessage),
       assistantMessage: publicMessage(claim.assistantMessage),
-    });
-  }
-
-  let rateLimit: Awaited<ReturnType<typeof checkGeneralChatRateLimit>>;
-  try {
-    rateLimit = await checkGeneralChatRateLimit(req.userId!);
-  } catch (error) {
-    logger.error(
-      { error, sessionId, turnId },
-      "General chat rate limiter could not be checked",
-    );
-    const safeMessage = "I couldn't accept a response request right now. Please try again.";
-    const assistantMessage = await completeAssistantMessage({
-      assistantMessageId: claim.assistantMessage.id,
-      workerId: claim.workerId,
-      content: safeMessage,
-      status: "failed",
-      errorCode: "GENERAL_CHAT_UNAVAILABLE",
-      errorMessage: safeMessage,
-    });
-    if (!assistantMessage) {
-      return res.status(409).json({ error: "The conversation turn is no longer owned." });
-    }
-    return res.status(503).json({ error: safeMessage, code: "GENERAL_CHAT_UNAVAILABLE" });
-  }
-  if (!rateLimit.allowed) {
-    const safeMessage = "You've sent several messages recently. Wait a moment and try again.";
-    await completeAssistantMessage({
-      assistantMessageId: claim.assistantMessage.id,
-      workerId: claim.workerId,
-      content: safeMessage,
-      status: "failed",
-      errorCode: "RATE_LIMITED",
-      errorMessage: safeMessage,
-    });
-    return res.status(429).json({
-      error: safeMessage,
-      code: "RATE_LIMITED",
-      ...(rateLimit.retryAfterSec !== undefined
-        ? { retryAfterSec: rateLimit.retryAfterSec }
-        : {}),
     });
   }
 

@@ -177,4 +177,48 @@ describe("project analysis root failure classification", () => {
       mockPerformScan.mockReset();
     }
   });
+
+  it("does not apply a local 30-second deadline when the caller provides none", async () => {
+    vi.useFakeTimers();
+    let releaseScan!: () => void;
+    let scanStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      scanStarted = resolve;
+    });
+    const scanGate = new Promise<void>((resolve) => {
+      releaseScan = resolve;
+    });
+    mockPerformScan.mockImplementation(async () => {
+      scanStarted();
+      await scanGate;
+      return {
+        scannedAt: "2026-10-11T00:00:00.000Z",
+        scanCompleteness: "COMPLETE",
+      };
+    });
+    const runner = createProjectAnalysisToolRunner("project-a", process.cwd());
+    const pending = runner(
+      "refresh_project_scan",
+      {},
+      undefined,
+      {
+        operationId: "operation-a",
+        projectId: "project-a",
+        projectRevision: "revision-a",
+        rootAvailable: true,
+        evidenceProvenance: "project-analysis",
+      },
+    );
+
+    try {
+      await started;
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(mockPerformScan).toHaveBeenCalledOnce();
+      releaseScan();
+      await expect(pending).resolves.toMatchObject({ status: "complete" });
+    } finally {
+      releaseScan();
+      vi.useRealTimers();
+    }
+  });
 });

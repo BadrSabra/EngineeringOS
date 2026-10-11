@@ -1,6 +1,5 @@
 import {
   getModelCooldownRemainingMs,
-  MAX_MODEL_COOLDOWN_MS,
   rememberModelCooldownUntil,
 } from "./circuit-breaker.js";
 
@@ -24,7 +23,7 @@ const postgresPersistence: ModelCooldownPersistence = {
     const result = await pool.query<{ model: string; remaining_ms: number | string }>(
       `SELECT
          model,
-         CEIL(EXTRACT(EPOCH FROM (cooling_until - now())) * 1000)::integer AS remaining_ms
+         CEIL(EXTRACT(EPOCH FROM (cooling_until - now())) * 1000)::numeric AS remaining_ms
        FROM openrouter_model_cooldowns
        WHERE provider = $1
          AND model = ANY($2::text[])
@@ -124,10 +123,7 @@ export async function persistSharedPoolModelCooldown(
 ): Promise<void> {
   try {
     if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) return;
-    const providerRetryAfter = Math.min(
-      MAX_MODEL_COOLDOWN_MS,
-      Math.floor(retryAfterMs!),
-    );
+    const providerRetryAfter = Math.floor(retryAfterMs!);
     if (providerRetryAfter <= 0) return;
     await persistence.write(provider, model, providerRetryAfter);
   } catch {

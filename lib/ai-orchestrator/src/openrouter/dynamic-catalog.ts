@@ -17,7 +17,6 @@ import { isProviderEgressDisabled } from "../provider-egress.js";
 
 const CATALOG_TTL_MS   = 10 * 60 * 1_000; // 10 minutes
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
-const FETCH_TIMEOUT_MS = 15_000;
 
 type OpenRouterModelEntry = {
   id: string;
@@ -206,8 +205,6 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
     _refreshAttempted = true;
     _lastRefreshStatus = "failed";
     _lastRefreshError = null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -216,7 +213,6 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
 
       const res = await fetch(OPENROUTER_MODELS_URL, {
         headers,
-        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -323,7 +319,6 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
         }),
       );
     } finally {
-      clearTimeout(timer);
       _inFlight = null;
     }
   })();

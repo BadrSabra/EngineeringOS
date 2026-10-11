@@ -85,40 +85,37 @@ export type CompleteOptions = {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 3;
 
-/**
- * Exponential backoff with full jitter for transient failures.
- *
- * Base delay per attempt (ms):
- *   attempt 0 (first retry): 1 000 ms  ±50 %  →  500 – 1 500 ms
- *   attempt 1:                2 000 ms  ±50 %  → 1 000 – 3 000 ms
- *   attempt 2:                4 000 ms  ±50 %  → 2 000 – 6 000 ms
- *
- * RATE_LIMITED errors get a longer base (2 000 ms) because Groq's free-tier
- * tokens-per-minute window resets on a 1-minute boundary — waiting longer
- * is almost always better than hammering the endpoint again in under a second.
- */
-function retryDelayMs(attempt: number, code: GroqErrorCode): number {
-  const base = code === "RATE_LIMITED" ? 8_000 : 1_000;
-  const exponential = base * Math.pow(2, attempt);
-  // full jitter: uniform random in [0, exponential]
-  return Math.floor(Math.random() * exponential);
-}
-
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
       return;
     }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let remaining = ms;
+    let lastCheckedAt = Date.now();
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
     const onAbort = () => {
-      clearTimeout(timer);
+      cleanup();
       reject(new GroqClientError("TIMEOUT", "Groq retry backoff cancelled"));
     };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
+    const schedule = () => {
+      remaining -= Date.now() - lastCheckedAt;
+      if (remaining <= 0) {
+        cleanup();
+        resolve();
+        return;
+      }
+      lastCheckedAt = Date.now();
+      // Node timers overflow above 2^31-1 ms; use chunks without shortening
+      // the provider-supplied Retry-After duration.
+      timer = setTimeout(schedule, Math.min(remaining, 2_147_483_647));
+    };
     signal?.addEventListener("abort", onAbort, { once: true });
+    schedule();
   });
 }
 
@@ -221,83 +218,6 @@ const _keyedClients = new Map<string, Groq>();
  * instances at any point in time.
  */
 const MAX_KEYED_CLIENTS = 50;
-
-// ── Circuit Breaker ──────────────────────────────────────────────────────────
-// Protects against cascade failures and Groq quota exhaustion during outages.
-// Each distinct API key gets its own independent breaker so a single broken
-// user key cannot trip the shared env-var client.
-//
-// State machine:
-//   CLOSED    — normal operation; consecutive failure count is tracked.
-//   OPEN      — calls fail immediately (no network round-trip) after
-//               CIRCUIT_FAILURE_THRESHOLD consecutive final-call failures
-//               (i.e. after all retries are spent).
-//   HALF_OPEN — one probe call allowed after CIRCUIT_RESET_MS has elapsed;
-//               success → CLOSED; failure → OPEN (timeout resets).
-const CIRCUIT_FAILURE_THRESHOLD = 5;
-const CIRCUIT_RESET_MS = 60_000; // 1-minute cooldown before probing
-
-type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
-interface CircuitEntry {
-  state: CircuitState;
-  failures: number; // consecutive final-call failures (after all retries spent)
-  openedAt: number; // epoch ms when the circuit last opened
-}
-const _circuits = new Map<string, CircuitEntry>();
-
-function getCircuit(key: string): CircuitEntry {
-  let cb = _circuits.get(key);
-  if (!cb) {
-    cb = { state: "CLOSED", failures: 0, openedAt: 0 };
-    _circuits.set(key, cb);
-  }
-  return cb;
-}
-
-/**
- * Returns "allow" if the call should proceed; "reject" if the circuit is OPEN.
- * Transitions OPEN → HALF_OPEN when the cooldown period has elapsed.
- */
-function circuitCheck(key: string): "allow" | "reject" {
-  const cb = getCircuit(key);
-  if (cb.state === "CLOSED" || cb.state === "HALF_OPEN") return "allow";
-  if (Date.now() - cb.openedAt >= CIRCUIT_RESET_MS) {
-    cb.state = "HALF_OPEN";
-    return "allow";
-  }
-  return "reject";
-}
-
-/**
- * Record the outcome of one complete()/completeRaw() call (after all retries).
- * A success resets the breaker; a failure increments the counter and may open it.
- */
-function circuitRecord(key: string, success: boolean): void {
-  const cb = getCircuit(key);
-  if (success) {
-    if (cb.state !== "CLOSED") {
-      console.info(
-        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
-      );
-    }
-    cb.state = "CLOSED";
-    cb.failures = 0;
-  } else {
-    cb.failures++;
-    if (cb.state === "HALF_OPEN" || cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
-      cb.state = "OPEN";
-      cb.openedAt = Date.now();
-      console.warn(
-        JSON.stringify({
-          scope: "groq-client",
-          event: "circuit_open",
-          key: key === "env" ? key : "user",
-          failures: cb.failures,
-        }),
-      );
-    }
-  }
-}
 
 function getClient(apiKey?: string): Groq {
   if (apiKey) {
@@ -530,15 +450,6 @@ export async function completeRaw(
   } = opts;
   const signal = callerSignal ?? executionLedger?.signal;
 
-  const circuitKey = apiKey ?? "env";
-  if (circuitCheck(circuitKey) === "reject") {
-    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
-    throw new GroqClientError(
-      "SERVER_ERROR",
-      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
-    );
-  }
-
   const client = getClient(apiKey);
   const hasTools = tools && tools.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -584,7 +495,6 @@ export async function completeRaw(
       });
       providerAttemptUsage = result.providerUsage ?? providerAttemptUsage;
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
-      circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
       providerAttemptError = err;
@@ -593,10 +503,12 @@ export async function completeRaw(
         throw new GroqClientError("TIMEOUT", "Groq request cancelled", { cause: lastError });
       }
       if (attempt < maxRetries && isRetryable(lastError.code)) {
-        const delay = lastError.code === "NETWORK_ERROR"
-          ? 0
-          : retryDelayMs(attempt, lastError.code);
-        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+        const delay = lastError.code === "RATE_LIMITED"
+          ? lastError.retryAfterMs ?? 0
+          : 0;
+        if (delay > 0) {
+          console.info(JSON.stringify({ scope: "groq-client", event: "provider_retry_after", attempt, delayMs: delay }));
+        }
         if (delay > 0) await sleep(delay, signal);
         continue;
       }
@@ -614,7 +526,6 @@ export async function completeRaw(
   }
 
   logOutcome({ model, durationMs: Date.now() - startedAt, attempt: maxRetries, outcome: "failure", code: lastError?.code });
-  circuitRecord(circuitKey, false);
   throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
 }
 
@@ -665,7 +576,13 @@ function classifySdkError(err: unknown, aborted: boolean, model?: string): GroqC
     retryAfterMs: (() => {
       const raw = candidate?.headers?.get?.("retry-after");
       const seconds = raw ? Number(raw) : NaN;
-      return Number.isFinite(seconds) ? Math.min(60_000, Math.max(0, Math.ceil(seconds * 1000))) : undefined;
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        const milliseconds = Math.ceil(seconds * 1000);
+        return Number.isFinite(milliseconds) ? milliseconds : undefined;
+      }
+      if (!raw) return undefined;
+      const timestamp = Date.parse(raw);
+      return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : undefined;
     })(),
   };
   if (typeof status === "number") {
@@ -807,18 +724,6 @@ export async function* completeStream(
   } = opts;
   const signal = callerSignal ?? executionLedger?.signal;
 
-  const circuitKey = apiKey ?? "env";
-  if (circuitCheck(circuitKey) === "reject") {
-    const remaining = Math.max(
-      0,
-      Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000),
-    );
-    throw new GroqClientError(
-      "SERVER_ERROR",
-      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
-    );
-  }
-
   const client = getClient(apiKey);
 
   // The Groq SDK overloads `create`: passing `stream: true` narrows the
@@ -889,14 +794,11 @@ export async function* completeStream(
     if (!hadContent) {
       throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
     }
-    circuitRecord(circuitKey, true);
   } catch (err) {
     providerAttemptError = err;
     if (err instanceof GroqClientError) {
-      circuitRecord(circuitKey, false);
       throw err;
     }
-    circuitRecord(circuitKey, false);
     throw classifySdkError(err, controller.signal.aborted, model);
   } finally {
     clearTimeout(timer);
@@ -925,15 +827,6 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
   } = opts;
   const signal = callerSignal ?? executionLedger?.signal;
 
-  const circuitKey = apiKey ?? "env";
-  if (circuitCheck(circuitKey) === "reject") {
-    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
-    throw new GroqClientError(
-      "SERVER_ERROR",
-      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
-    );
-  }
-
   const client = getClient(apiKey);
   const request = buildRequest(messages, { model, temperature, maxTokens });
   const startedAt = Date.now();
@@ -948,7 +841,6 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
       const result = readResponse(completion);
       providerAttemptUsage = result.providerUsage ?? providerAttemptUsage;
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
-      circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
       providerAttemptError = err;
@@ -957,10 +849,12 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
         throw new GroqClientError("TIMEOUT", "Groq request cancelled", { cause: lastError });
       }
       if (attempt < maxRetries && isRetryable(lastError.code)) {
-        const delay = lastError.code === "NETWORK_ERROR"
-          ? 0
-          : retryDelayMs(attempt, lastError.code);
-        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+        const delay = lastError.code === "RATE_LIMITED"
+          ? lastError.retryAfterMs ?? 0
+          : 0;
+        if (delay > 0) {
+          console.info(JSON.stringify({ scope: "groq-client", event: "provider_retry_after", attempt, delayMs: delay }));
+        }
         if (delay > 0) await sleep(delay, signal);
         continue;
       }
@@ -984,6 +878,5 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     outcome: "failure",
     code: lastError?.code,
   });
-  circuitRecord(circuitKey, false);
   throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
 }
