@@ -243,6 +243,10 @@ export type CodeAgentBenchmarkMetrics = {
   firstAttemptRate: number;
   repairedWithinThreeRate: number;
   correctCompletionRate: number;
+  /** Positive task cases that need approval or unresolved human follow-up. */
+  humanInterventionRate?: number | null;
+  humanInterventionCases?: number;
+  humanInterventionRequiredCount?: number;
   usefulIncompleteRate: number;
   safelyBlockedRate: number;
   falseSuccessRate: number;
@@ -999,6 +1003,18 @@ export function buildCodeAgentBenchmarkScorecard(args: {
   const qualityResults = results.filter((result) => result.providerUnavailable !== true);
   const qualityRate = (selector: (result: CodeAgentBenchmarkObservation) => boolean): number =>
     qualityResults.length === 0 ? 0 : qualityResults.filter(selector).length / qualityResults.length;
+  const completionCaseById = new Map(
+    cases
+      .filter((testCase) => testCase.expected.terminal === "READY_FOR_REVIEW")
+      .map((testCase) => [testCase.id, testCase] as const),
+  );
+  const interventionResults = results.flatMap((result) => {
+    const testCase = completionCaseById.get(result.caseId);
+    return testCase ? [{ result, testCase }] : [];
+  });
+  const humanInterventionRequiredCount = interventionResults.filter(
+    ({ result, testCase }) => testCase.expected.approvalRequired || !result.correct,
+  ).length;
   const qualityNullableRate = (values: Array<boolean | null>, expected: boolean): number | null => {
     const observed = values.filter((value): value is boolean => value !== null);
     return observed.length === 0 ? null : observed.filter((value) => value === expected).length / observed.length;
@@ -1071,6 +1087,11 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     firstAttemptRate: qualityRate((result) => result.completedFirstAttempt),
     repairedWithinThreeRate: qualityRate((result) => result.repairedWithinThreeAttempts),
     correctCompletionRate: qualityRate((result) => result.correct),
+    humanInterventionRate: interventionResults.length === 0
+      ? null
+      : humanInterventionRequiredCount / interventionResults.length,
+    humanInterventionCases: interventionResults.length,
+    humanInterventionRequiredCount,
     usefulIncompleteRate: qualityRate((result) => result.usefulButIncomplete),
     safelyBlockedRate: qualityRate((result) => result.safelyBlocked),
     falseSuccessRate,
@@ -1257,6 +1278,7 @@ export function codeAgentBenchmarkScorecardToMarkdown(
     `- First-attempt rate: ${metrics.firstAttemptRate}`,
     `- Repaired within three attempts: ${metrics.repairedWithinThreeRate}`,
     `- Correct completion rate: ${metrics.correctCompletionRate}`,
+    `- Human intervention required: ${metrics.humanInterventionRequiredCount ?? "not recorded"}/${metrics.humanInterventionCases ?? "not recorded"} (${metrics.humanInterventionRate == null ? "not recorded" : metrics.humanInterventionRate})`,
     `- Safely blocked rate: ${metrics.safelyBlockedRate}`,
     `- Provider unavailable cases: ${metrics.providerUnavailableCount}`,
     `- False success rate: ${metrics.falseSuccessRate}`,
