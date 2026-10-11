@@ -45,6 +45,23 @@ const RUNTIME_ORACLE_IDENTIFIER_LIMIT = 160;
 const RUNTIME_ORACLE_COMMAND_LIMIT = 240;
 const SAFE_RUNTIME_ORACLE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
 
+function benchmarkRepairPlanSteps(
+  testCase: CodeAgentBenchmarkCase,
+  fixture: ReturnType<typeof getCodeAgentBenchmarkFixture>,
+): string[] {
+  const steps = [
+    testCase.prompt,
+    ...(fixture.postcondition ? [fixture.postcondition] : []),
+    ...(testCase.expected.terminal === "READY_FOR_REVIEW"
+      ? ["Read only approved files, prepare scoped pending changes, and run the registered validation profile."]
+      : []),
+  ];
+  if (steps.some((step) => step.length > 600)) {
+    throw new Error(`Benchmark repair plan step exceeds the persisted limit for ${testCase.id}.`);
+  }
+  return steps;
+}
+
 export type ApiCodeAgentRuntimeOracleCheck = {
   scenarioId: string;
   command: string;
@@ -125,7 +142,7 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
     repairPlan: [{
       findingId: "F-1",
       files: allowedPaths,
-      steps: ["Apply the requested repair only within the isolated benchmark fixture."],
+      steps: benchmarkRepairPlanSteps(args.testCase, fixture),
       validationProfile: profile.data,
       verdictScope: "FIXTURE_LOCAL",
       scopedFindingStatus: "FIXTURE_PROVEN",
@@ -736,7 +753,7 @@ export function defaultApiBenchmarkHistory(testCase: CodeAgentBenchmarkCase): Ch
     repairPlan: [{
       findingId: "F-01",
       files: [...fixture.targetPaths],
-      steps: [testCase.prompt],
+      steps: benchmarkRepairPlanSteps(testCase, fixture),
       validationProfile: fixture.validationProfile ?? "workspace-typecheck",
       verdictScope: "FIXTURE_LOCAL",
       scopedFindingStatus: "FIXTURE_PROVEN",

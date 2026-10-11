@@ -10,6 +10,10 @@ Project orientation must keep the server-owned role manifest, evidence coverage,
 **How to apply:** Start with the relevant contract below. Validate role paths against the managed project root; use only complete retained role reads for deterministic fallback; require the orientation acceptance branch on proof-required runs; keep recovery bounded by the persisted manifest and request ledger.
 
 Related contracts:
+- [Project orientation responses](project-orientation.md)
+- [Evidence scheduler](project-orientation-evidence-scheduler.md)
+- [Durable role manifest](orientation-role-manifest.md)
+- [Acceptance boundary](orientation-acceptance.md)
 - [Manifest fallback](orientation-manifest-fallback.md)
 - [Recovery telemetry](orientation-recovery-telemetry.md)
 - [Deterministic fallback](project-orientation-deterministic-fallback.md)

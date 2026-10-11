@@ -466,14 +466,20 @@ describe("resolveTurnIntent", () => {
     });
   });
 
-  it("treats an approved Build handoff as delivery rather than chat", () => {
-    const intent = resolveTurnIntent("Build the approved implementation plan.", {
-      buildHandoff: true,
-    });
+  it("treats an approved Build handoff as delivery, not a stale analysis output contract", () => {
+    const intent = resolveTurnIntent(
+      "Analyze the repair in src/server.ts, then execute the approved changes.",
+      {
+        authoritativeKind: "DELIVERY",
+        buildHandoff: true,
+      },
+    );
 
     expect(intent).toMatchObject({
       kind: "DELIVERY",
+      forensicTaskType: "REPAIR_ANALYSIS",
       executionTaskType: "task_execution",
+      outputContract: "GENERIC_RESPONSE",
       requiresTools: true,
       requiresEvidence: false,
       allowsBuildHandoff: true,

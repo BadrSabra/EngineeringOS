@@ -620,7 +620,9 @@ export function resolveTurnIntent(
       ? classification.analysisMode
       : "STANDARD",
     outputContract:
-      kind === "CHAT" || (kind === "PROJECT_QUERY" && !explicitEvidenceIntent)
+      kind === "CHAT" ||
+      kind === "DELIVERY" ||
+      (kind === "PROJECT_QUERY" && !explicitEvidenceIntent)
         ? "GENERIC_RESPONSE"
         : classification.outputContract,
     executionTaskType,

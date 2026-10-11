@@ -79,10 +79,7 @@
 - [Evidence failure projection](evidence-failure-projection.md) — separate safe timeout/budget-exhaustion causes from incomplete proof while reporting retained reads without raw provider diagnostics.
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
-- [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.
-- [OpenRouter throttling and checkpoints](openrouter-throttling-checkpoints.md) — apply only positive provider Retry-After values; never synthesize or escalate model cooldowns.
-- [Request wait policy](request-wait-policy.md) — project-wide request caps, local provider timeouts, and network-error retry delays are disabled; provider Retry-After stays distinct.
-- [OpenRouter provider activation](openrouter-provider-activation.md) — managed provisioning may be blocked by account status; use the existing server-side key path and verify live catalog startup.
+- [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — distinguish live acceptance, provider limits, retry timing, and catalog activation.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
@@ -103,11 +100,7 @@
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
-- [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
-- [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
-- [Durable orientation role manifest](orientation-role-manifest.md) — preserve the server-owned role-to-path mapping across resume and provider fallback; never replan it mid-execution.
-- [Orientation acceptance boundary](orientation-acceptance.md) — complete role coverage is the orientation proof gate; do not force orientation through targeted project-query analysis evidence.
-- [P7.5 measurement continuation](p75-measurement-continuation.md) — cross-attempt measurement needs distinct source/observer identities and stays outside calibration until versioned review.
+- [Project orientation contracts](orientation-proof-recovery-index.md) — responses, source manifests, evidence admission, acceptance, and recovery use one bounded role contract.
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
@@ -149,9 +142,9 @@
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
+- [Turn intent delivery contract](turn-intent-delivery-contract.md) — authoritative delivery handoffs must not inherit a stale analysis output contract.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
-- [P7.5 Mission context boundary](p75-mission-context-boundary.md) — calibrated runtime observations stay advisory until a server-owned observation path and existing acceptance edge bind them.
-- [P7.5 readiness boundary](p75-readiness-boundary.md) — numerical calibration is advisory without provenance; Clerk identity is not review authority; collection stays closed.
+- [P7.5 boundaries](p75-boundaries-index.md) — measurement, mission context, and readiness remain advisory until their provenance and review gates are satisfied.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.
 - [AI conversation route precedence](ai-conversation-route-precedence.md) — explicit project/session links beat stale local execution pointers; unavailable targets must not silently open another session.
 - [Benchmark smoke environment](benchmark-smoke-database-env.md) — an unset DATABASE_URL can masquerade as provider failure during orchestrator import; use a non-production local DSN.

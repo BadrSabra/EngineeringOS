@@ -46,6 +46,7 @@ describe("Code Agent benchmark Build handoff", () => {
       expect(handoff?.turnIntent).toMatchObject({
         kind: "DELIVERY",
         operationMode: "DELIVERY",
+        outputContract: "GENERIC_RESPONSE",
         allowsBuildHandoff: true,
       });
       expect(handoff?.executionPlan).toMatchObject({
@@ -56,6 +57,11 @@ describe("Code Agent benchmark Build handoff", () => {
           allowedWriteFiles: [...fixture.allowedPaths],
         },
         phases: [{
+          steps: expect.arrayContaining([
+            testCase.prompt,
+            fixture.postcondition,
+            "Read only approved files, prepare scoped pending changes, and run the registered validation profile.",
+          ]),
           verdictScope: "FIXTURE_LOCAL",
           scopedFindingStatus: "FIXTURE_PROVEN",
         }],
@@ -99,7 +105,19 @@ describe("Code Agent benchmark Build handoff", () => {
     expect(defaultApiBenchmarkHistory(testCase)[0]?.repairPlan?.[0]).toMatchObject({
       verdictScope: "FIXTURE_LOCAL",
       scopedFindingStatus: "FIXTURE_PROVEN",
+      steps: expect.arrayContaining([
+        testCase.prompt,
+        getCodeAgentBenchmarkFixture(testCase).postcondition,
+        "Read only approved files, prepare scoped pending changes, and run the registered validation profile.",
+      ]),
     });
+  });
+
+  it("keeps every persisted fixture-plan step within the repair-plan schema limit", () => {
+    for (const testCase of getCodeAgentBenchmarkCases()) {
+      const plan = defaultApiBenchmarkHistory(testCase)[0]?.repairPlan?.[0];
+      expect(plan?.steps.every((step) => step.length <= 600)).toBe(true);
+    }
   });
 });
 
