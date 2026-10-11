@@ -45,14 +45,14 @@ For read-only E2 forensic work, do not restart managed API/runtime workflows wit
 
 **How to apply:** Prefer isolated route tests and builds while preserving the forensic boundary. If runtime startup is explicitly authorized, inspect startup behavior first, watch request logs immediately, and stop the workflow if unrelated durable work appears. Do not equate “no provider call” with “no database mutation.”
 
-Use a source-derived measurement ledger for E2, not test totals, `PROVEN` row counts, or a new Runtime catalog. Track source-inventory completeness separately from atomic `surface × invariant` evidence; any `UNKNOWN` source family blocks a global denominator or ratio. Split mixed/partial behavior into separate invariants. `0/4` means zero of the four architectural layers is fully closed, not a progress percentage. Keep E3 stopped and E4 behind its existing gates.
+Use a source-derived measurement ledger for E2, not test totals, `PROVEN` row counts, or a new Runtime catalog. Track source-inventory completeness separately from atomic `surface × invariant` evidence; any `UNKNOWN` source family blocks a global denominator or ratio. Split mixed/partial behavior into separate invariants. `0/4` means zero of the four architectural layers is fully closed, not a progress percentage. Preserve these E2 limits as historical findings; E2 is now explicitly closed, E3 is authorized, and E4 remains behind its existing gates.
 
 **Why:** The user specified that the denominator itself must be evidence-based and that partial behaviors must not receive fractional credit.
 
 **How to apply:** Record source anchors and exact evidence boundaries for each unit; close source families before calculating any total. Preserve the existing stage gates regardless of the number of passing rows.
 
-During the active E2 closeout, do not restart managed workflows, run Strategy Replay, begin E3 or later, or propose follow-up tasks.
+On 2026-10-11, the user explicitly closed E2 and authorized E3. The earlier E2-only restrictions no longer block E3; E3.2 replay safety remains open, and Strategy Replay receipts must not be rerun.
 
-**Why:** The user explicitly limited work to E2 and prohibited those actions while E2 remains open.
+**Why:** The user selected “close E2 and continue to E3” after the real process-recovery validation passed.
 
-**How to apply:** Keep code, documentation, and isolated tests scoped to E2. Wait for explicit E2 closure before proposing or starting downstream work.
+**How to apply:** Treat E2 as closed by explicit user decision, not as proof that every earlier E2 uncertainty is resolved. Continue E3 with proof-freshness work, preserve E3.2 and E4 gates, and do not replay Strategy Replay receipts.

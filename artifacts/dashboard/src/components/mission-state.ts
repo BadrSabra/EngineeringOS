@@ -126,6 +126,22 @@ export function getMissionState(input: MissionStateInput): MissionState {
     }, ['APPROVE_CHANGES', 'REVIEW_DIFF', 'REVIEW_PROOF'], 'Review the pending plan', allowedActions);
   }
 
+  const successfulTerminalClaim = flightState === 'PUSHED'
+    || deliveryCompleted
+    || executionStatus === 'COMPLETED'
+    || stopped === 'SUCCEEDED';
+  if (
+    successfulTerminalClaim
+    && input.projection.verification?.proofRequired === true
+    && evidenceVerdict !== 'PROVEN'
+  ) {
+    return withPrimaryAction({
+      key: 'NEEDS_ATTENTION',
+      label: 'Proof incomplete',
+      detail: 'The server reports a successful terminal state, but the required proof is not proven. Do not treat this result as accepted.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Review the incomplete proof', allowedActions);
+  }
+
   if (flightState === 'PUSHED') {
     return withPrimaryAction({
       key: 'DELIVERED',

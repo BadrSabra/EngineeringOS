@@ -1,8 +1,18 @@
 # E3 Forensic Entry Audit
 
 **Date:** 2026-10-05
-**Status:** Entry audit recorded; E3 implementation has not started. E3.2 replay safety remains OPEN.
+**Status:** E3 implementation started 2026-10-11; proof-freshness projections remain in progress. E3.2 replay safety remains OPEN.
 **E2 boundary:** Closed for proof-bound World State materialization as defined in the current project decision.
+
+## 2026-10-11 — explicit E2 closure and first E3 projection slice
+
+The user explicitly closed E2 and authorized E3 after the real API process-recovery test passed with the configured free OpenRouter model and a disposable loopback PostgreSQL cluster. The remaining E2 limitations recorded in the progress log remain limitations; this closure is the user's stage decision, not a claim that every earlier E2 unknown was eliminated.
+
+The P0 dependency-release and Mission-completion boundaries described in the entry matrix are now present in the source: dependent Goals require current Canonical Proof, and aggregate Mission completion reloads proof for the active Goals. A focused `mission-runtime.test.ts` run passed 19 tests on a separate disposable PostgreSQL database.
+
+The first E3 implementation slice fixes Mission Control's terminal projection: `getMissionState` previously selected `Complete` or `Delivered` from execution/flight/timeline status without requiring `PROVEN` when the server marked proof as required. It now projects that mismatch as `Proof incomplete` / `NEEDS_ATTENTION`. The focused Dashboard test file passes 9/9, and Dashboard typecheck passes.
+
+E3 remains open. Next boundaries are Mission/Goal read projections and Shadow Replay receipt freshness. Do not rerun Strategy Replay receipts; no managed API workflow was restarted for this slice.
 
 ## E3 invariant
 

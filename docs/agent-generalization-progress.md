@@ -5916,3 +5916,14 @@ G9 Revocation Safety
 - **authority/safety impact:** لم يُخفّض عقد JSON أو evidence، وبقيت نتائج malformed وrate-limit والtimeout غير مقبولة. أُضيفت البيانات التشخيصية كي تميّز المحاولات القادمة النطاق والنموذج الفاشل دون provider body أو نص المصدر.
 - **remaining/blocker:** انتظار توفر free upstream؛ لا تشغّل empirical-quality حتى ينتج live review إيصالًا `COMPLETE` مع `accepted=true` وfinding واحد مرتبط بالملف. تجنب إعادة النموذج المحدد في إيصال 429 أثناء cooldown، ولا تستخدم paid fallback.
 - **next step:** بعد انقضاء cooldown، جرّب مرشحًا مجانيًا مختلفًا بمحاولة محدودة واحدة؛ إن قُبلت المراجعة، شغّل empirical-quality على corpus المعتمد داخل `HOST_DISPOSABLE_TEMP_ROOT`. إن عاد rate-limit أو timeout، توقف وسجل النتيجة. E2 فقط؛ لا تبدأ E3 أو Strategy Replay ولا تُعِد تشغيل workflows مُدارة.
+
+### 2026-10-11 — إغلاق E2 الصريح وبدء E3 على إسقاط الإثبات
+
+- **phase/step:** إغلاق E2 بقرار المستخدم؛ أول شريحة E3 على Mission Control terminal state.
+- **status:** `E2 CLOSED per explicit user decision; live process recovery PASS; E3 STARTED; E3.2 replay safety OPEN`
+- **what changed:** نجح اختبار الاستعادة الحية لعملية API على نموذج OpenRouter مجاني وقاعدة PostgreSQL مؤقتة loopback-only: حُفظ checkpoint قبل قتل العملية، استعاد dispatcher التنفيذ نفسه لمحاولة جديدة، ظهر الرد الجنائي المطلوب، لم تقع عمليات كتابة، وبقيت بايتات المصدر دون تغيير. أُزيلت قاعدة الاختبار وجذرها وكل عمليات API التابعة. بعد اختيار المستخدم إغلاق E2، بدأ E3. فحص المصدر والاختبارات الموجودة أظهر أن إطلاق Goal التابعة وتجميع Mission المكتملة يعيدان التحقق من Canonical Proof للأهداف النشطة. أصلحت `getMissionState` كي لا يعرض `Complete` أو `Delivered` عند `proofRequired=true` ما لم يكن `evidenceVerdict=PROVEN`.
+- **files/schema/contracts touched:** `artifacts/dashboard/src/components/mission-state.ts` واختباره؛ توثيق حالة E3 وذاكرة بوابات المراحل. لا تغيير API أو schema.
+- **validation:** `mission-runtime.test.ts` المحدد: 19/19 على قاعدة اختبار منفصلة؛ `mission-state.test.ts`: 9/9؛ Dashboard typecheck و`git diff --check` نجحا. إيصال process recovery يثبت restart/recovery والـteardown. لم يُعَد تشغيل managed API workflow؛ قاعدة التطوير لم تُلمس.
+- **authority/safety impact:** حالة التنفيذ الطرفية أو إيصال التسليم لا يرفعان `PROVEN` للعرض عند اشتراط الإثبات. استمرارية E2 الأخرى تبقى بحدود ما سجلته الخطوات السابقة؛ الإغلاق هنا صريح من المستخدم. E3.2 وإعادة تشغيل Strategy Replay ليستا ضمن هذا التحقق.
+- **remaining/blocker:** E3 مفتوح. يلزم تدقيق مستقل لإسقاطات Mission/Goal API/UI وإيصالات Shadow Replay القديمة/idempotent response. لم يُعَد تشغيل Strategy Replay receipts؛ API workflow المُدار ما زال فاشلًا ولم يُمس.
+- **next step:** تابع freshness في Mission/Goal read projections ثم Shadow Replay receipt reads دون تشغيل replay. أبقِ E3.2 وE4.1 والبوابات اللاحقة منفصلة.

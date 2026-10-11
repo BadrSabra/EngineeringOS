@@ -63,6 +63,42 @@ describe('getMissionState', () => {
     })).toMatchObject({ key: 'DELIVERED', label: 'Delivered' });
   });
 
+  it('does not present a completed execution as accepted when required proof is missing', () => {
+    expect(getMissionState({
+      projection: baseProjection,
+      executionStatus: 'completed',
+      evidenceVerdict: 'NOT_RECORDED',
+    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'Proof incomplete' });
+  });
+
+  it('does not present delivery as verified when required proof is missing', () => {
+    expect(getMissionState({
+      projection: {
+        ...baseProjection,
+        timeline: [{
+          id: 'deliver',
+          label: 'Deliver to Git',
+          status: 'completed',
+          detail: null,
+        }],
+      },
+      executionStatus: 'completed',
+      flightState: 'PUSHED',
+      evidenceVerdict: 'NOT_RECORDED',
+    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'Proof incomplete' });
+  });
+
+  it('preserves successful terminal display when proof is not required', () => {
+    expect(getMissionState({
+      projection: {
+        ...baseProjection,
+        phase: 'COMPLETE',
+        verification: { ...baseProjection.verification, proofRequired: false },
+      },
+      executionStatus: 'completed',
+    })).toMatchObject({ key: 'COMPLETE', label: 'Complete' });
+  });
+
   it('makes an interrupted run incomplete rather than successful', () => {
     expect(getMissionState({
       projection: { ...baseProjection, stopped: { reason: 'cancelled', outcome: 'INTERRUPTED' } },
