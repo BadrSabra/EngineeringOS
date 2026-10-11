@@ -37,7 +37,7 @@ Exact-model empirical campaigns must stop after the first provider-unavailable o
 
 **Why:** A repeated provider outage cannot improve an all-cases acceptance result, while additional calls can waste capacity or trigger a model-scoped upstream cooldown. Separating selected and reported identities prevents routing metadata from being mistaken for measured model identity.
 
-**How to apply:** Break the existing campaign loop on provider unavailability, derive missing case IDs from the corpus, and keep output mode plus per-case reported model in the safe scorecard projection; do not add a parallel scheduler or cooldown store.
+**How to apply:** Break the pinned-model scorecard on provider unavailability, derive missing case IDs from the corpus, and keep output mode plus per-case reported model in the safe scorecard projection. If the user explicitly requests a multi-model campaign, launch the next eligible registered OpenRouter model as a separate scorecard with its own model binding; never mix model results or add a parallel fallback chain to the pinned run.
 
 The Code Agent benchmark's provider-health probe is cached once per executor and gates every case. A failed preflight can therefore produce a full set of U rows without executing those cases. The bounded candidate walk should continue after a candidate timeout, but only a valid capability response may unlock case execution. Once cases have started, repeated request timeouts can still open the provider circuit and yield U; shared cooldown-store unavailability alone does not prove provider calls are blocked.
 
