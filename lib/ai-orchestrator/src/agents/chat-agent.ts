@@ -14040,14 +14040,19 @@ export async function chat(opts: {
                           surface: `forensic-targeted-range-${packetIndex}-${recoveryAttempt + 1}`,
                         });
                         if (rangeResult.kind !== "ok") {
+                          const failureDetails = rangeResult.kind === "failed"
+                            ? [
+                                `failureKind: ${rangeResult.failureKind}`,
+                                `diagnosticCode: ${rangeResult.diagnosticCode}`,
+                                `reason: ${rangeResult.safeMessage.slice(0, 160)}`,
+                              ]
+                            : ["failureKind: unknown_tool"];
                           onStep?.({
                             kind: "diagnostic",
                             code: "FORENSIC_TARGETED_READ_FAILED",
                             details: [
                               `targeted read did not complete on recovery attempt ${recoveryAttempt + 1}`,
-                              `failureKind: ${rangeResult.failureKind ?? "unknown"}`,
-                              `diagnosticCode: ${rangeResult.diagnosticCode ?? "unknown"}`,
-                              `reason: ${rangeResult.safeMessage.slice(0, 160)}`,
+                              ...failureDetails,
                             ],
                           });
                           continue;
