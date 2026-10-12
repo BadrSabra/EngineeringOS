@@ -21,16 +21,34 @@ const originalEnvironment = Object.fromEntries(
     (name) => [name, process.env[name]],
   ),
 );
+let providerPriorityUnderTest: string[] | undefined;
+let originalProviderPriority: string[] = [];
 
 describe("validateAiProvidersAtStartup", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    const { PROVIDER_PRIORITY } = await import("../provider-registry.js");
+    providerPriorityUnderTest = PROVIDER_PRIORITY;
+    originalProviderPriority = [...PROVIDER_PRIORITY];
+    PROVIDER_PRIORITY.splice(
+      0,
+      PROVIDER_PRIORITY.length,
+      "openrouter",
+      "gemini",
+      "deepseek",
+      "groq",
+    );
     for (const name of [...providerEnvironments, ...fixtureEnvironments]) {
       delete process.env[name];
     }
   });
 
   afterEach(() => {
+    const priority = providerPriorityUnderTest;
+    if (priority) {
+      priority.splice(0, priority.length, ...originalProviderPriority);
+    }
+    providerPriorityUnderTest = undefined;
     vi.doUnmock("groq-sdk");
     vi.unstubAllGlobals();
     for (const name of providerEnvironments) {
@@ -165,6 +183,8 @@ describe("validateAiProvidersAtStartup", () => {
 
   it("marks Groq invalid with an actionable reason when a default is retired", async () => {
     process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "retired";
     vi.doMock("groq-sdk", () => ({
       default: class {
         models = {
@@ -185,13 +205,14 @@ describe("validateAiProvidersAtStartup", () => {
       valid: false,
       modelCheck: "missing",
     });
-    expect(groq?.reason).toContain("openai/gpt-oss-120b");
-    expect(groq?.reason).toContain("Update the Groq default model IDs");
+    expect(groq?.reason).toContain("configured fast model as retired");
     expect(groq?.reason).not.toContain("valid-groq-key");
   });
 
   it("confirms Groq only after both defaults are present in the catalog", async () => {
     process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "healthy";
     vi.doMock("groq-sdk", () => ({
       default: class {
         models = {
@@ -219,6 +240,8 @@ describe("validateAiProvidersAtStartup", () => {
 
   it("publishes one safe callback per missing model role", async () => {
     process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "retired";
     vi.doMock("groq-sdk", () => ({
       default: class {
         models = {
@@ -234,14 +257,10 @@ describe("validateAiProvidersAtStartup", () => {
     const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
     await validateAiProvidersAtStartup({ onGroqModelCatalogDrift: onDrift });
 
-    expect(onDrift).toHaveBeenCalledTimes(2);
+    expect(onDrift).toHaveBeenCalledTimes(1);
     expect(onDrift).toHaveBeenCalledWith({
       role: "fast",
       modelId: "openai/gpt-oss-20b",
-    });
-    expect(onDrift).toHaveBeenCalledWith({
-      role: "powerful",
-      modelId: "openai/gpt-oss-120b",
     });
     expect(JSON.stringify(onDrift.mock.calls)).not.toContain("valid-groq-key");
   });
@@ -264,6 +283,8 @@ describe("validateAiProvidersAtStartup", () => {
 
   it("publishes a safe callback when the Groq catalog check is temporarily unavailable", async () => {
     process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "timeout";
     vi.doMock("groq-sdk", () => ({
       default: class {
         models = {

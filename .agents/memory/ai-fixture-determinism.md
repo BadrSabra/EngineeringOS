@@ -33,6 +33,12 @@ Chat UI fixtures should keep unselected-session and selected-session message dat
 
 **How to apply:** For restored-session and handoff tests, provide a session-specific message response; avoid changing the shared message-hook mock's identity semantics unless testing that transition.
 
+Direct-chat lifecycle test sinks must never be installed as a broad side-effect mock without also pinning a deterministic provider strategy. A sink alone can bypass the production preflight while leaving real provider construction active.
+
+**Why:** A broad lifecycle mock let direct chat tests reach the real OpenRouter client and fail with missing authentication instead of stopping at the test boundary.
+
+**How to apply:** Keep sinks per test and assert the injected provider strategy was used; use egress-disabled fixtures for any path that is not testing provider transport.
+
 Lifecycle recovery tests that execute the production chat helper should preserve provider eligibility and budget admission, replacing only provider strategy construction and lifecycle/circuit readiness with deterministic fixtures. Budget reservations cascade with a unique project, but usage and operator-alert rows need explicit cleanup scoped to that project and owner.
 
 **Why:** Stubbing the helper hides service-to-engine forwarding; stubbing admission hides a real production boundary and can leave durable test rows behind.

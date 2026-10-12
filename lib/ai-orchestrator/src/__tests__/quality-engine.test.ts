@@ -2,17 +2,14 @@ import { describe, expect, it } from "vitest";
 import { assessStructuredOutput, buildQualityPlan, sortProviderIdsByQuality } from "../quality-engine.js";
 
 describe("sortProviderIdsByQuality", () => {
-  it("prefers a thinking-capable provider for analysis tasks", () => {
+  it("filters analysis candidates to the product-enabled provider set", () => {
     const ordered = sortProviderIdsByQuality(["groq", "openrouter", "deepseek", "gemini"], "analysis");
-    expect(ordered[0]).toBe("deepseek");
-    expect(ordered).not.toContain("gemini");
+    expect(ordered).toEqual(["openrouter"]);
   });
 
-  it("keeps tool-capable providers ahead of text-only providers for tool chat", () => {
+  it("filters tool-chat candidates to the product-enabled provider set", () => {
     const ordered = sortProviderIdsByQuality(["gemini", "groq", "openrouter"], "tool_chat", { requireTools: true });
-    expect(ordered[0]).not.toBe("gemini");
-    expect(ordered).toContain("groq");
-    expect(ordered).toContain("openrouter");
+    expect(ordered).toEqual(["openrouter"]);
   });
 });
 

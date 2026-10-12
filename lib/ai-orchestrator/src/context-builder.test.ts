@@ -168,7 +168,13 @@ function makeMetric(overrides?: Partial<Record<string, unknown>>) {
 }
 
 function makeScanJob(status = "completed") {
-  return { status, error: null, finishedAt: new Date("2026-07-18") };
+  return {
+    id: "scan-job-test",
+    status,
+    error: null,
+    createdAt: new Date("2026-07-17"),
+    finishedAt: new Date("2026-07-18"),
+  };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
