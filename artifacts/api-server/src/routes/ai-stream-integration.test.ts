@@ -43,6 +43,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionEvidenceReadsTable,
+  aiUsageEventsTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
@@ -3304,13 +3305,24 @@ describe("Durable AI execution crash/reconnect", () => {
           if (row?.status === "completed" || row?.status === "failed") break;
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
+        const rateLimitAttempts = await db
+          .select({ rateLimitScope: aiUsageEventsTable.rateLimitScope })
+          .from(aiUsageEventsTable)
+          .where(eq(aiUsageEventsTable.executionId, executionId!))
+          .limit(20);
+        const storedRateLimitScope = rateLimitAttempts.find((row) =>
+          row.rateLimitScope === "upstream_shared_pool"
+          || row.rateLimitScope === "provider_credential"
+          || row.rateLimitScope === "account_quota"
+          || row.rateLimitScope === "unknown"
+        )?.rateLimitScope;
         expect(
           recoveredExecution?.status,
           [
             `automatic recovery status=${recoveredExecution?.status ?? "missing"}`,
             `attempt=${recoveredExecution?.attempt ?? "missing"}`,
             `failureClass=${classifyRecoveryFailure(recoveredExecution?.error)}`,
-            `rateLimitScope=${classifyRecoveryRateLimitScope(recoveredExecution?.error)}`,
+            `rateLimitScope=${storedRateLimitScope ?? classifyRecoveryRateLimitScope(recoveredExecution?.error)}`,
             `modelSelected=${Boolean(observedModelSelection)}`,
           ].join(", "),
         ).toBe("completed");
