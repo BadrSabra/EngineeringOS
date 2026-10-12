@@ -59,6 +59,7 @@ export type ExecutionLedgerEvent = {
   operation?: string;
   reason?: string;
   rateLimitScope?: ProviderRateLimitScope;
+  retryAfterMs?: number;
 };
 
 export type ExecutionLedgerSnapshot = {
@@ -258,6 +259,7 @@ export type ExecutionLedger = {
       status?: "completed" | "failed";
       reason?: string;
       rateLimitScope?: ProviderRateLimitScope;
+      retryAfterMs?: number;
     },
   ): void;
   admitProviderRequest?(details: {
@@ -275,6 +277,7 @@ export type ExecutionLedger = {
     status?: "completed" | "failed";
     reason?: string;
     rateLimitScope?: ProviderRateLimitScope;
+    retryAfterMs?: number;
     usage?: ProviderRequestUsage;
   }): Promise<void>;
   setProviderRequestBudgetHooks?(hooks: ProviderRequestBudgetHooks | undefined): void;
@@ -421,6 +424,7 @@ export function createExecutionLedger(options?: {
           : {}),
         ...(details?.reason ? { reason: details.reason.slice(0, 160) } : {}),
         ...(details?.rateLimitScope ? { rateLimitScope: details.rateLimitScope } : {}),
+        ...(details?.retryAfterMs !== undefined ? { retryAfterMs: details.retryAfterMs } : {}),
       });
       if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
     },
@@ -461,6 +465,7 @@ export function createExecutionLedger(options?: {
         status,
         ...(input.reason ? { reason: input.reason } : {}),
         ...(input.rateLimitScope ? { rateLimitScope: input.rateLimitScope } : {}),
+        ...(input.retryAfterMs !== undefined ? { retryAfterMs: input.retryAfterMs } : {}),
       });
       const hooks = input.reservationId
         ? providerRequestHooksByReservation.get(input.reservationId)

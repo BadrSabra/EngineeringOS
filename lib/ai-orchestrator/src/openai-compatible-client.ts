@@ -460,6 +460,9 @@ async function completeProviderAttempt(
             ...(error instanceof GroqClientError && error.rateLimitScope
               ? { rateLimitScope: error.rateLimitScope }
               : {}),
+            ...(error instanceof GroqClientError && error.retryAfterMs !== undefined
+              ? { retryAfterMs: error.retryAfterMs }
+              : {}),
           }
         : {}),
     });
@@ -479,6 +482,9 @@ async function completeProviderAttempt(
             : "PROVIDER_REQUEST_FAILED",
           ...(error instanceof GroqClientError && error.rateLimitScope
             ? { rateLimitScope: error.rateLimitScope }
+            : {}),
+          ...(error instanceof GroqClientError && error.retryAfterMs !== undefined
+            ? { retryAfterMs: error.retryAfterMs }
             : {}),
         }
       : {}),

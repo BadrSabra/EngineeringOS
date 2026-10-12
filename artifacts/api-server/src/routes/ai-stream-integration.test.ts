@@ -3306,7 +3306,10 @@ describe("Durable AI execution crash/reconnect", () => {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
         const rateLimitAttempts = await db
-          .select({ rateLimitScope: aiUsageEventsTable.rateLimitScope })
+          .select({
+            rateLimitScope: aiUsageEventsTable.rateLimitScope,
+            retryAfterMs: aiUsageEventsTable.retryAfterMs,
+          })
           .from(aiUsageEventsTable)
           .where(eq(aiUsageEventsTable.executionId, executionId!))
           .limit(20);
@@ -3316,6 +3319,9 @@ describe("Durable AI execution crash/reconnect", () => {
           || row.rateLimitScope === "account_quota"
           || row.rateLimitScope === "unknown"
         )?.rateLimitScope;
+        const storedRetryAfterMs = rateLimitAttempts.find((row) =>
+          Number.isSafeInteger(row.retryAfterMs) && (row.retryAfterMs ?? 0) > 0
+        )?.retryAfterMs;
         expect(
           recoveredExecution?.status,
           [
@@ -3323,6 +3329,7 @@ describe("Durable AI execution crash/reconnect", () => {
             `attempt=${recoveredExecution?.attempt ?? "missing"}`,
             `failureClass=${classifyRecoveryFailure(recoveredExecution?.error)}`,
             `rateLimitScope=${storedRateLimitScope ?? classifyRecoveryRateLimitScope(recoveredExecution?.error)}`,
+            `retryAfterMs=${storedRetryAfterMs ?? "not-provided"}`,
             `modelSelected=${Boolean(observedModelSelection)}`,
           ].join(", "),
         ).toBe("completed");

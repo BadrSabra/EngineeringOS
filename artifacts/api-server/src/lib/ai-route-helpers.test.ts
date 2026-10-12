@@ -183,8 +183,9 @@ describe("ledger provider-attempt projection", () => {
         model: "model-a",
         operation: "provider_request",
         durationMs: 12,
-        reason: "MODEL_NOT_FOUND",
+        reason: "RATE_LIMITED",
         rateLimitScope: "upstream_shared_pool",
+        retryAfterMs: 120_000,
       },
       {
         kind: "provider_attempt",
@@ -221,8 +222,9 @@ describe("ledger provider-attempt projection", () => {
         outcome: "failure",
         attemptNumber: 1,
         fallbackCount: 0,
-        providerFailureKind: "MODEL_NOT_FOUND",
+        providerFailureKind: "RATE_LIMITED",
         rateLimitScope: "upstream_shared_pool",
+        retryAfterMs: 120_000,
       },
       {
         attemptId: "provider-request:2",

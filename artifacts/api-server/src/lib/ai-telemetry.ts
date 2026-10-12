@@ -63,6 +63,7 @@ export type AiTelemetryAttempt = {
   contractFailureKind?: string | null;
   providerFailureKind?: string | null;
   rateLimitScope?: AiRateLimitScope | null;
+  retryAfterMs?: number | null;
 };
 
 export type AiContractTelemetry = Pick<
@@ -394,6 +395,8 @@ export async function recordAiUsageAttempt(
   const usageStatus = attempt.usageStatus
     ?? (promptTokens !== null && completionTokens !== null ? "known" : "unknown");
   const attemptId = safeText(attempt.attemptId, 200) ?? randomUUID();
+  const isRateLimitedFailure = attempt.outcome === "failure"
+    && classifyProviderFailure({ code: attempt.providerFailureKind ?? undefined }) === "RATE_LIMITED";
   try {
     await db.insert(aiUsageEventsTable).values({
       id: randomUUID(),
@@ -425,10 +428,16 @@ export async function recordAiUsageAttempt(
       contractFailureKind: safeText(attempt.contractFailureKind, 80),
       providerFailureKind: safeText(attempt.providerFailureKind, 80),
       rateLimitScope:
-        classifyProviderFailure({ code: attempt.providerFailureKind ?? undefined }) === "RATE_LIMITED"
+        isRateLimitedFailure
         && attempt.rateLimitScope
         && AI_RATE_LIMIT_SCOPES.includes(attempt.rateLimitScope)
           ? attempt.rateLimitScope
+          : null,
+      retryAfterMs:
+        isRateLimitedFailure
+        && Number.isSafeInteger(attempt.retryAfterMs)
+        && (attempt.retryAfterMs ?? 0) > 0
+          ? attempt.retryAfterMs
           : null,
       occurredAt: now,
       expiresAt,

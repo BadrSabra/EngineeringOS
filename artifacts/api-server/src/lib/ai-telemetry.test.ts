@@ -99,13 +99,33 @@ describe("durable AI telemetry", () => {
       outcome: "failure",
       providerFailureKind: "RATE_LIMITED",
       rateLimitScope: "provider body token=sk-live" as never,
+      retryAfterMs: Number.POSITIVE_INFINITY,
     });
 
     const [row] = await db.select().from(aiUsageEventsTable)
       .where(eq(aiUsageEventsTable.correlationId, correlationId));
     expect(row?.rateLimitScope).toBeNull();
+    expect(row?.retryAfterMs).toBeNull();
     expect(JSON.stringify(row)).not.toContain("provider body");
     expect(JSON.stringify(row)).not.toContain("sk-live");
+  });
+
+  it("does not persist Retry-After for a successful or unclassified attempt", async () => {
+    const correlationId = `retry-after-non-rate-limit-${crypto.randomUUID()}`;
+    createdCorrelations.push(correlationId);
+    await recordAiUsageAttempt({
+      userId: "telemetry-owner",
+      correlationId,
+    }, {
+      attemptId: `${correlationId}:success`,
+      provider: "openrouter",
+      outcome: "success",
+      retryAfterMs: 120_000,
+    });
+
+    const [row] = await db.select().from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.correlationId, correlationId));
+    expect(row?.retryAfterMs).toBeNull();
   });
 
   it("separates provider success from an incomplete capability contract", () => {
@@ -226,6 +246,7 @@ describe("durable AI telemetry", () => {
         usageStatus: "unknown",
         providerFailureKind: "RATE_LIMITED",
         rateLimitScope: "provider_credential",
+        retryAfterMs: 120_000,
       }),
       recordAiUsageAttempt(context, {
         attemptId: `${correlationId}:groq:1`,
@@ -237,6 +258,7 @@ describe("durable AI telemetry", () => {
         usageStatus: "unknown",
         providerFailureKind: "RATE_LIMITED",
         rateLimitScope: "provider_credential",
+        retryAfterMs: 120_000,
       }),
     ]);
 
@@ -252,6 +274,7 @@ describe("durable AI telemetry", () => {
       completionTokens: null,
       providerFailureKind: "RATE_LIMITED",
       rateLimitScope: "provider_credential",
+      retryAfterMs: 120_000,
     });
     expect(Object.keys(rows[0]).some((key) => /source|secret|api_key|provider_key|prompt_content/i.test(key))).toBe(false);
   });

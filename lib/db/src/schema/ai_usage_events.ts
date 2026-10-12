@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, bigint, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const AI_CONTRACT_OUTCOMES = [
   "not_applicable",
@@ -63,6 +63,7 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   contractFailureKind: text("contract_failure_kind"),
   providerFailureKind: text("provider_failure_kind"),
   rateLimitScope: text("rate_limit_scope"),
+  retryAfterMs: bigint("retry_after_ms", { mode: "number" }),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 }, (t) => [

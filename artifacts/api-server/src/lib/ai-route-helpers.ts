@@ -571,6 +571,7 @@ export async function emitLedgerProviderAttempts(
     attemptNumber: number;
     fallbackCount: number;
     providerFailureKind?: string | null;
+    retryAfterMs?: number;
   } & Partial<AiContractTelemetry> & {
     promptTokens?: number | null;
     completionTokens?: number | null;
@@ -622,6 +623,7 @@ export async function emitLedgerProviderAttempts(
         fallbackCount: state.fallbackCount,
         providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
         ...(event.rateLimitScope ? { rateLimitScope: event.rateLimitScope } : {}),
+        ...(event.retryAfterMs !== undefined ? { retryAfterMs: event.retryAfterMs } : {}),
         promptTokens: usage.promptTokens ?? null,
         completionTokens: usage.completionTokens ?? null,
         usageStatus: usage.usageStatus ?? "unknown",
@@ -874,6 +876,7 @@ export async function runAgentWithFallback<T>(
           fallbackCount: logicalFallbackCount,
           providerFailureKind: providerError.code,
           rateLimitScope: providerError.rateLimitScope,
+          retryAfterMs: providerError.retryAfterMs,
           usageStatus: "unknown",
         });
       }

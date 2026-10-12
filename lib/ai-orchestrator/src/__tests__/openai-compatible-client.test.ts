@@ -834,6 +834,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       status: "failed",
       reason: "RATE_LIMITED",
       rateLimitScope: "upstream_shared_pool",
+      retryAfterMs: 120_000,
     }));
   });
 
