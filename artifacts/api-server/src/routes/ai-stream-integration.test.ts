@@ -126,6 +126,35 @@ const liveRecoveryProviderKey = liveProviderEnvironment[liveRecoveryProvider];
 const liveRecoveryProviderApiKey = liveRecoveryProviderKey
   ? process.env[liveRecoveryProviderKey]
   : undefined;
+function classifyRecoveryFailure(error: string | null | undefined):
+  | "none"
+  | "acceptance"
+  | "timeout"
+  | "rate-limit"
+  | "provider"
+  | "model-output"
+  | "cancelled"
+  | "other" {
+  if (!error) return "none";
+  const normalized = error.toLowerCase();
+  if (/acceptance|evidence|analysis_incomplete/.test(normalized)) return "acceptance";
+  if (/timeout|timed out|deadline/.test(normalized)) return "timeout";
+  if (/rate.?limit|quota/.test(normalized)) return "rate-limit";
+  if (/model_output|malformed|invalid.?json/.test(normalized)) return "model-output";
+  if (/provider|network|upstream|http [45]\d\d/.test(normalized)) return "provider";
+  if (/cancel/.test(normalized)) return "cancelled";
+  return "other";
+}
+function classifyRecoveryRateLimitScope(
+  error: string | null | undefined,
+): "not-rate-limited" | "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown" {
+  if (!error || !/rate.?limit|quota/.test(error.toLowerCase())) return "not-rate-limited";
+  const normalized = error.toLowerCase();
+  if (/upstream_shared_pool|shared[\s_-]+pool/.test(normalized)) return "upstream_shared_pool";
+  if (/provider_credential|credential/.test(normalized)) return "provider_credential";
+  if (/account_quota|account quota/.test(normalized)) return "account_quota";
+  return "unknown";
+}
 type RecoveryTeardownFixture = {
   projectId: string;
   rootPath: string;
@@ -3256,6 +3285,7 @@ describe("Durable AI execution crash/reconnect", () => {
           attempt: number;
           finalMessageId: string | null;
           checkpoint: string;
+          error: string | null;
         } | undefined;
         const recoveryDeadline = Date.now() + 75_000;
         while (Date.now() < recoveryDeadline) {
@@ -3265,6 +3295,7 @@ describe("Durable AI execution crash/reconnect", () => {
               attempt: aiExecutionsTable.attempt,
               finalMessageId: aiExecutionsTable.finalMessageId,
               checkpoint: aiExecutionsTable.checkpoint,
+              error: aiExecutionsTable.error,
             })
             .from(aiExecutionsTable)
             .where(eq(aiExecutionsTable.id, executionId!))
@@ -3275,7 +3306,13 @@ describe("Durable AI execution crash/reconnect", () => {
         }
         expect(
           recoveredExecution?.status,
-          `automatic recovery status=${recoveredExecution?.status ?? "missing"}, attempt=${recoveredExecution?.attempt ?? "missing"}`,
+          [
+            `automatic recovery status=${recoveredExecution?.status ?? "missing"}`,
+            `attempt=${recoveredExecution?.attempt ?? "missing"}`,
+            `failureClass=${classifyRecoveryFailure(recoveredExecution?.error)}`,
+            `rateLimitScope=${classifyRecoveryRateLimitScope(recoveredExecution?.error)}`,
+            `modelSelected=${Boolean(observedModelSelection)}`,
+          ].join(", "),
         ).toBe("completed");
         expect(recoveredExecution!.attempt).toBeGreaterThan(0);
         expect(recoveredExecution!.finalMessageId).toBeTruthy();
