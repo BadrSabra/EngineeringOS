@@ -62,6 +62,23 @@ export function isCatalogFreeModelForCapability(
     (!options.requireStreaming || model.supportsStreaming !== false);
 }
 
+export function isCatalogPaidModelForCapability(
+  modelId: string,
+  options: FreeModelCapabilityOptions = {},
+): boolean {
+  const normalized = modelId.trim();
+  if (
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK !== "1" ||
+    process.env.OPENROUTER_PAID_MODEL?.trim() !== normalized
+  ) return false;
+  const model = getUsablePaidModelCandidates().find((candidate) => candidate.id === normalized);
+  return !!model &&
+    (!options.capability || model.capabilities.includes(options.capability)) &&
+    (!options.requireTools || model.supportsTools) &&
+    (!options.requireJson || model.supportsJson) &&
+    (!options.requireStreaming || model.supportsStreaming);
+}
+
 export type ResolvedModel = {
   id: string;
   label: string;

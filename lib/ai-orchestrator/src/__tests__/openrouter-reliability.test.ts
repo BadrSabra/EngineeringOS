@@ -396,6 +396,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     allow: process.env.OPENROUTER_ALLOW_PAID_FALLBACK,
     model: process.env.OPENROUTER_PAID_MODEL,
     capabilities: process.env.OPENROUTER_PAID_MODEL_CAPABILITIES,
+    configuredModel: process.env.OPENROUTER_MODEL,
   };
 
   beforeEach(() => {
@@ -412,6 +413,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       OPENROUTER_ALLOW_PAID_FALLBACK: previousEnv.allow,
       OPENROUTER_PAID_MODEL: previousEnv.model,
       OPENROUTER_PAID_MODEL_CAPABILITIES: previousEnv.capabilities,
+      OPENROUTER_MODEL: previousEnv.configuredModel,
     })) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -437,6 +439,70 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         ],
       });
   }
+
+  it("propagates the explicit paid-fallback opt-in through the provider strategy", async () => {
+    const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const calls: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      calls.push(body.model ?? "");
+      if (body.model === freeModel) {
+        return fetchResponse(429, {
+          error: { code: "rate_limit_exceeded", message: "shared pool limit" },
+        }) as Response;
+      }
+      return fetchResponse(200, {
+        choices: [{ message: { content: "paid success" } }],
+        model: body.model,
+        usage: {},
+      }) as Response;
+    }) as typeof fetch;
+
+    const result = await openrouterStrategy.call(
+      [{ role: "user", content: "hello" }],
+      {
+        apiKey: "fixture-key",
+        model: freeModel,
+        capability: "chat",
+        quality: "fast",
+        maxFallbackModels: 1,
+        retryTransient: false,
+      },
+    );
+
+    expect(result.content).toBe("paid success");
+    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
+  });
+
+  it("uses the exact paid model only when it is explicitly configured and cataloged", async () => {
+    const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    process.env.OPENROUTER_MODEL = "fixture/paid-tool-model";
+    const calls: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      calls.push(body.model ?? "");
+      return fetchResponse(200, {
+        choices: [{ message: { content: "paid pinned success" } }],
+        model: body.model,
+        usage: {},
+      }) as Response;
+    }) as typeof fetch;
+
+    const result = await openrouterStrategy.call(
+      [{ role: "user", content: "hello" }],
+      {
+        apiKey: "fixture-key",
+        model: "fixture/paid-tool-model",
+        capability: "chat",
+        quality: "fast",
+      },
+    );
+
+    expect(result.content).toBe("paid pinned success");
+    expect(calls).toEqual(["fixture/paid-tool-model"]);
+  });
 
   it("keeps paid candidates out of the free resolver and selects paid only after free exhaustion", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;

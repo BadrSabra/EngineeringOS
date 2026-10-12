@@ -2,6 +2,7 @@ import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   isCatalogFreeModel,
   isCatalogFreeModelForCapability,
+  isCatalogPaidModelForCapability,
   resolveFallbackChain,
   type FreeModelCapabilityOptions,
 } from "../openrouter/model-resolver.js";
@@ -123,6 +124,9 @@ export function resolveExecutionModel(
           requireTools,
         });
       } catch (error) {
+        if (isCatalogPaidModelForCapability(configuredModel, { capability, requireTools })) {
+          liveModel = configuredModel;
+        } else {
         // An environment-pinned model can become paid, retired, or lose the
         // requested capability between deploys. Treat it as a stale hint and
         // use the already-resolved live fallback chain instead of making a
@@ -136,6 +140,7 @@ export function resolveExecutionModel(
             reason: error instanceof Error ? error.message : "model is not currently usable",
           }),
         );
+        }
       }
     }
     if (fallbackChain.length === 0 && !liveModel) {

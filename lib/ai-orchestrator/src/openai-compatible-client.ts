@@ -26,6 +26,7 @@ import {
 import {
   buildFallbackChainFromId,
   isCatalogFreeModelForCapability,
+  isCatalogPaidModelForCapability,
   resolvePaidFallbackChain,
   resolveFallbackChain,
 } from "./openrouter/model-resolver.js";
@@ -1672,13 +1673,20 @@ export async function openrouterCompleteWithFallback(
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
+  const paidFallbackEnabled =
+    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
   const knownInitialModel = initialModel
-    ? FREE_MODELS.some((candidate) => candidate.id === initialModel)
+    ? FREE_MODELS.some((candidate) => candidate.id === initialModel) ||
+      (paidFallbackEnabled && isCatalogPaidModelForCapability(initialModel, {
+        capability,
+        requireTools,
+        requireJson: Boolean(opts.responseFormat),
+      }))
     : true;
   if (initialModel && !knownInitialModel) {
     throw new GroqClientError(
       "INVALID_CONFIG",
-      `OpenRouter configured model is not a known free catalog model: ${initialModel}`,
+      `OpenRouter configured model is not an eligible catalog model: ${initialModel}`,
       { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
     );
   }
@@ -1781,8 +1789,6 @@ export async function openrouterCompleteWithFallback(
   let lastError: GroqClientError | undefined;
   const attemptedModels: string[] = [];
   let paidTransitioned = false;
-  const paidFallbackEnabled =
-    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
   const appendPaidFallback = async (failure: GroqClientError, fromModel: string): Promise<boolean> => {
     if (paidTransitioned || !paidFallbackEnabled) return false;
     // OpenRouter uses MODEL_UNAVAILABLE for some 400 request-shape failures.
@@ -1809,6 +1815,7 @@ export async function openrouterCompleteWithFallback(
     });
     if (paid.length === 0) return false;
     const nextModel = paid[0]!.id;
+    if (attemptedModels.includes(nextModel)) return false;
     chain = [...chain, nextModel];
     paidTransitioned = true;
     console.warn(JSON.stringify({

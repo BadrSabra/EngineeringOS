@@ -48,13 +48,16 @@ if (!liveProvider || missingEnvironment.length > 0) {
   process.exit(2);
 }
 
-if (
-  liveProvider === "openrouter" &&
-  process.env.OPENROUTER_MODEL &&
-  !process.env.OPENROUTER_MODEL.trim().endsWith(":free")
-) {
-  console.error("OpenRouter recovery accepts only a model explicitly marked :free.");
-  process.exit(2);
+if (liveProvider === "openrouter" && process.env.OPENROUTER_MODEL) {
+  const model = process.env.OPENROUTER_MODEL.trim();
+  const paidOptIn =
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1" &&
+    process.env.OPENROUTER_PAID_MODEL?.trim() === model &&
+    (process.env.OPENROUTER_PAID_MODEL_CAPABILITIES ?? "").split(",").map((value) => value.trim()).includes("tool_calling");
+  if (!model.endsWith(":free") && !paidOptIn) {
+    console.error("OpenRouter recovery accepts only a registered free model or an explicitly configured paid tool model.");
+    process.exit(2);
+  }
 }
 
 const secretValues = Object.values(process.env).filter(
