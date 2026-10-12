@@ -810,6 +810,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         },
       }), 429, new Headers({ "Retry-After": "120" })));
     vi.stubGlobal("fetch", fetchMock);
+    const executionLedger = createExecutionLedger();
 
     await expect(
       oacCompleteRaw(baseMessages as any, {
@@ -817,6 +818,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         model: primaryModel,
         maxTokens: 10,
         waitOnRateLimit: true,
+        executionLedger,
         baseUrl: "https://example.test/v1",
         providerName: "OpenRouter",
       }),
@@ -827,6 +829,12 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.rateLimitScope === "upstream_shared_pool",
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(executionLedger.snapshot().events).toContainEqual(expect.objectContaining({
+      kind: "provider_attempt",
+      status: "failed",
+      reason: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    }));
   });
 
   it.each([

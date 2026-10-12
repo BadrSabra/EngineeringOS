@@ -5,8 +5,10 @@ import {
   aiUsageEventsTable,
   operatorAlertsTable,
   AI_CONTRACT_OUTCOMES,
+  AI_RATE_LIMIT_SCOPES,
   AI_RECOVERY_OUTCOMES,
   type AiContractOutcome,
+  type AiRateLimitScope,
   type AiRecoveryOutcome,
   type AiUsageEvent,
 } from "@workspace/db";
@@ -60,6 +62,7 @@ export type AiTelemetryAttempt = {
   contractRecoveryLatencyMs?: number | null;
   contractFailureKind?: string | null;
   providerFailureKind?: string | null;
+  rateLimitScope?: AiRateLimitScope | null;
 };
 
 export type AiContractTelemetry = Pick<
@@ -83,6 +86,7 @@ type AiExecutionTelemetryRow = Pick<
   | "recoveryOutcome"
   | "contractFailureKind"
   | "providerFailureKind"
+  | "rateLimitScope"
 >>;
 
 function incrementCategory(
@@ -90,6 +94,11 @@ function incrementCategory(
   category: string,
 ): void {
   counts[category] = (counts[category] ?? 0) + 1;
+}
+
+function isAiRateLimitScope(value: unknown): value is AiRateLimitScope {
+  return typeof value === "string"
+    && AI_RATE_LIMIT_SCOPES.includes(value as AiRateLimitScope);
 }
 
 function contractFailureCategory(
@@ -132,6 +141,7 @@ export function projectAiExecutionDiagnostics(
     fallbackAttempts: number;
   }>();
   const providerFailures: Partial<Record<AiExecutionProviderFailureCategory, number>> = {};
+  const rateLimitScopes: Partial<Record<AiRateLimitScope, number>> = {};
   const contractFailures: Partial<Record<AiExecutionContractFailureCategory, number>> = {};
 
   let failedAttempts = 0;
@@ -158,6 +168,12 @@ export function projectAiExecutionDiagnostics(
       const category = classifyProviderFailure({ code: row.providerFailureKind });
       if (category && AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES.includes(category)) {
         incrementCategory(providerFailures, category);
+        if (
+          category === "RATE_LIMITED"
+          && isAiRateLimitScope(row.rateLimitScope)
+        ) {
+          incrementCategory(rateLimitScopes, row.rateLimitScope);
+        }
       }
     }
     const contractCategory = contractFailureCategory(row);
@@ -182,6 +198,7 @@ export function projectAiExecutionDiagnostics(
       provider: providerFailures,
       contract: contractFailures,
     },
+    rateLimitScopes,
   };
 }
 
@@ -196,6 +213,7 @@ export async function getAiExecutionDiagnostics(params: {
       fallbackCount: aiUsageEventsTable.fallbackCount,
       contractOutcome: aiUsageEventsTable.contractOutcome,
       providerFailureKind: aiUsageEventsTable.providerFailureKind,
+      rateLimitScope: aiUsageEventsTable.rateLimitScope,
     })
     .from(aiUsageEventsTable)
     .where(and(
@@ -406,6 +424,12 @@ export async function recordAiUsageAttempt(
       contractRecoveryLatencyMs: boundedInteger(attempt.contractRecoveryLatencyMs),
       contractFailureKind: safeText(attempt.contractFailureKind, 80),
       providerFailureKind: safeText(attempt.providerFailureKind, 80),
+      rateLimitScope:
+        classifyProviderFailure({ code: attempt.providerFailureKind ?? undefined }) === "RATE_LIMITED"
+        && attempt.rateLimitScope
+        && AI_RATE_LIMIT_SCOPES.includes(attempt.rateLimitScope)
+          ? attempt.rateLimitScope
+          : null,
       occurredAt: now,
       expiresAt,
     }).onConflictDoNothing({ target: aiUsageEventsTable.attemptId });

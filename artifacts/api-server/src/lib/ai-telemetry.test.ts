@@ -31,6 +31,7 @@ describe("durable AI telemetry", () => {
         fallbackCount: 0,
         contractOutcome: "semantic_failure",
         providerFailureKind: "RATE_LIMITED",
+        rateLimitScope: "upstream_shared_pool",
       },
       {
         provider: "gemini",
@@ -62,11 +63,49 @@ describe("durable AI telemetry", () => {
         provider: { RATE_LIMITED: 1, UNKNOWN: 1 },
         contract: { SEMANTIC_FAILURE: 1, MALFORMED_RESPONSE: 1, MISSING_CLAIMS: 1 },
       },
+      rateLimitScopes: { upstream_shared_pool: 1 },
     });
     const serialized = JSON.stringify(diagnostics);
     expect(serialized).not.toContain("untrusted-provider");
     expect(serialized).not.toContain("https://secret.invalid");
     expect(serialized).not.toContain("sk-live");
+  });
+
+  it("omits unknown rate-limit scope text from execution diagnostics", () => {
+    const diagnostics = projectAiExecutionDiagnostics([{
+      provider: "openrouter",
+      outcome: "failure",
+      fallbackCount: 0,
+      contractOutcome: "not_applicable",
+      providerFailureKind: "RATE_LIMITED",
+      rateLimitScope: "provider body token=sk-live",
+    }]);
+
+    expect(diagnostics.rateLimitScopes).toEqual({});
+    expect(JSON.stringify(diagnostics)).not.toContain("provider body");
+    expect(JSON.stringify(diagnostics)).not.toContain("sk-live");
+  });
+
+  it("persists only allowlisted rate-limit scope values", async () => {
+    const correlationId = `rate-limit-scope-${crypto.randomUUID()}`;
+    createdCorrelations.push(correlationId);
+    await recordAiUsageAttempt({
+      userId: "telemetry-owner",
+      projectId: "telemetry-project",
+      correlationId,
+    }, {
+      attemptId: `${correlationId}:invalid-scope`,
+      provider: "openrouter",
+      outcome: "failure",
+      providerFailureKind: "RATE_LIMITED",
+      rateLimitScope: "provider body token=sk-live" as never,
+    });
+
+    const [row] = await db.select().from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.correlationId, correlationId));
+    expect(row?.rateLimitScope).toBeNull();
+    expect(JSON.stringify(row)).not.toContain("provider body");
+    expect(JSON.stringify(row)).not.toContain("sk-live");
   });
 
   it("separates provider success from an incomplete capability contract", () => {
@@ -185,7 +224,8 @@ describe("durable AI telemetry", () => {
         attemptNumber: 1,
         fallbackCount: 0,
         usageStatus: "unknown",
-        providerFailureKind: "TIMEOUT",
+        providerFailureKind: "RATE_LIMITED",
+        rateLimitScope: "provider_credential",
       }),
       recordAiUsageAttempt(context, {
         attemptId: `${correlationId}:groq:1`,
@@ -195,7 +235,8 @@ describe("durable AI telemetry", () => {
         attemptNumber: 1,
         fallbackCount: 0,
         usageStatus: "unknown",
-        providerFailureKind: "TIMEOUT",
+        providerFailureKind: "RATE_LIMITED",
+        rateLimitScope: "provider_credential",
       }),
     ]);
 
@@ -209,7 +250,8 @@ describe("durable AI telemetry", () => {
       usageStatus: "unknown",
       promptTokens: null,
       completionTokens: null,
-      providerFailureKind: "TIMEOUT",
+      providerFailureKind: "RATE_LIMITED",
+      rateLimitScope: "provider_credential",
     });
     expect(Object.keys(rows[0]).some((key) => /source|secret|api_key|provider_key|prompt_content/i.test(key))).toBe(false);
   });

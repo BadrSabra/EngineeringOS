@@ -107,6 +107,10 @@ export type AiExecutionDiagnostics = {
     provider: Partial<Record<AiExecutionProviderFailureCategory, number>>;
     contract: Partial<Record<AiExecutionContractFailureCategory, number>>;
   };
+  rateLimitScopes?: Partial<Record<
+    "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown",
+    number
+  >>;
 };
 
 /**

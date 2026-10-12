@@ -3725,6 +3725,29 @@ export type AiExecutionDiagnosticsFailureCategories = {
   contract: AiExecutionDiagnosticsFailureCategoriesContract;
 };
 
+export type AiExecutionDiagnosticsRateLimitScopes = {
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  upstream_shared_pool?: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  provider_credential?: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  account_quota?: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  unknown?: number;
+};
+
 export interface AiExecutionDiagnostics {
   schemaVersion: AiExecutionDiagnosticsSchemaVersion;
   /**
@@ -3750,6 +3773,7 @@ export interface AiExecutionDiagnostics {
   /** @maxItems 4 */
   providers: AiExecutionDiagnosticsProvidersItem[];
   failureCategories: AiExecutionDiagnosticsFailureCategories;
+  rateLimitScopes?: AiExecutionDiagnosticsRateLimitScopes;
 }
 
 export interface AiExecutionEvidenceBraidEvent {

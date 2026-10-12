@@ -3589,6 +3589,7 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       model: "private-model-name",
       outcome: "failure",
       providerFailureKind: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
       fallbackCount: 0,
     });
     await recordAiUsageAttempt({
@@ -3626,6 +3627,7 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
         provider: { RATE_LIMITED: 1 },
         contract: { MALFORMED_RESPONSE: 1 },
       },
+      rateLimitScopes: { upstream_shared_pool: 1 },
     });
     const serialized = JSON.stringify({
       detail: detail.body.executionDiagnostics,

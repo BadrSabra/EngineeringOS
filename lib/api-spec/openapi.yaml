@@ -7458,6 +7458,14 @@ components:
                 type: integer
                 minimum: 0
                 maximum: 5000
+        rateLimitScopes:
+          type: object
+          additionalProperties: false
+          properties:
+            upstream_shared_pool: { type: integer, minimum: 0, maximum: 5000 }
+            provider_credential: { type: integer, minimum: 0, maximum: 5000 }
+            account_quota: { type: integer, minimum: 0, maximum: 5000 }
+            unknown: { type: integer, minimum: 0, maximum: 5000 }
 
     AiExecutionProjection:
       type: object

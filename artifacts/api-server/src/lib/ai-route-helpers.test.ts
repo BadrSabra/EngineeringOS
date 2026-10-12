@@ -184,6 +184,7 @@ describe("ledger provider-attempt projection", () => {
         operation: "provider_request",
         durationMs: 12,
         reason: "MODEL_NOT_FOUND",
+        rateLimitScope: "upstream_shared_pool",
       },
       {
         kind: "provider_attempt",
@@ -221,6 +222,7 @@ describe("ledger provider-attempt projection", () => {
         attemptNumber: 1,
         fallbackCount: 0,
         providerFailureKind: "MODEL_NOT_FOUND",
+        rateLimitScope: "upstream_shared_pool",
       },
       {
         attemptId: "provider-request:2",

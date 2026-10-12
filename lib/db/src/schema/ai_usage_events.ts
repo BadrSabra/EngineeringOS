@@ -20,6 +20,14 @@ export const AI_RECOVERY_OUTCOMES = [
 ] as const;
 export type AiRecoveryOutcome = (typeof AI_RECOVERY_OUTCOMES)[number];
 
+export const AI_RATE_LIMIT_SCOPES = [
+  "upstream_shared_pool",
+  "provider_credential",
+  "account_quota",
+  "unknown",
+] as const;
+export type AiRateLimitScope = (typeof AI_RATE_LIMIT_SCOPES)[number];
+
 /**
  * Durable, content-free AI provider attempt telemetry.
  *
@@ -54,6 +62,7 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   contractRecoveryLatencyMs: integer("contract_recovery_latency_ms"),
   contractFailureKind: text("contract_failure_kind"),
   providerFailureKind: text("provider_failure_kind"),
+  rateLimitScope: text("rate_limit_scope"),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 }, (t) => [

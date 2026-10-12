@@ -4500,6 +4500,18 @@ export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProvider
 export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne = 0;
 export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
 
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMax = 5000;
+
 export const getAiExecutionResponseProjectionPhaseMax = 80;
 
 export const getAiExecutionResponseProjectionObjectiveMax = 500;
@@ -4711,7 +4723,13 @@ export const GetAiExecutionResponse = zod.object({
   "failureCategories": zod.object({
   "provider": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne)),
   "contract": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne))
-})
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMax).optional(),
+  "provider_credential": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax).optional(),
+  "account_quota": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax).optional(),
+  "unknown": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMax).optional()
+}).optional()
 }),
   "projection": zod.object({
   "schemaVersion": zod.literal(2),
@@ -5179,6 +5197,18 @@ export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategories
 export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMinOne = 0;
 export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
 
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMax = 5000;
+
 
 
 export const ExportAiExecutionAuditResponse = zod.object({
@@ -5244,7 +5274,13 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "failureCategories": zod.object({
   "provider": zod.record(zod.string(), zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMinOne).max(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne)),
   "contract": zod.record(zod.string(), zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMinOne).max(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMaxOne))
-})
+}),
+  "rateLimitScopes": zod.object({
+  "upstream_shared_pool": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUpstreamSharedPoolMax).optional(),
+  "provider_credential": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax).optional(),
+  "account_quota": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax).optional(),
+  "unknown": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMax).optional()
+}).optional()
 }),
   "timeline": zod.array(zod.record(zod.string(), zod.unknown())),
   "validations": zod.array(zod.record(zod.string(), zod.unknown())),

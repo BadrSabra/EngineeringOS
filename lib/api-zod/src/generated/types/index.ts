@@ -100,6 +100,7 @@ export * from './aiExecutionDiagnosticsFailureCategoriesContract';
 export * from './aiExecutionDiagnosticsFailureCategoriesProvider';
 export * from './aiExecutionDiagnosticsProvidersItem';
 export * from './aiExecutionDiagnosticsProvidersItemProvider';
+export * from './aiExecutionDiagnosticsRateLimitScopes';
 export * from './aiExecutionDiagnosticsSchemaVersion';
 export * from './aiExecutionEvidenceBraid';
 export * from './aiExecutionEvidenceBraidEffect';

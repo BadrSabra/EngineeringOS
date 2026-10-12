@@ -621,6 +621,7 @@ export async function emitLedgerProviderAttempts(
         attemptNumber: state.attemptNumber,
         fallbackCount: state.fallbackCount,
         providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
+        ...(event.rateLimitScope ? { rateLimitScope: event.rateLimitScope } : {}),
         promptTokens: usage.promptTokens ?? null,
         completionTokens: usage.completionTokens ?? null,
         usageStatus: usage.usageStatus ?? "unknown",
@@ -872,6 +873,7 @@ export async function runAgentWithFallback<T>(
           attemptNumber: Math.max(1, modelAttemptNumber + 1),
           fallbackCount: logicalFallbackCount,
           providerFailureKind: providerError.code,
+          rateLimitScope: providerError.rateLimitScope,
           usageStatus: "unknown",
         });
       }

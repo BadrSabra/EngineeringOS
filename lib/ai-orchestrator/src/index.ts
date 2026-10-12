@@ -385,7 +385,7 @@ export { decideRetry } from "./quality/retry-controller.js";
 export type { RetryDecision } from "./quality/retry-controller.js";
 
 export { GroqClientError } from "./errors.js";
-export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+export type { AgentErrorCode, GroqErrorCode, ProviderRateLimitScope } from "./errors.js";
 export {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,

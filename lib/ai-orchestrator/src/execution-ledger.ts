@@ -6,6 +6,8 @@
  * request may perform across all orchestration seams.
  */
 
+import type { ProviderRateLimitScope } from "./errors.js";
+
 export type ExecutionMode =
   | "simple_chat"
   | "tool_chat"
@@ -56,6 +58,7 @@ export type ExecutionLedgerEvent = {
   model?: string;
   operation?: string;
   reason?: string;
+  rateLimitScope?: ProviderRateLimitScope;
 };
 
 export type ExecutionLedgerSnapshot = {
@@ -254,6 +257,7 @@ export type ExecutionLedger = {
       startedAt?: number;
       status?: "completed" | "failed";
       reason?: string;
+      rateLimitScope?: ProviderRateLimitScope;
     },
   ): void;
   admitProviderRequest?(details: {
@@ -270,6 +274,7 @@ export type ExecutionLedger = {
     startedAt?: number;
     status?: "completed" | "failed";
     reason?: string;
+    rateLimitScope?: ProviderRateLimitScope;
     usage?: ProviderRequestUsage;
   }): Promise<void>;
   setProviderRequestBudgetHooks?(hooks: ProviderRequestBudgetHooks | undefined): void;
@@ -415,6 +420,7 @@ export function createExecutionLedger(options?: {
           ? { durationMs: Math.max(0, at - details.startedAt) }
           : {}),
         ...(details?.reason ? { reason: details.reason.slice(0, 160) } : {}),
+        ...(details?.rateLimitScope ? { rateLimitScope: details.rateLimitScope } : {}),
       });
       if (events.length > MAX_LEDGER_EVENTS) events.splice(0, events.length - MAX_LEDGER_EVENTS);
     },
@@ -454,6 +460,7 @@ export function createExecutionLedger(options?: {
         ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
         status,
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.rateLimitScope ? { rateLimitScope: input.rateLimitScope } : {}),
       });
       const hooks = input.reservationId
         ? providerRequestHooksByReservation.get(input.reservationId)

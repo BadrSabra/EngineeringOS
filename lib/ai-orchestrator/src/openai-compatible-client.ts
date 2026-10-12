@@ -457,6 +457,9 @@ async function completeProviderAttempt(
       ...(error
         ? {
             reason: error instanceof GroqClientError ? error.code : "PROVIDER_REQUEST_FAILED",
+            ...(error instanceof GroqClientError && error.rateLimitScope
+              ? { rateLimitScope: error.rateLimitScope }
+              : {}),
           }
         : {}),
     });
@@ -474,6 +477,9 @@ async function completeProviderAttempt(
           reason: error instanceof GroqClientError
             ? error.code
             : "PROVIDER_REQUEST_FAILED",
+          ...(error instanceof GroqClientError && error.rateLimitScope
+            ? { rateLimitScope: error.rateLimitScope }
+            : {}),
         }
       : {}),
   });

@@ -7,6 +7,7 @@
  */
 import type { AiExecutionDiagnosticsFailureCategories } from './aiExecutionDiagnosticsFailureCategories';
 import type { AiExecutionDiagnosticsProvidersItem } from './aiExecutionDiagnosticsProvidersItem';
+import type { AiExecutionDiagnosticsRateLimitScopes } from './aiExecutionDiagnosticsRateLimitScopes';
 import type { AiExecutionDiagnosticsSchemaVersion } from './aiExecutionDiagnosticsSchemaVersion';
 
 export interface AiExecutionDiagnostics {
@@ -34,4 +35,5 @@ export interface AiExecutionDiagnostics {
   /** @maxItems 4 */
   providers: AiExecutionDiagnosticsProvidersItem[];
   failureCategories: AiExecutionDiagnosticsFailureCategories;
+  rateLimitScopes?: AiExecutionDiagnosticsRateLimitScopes;
 }
