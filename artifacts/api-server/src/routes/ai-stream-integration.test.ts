@@ -3330,6 +3330,26 @@ describe("Durable AI execution crash/reconnect", () => {
           if (row?.status === "completed" || row?.status === "failed") break;
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
+        const [terminalAcceptance] = recoveredExecution
+          ? await db
+              .select({
+                outcome: aiExecutionAcceptancesTable.outcome,
+                reasonCode: aiExecutionAcceptancesTable.reasonCode,
+                nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+                evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+                evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+              })
+              .from(aiExecutionAcceptancesTable)
+              .where(and(
+                eq(aiExecutionAcceptancesTable.executionId, executionId!),
+                eq(aiExecutionAcceptancesTable.attempt, recoveredExecution.attempt),
+              ))
+              .limit(1)
+          : [];
+        const safeAcceptanceCode = (value: unknown) =>
+          typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(value)
+            ? value
+            : "unavailable";
         const rateLimitAttempts = await db
           .select({
             rateLimitScope: aiUsageEventsTable.rateLimitScope,
@@ -3359,6 +3379,10 @@ describe("Durable AI execution crash/reconnect", () => {
             `selectedProvider=${observedModelSelection?.provider ?? "not-selected"}`,
             `selectedModel=${observedModelSelection?.model ?? "not-selected"}`,
             `safeFailureDetail=${classifyRecoveryFailureDetail(recoveredExecution?.error)}`,
+            `acceptanceOutcome=${safeAcceptanceCode(terminalAcceptance?.outcome)}`,
+            `acceptanceReason=${safeAcceptanceCode(terminalAcceptance?.reasonCode)}`,
+            `acceptanceNextAction=${safeAcceptanceCode(terminalAcceptance?.nextActionCode)}`,
+            `evidence=${terminalAcceptance?.evidenceComplete ?? "?"}/${terminalAcceptance?.evidenceRequired ?? "?"}`,
           ].join(", "),
         ).toBe("completed");
         expect(recoveredExecution!.attempt).toBeGreaterThan(0);
