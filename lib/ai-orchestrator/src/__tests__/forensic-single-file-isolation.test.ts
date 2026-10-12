@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -563,7 +564,7 @@ describe("single-file coverage gates through the full chat pipeline", () => {
 
     await mockChatProviders(fakeStrategy);
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: FORENSIC_MULTI_FILE_MESSAGE,
       history: [],
@@ -674,7 +675,7 @@ describe("single-file coverage gates through the full chat pipeline", () => {
     await mockChatProviders(fakeStrategy);
 
     const forensicStatuses: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: FORENSIC_SINGLE_MESSAGE(file),
       history: [],
@@ -739,7 +740,7 @@ describe("single-file coverage gates through the full chat pipeline", () => {
     await mockChatProviders(fakeStrategy);
 
     const forensicStatuses: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: FORENSIC_SINGLE_MESSAGE(file),
       history: [],
@@ -823,7 +824,7 @@ describe("single-file coverage gates through the full chat pipeline", () => {
     await mockChatProviders(fakeStrategy);
 
     const forensicStatuses: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       // Ordered-root classifier trigger: scoped directory forensic audit.
       // Must NOT start with an immediate-execution verb (نفّذ/ابدأ/…), which

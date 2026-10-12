@@ -17,6 +17,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -162,7 +163,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
 
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         message: BEHAVIOR_MESSAGE,
@@ -257,7 +258,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
     let diagnostics: string[] = [];
     let firstReadSource: string | undefined;
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: BEHAVIOR_WITH_PROSEROOTS_MESSAGE,
         history: [],
@@ -310,7 +311,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
 
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       await chat({
         message: `What happens when ./${FILE}'s run() is called? Answer with evidence from the file.`,
@@ -397,7 +398,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
     let diagnostics: string[] = [];
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: BEHAVIORAL_VERDICT_MESSAGE,
         history: [],
@@ -498,7 +499,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
     await mockChatProviders(fakeStrategy);
     let diagnostics: string[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: BEHAVIORAL_VERDICT_MESSAGE,
         history: [],

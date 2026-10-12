@@ -26,6 +26,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -186,7 +187,7 @@ describe(
     let steps: AgentStep[] = [];
     let ok = false;
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         message: FORENSIC_SINGLE_MESSAGE(FILE),

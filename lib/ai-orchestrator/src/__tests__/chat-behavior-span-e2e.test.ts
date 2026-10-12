@@ -13,6 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -135,7 +136,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "What does pick return when flag is false?",
         history: [],
@@ -228,7 +229,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message:
           "ماذا يحدث عندما تنتهي مهلة provider timeout لمزود الذكاء الاصطناعي داخل src/tools/execution-tools.ts؟",
@@ -343,7 +344,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
         history: [],
@@ -417,7 +418,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
         history: [],

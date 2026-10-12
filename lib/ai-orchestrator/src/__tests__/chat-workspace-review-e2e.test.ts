@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -140,7 +141,7 @@ describe("chat() WORKSPACE_REVIEW evidence contract", () => {
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "review the entire workspace",
         history: [],
@@ -246,7 +247,7 @@ describe("chat() WORKSPACE_REVIEW evidence contract", () => {
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "review the entire workspace",
         history: [],

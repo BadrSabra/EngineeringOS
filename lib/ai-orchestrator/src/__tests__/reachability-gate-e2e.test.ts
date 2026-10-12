@@ -16,6 +16,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -308,7 +309,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove that computeCentrality is reachable in production.",
       history: [],
@@ -361,7 +362,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable.",
       history: [],
@@ -412,7 +413,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     });
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "What does maxIterations do?",
       history: [],
@@ -458,7 +459,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable in production.",
       history: [],
@@ -517,7 +518,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(readThenAnswerStrategy("src/engine.ts", answerJson, calls));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable from runEngine.",
       history: [],
@@ -590,7 +591,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(readThenAnswerStrategy("src/unrelated.ts", answerJson, calls));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable from runEngine.",
       history: [],
@@ -645,7 +646,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is called from the API route handler.",
       history: [],
@@ -695,7 +696,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       // Explicit reachability-proof request (activates the gate via intent).
       message: "Prove computeCentrality is reachable in production.",
@@ -745,7 +746,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(makeFakeStrategy(behavioralResponse));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "أثبت أن الدالة computeCentrality قابلة للوصول في الإنتاج.",
       history: [],
@@ -801,7 +802,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
 
     const steps: AgentStep[] = [];
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "أثبت أن الدالة computeCentrality قابلة للوصول في الإنتاج.",
       history: [],
@@ -872,7 +873,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
 
     const steps: AgentStep[] = [];
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable from runEngine in production.",
       history: [],
@@ -953,7 +954,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
 
     const steps: AgentStep[] = [];
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "أثبت أن الدالة computeCentrality قابلة للوصول من runEngine في الإنتاج.",
       history: [],
@@ -1037,7 +1038,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
 
     const steps: AgentStep[] = [];
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "أثبت أن الدالة computeCentrality قابلة للوصول من runEngine في الإنتاج.",
       history: [],
@@ -1119,7 +1120,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     );
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "أثبت أن الدالة computeCentrality قابلة للوصول من runEngine في الإنتاج.",
       history: [],
@@ -1187,7 +1188,7 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     await mockChatProviders(readThenAnswerStrategy("src/engine.ts", answerJson, calls));
 
     const steps: AgentStep[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Prove computeCentrality is reachable from runEngine.",
       history: [],

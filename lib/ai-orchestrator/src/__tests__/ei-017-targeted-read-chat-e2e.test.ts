@@ -29,6 +29,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -302,7 +303,7 @@ describe(
     let ok = false;
     try {
       const { rangeReads, capturedLedgers } = await mockChatProviders(rec);
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         message: MESSAGE,
@@ -327,6 +328,12 @@ describe(
       //    reach the NEXT recovery attempt's model messages — otherwise nothing
       //    "reaches the model" (task #36's core requirement).
       expect(recoveryCalls.length).toBeGreaterThanOrEqual(2);
+      expect(rangeReads.length).toBeGreaterThan(0);
+      expect(
+        steps.some(
+          (step) => step.kind === "diagnostic" && step.code === "FORENSIC_TARGETED_READ_ISSUED",
+        ),
+      ).toBe(true);
       const secondUserContent = userContent(rec.messagesByCall[recoveryCalls[recoveryCalls.length - 1]!]);
       expect(secondUserContent).toContain("RECOVERED TARGETED EVIDENCE");
       expect(secondUserContent).toContain("verifiedRead");
@@ -355,7 +362,6 @@ describe(
       expect(secondUserContent).toContain("export function verifiedRead()");
 
       // 1. executeFileTool("read_file_range", …) fired — the EI-017 targeted read.
-      expect(rangeReads.length).toBeGreaterThan(0);
       expect(rangeReads[0]!.path).toBe(FILE);
       expect(Number(rangeReads[0]!.startLine)).toBeGreaterThan(0);
       expect(Number(rangeReads[0]!.endLine)).toBeGreaterThan(Number(rangeReads[0]!.startLine));

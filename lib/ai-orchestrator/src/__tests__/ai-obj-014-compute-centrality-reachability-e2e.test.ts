@@ -27,6 +27,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -334,7 +335,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
     await mockChatProviders(fakeStrategy, captures);
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         message: FORENSIC_CALLER_MESSAGE(GRAPH_EXTRACTOR),
@@ -425,7 +426,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
     await mockChatProviders(fakeStrategy, captures);
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         message: FORENSIC_CALLER_MESSAGE(GRAPH_EXTRACTOR),
@@ -493,7 +494,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
       await mockChatProviders(strategy, captures);
 
       try {
-        const { chat } = await import("../agents/chat-agent.js");
+        const chat = await loadChatWithTestLifecycleSinks();
         const result = await chat({
           message: FORENSIC_CALLER_MESSAGE(GRAPH_EXTRACTOR),
           history: [],
@@ -576,7 +577,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
     await mockChatProviders(fakeStrategy, captures);
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         // An explicit behavior query: names the behavior + file and asks for a
@@ -799,7 +800,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
     });
     let steps: AgentStep[] = [];
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       steps = [];
       const result = await chat({
         // Same structured forensic trigger as the ei-017 recovery harness so the

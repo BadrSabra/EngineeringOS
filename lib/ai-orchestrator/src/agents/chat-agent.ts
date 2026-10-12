@@ -7904,7 +7904,7 @@ export async function chat(opts: {
     (toolManifest ?? []).map((tool) => tool.function.name),
   );
   const effectiveServerReadToolNames = new Set(
-    (tools ?? [])
+    (toolManifest ?? [])
       .map((tool) => tool.function.name)
       .filter(
         (name) =>

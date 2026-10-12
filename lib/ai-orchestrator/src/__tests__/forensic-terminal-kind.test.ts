@@ -17,6 +17,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -183,7 +184,7 @@ describe("chat() emits a forensic_terminal step explaining a NOT_PROVEN run (tas
 
     try {
       const steps: AgentStep[] = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: "Does the loop run at most 20 iterations?",
         history: [],

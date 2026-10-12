@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -194,7 +195,7 @@ describe("chat() closed-loop objective replanning", () => {
     };
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const result = await chat({
         message: [
@@ -382,7 +383,7 @@ describe("chat() closed-loop objective replanning", () => {
     };
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const result = await chat({
         message: "Explain how the secondary source is retained.",
@@ -530,7 +531,7 @@ describe("chat() closed-loop objective replanning", () => {
     };
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
       const result = await chat({
         message: "Explain how the objective claim is retained from source evidence.",
