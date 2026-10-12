@@ -10670,7 +10670,11 @@ export async function chat(opts: {
                   timeoutMs,
                   retryTransient: false,
                   ...(recoveryProvider.provider === "openrouter"
-                    ? { capability: "chat" as const, quality: "fast" as const }
+                    ? {
+                        capability: "chat" as const,
+                        quality: "fast" as const,
+                        maxFallbackModels: 3,
+                      }
                     : {}),
                   toolChoice: "none",
                   ...(recoveryProvider.provider === "openrouter" && recoveryExcludedModels.size > 0

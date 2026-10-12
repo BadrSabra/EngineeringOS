@@ -305,7 +305,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       };
     });
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const steps: AgentStep[] = [];
     const result = await chat({
       message,
@@ -442,7 +442,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     });
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const baseIntent = resolveTurnIntent(question);
       await chat({
         message: question,
@@ -506,7 +506,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -548,7 +548,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(executionLedger.admit("planner", { operation: "query_plan" })).toBe(true);
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const message = `What does ${relativePath} do?`;
       const result = await chat({
         message,
@@ -714,7 +714,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const message = `What does ${relativePath} do?`;
       const turnIntent = resolveTurnIntent(message);
       const steps: AgentStep[] = [];
@@ -783,7 +783,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "مرحبا",
       history: [],
@@ -1211,7 +1211,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const executionLedger = createExecutionLedger();
     const result = await chat({
       message: "What is this project?",
@@ -1286,7 +1286,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const withoutRuntimeLinks: AgentStep[] = [];
     const withoutRuntimeResult = await chat({
       message: "hello",
@@ -1360,7 +1360,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "What happens when maxIterations is reached?",
       history: [],
@@ -1491,7 +1491,7 @@ describe("chat agent — provider empty-final response contract", () => {
       }));
 
       try {
-        const { chat } = await import("../agents/chat-agent.js");
+        const chat = await loadChatWithTestLifecycleSinks();
         const result = await chat({
           message:
             `Perform a forensic audit of exactly ${relativeFile}. ` +
@@ -1567,7 +1567,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -1622,7 +1622,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -1662,7 +1662,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -1697,7 +1697,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       geminiCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -1725,7 +1725,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -2518,7 +2518,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -2549,7 +2549,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       geminiCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -2577,7 +2577,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -2606,7 +2606,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       geminiCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -2652,7 +2652,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -2735,7 +2735,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       })),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: [
         "أنت وكيل تحليل هندسي جنائي.",
@@ -2796,7 +2796,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message: [
           "أنت وكيل تدقيق جنائي. Perform a structured forensic audit باللغة العربية على الملف src/target.ts.",
@@ -2880,7 +2880,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       })),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     let steps: AgentStep[] = [];
     try {
       const result = await chat({
@@ -2972,7 +2972,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       })),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: [
         "أنت وكيل تحليل هندسي جنائي.",
@@ -4103,7 +4103,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const forensicStatuses: Array<Record<string, unknown>> = [];
       const result = await chat({
         // Arabic phrase that the classifier routes to an explicit fixture
@@ -4234,7 +4234,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const forensicStatuses: Array<Record<string, unknown>> = [];
       await chat({
         // Same phrase as the fixture-audit test — "لملف واحد فقط" is the
@@ -4346,7 +4346,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     try {
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const forensicStatuses: Array<Record<string, unknown>> = [];
       await chat({
         // Message format matches the fixture-audit test so the classifier
@@ -4624,7 +4624,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }));
 
     const deltas: string[] = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
 
     const result = await chat({
       message: "hello",
@@ -4661,7 +4661,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       openrouterCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "Please list files in this project.",
       history: [],
@@ -4747,7 +4747,7 @@ describe("chat agent — Arabic execution intent detection", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "اكتب ملفات الاختبار المطلوبة وقم بتنفيذها",
       history: [],
@@ -4835,7 +4835,7 @@ describe("chat agent — Arabic execution intent detection", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "نفذ الخطة",
       history: [
@@ -4872,7 +4872,7 @@ describe("chat agent — Arabic execution intent detection", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "نفذ Repair Plan",
       history: [],
@@ -4892,7 +4892,7 @@ describe("chat agent — Arabic execution intent detection", () => {
       },
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "نفذ Repair Plan",
       history: [
@@ -4937,7 +4937,7 @@ describe("chat agent — fallback output normalization", () => {
       geminiCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: "hello",
       history: [],
@@ -4959,7 +4959,7 @@ describe("chat agent — fallback output normalization", () => {
       geminiCompleteStream: vi.fn(),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: [
         "Task #65 — Make task replies show which items were finished.",
@@ -5046,7 +5046,7 @@ describe("chat agent — TIMEOUT degradation (task #67)", () => {
       })),
     }));
 
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message: [
         "Task #67 — Implement the timeout degradation path.",

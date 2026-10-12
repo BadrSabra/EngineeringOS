@@ -205,6 +205,7 @@ const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
 /** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
 const MAX_GRAPH_FILES = 15;
+const GRAPH_ENRICHMENT_TIMEOUT_MS = 2_000;
 const MAX_GRAPH_GUIDED_FILES = 10;
 const MAX_GRAPH_GUIDED_ROOTS = 4;
 const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
@@ -1174,7 +1175,27 @@ async function enrichPlanWithGraph(
     return { ...plan, targetFiles: merged };
   };
 
-  return enrichAsync().catch(() => plan);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const enriched = await Promise.race([
+      enrichAsync().catch(() => plan),
+      new Promise<null>((resolveTimeout) => {
+        timeout = setTimeout(() => resolveTimeout(null), GRAPH_ENRICHMENT_TIMEOUT_MS);
+      }),
+    ]);
+    if (enriched === null) {
+      console.warn(JSON.stringify({
+        scope: "query-planner",
+        code: "GRAPH_ENRICH_TIMEOUT",
+        projectId,
+        timeoutMs: GRAPH_ENRICHMENT_TIMEOUT_MS,
+      }));
+      return plan;
+    }
+    return enriched;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────

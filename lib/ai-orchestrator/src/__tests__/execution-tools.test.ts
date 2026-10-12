@@ -221,10 +221,15 @@ describe("execution tools", () => {
       allowExecutionTools: true,
       approvalState: "APPROVED",
       approvedValidationProfiles: ["workspace-typecheck"],
+      allowedToolNames: new Set(["run_validation"]),
     });
 
     expect(result.kind).toBe("ok");
-    expect(runner).toHaveBeenCalledWith("workspace-typecheck", ["src/approved.ts"]);
+    expect(runner).toHaveBeenCalledWith(
+      "workspace-typecheck",
+      ["src/approved.ts"],
+      expect.any(AbortSignal),
+    );
     expect(result.kind === "ok" && JSON.parse(result.output)).toMatchObject({
       tool: "run_validation",
       status: "passed",

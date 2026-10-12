@@ -756,7 +756,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     });
     const deltas: string[] = [];
     const steps: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message,
       history: [],
@@ -901,7 +901,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       });
       const deltas: string[] = [];
       const steps: Array<Record<string, unknown>> = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message,
         history: [],
@@ -1289,7 +1289,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         resumed: false,
       });
       const steps: Array<Record<string, unknown>> = [];
-      const { chat } = await import("../agents/chat-agent.js");
+      const chat = await loadChatWithTestLifecycleSinks();
       const result = await chat({
         message,
         history: [],
@@ -1529,7 +1529,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       resumed: false,
     });
     const steps: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message,
       history: [],
@@ -1752,7 +1752,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       resumed: false,
     });
     const steps: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message,
       history: [],
@@ -1893,7 +1893,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(turnIntent.kind).toBe("PROJECT_QUERY");
 
     const steps: Array<Record<string, unknown>> = [];
-    const { chat } = await import("../agents/chat-agent.js");
+    const chat = await loadChatWithTestLifecycleSinks();
     const result = await chat({
       message,
       history: [],

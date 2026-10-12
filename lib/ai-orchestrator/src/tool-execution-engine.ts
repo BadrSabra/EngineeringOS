@@ -385,6 +385,7 @@ function classifyExecutorOutputFailure(
   output: string,
 ): ExecutorOutputFailure | undefined {
   const text = output.trimStart();
+  if (isRecoverableReadRangeContractErrorOutput(name, text)) return undefined;
   if (FILE_TOOL_NAMES.has(name)) {
     if (
       /^Error (?:reading|listing)\b/u.test(text)
@@ -446,12 +447,20 @@ const RECOVERABLE_SCOPE_READ_TOOLS = new Set([
   "list_directory",
   "search_code",
 ]);
+const MAX_RECOVERABLE_READ_RANGE_REJECTIONS_PER_PATH = 2;
 
 function isRecoverableFileScopeErrorOutput(name: string, output: string): boolean {
   if (!RECOVERABLE_SCOPE_READ_TOOLS.has(name)) return false;
   const text = output.trim();
   return /^Error: .+ resolves outside the project root\.$/u.test(text)
     || /^Error: (?:reading|listing|searching) .+ is not allowed because (?:the path is classified as sensitive|its resolved path is outside the allowed project source scope)\.$/u.test(text);
+}
+
+function isRecoverableReadRangeContractErrorOutput(name: string, output: string): boolean {
+  if (name !== "read_file_range") return false;
+  const text = output.trim();
+  return text === 'Error: "startLine" and "endLine" must be positive integers with startLine <= endLine.'
+    || /^Error: requested range exceeds the \d+-line targeted read window\./u.test(text);
 }
 
 const TOOL_DEFINITIONS = [
@@ -1873,7 +1882,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         };
       }
     }
-    const recoverableScopeRejection = isRecoverableFileScopeErrorOutput(name, output);
+    const recoverableScopeRejection =
+      isRecoverableFileScopeErrorOutput(name, output)
+      || isRecoverableReadRangeContractErrorOutput(name, output);
     const executorOutputFailure = classifyExecutorOutputFailure(name, output);
     if (executorOutputFailure) {
       stagedFileChanges.splice(0);
@@ -1931,9 +1942,10 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         failureKind: "unavailable",
         diagnosticCode: "TOOL_UNAVAILABLE",
         recoverableScopeRejection: true,
-        safeMessage:
-          "The requested path is outside the permitted project scope or is not readable under the current policy. " +
-          "Choose another in-scope path and retry.",
+        safeMessage: isRecoverableReadRangeContractErrorOutput(name, output)
+          ? 'The requested line range is invalid. "startLine" and "endLine" must be positive integers with startLine <= endLine. Retry with a valid bounded range.'
+          : "The requested path is outside the permitted project scope or is not readable under the current policy. " +
+            "Choose another in-scope path and retry.",
       };
     }
 
@@ -3965,6 +3977,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     loopToolCalls,
   });
   const duplicateCallCounts = new Map<string, number>();
+  const readRangeRejectionsByPath = new Map<string, number>();
   const validationAttempts = new Map<string, number>();
   const failedValidationFingerprints = new Map<string, string>();
   const validationAttemptPatches = new Map<string, RepairPatchSnapshot>();
@@ -7978,6 +7991,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           content: toolMessage,
         });
         if (toolResult.recoverableScopeRejection) {
+          if (toolResult.safeMessage.startsWith("The requested line range is invalid.")) {
+            const path = args.path ?? "";
+            const rejections = (readRangeRejectionsByPath.get(path) ?? 0) + 1;
+            readRangeRejectionsByPath.set(path, rejections);
+            if (rejections > MAX_RECOVERABLE_READ_RANGE_REJECTIONS_PER_PATH) {
+              return failedToolResult(
+                tc.function.name,
+                "unavailable",
+                "TOOL_UNAVAILABLE",
+                "The requested line range remained invalid after bounded corrections. No source evidence was accepted.",
+              );
+            }
+          }
           try {
             onStep?.({
               kind: "tool_result",
@@ -7989,7 +8015,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
                 ? { readStatus: "READ_FAILED" as const }
                 : {}),
-              resultSummary: "Scope denied; retry only with a path inside the permitted project root.",
+              resultSummary: toolResult.safeMessage.startsWith("The requested line range is invalid.")
+                ? "Invalid line range; a corrected bounded range may be retried without accepting evidence from this attempt."
+                : "Scope denied; retry only with a path inside the permitted project root.",
             });
           } catch { /* ignore */ }
           continue;

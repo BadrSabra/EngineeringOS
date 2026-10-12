@@ -749,12 +749,12 @@ function classifyStatus(
 
   if (
     providerName === "OpenRouter" &&
-    status === 403 &&
+    (status === 400 || status === 403) &&
     looksLikeAgentHarnessRestriction(body, providerCode)
   ) {
     return new GroqClientError(
       "MODEL_UNAVAILABLE",
-      `OpenRouter model cannot satisfy this request outside an agent harness (403). ${body.slice(0, 200)}`,
+      `OpenRouter model requires an agent harness (${status}). ${body.slice(0, 200)}`,
       {
         context: {
           ...ctx,
@@ -1489,6 +1489,7 @@ export async function openrouterCompleteRaw(
       ) &&
       err instanceof GroqClientError &&
       (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
+      !looksLikeAgentHarnessRestriction(err.providerMessage ?? err.message, err.providerCode) &&
       (err.providerStatus === 400 ||
         (err.providerStatus === 404 && looksLikeParameterRoutingFailure(err.providerMessage ?? err.message)))
     ) {
@@ -1513,6 +1514,10 @@ export async function openrouterCompleteRaw(
           if (
             fallbackError instanceof GroqClientError &&
             (fallbackError.code === "NON_200" || fallbackError.code === "MODEL_UNAVAILABLE") &&
+            !looksLikeAgentHarnessRestriction(
+              fallbackError.providerMessage ?? fallbackError.message,
+              fallbackError.providerCode,
+            ) &&
             (fallbackError.providerStatus === 400 ||
               (fallbackError.providerStatus === 404 &&
                 looksLikeParameterRoutingFailure(fallbackError.providerMessage ?? fallbackError.message)))
