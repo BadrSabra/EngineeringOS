@@ -60,9 +60,14 @@ if (liveProvider === "openrouter" && process.env.OPENROUTER_MODEL) {
   }
 }
 
-const secretValues = Object.values(process.env).filter(
-  (value) => typeof value === "string" && value.length >= 8,
-);
+const secretValues = Object.entries(process.env)
+  .filter(([name, value]) =>
+    typeof value === "string" &&
+    value.length >= 8 &&
+    (/(?:_KEY|_SECRET|_TOKEN|_PASSWORD|_CREDENTIAL|_PRIVATE_KEY|_COOKIE)$/i.test(name) ||
+      /^(?:DATABASE_URL|DIRECT_URL)$/i.test(name)),
+  )
+  .map(([, value]) => value);
 
 function redact(value) {
   return secretValues.reduce(

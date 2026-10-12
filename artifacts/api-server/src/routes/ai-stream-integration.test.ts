@@ -146,6 +146,31 @@ function classifyRecoveryFailure(error: string | null | undefined):
   if (/cancel/.test(normalized)) return "cancelled";
   return "other";
 }
+
+function classifyRecoveryFailureDetail(error: string | null | undefined):
+  | "none"
+  | "timeout"
+  | "rate-limit-or-quota"
+  | "paid-tier-or-credit-required"
+  | "model-unavailable"
+  | "provider-auth"
+  | "request-contract"
+  | "model-output"
+  | "provider-other"
+  | "unclassified" {
+  if (!error) return "none";
+  const normalized = error.toLowerCase();
+  if (/timeout|timed out|deadline/.test(normalized)) return "timeout";
+  if (/rate.?limit|quota/.test(normalized)) return "rate-limit-or-quota";
+  if (/plan_restricted|paid plan|credit balance|http 402/.test(normalized)) return "paid-tier-or-credit-required";
+  if (/model_not_found|model unavailable|http 404/.test(normalized)) return "model-unavailable";
+  if (/auth_error|unauthorized|http 401/.test(normalized)) return "provider-auth";
+  if (/invalid_tool_call|invalid request|http 400|capability_mismatch/.test(normalized)) return "request-contract";
+  if (/model_output|malformed|invalid.?json/.test(normalized)) return "model-output";
+  if (/provider|network|upstream|http [45]\d\d/.test(normalized)) return "provider-other";
+  if (/execution|lease|attempt|recovery/.test(normalized)) return "unclassified";
+  return "unclassified";
+}
 function classifyRecoveryRateLimitScope(
   error: string | null | undefined,
 ): "not-rate-limited" | "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown" {
@@ -3331,6 +3356,9 @@ describe("Durable AI execution crash/reconnect", () => {
             `rateLimitScope=${storedRateLimitScope ?? classifyRecoveryRateLimitScope(recoveredExecution?.error)}`,
             `retryAfterMs=${storedRetryAfterMs ?? "not-provided"}`,
             `modelSelected=${Boolean(observedModelSelection)}`,
+            `selectedProvider=${observedModelSelection?.provider ?? "not-selected"}`,
+            `selectedModel=${observedModelSelection?.model ?? "not-selected"}`,
+            `safeFailureDetail=${classifyRecoveryFailureDetail(recoveredExecution?.error)}`,
           ].join(", "),
         ).toBe("completed");
         expect(recoveredExecution!.attempt).toBeGreaterThan(0);
