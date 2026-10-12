@@ -141,16 +141,15 @@ workflow for this test.
 **Why:** The operational entrypoint starts provider/catalog validation and
 durable recovery workers, and startup reconciliation pauses every running
 execution it finds. An egress guard blocks provider calls but does not make
-startup side effects harmless. A release wrapper that falls back to the default
-port can also collide with the managed API and fail with `EADDRINUSE`; after
-reconciliation, the test must assert the failed prior attempt and reclaim with
-the current resume token before completing under a new worker lease.
+startup side effects harmless. A managed API workflow can also fail with
+`EADDRINUSE` while another listener owns its default port; matching command
+lines alone do not establish that a process is test-owned.
 
 **How to apply:** Keep the `src/app.ts` test for isolated HTTP persistence and use
 the guarded `src/index.ts` child only when startup reconciliation is part of the
-acceptance boundary. Release wrappers must pass a dedicated ephemeral loopback
-`PORT` to any API child and clean up only their own process; never rely on
-`stop-old-api` to reclaim or terminate a managed workflow's port. Stop the test
+acceptance boundary. On port conflicts, inspect workflow and process ownership
+read-only; never terminate a process group based only on its API command line.
+Never replace or restart a managed workflow for this test. Stop the test
 PostgreSQL process and remove only its dedicated temporary data root after
 verification; state explicitly that managed workflows and live providers were
 not exercised.
