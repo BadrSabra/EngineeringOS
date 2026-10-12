@@ -4512,6 +4512,10 @@ export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuo
 export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMin = 0;
 export const getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMax = 5000;
 
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitAttemptsItemRetryAfterMsMax = 9007199254740991;
+
+export const getAiExecutionResponseExecutionDiagnosticsRateLimitAttemptsMax = 16;
+
 export const getAiExecutionResponseProjectionPhaseMax = 80;
 
 export const getAiExecutionResponseProjectionObjectiveMax = 500;
@@ -4729,7 +4733,12 @@ export const GetAiExecutionResponse = zod.object({
   "provider_credential": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax).optional(),
   "account_quota": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax).optional(),
   "unknown": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMin).max(getAiExecutionResponseExecutionDiagnosticsRateLimitScopesUnknownMax).optional()
-}).optional()
+}).optional(),
+  "rateLimitAttempts": zod.array(zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "scope": zod.enum(['upstream_shared_pool', 'provider_credential', 'account_quota', 'unknown']),
+  "retryAfterMs": zod.number().int().min(1).max(getAiExecutionResponseExecutionDiagnosticsRateLimitAttemptsItemRetryAfterMsMax).optional()
+})).max(getAiExecutionResponseExecutionDiagnosticsRateLimitAttemptsMax).optional()
 }),
   "projection": zod.object({
   "schemaVersion": zod.literal(2),
@@ -5209,6 +5218,10 @@ export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAc
 export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMin = 0;
 export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMax = 5000;
 
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitAttemptsItemRetryAfterMsMax = 9007199254740991;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitAttemptsMax = 16;
+
 
 
 export const ExportAiExecutionAuditResponse = zod.object({
@@ -5280,7 +5293,12 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "provider_credential": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesProviderCredentialMax).optional(),
   "account_quota": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesAccountQuotaMax).optional(),
   "unknown": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitScopesUnknownMax).optional()
-}).optional()
+}).optional(),
+  "rateLimitAttempts": zod.array(zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "scope": zod.enum(['upstream_shared_pool', 'provider_credential', 'account_quota', 'unknown']),
+  "retryAfterMs": zod.number().int().min(1).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitAttemptsItemRetryAfterMsMax).optional()
+})).max(exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitAttemptsMax).optional()
 }),
   "timeline": zod.array(zod.record(zod.string(), zod.unknown())),
   "validations": zod.array(zod.record(zod.string(), zod.unknown())),

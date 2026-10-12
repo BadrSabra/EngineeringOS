@@ -81,7 +81,6 @@ export type AiContractTelemetry = Pick<
 type AiExecutionTelemetryRow = Pick<
   AiUsageEvent,
   | "provider"
-  | "model"
   | "outcome"
   | "fallbackCount"
   | "contractOutcome"
@@ -229,7 +228,6 @@ export async function getAiExecutionDiagnostics(params: {
   const rows = await db
     .select({
       provider: aiUsageEventsTable.provider,
-      model: aiUsageEventsTable.model,
       outcome: aiUsageEventsTable.outcome,
       fallbackCount: aiUsageEventsTable.fallbackCount,
       contractOutcome: aiUsageEventsTable.contractOutcome,

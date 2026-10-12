@@ -3748,6 +3748,36 @@ export type AiExecutionDiagnosticsRateLimitScopes = {
   unknown?: number;
 };
 
+export type AiExecutionDiagnosticsRateLimitAttemptsItemProvider = typeof AiExecutionDiagnosticsRateLimitAttemptsItemProvider[keyof typeof AiExecutionDiagnosticsRateLimitAttemptsItemProvider];
+
+
+export const AiExecutionDiagnosticsRateLimitAttemptsItemProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
+export type AiExecutionDiagnosticsRateLimitAttemptsItemScope = typeof AiExecutionDiagnosticsRateLimitAttemptsItemScope[keyof typeof AiExecutionDiagnosticsRateLimitAttemptsItemScope];
+
+
+export const AiExecutionDiagnosticsRateLimitAttemptsItemScope = {
+  upstream_shared_pool: 'upstream_shared_pool',
+  provider_credential: 'provider_credential',
+  account_quota: 'account_quota',
+  unknown: 'unknown',
+} as const;
+
+export type AiExecutionDiagnosticsRateLimitAttemptsItem = {
+  provider: AiExecutionDiagnosticsRateLimitAttemptsItemProvider;
+  scope: AiExecutionDiagnosticsRateLimitAttemptsItemScope;
+  /**
+     * @minimum 1
+     * @maximum 9007199254740991
+     */
+  retryAfterMs?: number;
+};
+
 export interface AiExecutionDiagnostics {
   schemaVersion: AiExecutionDiagnosticsSchemaVersion;
   /**
@@ -3774,6 +3804,8 @@ export interface AiExecutionDiagnostics {
   providers: AiExecutionDiagnosticsProvidersItem[];
   failureCategories: AiExecutionDiagnosticsFailureCategories;
   rateLimitScopes?: AiExecutionDiagnosticsRateLimitScopes;
+  /** @maxItems 16 */
+  rateLimitAttempts?: AiExecutionDiagnosticsRateLimitAttemptsItem[];
 }
 
 export interface AiExecutionEvidenceBraidEvent {

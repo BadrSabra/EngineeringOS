@@ -32,7 +32,6 @@ describe("durable AI telemetry", () => {
         contractOutcome: "semantic_failure",
         providerFailureKind: "RATE_LIMITED",
         rateLimitScope: "upstream_shared_pool",
-        model: "google/gemma-4-26b-a4b-it:free",
         retryAfterMs: 120_000,
       },
       {
