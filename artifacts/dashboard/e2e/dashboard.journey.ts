@@ -5067,7 +5067,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-    await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
+    await page.goto(
+      `${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`,
+      { waitUntil: "domcontentloaded" },
+    );
 
     const deliveryProof = page.getByRole("region", {
       name: "Delivery proof chain",
@@ -5170,7 +5173,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await installApiFixtures(page, { missionControl, executionDetails });
     await programmaticSignIn(page);
-    await page.goto(`${DASHBOARD_PATH}mission-control?projectId=e2e-project`);
+    await page.goto(
+      `${DASHBOARD_PATH}mission-control?projectId=e2e-project`,
+      { waitUntil: "domcontentloaded" },
+    );
 
     const timeline = page.getByRole("region", {
       name: "World Transition timeline",
@@ -5194,7 +5200,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       }],
     };
 
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     const timelineAfterReload = page.getByRole("region", {
       name: "World Transition timeline",
     });
@@ -5216,7 +5222,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const missionFixtures = await installMissionManagementFixtures(page);
     await programmaticSignIn(page);
 
-    await page.goto(`${DASHBOARD_PATH}missions`);
+    const projectsResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/api/projects") &&
+        response.request().method() === "GET"
+      );
+    });
+    await page.goto(`${DASHBOARD_PATH}missions`, {
+      waitUntil: "domcontentloaded",
+    });
+    const projectsResult = await projectsResponse;
+    expect(projectsResult.ok(), "The mission project list must load").toBe(true);
     await expect(
       page.getByRole("heading", { name: "Missions", exact: true }),
     ).toBeVisible();
@@ -5297,7 +5314,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(goalCard).toContainText("Validate candidate updated");
     await expect(goalCard).toContainText("verifying");
 
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByTestId("text-mission-title-e2e-mission-management"),
     ).toHaveText("Release readiness updated");
