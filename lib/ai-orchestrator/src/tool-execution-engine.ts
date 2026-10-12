@@ -2517,7 +2517,12 @@ export async function executeScopedReadTool(
   try {
     result = await executeSingleTool({
       name: opts.name,
-      args: validatedArgs,
+      // Preserve the provider-schema value types for the final validation.
+      // validateToolArguments normalizes integer fields to strings for the
+      // tool runner; passing that normalized record back through
+      // executeSingleTool would reject valid integer arguments on the second
+      // validation pass.
+      args: opts.args,
       rootPath: opts.rootPath,
       pendingChanges: opts.pendingChanges,
       allowedToolNames: opts.allowedToolNames,

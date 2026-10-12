@@ -30,6 +30,8 @@ export type ProjectQueryDiscoveryTarget = {
   reason: "DISCOVERED_PROJECT_QUERY_SOURCE";
 };
 
+export const MAX_OBJECTIVE_REPLAN_TARGETS = 8;
+
 export function isObjectiveEvidenceDiagnosisRetryable(value: unknown): boolean {
   const parsedDiagnosis = FailureDiagnosisSummarySchema.safeParse(value);
   if (!parsedDiagnosis.success) return false;
@@ -203,7 +205,10 @@ export function deriveObjectiveReplanTargets(input: {
       .map(([path, status]) => [normalizePath(path), status] as const)
       .filter(([path]) => Boolean(path)),
   );
-  const maxTargets = Math.max(0, Math.min(2, Math.floor(input.maxTargets ?? 2)));
+  const maxTargets = Math.max(
+    0,
+    Math.min(MAX_OBJECTIVE_REPLAN_TARGETS, Math.floor(input.maxTargets ?? 2)),
+  );
   const targets: ObjectiveReplanTarget[] = [];
   const byPath = new Map<string, ObjectiveReplanTarget>();
   const plan = buildObjectiveClaimPlan({

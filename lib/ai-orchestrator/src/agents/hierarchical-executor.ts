@@ -26,7 +26,10 @@ import type { ToolDefinitionLike } from "../tool-policy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage } from "../groq-client.js";
 import { executeToolLoop } from "../tool-execution-engine.js";
-import type { ToolInvocationLifecycleCallback } from "../tool-execution-engine.js";
+import type {
+  ReadOnlyToolInvocationCallback,
+  ToolInvocationLifecycleCallback,
+} from "../tool-execution-engine.js";
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
@@ -94,6 +97,7 @@ export type HierarchicalExecutorOpts = {
   /** Optional coverage contract for a compound question. */
   compoundParts?: CompoundQueryPart[];
   executionLedger?: ExecutionLedger;
+  onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
   onToolInvocation?: ToolInvocationLifecycleCallback;
 };
 
@@ -210,6 +214,7 @@ async function runSubTask(
       // enforce the task's target paths inside the dispatcher as well.
       allowedReadPaths: task.targetPaths,
       executionLedger: opts.executionLedger,
+      onReadOnlyInvocation: opts.onReadOnlyInvocation,
       onToolInvocation: opts.onToolInvocation,
       onStep: (step) => {
         if (step.kind !== "tool_call" || step.tool !== "read_file_range") return;
@@ -228,12 +233,6 @@ async function runSubTask(
       },
     });
 
-    const status: HierarchicalSubtaskStatus =
-      loopResult.kind === "response" ? "complete" :
-        loopResult.kind === "partial" ? "partial" :
-          loopResult.kind === "exhausted" || loopResult.kind === "stopped" || loopResult.kind === "incomplete"
-            ? "exhausted" :
-              loopResult.kind === "cancelled" ? "cancelled" : "failed";
     const sourceEvidence: SourceEvidence[] = Array.from(loopResult.fileContents ?? new Map<string, string>()).map(([file, content]) => {
       const raw = stripReadFileWrapper(content);
       const excerpt = raw.slice(0, 4_000);
@@ -248,6 +247,14 @@ async function runSubTask(
         taskIndex,
       };
     });
+    const status: HierarchicalSubtaskStatus =
+      loopResult.kind === "response" ? "complete" :
+        loopResult.kind === "partial" ||
+        (loopResult.kind === "failed" && sourceEvidence.length > 0)
+          ? "partial" :
+          loopResult.kind === "exhausted" || loopResult.kind === "stopped" || loopResult.kind === "incomplete"
+            ? "exhausted" :
+              loopResult.kind === "cancelled" ? "cancelled" : "failed";
     const text = "result" in loopResult && loopResult.result?.content
       ? loopResult.result.content
       : undefined;
@@ -689,6 +696,9 @@ export async function executeHierarchical(
           sourceCount: sub.toolSources.length,
           status: sub.status,
           textLength: sub.text?.length ?? 0,
+          ...(sub.failureKind ? { failureKind: sub.failureKind } : {}),
+          ...(sub.diagnosticCode ? { diagnosticCode: sub.diagnosticCode } : {}),
+          ...(sub.reason ? { reason: sub.reason } : {}),
         }),
       );
     }

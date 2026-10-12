@@ -328,6 +328,16 @@ describe(
       //    reach the NEXT recovery attempt's model messages — otherwise nothing
       //    "reaches the model" (task #36's core requirement).
       expect(recoveryCalls.length).toBeGreaterThanOrEqual(2);
+      expect(
+        steps.find(
+          (step) => step.kind === "diagnostic" && step.code === "FORENSIC_TARGETED_READ_SKIPPED",
+        ),
+      ).toBeUndefined();
+      expect(
+        steps.find(
+          (step) => step.kind === "diagnostic" && step.code === "FORENSIC_TARGETED_READ_FAILED",
+        ),
+      ).toBeUndefined();
       expect(rangeReads.length).toBeGreaterThan(0);
       expect(
         steps.some(

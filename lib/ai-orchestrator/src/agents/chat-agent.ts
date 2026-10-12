@@ -203,6 +203,7 @@ import {
   deriveProjectQueryDiscoveryTarget,
   deriveObjectiveReplanTargets,
   isObjectiveEvidenceDiagnosisRetryable,
+  MAX_OBJECTIVE_REPLAN_TARGETS,
   type ProjectQueryDiscoveryTarget,
 } from "../objective-replanning.js";
 import {
@@ -9111,6 +9112,7 @@ export async function chat(opts: {
         cache: toolCallCache,
         compoundParts: queryPlan.compoundParts ?? [],
         executionLedger,
+        onReadOnlyInvocation: opts.onReadOnlyInvocation,
         onToolInvocation: opts.onToolInvocation,
       });
 
@@ -9994,7 +9996,7 @@ export async function chat(opts: {
   }
 
   // Closed-loop objective planning: inspect only the server-owned evidence
-  // manifest before synthesis and perform at most two read-only replans for
+  // manifest before synthesis and perform bounded read-only replans for
   // declared paths that are still missing or truncated. The replan never owns
   // final-answer authority; the existing claim/edge gates remain authoritative.
   const objectiveReplanEvidenceWindows: Array<{
@@ -10006,7 +10008,14 @@ export async function chat(opts: {
   const claimEvidenceAttachments: ClaimEvidenceAttachment[] = [];
   let accumulatedSourceRetrieval = loopResult.sourceRetrieval;
   const attemptedObjectiveReplanPaths = new Set<string>();
-  const objectiveReplanMaxAttempts = 2;
+  const objectiveRequiredPathCount = new Set([
+    ...(objective?.requiredEvidencePaths ?? []),
+    ...(objective?.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths) ?? []),
+  ]).size;
+  const objectiveReplanMaxAttempts = Math.min(
+    MAX_OBJECTIVE_REPLAN_TARGETS,
+    Math.max(2, objectiveRequiredPathCount),
+  );
   let objectiveReplanAttempts = 0;
   let projectQueryDiscoveryAttempted = false;
   const objectiveReplanTools = (toolManifest ?? tools ?? []).filter((tool) =>
@@ -13941,7 +13950,16 @@ export async function chat(opts: {
                     // generic token would produce no useful line anchor and degrade
                     // the read into a full-file read, so skip when none is found.
                     const rawSymbol = extractClaimSymbol(finding.evidence, finding.title) ?? "";
-                    if (!rawSymbol) continue;
+                    if (!rawSymbol) {
+                      onStep?.({
+                        kind: "diagnostic",
+                        code: "FORENSIC_TARGETED_READ_SKIPPED",
+                        details: [
+                          `no meaningful source symbol was found on recovery attempt ${recoveryAttempt + 1}`,
+                        ],
+                      });
+                      continue;
+                    }
                     const syntheticClaim = createClaim({
                       text: finding.title,
                       taskType: "BEHAVIOR_QUERY",
@@ -13951,10 +13969,28 @@ export async function chat(opts: {
                     for (const findingFile of finding.files.slice(0, 2)) {
                       // The target must be in both the retained evidence pool
                       // and this immutable recovery packet's approved scope.
-                      if (
-                        !forensicEvidence.fileContents.has(findingFile)
-                        || !recoveryPacket.files.includes(findingFile)
-                      ) continue;
+                      if (!forensicEvidence.fileContents.has(findingFile)) {
+                        onStep?.({
+                          kind: "diagnostic",
+                          code: "FORENSIC_TARGETED_READ_SKIPPED",
+                          details: [
+                            `finding source was not retained on recovery attempt ${recoveryAttempt + 1}`,
+                            "skipReason: source_not_retained",
+                          ],
+                        });
+                        continue;
+                      }
+                      if (!recoveryPacket.files.includes(findingFile)) {
+                        onStep?.({
+                          kind: "diagnostic",
+                          code: "FORENSIC_TARGETED_READ_SKIPPED",
+                          details: [
+                            `finding source was outside the active recovery packet on attempt ${recoveryAttempt + 1}`,
+                            "skipReason: outside_packet",
+                          ],
+                        });
+                        continue;
+                      }
                       try {
                         // Step 1: find the symbol's line number by scanning the
                         // already-retained file content directly. Using search_code
@@ -13973,7 +14009,17 @@ export async function chat(opts: {
                         }
                         // Skip this file entirely when the symbol was not found in
                         // the retained content — there is no valid anchor to target.
-                        if (anchorLine === undefined) continue;
+                        if (anchorLine === undefined) {
+                          onStep?.({
+                            kind: "diagnostic",
+                            code: "FORENSIC_TARGETED_READ_SKIPPED",
+                            details: [
+                              `requested symbol was absent from retained source on recovery attempt ${recoveryAttempt + 1}`,
+                              "skipReason: symbol_not_in_retained_source",
+                            ],
+                          });
+                          continue;
+                        }
                         const startLine = Math.max(1, anchorLine - 5);
                         const endLine = anchorLine + 50;
                         // Step 2: targeted ranged read around the confirmed anchor.
@@ -13981,24 +14027,54 @@ export async function chat(opts: {
                           name: "read_file_range",
                           args: {
                             path: findingFile,
-                            startLine: String(startLine),
-                            endLine: String(endLine),
+                            startLine,
+                            endLine,
                           },
                           allowedReadPaths: recoveryPacket.files,
                           objectiveScopePolicy: objective?.scopePolicy,
                           strictAllowedReadPaths: true,
                           surface: `forensic-targeted-range-${packetIndex}-${recoveryAttempt + 1}`,
                         });
-                        if (rangeResult.kind !== "ok") continue;
+                        if (rangeResult.kind !== "ok") {
+                          onStep?.({
+                            kind: "diagnostic",
+                            code: "FORENSIC_TARGETED_READ_FAILED",
+                            details: [
+                              `targeted read did not complete on recovery attempt ${recoveryAttempt + 1}`,
+                              `failureKind: ${rangeResult.failureKind ?? "unknown"}`,
+                              `diagnosticCode: ${rangeResult.diagnosticCode ?? "unknown"}`,
+                              `reason: ${rangeResult.safeMessage.slice(0, 160)}`,
+                            ],
+                          });
+                          continue;
+                        }
                         const rangeOut = rangeResult.output;
                         if (rangeOut.startsWith("Error") || rangeOut.startsWith("No content")) {
+                          onStep?.({
+                            kind: "diagnostic",
+                            code: "FORENSIC_TARGETED_READ_FAILED",
+                            details: [
+                              `targeted read returned no usable source window on recovery attempt ${recoveryAttempt + 1}`,
+                              "failureKind: invalid_read_output",
+                            ],
+                          });
                           continue;
                         }
                         const recoveredContent = stripReadFileWrapper(rangeOut);
                         // Step 3: validate the symbol is actually present in the window
                         // before tagging it as targeted evidence (prevents stale excerpts
                         // from corrupting the evidence ledger).
-                        if (!recoveredContent.includes(recoveryPlan.missingSymbol)) continue;
+                        if (!recoveredContent.includes(recoveryPlan.missingSymbol)) {
+                          onStep?.({
+                            kind: "diagnostic",
+                            code: "FORENSIC_TARGETED_READ_FAILED",
+                            details: [
+                              `targeted read omitted its requested symbol on recovery attempt ${recoveryAttempt + 1}`,
+                              "failureKind: symbol_not_in_window",
+                            ],
+                          });
+                          continue;
+                        }
                         // Derive the effective end line from the content that was actually
                         // returned. read_file_range clamps to EOF via Math.min(endLine,
                         // lines.length), so recording the requested endLine can overstate

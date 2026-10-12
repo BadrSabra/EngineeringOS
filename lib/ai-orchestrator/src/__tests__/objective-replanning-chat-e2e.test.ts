@@ -70,7 +70,7 @@ describe("chat() closed-loop objective replanning", () => {
     else process.env.GROQ_API_KEY = originalApiKey;
   });
 
-  it("replans only two declared paths and reuses one execution identity", async () => {
+  it("replans all missing declared paths and reuses one execution identity", async () => {
     const rootPath = await makeRoot();
     const createdLedgers: ExecutionLedger[] = [];
     const replanTargetsRead = new Set<string>();
@@ -215,9 +215,9 @@ describe("chat() closed-loop objective replanning", () => {
       const replanDiagnostics = steps.filter(
         (step) => step.kind === "diagnostic" && step.code === "OBJECTIVE_REPLAN",
       );
-      expect(replanDiagnostics).toHaveLength(2);
-      expect(replanTargetsRead).toEqual(new Set([SECONDARY, TERTIARY]));
-      expect(replanTargetsRead.has(FOURTH)).toBe(false);
+      expect(replanDiagnostics).toHaveLength(3);
+      expect(replanTargetsRead).toEqual(new Set([SECONDARY, TERTIARY, FOURTH]));
+      expect(replanTargetsRead.has(FOURTH)).toBe(true);
 
       const readPaths = steps
         .filter((step): step is Extract<AgentStep, { kind: "tool_result" }> =>
@@ -231,7 +231,7 @@ describe("chat() closed-loop objective replanning", () => {
       const executionIds = new Set(createdLedgers.map((ledger) => ledger.id));
       expect(executionIds.size).toBe(1);
       const ledger = createdLedgers[0];
-      expect(ledger?.snapshot().counts.hierarchical_task).toBe(2);
+      expect(ledger?.snapshot().counts.hierarchical_task).toBe(3);
       expect(
         ledger?.snapshot().events.filter(
           (event) =>
@@ -239,7 +239,7 @@ describe("chat() closed-loop objective replanning", () => {
             event.operation === "objective_replan" &&
             event.status === "completed",
         ),
-      ).toHaveLength(2);
+       ).toHaveLength(3);
       expect(result.response).toBeTypeOf("string");
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
