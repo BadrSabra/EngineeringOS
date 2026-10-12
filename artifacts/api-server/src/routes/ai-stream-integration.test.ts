@@ -3122,9 +3122,27 @@ describe("Durable AI execution crash/reconnect", () => {
         rootPaths.push(rootPath);
         const relativePath = "src/process-recovery.ts";
         const absolutePath = path.join(rootPath, relativePath);
-        const originalSource = "export const processRecovery = true;\n";
+        const policyPath = "src/recovery-policy.ts";
+        const policyAbsolutePath = path.join(rootPath, policyPath);
+        const originalSource = [
+          'import { canRetry, maxAttempts } from "./recovery-policy";',
+          "export const processRecovery = {",
+          "  maxAttempts,",
+          "  retryFirstAttempt: canRetry(1),",
+          "  retryAtLimit: canRetry(maxAttempts),",
+          "};",
+          "",
+        ].join("\n");
+        const originalPolicy = [
+          "export const maxAttempts = 2;",
+          "export function canRetry(attempt: number): boolean {",
+          "  return attempt < maxAttempts;",
+          "}",
+          "",
+        ].join("\n");
         await fs.mkdir(path.dirname(absolutePath), { recursive: true });
         await fs.writeFile(absolutePath, originalSource, "utf8");
+        await fs.writeFile(policyAbsolutePath, originalPolicy, "utf8");
         const projectId = await insertProject(rootPath);
         projectIds.push(projectId);
         const recoveryFixture: RecoveryTeardownFixture = {
@@ -3187,7 +3205,11 @@ describe("Durable AI execution crash/reconnect", () => {
           body: JSON.stringify({
             projectId,
             sessionId,
-            message: "forensic audit of src/process-recovery.ts",
+            message: [
+              "Forensic audit: inspect src/process-recovery.ts and src/recovery-policy.ts.",
+              "Report maxAttempts, whether canRetry(1) and canRetry(2) are true or false, and cite both file paths.",
+              "Read only; do not change files.",
+            ].join(" "),
           }),
         });
         expect(firstStream.status, "initial forensic stream HTTP status").toBe(200);
@@ -3393,8 +3415,13 @@ describe("Durable AI execution crash/reconnect", () => {
           .where(eq(aiChatMessagesTable.id, recoveredExecution!.finalMessageId!))
           .limit(1);
         expect(recoveredMessage?.content).toContain(relativePath);
+        expect(recoveredMessage?.content).toContain(policyPath);
+        expect(recoveredMessage?.content).toMatch(/maxAttempts[^\n]{0,32}2/i);
+        expect(recoveredMessage?.content).toMatch(/canRetry\(1\)[^\n]{0,32}true/i);
+        expect(recoveredMessage?.content).toMatch(/canRetry\(2\)[^\n]{0,32}false/i);
         expect(recoveredMessage?.toolTrace ?? "").not.toMatch(/write_file|replace_text|delete_file/);
         expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+        expect(await fs.readFile(policyAbsolutePath, "utf8")).toBe(originalPolicy);
 
         const [completedExecution] = await db
           .select({ checkpoint: aiExecutionsTable.checkpoint })
