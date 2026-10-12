@@ -7862,7 +7862,7 @@ export async function chat(opts: {
         false,
         false,
         [],
-        opts.authorizedToolManifestNames ? allowValidationTools : false,
+         allowValidationTools,
         opts.authorizedToolManifestNames ? allowAnalysisTools : false,
         false,
         true,

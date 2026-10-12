@@ -140,6 +140,18 @@ acceptance boundary. Stop the test PostgreSQL process and remove only its
 dedicated temporary data root after verification; state explicitly that managed
 workflows and live providers were not exercised.
 
+Ordinary API Vitest suites should keep controlled live-provider lifecycle checks
+off and block outbound `fetch` in test setup while permitting loopback fixtures.
+Do not set the application-level provider egress flag for mocked contract tests.
+
+**Why:** The application guard rejects before mocked transport and lifecycle
+fixtures run, changing the behavior under test. A test-only fetch boundary blocks
+actual external requests without bypassing those fixtures.
+
+**How to apply:** Use the API Vitest network guard for contract suites; reserve
+the complete application egress-disable flags for controlled preview or startup
+tests that exercise those specific guards.
+
 ## Live process-recovery sequencing
 
 Start the first forensic execution through the chat-stream route without an
