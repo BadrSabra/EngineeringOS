@@ -223,7 +223,7 @@ vi.mock("@workspace/db", () => {
       insert: () => ({
         values: (vals?: Record<string, unknown>) => {
           if (vals && "idempotencyKey" in vals) {
-            fixture.execution = { ...fixture.execution, ...vals };
+            fixture.execution = { ...MOCK_EXECUTION, ...vals };
             return insertResult([fixture.execution]);
           }
           if (vals && "projectId" in vals) {
@@ -273,22 +273,23 @@ vi.mock("@workspace/db", () => {
                       : fixture.session ? [{ id: fixture.session.id }] : [];
                 return {
                   for: () => {
-                  const tableTag = (table as { _tag?: string })._tag;
-                  if (tableTag === "aiExecutionsTable") {
-                    return Promise.resolve([{ ...fixture.execution }]);
-                  }
-                  if (tableTag === "aiChatMessagesTable") {
-                    const rows = fixture.messages.filter((message) =>
-                      Object.keys(fields ?? {}).length === 1
-                        ? message.role === "user"
-                        : message.role === "assistant",
-                    );
-                    return Promise.resolve(rows);
-                  }
-                  if (tableTag === "aiExecutionAcceptancesTable") {
-                    return Promise.resolve([...acceptanceRows]);
-                  }
-                  return Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []);
+                    let lockedRows = rows;
+                    if (tableTag === "aiExecutionsTable") {
+                      lockedRows = [{ ...fixture.execution }];
+                    } else if (tableTag === "aiChatMessagesTable") {
+                      lockedRows = fixture.messages.filter((message) =>
+                        Object.keys(fields ?? {}).length === 1
+                          ? message.role === "user"
+                          : message.role === "assistant",
+                      );
+                    } else if (tableTag === "aiExecutionAcceptancesTable") {
+                      lockedRows = [...acceptanceRows];
+                    } else {
+                      lockedRows = fixture.session ? [{ id: fixture.session.id }] : [];
+                    }
+                    return Object.assign(Promise.resolve(lockedRows), {
+                      limit: () => Promise.resolve(lockedRows),
+                    });
                 },
                   limit: () => Promise.resolve(rows),
                 };
@@ -375,6 +376,14 @@ vi.mock("@workspace/db", () => {
       },
     },
     __chatTestFixture: fixture,
+    __resetChatTestFixture: () => {
+      fixture.session = null;
+      fixture.messages.length = 0;
+      Object.assign(fixture.execution, MOCK_EXECUTION);
+      acceptanceRows.length = 0;
+      exposeExecutionForCancel = false;
+      exposeFallbackDiagnosticExecution = false;
+    },
     __chatTestAcceptances: acceptanceRows,
     __setExposeExecutionForCancel: (value: boolean) => {
       exposeExecutionForCancel = value;
@@ -859,24 +868,9 @@ const FIXTURE_VERDICT_STEP: Extract<AgentStep, { kind: "decision_trace" }> = {
 
 beforeEach(async () => {
   const dbModule = (await import("@workspace/db") as unknown as {
-    __chatTestFixture: {
-      session: Record<string, unknown> | null;
-      messages: Array<Record<string, unknown>>;
-       execution: Record<string, unknown>;
-    };
-    __setExposeExecutionForCancel: (value: boolean) => void;
-    __setFallbackDiagnosticExecution: (value: boolean) => void;
+    __resetChatTestFixture: () => void;
   });
-  const dbFixture = dbModule.__chatTestFixture;
-  dbFixture.session = null;
-  dbFixture.messages.length = 0;
-  dbFixture.execution.status = "queued";
-  dbFixture.execution.finalMessageId = null;
-  dbFixture.execution.cancelRequestedAt = null;
-  dbFixture.execution.error = null;
-  dbFixture.execution.checkpoint = "{}";
-  dbModule.__setExposeExecutionForCancel(false);
-  dbModule.__setFallbackDiagnosticExecution(false);
+  dbModule.__resetChatTestFixture();
 
   // Each test owns the in-memory DB and the route-bound mocks it exercises.
   // Reset these implementations so a prior SSE scenario cannot leak callback
@@ -976,26 +970,9 @@ describe("accepted project-query fallback diagnostic", () => {
 
   afterEach(async () => {
     const dbModule = await import("@workspace/db") as unknown as {
-      __chatTestFixture: {
-        session: Record<string, unknown> | null;
-        messages: Array<Record<string, unknown>>;
-        execution: Record<string, unknown>;
-      };
-      __chatTestAcceptances: Array<Record<string, unknown>>;
-      __setFallbackDiagnosticExecution: (value: boolean) => void;
+      __resetChatTestFixture: () => void;
     };
-    dbModule.__setFallbackDiagnosticExecution(false);
-    dbModule.__chatTestFixture.session = null;
-    dbModule.__chatTestFixture.messages.length = 0;
-    dbModule.__chatTestAcceptances.length = 0;
-    Object.assign(dbModule.__chatTestFixture.execution, {
-      id: "test-execution-id",
-      projectId: "test-project-id",
-      sessionId: "test-session-id",
-      userId: "test-user",
-      finalMessageId: null,
-      status: "queued",
-    });
+    dbModule.__resetChatTestFixture();
   });
 
   it("returns only accepted provenance bound to the referenced run", async () => {
@@ -1620,7 +1597,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(stream.status, stream.text).toBe(200);
     const frames = parseSseFrames(stream.text) as Array<Record<string, unknown>>;
     const done = frames.find((frame) => frame.type === "done");
-    expect(done).toBeDefined();
+    expect(done, stream.text).toBeDefined();
     expect(done?.contextProvenance).toEqual(CONTEXT_PROVENANCE_FIXTURE);
     expect((done?.message as Record<string, unknown>).contextProvenance)
       .toEqual(CONTEXT_PROVENANCE_FIXTURE);
@@ -2077,7 +2054,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         && frame !== null
         && (frame as Record<string, unknown>).type === "done",
     ) as Record<string, unknown> | undefined;
-    expect(done?.sources).toEqual([]);
+    expect(done?.sources, stream.text).toEqual([]);
     expect((done?.message as Record<string, unknown> | undefined)?.sources).toBe("[]");
 
     const memoryCalls = vi.mocked(writeSessionMemories).mock.calls;

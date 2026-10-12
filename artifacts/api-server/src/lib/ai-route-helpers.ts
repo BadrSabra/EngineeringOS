@@ -697,6 +697,7 @@ export async function runAgentWithFallback<T>(
   let activeAttemptId: string | undefined;
   let physicalRequestSequence = 0;
   let physicalRequestAttemptIds: string[] = [];
+  let modelAttemptNumber = 0;
   const executionLedger = createExecutionLedger({
     mode: "simple_chat",
     signal: options?.signal,
@@ -749,6 +750,7 @@ export async function runAgentWithFallback<T>(
     activeAttemptId = attemptId;
     physicalRequestSequence = 0;
     physicalRequestAttemptIds = [];
+    modelAttemptNumber = 0;
     const providerLedgerBefore = executionLedger.snapshot();
     const completedProviderAttemptsBefore = completedProviderEvents(providerLedgerBefore).length;
     const recordPhysicalProviderAttempts = async () => {
@@ -803,6 +805,7 @@ export async function runAgentWithFallback<T>(
         },
       );
       logicalAttemptNumber = projectionState.attemptNumber;
+      return physicalEvents.length;
     };
     try {
       const result = await run({
@@ -814,6 +817,20 @@ export async function runAgentWithFallback<T>(
             ...attempt,
             provider: providerEntry.provider,
           };
+          if (options?.telemetryContext) {
+            modelAttemptNumber += 1;
+            await recordAiUsageAttempt(options.telemetryContext, {
+              ...modelAttempt,
+              attemptNumber: modelAttemptNumber,
+              fallbackCount: logicalFallbackCount,
+              usageStatus: "unknown",
+            }).catch((error) => {
+              logger.warn(
+                { error, provider: providerEntry.provider, model: modelAttempt.model },
+                "AI model contract telemetry write failed",
+              );
+            });
+          }
           try {
             await options?.onModelAttempt?.(modelAttempt);
           } catch (error) {
@@ -828,15 +845,35 @@ export async function runAgentWithFallback<T>(
       executionLedger.setTerminal("completed");
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
-      await recordPhysicalProviderAttempts();
+      const recordedPhysicalAttempts = await recordPhysicalProviderAttempts();
       if (err instanceof AiBudgetAdmissionError) {
         executionLedger.setTerminal("failed");
         throw err;
       }
       const providerError = normalizeProviderFailure(err);
+      const originalError = err && typeof err === "object"
+        ? err as { providerModel?: unknown; context?: { providerModel?: unknown } }
+        : undefined;
+      const originalProviderModel = typeof originalError?.providerModel === "string"
+        ? originalError.providerModel
+        : typeof originalError?.context?.providerModel === "string"
+          ? originalError.context.providerModel
+          : undefined;
       if (options?.signal?.aborted) {
         executionLedger.setTerminal("cancelled");
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+      }
+      if (recordedPhysicalAttempts === 0 && options?.telemetryContext) {
+        await recordAiUsageAttempt(options.telemetryContext, {
+          attemptId: `${activeAttemptId ?? executionLedger.id}:provider-failure`,
+          provider: providerEntry.provider,
+          model: originalProviderModel ?? providerError.providerModel,
+          outcome: "failure",
+          attemptNumber: Math.max(1, modelAttemptNumber + 1),
+          fallbackCount: logicalFallbackCount,
+          providerFailureKind: providerError.code,
+          usageStatus: "unknown",
+        });
       }
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,

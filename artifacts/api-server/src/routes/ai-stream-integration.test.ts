@@ -15692,51 +15692,6 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
     const sessionId = await insertChatSession(projectId, "Provider-exhausted orientation");
-    const [project] = await db
-      .select({ updatedAt: projectsTable.updatedAt })
-      .from(projectsTable)
-      .where(eq(projectsTable.id, projectId))
-      .limit(1);
-    const workspaceRevision = project!.updatedAt.toISOString();
-    const orientationManifest = {
-      projectRevision: workspaceRevision,
-      rootPath,
-      paths: orientationPaths,
-    };
-    const requestEnvelope = {
-      projectId,
-      sessionId,
-      message: "What is this project?",
-      modelMessage: "What is this project?",
-      turnIntent: "PROJECT_QUERY",
-      projectOrientation: true,
-      workspaceRevision,
-      workspaceRoot: rootPath,
-      validationTargetPaths: [],
-      proofRequired: false,
-      resumeContract: {
-        taskType: "tool_chat",
-        outputContract: "GENERIC_RESPONSE",
-        contextProfile: "project",
-        sessionId,
-        projectRevision: workspaceRevision,
-        requiresEvidence: true,
-        orientationManifest,
-        scope: {
-          projectId,
-          rootPath,
-          linkedTaskId: null,
-        },
-      },
-    };
-    const created = await createAiExecution({
-      userId: "test-user",
-      request: requestEnvelope,
-      idempotencyKey: randomUUID(),
-      projectId,
-      sessionId,
-      workspaceRoot: rootPath,
-    });
 
     const actualHelpers = await vi.importActual<typeof import("../lib/ai-route-helpers.js")>(
       "../lib/ai-route-helpers.js",
@@ -15768,6 +15723,10 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     vi.mocked(mockedOrchestrator.chat).mockImplementationOnce(async (input) => {
       const retainedEvidence = input.retainedEvidence as Map<string, string> | undefined;
       const retainedReadStatuses = input.retainedReadStatuses as Map<string, string> | undefined;
+      const onOrientationManifest = (input as unknown as {
+        onOrientationManifest?: (sources: typeof orientationPaths) => Promise<void>;
+      }).onOrientationManifest;
+      await onOrientationManifest?.(orientationPaths);
       for (const [sourcePath, body] of sourceBodies) {
         retainedEvidence?.set(sourcePath, body);
         retainedReadStatuses?.set(sourcePath, "READ_COMPLETE");
@@ -15795,17 +15754,21 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .send({
         projectId,
         sessionId,
-        executionId: created.execution.id,
-        resumeToken: created.resumeToken,
-        message: requestEnvelope.message,
+        message: "What is this project?",
       });
 
     lifecycleSpy.mockRestore();
     expect(res.status).toBe(200);
     const events = parseSseEvents(res.text);
+    const started = events.find((event) => event.type === "execution_started");
+    expect(started).toMatchObject({
+      executionId: expect.any(String),
+      status: "running",
+    });
+    const executionId = started?.executionId as string;
     const done = events.find((event) => event.type === "done");
     const error = events.find((event) => event.type === "error");
-    expect(error).toBeUndefined();
+    expect(error, res.text).toBeUndefined();
     expect(done).toMatchObject({
       projectQueryResponseSource: "deterministic_fallback",
       sourceSelectionRecord: {
@@ -15832,7 +15795,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         finalMessageId: aiExecutionsTable.finalMessageId,
       })
       .from(aiExecutionsTable)
-      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .where(eq(aiExecutionsTable.id, executionId))
       .limit(1);
     expect(execution).toMatchObject({
       status: "completed",
@@ -15846,7 +15809,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
       })
       .from(aiExecutionAcceptancesTable)
-      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
     expect(acceptances).toHaveLength(1);
     expect(acceptances[0]).toMatchObject({
       outcome: "SUCCEEDED",

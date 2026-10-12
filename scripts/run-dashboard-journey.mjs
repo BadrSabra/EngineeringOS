@@ -114,9 +114,8 @@ let campaignControlServer;
 function groqCatalogFixtureEnvironment() {
   return groqCatalogFixtureEnabled
     ? {
-        // This value is accepted only by the controlled startup fixture and
-        // is never sent to an external provider.
-        GROQ_API_KEY: "controlled-release-fixture-key",
+        // The controlled in-memory catalog fixture does not need a provider
+        // credential; every external provider call remains disabled.
         GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
         AI_PROVIDER_EGRESS_DISABLED: "1",
         DASHBOARD_E2E_TEST_MODE: dashboardTestMode,

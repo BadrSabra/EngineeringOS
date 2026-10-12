@@ -16060,6 +16060,8 @@ async function applyChangesHandler(req: Request, res: Response) {
   let applyD2EvidenceFailure: string | null = null;
   let applyD2TransitionId: string | null = null;
   let missionGoalId: string | null = null;
+  let missionId: string | null = null;
+  let missionPlanRevision: string | null = null;
   try {
     // Read and validate the proposal after acquiring the project lock. This
     // prevents two concurrent approvals from both observing "pending" and
@@ -16692,7 +16694,28 @@ async function applyChangesHandler(req: Request, res: Response) {
           });
           return;
         }
-        missionGoalId = validBindings[0]!.goal.id;
+        const selectedBinding = validBindings[0]!;
+        const selectedPolicy = selectedBinding.mission.autonomyPolicy
+          && typeof selectedBinding.mission.autonomyPolicy === "object"
+          ? selectedBinding.mission.autonomyPolicy as Record<string, unknown>
+          : {};
+        const selectedRevision = typeof selectedPolicy.activePlanRevision === "string"
+          ? selectedPolicy.activePlanRevision
+          : undefined;
+        const selectedRequirement = applyChangesMissionRequirement(
+          selectedBinding.goal,
+          selectedBinding.mission,
+          selectedRevision,
+        );
+        if (selectedRequirement.kind !== "valid") {
+          return res.status(409).json({
+            error: "The proposal no longer has a valid Mission apply binding.",
+            code: "APPLY_MISSION_BINDING_CONFLICT",
+          });
+        }
+        missionGoalId = selectedBinding.goal.id;
+        missionId = selectedBinding.mission.id;
+        missionPlanRevision = selectedRequirement.planRevision;
       }
       const workerId = `apply-worker:${randomUUID()}`;
       const durable = await createAiExecution({
@@ -16733,6 +16756,9 @@ async function applyChangesHandler(req: Request, res: Response) {
         workerId,
         idempotencyKey: `${claimed.id}:apply:${claimed.attempt}`,
         projectRevision: deliveryWorkspace.baseRevision,
+        ...(missionId && missionGoalId && missionPlanRevision
+          ? { missionId, goalId: missionGoalId, planRevision: missionPlanRevision }
+          : {}),
         environmentRootPath: resolvedRoot,
         intentKind: "APPLY_CHANGES",
         scope: {

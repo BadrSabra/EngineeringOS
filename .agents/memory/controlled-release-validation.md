@@ -22,6 +22,17 @@ provider credentials or expose provider diagnostics.
 repeated outage observations, resolve them on healthy startup, and retain a
 redacted evidence receipt linked from release teardown.
 
+The guarded Groq catalog fixture must be validated even when runtime provider
+routing omits Groq. Add Groq only to the fixture's validation pass; do not widen
+the application's provider routing or require a real provider credential.
+
+**Why:** Product routing can intentionally remain OpenRouter-only while the
+release journey still needs to verify Groq outage and model-drift alert
+persistence without provider egress.
+
+**How to apply:** Keep this exception behind the controlled-release fixture
+guards, and test it with the normal runtime provider priority and no Groq key.
+
 Ordinary provider routing and direct completion remain deterministic unless
 `AI_LIFECYCLE_LIVE_CHECKS=1` or `RUN_CONTROLLED_RELEASE_VALIDATION=1` is set;
 the lifecycle service still records confirmed runtime outcomes.

@@ -1669,6 +1669,19 @@ export async function finalizeApplyChangesTransition(input: {
         eq(aiWorldTransitionsTable.nextRetryAt, leaseUntil),
       )).returning({ id: aiWorldTransitionsTable.id });
       if (changed.length === 0) throw new Error("apply_transition_owner_stale");
+      const [boundEpisode] = await tx.update(aiAgentEpisodesTable).set({
+        worldRevision: result.worldRevision,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(aiAgentEpisodesTable.id, input.episodeId),
+        eq(aiAgentEpisodesTable.projectId, input.projectId),
+        eq(aiAgentEpisodesTable.executionId, input.executionId),
+        eq(aiAgentEpisodesTable.attempt, input.attempt),
+        eq(aiAgentEpisodesTable.missionId, mission.id),
+        eq(aiAgentEpisodesTable.goalId, goal.id),
+        eq(aiAgentEpisodesTable.planRevision, binding.planRevision),
+      )).returning({ id: aiAgentEpisodesTable.id });
+      if (!boundEpisode) throw new Error("apply_transition_episode_scope_mismatch");
     });
     try { invalidateContextSlice(input.projectId, "worldState"); } catch { /* projection remains authoritative */ }
     return { status: "materialized", worldRevision: materialized.worldRevision };

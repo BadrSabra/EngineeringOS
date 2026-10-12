@@ -478,7 +478,7 @@ test("dashboard convergence carries a server revision and asserts rendered fresh
   );
   assert.match(
     journeySource,
-    /Retry Connection/,
+    /أعد المحاولة/,
     "Reconnect assertions must verify the available recovery action.",
   );
 });
@@ -802,7 +802,7 @@ test("authenticated dashboard smoke proves the protected redirect and session", 
   );
   assert.match(
     journeySource,
-    /getByRole\("heading", \{ name: "System Overview" \}\)[\s\S]*not\.toBeVisible\(\)/,
+    /getByRole\("heading", \{ name: "مساحة العمل" \}\)[\s\S]*not\.toBeVisible\(\)/,
     "The protected dashboard must not render before authentication.",
   );
   assert.match(

@@ -166,7 +166,22 @@ async function withStructuredDeadline<T>(
   work: (signal: AbortSignal) => Promise<T>,
   parentSignal?: AbortSignal,
 ): Promise<T> {
-  return work(parentSignal ?? new AbortController().signal);
+  const signal = parentSignal ?? new AbortController().signal;
+  if (signal.aborted) {
+    throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+  }
+  if (!parentSignal) return work(signal);
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(Object.assign(new Error("Execution cancelled"), {
+      name: "AbortError",
+    }));
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve()
+      .then(() => work(signal))
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 async function persistStructuredFailure(params: {

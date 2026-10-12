@@ -6223,7 +6223,7 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
       .send({
         projectId,
         name: `contract-${randomUUID().slice(0, 8)}`,
-        phases: [{ name: "plan", steps: ["plan"] }, { name: "build", steps: ["build"] }],
+        phases: [{ name: "plan", steps: [] }, { name: "build", steps: [] }],
       });
     expect(created.status).toBe(201);
     const workflowId = created.body.id;
@@ -8275,8 +8275,37 @@ describe("POST /api/ai/chat/apply-changes", () => {
         status: aiGoalsTable.status,
         outcomeContract: aiGoalsTable.outcomeContract,
       }).from(aiGoalsTable).where(eq(aiGoalsTable.id, applyGoalId)).limit(1);
-      const [reportGoal] = await db.select({ status: aiGoalsTable.status })
+      const [reportGoal] = await db.select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+        nextAction: aiGoalsTable.nextAction,
+      })
         .from(aiGoalsTable).where(eq(aiGoalsTable.id, reportGoalId)).limit(1);
+      const proofDiagnostics = {
+        execution: await db.select({
+          status: aiExecutionsTable.status,
+          attempt: aiExecutionsTable.attempt,
+          goalId: aiExecutionsTable.goalId,
+          operationId: aiExecutionsTable.operationId,
+          baseRevision: aiExecutionsTable.baseRevision,
+        }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution!.id)).limit(1),
+        episode: await db.select({
+          missionId: aiAgentEpisodesTable.missionId,
+          goalId: aiAgentEpisodesTable.goalId,
+          state: aiAgentEpisodesTable.state,
+          verdict: aiAgentEpisodesTable.verdict,
+          planRevision: aiAgentEpisodesTable.planRevision,
+          projectRevision: aiAgentEpisodesTable.projectRevision,
+          worldRevision: aiAgentEpisodesTable.worldRevision,
+          closedAt: aiAgentEpisodesTable.closedAt,
+        }).from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.executionId, execution!.id)),
+        acceptance: await db.select({
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        }).from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id)),
+      };
       expect(applyGoal?.status).toBe("completed");
       expect(applyGoal?.outcomeContract).toMatchObject({
         acceptance: {
@@ -8284,7 +8313,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
           reasonCode: "APPLY_CHANGES_D2_PROVEN",
         },
       });
-      expect(reportGoal?.status).toBe("running");
+      expect(reportGoal?.status, JSON.stringify({ reportGoal, proofDiagnostics })).toBe("running");
 
       const events = await db.select({
         type: eventsTable.type,

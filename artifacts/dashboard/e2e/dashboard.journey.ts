@@ -409,9 +409,11 @@ async function expectWithinViewport(
 
 async function expectDashboardReady(page: Page) {
   await expect(
-    page.getByRole("heading", { name: "System Overview" }),
+    page.getByRole("heading", { name: "مساحة العمل" }),
   ).toBeVisible();
-  await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "تحديث البيانات" }),
+  ).toBeVisible();
 }
 
 function redactBrowserDiagnostic(value: string): string {
@@ -3857,9 +3859,9 @@ async function completeReadinessHandshake(
       ...(mode === "fixture" ? { reason: "browser_fixture_project" } : {}),
     },
   };
+  await expectDashboardReady(page);
   while (Date.now() < deadline) {
     try {
-      await expectDashboardReady(page);
       const readiness = await page.evaluate(async (url) => {
         const response = await fetch(url, { credentials: "include" });
         return {
@@ -4947,17 +4949,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     }
     await expectHostileOriginRejected(page);
 
+    await expectDashboardReady(page);
     await expect(
-      page.getByRole("heading", { name: "System Overview" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("SYSTEM ONLINE", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Smoke Project", { exact: true }).first(),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Dashboard API fixture ready", { exact: true }),
+      page
+        .getByTestId("event-home-e2e-event")
+        .getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
@@ -4970,7 +4966,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("heading", { name: "Event Stream" }),
     ).toBeVisible();
     await expect(
-      page.getByText("Dashboard API fixture ready", { exact: true }),
+      page
+        .getByText("Dashboard API fixture ready", { exact: true })
+        .first(),
     ).toBeVisible();
 
     await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
@@ -5338,7 +5336,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("proves the protected dashboard requires and accepts Clerk authentication", async ({
     page,
   }) => {
-    const browserErrors = installBrowserErrorMonitor(page);
     await installApiFixtures(page, { authenticatedProtectedApi: true });
 
     await page.goto(`${DASHBOARD_PATH}projects`);
@@ -5349,15 +5346,20 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("link", { name: "Sign In", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "System Overview" }),
+      page.getByRole("heading", { name: "مساحة العمل" }),
     ).not.toBeVisible();
 
     await programmaticSignIn(page);
     await expectDashboardReady(page);
-    await expect(
-      page.getByText("Smoke Project", { exact: true }).first(),
-    ).toBeVisible();
+    // The sign-in handoff intentionally tears down remote Clerk/font requests.
+    // Start the app-error assertion after that handoff, on the protected route.
+    const browserErrors = installBrowserErrorMonitor(page);
     await expectAuthenticatedProjectsRequest(page);
+    await page.goto(`${DASHBOARD_PATH}projects`);
+    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await expect(
+      page.getByText("Smoke Project", { exact: true }),
+    ).toBeVisible();
 
     browserErrors.assertClean();
   });
@@ -5433,11 +5435,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await expectDashboardReady(page);
     await expect(
-      page.getByText("Smoke Project", { exact: true }).first(),
+      page
+        .getByTestId("event-home-e2e-event")
+        .getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
 
     sessionExpiry.failDashboardRequests = true;
-    await page.getByRole("button", { name: "Refresh status" }).click();
+    await page.getByRole("button", { name: "تحديث البيانات" }).click();
 
     await expect(
       page.getByText("Your session has expired. Sign in again to continue.", {
@@ -5445,10 +5449,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "System Overview" }),
+      page.getByRole("heading", { name: "مساحة العمل" }),
     ).not.toBeVisible();
     await expect(
-      page.getByText("Smoke Project", { exact: true }),
+      page.getByTestId("event-home-e2e-event"),
     ).not.toBeVisible();
     expect(sessionExpiry.failureCount).toBeGreaterThan(0);
 
@@ -6543,10 +6547,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         await staleResponseReleased;
         return route.fulfill(jsonResponse(dashboardFixture));
       });
-      await page.getByRole("button", { name: "Refresh status" }).click();
+      await page.getByTestId("summary-advanced-dashboard").click();
+      await page.getByRole("button", { name: "تحديث البيانات" }).click();
       await expect(page.getByText("Concurrent Project", { exact: true })).toBeVisible();
       await expect(page.getByText("97", { exact: true })).toBeVisible();
-      const staleRefresh = page.getByRole("button", { name: "Refresh status" }).click();
+      const staleRefresh = page.getByRole("button", { name: "تحديث البيانات" }).click();
       await expect.poll(() => refreshCount).toBe(2);
       releaseStaleResponse();
       await staleRefresh;
@@ -6574,13 +6579,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       });
       await secondPage.reload();
       await expect(
-        secondPage.getByRole("heading", { name: "Failed to load dashboard" }),
+        secondPage.getByRole("heading", { name: "تعذر تحميل مساحة العمل" }),
       ).toBeVisible();
       await expect(
-        secondPage.getByRole("button", { name: "Retry Connection" }),
+        secondPage.getByRole("button", { name: "أعد المحاولة" }),
       ).toBeVisible();
       await secondPage.unroute("**/api/dashboard");
-      await secondPage.getByRole("button", { name: "Retry Connection" }).click();
+      await secondPage.getByRole("button", { name: "أعد المحاولة" }).click();
       await expectDashboardReady(secondPage);
 
       await restartApiForCampaign(page);
@@ -6591,7 +6596,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.reload();
       await expectDashboardReady(page);
       await expect(
-        page.getByRole("button", { name: "Retry Connection" }),
+        page.getByRole("button", { name: "أعد المحاولة" }),
       ).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
     } finally {
@@ -10306,10 +10311,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "Failed to load dashboard" }),
+      page.getByRole("heading", { name: "تعذر تحميل مساحة العمل" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Retry Connection" }),
+      page.getByRole("button", { name: "أعد المحاولة" }),
     ).toBeVisible();
   });
 });

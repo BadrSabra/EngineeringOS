@@ -138,8 +138,12 @@ describe("validateAiProvidersAtStartup", () => {
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
     process.env.DASHBOARD_E2E_TEST_MODE = "fixture";
     process.env.NODE_ENV = "development";
-    process.env.GROQ_API_KEY = "valid-groq-key";
     process.env.GROQ_CATALOG_FIXTURE_MODE = "timeout";
+    providerPriorityUnderTest!.splice(
+      0,
+      providerPriorityUnderTest!.length,
+      ...originalProviderPriority,
+    );
     process.env.GEMINI_API_KEY = "valid-gemini-key";
     process.env.DEEPSEEK_API_KEY = "valid-deepseek-key";
     process.env.OPENROUTER_API_KEY = "valid-openrouter-key";
@@ -162,7 +166,9 @@ describe("validateAiProvidersAtStartup", () => {
     const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
     const results = await validateAiProvidersAtStartup(callbacks);
 
-    expect(results).toHaveLength(4);
+    expect(results).toHaveLength(
+      new Set([...originalProviderPriority, "groq"]).size,
+    );
     expect(results.find((result) => result.provider === "groq")).toMatchObject({
       provider: "groq",
       valid: true,

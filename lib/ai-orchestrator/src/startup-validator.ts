@@ -178,6 +178,9 @@ export async function validateAiProvidersAtStartup(
     providerEgressDisabled &&
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
     process.env.GROQ_CATALOG_FIXTURE_MODE !== undefined;
+  const providersToValidate = controlledGroqFixtureOnly
+    ? [...new Set([...PROVIDER_PRIORITY, "groq" as const])]
+    : PROVIDER_PRIORITY;
 
   if (providerEgressDisabled) {
     for (const provider of PROVIDER_PRIORITY) {
@@ -208,11 +211,15 @@ export async function validateAiProvidersAtStartup(
   let anyValid = false;
   let anyConfigured = false;
 
-  for (const providerId of PROVIDER_PRIORITY) {
+  for (const providerId of providersToValidate) {
     if (providerEgressDisabled && providerId !== "groq") continue;
 
     const keyEnv = PROVIDER_KEY_ENV[providerId];
-    const keyValue = process.env[keyEnv];
+    const keyValue =
+      process.env[keyEnv] ??
+      (providerId === "groq" && controlledGroqFixtureOnly
+        ? "controlled-release-fixture-key"
+        : undefined);
 
     if (!keyValue) {
       if (providerId === "groq") {

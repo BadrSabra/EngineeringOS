@@ -61,8 +61,8 @@ The dedicated browser smoke named
 first opens `/dashboard/projects` while signed out and verifies that the
 protected dashboard is not rendered and the public landing page is shown. It
 then uses the existing isolated-user handoff (`signInClerkUser`, or the
-release-only Clerk Backend API fallback), verifies `/dashboard/` with
-`System Overview` and `SYSTEM ONLINE`, and makes a real authenticated
+release-only Clerk Backend API fallback), verifies `/dashboard/` with the
+current `مساحة العمل` heading and `تحديث البيانات` action, and makes a real authenticated
 `/api/projects` request through the dashboard origin and API proxy, preserving
 the browser's Clerk session cookie. The page-level project response remains a
 deterministic fixture; no AI provider is called.
