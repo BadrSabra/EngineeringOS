@@ -333,14 +333,19 @@ describe("durable AI telemetry", () => {
       ).href;
       const reconnectScript = [
         `import { getAiUsageSummary } from ${JSON.stringify(telemetryModule)};`,
+        `import { pool } from "@workspace/db";`,
         "(async () => {",
-        "  const summary = await getAiUsageSummary({",
-        "    userId: process.env.TELEMETRY_USER,",
-        "    projectId: process.env.TELEMETRY_PROJECT,",
-        "    days: 7,",
-        "  });",
-        "  console.log(JSON.stringify(summary));",
-        "})();",
+        "  try {",
+        "    const summary = await getAiUsageSummary({",
+        "      userId: process.env.TELEMETRY_USER,",
+        "      projectId: process.env.TELEMETRY_PROJECT,",
+        "      days: 7,",
+        "    });",
+        "    console.log(JSON.stringify(summary));",
+        "  } finally {",
+        "    await pool.end();",
+        "  }",
+        "})().catch((error) => { console.error(error); process.exitCode = 1; });",
       ].join("\n");
       const reconnect = await execFileAsync(
         "pnpm",
