@@ -3590,6 +3590,7 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       outcome: "failure",
       providerFailureKind: "RATE_LIMITED",
       rateLimitScope: "upstream_shared_pool",
+      retryAfterMs: 120_000,
       fallbackCount: 0,
     });
     await recordAiUsageAttempt({
@@ -3628,6 +3629,11 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
         contract: { MALFORMED_RESPONSE: 1 },
       },
       rateLimitScopes: { upstream_shared_pool: 1 },
+      rateLimitAttempts: [{
+        provider: "openrouter",
+        scope: "upstream_shared_pool",
+        retryAfterMs: 120_000,
+      }],
     });
     const serialized = JSON.stringify({
       detail: detail.body.executionDiagnostics,

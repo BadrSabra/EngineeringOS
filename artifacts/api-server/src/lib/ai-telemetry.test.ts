@@ -32,6 +32,8 @@ describe("durable AI telemetry", () => {
         contractOutcome: "semantic_failure",
         providerFailureKind: "RATE_LIMITED",
         rateLimitScope: "upstream_shared_pool",
+        model: "google/gemma-4-26b-a4b-it:free",
+        retryAfterMs: 120_000,
       },
       {
         provider: "gemini",
@@ -64,6 +66,11 @@ describe("durable AI telemetry", () => {
         contract: { SEMANTIC_FAILURE: 1, MALFORMED_RESPONSE: 1, MISSING_CLAIMS: 1 },
       },
       rateLimitScopes: { upstream_shared_pool: 1 },
+      rateLimitAttempts: [{
+        provider: "openrouter",
+        scope: "upstream_shared_pool",
+        retryAfterMs: 120_000,
+      }],
     });
     const serialized = JSON.stringify(diagnostics);
     expect(serialized).not.toContain("untrusted-provider");
@@ -82,6 +89,7 @@ describe("durable AI telemetry", () => {
     }]);
 
     expect(diagnostics.rateLimitScopes).toEqual({});
+    expect(diagnostics.rateLimitAttempts).toBeUndefined();
     expect(JSON.stringify(diagnostics)).not.toContain("provider body");
     expect(JSON.stringify(diagnostics)).not.toContain("sk-live");
   });

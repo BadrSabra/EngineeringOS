@@ -91,6 +91,12 @@ export const AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES = [
 export type AiExecutionContractFailureCategory =
   (typeof AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES)[number];
 
+export type AiExecutionRateLimitScope =
+  | "upstream_shared_pool"
+  | "provider_credential"
+  | "account_quota"
+  | "unknown";
+
 export type AiExecutionDiagnostics = {
   schemaVersion: 1;
   attempts: number;
@@ -108,9 +114,14 @@ export type AiExecutionDiagnostics = {
     contract: Partial<Record<AiExecutionContractFailureCategory, number>>;
   };
   rateLimitScopes?: Partial<Record<
-    "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown",
+    AiExecutionRateLimitScope,
     number
   >>;
+  rateLimitAttempts?: Array<{
+    provider: AiExecutionDiagnosticProvider;
+    scope: AiExecutionRateLimitScope;
+    retryAfterMs?: number;
+  }>;
 };
 
 /**

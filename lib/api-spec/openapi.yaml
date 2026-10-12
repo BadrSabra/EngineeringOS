@@ -7466,6 +7466,24 @@ components:
             provider_credential: { type: integer, minimum: 0, maximum: 5000 }
             account_quota: { type: integer, minimum: 0, maximum: 5000 }
             unknown: { type: integer, minimum: 0, maximum: 5000 }
+        rateLimitAttempts:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [provider, scope]
+            properties:
+              provider:
+                type: string
+                enum: [groq, deepseek, openrouter, gemini]
+              scope:
+                type: string
+                enum: [upstream_shared_pool, provider_credential, account_quota, unknown]
+              retryAfterMs:
+                type: integer
+                minimum: 1
+                maximum: 9007199254740991
 
     AiExecutionProjection:
       type: object

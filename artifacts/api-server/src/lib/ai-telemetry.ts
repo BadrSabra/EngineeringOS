@@ -19,9 +19,11 @@ import {
   AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES,
   AI_EXECUTION_DIAGNOSTIC_PROVIDERS,
   AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES,
+  type AiExecutionDiagnosticProvider,
   type AiExecutionContractFailureCategory,
   type AiExecutionDiagnostics,
   type AiExecutionProviderFailureCategory,
+  type AiExecutionRateLimitScope,
 } from "./ai-terminal-outcome.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -79,6 +81,7 @@ export type AiContractTelemetry = Pick<
 type AiExecutionTelemetryRow = Pick<
   AiUsageEvent,
   | "provider"
+  | "model"
   | "outcome"
   | "fallbackCount"
   | "contractOutcome"
@@ -88,7 +91,10 @@ type AiExecutionTelemetryRow = Pick<
   | "contractFailureKind"
   | "providerFailureKind"
   | "rateLimitScope"
+  | "retryAfterMs"
 >>;
+
+const AI_EXECUTION_RATE_LIMIT_ATTEMPTS_MAX = 16;
 
 function incrementCategory(
   counts: Partial<Record<string, number>>,
@@ -143,6 +149,7 @@ export function projectAiExecutionDiagnostics(
   }>();
   const providerFailures: Partial<Record<AiExecutionProviderFailureCategory, number>> = {};
   const rateLimitScopes: Partial<Record<AiRateLimitScope, number>> = {};
+  const rateLimitAttempts: NonNullable<AiExecutionDiagnostics["rateLimitAttempts"]> = [];
   const contractFailures: Partial<Record<AiExecutionContractFailureCategory, number>> = {};
 
   let failedAttempts = 0;
@@ -174,6 +181,15 @@ export function projectAiExecutionDiagnostics(
           && isAiRateLimitScope(row.rateLimitScope)
         ) {
           incrementCategory(rateLimitScopes, row.rateLimitScope);
+          if (allowedProviders.has(row.provider)) {
+            rateLimitAttempts.push({
+              provider: row.provider as AiExecutionDiagnosticProvider,
+              scope: row.rateLimitScope as AiExecutionRateLimitScope,
+              ...(Number.isSafeInteger(row.retryAfterMs) && (row.retryAfterMs ?? 0) > 0
+                ? { retryAfterMs: row.retryAfterMs! }
+                : {}),
+            });
+          }
         }
       }
     }
@@ -200,6 +216,9 @@ export function projectAiExecutionDiagnostics(
       contract: contractFailures,
     },
     rateLimitScopes,
+    ...(rateLimitAttempts.length > 0
+      ? { rateLimitAttempts: rateLimitAttempts.slice(-AI_EXECUTION_RATE_LIMIT_ATTEMPTS_MAX) }
+      : {}),
   };
 }
 
@@ -210,11 +229,13 @@ export async function getAiExecutionDiagnostics(params: {
   const rows = await db
     .select({
       provider: aiUsageEventsTable.provider,
+      model: aiUsageEventsTable.model,
       outcome: aiUsageEventsTable.outcome,
       fallbackCount: aiUsageEventsTable.fallbackCount,
       contractOutcome: aiUsageEventsTable.contractOutcome,
       providerFailureKind: aiUsageEventsTable.providerFailureKind,
       rateLimitScope: aiUsageEventsTable.rateLimitScope,
+      retryAfterMs: aiUsageEventsTable.retryAfterMs,
     })
     .from(aiUsageEventsTable)
     .where(and(
