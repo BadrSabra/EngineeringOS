@@ -45,6 +45,12 @@ Provider health `usable` does not prove a model supports the request's capabilit
 
 **How to apply:** Before a chat-based benchmark attempt, verify `chat` and `tool_calling` in the registered model capabilities. Keep provider health and capability compatibility as separate gates; never treat the probe result as permission to retry an incompatible model.
 
+Standalone `probeProviderHealth` calls do not hydrate OpenRouter credentials from the environment; pass the key explicitly without logging it, or `INVALID_CONFIG` may be mistaken for candidate incompatibility before any provider request occurs.
+
+**Why:** A direct probe without its optional `apiKey` returned `INVALID_CONFIG` before contacting OpenRouter, while the benchmark runner supplies the key.
+
+**How to apply:** In one-off capability probes, pass the existing secret through the `apiKey` option in-process and report only the safe probe result and model ID.
+
 Pinned empirical campaigns can outlast the dynamic catalog's freshness window. Refresh an expired snapshot before each case's model-eligibility check; if the refreshed snapshot no longer lists the exact candidate as free, record provider unavailability and stop the pinned campaign rather than emitting generic execution errors for every remaining case.
 
 **Why:** A long corpus run crossed the catalog TTL after several slow model responses. Per-case validation treated the expired snapshot's `null` as an ordinary exception, so later cases failed before review despite successful repository setup.
