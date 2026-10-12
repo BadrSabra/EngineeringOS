@@ -41,7 +41,7 @@
 - [Task execution lifecycle](task-execution-lifecycle.md) — preserve live worker leases during startup; keep Mission content revisions separate from metadata timestamps.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
-- [Package test root](package-test-root.md) — run API Vitest from artifacts/api-server; workspace-root discovery can select the stale imported-project copy.
+- [Package test root](package-test-root.md) — run Vitest from its owning package; pinned validation clones need linked dependencies and a clean-baseline suite run.
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
