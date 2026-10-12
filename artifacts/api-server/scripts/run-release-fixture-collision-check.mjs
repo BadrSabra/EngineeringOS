@@ -22,6 +22,8 @@ const credentialFixtureTests = [
 
 function runVitest(testFile) {
   return new Promise((resolve, reject) => {
+    const testEnv = { ...process.env, NODE_ENV: "test" };
+    delete testEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
     const child = spawn(
       "pnpm",
       [
@@ -39,7 +41,7 @@ function runVitest(testFile) {
       ],
       {
         cwd: artifactRoot,
-        env: { ...process.env, NODE_ENV: "test" },
+        env: testEnv,
         stdio: "inherit",
       },
     );
