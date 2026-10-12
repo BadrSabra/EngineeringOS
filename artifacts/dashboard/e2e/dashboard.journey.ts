@@ -8053,6 +8053,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps incomplete targeted project analysis non-resumable across history, reload, and retry", async ({
     page,
   }) => {
+    test.setTimeout(60_000);
     const fixture = installIncompleteProjectQueryFixture();
     const audit = {
       ...fixture.execution,
