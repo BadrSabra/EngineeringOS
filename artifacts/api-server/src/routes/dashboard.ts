@@ -9,8 +9,21 @@ import {
 } from "@workspace/db";
 import { desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { loadDashboardWorkSummary } from "../lib/dashboard-work-summary.js";
 
 const router = Router();
+
+router.get("/dashboard/work-summary", requireAuth, async (req, res) => {
+  try {
+    return res.json(await loadDashboardWorkSummary(req.userId!));
+  } catch (error) {
+    console.error("Dashboard work summary unavailable", error);
+    return res.status(503).json({
+      error: "work_summary_unavailable",
+      message: "تعذر قراءة ملخص العمل الآن. لم يُعتبر ذلك غيابًا للعمل.",
+    });
+  }
+});
 
 /**
  * GET /dashboard

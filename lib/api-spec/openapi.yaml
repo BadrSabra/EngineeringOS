@@ -1702,6 +1702,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardOverview"
 
+  # Read-only, bounded work inventory. Recorded state is never Canonical Proof.
+  /api/dashboard/work-summary:
+    get:
+      operationId: getDashboardWorkSummary
+      summary: Bounded owner-scoped work, decisions, and recorded outcomes
+      tags: [Dashboard]
+      responses:
+        "200":
+          description: Read-only sampled work summary; not a completion or approval gate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardWorkSummary"
+
   /api/ai/chat:
     post:
       operationId: aiChat
@@ -10749,3 +10763,70 @@ components:
                 type: string
               hitCount:
                 type: integer
+    DashboardWorkSummaryItem:
+      type: object
+      required: [kind, id, projectId, projectName, title, status, updatedAt, href, planBinding, stateBasis, attempt]
+      properties:
+        kind:
+          type: string
+          enum: [mission, task, execution]
+        id:
+          type: string
+        projectId:
+          type: string
+        projectName:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        updatedAt:
+          type: string
+        href:
+          type: string
+        planBinding:
+          type: string
+          enum: [current_plan, legacy_unversioned, revision_mismatch, independent, needs_details]
+        stateBasis:
+          type: string
+          enum: [recorded_only]
+        attempt:
+          type: [integer, "null"]
+    DashboardWorkSummary:
+      type: object
+      required: [observedAt, decisions, active, recent, coverage]
+      properties:
+        observedAt:
+          type: string
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardWorkSummaryItem"
+        active:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardWorkSummaryItem"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardWorkSummaryItem"
+        coverage:
+          type: object
+          required: [partial, sectionLimit, sourceLimit, goalsTruncated, excludedExecutionCount, totalCountAvailable, verification]
+          properties:
+            partial:
+              type: boolean
+            sectionLimit:
+              type: integer
+            sourceLimit:
+              type: integer
+            goalsTruncated:
+              type: boolean
+            excludedExecutionCount:
+              type: integer
+            totalCountAvailable:
+              type: boolean
+              description: Always false; sampled rows must not be presented as a comprehensive total.
+            verification:
+              type: string
+              enum: [not_revalidated]

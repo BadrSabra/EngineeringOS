@@ -3645,6 +3645,62 @@ export const GetDashboardResponse = zod.object({
 
 
 /**
+ * @summary Bounded owner-scoped work, decisions, and recorded outcomes
+ */
+export const GetDashboardWorkSummaryResponse = zod.object({
+  "observedAt": zod.string(),
+  "decisions": zod.array(zod.object({
+  "kind": zod.enum(['mission', 'task', 'execution']),
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "projectName": zod.string(),
+  "title": zod.string(),
+  "status": zod.string(),
+  "updatedAt": zod.string(),
+  "href": zod.string(),
+  "planBinding": zod.enum(['current_plan', 'legacy_unversioned', 'revision_mismatch', 'independent', 'needs_details']),
+  "stateBasis": zod.enum(['recorded_only']),
+  "attempt": zod.number().int().nullable()
+})),
+  "active": zod.array(zod.object({
+  "kind": zod.enum(['mission', 'task', 'execution']),
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "projectName": zod.string(),
+  "title": zod.string(),
+  "status": zod.string(),
+  "updatedAt": zod.string(),
+  "href": zod.string(),
+  "planBinding": zod.enum(['current_plan', 'legacy_unversioned', 'revision_mismatch', 'independent', 'needs_details']),
+  "stateBasis": zod.enum(['recorded_only']),
+  "attempt": zod.number().int().nullable()
+})),
+  "recent": zod.array(zod.object({
+  "kind": zod.enum(['mission', 'task', 'execution']),
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "projectName": zod.string(),
+  "title": zod.string(),
+  "status": zod.string(),
+  "updatedAt": zod.string(),
+  "href": zod.string(),
+  "planBinding": zod.enum(['current_plan', 'legacy_unversioned', 'revision_mismatch', 'independent', 'needs_details']),
+  "stateBasis": zod.enum(['recorded_only']),
+  "attempt": zod.number().int().nullable()
+})),
+  "coverage": zod.object({
+  "partial": zod.boolean(),
+  "sectionLimit": zod.number().int(),
+  "sourceLimit": zod.number().int(),
+  "goalsTruncated": zod.boolean(),
+  "excludedExecutionCount": zod.number().int(),
+  "totalCountAvailable": zod.boolean().describe('Always false; sampled rows must not be presented as a comprehensive total.'),
+  "verification": zod.enum(['not_revalidated'])
+})
+})
+
+
+/**
  * @summary Send a message to the AI assistant
  */
 export const aiChatBodyResumeTokenMin = 32;

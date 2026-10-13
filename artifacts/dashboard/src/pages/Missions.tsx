@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useSearch } from 'wouter';
 import {
   createTask,
   getListProjectsQueryKey,
@@ -1063,6 +1064,7 @@ export default function Missions() {
   const [missionsLoading, setMissionsLoading] = useState(false);
   const [missionsError, setMissionsError] = useState<unknown>(null);
   const [missionsReload, setMissionsReload] = useState(0);
+  const [missionsLoadedFor, setMissionsLoadedFor] = useState<string | null>(null);
   const [projection, setProjection] = useState<MissionProjection | null>(null);
   const [projectionLoading, setProjectionLoading] = useState(false);
   const [projectionError, setProjectionError] = useState<unknown>(null);
@@ -1078,13 +1080,33 @@ export default function Missions() {
   const [pendingMissionAction, setPendingMissionAction] = useState<MissionActionConfirmation | null>(null);
   const [missionActionError, setMissionActionError] = useState<string | null>(null);
 
+  const search = useSearch();
+  const routeTarget = useMemo(() => {
+    const params = new URLSearchParams(search);
+    return { projectId: params.get('projectId') || null, missionId: params.get('missionId') || null };
+  }, [search]);
+  // An explicit link target stays authoritative until the user picks something else.
+  const [routeTargetReleased, setRouteTargetReleased] = useState(false);
+  useEffect(() => { setRouteTargetReleased(false); }, [routeTarget]);
+  const explicitProjectId = routeTargetReleased ? null : routeTarget.projectId;
+  const explicitMissionId = routeTargetReleased ? null : routeTarget.missionId;
+  const explicitProjectMissing = Boolean(
+    explicitProjectId && !projectsLoading && !projectsError
+      && !projects.some((project) => String(project.id) === explicitProjectId),
+  );
+
   useEffect(() => {
     if (projects.length === 0) {
       setProjectId('');
       return;
     }
+    if (explicitProjectId) {
+      // Fail closed: never fall back to another project for an explicit target.
+      setProjectId(projects.some((project) => String(project.id) === explicitProjectId) ? explicitProjectId : '');
+      return;
+    }
     setProjectId((current) => projects.some((project) => String(project.id) === current) ? current : String(projects[0].id));
-  }, [projects]);
+  }, [projects, explicitProjectId]);
 
   useEffect(() => {
     setSelectedMissionId(null);
@@ -1104,7 +1126,7 @@ export default function Missions() {
     setMissionsLoading(true);
     setMissionsError(null);
     fetchMissions(projectId, controller.signal)
-      .then((data) => setMissions(Array.isArray(data) ? data : []))
+      .then((data) => { setMissions(Array.isArray(data) ? data : []); setMissionsLoadedFor(projectId); })
       .catch((error: unknown) => {
         if ((error as { name?: string }).name !== 'AbortError') setMissionsError(error);
       })
@@ -1114,9 +1136,16 @@ export default function Missions() {
     return () => controller.abort();
   }, [projectId, missionsReload]);
 
+  const explicitMissionAwaitingList = Boolean(explicitMissionId && (missionsLoading || missionsError || missionsLoadedFor !== projectId));
+  const explicitMissionMissing = Boolean(
+    explicitMissionId && !selectedMissionId && !explicitMissionAwaitingList && projectId
+      && !missions.some((mission) => mission.id === explicitMissionId),
+  );
   const activeMissionId = selectedMissionId && missions.some((mission) => mission.id === selectedMissionId)
     ? selectedMissionId
-    : missions[0]?.id ?? null;
+    : explicitMissionId
+      ? (missions.some((mission) => mission.id === explicitMissionId) ? explicitMissionId : null)
+      : missions[0]?.id ?? null;
   const activeMission = missions.find((mission) => mission.id === activeMissionId) ?? null;
 
   useEffect(() => {
@@ -1392,6 +1421,19 @@ export default function Missions() {
           </div>
         ) : null}
 
+        {explicitProjectMissing || explicitMissionMissing ? (
+          <div role="alert" data-testid="status-mission-target-unavailable" className="mb-4 flex flex-col gap-2 rounded-md border border-amber-400/30 bg-amber-300/10 px-3 py-2.5 text-xs text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+            <span dir="auto">
+              {explicitProjectMissing
+                ? 'المشروع المطلوب غير متاح لحسابك أو لم يعد موجودًا. لم نفتح مشروعًا آخر بدلًا منه.'
+                : 'المهمة المطلوبة غير متاحة في هذا المشروع أو لم تعد موجودة. لم نفتح مهمة أخرى بدلًا منها.'}
+            </span>
+            <button type="button" data-testid="button-release-mission-target" onClick={() => setRouteTargetReleased(true)} className="font-semibold text-amber-200 hover:underline">
+              اختر بنفسك
+            </button>
+          </div>
+        ) : null}
+
         {projectsLoading ? (
           <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
             <Skeleton className="h-96" />
@@ -1421,7 +1463,7 @@ export default function Missions() {
               <select
                 id="mission-project-select"
                 value={projectId}
-                onChange={(event) => setProjectId(event.target.value)}
+                onChange={(event) => { setRouteTargetReleased(true); setProjectId(event.target.value); }}
                 data-testid="select-mission-project"
                 className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 outline-none transition-colors focus:border-cyan-400/60"
               >

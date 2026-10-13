@@ -65,6 +65,7 @@ import type {
   CreateTaskInput,
   CreateWorkflowInput,
   DashboardOverview,
+  DashboardWorkSummary,
   DecideAiImplementationPlan200,
   DeepSeekKeyStatus,
   DeleteDeepSeekKey200,
@@ -5488,6 +5489,83 @@ export function useGetDashboard<TData = Awaited<ReturnType<typeof getDashboard>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetDashboardQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDashboardWorkSummaryUrl = () => {
+
+
+
+
+  return `/api/dashboard/work-summary`
+}
+
+/**
+ * @summary Bounded owner-scoped work, decisions, and recorded outcomes
+ */
+export const getDashboardWorkSummary = async ( options?: Parameters<typeof customFetch>[1]): Promise<DashboardWorkSummary> => {
+
+  return customFetch<DashboardWorkSummary>(getGetDashboardWorkSummaryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDashboardWorkSummaryQueryKey = () => {
+    return [
+    `/api/dashboard/work-summary`
+    ] as const;
+    }
+
+
+export const getGetDashboardWorkSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getDashboardWorkSummary>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDashboardWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDashboardWorkSummaryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDashboardWorkSummary>>> = ({ signal }) => getDashboardWorkSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDashboardWorkSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDashboardWorkSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getDashboardWorkSummary>>>
+export type GetDashboardWorkSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Bounded owner-scoped work, decisions, and recorded outcomes
+ */
+
+export function useGetDashboardWorkSummary<TData = Awaited<ReturnType<typeof getDashboardWorkSummary>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDashboardWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDashboardWorkSummaryQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

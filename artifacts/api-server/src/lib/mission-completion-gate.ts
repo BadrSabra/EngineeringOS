@@ -21,22 +21,22 @@ function record(value: unknown): JsonRecord {
     : {};
 }
 
-function activePlanRevision(mission: typeof aiMissionsTable.$inferSelect): string | null {
+function activePlanRevision(mission: Pick<typeof aiMissionsTable.$inferSelect, "autonomyPolicy">): string | null {
   const policy = record(mission.autonomyPolicy);
   return typeof policy.activePlanRevision === "string"
     ? policy.activePlanRevision
     : null;
 }
 
-function goalPlanRevision(goal: typeof aiGoalsTable.$inferSelect): string | null {
+function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract">): string | null {
   const outcome = record(goal.outcomeContract);
   const planRevision = record(outcome.planRevision);
   return typeof planRevision.hash === "string" ? planRevision.hash : null;
 }
 
 export function projectMissionActivePlan(
-  mission: typeof aiMissionsTable.$inferSelect,
-  goals: Array<typeof aiGoalsTable.$inferSelect>,
+  mission: Pick<typeof aiMissionsTable.$inferSelect, "autonomyPolicy">,
+  goals: Array<Pick<typeof aiGoalsTable.$inferSelect, "id" | "outcomeContract" | "successCriteria">>,
 ): {
   revision: string | null;
   binding: "active_revision" | "legacy_unversioned" | "revision_mismatch";

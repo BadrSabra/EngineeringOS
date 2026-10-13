@@ -434,3 +434,36 @@ describe('Missions management', () => {
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });
 });
+describe('Missions explicit route targets', () => {
+  const other = { ...mission, id: 'mission-other', title: 'Other mission' };
+  function setup(search: string) {
+    window.history.replaceState(null, '', `/missions${search}`);
+    useListProjectsMock.mockReturnValue({ data: [{ id: 'project-0', name: 'First' }, project], isLoading: false, isError: false, error: null, refetch: vi.fn() });
+    fetchMissionsMock.mockResolvedValue([other, mission]);
+    fetchMissionProjectionMock.mockImplementation(() => new Promise(() => {}));
+  }
+
+  it('opens the linked project and mission instead of the first ones', async () => {
+    setup('?projectId=project-1&missionId=mission-1');
+    renderPage();
+    await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledWith('mission-1', expect.anything()));
+    expect(fetchMissionsMock).toHaveBeenCalledWith('project-1', expect.anything());
+    expect(fetchMissionsMock).not.toHaveBeenCalledWith('project-0', expect.anything());
+    expect(screen.queryByTestId('status-mission-target-unavailable')).toBeNull();
+  });
+
+  it('fails closed for an unavailable mission', async () => {
+    setup('?projectId=project-1&missionId=missing');
+    renderPage();
+    expect(await screen.findByTestId('status-mission-target-unavailable')).toBeInTheDocument();
+    expect(fetchMissionProjectionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for an unavailable project', async () => {
+    setup('?projectId=not-owned&missionId=mission-1');
+    renderPage();
+    expect(await screen.findByTestId('status-mission-target-unavailable')).toBeInTheDocument();
+    expect(fetchMissionsMock).not.toHaveBeenCalled();
+    window.history.replaceState(null, '', '/');
+  });
+});

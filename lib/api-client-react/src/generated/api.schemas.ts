@@ -6141,6 +6141,74 @@ export interface DashboardOverview {
   topRules?: DashboardOverviewTopRulesItem[];
 }
 
+export type DashboardWorkSummaryItemKind = typeof DashboardWorkSummaryItemKind[keyof typeof DashboardWorkSummaryItemKind];
+
+
+export const DashboardWorkSummaryItemKind = {
+  mission: 'mission',
+  task: 'task',
+  execution: 'execution',
+} as const;
+
+export type DashboardWorkSummaryItemPlanBinding = typeof DashboardWorkSummaryItemPlanBinding[keyof typeof DashboardWorkSummaryItemPlanBinding];
+
+
+export const DashboardWorkSummaryItemPlanBinding = {
+  current_plan: 'current_plan',
+  legacy_unversioned: 'legacy_unversioned',
+  revision_mismatch: 'revision_mismatch',
+  independent: 'independent',
+  needs_details: 'needs_details',
+} as const;
+
+export type DashboardWorkSummaryItemStateBasis = typeof DashboardWorkSummaryItemStateBasis[keyof typeof DashboardWorkSummaryItemStateBasis];
+
+
+export const DashboardWorkSummaryItemStateBasis = {
+  recorded_only: 'recorded_only',
+} as const;
+
+export interface DashboardWorkSummaryItem {
+  kind: DashboardWorkSummaryItemKind;
+  id: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  status: string;
+  updatedAt: string;
+  href: string;
+  planBinding: DashboardWorkSummaryItemPlanBinding;
+  stateBasis: DashboardWorkSummaryItemStateBasis;
+  /** @nullable */
+  attempt: number | null;
+}
+
+export type DashboardWorkSummaryCoverageVerification = typeof DashboardWorkSummaryCoverageVerification[keyof typeof DashboardWorkSummaryCoverageVerification];
+
+
+export const DashboardWorkSummaryCoverageVerification = {
+  not_revalidated: 'not_revalidated',
+} as const;
+
+export type DashboardWorkSummaryCoverage = {
+  partial: boolean;
+  sectionLimit: number;
+  sourceLimit: number;
+  goalsTruncated: boolean;
+  excludedExecutionCount: number;
+  /** Always false; sampled rows must not be presented as a comprehensive total. */
+  totalCountAvailable: boolean;
+  verification: DashboardWorkSummaryCoverageVerification;
+};
+
+export interface DashboardWorkSummary {
+  observedAt: string;
+  decisions: DashboardWorkSummaryItem[];
+  active: DashboardWorkSummaryItem[];
+  recent: DashboardWorkSummaryItem[];
+  coverage: DashboardWorkSummaryCoverage;
+}
+
 export type ListProjectsParams = {
 /**
  * @minimum 1

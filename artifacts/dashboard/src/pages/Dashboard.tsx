@@ -24,6 +24,7 @@ import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import DashboardWorkSummary from '@/components/DashboardWorkSummary';
 import { useMonotonicData } from '@/lib/freshness';
 import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
@@ -330,6 +331,8 @@ export default function Dashboard() {
           </p>
         )}
       </section>
+
+      <DashboardWorkSummary />
 
       <section
         aria-labelledby="home-work-summary-heading"

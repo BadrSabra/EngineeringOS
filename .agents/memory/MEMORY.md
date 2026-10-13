@@ -155,3 +155,4 @@
 - [Nested pnpm project isolation](pnpm-project-isolation.md) — generated roots under the monorepo need explicit workspace isolation, or pnpm may report “No projects found”.
 - [EngineeringOS audience](engineeringos-audience.md) — prioritize a goal-first Arabic experience for users without programming or engineering expertise.
 - [Goal draft continuity](goal-draft-continuity.md) — closing creation stops UI continuation, not the durable job; a send attempt is never an acceptance receipt.
+- [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.

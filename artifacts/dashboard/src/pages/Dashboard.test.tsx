@@ -40,6 +40,8 @@ vi.mock("@workspace/api-client-react", () => ({
   useGetDashboard: vi.fn(),
   useGetHealth: vi.fn(),
   useListOperatorAlerts: vi.fn(),
+  getGetDashboardWorkSummaryQueryKey: vi.fn(() => ["/api/dashboard/work-summary"]),
+  useGetDashboardWorkSummary: vi.fn(() => ({ data: undefined, isLoading: true, error: null, isFetching: true, refetch: vi.fn() })),
 }));
 
 import {
