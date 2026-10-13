@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import {
@@ -28,9 +29,28 @@ import {
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
+import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 
 export default function Projects() {
+  const { isLoaded, user } = useUser();
+  if (!isLoaded) return <p role="status">جارٍ تحميل الحساب…</p>;
+  if (!user) return <p role="alert">سجّل الدخول لفتح مشاريعك.</p>;
+  return <ProjectsForAccount key={user.id} ownerId={user.id} />;
+}
+
+function ProjectsForAccount({ ownerId }: { ownerId: string }) {
   const [, setLocation] = useLocation();
+  const routeDraftId = new URLSearchParams(window.location.search).get('goalDraftId');
+  const draftSnapshot = readGoalDrafts(ownerId);
+  const incomingDraft = draftSnapshot.drafts.find((draft) => draft.id === routeDraftId);
+  const [draftId, setDraftId] = useState(incomingDraft?.id ?? '');
+  const currentDraft = draftSnapshot.drafts.find((draft) => draft.id === draftId);
+  const mounted = useRef(true);
+  const createGeneration = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const queryClient = useQueryClient();
   const { data: rawProjects, isLoading, isError, error } = useListProjects(undefined, {
     query: {
@@ -40,16 +60,17 @@ export default function Projects() {
   });
   const projects = useMonotonicData(rawProjects, newestUpdatedAt(rawProjects));
   const [showDiscover, setShowDiscover] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate, setShowCreate] = useState(Boolean(incomingDraft));
   const [search, setSearch] = useState('');
-  const [projectName, setProjectName] = useState('');
-  const [projectDescription, setProjectDescription] = useState('');
-  const [bootstrapId, setBootstrapId] = useState('');
+  const [projectName, setProjectName] = useState(incomingDraft?.bootstrap?.projectName ?? '');
+  const [projectDescription, setProjectDescription] = useState(incomingDraft?.text ?? '');
+  const [bootstrapId, setBootstrapId] = useState(incomingDraft?.bootstrap?.operationId ?? '');
   const [initialOperation, setInitialOperation] = useState<ProjectBootstrapOperation | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [pollLimitReached, setPollLimitReached] = useState(false);
-  const idempotencyKey = useRef('');
-  const pollingStartedAt = useRef<number | null>(null);
+  const idempotencyKey = useRef(incomingDraft?.bootstrap?.idempotencyKey ?? '');
+  const pollingStartedAt = useRef<number | null>(bootstrapId ? Date.now() : null);
+  const [handoffRetry, setHandoffRetry] = useState(0);
   const handoffScheduledForProject = useRef<string | null>(null);
   const startBootstrap = useStartProjectBootstrap();
   const bootstrapQuery = useGetProjectBootstrap(bootstrapId, {
@@ -76,20 +97,27 @@ export default function Projects() {
   useEffect(() => {
     if (operation?.status !== 'completed' || !operation.projectId) return;
     if (handoffScheduledForProject.current === operation.projectId) return;
-    handoffScheduledForProject.current = operation.projectId;
-    if (projectDescription.trim()) {
-      try {
-        sessionStorage.setItem(`eos_project_planning_handoff:${operation.projectId}`, projectDescription.trim());
-      } catch {
-        // The project remains available in chat; a storage restriction must not block navigation.
+    if (draftId) {
+      const saved = readGoalDrafts(ownerId).drafts.find((draft) => draft.id === draftId);
+      if (!saved || !updateGoalDraft(ownerId, draftId, {
+        projectId: operation.projectId,
+        bootstrap: saved.bootstrap ? { ...saved.bootstrap, operationId: operation.id } : null,
+      })) {
+        setBootstrapError('تم إنشاء المشروع، لكن تعذر حفظ ارتباط الهدف به. النص لم يُرسل؛ احتفظ به وأعد محاولة المتابعة.');
+        return;
       }
     }
+    handoffScheduledForProject.current = operation.projectId;
+    const generation = createGeneration.current;
     void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() }).finally(() => {
-      setLocation(`/ai?projectId=${encodeURIComponent(operation.projectId!)}`);
+      if (mounted.current && generation === createGeneration.current) {
+        setLocation(`/ai?projectId=${encodeURIComponent(operation.projectId!)}${draftId ? `&goalDraftId=${encodeURIComponent(draftId)}` : ''}`);
+      }
     });
-  }, [operation?.status, operation?.projectId, projectDescription, queryClient, setLocation]);
+  }, [operation?.status, operation?.projectId, operation?.id, draftId, ownerId, queryClient, setLocation, handoffRetry]);
 
   const resetCreate = () => {
+    createGeneration.current++;
     setShowCreate(false);
     setProjectName('');
     setProjectDescription('');
@@ -97,6 +125,9 @@ export default function Projects() {
     setInitialOperation(null);
     setBootstrapError(null);
     setPollLimitReached(false);
+    setDraftId('');
+    idempotencyKey.current = '';
+    handoffScheduledForProject.current = null;
     pollingStartedAt.current = null;
   };
 
@@ -105,6 +136,21 @@ export default function Projects() {
     const name = projectName.trim();
     if (!name || startBootstrap.isPending) return;
     if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
+    let savedDraftId = draftId;
+    if (draftId || projectDescription.trim()) {
+      const original = currentDraft ?? (draftId ? null : storeGoalDraft(ownerId, projectDescription, 'starter'));
+      const saved = original && updateGoalDraft(ownerId, original.id, {
+        text: projectDescription.trim(),
+        bootstrap: { idempotencyKey: idempotencyKey.current, projectName: name, operationId: null },
+      });
+      if (!saved) {
+        setBootstrapError('تعذر حفظ الهدف قبل إنشاء المشروع. لم نبدأ الطلب؛ النص ما زال هنا.');
+        return;
+      }
+      savedDraftId = saved.id;
+      setDraftId(saved.id);
+    }
+    const requestGeneration = ++createGeneration.current;
     setBootstrapError(null);
     setPollLimitReached(false);
     pollingStartedAt.current = Date.now();
@@ -112,10 +158,26 @@ export default function Projects() {
       { data: { idempotencyKey: idempotencyKey.current, name, description: projectDescription.trim() } },
       {
         onSuccess: (created) => {
+          if (!mounted.current) return;
+          if (savedDraftId) {
+            const saved = readGoalDrafts(ownerId).drafts.find((draft) => draft.id === savedDraftId);
+            if (!saved?.bootstrap || !updateGoalDraft(ownerId, savedDraftId, {
+              bootstrap: { ...saved.bootstrap, operationId: created.id },
+            })) {
+              if (requestGeneration === createGeneration.current) {
+                setBootstrapError('بدأت عملية الإنشاء، لكن تعذر حفظ رقمها محليًا. احتفظ بهذا التبويب؛ إعادة الطلب بنفس المفتاح لا تنشئ مشروعًا ثانيًا.');
+              }
+            }
+          }
+          if (requestGeneration !== createGeneration.current) return;
           setInitialOperation(created);
           setBootstrapId(created.id);
         },
-        onError: () => setBootstrapError('The creation request could not be started. No project is confirmed as created. You can retry safely.'),
+        onError: () => {
+          if (mounted.current && requestGeneration === createGeneration.current) {
+            setBootstrapError('The creation request could not be started. No project is confirmed as created. You can retry safely.');
+          }
+        },
       },
     );
   };
@@ -135,6 +197,11 @@ export default function Projects() {
   return (
     <>
       {showDiscover && <DiscoverProjectWizard onClose={() => setShowDiscover(false)} />}
+      {(draftSnapshot.error || (routeDraftId && !incomingDraft)) && (
+        <p role="alert" dir="rtl" className="rounded-lg border border-destructive/30 p-3 text-sm">
+          {draftSnapshot.error ?? 'مسودة الهدف المطلوبة غير متاحة لهذا الحساب أو انتهت صلاحيتها. لن نستخدم مسودة أخرى تلقائيًا.'}
+        </p>
+      )}
       {showCreate && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="presentation">
           <section role="dialog" aria-modal="true" aria-labelledby="create-project-title" className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
@@ -146,16 +213,22 @@ export default function Projects() {
               </div>
               <button type="button" onClick={resetCreate} aria-label="Close create project" data-testid="button-close-project-create" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
+            {bootstrapId && bootstrapError && (
+              <div role="alert" data-testid="status-bootstrap-handoff-error" dir="rtl" className="mx-6 mt-4 rounded-lg border border-destructive/30 p-3 text-sm">
+                <p>{bootstrapError}</p>
+                {operation?.status === 'completed' && <button type="button" className="mt-2 text-primary underline" onClick={() => setHandoffRetry((value) => value + 1)}>حفظ ارتباط الهدف والمتابعة</button>}
+              </div>
+            )}
             {!bootstrapId ? (
               <form onSubmit={submitCreate} className="space-y-5 px-6 py-6">
                 <label className="block space-y-2">
                   <span className="text-sm font-medium">Project name</span>
-                  <input autoFocus required maxLength={80} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="e.g. Atlas Field Notes" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <input autoFocus required maxLength={80} readOnly={Boolean(currentDraft?.bootstrap)} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="e.g. Atlas Field Notes" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
                   <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
                 </label>
                 <label className="block space-y-2">
                   <span className="text-sm font-medium">What are you planning to build?</span>
-                  <textarea maxLength={3000} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="Describe the problem, intended users, and the first useful outcome." data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <textarea maxLength={currentDraft?.source === 'home' ? 2000 : 3000} readOnly={Boolean(currentDraft?.bootstrap)} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="Describe the problem, intended users, and the first useful outcome." data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
                   <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectDescription.length}/3000</span>
                 </label>
                 <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground">

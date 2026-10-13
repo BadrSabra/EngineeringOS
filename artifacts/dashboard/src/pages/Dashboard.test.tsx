@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
-import { HOME_GOAL_DRAFT_HANDOFF_KEY } from "../lib/home-goal-handoff";
+import { readGoalDrafts } from "../lib/home-goal-handoff";
+vi.mock('@clerk/react', () => ({ useUser: () => ({ user: { id: 'user-1' } }) }));
 
 const { mockSetLocation } = vi.hoisted(() => ({
   mockSetLocation: vi.fn(),
@@ -77,7 +78,7 @@ beforeEach(() => {
 });
 
 describe("Dashboard goal-first home", () => {
-  it("hands the goal to the assistant as an unsent one-time draft", () => {
+  it("hands the goal to the assistant as an owned persisted unsent draft", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
       isLoading: false,
@@ -93,11 +94,23 @@ describe("Dashboard goal-first home", () => {
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
 
-    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBe(
-      "ساعدني أفهم سبب بطء صفحة تسجيل الدخول",
-    );
-    expect(mockSetLocation).toHaveBeenCalledWith("/ai");
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول");
+    expect(draft.sendAttemptedAt).toBeNull();
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
+  });
+
+  it('keeps a zero-project goal through the existing starter route', () => {
+    vi.mocked(useGetDashboard).mockReturnValue({
+      data: { ...dashboard, projectCount: 0 }, isLoading: false, error: null, refetch: vi.fn(),
+    } as ReturnType<typeof useGetDashboard>);
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'أريد تطبيق متابعة العملاء' } });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(mockSetLocation).toHaveBeenCalledWith(`/projects?create=1&goalDraftId=${draft.id}`);
+    expect(draft.text).toBe('أريد تطبيق متابعة العملاء');
   });
 
   it("labels task totals as recorded status rather than proof", () => {

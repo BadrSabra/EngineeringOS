@@ -8,7 +8,7 @@ import AiChat, {
   parseAiChatRouteTarget,
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
-import { HOME_GOAL_DRAFT_HANDOFF_KEY } from '../lib/home-goal-handoff';
+import { readGoalDrafts, storeGoalDraft, storeHomeGoalDraft } from '../lib/home-goal-handoff';
 import { classifyProjectError, useListProjects } from '@workspace/api-client-react';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
@@ -614,6 +614,7 @@ beforeEach(() => {
   mocks.taskStreamCallbacks = undefined;
   mocks.taskSentParams = undefined;
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -634,18 +635,18 @@ describe('AiChat route target parsing', () => {
 });
 
 describe('workspace goal draft handoff', () => {
-  it('prefills the composer, waits for an explicit send, and consumes the one-time value', async () => {
+  it('persists the composer, waits for an explicit send, and retains a non-replayed attempted copy', async () => {
     const goal = 'ساعدني أفهم سبب بطء صفحة تسجيل الدخول';
-    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, goal);
+    storeHomeGoalDraft(goal, 'user-1');
 
     renderAiChat();
 
     const composer = screen.getByTestId('input-ai-chat-composer');
     await waitFor(() => expect(composer).toHaveValue(goal));
 
-    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
+    expect(readGoalDrafts('user-1').drafts[0].text).toBe(goal);
     expect(screen.getByTestId('status-project-planning-handoff')).toHaveTextContent(
-      'مسودة مؤقتة لهذه الجلسة',
+      'مسودة محفوظة لهذا الحساب',
     );
     expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
     expect(mocks.sentParams).toBeUndefined();
@@ -664,28 +665,32 @@ describe('workspace goal draft handoff', () => {
       expect(mocks.sentParams?.message ?? mocks.taskSentParams?.task).toBe(goal);
     });
     expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
+    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).not.toBeNull();
   });
 
-  it('does not reinsert a consumed goal when the assistant is reopened', async () => {
-    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, 'افحص سبب بطء صفحة الدخول');
+  it('restores an unsent edited goal when the assistant is reopened without auto-sending', async () => {
+    storeHomeGoalDraft('افحص سبب بطء صفحة الدخول', 'user-1');
 
     const firstOpen = renderAiChat();
     const firstComposer = screen.getByTestId('input-ai-chat-composer');
     await waitFor(() => expect(firstComposer).toHaveValue('افحص سبب بطء صفحة الدخول'));
+    fireEvent.change(firstComposer, { target: { value: 'اشرح سبب البطء دون تعديل' } });
     firstOpen.unmount();
 
     renderAiChat();
     const reopenedComposer = screen.getByTestId('input-ai-chat-composer');
-    await waitFor(() => expect(reopenedComposer).toHaveValue(''));
+    await waitFor(() => expect(reopenedComposer).toHaveValue('اشرح سبب البطء دون تعديل'));
 
-    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
-    expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
+    expect(readGoalDrafts('user-1').drafts[0].text).toBe('اشرح سبب البطء دون تعديل');
+    expect(screen.getByTestId('status-project-planning-handoff')).toBeInTheDocument();
+    expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+    expect(mocks.sentParams).toBeUndefined();
     expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
   });
 
-  it('keeps the goal visible when the assistant cannot load projects', async () => {
+  it('keeps the goal editable but unsendable when the assistant cannot load projects', async () => {
     const goal = 'اشرح لي سبب بطء صفحة تسجيل الدخول';
-    window.sessionStorage.setItem(HOME_GOAL_DRAFT_HANDOFF_KEY, goal);
+    storeHomeGoalDraft(goal, 'user-1');
     const projectError = new Error('API unavailable');
 
     vi.mocked(useListProjects).mockReturnValue({
@@ -706,9 +711,41 @@ describe('workspace goal draft handoff', () => {
     await waitFor(() => expect(composer).toHaveValue(goal));
 
     expect(screen.getByTestId('button-retry-projects')).toBeInTheDocument();
-    expect(composer).toBeDisabled();
+    expect(composer).toBeEnabled();
     expect(screen.getByTestId('status-project-planning-handoff')).toBeVisible();
-    expect(window.sessionStorage.getItem(HOME_GOAL_DRAFT_HANDOFF_KEY)).toBeNull();
+    expect(readGoalDrafts('user-1').drafts[0].text).toBe(goal);
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
+  });
+
+  it('offers two conflicting sources without consuming either or selecting one silently', async () => {
+    storeHomeGoalDraft('هدف من الرئيسية', 'user-1');
+    storeGoalDraft('user-1', 'وصف مشروع جديد', 'starter', 'project-1');
+    renderAiChat();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'استخدم هذه المسودة' })).toHaveLength(2));
+    expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('');
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(2);
+    expect(mocks.sentParams).toBeUndefined();
+    fireEvent.click(screen.getAllByRole('button', { name: 'استخدم هذه المسودة' })[0]);
+    expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('هدف من الرئيسية');
+    expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(2);
+  });
+
+  it('keeps goal text when switching project and invalidates the earlier confirmation', async () => {
+    storeHomeGoalDraft('افحص المشكلة دون تعديل', 'user-1');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ id: 'project-1', name: 'First' }, { id: 'project-2', name: 'Second' }],
+      isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+    renderAiChat();
+    await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('افحص المشكلة دون تعديل'));
+    fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
+    expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('project-1');
+    fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-2' } });
+    expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('افحص المشكلة دون تعديل');
+    expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+    fireEvent.keyDown(screen.getByTestId('input-ai-chat-composer'), { key: 'Enter', code: 'Enter' });
     expect(mocks.sentParams).toBeUndefined();
     expect(mocks.taskSentParams).toBeUndefined();
   });

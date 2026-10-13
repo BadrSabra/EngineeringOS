@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useUser } from '@clerk/react';
 import {
   getGetHealthQueryKey,
   getListOperatorAlertsQueryKey,
@@ -181,6 +182,7 @@ function OperatorAlertsCard() {
 }
 
 export default function Dashboard() {
+  const { user } = useUser();
   const [, setLocation] = useLocation();
   const [goalDraft, setGoalDraft] = useState('');
   const [goalHandoffError, setGoalHandoffError] = useState('');
@@ -207,13 +209,15 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
 
-    if (!storeHomeGoalDraft(normalizedGoal)) {
+    const savedDraft = user?.id ? storeHomeGoalDraft(normalizedGoal, user.id) : null;
+    if (!savedDraft) {
       setGoalHandoffError('تعذر نقل المسودة إلى المساعد. احتفظ بنصك وحاول مرة أخرى.');
       return;
     }
 
     setGoalHandoffError('');
-    setLocation('/ai');
+    const target = dashboard?.projectCount === 0 ? '/projects?create=1' : '/ai?';
+    setLocation(`${target}${dashboard?.projectCount === 0 ? '&' : ''}goalDraftId=${encodeURIComponent(savedDraft.id)}`);
   }
 
   if (isLoading) {

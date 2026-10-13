@@ -18,7 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { consumeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import { HOME_GOAL_MAX_LENGTH, STARTER_GOAL_MAX_LENGTH } from '@/lib/home-goal-handoff';
+import { GoalDraftNotice, useGoalDraftHandoff } from '@/lib/use-goal-draft-handoff';
 import {
   useListProjects,
   getListProjectsQueryKey,
@@ -9500,12 +9501,13 @@ export default function AiChat() {
     return params.get('taskId') ?? undefined;
   });
   const [input, setInput] = useState('');
-  const [planningHandoffNotice, setPlanningHandoffNotice] = useState(false);
-  const [planningHandoffReadOnly, setPlanningHandoffReadOnly] = useState(false);
-  const [homeGoalRequiresProjectConfirmation, setHomeGoalRequiresProjectConfirmation] = useState(false);
-  const [confirmedHomeGoalProjectId, setConfirmedHomeGoalProjectId] = useState<string | null>(null);
-  const homeGoalNeedsProjectConfirmation = homeGoalRequiresProjectConfirmation
-    && confirmedHomeGoalProjectId !== selectedProjectId;
+  const draftHandoff = useGoalDraftHandoff({
+    ownerId: isLoaded ? user?.id ?? null : null,
+    routeProjectId: chatRouteTarget?.projectId,
+    routeDraftId: new URLSearchParams(window.location.search).get('goalDraftId'),
+    selectedProjectId, input, setInput,
+  });
+  const homeGoalNeedsProjectConfirmation = draftHandoff.needsProjectConfirmation;
   const [auditExportPending, setAuditExportPending] = useState(false);
   const [auditPreviewPending, setAuditPreviewPending] = useState(false);
   const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
@@ -11141,46 +11143,12 @@ export default function AiChat() {
   ]);
 
   useEffect(() => {
+    if (!draftHandoff.isReady) return;
     if (projects.length > 0 && !selectedProjectId) {
-      const routeProject = chatRouteTarget
-        ? projects.find((project) => project.id === chatRouteTarget.projectId)
-        : undefined;
-      setSelectedProjectId(routeProject?.id ?? projects[0].id);
+      // Explicit route/draft targets must never silently become the first project.
+      setSelectedProjectId(chatRouteTarget?.projectId ?? draftHandoff.activeDraft?.projectId ?? projects[0].id);
     }
-  }, [projects, selectedProjectId, chatRouteTarget]);
-
-  useEffect(() => {
-    const goalDraft = consumeHomeGoalDraft();
-    if (!goalDraft) return;
-
-    setInput((current) => current.trim() ? current : goalDraft);
-    setPlanningHandoffNotice(true);
-    setPlanningHandoffReadOnly(false);
-    setHomeGoalRequiresProjectConfirmation(true);
-    setConfirmedHomeGoalProjectId(null);
-  }, []);
-
-  // A project created from the starter may hand its description to this
-  // existing composer once. The text remains an unsent planning prompt and
-  // does not imply approval for any changes.
-  useEffect(() => {
-    if (
-      !selectedProjectId
-      || chatRouteTarget?.projectId !== selectedProjectId
-    ) return;
-    const handoffKey = `eos_project_planning_handoff:${selectedProjectId}`;
-    let description = '';
-    try {
-      description = sessionStorage.getItem(handoffKey) ?? '';
-      if (description) sessionStorage.removeItem(handoffKey);
-    } catch {
-      return;
-    }
-    if (!description.trim()) return;
-    setInput((current) => current.trim() ? current : description.trim());
-    setPlanningHandoffNotice(true);
-    setPlanningHandoffReadOnly(true);
-  }, [chatRouteTarget, selectedProjectId]);
+  }, [projects, selectedProjectId, chatRouteTarget, draftHandoff.activeDraft?.projectId, draftHandoff.isReady]);
 
   useEffect(() => {
     const targetMessageId = chatRouteTarget?.messageId;
@@ -11607,6 +11575,7 @@ export default function AiChat() {
       return;
     }
     if (isSending) return;
+    if (!options?.executionId && !draftHandoff.onSend(msg)) return;
     setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
@@ -11652,10 +11621,6 @@ export default function AiChat() {
         ...(requestSessionId ? { sessionId: requestSessionId } : {}),
       };
     }
-    setPlanningHandoffNotice(false);
-    setPlanningHandoffReadOnly(false);
-    setHomeGoalRequiresProjectConfirmation(false);
-    setConfirmedHomeGoalProjectId(null);
     setAgentStage('Connecting…');
     setStreamingContent('');
     setAgentSteps([]);
@@ -13039,7 +13004,9 @@ export default function AiChat() {
               data-testid="select-chat-project"
               value={selectedProjectId}
               onChange={(e) => {
+                const preservedGoal = draftHandoff.activeDraft ? input : null;
                 resetConversationView({ forgetCurrentExecution: false });
+                if (preservedGoal !== null) setInput(preservedGoal);
                 setSelectedProjectId(e.target.value);
                 if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
               }}
@@ -14076,21 +14043,19 @@ export default function AiChat() {
               activeProvider={activeProvider}
               metric={activeProviderMetric}
             />
-            {planningHandoffNotice && (
-              <div role="status" data-testid="status-project-planning-handoff" className="mb-2 flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                <span className="min-w-0 flex-1"><span className="font-semibold text-primary">مسودة مؤقتة لهذه الجلسة.</span> لن تُرسل تلقائيًا، ولا تمنح موافقة على تعديل المشروع. إذا غادرت المساعد أو أعدت تحميل الصفحة، قد تحتاج إلى إدخالها مجددًا.</span>
-                {planningHandoffReadOnly && (
-                  <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="تعديل المسودة">تعديل المسودة</button>
-                )}
-                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setHomeGoalRequiresProjectConfirmation(false); setConfirmedHomeGoalProjectId(null); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="حذف المسودة">حذف المسودة</button>
-              </div>
-            )}
+            <GoalDraftNotice handoff={draftHandoff} />
             {homeGoalNeedsProjectConfirmation && (
               <div role="status" dir="rtl" data-testid="status-home-goal-project-confirmation" className="mb-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm">
                 <p>{projectName ? `هل تقصد تنفيذ هذا الهدف في مشروع «${projectName}»؟` : 'اختر المشروع المقصود من قائمة المشاريع قبل إرسال هذا الهدف.'}</p>
                 <p className="mt-1 text-xs text-muted-foreground">تأكيد المشروع لا يرسل المسودة ولا يمنح موافقة على التعديل.</p>
+                {!projectsLoading && !projectsError && projects.length === 0 && draftHandoff.activeDraft && (
+                  <Link className="mt-2 inline-block text-primary underline" href={`/projects?create=1&goalDraftId=${encodeURIComponent(draftHandoff.activeDraft.id)}`}>أنشئ مشروعًا مع الاحتفاظ بهذا الهدف</Link>
+                )}
+                {draftHandoff.activeDraft?.projectId && draftHandoff.activeDraft.projectId !== selectedProjectId && (
+                  <p className="mt-1 text-xs text-amber-400">هذه المسودة مرتبطة بمشروع آخر؛ تأكيد الاختيار سينقل نطاقها إلى المشروع الظاهر.</p>
+                )}
                 <Button type="button" size="sm" className="mt-2" disabled={!selectedProjectId || !projectName || projectsLoading || Boolean(projectLoadFailure)}
-                  data-testid="button-confirm-home-goal-project" onClick={() => setConfirmedHomeGoalProjectId(selectedProjectId)}>
+                  data-testid="button-confirm-home-goal-project" onClick={draftHandoff.confirmProject}>
                   استخدم هذا المشروع
                 </Button>
               </div>
@@ -14100,13 +14065,13 @@ export default function AiChat() {
               ref={textareaRef}
               data-testid="input-ai-chat-composer"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => draftHandoff.edit(e.target.value)}
               onKeyDown={handleKeyDown}
-              readOnly={planningHandoffReadOnly}
+              maxLength={draftHandoff.activeDraft ? (draftHandoff.activeDraft.source === 'home' ? HOME_GOAL_MAX_LENGTH : STARTER_GOAL_MAX_LENGTH) : undefined}
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
+              disabled={!isLoaded || applyMutation.isPending || isAgentBusy || (!draftHandoff.activeDraft && (projectsLoading || !selectedProjectId || Boolean(sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked))}
             />
             <Button
               data-testid="button-send-ai-message"

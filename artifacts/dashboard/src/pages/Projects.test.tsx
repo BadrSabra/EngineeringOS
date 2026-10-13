@@ -1,10 +1,26 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Projects from "./Projects";
+import { readGoalDrafts, storeHomeGoalDraft } from '../lib/home-goal-handoff';
+
+const mocks = vi.hoisted(() => ({
+  setLocation: vi.fn(), mutate: vi.fn(),
+  invalidateQueries: vi.fn(() => Promise.resolve()),
+  ownerId: 'user-1',
+}));
+vi.mock('@clerk/react', () => ({
+  useUser: () => ({ isLoaded: true, user: { id: mocks.ownerId } }),
+}));
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+}));
 
 // Mock the generated API client hook
 vi.mock("@workspace/api-client-react", () => ({
   useListProjects: vi.fn(),
+  useStartProjectBootstrap: () => ({ mutate: mocks.mutate, isPending: false }),
+  useGetProjectBootstrap: vi.fn(),
+  getGetProjectBootstrapQueryKey: (id: string) => ['/api/projects/bootstrap', id],
   getListProjectsQueryKey: () => ["projects"],
   classifyProjectError: (err: unknown) => err,
   isRetryableProjectError: () => false,
@@ -13,6 +29,7 @@ vi.mock("@workspace/api-client-react", () => ({
 
 // Mock wouter
 vi.mock("wouter", () => ({
+  useLocation: () => ['/projects', mocks.setLocation],
   Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
   ),
@@ -27,7 +44,7 @@ vi.mock("./DiscoverProjectWizard", () => ({
   ),
 }));
 
-import { useListProjects } from "@workspace/api-client-react";
+import { useListProjects, useGetProjectBootstrap } from "@workspace/api-client-react";
 
 const mockProjects = [
   { id: "1", name: "alpha-service", status: "active", language: "TypeScript", qualityScore: 0.9, lastScanAt: null },
@@ -36,6 +53,13 @@ const mockProjects = [
 ];
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.ownerId = 'user-1';
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/projects');
+  vi.mocked(useGetProjectBootstrap).mockReturnValue({
+    data: undefined, isLoading: false,
+  } as ReturnType<typeof useGetProjectBootstrap>);
   vi.mocked(useListProjects).mockReturnValue({
     data: mockProjects,
     isLoading: false,
@@ -92,5 +116,74 @@ describe("Projects", () => {
     expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(screen.queryByTestId("discover-wizard")).not.toBeInTheDocument();
+  });
+
+  it('persists the goal before invoking the existing bootstrap and resumes the same operation after reload', async () => {
+    const draft = storeHomeGoalDraft('أنشئ تطبيق العملاء', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+    mocks.mutate.mockImplementation((_params, options) => options.onSuccess({
+      id: 'operation-a', status: 'pending', projectId: null,
+    }));
+    const view = render(<Projects />);
+    expect(screen.getByTestId('input-project-description')).toHaveValue(draft.text);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByTestId('input-project-name'), { target: { value: 'Client App' } });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+    const saved = readGoalDrafts('user-1').drafts[0];
+    expect(saved.bootstrap?.operationId).toBe('operation-a');
+    expect(mocks.mutate).toHaveBeenCalledWith({
+      data: { name: 'Client App', description: draft.text, idempotencyKey: saved.bootstrap?.idempotencyKey },
+    }, expect.anything());
+    view.unmount();
+    vi.mocked(useGetProjectBootstrap).mockReturnValue({
+      data: { id: 'operation-a', status: 'completed', projectId: 'created-project' }, isLoading: false,
+    } as ReturnType<typeof useGetProjectBootstrap>);
+    render(<Projects />);
+    await waitFor(() => expect(mocks.setLocation).toHaveBeenCalledWith(`/ai?projectId=created-project&goalDraftId=${draft.id}`));
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('created-project');
+    expect(readGoalDrafts('user-1').drafts[0].text).toBe(draft.text);
+    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).toBeNull();
+  });
+
+  it('does not start creation or discard input when draft persistence fails', () => {
+    const draft = storeHomeGoalDraft('هدف محفوظ', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-name'), { target: { value: 'Client App' } });
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('status-bootstrap-error')).toHaveTextContent('لم نبدأ الطلب');
+    expect(screen.getByTestId('input-project-description')).toHaveValue(draft.text);
+    spy.mockRestore();
+  });
+
+  it('does not expose or resume another account’s bootstrap draft', () => {
+    const draft = storeHomeGoalDraft('هدف خاص', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+    mocks.ownerId = 'user-2';
+    render(<Projects />);
+    expect(screen.queryByDisplayValue(draft.text)).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('غير متاحة لهذا الحساب');
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(useGetProjectBootstrap).toHaveBeenCalledWith('', expect.objectContaining({
+      query: expect.objectContaining({ enabled: false }),
+    }));
+  });
+
+  it('does not navigate a closed creation form when a late completion arrives', async () => {
+    const draft = storeHomeGoalDraft('هدف العملية الأصلية', 'user-1')!;
+    window.history.replaceState({}, '', `/projects?create=1&goalDraftId=${draft.id}`);
+    let complete!: (result: unknown) => void;
+    mocks.mutate.mockImplementation((_params, options) => { complete = options.onSuccess; });
+    render(<Projects />);
+    fireEvent.change(screen.getByTestId('input-project-name'), { target: { value: 'Original Project' } });
+    fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => complete({ id: 'late-operation', status: 'completed', projectId: 'late-project' }));
+    expect(mocks.setLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts[0].bootstrap?.operationId).toBe('late-operation');
+    expect(readGoalDrafts('user-1').drafts[0].projectId).toBeNull();
   });
 });
