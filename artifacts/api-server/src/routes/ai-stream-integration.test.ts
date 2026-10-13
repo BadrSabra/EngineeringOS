@@ -4096,6 +4096,7 @@ describe("Durable AI execution crash/reconnect", () => {
       ok: false,
       statusCode: 200,
       reason: "chat_recovery_not_completed",
+      failureCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
     });
     expect(resumedInput?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");
     expect(resumedInput?.message).toContain("behavior-evidence validation was rejected");
@@ -4136,6 +4137,297 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(executionAfterResume?.finalMessageId).toBeTruthy();
     expect(acceptanceAfterResume?.attempt).toBe(executionAfterResume?.attempt);
     expect(["SUCCEEDED", "FAILED"]).toContain(acceptanceAfterResume?.outcome);
+  });
+
+  it("reports recovery success only after a proof-backed PROJECT_QUERY acceptance completes", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-project-query-recovery-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Project query recovery");
+    const sources = [
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/project-query-target.ts",
+      "lib/ai-orchestrator/src/evidence-integrity.ts",
+    ];
+    const claimIds = [
+      "generic-project-routing",
+      "generic-project-evidence-gate",
+      "generic-project-bounded-read",
+    ];
+    const sourceBodies = new Map<string, string>([
+      [
+        sources[0]!,
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  const kind = message ? 'PROJECT_QUERY' : 'CHAT';",
+          "  const projectReadOnly = 'project-read-only';",
+          "  const requiresTools = true;",
+          "  return { kind, projectReadOnly, requiresTools };",
+          "}",
+        ].join("\n"),
+      ],
+      [sources[1]!, "export const genericTargetFixture = true;"],
+      [
+        sources[2]!,
+        [
+          "export const objectiveCompletionGate = true;",
+          "export function validateFinalAnswer() {",
+          "  const requiredEvidencePaths = [];",
+          "  return requiredEvidencePaths;",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+    for (const [relativePath, body] of sourceBodies) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, body, "utf8");
+    }
+
+    const [project] = await db
+      .select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const workspaceRevision = project!.updatedAt.toISOString();
+    const requestEnvelope = {
+      projectId,
+      sessionId,
+      message: "Analyze my project architecture.",
+      modelMessage: "Analyze my project architecture.",
+      turnIntent: "PROJECT_QUERY",
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "BEHAVIOR_ANSWER",
+        contextProfile: "project_query",
+        sessionId,
+        projectRevision: workspaceRevision,
+        requiresEvidence: true,
+        scope: { projectId, rootPath, linkedTaskId: null },
+      },
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: requestEnvelope,
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+      workspaceRoot: rootPath,
+    });
+    const workerId = randomUUID();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId,
+    }))?.status).toBe("running");
+    await checkpointAiExecution({
+      executionId: created.execution.id,
+      expectedAttempt: 0,
+      workerId,
+      checkpoint: {
+        stage: "tool_loop",
+        sequence: 1,
+        recentSteps: [],
+        detail: "The previous worker stopped after retaining project-query source reads.",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(await reconcileAiExecutions()).toBe(1);
+    const [leaseAcceptance] = await db
+      .select({
+        projectId: aiExecutionAcceptancesTable.projectId,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id))
+      .limit(1);
+    expect(leaseAcceptance).toMatchObject({
+      projectId,
+      operationId: created.execution.operationId,
+      sourceRevision: workspaceRevision,
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
+    });
+
+    let observedObjective: {
+      objectiveType?: string;
+      requiredEvidencePaths?: string[];
+      requiredClaims?: Array<{ claimId?: string; text?: string }>;
+    } | undefined;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as {
+        objective?: {
+          objectiveType?: string;
+          requiredEvidencePaths?: string[];
+          requiredClaims?: Array<{
+            claimId?: string;
+            text?: string;
+            evidenceNeedlesByPath?: Record<string, string[]>;
+          }>;
+        };
+        retainedEvidence?: Map<string, string>;
+        retainedReadStatuses?: Map<string, string>;
+      };
+      observedObjective = input.objective;
+      const answer = (input.objective?.requiredClaims ?? [])
+        .map(({ text }) => text)
+        .filter((text): text is string => Boolean(text))
+        .join("\n\n");
+      for (const source of sources) {
+        const body = sourceBodies.get(source)!;
+        input.retainedEvidence?.set(source, body);
+        input.retainedReadStatuses?.set(source, "READ_COMPLETE");
+        args[6]?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source, complete: true },
+          cached: false,
+        } as never);
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: body.length,
+        } as never);
+      }
+      args[6]?.({
+        kind: "forensic_status",
+        readStatuses: sources.map((path) => ({ path, status: "READ_COMPLETE" })),
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: sources.length,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: sources,
+        acceptedClaimCount: claimIds.length,
+        completedClaims: claimIds,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+        missingClaims: [],
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: sources.length,
+          claim: "bounded project architecture answer",
+          validator: "project-query",
+          rejectionReason: [],
+          recoveryAttempt: 0,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      } as never);
+      args[6]?.({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_SOURCE",
+        details: [
+          "source=deterministic_fallback",
+          "fallbackReason=synthesis_failed",
+        ],
+      });
+      args[3]?.(answer);
+      return {
+        result: {
+          response: answer,
+          sources,
+          pendingChanges: [],
+          projectQueryResponseSource: "deterministic_fallback",
+          projectQueryResponseFallbackReason: "synthesis_failed",
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const recovered = await runChatExecutionRecovery({
+      executionId: created.execution.id,
+      userId: "test-user",
+      mode: "resume",
+    });
+    expect(observedObjective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_GENERIC-PROJECT",
+      requiredEvidencePaths: sources,
+      requiredClaims: claimIds.map((claimId) => expect.objectContaining({ claimId })),
+    });
+
+    const [execution] = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        operationId: aiExecutionsTable.operationId,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    const [acceptance] = await db
+      .select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, created.execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, 1),
+      ))
+      .limit(1);
+    const [snapshot] = acceptance?.evidenceSnapshotId
+      ? await db
+          .select({
+            verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+            complete: aiExecutionEvidenceSnapshotsTable.complete,
+            readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+          })
+          .from(aiExecutionEvidenceSnapshotsTable)
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance.evidenceSnapshotId))
+          .limit(1)
+      : [];
+    expect(recovered).toMatchObject({ ok: true, statusCode: 200 });
+    expect(execution).toMatchObject({
+      attempt: 1,
+      operationId: created.execution.operationId,
+      status: "completed",
+      finalMessageId: expect.any(String),
+    });
+    expect(acceptance).toMatchObject({
+      attempt: 1,
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+    });
+    expect(snapshot).toMatchObject({
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: sources.length,
+    });
   });
 
   it("cancels a queued execution as a terminal state with a durable checkpoint", async () => {

@@ -14,11 +14,13 @@ import {
 type InternalResponse = Response & {
   recoveryStatusCode: number;
   recoveryBody?: unknown;
+  recoveryErrorCode?: string;
 };
 
 type ResponseStub = {
   recoveryStatusCode: number;
   recoveryBody?: unknown;
+  recoveryErrorCode?: string;
   statusCode: number;
   headersSent: boolean;
   writableEnded: boolean;
@@ -53,9 +55,29 @@ function createInternalResponse(): InternalResponse {
       this.headersSent = true;
       return this;
     },
-    write() {
+    write(chunk: unknown) {
       if (this.writableEnded) return false;
       this.headersSent = true;
+      if (typeof chunk === "string") {
+        for (const line of chunk.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const event = JSON.parse(line.slice("data:".length).trim()) as {
+              type?: unknown;
+              code?: unknown;
+            };
+            if (
+              event.type === "error"
+              && typeof event.code === "string"
+              && /^[A-Z][A-Z0-9_]{2,63}$/.test(event.code)
+            ) {
+              this.recoveryErrorCode = event.code;
+            }
+          } catch {
+            // Non-JSON SSE frames do not carry a recovery gate code.
+          }
+        }
+      }
       return true;
     },
     json(value: unknown) {
@@ -123,7 +145,13 @@ export async function runChatExecutionRecovery(params: {
   executionId: string;
   userId: string;
   mode?: "resume" | "retry";
-}): Promise<{ ok: boolean; reason?: string; statusCode?: number; retryAfterSec?: number }> {
+}): Promise<{
+  ok: boolean;
+  reason?: string;
+  failureCode?: string;
+  statusCode?: number;
+  retryAfterSec?: number;
+}> {
   const execution = await getAiExecutionForUser(params.executionId, params.userId);
   if (!execution) return { ok: false, reason: "execution_not_found" };
 
@@ -192,6 +220,7 @@ export async function runChatExecutionRecovery(params: {
       ok: false,
       statusCode: response.recoveryStatusCode,
       reason: "chat_recovery_not_completed",
+      ...(response.recoveryErrorCode ? { failureCode: response.recoveryErrorCode } : {}),
     };
   }
   return {

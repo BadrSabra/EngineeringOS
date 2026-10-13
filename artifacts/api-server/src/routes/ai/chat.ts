@@ -11846,7 +11846,7 @@ export async function handleChatStream(req: Request, res: Response) {
       const parserProjectQueryEvidence =
         deriveProjectQueryAnalysisEvidenceState({
           traceSteps,
-          objective: executionRequest.objective,
+          objective: streamObjective,
           operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
           sourceRevision: analysisCorrelation.projectRevision,
           retainedEvidence,
@@ -12492,7 +12492,7 @@ export async function handleChatStream(req: Request, res: Response) {
     }
     const analysisEvidenceState = deriveProjectQueryAnalysisEvidenceState({
       traceSteps,
-      objective: executionRequest.objective,
+      objective: streamObjective,
       operationId: aiExecution.operationId ?? aiExecution.id,
       sourceRevision: analysisCorrelation.projectRevision,
       retainedEvidence,
