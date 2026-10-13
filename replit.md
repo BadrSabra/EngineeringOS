@@ -10,6 +10,18 @@ An engineering operations platform — one console for how your code actually mo
 - **Knowledge engine**: BFS graph queries, centrality/cluster inference
 - **Scanner**: TS compiler API AST extraction, Python AST subprocess for Python files
 
+## Product experience and documentation
+
+The UX documents distinguish current source observations, historical changes,
+proposed implementation, and checks that still need independent verification.
+
+- Current UX plan: `docs/dashboard-goal-first-execution-plan.md`.
+- UX review and historical implementation notes: `docs/dashboard-user-experience-review.md`.
+- Architectural boundaries and current versus proposed UX: `docs/architecture.md`.
+
+The UX plan is a proposal, not implementation approval or evidence that its
+runtime, browser, or usability checks have passed.
+
 ## How to run
 
 All services start automatically via the configured workflows:
