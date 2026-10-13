@@ -6223,7 +6223,16 @@ function MessageBubble({
     && !structuredFailure
     && msg.turnIntent === 'PROJECT_QUERY'
     && msg.retryable !== false
-    && msg.providerFailureCategory !== 'RATE_LIMITED'
+    && (
+      msg.providerFailureCategory !== 'RATE_LIMITED'
+      || (
+        Boolean(msg.projectQueryTarget)
+        && (
+          msg.acceptanceDisposition?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
+          || msg.terminalProjection?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
+        )
+      )
+    )
     && onRetryProjectQuery,
   );
   const behaviorEvidenceCount = parseBehaviorEvidence(msg.behaviorEvidence).length;
@@ -10385,15 +10394,21 @@ export default function AiChat() {
     // the durable execution status when it is available.
     const durableNextActionCode =
       failedMessage?.acceptanceDisposition?.nextActionCode
+      ?? failedMessage?.terminalProjection?.nextActionCode
       ?? (activeExecutionStatus?.id === executionId
         ? activeExecutionStatus.acceptance?.nextActionCode
         : undefined);
+    const retryAfterRateLimit = Boolean(failedMessage?.projectQueryTarget)
+      && failedMessage?.providerFailureCategory === 'RATE_LIMITED'
+      && durableNextActionCode === 'RETRY_AFTER_RATE_LIMIT';
     const requiresFreshProjectQueryRun =
-      Boolean(failedMessage?.projectQueryTarget)
-      || durableNextActionCode === 'START_NEW_PROBE'
-      || durableNextActionCode === 'REVIEW_INCOMPLETE_EVIDENCE'
-      || durableNextActionCode === 'ABANDON_EXECUTION'
-      || (activeExecutionStatus?.id === executionId && !executionCanResume(activeExecutionStatus));
+      !retryAfterRateLimit && (
+        Boolean(failedMessage?.projectQueryTarget)
+        || durableNextActionCode === 'START_NEW_PROBE'
+        || durableNextActionCode === 'REVIEW_INCOMPLETE_EVIDENCE'
+        || durableNextActionCode === 'ABANDON_EXECUTION'
+        || (activeExecutionStatus?.id === executionId && !executionCanResume(activeExecutionStatus))
+      );
     if (requiresFreshProjectQueryRun) {
       sendMessage('retry');
       return;
@@ -10404,7 +10419,7 @@ export default function AiChat() {
         activeExecution?.id === executionId ? activeExecution.resumeToken : undefined;
       if (!resumeToken) {
         const response = await fetch(
-          `/api/ai/executions/${encodeURIComponent(executionId)}/resume-capability`,
+          `/api/ai/executions/${encodeURIComponent(executionId)}/${retryAfterRateLimit ? 'retry-capability' : 'resume-capability'}`,
           {
             method: 'POST',
             credentials: 'include',

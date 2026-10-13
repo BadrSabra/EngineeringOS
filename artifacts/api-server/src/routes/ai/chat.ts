@@ -11576,7 +11576,13 @@ export async function handleChatStream(req: Request, res: Response) {
       const targetedProjectQueryFailure =
         streamTurnIntent.kind === "PROJECT_QUERY"
         && proofRequired
-        && !projectOrientationExecution;
+        && !projectOrientationExecution
+        && !(
+          err instanceof GroqClientError
+          && err.code === "RATE_LIMITED"
+          && Number.isSafeInteger(err.retryAfterMs)
+          && err.retryAfterMs! > 0
+        );
       const terminalErrorCode = targetedProjectQueryFailure
         ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
         : providerErrorCode;
@@ -11716,6 +11722,12 @@ export async function handleChatStream(req: Request, res: Response) {
             workerId: executionWorkerId!,
             error: executionFailure,
             cancelled,
+            ...(err instanceof GroqClientError
+              && err.code === "RATE_LIMITED"
+              && Number.isSafeInteger(err.retryAfterMs)
+              && err.retryAfterMs! > 0
+              ? { resumable: false }
+              : {}),
             ...(targetedProjectQueryFailure
               ? { recoveryState: terminalOutcome.recoveryState }
               : {}),
@@ -11733,6 +11745,11 @@ export async function handleChatStream(req: Request, res: Response) {
             evidenceReads: evidenceReadsForTerminal(),
             evidenceProgress: evidenceProgressForTerminal(),
             providerAttempts: providerAttemptSummary,
+            ...(typeof terminalOutcome.retryAfterMs === "number"
+              && Number.isSafeInteger(terminalOutcome.retryAfterMs)
+              && terminalOutcome.retryAfterMs > 0
+              ? { retryAfterMs: terminalOutcome.retryAfterMs }
+              : {}),
             finalMessageId: persistedProviderFailure?.id,
             finalMessageErrorCode: terminalErrorCode,
           }).catch((terminalError) => {
@@ -11758,9 +11775,11 @@ export async function handleChatStream(req: Request, res: Response) {
         const publicErrorCode = targetedProjectQueryFailure
           ? terminalErrorCode
           : err instanceof GroqClientError ? err.code : "unknown";
-        const projectQueryTarget = projectQueryTargetFromTrace(
-          persistedProviderFailure?.toolTrace ?? serializeToolTrace(traceSteps, false),
-        );
+        const projectQueryTarget = streamTurnIntent.projectTarget
+          ? { mode: streamTurnIntent.projectQueryTargetMode ?? "resolved_target" }
+          : projectQueryTargetFromTrace(
+              persistedProviderFailure?.toolTrace ?? serializeToolTrace(traceSteps, false),
+            );
         const retryable = terminalOutcome.retryable;
         sse({
           type: "error",

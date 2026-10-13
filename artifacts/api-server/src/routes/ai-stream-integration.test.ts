@@ -16939,7 +16939,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     const res = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, message: "Trigger rate limit" });
+      .send({ projectId, message: "Analyze the AI architecture in this project." });
 
     expect(res.status).toBe(200);
     const errorEvent = parseSseEvents(res.text).find((e) => e["type"] === "error");
@@ -16948,8 +16948,56 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       retryable: true,
       rateLimitScope: "upstream_shared_pool",
       retryAfterMs: 2_000,
+      terminalProjection: {
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+        resumable: false,
+      },
     });
     expect(String(errorEvent!["message"])).not.toContain("2 seconds");
+
+    const executionId = String(errorEvent!["executionId"] ?? "");
+    expect(executionId).not.toBe("");
+    expect(errorEvent!["projectQueryTarget"]).toBeTruthy();
+    const earlyRetry = await request(app)
+      .post(`/api/ai/executions/${executionId}/retry-capability`);
+    expect(earlyRetry.status).toBe(409);
+    expect(earlyRetry.body.code).toBe("EXECUTION_NOT_RETRYABLE");
+
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    const allowedRetry = await request(app)
+      .post(`/api/ai/executions/${executionId}/retry-capability`);
+    expect(allowedRetry.status).toBe(200);
+    expect(allowedRetry.body).toMatchObject({ executionId, attempt: 0 });
+    expect(typeof allowedRetry.body.resumeToken).toBe("string");
+
+    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+      new GroqClientError("RATE_LIMITED", "OpenRouter rate limited again", {
+        context: {
+          providerName: "OpenRouter",
+          providerStatus: 429,
+          retryAfterMs: 2_000,
+          rateLimitScope: "upstream_shared_pool",
+        },
+      }),
+    );
+    const retriedResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId: errorEvent!["sessionId"],
+        message: "Analyze the AI architecture in this project.",
+        executionId,
+        resumeToken: allowedRetry.body.resumeToken,
+      });
+    expect(retriedResponse.status).toBe(200);
+    const retriedError = parseSseEvents(retriedResponse.text)
+      .find((event) => event["type"] === "error");
+    expect(retriedError).toMatchObject({
+      executionId,
+      attempt: 1,
+      code: "RATE_LIMITED",
+      retryAfterMs: 2_000,
+    });
   });
 
   it("should respond with 400 before opening SSE stream when request body is invalid", async () => {

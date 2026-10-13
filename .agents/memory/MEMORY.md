@@ -18,6 +18,7 @@
 - [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
+- [Chat rate-limit retry](chat-rate-limit-retry.md) — same-execution 429 retry requires a server-owned project scope and positive Retry-After; the durable gate enforces the deadline.
 - [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI tests fail closed; chat history tests isolate ledger persistence without weakening lease checks.
