@@ -22,7 +22,7 @@ vi.mock('@workspace/api-client-react', () => ({
   useCreateTask: vi.fn(),
   useUpdateTask: vi.fn(),
   useDeleteTask: vi.fn(),
-  getListTasksQueryKey: vi.fn(() => ['tasks']),
+  getListTasksQueryKey: vi.fn((params?: unknown) => ['/api/tasks', ...(params ? [params] : [])]),
   getListProjectsQueryKey: vi.fn(() => ['projects']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
   getGetTaskQueryKey: vi.fn((taskId: string) => ['task', taskId]),
@@ -123,6 +123,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.history.replaceState({}, '', '/tasks');
   vi.mocked(useListProjects).mockReturnValue({
     data: [{ id: 'project-1', name: 'Test Project' }],
     isLoading: false,
@@ -202,6 +203,97 @@ beforeEach(() => {
     isPending: false,
     error: null,
   } as ReturnType<typeof useDeleteTask>);
+});
+
+describe('project-scoped task list contracts', () => {
+  it('sends the selected owned project in the list request', () => {
+    renderPage();
+    expect(useListTasks).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-1' }),
+      expect.objectContaining({
+        query: expect.objectContaining({ enabled: true }),
+      }),
+    );
+  });
+
+  it('does not issue a projectless request when there are no projects', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [], isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+    renderPage();
+    expect(useListTasks).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+  });
+
+  it('does not fall back to the first project for an unavailable explicit target', () => {
+    window.history.replaceState({}, '', '/tasks?projectId=unavailable-project');
+    renderPage();
+    expect(useListTasks).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ query: expect.objectContaining({ enabled: false }) }),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('المشروع المطلوب غير متاح');
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+  });
+
+  it('uses an independent cache key and hides the previous project when switching', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ id: 'project-1', name: 'First' }, { id: 'project-2', name: 'Second' }],
+      isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+    const view = renderPage();
+    fireEvent.change(screen.getByTestId('select-task-project'), { target: { value: 'project-2' } });
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-2' }),
+      expect.objectContaining({
+        query: expect.objectContaining({
+          queryKey: ['/api/tasks', expect.objectContaining({ projectId: 'project-2' })],
+        }),
+      }),
+    );
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('projectId')).toBe('project-2');
+    view.unmount();
+    renderPage();
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-2' }), expect.anything(),
+    );
+  });
+
+  it('resolves the project of a task deep link even when it is outside the first list page', () => {
+    window.history.replaceState({}, '', '/tasks?taskId=target-task');
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ id: 'project-1', name: 'First' }, { id: 'project-2', name: 'Second' }],
+      isLoading: false, isError: false, error: null,
+    } as ReturnType<typeof useListProjects>);
+    vi.mocked(useGetTask).mockReturnValue({
+      data: {
+        id: 'target-task', projectId: 'project-2', title: 'Deep linked work',
+        status: 'pending', priority: 'p2', correlationId: null,
+        createdAt: '2026-10-13T00:00:00.000Z', updatedAt: '2026-10-13T00:00:00.000Z',
+      },
+      isLoading: false, isError: false,
+    } as ReturnType<typeof useGetTask>);
+    renderPage();
+    expect(useListTasks).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-2' }), expect.anything(),
+    );
+    expect(screen.getByText('Deep linked work')).toBeInTheDocument();
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+  });
+
+  it('replaces the list when the server returns an empty snapshot after deletion', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = () => <QueryClientProvider client={client}><Tasks /></QueryClientProvider>;
+    const view = render(page());
+    expect(screen.getByText('Repair provider authentication')).toBeInTheDocument();
+    const previous = vi.mocked(useListTasks).mock.results.at(-1)!.value;
+    vi.mocked(useListTasks).mockReturnValue({ ...previous, data: [], dataUpdatedAt: 2 });
+    view.rerender(page());
+    expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+  });
 });
 
 function mockTaskExecutionProjection(taskCorrelationId: string, executionCorrelationId: string) {

@@ -651,6 +651,13 @@ describe('workspace goal draft handoff', () => {
     expect(mocks.sentParams).toBeUndefined();
     expect(mocks.taskSentParams).toBeUndefined();
 
+    expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
+    fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
+    expect(mocks.sentParams).toBeUndefined();
+    expect(mocks.taskSentParams).toBeUndefined();
     fireEvent.click(screen.getByTestId('button-send-ai-message'));
 
     await waitFor(() => {
@@ -1238,7 +1245,8 @@ describe('AiChat authenticated generated mutations', () => {
     });
 
     expect(await screen.findByText('Rate limited')).toBeInTheDocument();
-    expect(screen.getByText(/rate limit was reached/i)).toBeInTheDocument();
+    expect(screen.getByText(/provider rate-limited this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/no automatic retry is available/i)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );
@@ -1268,7 +1276,8 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('Rate limited')).toBeInTheDocument();
-    expect(screen.getByText(/rate limit was reached/i)).toBeInTheDocument();
+    expect(screen.getByText(/provider rate-limited this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/no automatic retry is available/i)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );

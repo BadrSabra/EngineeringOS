@@ -46,7 +46,6 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import { MissionCapsule } from '@/components/MissionCapsule';
 
@@ -1090,6 +1089,8 @@ function TaskEditDialog({
 export default function Tasks() {
   const queryClient = useQueryClient();
   const requestedTaskId = new URLSearchParams(window.location.search).get('taskId') ?? '';
+  const requestedProjectId = new URLSearchParams(window.location.search).get('projectId') ?? '';
+  const [selectedProjectId, setSelectedProjectId] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>('');
@@ -1106,21 +1107,42 @@ export default function Tasks() {
   const [deletingTask, setDeletingTask] = useState<{ id: string; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState('');
 
-  const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
-    { status: filterStatus || undefined, priority: filterPriority || undefined },
+  const { data: projects = [], isLoading: projectsLoading, isError: projectsError, error: projectError, refetch: refetchProjects } = useListProjects(undefined, {
+    query: { queryKey: getListProjectsQueryKey() },
+  });
+  const { data: requestedTask, isLoading: requestedTaskLoading, isError: requestedTaskError, error: taskTargetError } = useGetTask(requestedTaskId, {
+    query: {
+      queryKey: getGetTaskQueryKey(requestedTaskId),
+      enabled: Boolean(requestedTaskId),
+    },
+  });
+  const targetProjectId = selectedProjectId || requestedProjectId
+    || (requestedTaskId ? requestedTask?.projectId : projects[0]?.id) || '';
+  const projectId = projects.find((project) => project.id === targetProjectId)?.id;
+  const listParams = { projectId, status: filterStatus || undefined, priority: filterPriority || undefined };
+  const { data: rawTasks, isLoading: tasksLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
+    listParams,
     {
       query: {
-        queryKey: getListTasksQueryKey({
-          status: filterStatus || undefined,
-          priority: filterPriority || undefined,
-        }),
+        queryKey: getListTasksQueryKey(listParams),
+        enabled: Boolean(projectId),
       },
     },
   );
-  const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
-  const { data: projects = [] } = useListProjects(undefined, {
-    query: { queryKey: getListProjectsQueryKey() },
-  });
+  // Query identity separates project/filter snapshots. Item timestamps cannot
+  // order deletions or an empty list; use the accepted query result directly.
+  const tasks = projectId ? (rawTasks ?? []).filter((task) => task.projectId === projectId) : [];
+  if (
+    requestedTaskId && requestedTask?.id === requestedTaskId
+    && requestedTask.projectId === projectId
+    && (!filterStatus || requestedTask.status === filterStatus)
+    && (!filterPriority || requestedTask.priority === filterPriority)
+    && !tasks.some((task) => task.id === requestedTaskId)
+  ) {
+    tasks.push(requestedTask);
+  }
+  const isLoading = projectsLoading || Boolean(requestedTaskId && requestedTaskLoading)
+    || Boolean(projectId && tasksLoading);
 
   useEffect(() => {
     if (requestedTaskId && tasks?.some((task) => task.id === requestedTaskId)) {
@@ -1168,12 +1190,21 @@ export default function Tasks() {
   const setDetailTab = (taskId: string, tab: 'details' | 'logs') =>
     setLogsTab((prev) => ({ ...prev, [taskId]: tab }));
 
+  const selectProject = (nextProjectId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('projectId', nextProjectId);
+    url.searchParams.delete('taskId');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    setSelectedProjectId(nextProjectId);
+  };
+
   const handleCreateTask = (data: CreateTaskInput) => {
     createTask.mutate(
       { data },
       {
         onSuccess: (created) => {
           setCreateOpen(false);
+          selectProject(created.projectId);
           void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
           toast({ title: 'Task created', description: `${created.title} is now in the task backlog.` });
         },
@@ -1276,11 +1307,27 @@ export default function Tasks() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <select
+            aria-label="مشروع المهام"
+            data-testid="select-task-project"
+            value={projectId ?? ''}
+            onChange={(event) => {
+              selectProject(event.target.value);
+              setExpandedTask(null);
+              setEditingTask(null);
+              setDeletingTask(null);
+              setCreateOpen(false);
+            }}
+            className="rounded-md border border-border bg-secondary px-3 py-2 text-sm"
+          >
+            {!projectId && <option value="">اختر مشروعًا</option>}
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
           <button type="button" onClick={() => setCreateOpen(true)} data-testid="button-open-create-task" aria-label="New task" className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
             <span className="text-base leading-none">+</span>
             New task
           </button>
-          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />
+          {projectId && <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />}
           <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border">
             <select
               value={filterStatus}
@@ -1366,6 +1413,16 @@ export default function Tasks() {
             {[...Array(5)].map((_, i) => (
               <div key={i} className="h-20 bg-card border border-border rounded-xl animate-pulse" />
             ))}
+          </div>
+        ) : projectsError ? (
+          <RequestError message={projectError instanceof Error ? projectError.message : 'تعذر تحميل المشاريع.'} onRetry={() => void refetchProjects()} />
+        ) : !projectId ? (
+          <div role="status" className="rounded-xl border border-border p-6 text-sm">
+            {requestedTaskId && requestedTaskError
+              ? (taskTargetError instanceof Error ? taskTargetError.message : 'تعذر فتح المهمة المطلوبة.')
+              : targetProjectId
+                ? 'المشروع المطلوب غير متاح. اختر مشروعًا آخر صراحةً للمتابعة.'
+                : 'اختر مشروعًا لعرض مهامه. يمكنك إنشاء مشروع من صفحة المشاريع.'}
           </div>
         ) : isError ? (
           <RequestError

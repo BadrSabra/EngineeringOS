@@ -190,6 +190,16 @@ export function getMissionState(input: MissionStateInput): MissionState {
     }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'Review the incomplete evidence', allowedActions);
   }
 
+  // Retained checkpoints may still describe the last active phase. Terminal
+  // status wins only after approval, delivery, and incomplete-proof guards.
+  if (executionStatus === 'COMPLETED' || stopped === 'SUCCEEDED') {
+    return withPrimaryAction({
+      key: 'COMPLETE',
+      label: 'Complete',
+      detail: 'The server recorded a terminal result for this mission.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Open the final receipt', allowedActions);
+  }
+
   if (verification === 'running' || flightState === 'VALIDATING' || phaseMatches(phase, 'VALIDAT')) {
     return withPrimaryAction({
       key: 'VALIDATING',
@@ -228,14 +238,6 @@ export function getMissionState(input: MissionStateInput): MissionState {
       label: 'Understanding the request',
       detail: 'The server is preparing the mission scope before it starts project work.',
     }, ['CANCEL'], 'Wait for execution to start', allowedActions);
-  }
-
-  if (executionStatus === 'COMPLETED' || stopped === 'SUCCEEDED') {
-    return withPrimaryAction({
-      key: 'COMPLETE',
-      label: 'Complete',
-      detail: 'The server recorded a terminal result for this mission.',
-    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Open the final receipt', allowedActions);
   }
 
   return withPrimaryAction({

@@ -19,6 +19,32 @@ const baseProjection: AiExecutionProjection = {
 };
 
 describe('getMissionState', () => {
+  it.each(['CHAT', 'INTAKE', 'READ', 'PLAN', 'BUILD', 'VALIDATE'])(
+    'does not let a retained %s phase hide a completed accepted execution',
+    (phase) => {
+      expect(getMissionState({
+        projection: {
+          ...baseProjection,
+          phase,
+          verification: { ...baseProjection.verification, status: 'passed', evidenceVerdict: 'PROVEN' },
+        },
+        executionStatus: 'completed',
+        evidenceVerdict: 'PROVEN',
+      }).key).toBe('COMPLETE');
+    },
+  );
+
+  it('keeps unavailable verification ahead of a terminal completion label', () => {
+    expect(getMissionState({
+      projection: {
+        ...baseProjection,
+        phase: 'CHAT',
+        verification: { status: 'unavailable', evidenceVerdict: 'UNAVAILABLE', proofRequired: false },
+      },
+      executionStatus: 'completed',
+    }).key).toBe('NEEDS_ATTENTION');
+  });
+
   it('prefers a server-owned blocked result over an otherwise active phase', () => {
     expect(getMissionState({
       projection: { ...baseProjection, verification: { ...baseProjection.verification, status: 'failed' } },

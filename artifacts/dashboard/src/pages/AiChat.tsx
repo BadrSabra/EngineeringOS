@@ -9502,6 +9502,10 @@ export default function AiChat() {
   const [input, setInput] = useState('');
   const [planningHandoffNotice, setPlanningHandoffNotice] = useState(false);
   const [planningHandoffReadOnly, setPlanningHandoffReadOnly] = useState(false);
+  const [homeGoalRequiresProjectConfirmation, setHomeGoalRequiresProjectConfirmation] = useState(false);
+  const [confirmedHomeGoalProjectId, setConfirmedHomeGoalProjectId] = useState<string | null>(null);
+  const homeGoalNeedsProjectConfirmation = homeGoalRequiresProjectConfirmation
+    && confirmedHomeGoalProjectId !== selectedProjectId;
   const [auditExportPending, setAuditExportPending] = useState(false);
   const [auditPreviewPending, setAuditPreviewPending] = useState(false);
   const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
@@ -11152,6 +11156,8 @@ export default function AiChat() {
     setInput((current) => current.trim() ? current : goalDraft);
     setPlanningHandoffNotice(true);
     setPlanningHandoffReadOnly(false);
+    setHomeGoalRequiresProjectConfirmation(true);
+    setConfirmedHomeGoalProjectId(null);
   }, []);
 
   // A project created from the starter may hand its description to this
@@ -11579,6 +11585,10 @@ export default function AiChat() {
       toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
       return;
     }
+    if (!options?.executionId && homeGoalNeedsProjectConfirmation) {
+      toast({ title: 'حدد مشروع هذا الهدف', description: 'أكد المشروع المقصود قبل إرسال المسودة. هذا التأكيد لا يوافق على تعديل المشروع.', variant: 'default' });
+      return;
+    }
     const isProjectScanRequest = isRunProjectScanRequest(msg);
     if (!isProjectScanRequest && !activeProvider) {
       toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
@@ -11644,6 +11654,8 @@ export default function AiChat() {
     }
     setPlanningHandoffNotice(false);
     setPlanningHandoffReadOnly(false);
+    setHomeGoalRequiresProjectConfirmation(false);
+    setConfirmedHomeGoalProjectId(null);
     setAgentStage('Connecting…');
     setStreamingContent('');
     setAgentSteps([]);
@@ -14070,7 +14082,17 @@ export default function AiChat() {
                 {planningHandoffReadOnly && (
                   <button type="button" onClick={() => setPlanningHandoffReadOnly(false)} className="shrink-0 rounded px-1.5 py-0.5 text-primary hover:bg-primary/10" aria-label="تعديل المسودة">تعديل المسودة</button>
                 )}
-                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="حذف المسودة">حذف المسودة</button>
+                <button type="button" onClick={() => { setPlanningHandoffNotice(false); setPlanningHandoffReadOnly(false); setHomeGoalRequiresProjectConfirmation(false); setConfirmedHomeGoalProjectId(null); setInput(''); }} className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="حذف المسودة">حذف المسودة</button>
+              </div>
+            )}
+            {homeGoalNeedsProjectConfirmation && (
+              <div role="status" dir="rtl" data-testid="status-home-goal-project-confirmation" className="mb-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm">
+                <p>{projectName ? `هل تقصد تنفيذ هذا الهدف في مشروع «${projectName}»؟` : 'اختر المشروع المقصود من قائمة المشاريع قبل إرسال هذا الهدف.'}</p>
+                <p className="mt-1 text-xs text-muted-foreground">تأكيد المشروع لا يرسل المسودة ولا يمنح موافقة على التعديل.</p>
+                <Button type="button" size="sm" className="mt-2" disabled={!selectedProjectId || !projectName || projectsLoading || Boolean(projectLoadFailure)}
+                  data-testid="button-confirm-home-goal-project" onClick={() => setConfirmedHomeGoalProjectId(selectedProjectId)}>
+                  استخدم هذا المشروع
+                </Button>
               </div>
             )}
             <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
@@ -14090,7 +14112,7 @@ export default function AiChat() {
               data-testid="button-send-ai-message"
               size="icon"
               onClick={handleSend}
-               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || homeGoalNeedsProjectConfirmation || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
                className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
               aria-label={applyMutation.isPending ? 'Applying changes' : isAgentBusy ? 'AI is working' : getSendTitle()}
