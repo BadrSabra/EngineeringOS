@@ -4092,7 +4092,11 @@ describe("Durable AI execution crash/reconnect", () => {
       mode: "resume",
     });
 
-    expect(resumed).toMatchObject({ ok: true, statusCode: 200 });
+    expect(resumed).toMatchObject({
+      ok: false,
+      statusCode: 200,
+      reason: "chat_recovery_not_completed",
+    });
     expect(resumedInput?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");
     expect(resumedInput?.message).toContain("behavior-evidence validation was rejected");
     expect(resumedInput?.turnIntent).toMatchObject({ kind: "PROJECT_QUERY" });
