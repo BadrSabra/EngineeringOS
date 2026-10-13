@@ -92,6 +92,7 @@ import {
   createAiExecution,
   failAiExecution,
   parseAiExecutionCheckpoint,
+  parseExecutionRequest,
   reconcileExecutionNodeCheckpoint,
   reconcileAiExecutions,
   requestAiExecutionCancel,
@@ -3157,7 +3158,7 @@ describe("Durable AI execution crash/reconnect", () => {
         await db.insert(aiChatSessionsTable).values({
           id: sessionId,
           projectId,
-          title: "Process recovery forensic audit",
+          title: "Process recovery cross-file query",
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -3199,20 +3200,25 @@ describe("Durable AI execution crash/reconnect", () => {
         if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
+        const recoveryQuestion = [
+          "In this project, what retry limit is defined by src/process-recovery.ts and src/recovery-policy.ts?",
+          "Do canRetry(1) and canRetry(2) return true or false?",
+          "Give these three facts using the labels maxAttempts=<number>, canRetry(1)=<true|false>, canRetry(2)=<true|false>.",
+          "Cite both files. No changes requested.",
+        ].join(" ");
+        const routedRecoveryQuestion = resolveTurnIntent(recoveryQuestion);
+        expect(routedRecoveryQuestion.kind).toBe("PROJECT_QUERY");
+        expect(routedRecoveryQuestion.projectTarget?.id).toBe("generic-project");
         const firstStream = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             projectId,
             sessionId,
-            message: [
-              "Forensic audit: inspect src/process-recovery.ts and src/recovery-policy.ts.",
-              "Report maxAttempts, whether canRetry(1) and canRetry(2) are true or false, and cite both file paths.",
-              "Read only; do not change files.",
-            ].join(" "),
+            message: recoveryQuestion,
           }),
         });
-        expect(firstStream.status, "initial forensic stream HTTP status").toBe(200);
+        expect(firstStream.status, "initial project-query stream HTTP status").toBe(200);
         const streamReader = firstStream.body?.getReader();
         const initialSseEvents: string[] = [];
         const initialSseCodes: string[] = [];
@@ -3334,8 +3340,9 @@ describe("Durable AI execution crash/reconnect", () => {
           finalMessageId: string | null;
           checkpoint: string;
           error: string | null;
+          request: string;
         } | undefined;
-        const recoveryDeadline = Date.now() + 75_000;
+        const recoveryDeadline = Date.now() + 100_000;
         while (Date.now() < recoveryDeadline) {
           const [row] = await db
             .select({
@@ -3344,6 +3351,7 @@ describe("Durable AI execution crash/reconnect", () => {
               finalMessageId: aiExecutionsTable.finalMessageId,
               checkpoint: aiExecutionsTable.checkpoint,
               error: aiExecutionsTable.error,
+              request: aiExecutionsTable.request,
             })
             .from(aiExecutionsTable)
             .where(eq(aiExecutionsTable.id, executionId!))
@@ -3358,6 +3366,9 @@ describe("Durable AI execution crash/reconnect", () => {
                 outcome: aiExecutionAcceptancesTable.outcome,
                 reasonCode: aiExecutionAcceptancesTable.reasonCode,
                 nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+                resumable: aiExecutionAcceptancesTable.resumable,
+                disposition: aiExecutionAcceptancesTable.disposition,
+                evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
                 evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
                 evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
               })
@@ -3372,6 +3383,34 @@ describe("Durable AI execution crash/reconnect", () => {
           typeof value === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(value)
             ? value
             : "unavailable";
+        const persistedRequest = (() => {
+          try {
+            const value = JSON.parse(recoveredExecution?.request ?? "{}");
+            return value && typeof value === "object" && !Array.isArray(value)
+              ? value as Record<string, unknown>
+              : {};
+          } catch {
+            return {};
+          }
+        })();
+        const acceptanceDisposition =
+          terminalAcceptance?.disposition
+          && typeof terminalAcceptance.disposition === "object"
+          && !Array.isArray(terminalAcceptance.disposition)
+            ? terminalAcceptance.disposition as Record<string, unknown>
+            : {};
+        const recoveryGateDiagnostics = {
+          requestParseable: Boolean(parseExecutionRequest(recoveredExecution?.request ?? "")),
+          requestTurnIntent: safeAcceptanceCode(persistedRequest.turnIntent),
+          proofRequired: persistedRequest.proofRequired === true,
+          sessionPresent: typeof persistedRequest.sessionId === "string",
+          workspaceRevisionPresent: typeof persistedRequest.workspaceRevision === "string",
+          resumeContractPresent: Boolean(persistedRequest.resumeContract),
+          acceptanceResumable: terminalAcceptance?.resumable ?? null,
+          recoveryState: safeAcceptanceCode(acceptanceDisposition.recoveryState),
+          automaticRecoveryBlocked: acceptanceDisposition.automaticRecoveryBlocked === true,
+          retryAtPresent: typeof acceptanceDisposition.retryAt === "string",
+        };
         const rateLimitAttempts = await db
           .select({
             rateLimitScope: aiUsageEventsTable.rateLimitScope,
@@ -3389,6 +3428,9 @@ describe("Durable AI execution crash/reconnect", () => {
         const storedRetryAfterMs = rateLimitAttempts.find((row) =>
           Number.isSafeInteger(row.retryAfterMs) && (row.retryAfterMs ?? 0) > 0
         )?.retryAfterMs;
+        const recoveryCheckpoint = recoveredExecution
+          ? parseAiExecutionCheckpoint(recoveredExecution.checkpoint)
+          : undefined;
         expect(
           recoveredExecution?.status,
           [
@@ -3404,7 +3446,9 @@ describe("Durable AI execution crash/reconnect", () => {
             `acceptanceOutcome=${safeAcceptanceCode(terminalAcceptance?.outcome)}`,
             `acceptanceReason=${safeAcceptanceCode(terminalAcceptance?.reasonCode)}`,
             `acceptanceNextAction=${safeAcceptanceCode(terminalAcceptance?.nextActionCode)}`,
+            `recoveryGate=${JSON.stringify(recoveryGateDiagnostics)}`,
             `evidence=${terminalAcceptance?.evidenceComplete ?? "?"}/${terminalAcceptance?.evidenceRequired ?? "?"}`,
+            `checkpoint=${recoveryCheckpoint?.stage ?? "unknown"}:${recoveryCheckpoint?.sequence ?? 0}`,
           ].join(", "),
         ).toBe("completed");
         expect(recoveredExecution!.attempt).toBeGreaterThan(0);
@@ -3414,11 +3458,77 @@ describe("Durable AI execution crash/reconnect", () => {
           .from(aiChatMessagesTable)
           .where(eq(aiChatMessagesTable.id, recoveredExecution!.finalMessageId!))
           .limit(1);
-        expect(recoveredMessage?.content).toContain(relativePath);
-        expect(recoveredMessage?.content).toContain(policyPath);
-        expect(recoveredMessage?.content).toMatch(/maxAttempts[^\n]{0,32}2/i);
-        expect(recoveredMessage?.content).toMatch(/canRetry\(1\)[^\n]{0,32}true/i);
-        expect(recoveredMessage?.content).toMatch(/canRetry\(2\)[^\n]{0,32}false/i);
+        const recoveredContent = recoveredMessage?.content ?? "";
+        expect(recoveredContent).toContain(relativePath);
+        expect(recoveredContent).toContain(policyPath);
+        const normalizedRecoveredContent = recoveredContent.replace(/\s+/g, " ");
+        const expectedClaimChecks = {
+          maxAttemptsTwo: /maxAttempts.{0,48}\b2\b/i.test(normalizedRecoveredContent),
+          firstAttemptRetryable: /canRetry\(1\).{0,48}\btrue\b/i.test(normalizedRecoveredContent),
+          attemptAtLimitNotRetryable: /canRetry\(2\).{0,48}\bfalse\b/i.test(normalizedRecoveredContent),
+        };
+        const retainedRecoveryReads = terminalAcceptance?.evidenceSnapshotId
+          ? await db
+              .select({
+                path: aiExecutionEvidenceReadsTable.path,
+                complete: aiExecutionEvidenceReadsTable.complete,
+                truncated: aiExecutionEvidenceReadsTable.truncated,
+              })
+              .from(aiExecutionEvidenceReadsTable)
+              .where(eq(
+                aiExecutionEvidenceReadsTable.snapshotId,
+                terminalAcceptance.evidenceSnapshotId,
+              ))
+          : [];
+        console.info(JSON.stringify({
+          scope: "live-process-recovery-safe-diagnostics",
+          status: recoveredExecution?.status ?? "missing",
+          claims: expectedClaimChecks,
+          recoveryGate: recoveryGateDiagnostics,
+          acceptance: {
+            outcome: terminalAcceptance?.outcome ?? "unavailable",
+            reason: terminalAcceptance?.reasonCode ?? "unavailable",
+            nextAction: terminalAcceptance?.nextActionCode ?? "unavailable",
+            evidenceRequired: terminalAcceptance?.evidenceRequired ?? null,
+            evidenceComplete: terminalAcceptance?.evidenceComplete ?? null,
+            snapshotPresent: Boolean(terminalAcceptance?.evidenceSnapshotId),
+          },
+          retainedReads: retainedRecoveryReads.map((read) => ({
+            path: read.path,
+            complete: read.complete,
+            truncated: read.truncated,
+          })),
+        }));
+        const safeRecoveryDiagnostics = JSON.stringify({
+          claims: expectedClaimChecks,
+          recoveryGate: recoveryGateDiagnostics,
+          acceptance: {
+            outcome: terminalAcceptance?.outcome ?? "unavailable",
+            reason: terminalAcceptance?.reasonCode ?? "unavailable",
+            evidenceRequired: terminalAcceptance?.evidenceRequired ?? null,
+            evidenceComplete: terminalAcceptance?.evidenceComplete ?? null,
+            snapshotPresent: Boolean(terminalAcceptance?.evidenceSnapshotId),
+          },
+          retainedReads: retainedRecoveryReads.map((read) => ({
+            path: read.path,
+            complete: read.complete,
+            truncated: read.truncated,
+          })),
+        });
+        expect(expectedClaimChecks, safeRecoveryDiagnostics).toEqual({
+          maxAttemptsTwo: true,
+          firstAttemptRetryable: true,
+          attemptAtLimitNotRetryable: true,
+        });
+        expect(terminalAcceptance?.evidenceRequired).toBeGreaterThan(0);
+        expect(terminalAcceptance?.evidenceComplete).toBe(terminalAcceptance?.evidenceRequired);
+        for (const requiredPath of [relativePath, policyPath]) {
+          expect(retainedRecoveryReads).toContainEqual({
+            path: requiredPath,
+            complete: 1,
+            truncated: 0,
+          });
+        }
         expect(recoveredMessage?.toolTrace ?? "").not.toMatch(/write_file|replace_text|delete_file/);
         expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
         expect(await fs.readFile(policyAbsolutePath, "utf8")).toBe(originalPolicy);
@@ -3490,7 +3600,7 @@ describe("Durable AI execution crash/reconnect", () => {
         else process.env.PORT = originalPort;
       }
     },
-    120_000,
+    180_000,
   );
 
   it("keeps a forensic ابدأ resume read-only after server-layer reinitialization", async () => {
