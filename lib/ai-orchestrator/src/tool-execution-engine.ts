@@ -2754,6 +2754,8 @@ export type ToolLoopOpts = {
   allowExecutionTools?: boolean;
   /** Bound provider-side model routing for exact-model benchmark attempts. */
   maxFallbackModels?: number;
+  /** Exact-model evaluations must not replay an empty provider response. */
+  retryEmptyResponses?: boolean;
 
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
@@ -4735,6 +4737,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (
         !(err instanceof GroqClientError) ||
         err.code !== "EMPTY_RESPONSE" ||
+        opts.retryEmptyResponses === false ||
         emptyResponseRetryUsed
       ) {
         throw err;

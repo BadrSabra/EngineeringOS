@@ -4983,6 +4983,34 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
   });
 
+  it("does not replay an empty response during an exact-model evaluation", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError("EMPTY_RESPONSE", "provider returned neither content nor tool calls"),
+    );
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "pinned-model",
+      powerModel: "unused-fallback",
+      provider: "openrouter",
+      tools: undefined,
+      rootPath: "",
+      pendingChanges: [],
+      maxIterations: 1,
+      maxFallbackModels: 1,
+      retryEmptyResponses: false,
+    });
+
+    expect(result.kind).toBe("exhausted");
+    if (result.kind === "exhausted") {
+      expect(result.reason).toBe("empty_response");
+    }
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a recoverable partial result when forensic synthesis is empty", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);

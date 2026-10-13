@@ -110,3 +110,9 @@ Live review campaign wall-clock watchdogs must account for runtime startup in ad
 **Why:** A valid free-model review took about 90 seconds of measured work but exceeded the campaign's 120-second wall-clock watchdog once process startup and setup were included; a longer bounded run produced a complete, evidence-backed receipt.
 
 **How to apply:** Use a several-minute outer watchdog for the live review wrapper, retain a disposable workspace and bounded child termination, and inspect the safe receipt before deciding whether a provider failure needs code changes.
+
+Exact-model Code Agent evaluations must cap provider fallback and disable the tool loop's same-model empty-response replay; otherwise a scorecard can mix attempts or consume retries that cannot improve the exact candidate's result. Provider protocol violations such as invalid tool calls are response-contract failures, not transport outages.
+
+**Why:** Live campaign traces showed an empty model response replaying before a timeout, and a received invalid tool call being counted as provider unavailability. Those states have different implications for candidate quality and provider health.
+
+**How to apply:** Bind all tool-loop calls in explicit-model evaluations to one candidate, do not replay EMPTY_RESPONSE in that mode, and classify INVALID_TOOL_CALL/INVALID_PROVIDER_RESPONSE separately from true timeout, network, quota, and service failures. Keep ordinary chat retry behavior unchanged.

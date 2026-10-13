@@ -1441,12 +1441,17 @@ describe("chat agent — provider empty-final response contract", () => {
 
       let calls = 0;
       const steps: AgentStep[] = [];
+      const fallbackLimits: Array<number | undefined> = [];
       const fakeStrategy = {
         providerId: fixture.provider,
         // Use the non-native path so the test exercises the common buffered
         // empty-final handling used by both provider adapters.
         supportsNativeStream: false,
-        call: vi.fn(async () => {
+        call: vi.fn(async (
+          _messages: Parameters<ProviderStrategy["call"]>[0],
+          options: Parameters<ProviderStrategy["call"]>[1],
+        ) => {
+          fallbackLimits.push(options.maxFallbackModels);
           calls += 1;
           if (calls === 1) {
             return {
@@ -1501,9 +1506,13 @@ describe("chat agent — provider empty-final response contract", () => {
           rootPath,
           provider: fixture.provider,
           apiKey: `${fixture.provider}-fixture-key`,
+          ...(fixture.provider === "openrouter" ? { model: "fixture-model" } : {}),
           onStep: (step) => steps.push(step),
         });
 
+        if (fixture.provider === "openrouter") {
+          expect(fallbackLimits).toContain(1);
+        }
         expect(result.response).toContain("ANALYSIS_INCOMPLETE");
         expect(result.response).toContain(relativeFile);
         expect(result.response).toMatch(/Retry or narrow the question|No Repair Plan is executable/);

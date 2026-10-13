@@ -9344,8 +9344,8 @@ export async function chat(opts: {
           cache: new Map<string, string>(),
           toolChoice: "required",
           maxIterations: Math.min(budget.maxIterations, 48),
-          ...(opts.benchmarkFixtureRepairAuthorization
-            ? { maxFallbackModels: 1 }
+          ...(opts.model || opts.benchmarkFixtureRepairAuthorization
+            ? { maxFallbackModels: 1, retryEmptyResponses: false }
             : {}),
           taskType: executionPlan.taskProfile.taskType,
           requiresEvidence: sourceEvidenceRequired,
@@ -9773,8 +9773,8 @@ export async function chat(opts: {
           PROJECT_QUERY_FACT_MAX_ITERATIONS,
         )
       : budget.maxIterations,
-    ...(opts.benchmarkFixtureRepairAuthorization
-      ? { maxFallbackModels: 1 }
+    ...(opts.model || opts.benchmarkFixtureRepairAuthorization
+      ? { maxFallbackModels: 1, retryEmptyResponses: false }
       : {}),
     taskType: executionPlan.taskProfile.taskType,
     requiresEvidence: sourceEvidenceRequired,

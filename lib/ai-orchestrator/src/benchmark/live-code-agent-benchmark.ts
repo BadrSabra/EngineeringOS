@@ -154,10 +154,16 @@ function telemetryFromChatResult(
   candidateHash?: string,
 ): CodeAgentExecutionTelemetry {
   const validation = latestValidation(steps);
-  const providerUnavailable = steps.some(
-    (step) =>
+  const providerFailureDiagnostics = steps.filter(
+    (step): step is Extract<AgentStep, { kind: "diagnostic" }> =>
       step.kind === "diagnostic" &&
       step.code === "EXECUTION_PROVIDER_FAILURE",
+  );
+  const providerUnavailable = providerFailureDiagnostics.some(
+    (step) =>
+      !step.details?.some((detail) =>
+        /provider failure code:\s*(?:INVALID_TOOL_CALL|INVALID_PROVIDER_RESPONSE)\b/i.test(detail),
+      ),
   ) || steps.some(
     (step) =>
       step.kind === "done" &&

@@ -428,4 +428,44 @@ describe("benchmark case timeouts", () => {
     expect(telemetry.oracleStatus).toBeUndefined();
     expect(oracleForCase).not.toHaveBeenCalled();
   });
+
+  it("scores invalid provider tool calls as contract failures, not provider outages", async () => {
+    chatMock.mockReset();
+    chatMock.mockImplementationOnce(async ({ onStep }: {
+      onStep?: (step: AgentStep) => void;
+    }) => {
+      onStep?.({
+        kind: "diagnostic",
+        code: "EXECUTION_PROVIDER_FAILURE",
+        details: ["provider failure code: INVALID_TOOL_CALL"],
+      } as AgentStep);
+      return { pendingChanges: [] } as unknown as ChatResult;
+    });
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const oracleForCase = vi.fn(async () => ({ status: "failed" as const, code: "CONTRACT_FAILURE" }));
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-invalid-tool-call",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      targetPathsForCase: () => ["src/example.ts"],
+      oracleForCase,
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(telemetry.providerUnavailable).toBe(false);
+    expect(telemetry.oracleStatus).toBe("failed");
+    expect(oracleForCase).toHaveBeenCalledOnce();
+  });
 });
