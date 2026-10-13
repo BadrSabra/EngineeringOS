@@ -137,6 +137,7 @@ import type {
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
 import type { TurnIntentKind } from "@workspace/ai-orchestrator";
+import type { ProviderRateLimitScope } from "@workspace/ai-orchestrator";
 import {
   classifyProjectQueryInvestigationQuestion,
   hashProjectQueryFactManifest,
@@ -964,6 +965,8 @@ function publicQualityFailure(value: QualityFailure): QualityFailure {
 function terminalMetadataFromTrace(value: string | null | undefined): {
   failureKind?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
   providerFailureCategory?: ProviderFailureCategory;
+  rateLimitScope?: ProviderRateLimitScope;
+  retryAfterMs?: number;
   contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
@@ -978,6 +981,17 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   const failureKind = terminal?.failureKind;
   const providerFailureCategory = isProviderFailureCategory(terminal?.providerFailureCategory)
     ? terminal.providerFailureCategory
+    : undefined;
+  const rateLimitScope = terminal?.rateLimitScope === "upstream_shared_pool"
+    || terminal?.rateLimitScope === "provider_credential"
+    || terminal?.rateLimitScope === "account_quota"
+    || terminal?.rateLimitScope === "unknown"
+    ? terminal.rateLimitScope
+    : undefined;
+  const retryAfterMs = typeof terminal?.retryAfterMs === "number"
+    && Number.isSafeInteger(terminal.retryAfterMs)
+    && terminal.retryAfterMs > 0
+    ? terminal.retryAfterMs
     : undefined;
   const contractFailureCategory =
     terminal?.contractFailureCategory === "PROVIDER_EMPTY"
@@ -1001,6 +1015,8 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
         ? { failureKind }
         : {}),
     ...(providerFailureCategory ? { providerFailureCategory } : {}),
+    ...(rateLimitScope ? { rateLimitScope } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     ...(contractFailureCategory ? { contractFailureCategory } : {}),
     ...(typeof terminal?.retryable === "boolean" ? { retryable: terminal.retryable } : {}),
     ...(
@@ -2898,7 +2914,7 @@ async function persistFailedChatTurn(params: {
   taskResult?: unknown;
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
-  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "contractFailureCategory" | "retryable" | "recoveryState">;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "rateLimitScope" | "retryAfterMs" | "contractFailureCategory" | "retryable" | "recoveryState">;
   evidenceSummary?: EvidenceFailureSummary;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
@@ -2937,6 +2953,12 @@ async function persistFailedChatTurn(params: {
               failureKind: params.terminalOutcome.failureKind,
               ...(params.terminalOutcome.providerFailureCategory
                 ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+                : {}),
+              ...(params.terminalOutcome.rateLimitScope
+                ? { rateLimitScope: params.terminalOutcome.rateLimitScope }
+                : {}),
+              ...(params.terminalOutcome.retryAfterMs !== undefined
+                ? { retryAfterMs: params.terminalOutcome.retryAfterMs }
                 : {}),
               ...(params.terminalOutcome.contractFailureCategory
                 ? { contractFailureCategory: params.terminalOutcome.contractFailureCategory }
@@ -3287,6 +3309,12 @@ async function persistFailedChatTurn(params: {
       createdAt: params.assistantAt,
       ...(params.terminalOutcome?.providerFailureCategory
         ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+        : {}),
+      ...(params.terminalOutcome?.rateLimitScope
+        ? { rateLimitScope: params.terminalOutcome.rateLimitScope }
+        : {}),
+      ...(params.terminalOutcome?.retryAfterMs !== undefined
+        ? { retryAfterMs: params.terminalOutcome.retryAfterMs }
         : {}),
       ...(publicAcceptanceDisposition({
         code: params.errorCode,
@@ -5660,7 +5688,12 @@ router.post("/ai/chat", async (req, res) => {
   const rlChat = await checkProjectRateLimitDb(projectId);
   if (!rlChat.allowed) {
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+      code: "PROJECT_RATE_LIMIT",
+      rateLimitScope: "project",
+      ...(typeof rlChat.retryAfterSec === "number" && rlChat.retryAfterSec > 0
+        ? { retryAfterMs: rlChat.retryAfterSec * 1000 }
+        : {}),
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project.`,
     });
   }
 
@@ -6924,7 +6957,13 @@ router.post("/ai/chat", async (req, res) => {
           createdAt: now,
           assistantAt: msgNow,
           toolTrace: traceSteps,
-          terminalOutcome,
+          terminalOutcome: {
+            ...terminalOutcome,
+            ...(err.rateLimitScope ? { rateLimitScope: err.rateLimitScope } : {}),
+            ...(typeof err.retryAfterMs === "number" && err.retryAfterMs > 0
+              ? { retryAfterMs: err.retryAfterMs }
+              : {}),
+          },
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         }).catch((persistError) => {
           logger.error({ persistError, sessionId: sessionIdToUse }, "chat: failed to persist provider failure");
@@ -7999,7 +8038,12 @@ export async function handleChatStream(req: Request, res: Response) {
   const rlChat = await checkProjectRateLimitDb(projectId);
   if (!rlChat.allowed) {
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+      code: "PROJECT_RATE_LIMIT",
+      rateLimitScope: "project",
+      ...(typeof rlChat.retryAfterSec === "number" && rlChat.retryAfterSec > 0
+        ? { retryAfterMs: rlChat.retryAfterSec * 1000 }
+        : {}),
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project.`,
     });
   }
 
@@ -11593,7 +11637,7 @@ export async function handleChatStream(req: Request, res: Response) {
       // project orientation is different: it owns a source-backed execution
       // contract and may resume the same execution even when the first
       // provider attempt fails before the first read.
-      const terminalOutcome = targetedProjectQueryFailure && !cancelled
+      const terminalOutcomeBase = targetedProjectQueryFailure && !cancelled
         ? {
             ...classifiedTerminalOutcome,
             outcome: "FAILED" as const,
@@ -11605,6 +11649,17 @@ export async function handleChatStream(req: Request, res: Response) {
             evidenceAccepted: false,
           }
         : classifiedTerminalOutcome;
+      const terminalOutcome = {
+        ...terminalOutcomeBase,
+        ...(err instanceof GroqClientError && err.rateLimitScope
+          ? { rateLimitScope: err.rateLimitScope }
+          : {}),
+        ...(err instanceof GroqClientError
+          && typeof err.retryAfterMs === "number"
+          && err.retryAfterMs > 0
+          ? { retryAfterMs: err.retryAfterMs }
+          : {}),
+      };
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
           recordInvalidModel(provider);
@@ -11736,6 +11791,12 @@ export async function handleChatStream(req: Request, res: Response) {
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(terminalOutcome.providerFailureCategory
             ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
+          ...(terminalOutcome.rateLimitScope
+            ? { rateLimitScope: terminalOutcome.rateLimitScope }
+            : {}),
+          ...(terminalOutcome.retryAfterMs !== undefined
+            ? { retryAfterMs: terminalOutcome.retryAfterMs }
             : {}),
         });
         // Whether this request persisted the failure or replayed an existing

@@ -16,6 +16,8 @@ export type AiTerminalOutcome = {
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   failureKind?: AiTerminalFailureKind;
   providerFailureCategory?: ProviderFailureCategory;
+  rateLimitScope?: AiExecutionRateLimitScope;
+  retryAfterMs?: number;
   contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable: boolean;
   code?: string;

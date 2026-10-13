@@ -275,10 +275,11 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
     readonly providerModel?: string;
     readonly providerStatus?: number;
     readonly retryAfterMs?: number;
+    readonly rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
     constructor(
       code: string,
       message: string,
-      options?: { context?: { providerModel?: string; providerStatus?: number; retryAfterMs?: number } },
+      options?: { context?: { providerModel?: string; providerStatus?: number; retryAfterMs?: number; rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown" } },
     ) {
       super(message);
       this.name  = "GroqClientError";
@@ -286,12 +287,14 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
       this.providerModel = options?.context?.providerModel;
       this.providerStatus = options?.context?.providerStatus;
       this.retryAfterMs = options?.context?.retryAfterMs;
+      this.rateLimitScope = options?.context?.rateLimitScope;
     }
     toProviderContext() {
       return {
         providerModel: this.providerModel,
         providerStatus: this.providerStatus,
         retryAfterMs: this.retryAfterMs,
+        rateLimitScope: this.rateLimitScope,
       };
     }
   },
@@ -16928,6 +16931,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
           providerName: "OpenRouter",
           providerStatus: 429,
           retryAfterMs: 2_000,
+          rateLimitScope: "upstream_shared_pool",
         },
       }),
     );
@@ -16942,6 +16946,8 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(errorEvent).toMatchObject({
       code: "RATE_LIMITED",
       retryable: true,
+      rateLimitScope: "upstream_shared_pool",
+      retryAfterMs: 2_000,
     });
     expect(String(errorEvent!["message"])).not.toContain("2 seconds");
   });

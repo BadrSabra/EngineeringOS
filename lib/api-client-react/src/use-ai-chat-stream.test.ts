@@ -163,6 +163,42 @@ afterEach(() => {
 });
 
 describe('useAiChatStream — terminal callback delivery', () => {
+  it('preserves safe rate-limit metadata from an HTTP rejection before SSE starts', async () => {
+    const onError = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({
+        code: 'PROJECT_RATE_LIMIT',
+        error: 'Project rate limit reached.',
+        rateLimitScope: 'project',
+        retryAfterMs: 2_500,
+      }),
+    })));
+
+    let stream: ReturnType<typeof useAiChatStream> | undefined;
+    const root: Root = createRoot(document.createElement('div'));
+    await act(async () => {
+      root.render(createElement(StreamHookHarness, {
+        onReady: (nextStream) => { stream = nextStream; },
+      }));
+    });
+
+    await act(async () => {
+      await stream?.send(
+        { projectId: 'project-1', message: 'limited request', idempotencyKey: 'rate-limit' },
+        { onError },
+      );
+    });
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PROJECT_RATE_LIMIT',
+      rateLimitScope: 'project',
+      retryAfterMs: 2_500,
+    }));
+    root.unmount();
+  });
+
   it('delivers only the first terminal frame per attempt while allowing later attempts', async () => {
     const onDone = vi.fn();
     const onError = vi.fn();

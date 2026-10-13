@@ -125,11 +125,12 @@ describe("provider rate-limit response guidance", () => {
     expect(result.body?.hint).toContain("provider-specified delay");
   });
 
-  it("does not turn a provider-supplied zero delay into one second", () => {
+  it("does not treat a provider-supplied zero delay as a retry window", () => {
     const result = renderRateLimitResponse(0);
 
-    expect(result.headers["Retry-After"]).toBe("0");
-    expect(result.body?.error).toContain("zero-second retry interval");
+    expect(result.headers["Retry-After"]).toBeUndefined();
+    expect(result.body).not.toHaveProperty("retryAfterMs");
+    expect(result.body?.error).toContain("did not specify a retry delay");
     expect(result.body?.error).not.toContain("1 seconds");
   });
 });
@@ -492,6 +493,35 @@ describe("provider health failure contract", () => {
       availabilityState: "incompatible_model",
     });
     expect(JSON.stringify(body)).not.toContain("raw provider response");
+  });
+
+  it("exposes only positive provider Retry-After values and the safe rate-limit scope", () => {
+    let body: Record<string, unknown> | undefined;
+    const headers = new Map<string, string>();
+    const response = {
+      status: () => response,
+      setHeader: (name: string, value: string) => headers.set(name, value),
+      json: (value: Record<string, unknown>) => {
+        body = value;
+        return response;
+      },
+    } as never;
+
+    handleOrchestratorError(
+      new GroqClientError("RATE_LIMITED", "raw upstream detail", {
+        context: { retryAfterMs: 0, rateLimitScope: "upstream_shared_pool" },
+      }),
+      response,
+      { provider },
+    );
+
+    expect(body).toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    });
+    expect(body).not.toHaveProperty("retryAfterMs");
+    expect(headers.has("Retry-After")).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("raw upstream detail");
   });
 
   it("serializes only safe provider reference details", () => {

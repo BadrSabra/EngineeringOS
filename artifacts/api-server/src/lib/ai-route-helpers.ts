@@ -1687,8 +1687,8 @@ export function handleOrchestratorError(
         const retryAfterMs = err.retryAfterMs;
         const hasValidRetryAfter = typeof retryAfterMs === "number"
           && Number.isFinite(retryAfterMs)
-          && retryAfterMs >= 0;
-        const retryAfterSeconds = hasValidRetryAfter && retryAfterMs > 0
+          && retryAfterMs > 0;
+        const retryAfterSeconds = hasValidRetryAfter
           ? Math.ceil(retryAfterMs / 1000)
           : undefined;
         if (hasValidRetryAfter) {
@@ -1696,18 +1696,17 @@ export function handleOrchestratorError(
         }
         const retryMessage = retryAfterSeconds !== undefined
           ? `retry after ${retryAfterSeconds} seconds`
-          : retryAfterMs === 0
-            ? "the provider specified a zero-second retry interval"
-            : "the provider did not specify a retry delay";
+          : "the provider did not specify a retry delay";
         const retryHint = retryAfterSeconds !== undefined
           ? `Wait for the provider-specified delay before retrying, or configure another provider at ${providerConsole}.`
-          : retryAfterMs === 0
-            ? `The provider specified no waiting period. If the request remains rate limited, try again later or configure another provider at ${providerConsole}.`
-            : `The provider did not provide a retry delay. Try again later or configure another provider at ${providerConsole}.`;
+          : `The provider did not provide a retry delay. No automatic retry is available; wait before trying again or configure another provider at ${providerConsole}.`;
         res.status(429).json({
           ...base,
           error: `${providerLabel} rate limit reached — ${retryMessage}.`,
-          retryAfterMs,
+          rateLimitScope: err.rateLimitScope,
+          ...(typeof retryAfterMs === "number" && retryAfterMs > 0
+            ? { retryAfterMs }
+            : {}),
           hint: retryHint,
         });
       }

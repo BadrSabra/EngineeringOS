@@ -709,7 +709,9 @@ function parseRetryAfterMs(headers?: Headers): number | undefined {
   const seconds = Number(value);
   if (Number.isFinite(seconds)) {
     const milliseconds = Math.ceil(seconds * 1000);
-    return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : undefined;
+    return Number.isFinite(milliseconds)
+      ? Math.max(0, milliseconds)
+      : undefined;
   }
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return undefined;

@@ -199,6 +199,8 @@ type ChatMessage = {
   errorCode?: string | null;
   errorMessage?: string | null;
   providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
+  rateLimitScope?: 'upstream_shared_pool' | 'provider_credential' | 'account_quota' | 'unknown' | 'project';
+  retryAfterMs?: number;
   /** Optional persisted release report attached to a historical run. */
   missionCorrelationReport?: MissionCorrelationReport | null;
   /** The API found a non-null persisted report that is not readable by this dashboard. */
@@ -1720,12 +1722,28 @@ function providerFailureCategoryLabel(category: AiStreamErrorEvent['providerFail
   }
 }
 
-function providerFailureCategoryGuidance(category: AiStreamErrorEvent['providerFailureCategory']): string | null {
+function providerFailureCategoryGuidance(
+  category: AiStreamErrorEvent['providerFailureCategory'],
+  rateLimitScope?: ChatMessage['rateLimitScope'],
+  retryAfterMs?: number,
+): string | null {
   switch (category) {
     case 'TIMEOUT': return 'The provider took too long to respond. Retry the request.';
     case 'MODEL_REJECTED': return 'The provider rejected this request. Check the provider configuration or choose another provider.';
     case 'MODEL_UNAVAILABLE': return 'The requested model is unavailable. Retry later or choose another provider.';
-    case 'RATE_LIMITED': return 'The provider rate limit was reached. Wait a moment, then retry or choose another provider.';
+    case 'RATE_LIMITED': {
+      const delaySeconds = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+        ? Math.ceil(retryAfterMs / 1000)
+        : undefined;
+      const scope = rateLimitScope === 'upstream_shared_pool'
+        ? ' The limit is on the provider’s shared pool.'
+        : rateLimitScope === 'provider_credential'
+          ? ' The limit is on the provider credential.'
+          : '';
+      return delaySeconds
+        ? `The provider rate-limited this request.${scope} Wait at least ${delaySeconds} seconds before trying again.`
+        : `The provider rate-limited this request.${scope} It did not provide a retry time, so no automatic retry is available. Wait before sending the request again or choose another configured provider.`;
+    }
     case 'FALLBACK_EXHAUSTED': return 'All configured providers failed to complete the request. Retry later or configure another provider.';
     case 'TRANSPORT_FAILURE': return 'The provider connection failed. Retry in a moment; choose another provider if it persists.';
     case 'MALFORMED_RESPONSE': return 'The provider returned an invalid response. Retry or choose another provider.';
@@ -1734,8 +1752,12 @@ function providerFailureCategoryGuidance(category: AiStreamErrorEvent['providerF
   }
 }
 
-function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'providerFailureCategory' | 'errorCode' | 'errorMessage' | 'content'>): string {
-  const categoryGuidance = providerFailureCategoryGuidance(message.providerFailureCategory);
+function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'providerFailureCategory' | 'rateLimitScope' | 'retryAfterMs' | 'errorCode' | 'errorMessage' | 'content'>): string {
+  const categoryGuidance = providerFailureCategoryGuidance(
+    message.providerFailureCategory,
+    message.rateLimitScope,
+    message.retryAfterMs,
+  );
   if (categoryGuidance) return categoryGuidance;
   const raw = [
     message.failureKind,
@@ -6201,6 +6223,7 @@ function MessageBubble({
     && !structuredFailure
     && msg.turnIntent === 'PROJECT_QUERY'
     && msg.retryable !== false
+    && msg.providerFailureCategory !== 'RATE_LIMITED'
     && onRetryProjectQuery,
   );
   const behaviorEvidenceCount = parseBehaviorEvidence(msg.behaviorEvidence).length;
@@ -11174,7 +11197,19 @@ export default function AiChat() {
 
   /** Translate an AiStreamErrorEvent to a user-facing error description. */
   function describeStreamError(err: AiStreamErrorEvent): string {
-    const categoryGuidance = providerFailureCategoryGuidance(err.providerFailureCategory);
+    if (err.code === 'PROJECT_RATE_LIMIT' || err.rateLimitScope === 'project') {
+      const delaySeconds = typeof err.retryAfterMs === 'number' && err.retryAfterMs > 0
+        ? Math.ceil(err.retryAfterMs / 1000)
+        : undefined;
+      return delaySeconds
+        ? `This project reached its AI request limit. Wait at least ${delaySeconds} seconds before sending another request.`
+        : 'This project reached its AI request limit. No retry interval was provided; wait before sending another request.';
+    }
+    const categoryGuidance = providerFailureCategoryGuidance(
+      err.providerFailureCategory,
+      err.rateLimitScope,
+      err.retryAfterMs,
+    );
     if (categoryGuidance) return categoryGuidance;
     // Reuse describeAiError by constructing a temporary AiApiError from
     // the SSE error event's code → HTTP status mapping.
@@ -12245,6 +12280,8 @@ export default function AiChat() {
                 errorMessage: safeMessage,
                 failureKind: err.failureKind,
                 providerFailureCategory: err.providerFailureCategory,
+                 rateLimitScope: err.rateLimitScope,
+                 retryAfterMs: err.retryAfterMs,
                 retryable: err.retryable,
                 recoveryState: err.recoveryState,
                 acceptanceDisposition: err.acceptanceDisposition,
