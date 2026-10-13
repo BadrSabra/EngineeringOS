@@ -9,6 +9,12 @@ Gap and weakness questions are proof-backed `PROJECT_QUERY` turns, not ordinary 
 
 **How to apply:** Keep the low-risk fast path explicitly excluded for gap signals, dedupe claims when constructing or merging resumable project-query objectives, and fail closed on duplicate IDs at schema/state boundaries. Reserve `FULL_FORENSIC_AUDIT` for explicit broad discovery/audit wording, and ask for a new boundary before expanding an existing analysis.
 
+Negated audit language such as “not a broad audit” must not promote an otherwise targeted project question into forensic mode. Apply this distinction to both weighted category scoring and evidence-intent routing, in English and Arabic, while preserving positive audit requests.
+
+**Why:** A targeted question about `index.html` was routed as `FORENSIC_AUDIT` solely because it said “not a broad audit”; an Arabic equivalent had the same failure. The resulting route did not match the user's requested scope.
+
+**How to apply:** Remove only locally negated forensic-scope phrases before classification and evidence-signal checks. Keep positive controls for explicit audit wording and regression tests for both languages.
+
 Explicit short generic gap questions must not inherit an embedded-AI target merely because the session has one. A domain-qualified weakness follow-up may inherit the embedded target only when its wording carries the embedded-agent scope that the existing weakness claim is designed for; bare “gaps?” and generic project-gap wording must start the gap-analysis contract.
 
 **Why:** A live Arabic session stored the second `الفجوات؟` turn as `PROJECT_QUERY_EMBEDDED-AI`, accepted a general architecture explanation as `PROVEN`, and never applied the gap-language gate that exists for `PROJECT_QUERY_GAP-ANALYSIS`.

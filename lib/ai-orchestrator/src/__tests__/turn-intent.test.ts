@@ -60,6 +60,26 @@ describe("resolveTurnIntent", () => {
     expect(resolveTurnIntent(message).serverAction).toBeUndefined();
   });
 
+  it("keeps a negated audit mention on the targeted project-query route", () => {
+    const message = "Check whether index.html loads JavaScript/app.js, not a broad audit.";
+    const intent = resolveTurnIntent(message);
+
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresTools).toBe(true);
+    expect(intent.requiresEvidence).toBe(false);
+    expect(resolveTurnIntent("Audit the entire repository and identify the root causes.").kind)
+      .toBe("FORENSIC_AUDIT");
+  });
+
+  it("keeps an Arabic negated audit mention on the targeted project-query route", () => {
+    const message =
+      "Check whether index.html loads JavaScript/app.js; هذا سؤال محدد وليس تدقيقاً واسعاً.";
+    const intent = resolveTurnIntent(message);
+
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresEvidence).toBe(false);
+  });
+
   it("treats an explicit validation capability request as a project query, not a forensic audit", () => {
     const intent = resolveTurnIntent(
       "pecheck تشغيل اختبارات المعرفة عبر validation.run.knowledge-engine-tests",

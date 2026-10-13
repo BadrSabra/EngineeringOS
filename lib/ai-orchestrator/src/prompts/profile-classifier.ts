@@ -610,6 +610,17 @@ const PATTERNS: PatternEntry[] = [
 const EXPLICIT_FORENSIC_INTENT_RE =
   /(?:\b(?:audit|auditing|investigate|investigation|root[\s-]+cause)\b|\b(?:explain\s+how|how\s+does)\s+[^.!?\n]{0,80}\b(?:fail(?:s|ed|ure)?|error(?:s)?|break(?:s)?|crash(?:es)?|throw(?:s)?|hang(?:s)?|leak(?:s)?)\b|(?:تدقيق|استقصاء|تحليل\s+جنائي|مراجعة\s+(?:الكود|النظام)|السبب\s+(?:الجذري|الرئيسي)|سبب\s+(?:المشكلة|الخطأ)|لماذا\s+يفشل))/iu;
 
+const NEGATED_FORENSIC_SCOPE_RE =
+  /(?:\b(?:(?:not|no|never|without)\s+(?:(?:a|an|the|any|broad|full|whole|general|comprehensive|forensic)\s+){0,3}|(?:do\s+not|don't)\s+(?:(?:need|want|require|create|perform|run|conduct|request|a|an|the|any|broad|full|whole|general|comprehensive|forensic)\s+){0,4})(?:audit(?:ing)?|investigat(?:e|ion)|root[\s-]+cause)\b|(?:ليس|ليست|لا|بدون)\s+(?:(?:أريد|أطلب|أحتاج|نريد|نطلب|أي|هذا|هذه)\s+){0,4}(?:تدقيق|مراجعة|تحقيق|استقصاء|تحليل\s+جنائي)[\u064B-\u0652ا]{0,2})/giu;
+
+export function removeNegatedForensicScope(message: string): string {
+  return message.replace(NEGATED_FORENSIC_SCOPE_RE, " ");
+}
+
+function hasExplicitForensicIntent(message: string): boolean {
+  return EXPLICIT_FORENSIC_INTENT_RE.test(removeNegatedForensicScope(message));
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -744,11 +755,12 @@ export function classifyRequest(message: string): ClassifiedRequest {
   const scores: Record<RequestCategory, number> = {
     simple: 0, code: 0, architecture: 0, workflow: 0, exploration: 0, deep_analysis: 0,
   };
+  const classificationText = removeNegatedForensicScope(trimmed);
 
   for (const { category, re, weight } of PATTERNS) {
     // Use global flag to count all occurrences, not just the first
     const gFlag = re.flags.includes("g") ? re.flags : re.flags + "g";
-    const hits  = trimmed.match(new RegExp(re.source, gFlag));
+    const hits  = classificationText.match(new RegExp(re.source, gFlag));
     if (hits && hits.length > 0) {
       scores[category] += hits.length * weight;
     }
@@ -761,7 +773,7 @@ export function classifyRequest(message: string): ClassifiedRequest {
 
   // Never let a conceptual phrase bypass evidence mode when the same request
   // explicitly asks for an audit/investigation or describes a concrete failure.
-  if (EXPLICIT_FORENSIC_INTENT_RE.test(trimmed)) {
+  if (hasExplicitForensicIntent(classificationText)) {
     scores.deep_analysis = Math.max(scores.deep_analysis, scores.exploration + 1, 5);
   }
 

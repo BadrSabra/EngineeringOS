@@ -2,6 +2,7 @@ import {
   classifyRequest,
   isLowRiskChatQuestion,
   isProjectOrientationQuestion,
+  removeNegatedForensicScope,
   type ClassifiedRequest,
   type RequestCategory,
 } from "./prompts/profile-classifier.js";
@@ -336,7 +337,7 @@ function resolveEvidenceIntent({
     explicitEvidence ||
     behaviorEvidence ||
     isProductionReachabilityRequest(normalizedMessage) ||
-    FORENSIC_EVIDENCE_SIGNAL_RE.test(normalizedMessage) ||
+    FORENSIC_EVIDENCE_SIGNAL_RE.test(removeNegatedForensicScope(normalizedMessage)) ||
     projectEvidence ||
     resumedForensicContinuation
   );
