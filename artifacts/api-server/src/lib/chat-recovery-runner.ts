@@ -172,13 +172,31 @@ export async function runChatExecutionRecovery(params: {
   } as unknown as RecoveryRequest;
 
   await handleChatStream(req, response);
+  if (response.recoveryStatusCode >= 400) {
+    return {
+      ok: false,
+      statusCode: response.recoveryStatusCode,
+      ...(response.recoveryStatusCode === 429
+        ? { retryAfterSec: parseChatRecoveryRetryAfterSeconds(response.recoveryBody) }
+        : {}),
+      reason: "chat_recovery_handler_rejected",
+    };
+  }
+  const completedExecution = await getAiExecutionForUser(execution.id, params.userId);
+  if (
+    !completedExecution
+    || completedExecution.attempt !== recovered.execution.attempt + 1
+    || completedExecution.status !== "completed"
+  ) {
+    return {
+      ok: false,
+      statusCode: response.recoveryStatusCode,
+      reason: "chat_recovery_not_completed",
+    };
+  }
   return {
-    ok: response.recoveryStatusCode < 400,
+    ok: true,
     statusCode: response.recoveryStatusCode,
-    ...(response.recoveryStatusCode === 429
-      ? { retryAfterSec: parseChatRecoveryRetryAfterSeconds(response.recoveryBody) }
-      : {}),
-    ...(response.recoveryStatusCode >= 400 ? { reason: "chat_recovery_handler_rejected" } : {}),
   };
 }
 

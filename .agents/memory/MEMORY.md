@@ -14,6 +14,7 @@
 - [E1–E8 stage gates](e1-e8-gates.md) — keep E2 active; do not begin later stages or rerun Strategy Replay receipts before explicit E2 closure.
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
 - [Chat turn lifecycle contracts](chat-turn-lifecycle-index.md) — grouped pointers for persistence, cancellation, reconnect, provenance, and terminal response/acceptance boundaries.
+- [Recovery terminal success](chat-recovery-terminal-success.md) — internal SSE HTTP 200 does not prove recovery succeeded; reload the durable execution attempt and terminal status.
 - [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
