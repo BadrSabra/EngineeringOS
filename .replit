@@ -128,3 +128,7 @@ packages = ["glib", "nss", "atk", "at-spi2-atk", "cups", "dbus", "expat", "fontc
 [userenv]
 
 [userenv.shared]
+
+[[ports]]
+localPort = 8080
+externalPort = 80
