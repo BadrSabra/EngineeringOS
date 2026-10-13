@@ -59,6 +59,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
+import { runChatExecutionRecovery } from "../lib/chat-recovery-runner.js";
 import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
@@ -4085,22 +4086,52 @@ describe("Durable AI execution crash/reconnect", () => {
       } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
-    const resumed = await request(app)
-      .post("/api/ai/chat/stream")
-      .send({
-        projectId,
-        sessionId,
-        message: requestEnvelope.message,
-        executionId: created.execution.id,
-        resumeToken: created.resumeToken,
-      });
+    const resumed = await runChatExecutionRecovery({
+      executionId: created.execution.id,
+      userId: "test-user",
+      mode: "resume",
+    });
 
-    expect(resumed.status).toBe(200);
+    expect(resumed).toMatchObject({ ok: true, statusCode: 200 });
     expect(resumedInput?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");
     expect(resumedInput?.message).toContain("behavior-evidence validation was rejected");
     expect(resumedInput?.turnIntent).toMatchObject({ kind: "PROJECT_QUERY" });
     expect(resumedInput?.projectOrientation).toBe(true);
     expect(resumedInput?.orientationSourcesOverride).toEqual(orientationPaths);
+    const [executionAfterResume] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        operationId: aiExecutionsTable.operationId,
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    const [acceptanceAfterResume] = await db
+      .select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, created.execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, executionAfterResume!.attempt),
+      ))
+      .limit(1);
+    // The fixture's model response does not retain complete source reads, so
+    // this test covers the recovery handoff and current-attempt finalization,
+    // not successful PROJECT_QUERY proof acceptance.
+    expect(executionAfterResume).toMatchObject({
+      id: created.execution.id,
+      operationId: created.execution.operationId,
+      attempt: 1,
+    });
+    expect(["completed", "failed"]).toContain(executionAfterResume?.status);
+    expect(executionAfterResume?.finalMessageId).toBeTruthy();
+    expect(acceptanceAfterResume?.attempt).toBe(executionAfterResume?.attempt);
+    expect(["SUCCEEDED", "FAILED"]).toContain(acceptanceAfterResume?.outcome);
   });
 
   it("cancels a queued execution as a terminal state with a durable checkpoint", async () => {
