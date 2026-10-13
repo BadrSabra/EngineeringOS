@@ -11,7 +11,10 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
-import { recoverAiExecutionResumeToken } from "./ai-execution-state.js";
+import {
+  reconcileAiExecutions,
+  recoverAiExecutionResumeToken,
+} from "./ai-execution-state.js";
 
 const queuedJobs = vi.hoisted(() => [] as Array<{ id: string; run: () => Promise<void> }>);
 const queuedIds = vi.hoisted(() => new Set<string>());
@@ -663,6 +666,128 @@ describe("durable automatic conversational recovery", () => {
       await queuedJobs[0]!.run();
 
       expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        mode: "resume",
+      });
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("reconciles an expired PROJECT_QUERY lease, accepts its bound resume token, and dispatches recovery", async () => {
+    const fixture = await insertChatFixture();
+    const workspaceRevision = new Date().toISOString();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({
+          status: "running",
+          leaseUntil: new Date(Date.now() - 60_000),
+          workerId: "recovery-test-expired-worker",
+          request: JSON.stringify({
+            projectId: fixture.projectId,
+            turnIntent: "PROJECT_QUERY",
+            sessionId: fixture.sessionId,
+            message: "Trace how project settings flow across the source files",
+            modelMessage: "Trace how project settings flow across the source files",
+            workspaceRevision,
+            validationTargetPaths: [],
+            proofRequired: true,
+            resumeContract: {
+              taskType: "BEHAVIOR_QUERY",
+              outputContract: "BEHAVIOR_ANSWER",
+              contextProfile: "project_query",
+              sessionId: fixture.sessionId,
+              projectRevision: workspaceRevision,
+              requiresEvidence: true,
+              scope: { projectId: fixture.projectId, rootPath: null, linkedTaskId: null },
+            },
+          }),
+          checkpoint: JSON.stringify({
+            stage: "tool_loop",
+            sequence: 2,
+            updatedAt: new Date().toISOString(),
+            detail: JSON.stringify({ iteration: 1, status: "in_progress" }),
+          }),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(await reconcileAiExecutions()).toBe(1);
+
+      const [execution] = await db.select({
+        projectId: aiExecutionsTable.projectId,
+        operationId: aiExecutionsTable.operationId,
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [acceptance] = await db.select({
+        projectId: aiExecutionAcceptancesTable.projectId,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        resumable: aiExecutionAcceptancesTable.resumable,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(execution).toMatchObject({
+        projectId: fixture.projectId,
+        operationId: fixture.executionId,
+        attempt: 0,
+        status: "paused",
+      });
+      expect(acceptance).toMatchObject({
+        projectId: execution?.projectId,
+        operationId: execution?.operationId,
+        attempt: execution?.attempt,
+        sourceRevision: workspaceRevision,
+        reasonCode: "EXECUTION_LEASE_EXPIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        resumable: 1,
+      });
+
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ sourceRevision: "stale-workspace-revision" })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        expectedAttempt: 0,
+      })).toBeUndefined();
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ sourceRevision: workspaceRevision })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const recovered = await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        expectedAttempt: 0,
+      });
+      expect(recovered).toMatchObject({
+        execution: {
+          id: fixture.executionId,
+          projectId: fixture.projectId,
+          operationId: fixture.executionId,
+          attempt: 0,
+          status: "paused",
+        },
+      });
+      expect(typeof recovered?.resumeToken).toBe("string");
+      expect(JSON.parse(execution!.request).turnIntent).toBe("PROJECT_QUERY");
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+      await queuedJobs[0]!.run();
       expect(runChatExecutionRecovery).toHaveBeenCalledWith({
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
