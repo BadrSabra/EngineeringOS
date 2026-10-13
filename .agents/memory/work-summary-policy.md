@@ -24,3 +24,15 @@ database connections and produced a real deprecation warning during validation.
 
 **How to apply:** Parallel reads on independent pool connections are different;
 do not replace a coherent snapshot with those merely to suppress this warning.
+
+In detail views, distinguish verification status from named check receipts and
+general Goal acceptance from proof for a specific skill candidate.
+
+**Why:** The available execution projection does not identify the checks whose
+results it summarizes. Goal outcome metadata is editable, and a skill candidate
+can have canonical proof for its own scope without proving the whole Goal.
+
+**How to apply:** Keep absence explanations local to the displayed data, not
+claims that no testing exists anywhere. Future proof enrichment needs a
+server-owned, current-attempt and scope-bound source; do not promote editable
+metadata or a differently scoped candidate proof into general Goal completion.

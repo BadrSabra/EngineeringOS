@@ -21,6 +21,7 @@ import {
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { getMissionState } from './mission-state';
+import { ResultDetailsSummary } from './ResultDetailsSummary';
 import type { ExecutionRecoveryView } from '@/lib/execution-recovery-view';
 
 export type ProjectionAction = AiExecutionProjection['allowedActions'][number];
@@ -129,8 +130,8 @@ function verificationSummary(
   switch (status) {
     case 'passed':
       return proofRequired
-        ? 'Validation passed, but the required proof gate still governs acceptance.'
-        : 'Server-owned validation passed for this execution.';
+        ? 'A validation pass was recorded; this does not establish the required proof or acceptance.'
+        : 'A validation pass was recorded for this execution. It is not a fresh acceptance of the result.';
     case 'failed':
       return 'Server-owned validation did not pass. Review the recorded evidence before continuing.';
     case 'unavailable':
@@ -139,7 +140,7 @@ function verificationSummary(
       return 'The server is still collecting validation or evidence for this execution.';
     default:
       return proofRequired
-        ? 'This execution cannot be accepted until its server-owned proof is complete.'
+        ? 'Acceptance cannot be inferred here; the required server-owned proof is not shown as complete.'
         : 'Verification has not been recorded yet.';
   }
 }
@@ -401,6 +402,8 @@ export function ExecutionProjectionPanel({
         </div>
       )}
 
+      <ResultDetailsSummary input={{ kind: 'execution', projection, executionStatus, evidenceVerdict }} />
+
       {(executionId || taskId) && (
         <nav className="mt-2 flex flex-wrap items-center gap-2" aria-label="Execution destinations" data-testid="execution-destinations">
           {executionId && (
@@ -649,12 +652,12 @@ export function ExecutionProjectionPanel({
       >
         <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold text-foreground" data-testid="toggle-proof">
           <ShieldCheck className={`h-3.5 w-3.5 ${verificationTone(projection.verification?.status)}`} />
-          Proof posture
+          Proof posture (technical record)
           <span className={`ml-auto font-normal ${verificationTone(projection.verification?.status)}`}>{titleCase(projection.verification?.status)}</span>
         </summary>
         <div className="mt-1 border-t border-border/30 pt-1.5 leading-4 text-muted-foreground" data-testid="text-proof-summary">
           <p>{verificationSummary(projection.verification?.status, projection.verification?.proofRequired)}</p>
-          <p className="mt-1">Evidence verdict: <span className="font-medium text-foreground">{titleCase(verdict)}</span>{projection.verification?.proofRequired ? ' · Proof gate required' : ' · No proof gate recorded'}</p>
+          <p className="mt-1">Recorded evidence verdict: <span className="font-medium text-foreground">{titleCase(verdict)}</span>{projection.verification?.proofRequired ? ' · Proof gate required' : ' · No proof gate recorded'}</p>
         </div>
       </details>
 

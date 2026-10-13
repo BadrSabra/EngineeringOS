@@ -61,6 +61,27 @@ function renderPanel(ui: React.ReactNode, queryClient?: QueryClient) {
 }
 
 describe('ExecutionProjectionPanel', () => {
+  it('keeps the shared result explanation read-only even when the projection lists mutating actions', () => {
+    const onAction = vi.fn();
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{
+          ...projection,
+          verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: true },
+          allowedActions: ['APPROVE_CHANGES', 'CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF'],
+        }}
+        executionId="execution-read-only"
+        executionStatus="completed"
+        readOnly
+        onAction={onAction}
+      />,
+    );
+    expect(screen.getByText('يحتاج مراجعتك')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Approve changes|Stop run|Resume checkpoint|Retry checkpoint|Start new run/i })).not.toBeInTheDocument();
+    expect(onAction).not.toHaveBeenCalled();
+    expect(screen.getByText(/لا يُستنتج من هذا الإسقاط/)).toBeInTheDocument();
+  });
+
   it('renders lifecycle, proof posture, concise technical details, and only allowed actions', () => {
     renderPanel(
       <ExecutionProjectionPanel

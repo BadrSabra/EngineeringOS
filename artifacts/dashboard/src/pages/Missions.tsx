@@ -57,6 +57,7 @@ import {
 import MissionActionDialog, {
   type MissionActionConfirmation,
 } from '@/components/MissionActionDialog';
+import { ResultDetailsSummary } from '@/components/ResultDetailsSummary';
 
 function formatDate(value: string | null | undefined, includeTime = false) {
   if (!value) return 'Not set';
@@ -873,7 +874,11 @@ function GoalCard({
   onBindDelivery,
   onReviewApproval,
   approvalDisabled,
+  planBinding,
+  inCurrentPlan,
 }: {
+  planBinding?: MissionProjection['currentPlan']['binding'];
+  inCurrentPlan?: boolean;
   item: MissionProjection['goals'][number];
   expanded: boolean;
   onToggle: () => void;
@@ -949,6 +954,14 @@ function GoalCard({
         </div>
       </div>
 
+      {expanded ? (
+        <div className="border-t border-slate-800 px-4 pb-1">
+          <ResultDetailsSummary
+            testIdSuffix={`goal-${goal.id}`}
+            input={{ kind: 'goal', status: goal.status, planBinding, inCurrentPlan, attempt: item.currentAttempt?.attempt ?? null }}
+          />
+        </div>
+      ) : null}
       {expanded ? (
         <div className="grid gap-4 border-t border-slate-800 px-4 py-4 lg:grid-cols-2">
           <div className="space-y-3">
@@ -1774,6 +1787,8 @@ export default function Missions() {
                               <GoalCard
                                 key={item.goal.id}
                                 item={item}
+                                planBinding={projection?.currentPlan?.binding}
+                                inCurrentPlan={Array.isArray(projection?.currentPlan?.goalIds) ? projection.currentPlan.goalIds.includes(item.goal.id) : undefined}
                                 expanded={expandedGoalId === item.goal.id}
                                 onToggle={() => setExpandedGoalId((current) => current === item.goal.id ? null : item.goal.id)}
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
