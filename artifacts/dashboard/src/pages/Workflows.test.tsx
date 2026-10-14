@@ -117,11 +117,11 @@ describe('Workflows recovery rendering', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
 
-    const card = screen.getByRole('region', { name: 'Provider recovery actions' });
-    expect(within(card).getByRole('heading', { name: 'The provider is temporarily unavailable' })).toBeInTheDocument();
-    expect(within(card).getByText('Availability: provider outage')).toBeInTheDocument();
-    expect(within(card).getByText('Next step: Retry in a moment; configure another provider if the issue persists.')).toBeInTheDocument();
-    expect(within(card).getByText('Support reference: workflow-support-42')).toBeInTheDocument();
+    const card = screen.getByRole('region', { name: 'إرشادات استعادة جاهزية المزود' });
+    expect(within(card).getByRole('heading', { name: 'المزود غير متاح مؤقتًا' })).toBeInTheDocument();
+    expect(within(card).getByText('provider_outage')).toHaveAttribute('dir', 'ltr');
+    expect(within(card).getByText('Retry in a moment; configure another provider if the issue persists.')).toHaveAttribute('dir', 'auto');
+    expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
   });
 
   it('does not expose raw provider diagnostics or credentials from an execution', () => {

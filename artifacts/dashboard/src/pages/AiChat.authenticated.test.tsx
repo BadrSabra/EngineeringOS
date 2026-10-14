@@ -135,6 +135,13 @@ const mocks = vi.hoisted(() => {
     emptyMessages: [] as unknown[],
     mutations: {
       saveDeepSeek: mutation(),
+      deleteDeepSeek: mutation(),
+      saveGroq: mutation(),
+      deleteGroq: mutation(),
+      saveGemini: mutation(),
+      deleteGemini: mutation(),
+      saveOpenRouter: mutation(),
+      deleteOpenRouter: mutation(),
       applyChanges: mutation(),
       rebaseChanges: mutation(),
       approveRebased: mutation(),
@@ -145,6 +152,13 @@ const mocks = vi.hoisted(() => {
     },
     mutationOptions: {
       saveDeepSeek: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      deleteDeepSeek: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      saveGroq: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      deleteGroq: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      saveGemini: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      deleteGemini: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      saveOpenRouter: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
+      deleteOpenRouter: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
       applyChanges: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
       rebaseChanges: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
       approveRebased: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
@@ -172,6 +186,8 @@ const mocks = vi.hoisted(() => {
     fileContentIsError: false,
     streamIsPending: false,
     groqStatus: undefined as unknown,
+    keyStatusConfigured: false,
+    activeProvider: { provider: 'groq', configured: true } as unknown,
     aiMetrics: {
       metrics: [] as unknown[],
       behavioralScorecards: [] as unknown[],
@@ -213,7 +229,7 @@ vi.mock('@/lib/ai-missions', async (importOriginal) => {
 
 vi.mock('@workspace/api-client-react', () => {
   const status = () => ({
-    data: { configured: false, last4: null, updatedAt: null },
+    data: { configured: mocks.keyStatusConfigured, last4: mocks.keyStatusConfigured ? '0420' : null, updatedAt: null },
     isLoading: false,
     isError: false,
     error: null,
@@ -226,6 +242,11 @@ vi.mock('@workspace/api-client-react', () => {
     isSuccess: false,
     data: undefined,
   });
+  const trackedKeyMutation = (name: 'deleteDeepSeek' | 'saveGroq' | 'deleteGroq' | 'saveGemini' | 'deleteGemini' | 'saveOpenRouter' | 'deleteOpenRouter') =>
+    vi.fn((options: { mutation?: typeof mocks.mutationOptions.saveDeepSeek }) => {
+      mocks.mutationOptions[name] = options?.mutation;
+      return mocks.mutations[name];
+    });
 
   return {
     useListProjects: vi.fn(() => ({
@@ -279,11 +300,11 @@ vi.mock('@workspace/api-client-react', () => {
     useGetDeepSeekKeyStatus: vi.fn(status),
     useGetGroqKeyStatus: vi.fn(() => ({
       ...status(),
-      data: mocks.groqStatus ?? { configured: false, last4: null, updatedAt: null },
+      data: mocks.groqStatus ?? status().data,
     })),
     useGetProviderKeyStatus: vi.fn(status),
     useGetOpenRouterKeyStatus: vi.fn(status),
-    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
+    useGetActiveProvider: vi.fn(() => ({ data: mocks.activeProvider, isLoading: false, isError: false, error: null })),
     useGetAiMetrics: mocks.useGetAiMetrics.mockImplementation(() => ({
       data: mocks.aiMetrics,
       isLoading: false,
@@ -363,13 +384,13 @@ vi.mock('@workspace/api-client-react', () => {
       mocks.mutationOptions.saveDeepSeek = options?.mutation;
       return mocks.mutations.saveDeepSeek;
     }),
-    useDeleteDeepSeekKey: vi.fn(() => emptyMutation()),
-    useSaveGroqKey: vi.fn(() => emptyMutation()),
-    useDeleteGroqKey: vi.fn(() => emptyMutation()),
-    useSaveGeminiKey: vi.fn(() => emptyMutation()),
-    useDeleteGeminiKey: vi.fn(() => emptyMutation()),
-    useSaveOpenRouterKey: vi.fn(() => emptyMutation()),
-    useDeleteOpenRouterKey: vi.fn(() => emptyMutation()),
+    useDeleteDeepSeekKey: trackedKeyMutation('deleteDeepSeek'),
+    useSaveGroqKey: trackedKeyMutation('saveGroq'),
+    useDeleteGroqKey: trackedKeyMutation('deleteGroq'),
+    useSaveGeminiKey: trackedKeyMutation('saveGemini'),
+    useDeleteGeminiKey: trackedKeyMutation('deleteGemini'),
+    useSaveOpenRouterKey: trackedKeyMutation('saveOpenRouter'),
+    useDeleteOpenRouterKey: trackedKeyMutation('deleteOpenRouter'),
     useAiApplyChanges: vi.fn((options: { mutation?: typeof mocks.mutationOptions.applyChanges }) => {
       mocks.mutationOptions.applyChanges = options?.mutation;
       return mocks.mutations.applyChanges;
@@ -435,7 +456,7 @@ function renderAiChat(isDesktop = true) {
 }
 
 function openProviderSettings() {
-  fireEvent.click(screen.getByRole('button', { name: 'AI settings and diagnostics' }));
+  fireEvent.click(screen.getByRole('button', { name: 'إعدادات المساعد والتشخيص' }));
 }
 
 function currentMissionProjectionFixture({
@@ -501,6 +522,8 @@ beforeEach(() => {
   mocks.proposalMessages.length = 1;
   mocks.serverProposal = undefined;
   mocks.groqStatus = undefined;
+  mocks.keyStatusConfigured = false;
+  mocks.activeProvider = { provider: 'groq', configured: true };
   mocks.aiMetrics = {
     metrics: [],
     behavioralScorecards: [],
@@ -581,6 +604,8 @@ beforeEach(() => {
     outcome: undefined,
     failureKind: undefined,
     providerFailureCategory: undefined,
+    rateLimitScope: undefined,
+    retryAfterMs: undefined,
     retryable: undefined,
     executionId: undefined,
     errorCode: undefined,
@@ -796,7 +821,7 @@ describe('AI conversation return links', () => {
       }));
       renderAiChat();
       expect(await screen.findByTestId('notice-chat-route-unavailable')).toHaveTextContent('unavailable in this project');
-      expect(screen.getByTestId('text-chat-current-session')).toHaveTextContent('New session');
+      expect(screen.getByTestId('text-chat-current-session')).toHaveTextContent('محادثة جديدة');
       expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
     } finally {
       window.history.pushState({}, '', originalPath);
@@ -808,9 +833,9 @@ describe('AiChat settings disclosure', () => {
   it('keeps secondary controls collapsed and preserves the delivery-policy status', () => {
     renderAiChat();
 
-    const settingsToggle = screen.getByRole('button', { name: 'AI settings and diagnostics' });
+    const settingsToggle = screen.getByRole('button', { name: 'إعدادات المساعد والتشخيص' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByText('Providers, credentials, model quality')).toHaveClass('text-xs');
+    expect(screen.getByText('المزودون وبيانات الوصول وجودة النماذج')).toHaveClass('text-xs');
     expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
     const emptyAudits = screen.getByText('No cancelled or incomplete audits for this project.');
     expect(emptyAudits).toHaveClass('text-xs', 'leading-5');
@@ -948,7 +973,7 @@ describe('AiChat fallback explanation', () => {
   it('binds a narrow manual follow-up to the latest fallback in the active session', async () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    const input = screen.getByPlaceholderText(/Ask about your codebase/);
+    const input = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(input, { target: { value: 'Explain this fallback' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
@@ -972,7 +997,7 @@ describe('AiChat fallback explanation', () => {
     };
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    const input = screen.getByPlaceholderText(/Ask about your codebase/);
+    const input = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(input, { target: { value: 'Explain this fallback' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
@@ -1187,10 +1212,10 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const assertSafeRecovery = () => {
-      expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
-      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
+      expect(screen.getByText(/المزود غير متاح مؤقتًا/)).toBeInTheDocument();
+      expect(screen.getByText(/أعد المحاولة بعد قليل/)).toBeInTheDocument();
       const visibleText = document.body.textContent ?? '';
-      expect(visibleText).toContain('Support reference: support-chat-outage-34');
+      expect(visibleText).toContain('مرجع الدعم: support-chat-outage-34');
       expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
     };
     assertSafeRecovery();
@@ -1263,7 +1288,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    const composer = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(composer, { target: { value: 'Retry the provider request' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
     await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
@@ -1281,9 +1306,9 @@ describe('AiChat authenticated generated mutations', () => {
       });
     });
 
-    expect(await screen.findByText('Rate limited')).toBeInTheDocument();
-    expect(screen.getByText(/provider rate-limited this request/i)).toBeInTheDocument();
-    expect(screen.getByText(/no automatic retry is available/i)).toBeInTheDocument();
+    expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
+    expect(screen.getByText(/أوقف المزود هذا الطلب بسبب حد الاستخدام/)).toBeInTheDocument();
+    expect(screen.getByText(/لا تتوفر إعادة محاولة تلقائية/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );
@@ -1312,9 +1337,9 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(await screen.findByText('Rate limited')).toBeInTheDocument();
-    expect(screen.getByText(/provider rate-limited this request/i)).toBeInTheDocument();
-    expect(screen.getByText(/no automatic retry is available/i)).toBeInTheDocument();
+    expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
+    expect(screen.getByText(/أوقف المزود هذا الطلب بسبب حد الاستخدام/)).toBeInTheDocument();
+    expect(screen.getByText(/لا تتوفر إعادة محاولة تلقائية/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );
@@ -1427,7 +1452,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(screen.queryByText(internalDump, { exact: true })).not.toBeInTheDocument();
-    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/تعذر إكمال الطلب لدى المزود/)).toBeInTheDocument();
     expect(screen.getByText('Execution interrupted')).toBeInTheDocument();
   });
 
@@ -1558,7 +1583,7 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('keeps the failed attempt identity visible after a terminal SSE failure', async () => {
     renderAiChat();
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Inspect the failed execution' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -1800,17 +1825,17 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(within(summary).getByRole('button', {
       name: 'Go to next step: Review the recoverable delivery operation below',
     }));
-    expect(screen.getByRole('region', { name: 'Recoverable delivery operations' })).toHaveFocus();
-    expect(await screen.findByText(/These are retained delivery workspaces, not paused AI executions/))
+    expect(screen.getByRole('region', { name: 'عمليات تسليم قابلة للاسترداد' })).toHaveFocus();
+    expect(await screen.findByText(/هذه مساحات تغييرات محفوظة للتسليم، وليست تنفيذات ذكاء اصطناعي متوقفة/))
       .toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard delivery workspace' }));
-    expect(screen.getByRole('dialog', { name: 'Discard this delivery workspace?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'إزالة مساحة التسليم المؤقتة' }));
+    expect(screen.getByRole('dialog', { name: 'إزالة مساحة التسليم المؤقتة؟' })).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalledWith(discardUrl, expect.anything());
-    fireEvent.click(screen.getByRole('button', { name: 'Keep workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'الاحتفاظ بالمساحة' }));
     expect(fetchSpy).not.toHaveBeenCalledWith(discardUrl, expect.anything());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard delivery workspace' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Discard temporary workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إزالة مساحة التسليم المؤقتة' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد إزالة المساحة المؤقتة' }));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
       discardUrl,
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
@@ -2015,7 +2040,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('Execution failed')).toBeInTheDocument();
-    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+    expect(screen.getByText(/تعذر إكمال الطلب لدى المزود/)).toBeInTheDocument();
     expect(screen.queryByText(/query_knowledge_graph was unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
     expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
@@ -2025,7 +2050,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    const composer = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(composer, { target: { value: 'Inspect src/app.ts' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
     const callbacks = mocks.streamCallbacks as {
@@ -2042,7 +2067,7 @@ describe('AiChat authenticated generated mutations', () => {
     }));
     expect(await screen.findByText(/Execution executio…/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
     expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
 
     act(() => callbacks.onDone?.({
@@ -2069,21 +2094,21 @@ describe('AiChat authenticated generated mutations', () => {
     ];
     mocks.serverProposal = { changes: [] };
     renderAiChat();
-    expect(await screen.findByTestId('text-chat-current-context')).toHaveTextContent('demo-service · New session');
+    expect(await screen.findByTestId('text-chat-current-context')).toHaveTextContent('demo-service · محادثة جديدة');
     fireEvent.click(screen.getByRole('button', { name: 'Existing session' }));
     expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · Existing session');
     expect(screen.getByRole('button', { name: 'Existing session' })).toHaveAttribute('aria-current', 'true');
     expect(await screen.findByText('Existing response')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
-    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · New session');
-    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('demo-service · محادثة جديدة');
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('ابدأ محادثة جديدة');
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Existing session' })).not.toHaveAttribute('aria-current');
 
     mocks.sessions = [];
     fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-2' } });
-    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('other-service · New session');
+    expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('other-service · محادثة جديدة');
     expect(screen.getByTestId('text-no-sessions')).toBeInTheDocument();
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
@@ -2092,20 +2117,20 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.sessions = [];
     mocks.sessionsFetched = false;
     const first = renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Loading conversation');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('جارٍ تحميل المحادثة');
     expect(screen.getByTestId('status-sessions-loading')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('نقاط بداية شائعة')).not.toBeInTheDocument();
     first.unmount();
 
     mocks.sessionsFetched = true;
     const second = renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('ابدأ محادثة جديدة');
     expect(screen.getByTestId('text-no-sessions')).toBeInTheDocument();
     second.unmount();
 
     mocks.sessionsError = true;
     const { invalidateQueries } = renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Session history unavailable');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('قائمة المحادثات غير متاحة الآن');
     fireEvent.click(screen.getByTestId('button-retry-sessions'));
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
   });
@@ -2118,13 +2143,13 @@ describe('AiChat authenticated generated mutations', () => {
     const first = renderAiChat();
     expect(await screen.findByTestId('text-chat-current-context'))
       .toHaveTextContent('demo-service · Existing session');
-    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Loading conversation');
-    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('جارٍ تحميل المحادثة');
+    expect(screen.queryByLabelText('نقاط بداية شائعة')).not.toBeInTheDocument();
     first.unmount();
 
     mocks.messagesFetched = true;
     renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('No messages in this session');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('لا توجد رسائل في هذا العرض');
   });
 
   it('restores every Mission linked to a reopened chat session', async () => {
@@ -2455,10 +2480,10 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.projects = [];
     mocks.sessions = [];
     renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Choose a project to begin');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('اختر مشروعًا للبدء');
     expect(screen.getByTestId('link-chat-projects')).toHaveAttribute('href', '/projects');
     expect(screen.getByTestId('text-sessions-select-project')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('نقاط بداية شائعة')).not.toBeInTheDocument();
   });
 
   it('keeps restored execution proof visible without claiming absent messages are loading', async () => {
@@ -2595,12 +2620,12 @@ describe('AiChat authenticated generated mutations', () => {
     expect(summary).toHaveTextContent('Candidate changes need review');
     expect(summary).toHaveTextContent('Next step: Review validation and the change proposal below');
     expect(screen.getByTestId('status-current-work-approval')).toHaveTextContent('require validation and any applicable approval');
-    const candidateChanges = screen.getByRole('region', { name: 'Candidate changes and approval' });
+    const candidateChanges = screen.getByRole('region', { name: 'التغييرات المقترحة والموافقة' });
     fireEvent.click(within(summary).getByRole('button', {
       name: 'Go to next step: Review validation and the change proposal below',
     }));
     expect(candidateChanges).toHaveFocus();
-    expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
     expect(screen.getByTestId('link-current-work-mission-control')).toHaveAttribute('href', '/mission-control?projectId=project-1');
     expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
     expect(screen.getByTestId('nav-current-work-destinations')).toHaveTextContent('opening it does not create a Mission');
@@ -2677,28 +2702,29 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.messagesFetched = false;
     mocks.messagesError = true;
     const { invalidateQueries } = renderAiChat();
-    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('Conversation unavailable');
+    expect(await screen.findByTestId('text-chat-empty-title')).toHaveTextContent('المحادثة غير متاحة الآن');
     expect(screen.getByTestId('alert-chat-messages-unavailable')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-retry-chat-messages'));
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
-    expect(screen.queryByText('No messages in this session')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Common starting points')).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Retry loading conversation messages before continuing…')).toBeDisabled();
+    expect(screen.queryByText('لا توجد رسائل في هذا العرض')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('نقاط بداية شائعة')).not.toBeInTheDocument();
+    expect(screen.getByTestId('input-ai-chat-composer')).toHaveAttribute('placeholder', 'أعد تحميل رسائل المحادثة قبل المتابعة…');
+    expect(screen.getByTestId('input-ai-chat-composer')).toBeDisabled();
   });
 
   it('closes the mobile drawer after starting a new session', async () => {
     renderAiChat(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     expect(screen.getByTestId('sessions-drawer')).toHaveClass('flex');
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
     expect(screen.getByTestId('sessions-drawer')).toHaveClass('hidden');
-    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('Start a new session');
+    expect(screen.getByTestId('text-chat-empty-title')).toHaveTextContent('ابدأ محادثة جديدة');
   });
 
   it('keeps the live user turn visible while a new session is created', async () => {
     renderAiChat();
 
-    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    const composer = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(composer, { target: { value: 'Inspect the new session root' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
 
@@ -2904,7 +2930,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText(/Execution execution-/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Project one session' })).toHaveClass('bg-primary/10');
 
-    const projectSelector = screen.getByLabelText('Project for chat and model quality');
+    const projectSelector = screen.getByLabelText('مشروع المحادثة');
     fireEvent.change(projectSelector, { target: { value: 'project-2' } });
     expect(await screen.findByRole('button', { name: 'Project two session' }))
       .toHaveClass('bg-primary/10');
@@ -2942,7 +2968,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
     await screen.findByRole('button', { name: 'Existing session' });
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'محادثة جديدة' }));
 
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBeNull();
     expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
@@ -2974,7 +3000,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     expect(await screen.findByText(/Execution alpha-ex/)).toBeInTheDocument();
 
-    const projectSelector = screen.getByLabelText('Project for chat and model quality');
+    const projectSelector = screen.getByLabelText('مشروع المحادثة');
     fireEvent.change(projectSelector, { target: { value: 'project-2' } });
     expect(await screen.findByText(/Execution beta-exe/)).toBeInTheDocument();
     expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
@@ -2994,7 +3020,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    const composer = screen.getByTestId('input-ai-chat-composer');
     fireEvent.change(composer, { target: { value: 'Inspect src/app.ts' } });
     fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
     const callbacks = mocks.streamCallbacks as {
@@ -3046,13 +3072,13 @@ describe('AiChat authenticated generated mutations', () => {
       });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
-    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'DeepSeek key saved' }));
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'حُفظ مفتاح DeepSeek' }));
 
     act(() => {
       mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
     });
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Failed to save key',
+      title: 'تعذر حفظ المفتاح',
       description: 'provider rejected key',
       variant: 'destructive',
     }));
@@ -3079,9 +3105,9 @@ it('shows the affected Groq model role and a safe correction when a default is r
   renderAiChat();
   openProviderSettings();
 
-  expect(await screen.findByText(/Groq credential is valid, but the configured Fast \(openai\/retired-fast\) is unavailable/i))
+  expect(await screen.findByText(/اجتازت بيانات وصول Groq الفحص، لكن النموذج السريع المحدد/))
     .toBeInTheDocument();
-  expect(screen.getByText(/Update the affected Groq model ID.*restart the API/i)).toBeInTheDocument();
+  expect(screen.getByText(/يلزم تحديث معرّف نموذج Groq.*إعادة تشغيل خادم API/)).toBeInTheDocument();
   expect(document.body.textContent).not.toContain('gsk_');
 });
 
@@ -3105,9 +3131,87 @@ it('shows Groq model readiness without requiring a personal key when the server 
   renderAiChat();
   openProviderSettings();
 
-  expect(await screen.findByText(/Groq models available · Fast: openai\/gpt-oss-20b · Powerful: openai\/gpt-oss-120b/i))
+  expect(await screen.findByText(/نماذج Groq متاحة بحسب الفحص/))
     .toBeInTheDocument();
-  expect(screen.getByText(/No personal key saved/i)).toBeInTheDocument();
+  expect(screen.getByText(/لا يوجد مفتاح شخصي محفوظ/)).toBeInTheDocument();
+});
+
+it('explains missing provider configuration in Arabic, preserves the draft, and never sends on recovery', async () => {
+  renderAiChat();
+  const composer = await screen.findByTestId('input-ai-chat-composer');
+  mocks.activeProvider = { provider: null, configured: false };
+  fireEvent.change(composer, { target: { value: 'اشرح تنظيم المشروع دون تغيير ملفاته' } });
+  expect(composer).toHaveValue('اشرح تنظيم المشروع دون تغيير ملفاته');
+  expect(composer).toBeDisabled();
+  expect(screen.getByText(/المساعد غير مهيّأ للإرسال/)).toHaveTextContent('لا تكتب مفتاح الوصول داخل المحادثة');
+  expect(screen.getByRole('button', { name: 'راجع إعدادات المزود قبل الإرسال' })).toBeDisabled();
+  fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+
+  mocks.activeProvider = { provider: 'groq', configured: true };
+  fireEvent.click(screen.getByRole('button', { name: 'إجراءات إضافية' }));
+  expect(composer).toHaveValue('اشرح تنظيم المشروع دون تغيير ملفاته');
+  expect(screen.getByRole('button', { name: 'إرسال الرسالة' })).toBeEnabled();
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it.each([
+  ['rate_limited', 'مقيّد مؤقتًا بحد الاستخدام'],
+  ['authentication_failed', 'غير مصرح له بالوصول'],
+  ['provider_outage', 'غير متاح مؤقتًا'],
+])('explains blocked provider state %s in Arabic without sending or clearing the draft', async (state, explanation) => {
+  renderAiChat();
+  const composer = await screen.findByTestId('input-ai-chat-composer');
+  mocks.aiMetrics.metrics = [{
+    provider: 'groq', availabilityState: state, circuitOpen: false,
+    cooldownRemainingMs: state === 'rate_limited' ? 2100 : null,
+  }];
+  fireEvent.change(composer, { target: { value: 'راجع المشروع دون تعديل' } });
+  expect(screen.getByText(new RegExp(explanation))).toBeInTheDocument();
+  if (state === 'rate_limited') expect(screen.getByText(/أعد المحاولة بعد 3 ثانية/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'الإرسال متوقف بسبب حالة المزود؛ راجع التنبيه' })).toBeDisabled();
+  expect(composer).toBeDisabled();
+  expect(composer).toHaveValue('راجع المشروع دون تعديل');
+  fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it('explains provider configuration loading in Arabic without sending a retained draft', async () => {
+  renderAiChat();
+  const composer = await screen.findByTestId('input-ai-chat-composer');
+  mocks.activeProvider = undefined;
+  fireEvent.change(composer, { target: { value: 'احتفظ بهذه الرسالة حتى أرسلها' } });
+  expect(screen.getByText('جارٍ التحقق من إعداد المساعد…')).toBeInTheDocument();
+  expect(composer).toHaveValue('احتفظ بهذه الرسالة حتى أرسلها');
+  expect(screen.getByRole('button', { name: 'جارٍ التحقق من إعداد المساعد' })).toBeDisabled();
+  fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it.each([
+  ['provider_credential', 'الحد يخص بيانات الوصول المستخدمة لدى المزود'],
+  ['upstream_shared_pool', 'الحد يخص الحصة المشتركة لدى المزود'],
+])('keeps the recorded retry delay and limit scope %s in Arabic without automatic sending', async (rateLimitScope, scopeGuidance) => {
+  mocks.serverProposal = { changes: [] };
+  mocks.proposalMessages[0] = {
+    ...mocks.proposalMessages[0],
+    content: '',
+    outcome: 'FAILED',
+    failureKind: 'RATE_LIMIT',
+    providerFailureCategory: 'RATE_LIMITED',
+    rateLimitScope,
+    retryAfterMs: 2100,
+  };
+  renderAiChat();
+  fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+  expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
+  expect(screen.getByText(new RegExp(scopeGuidance))).toHaveTextContent('انتظر 3 ثانية على الأقل');
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
 });
 
   it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
@@ -3116,13 +3220,13 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.queryByRole('region', { name: 'Agent execution proof' })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('test-model');
 
-    expect(screen.queryByRole('button', { name: 'Open sessions' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'فتح المحادثات' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     const drawer = screen.getByTestId('sessions-drawer');
     expect(await within(drawer).findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole('button', { name: 'AI settings and diagnostics' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'إعدادات المساعد والتشخيص' }));
     expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
     expect(drawer.querySelector('.drawer-scroll-region')).toHaveClass('overflow-y-auto', 'overscroll-contain', 'md:overflow-hidden');
     expect(drawer.querySelector('.provider-key-cards')).not.toHaveClass('overflow-y-auto');
@@ -3130,27 +3234,27 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
     expect(document.body.style.overflow).toBe('hidden');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close sessions backdrop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إغلاق قائمة المحادثات من الخلفية' }));
     expect(drawer).toHaveClass('hidden');
     expect(document.body.style.overflow).toBe('');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     fireEvent.click(within(drawer).getByRole('button', { name: 'Existing session' }));
     expect(drawer).toHaveClass('hidden');
     expect(document.body.style.overflow).toBe('');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إغلاق قائمة المحادثات' }));
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
     expect(document.body.style.overflow).toBe('');
   });
 
   it('traps keyboard focus in the mobile sessions dialog and closes it with Escape', async () => {
     renderAiChat(false);
-    const opener = screen.getByRole('button', { name: 'Open sessions' });
+    const opener = screen.getByRole('button', { name: 'فتح المحادثات' });
     fireEvent.click(opener);
 
-    const drawer = await screen.findByRole('dialog', { name: 'Chat sessions' });
+    const drawer = await screen.findByRole('dialog', { name: 'محادثات المشروع' });
     expect(drawer).toHaveAttribute('aria-modal', 'true');
     const firstFocusable = drawer.querySelector<HTMLElement>('button:not(:disabled)');
     expect(firstFocusable).not.toBeNull();
@@ -3160,27 +3264,85 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(document.activeElement).not.toBe(firstFocusable);
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(await screen.findByRole('button', { name: 'Open sessions' })).toHaveFocus();
+    expect(await screen.findByRole('button', { name: 'فتح المحادثات' })).toHaveFocus();
     expect(drawer).not.toHaveAttribute('aria-modal', 'true');
   });
 
   it('keeps every provider key card control available in the mobile drawer', async () => {
     renderAiChat(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     const drawer = screen.getByTestId('sessions-drawer');
-    fireEvent.click(within(drawer).getByRole('button', { name: 'AI settings and diagnostics' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'إعدادات المساعد والتشخيص' }));
 
     for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
       const card = within(drawer)
-        .getByText(`${provider} API Key`, { exact: true })
+        .getByText(`مفتاح ${provider}`, { exact: true })
         .closest('.provider-key-card');
       expect(card).not.toBeNull();
       expect(card?.querySelector('input[type="password"]')).toBeInTheDocument();
       expect(
-        within(card as HTMLElement).getByRole('button', { name: 'Save', exact: true }),
+        within(card as HTMLElement).getByRole('button', { name: `حفظ مفتاح ${provider}`, exact: true }),
       ).toBeInTheDocument();
     }
+  });
+
+  it.each([
+    ['DeepSeek', 'saveDeepSeek'],
+    ['Groq', 'saveGroq'],
+    ['Gemini', 'saveGemini'],
+    ['OpenRouter', 'saveOpenRouter'],
+  ] as const)('keeps %s key validation, masking, trimming, and Arabic save feedback', async (provider, saveName) => {
+    const { invalidateQueries } = renderAiChat();
+    openProviderSettings();
+    const input = screen.getByLabelText(`مفتاح الوصول إلى ${provider}`);
+    const save = screen.getByRole('button', { name: `حفظ مفتاح ${provider}` });
+    expect(input).toHaveAttribute('type', 'password');
+    expect(input).toHaveAttribute('dir', 'ltr');
+    expect(input).toHaveAttribute('autocomplete', 'new-password');
+    fireEvent.change(input, { target: { value: 'short' } });
+    fireEvent.click(save);
+    expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'المفتاح أقصر من الحد المطلوب' }));
+    fireEvent.change(input, { target: { value: '  fixture-key-123  ' } });
+    fireEvent.click(save);
+    expect(mocks.mutations[saveName].mutate).toHaveBeenCalledWith({ data: { apiKey: 'fixture-key-123' } });
+    act(() => mocks.mutationOptions[saveName]?.onSuccess?.({ configured: true, last4: '0123', updatedAt: null }));
+    expect(input).toHaveValue('');
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: `حُفظ مفتاح ${provider}`, description: 'نهايته ···0123',
+    }));
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
+    expect(document.body.textContent).not.toContain('fixture-key-123');
+  });
+
+  it.each([
+    ['DeepSeek', 'saveDeepSeek', 'deleteDeepSeek'],
+    ['Groq', 'saveGroq', 'deleteGroq'],
+    ['Gemini', 'saveGemini', 'deleteGemini'],
+    ['OpenRouter', 'saveOpenRouter', 'deleteOpenRouter'],
+  ] as const)('keeps %s key editing separate from explicit personal-key deletion', async (provider, saveName, deleteName) => {
+    mocks.keyStatusConfigured = true;
+    const { invalidateQueries } = renderAiChat();
+    openProviderSettings();
+    expect(screen.queryByLabelText(`مفتاح الوصول إلى ${provider}`)).not.toBeInTheDocument();
+    expect(mocks.mutations[deleteName].mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: `تغيير مفتاح ${provider}` }));
+    const input = screen.getByLabelText(`مفتاح الوصول إلى ${provider}`);
+    expect(input).toHaveAttribute('type', 'password');
+    expect(input).toHaveValue('');
+    expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations[deleteName].mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: `إزالة مفتاح ${provider} الشخصي` }));
+    expect(mocks.mutations[deleteName].mutate).toHaveBeenCalledWith();
+    act(() => mocks.mutationOptions[deleteName]?.onSuccess?.(undefined));
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: `أُزيل مفتاح ${provider} الشخصي` }));
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
+    act(() => mocks.mutationOptions[deleteName]?.onError?.(new Error('fixture deletion rejected')));
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'تعذر إزالة المفتاح', description: 'fixture deletion rejected', variant: 'destructive',
+    }));
+    expect(mocks.mutations[saveName].mutate).not.toHaveBeenCalled();
   });
 
   it('lets desktop users collapse sessions for focus and restore the same project context', () => {
@@ -3188,12 +3350,12 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const drawer = screen.getByTestId('sessions-drawer');
 
     expect(drawer).toHaveClass('md:flex');
-    fireEvent.click(screen.getByRole('button', { name: 'Close sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إغلاق المحادثات' }));
     expect(drawer).toHaveClass('hidden', 'md:hidden');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'فتح المحادثات' }));
     expect(drawer).toHaveClass('flex', 'md:flex');
-    expect(within(drawer).getByLabelText('Project for chat and model quality')).toHaveValue('project-1');
+    expect(within(drawer).getByLabelText('مشروع المحادثة')).toHaveValue('project-1');
   });
 
   it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {
@@ -3487,8 +3649,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const { invalidateQueries } = renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
 
     expect(mocks.mutations.applyChanges.mutate).toHaveBeenCalledWith({
       data: {
@@ -3511,8 +3673,11 @@ it('shows Groq model readiness without requiring a personal key when the server 
       });
     });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['git-status', 'project-1'] });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Commit verified changes' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Commit verified changes' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'اعتماد التغييرات في Git' })).toBeInTheDocument());
+    expect(screen.getByText(/يضم جميع تغييرات مساحة العمل، بما فيها تعديلاتك المحلية غير المرتبطة/)).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'وصف اعتماد التغييرات في Git' })).toHaveAttribute('dir', 'auto');
+    expect(mocks.mutations.commit.mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'اعتماد التغييرات في Git' }));
     expect(mocks.mutations.commit.mutate).toHaveBeenCalledWith({
       projectId: 'project-1',
       data: { message: 'Apply verified AI changes', proposalId: 'proposal-1' },
@@ -3520,14 +3685,15 @@ it('shows Groq model readiness without requiring a personal key when the server 
     act(() => {
       mocks.mutationOptions.commit?.onSuccess?.({ ok: true, output: 'created commit' });
     });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Commit verified changes' })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Push committed changes' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Push committed changes' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'اعتماد التغييرات في Git' })).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).toBeInTheDocument();
+    expect(mocks.mutations.push.mutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' }));
     expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
     act(() => {
       mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
     });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Push committed changes' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).not.toBeInTheDocument());
   });
 
   it('renders linked Apply, Commit, and Push evidence and blocks hash mismatches', async () => {
@@ -3588,8 +3754,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
     act(() => {
       mocks.mutationOptions.applyChanges?.onSuccess?.({
         correlationId: 'operation-proof',
@@ -3633,8 +3799,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'تطبيق 1 تغيير' }));
     act(() => {
       mocks.mutationOptions.applyChanges?.onSuccess?.({
         correlationId: 'operation-rebase-1',
@@ -3652,7 +3818,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
       });
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Rebase patch' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'مواءمة التعديل مع النسخة الحالية' }));
     expect(mocks.mutations.rebaseChanges.mutate).toHaveBeenCalledWith({
       data: {
         projectId: 'project-1',
@@ -3682,8 +3848,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
         revision: 1,
       });
     });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve & apply 1 change' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Approve & apply 1 change' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'الموافقة وتطبيق 1 تغيير' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'الموافقة وتطبيق 1 تغيير' }));
     expect(mocks.mutations.approveRebased.mutate).toHaveBeenCalledWith({
       proposalId: 'proposal-rebase-1',
       data: { projectId: 'project-1', revision: 1 },
@@ -3723,8 +3889,8 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'رفض المقترح' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'رفض المقترح' }));
 
     expect(mocks.mutations.rejectProposal.mutate).toHaveBeenCalledWith({ proposalId: 'proposal-2' });
   });
@@ -4435,7 +4601,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows Behavior progress revisions during the stream and removes them for the final answer', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'How does the request flow behave?' } });
 
     act(() => {
@@ -4759,14 +4925,17 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     expect(await screen.findByText('إنشاء ملف tasks.json في جذر المشروع')).toBeInTheDocument();
-    expect(screen.getAllByText('Implementation plan')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
-    expect(screen.getByText(/No files were changed/)).toBeInTheDocument();
+    expect(screen.getAllByText('خطة التنفيذ')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'الموافقة على الخطة' })).toBeInTheDocument();
+    expect(screen.getByText(/لم تتغير الملفات/)).toBeInTheDocument();
     expect(screen.queryByText('tasks.json')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Files, validation, and assumptions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'الملفات والتحقق والافتراضات' }));
     expect(screen.getByText('tasks.json')).toBeInTheDocument();
     expect(screen.getByText('The existing chat route remains the entry point.')).toBeInTheDocument();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations.commit.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations.push.mutate).not.toHaveBeenCalled();
   });
 
   it('does not offer approval for a fallback plan without verified file scope', async () => {
@@ -4792,9 +4961,11 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    expect(await screen.findByText('Source scope required')).toBeInTheDocument();
-    expect(screen.getByText(/Approval unavailable/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Approve plan' })).not.toBeInTheDocument();
+    expect(await screen.findByText('يلزم نطاق ملفات متحقق منه')).toBeInTheDocument();
+    expect(screen.getByText('الموافقة غير متاحة.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'الموافقة على الخطة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'بدء التنفيذ وفق الخطة' })).not.toBeInTheDocument();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
 
   it('collapses internal technical trace prose behind Technical details', async () => {
@@ -4831,7 +5002,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('commits the complete final SSE message instead of leaving streamed partial text', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -4892,7 +5063,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     };
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Prepare the live proposal' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -4916,7 +5087,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
       });
     });
 
-    expect(await screen.findByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
 
     mocks.serverProposal = {
       proposalId: 'proposal-old',
@@ -4927,19 +5098,19 @@ it('shows Groq model readiness without requiring a personal key when the server 
     };
     fireEvent.change(textarea, { target: { value: 'Prepare the live proposal again' } });
 
-    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
     expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
 
     mocks.serverProposal = { proposalId: null, changes: [] };
     fireEvent.change(textarea, { target: { value: 'Prepare the live proposal once more' } });
-    expect(screen.getByRole('button', { name: 'Apply 1 change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'تطبيق 1 تغيير' })).toBeInTheDocument();
     expect(screen.getByText('src/live-proposal.ts')).toBeInTheDocument();
   });
 
   it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5045,7 +5216,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5098,7 +5269,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Trace the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5151,7 +5322,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows one execution proof panel as soon as durable work starts', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Prove the response path' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5219,7 +5390,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
   it('keeps evidence integrity failure visible when proof metrics are collapsed', async () => {
     renderAiChat();
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Inspect proof integrity' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5446,7 +5617,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     ]);
 
     const firstRender = renderAiChat();
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'Continue the implementation plan' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5855,7 +6026,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows per-hunk accept/reject toggles and sends only accepted hunks on apply', async () => {
     renderAiChat();
 
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'fix both values' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5890,22 +6061,22 @@ it('shows Groq model readiness without requiring a personal key when the server 
     });
 
     // The card should show both proposed hunks.  Expand the change first.
-    const viewBtn = await screen.findByRole('button', { name: /View/ });
+    const viewBtn = await screen.findByRole('button', { name: 'عرض الفروق' });
     fireEvent.click(viewBtn);
 
     // Both hunks start as accepted.
-    const acceptBtns = await screen.findAllByRole('button', { name: /Accepted — click to reject/i });
+    const acceptBtns = await screen.findAllByRole('button', { name: 'مختار — اضغط لاستبعاد المقطع' });
     expect(acceptBtns).toHaveLength(2);
 
     // Reject the second hunk (Bump b).
     fireEvent.click(acceptBtns[1]);
 
     // After rejection, one hunk is accepted and one is rejected.
-    expect(screen.getAllByRole('button', { name: /Accepted — click to reject/i })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /Rejected — click to accept/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'مختار — اضغط لاستبعاد المقطع' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'مستبعد — اضغط لاختيار المقطع' })).toHaveLength(1);
 
     // The apply button should reflect the partial hunk count.
-    const applyBtn = screen.getByRole('button', { name: /Apply.*1\/2 hunks/i });
+    const applyBtn = screen.getByRole('button', { name: /تطبيق.*1\/2 مقطع/i });
     expect(applyBtn).toBeInTheDocument();
 
     // Clicking Apply must pass only the first (accepted) hunk to the mutation.
@@ -5937,7 +6108,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     // Drive the mocked stream through a real send so the callbacks are captured.
-    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
     fireEvent.change(textarea, { target: { value: 'audit the fixture' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
@@ -5977,18 +6148,22 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('keeps the Capability Probe under More actions and sends the canonical probe message', async () => {
     renderAiChat();
 
-    const moreActions = screen.getByRole('button', { name: 'More actions' });
+    const composer = screen.getByRole('textbox', { name: 'رسالتك لمساعد المشروع' });
+    expect(composer).toHaveAttribute('dir', 'auto');
+    expect(composer).toHaveAttribute('placeholder', 'اكتب ما تريد فهمه أو إنجازه في هذا المشروع… (Enter للإرسال)');
+    const moreActions = screen.getByRole('button', { name: 'إجراءات إضافية' });
     expect(moreActions).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('button', { name: 'Capability Probe' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Task Status' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Workflow Health' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'افحص قدرات المساعد' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'لخّص المهام' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'راجع تقدم العمل' })).not.toBeInTheDocument();
     fireEvent.click(moreActions);
     expect(moreActions).toHaveAttribute('aria-expanded', 'true');
+    expect(mocks.sentParams).toBeFalsy();
 
     // Secondary actions remain available in the expanded list.
-    expect(await screen.findByRole('button', { name: 'Task Status' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Workflow Health' })).toBeInTheDocument();
-    const probeButton = await screen.findByRole('button', { name: 'Capability Probe' });
+    expect(await screen.findByRole('button', { name: 'لخّص المهام' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'راجع تقدم العمل' })).toBeInTheDocument();
+    const probeButton = await screen.findByRole('button', { name: 'افحص قدرات المساعد' });
     expect(probeButton).toBeInTheDocument();
 
     fireEvent.click(probeButton);
@@ -6103,7 +6278,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('streams Analyze progress and renders its structured result with the activity timeline', async () => {
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Analyze Scan' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'حلّل نتائج الفحص' }));
     expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'analyze' });
 
     act(() => {
@@ -6151,7 +6326,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('shows a retryable incomplete code review and preserves the failed attempt after retry', async () => {
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'راجع جودة المشروع' }));
     act(() => {
       (mocks.taskStreamCallbacks as Record<string, unknown> & {
         onError?: (event: Record<string, unknown>) => void;
@@ -6250,7 +6425,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   it('marks a setup-blocked code review as not retryable', async () => {
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'راجع جودة المشروع' }));
     act(() => {
       (mocks.taskStreamCallbacks as Record<string, unknown> & {
         onError?: (event: Record<string, unknown>) => void;
@@ -6490,7 +6665,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await screen.findByPlaceholderText(/Ask about your codebase/);
+    await screen.findByTestId('input-ai-chat-composer');
     fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
 
     await waitFor(() => {
@@ -6539,7 +6714,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await screen.findByPlaceholderText(/Ask about your codebase/);
+    await screen.findByTestId('input-ai-chat-composer');
     fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
 
     await waitFor(() => {
@@ -6588,7 +6763,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    await screen.findByPlaceholderText(/Ask about your codebase/);
+    await screen.findByTestId('input-ai-chat-composer');
     fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
 
     await waitFor(() => {

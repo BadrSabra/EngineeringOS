@@ -28,3 +28,39 @@ Collapsing their names can imply that reviewing or resuming one affects another.
 
 **How to apply:** Explain the relationship in labels and forms. Translation is
 presentation only: stored status/action codes and authorization stay unchanged.
+
+Keep translated accessible names distinct when different controls share the
+same verb, especially a drawer's backdrop and its close button.
+
+**Why:** Collapsing formerly distinct names can make keyboard/screen-reader
+navigation and exact-name assertions ambiguous despite unchanged actions.
+
+**How to apply:** Identify the control or context in the Arabic name; preserve
+focus return, Escape behavior, and the separate click handlers.
+
+Describe diff-hunk toggles as selected/excluded («مختار» / «مستبعد»), not
+as accepted/rejected proof. Keep plan approval, file application, Git commit,
+and remote push explicitly distinct in Arabic.
+
+**Why:** Default-selected hunks do not constitute write approval or evidence
+acceptance. Git commit may include unrelated working-tree edits under the
+existing endpoint, so translating its warning must preserve that consequence.
+
+**How to apply:** Localize display only; retain the existing scope and mutation
+gates and prominently preserve operation-specific warnings.
+
+Configuration and availability feedback must not imply a successful AI run.
+
+**Why:** A green readiness indicator can mislead the nontechnical audience into
+reading configuration as verified execution or acceptance.
+
+**How to apply:** Describe configuration as prepared for sending and qualify
+availability by its recorded check; reserve completion claims for accepted work.
+
+Avoid fixed free-tier quotas and model counts in provider-key setup guidance.
+
+**Why:** Provider account limits and catalogs change independently of this app;
+static marketing numbers can mislead users about availability and cost.
+
+**How to apply:** Keep setup links and describe limits as provider-account
+dependent. Do not change routing policy through setup copy.

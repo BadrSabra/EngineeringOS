@@ -55,7 +55,7 @@ const recoveryCases = [
     id: 'task-auth',
     title: 'Repair provider authentication',
     availabilityState: 'authentication_failed',
-    heading: 'Provider authentication failed',
+    heading: 'تعذر التحقق من بيانات وصول المزود',
     action: 'Replace the provider API key with a valid key, then retry.',
     correlationId: 'task-auth-support',
   },
@@ -63,7 +63,7 @@ const recoveryCases = [
     id: 'task-quota',
     title: 'Recover from provider quota',
     availabilityState: 'quota_exhausted',
-    heading: 'Provider quota is exhausted',
+    heading: 'انتهت حصة الاستخدام لدى المزود',
     action: 'Add provider credits or configure another provider.',
     correlationId: 'task-quota-support',
   },
@@ -71,7 +71,7 @@ const recoveryCases = [
     id: 'task-outage',
     title: 'Recover from provider outage',
     availabilityState: 'provider_outage',
-    heading: 'The provider is temporarily unavailable',
+    heading: 'المزود غير متاح مؤقتًا',
     action: 'Retry in a moment; configure another provider if the issue persists.',
     correlationId: 'task-outage-support',
   },
@@ -453,11 +453,11 @@ describe('Tasks recovery rendering', () => {
 
     for (const item of recoveryCases) {
       fireEvent.click(screen.getByRole('button', { name: `عرض تفاصيل المهمة: ${item.title}` }));
-      const card = screen.getByRole('region', { name: 'Provider recovery actions' });
+      const card = screen.getByRole('region', { name: 'إرشادات استعادة جاهزية المزود' });
       expect(within(card).getByRole('heading', { name: item.heading })).toBeInTheDocument();
-      expect(within(card).getByText(`Availability: ${item.availabilityState.replaceAll('_', ' ')}`)).toBeInTheDocument();
-      expect(within(card).getByText(`Next step: ${item.action}`)).toBeInTheDocument();
-      expect(within(card).getByText(`Support reference: ${item.correlationId}`)).toBeInTheDocument();
+      expect(within(card).getByText(item.availabilityState)).toHaveAttribute('dir', 'ltr');
+      expect(within(card).getByText(item.action)).toHaveAttribute('dir', 'auto');
+      expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent(item.correlationId);
       fireEvent.click(screen.getByRole('button', { name: `طي تفاصيل المهمة: ${item.title}` }));
     }
   });

@@ -1548,16 +1548,16 @@ function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleS
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
         <span className="min-w-0 break-words">
           {isCredentialFailure
-            ? 'Credential rejected.'
+            ? 'رُفضت بيانات الوصول إلى المزود.'
             : lifecycle.overallStatus === 'unavailable'
-              ? 'Provider is unavailable for this configuration.'
-              : 'Provider lifecycle is not fully verified.'}
+              ? 'المزود غير متاح بهذه الإعدادات.'
+              : 'لم يكتمل التحقق من جاهزية المزود.'}
         </span>
       </div>
       <div className="pl-4 break-words text-amber-200/80">
         {lifecycle.reasonCodes.length
-          ? `Reason: ${lifecycle.reasonCodes[0].replace(/_/g, ' ')}.`
-          : 'Retry the lifecycle check before relying on this provider.'}
+          ? `رمز السبب المسجل: ${lifecycle.reasonCodes[0]}.`
+          : 'أعد فحص جاهزية المزود قبل الاعتماد عليه.'}
       </div>
     </div>
   );
@@ -1573,7 +1573,7 @@ function GroqModelAvailabilityNotice({
   if (availability.status === 'available') {
     return (
       <p className="mt-1.5 break-words text-xs leading-5 text-green-300">
-        Groq models available · Fast: {availability.checkedModels.fast} · Powerful: {availability.checkedModels.powerful}
+        نماذج Groq متاحة بحسب الفحص · السريع: <bdi dir="ltr">{availability.checkedModels.fast}</bdi> · المتقدم: <bdi dir="ltr">{availability.checkedModels.powerful}</bdi>
       </p>
     );
   }
@@ -1583,11 +1583,11 @@ function GroqModelAvailabilityNotice({
       <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
         {availability.unavailableRoles.map((role) => (
           <p key={role} className="break-words">
-            Groq credential is valid, but the configured {role === 'fast' ? 'Fast' : 'Powerful'} ({availability.checkedModels[role]}) is unavailable
+            اجتازت بيانات وصول Groq الفحص، لكن النموذج {role === 'fast' ? 'السريع' : 'المتقدم'} المحدد (<bdi dir="ltr">{availability.checkedModels[role]}</bdi>) غير متاح.
           </p>
         ))}
         <p className="break-words text-amber-200/80">
-          Update the affected Groq model ID to a current catalog model, then restart the API.
+          يلزم تحديث معرّف نموذج Groq المتأثر إلى نموذج متاح في القائمة الحالية، ثم إعادة تشغيل خادم API.
         </p>
       </div>
     );
@@ -1607,7 +1607,7 @@ function ProviderReadinessNotice({
     return (
       <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-[11px] text-muted-foreground" role="status">
         <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-        <span>Checking AI provider health…</span>
+        <span dir="rtl" lang="ar">جارٍ التحقق من إعداد المساعد…</span>
       </div>
     );
   }
@@ -1616,25 +1616,25 @@ function ProviderReadinessNotice({
     return (
       <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="alert">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+        <span dir="rtl" lang="ar">المساعد غير مهيّأ للإرسال. راجع إعدادات المزود في بطاقاته قبل إرسال الرسالة. لا تكتب مفتاح الوصول داخل المحادثة.</span>
       </div>
     );
   }
 
   if (metric && isProviderSendBlocked(metric)) {
     const cooldown = metric.cooldownRemainingMs != null
-      ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
+      ? ` أعد المحاولة بعد ${Math.ceil(metric.cooldownRemainingMs / 1000)} ثانية.`
       : '';
     const stateLabel =
       metric.availabilityState === 'rate_limited' || metric.availabilityState === 'quota_exhausted'
-        ? 'temporarily rate-limited'
+        ? 'مقيّد مؤقتًا بحد الاستخدام'
         : metric.availabilityState === 'authentication_failed'
-          ? 'not authorized'
-          : 'temporarily unavailable';
+          ? 'غير مصرح له بالوصول'
+          : 'غير متاح مؤقتًا';
     return (
       <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>{activeProvider.provider} is {stateLabel}.{cooldown} Retry after the provider recovers or configure another provider.</span>
+        <span dir="rtl" lang="ar">المزود <bdi dir="ltr">{activeProvider.provider}</bdi> {stateLabel}.{cooldown} انتظر عودة المزود أو اختر مزودًا آخر مهيّأ للإرسال.</span>
       </div>
     );
   }
@@ -1642,7 +1642,7 @@ function ProviderReadinessNotice({
   return (
     <div className="mb-2 flex items-center gap-2 px-1 text-[11px] text-emerald-600 dark:text-emerald-400" role="status">
       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-      <span>AI ready · {activeProvider.provider}</span>
+      <span dir="rtl" lang="ar">المساعد مُعدّ للإرسال · <bdi dir="ltr">{activeProvider.provider}</bdi></span>
     </div>
   );
 }
@@ -1711,14 +1711,14 @@ function describeAiError(err: unknown): string {
  */
 function providerFailureCategoryLabel(category: AiStreamErrorEvent['providerFailureCategory']): string | null {
   switch (category) {
-    case 'TIMEOUT': return 'Provider timed out';
-    case 'MODEL_REJECTED': return 'Provider rejected the request';
-    case 'MODEL_UNAVAILABLE': return 'Model unavailable';
-    case 'RATE_LIMITED': return 'Rate limited';
-    case 'FALLBACK_EXHAUSTED': return 'All configured providers failed';
-    case 'TRANSPORT_FAILURE': return 'Provider connection failed';
-    case 'MALFORMED_RESPONSE': return 'Provider response was invalid';
-    case 'UNKNOWN': return 'Provider failure';
+    case 'TIMEOUT': return 'انتهت مهلة انتظار المزود';
+    case 'MODEL_REJECTED': return 'رفض المزود الطلب';
+    case 'MODEL_UNAVAILABLE': return 'النموذج غير متاح';
+    case 'RATE_LIMITED': return 'بلغ المزود حد الاستخدام';
+    case 'FALLBACK_EXHAUSTED': return 'تعذّر الطلب لدى جميع المزودين المهيّئين';
+    case 'TRANSPORT_FAILURE': return 'تعذر الاتصال بالمزود';
+    case 'MALFORMED_RESPONSE': return 'صيغة رد المزود غير صالحة';
+    case 'UNKNOWN': return 'تعذر إكمال الطلب لدى المزود';
     default: return null;
   }
 }
@@ -1729,26 +1729,26 @@ function providerFailureCategoryGuidance(
   retryAfterMs?: number,
 ): string | null {
   switch (category) {
-    case 'TIMEOUT': return 'The provider took too long to respond. Retry the request.';
-    case 'MODEL_REJECTED': return 'The provider rejected this request. Check the provider configuration or choose another provider.';
-    case 'MODEL_UNAVAILABLE': return 'The requested model is unavailable. Retry later or choose another provider.';
+    case 'TIMEOUT': return 'لم يرد المزود خلال المهلة المحددة. يمكنك إعادة إرسال الطلب صراحةً.';
+    case 'MODEL_REJECTED': return 'رفض المزود هذا الطلب. راجع إعداداته أو اختر مزودًا آخر.';
+    case 'MODEL_UNAVAILABLE': return 'النموذج المطلوب غير متاح. أعد المحاولة لاحقًا أو اختر مزودًا آخر.';
     case 'RATE_LIMITED': {
       const delaySeconds = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) && retryAfterMs > 0
         ? Math.ceil(retryAfterMs / 1000)
         : undefined;
       const scope = rateLimitScope === 'upstream_shared_pool'
-        ? ' The limit is on the provider’s shared pool.'
+        ? ' الحد يخص الحصة المشتركة لدى المزود.'
         : rateLimitScope === 'provider_credential'
-          ? ' The limit is on the provider credential.'
+          ? ' الحد يخص بيانات الوصول المستخدمة لدى المزود.'
           : '';
       return delaySeconds
-        ? `The provider rate-limited this request.${scope} Wait at least ${delaySeconds} seconds before trying again.`
-        : `The provider rate-limited this request.${scope} It did not provide a retry time, so no automatic retry is available. Wait before sending the request again or choose another configured provider.`;
+        ? `أوقف المزود هذا الطلب بسبب حد الاستخدام.${scope} انتظر ${delaySeconds} ثانية على الأقل قبل إعادة المحاولة.`
+        : `أوقف المزود هذا الطلب بسبب حد الاستخدام.${scope} لم يحدد موعدًا للمحاولة التالية، لذا لا تتوفر إعادة محاولة تلقائية. انتظر قبل إرسال الطلب مجددًا أو اختر مزودًا آخر مهيّأ للإرسال.`;
     }
-    case 'FALLBACK_EXHAUSTED': return 'All configured providers failed to complete the request. Retry later or configure another provider.';
-    case 'TRANSPORT_FAILURE': return 'The provider connection failed. Retry in a moment; choose another provider if it persists.';
-    case 'MALFORMED_RESPONSE': return 'The provider returned an invalid response. Retry or choose another provider.';
-    case 'UNKNOWN': return 'The provider could not complete the request. Retry in a moment or choose another provider.';
+    case 'FALLBACK_EXHAUSTED': return 'تعذّر إكمال الطلب لدى جميع المزودين المهيّئين. أعد المحاولة لاحقًا أو هيّئ مزودًا آخر.';
+    case 'TRANSPORT_FAILURE': return 'تعذر الاتصال بالمزود. أعد المحاولة بعد قليل، أو اختر مزودًا آخر إذا استمر العطل.';
+    case 'MALFORMED_RESPONSE': return 'أعاد المزود ردًا بصيغة غير صالحة. أعد المحاولة أو اختر مزودًا آخر.';
+    case 'UNKNOWN': return 'تعذر إكمال الطلب لدى المزود. أعد المحاولة بعد قليل أو اختر مزودًا آخر.';
     default: return null;
   }
 }
@@ -1770,17 +1770,17 @@ function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'pro
     .map((value) => value?.match(/\bsupport reference:\s*([a-z0-9][a-z0-9_-]{2,80})\b/i)?.[1])
     .find(Boolean);
 
-  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+  let guidance = 'تعذر إكمال الطلب لدى المزود. أعد المحاولة بعد قليل.';
   if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
-    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+    guidance = 'تعذر التحقق من بيانات الوصول. راجع إعدادات المزود أو اختر مزودًا آخر، ثم أعد المحاولة.';
   } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
-    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+    guidance = 'بلغ المزود حد الاستخدام أو انتهت حصته المتاحة. انتظر قليلًا، ثم أعد المحاولة أو اختر مزودًا آخر.';
   } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
-    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+    guidance = 'المزود غير متاح مؤقتًا. أعد المحاولة بعد قليل، أو اختر مزودًا آخر إذا استمر العطل.';
   }
 
   return supportReference
-    ? `${guidance} Support reference: ${supportReference}`
+    ? `${guidance} مرجع الدعم: ${supportReference}`
     : guidance;
 }
 
@@ -4567,24 +4567,24 @@ function PendingChangesCard({
       id="region-candidate-changes"
       tabIndex={-1}
       role="region"
-      aria-label="Candidate changes and approval"
+      aria-label="التغييرات المقترحة والموافقة"
       className="max-w-3xl mx-auto mb-4"
     >
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-amber-500/20 bg-amber-500/10">
+        <div dir="rtl" lang="ar" className="flex items-center gap-2 px-4 py-2.5 border-b border-amber-500/20 bg-amber-500/10">
           <FileCode2 className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-sm font-medium text-amber-400">
-            {changes.length} proposed file change{changes.length !== 1 ? 's' : ''}
+            {changes.length} ملف ضمن التغييرات المقترحة
           </span>
            <span className="text-xs text-muted-foreground ml-auto">
              {lifecycle === 'conflicted'
-               ? 'Conflict — reconcile before applying'
+               ? 'يوجد تعارض — راجعه قبل التطبيق'
                : lifecycle === 'blocked'
-                 ? 'Blocked — recovery required'
+                 ? 'التطبيق محجوب — يلزم الاسترداد'
                  : lifecycle === 'isolated'
-                   ? 'Isolated workspace ready for review'
-                   : approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
+                   ? 'مساحة التغييرات المعزولة جاهزة للمراجعة'
+                   : approvalRequired ? 'راجع الفروق المحدّثة ووافق عليها' : 'بانتظار موافقتك'}
            </span>
         </div>
 
@@ -4609,20 +4609,20 @@ function PendingChangesCard({
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <code className="text-xs font-mono text-foreground truncate max-w-[300px]">
+                      <code dir="ltr" className="text-xs font-mono text-foreground truncate max-w-[300px]">
                         {change.path}
                       </code>
                       {isNew ? (
                         <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 bg-green-500/10">
-                          new file
+                          ملف جديد
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          {oldLines} → {newLines} lines
+                          <bdi dir="ltr">{oldLines} → {newLines}</bdi> سطر
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                    <p dir="auto" className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                       {change.reason}
                     </p>
                     {change.validationProfile && (
@@ -4680,7 +4680,7 @@ function PendingChangesCard({
                     className="flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border/50 hover:border-border shrink-0 transition-colors"
                   >
                     <ChevronRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                    {isExpanded ? 'Hide' : 'View'}
+                     {isExpanded ? 'إخفاء الفروق' : 'عرض الفروق'}
                   </button>
                 </div>
 
@@ -4688,13 +4688,13 @@ function PendingChangesCard({
                   <div className="mt-2 space-y-2">
                     <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-200/80">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-sky-200">Patch Lab</span>
+                        <span className="font-medium text-sky-200">تفاصيل التعديل المقترح</span>
                         <span className="font-mono text-[9px] text-muted-foreground">
                           base {change.baseHash ? `${change.baseHash.slice(0, 12)}…` : 'legacy'}
                         </span>
                       </div>
                       <p className="mt-1">
-                        The patch is checked against this exact source version before it can be applied.
+                        يُفحص التعديل مقابل نسخة المصدر المحددة هذه قبل السماح بتطبيقه.
                       </p>
                     </div>
                     {change.hunks && change.hunks.length > 0 ? (
@@ -4702,7 +4702,7 @@ function PendingChangesCard({
                         <div key={`${change.path}-hunk-${index}`} className="rounded-lg border border-border/50 bg-black/30 p-3">
                           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px]">
                             <span className="font-medium text-foreground">
-                              Hunk {index + 1}
+                              المقطع {index + 1}
                             </span>
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-muted-foreground">
@@ -4710,7 +4710,7 @@ function PendingChangesCard({
                               </span>
                               <button
                                 onClick={(e) => { e.stopPropagation(); toggleHunk(change.path, index); }}
-                                aria-label={rejectedHunks.has(hunkKey(change.path, index)) ? 'Rejected — click to accept' : 'Accepted — click to reject'}
+                                aria-label={rejectedHunks.has(hunkKey(change.path, index)) ? 'مستبعد — اضغط لاختيار المقطع' : 'مختار — اضغط لاستبعاد المقطع'}
                                 className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded border transition-colors text-[9px] font-medium ${
                                   rejectedHunks.has(hunkKey(change.path, index))
                                     ? 'border-red-500/40 text-red-300 bg-red-500/10 hover:bg-red-500/20'
@@ -4718,8 +4718,8 @@ function PendingChangesCard({
                                 }`}
                               >
                                 {rejectedHunks.has(hunkKey(change.path, index))
-                                  ? <><X className="w-2.5 h-2.5" /> Rejected</>
-                                  : <><Check className="w-2.5 h-2.5" /> Accepted</>
+                                  ? <><X className="w-2.5 h-2.5" /> مستبعد</>
+                                  : <><Check className="w-2.5 h-2.5" /> مختار للتطبيق</>
                                 }
                               </button>
                             </div>
@@ -4750,13 +4750,13 @@ function PendingChangesCard({
                             </div>
                           <div className="grid gap-2 md:grid-cols-2">
                             <div className="min-w-0">
-                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-red-300/80">Expected</div>
+                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-red-300/80">المحتوى الحالي المتوقع</div>
                               <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-red-500/20 bg-red-500/5 p-2 text-[10px] leading-relaxed text-foreground/80">
                                 {hunk.expectedText || '(empty)'}
                               </pre>
                             </div>
                             <div className="min-w-0">
-                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300/80">Replacement</div>
+                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300/80">المحتوى البديل المقترح</div>
                               <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-emerald-500/20 bg-emerald-500/5 p-2 text-[10px] leading-relaxed text-foreground/80">
                                 {hunk.replacementText || '(empty)'}
                               </pre>
@@ -4777,7 +4777,7 @@ function PendingChangesCard({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 px-4 py-3 border-t border-amber-500/20">
+        <div dir="rtl" lang="ar" className="flex flex-wrap gap-2 px-4 py-3 border-t border-amber-500/20">
           <Button
             size="sm"
             className="h-7 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
@@ -4787,9 +4787,9 @@ function PendingChangesCard({
             {isPending
               ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
               : <Check className="w-3 h-3 mr-1.5" />}
-            {approvalRequired ? 'Approve & apply' : 'Apply'}{' '}
-            {effectiveChanges.length} change{effectiveChanges.length !== 1 ? 's' : ''}
-            {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} hunks)` : ''}
+            {approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'}{' '}
+            {effectiveChanges.length} تغيير
+            {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} مقطع)` : ''}
           </Button>
           {hasPatchConflict && (
             <Button
@@ -4802,7 +4802,7 @@ function PendingChangesCard({
               {isRebasePending
                 ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
                 : <RotateCcw className="w-3 h-3 mr-1.5" />}
-              Rebase patch
+              مواءمة التعديل مع النسخة الحالية
             </Button>
           )}
           <Button
@@ -4813,7 +4813,7 @@ function PendingChangesCard({
             disabled={isPending}
           >
             <X className="w-3 h-3 mr-1" />
-            Reject
+            رفض المقترح
           </Button>
         </div>
       </div>
@@ -4839,20 +4839,22 @@ function VerifiedCommitCard({
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-emerald-500/20 bg-emerald-500/10">
           <GitMerge className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="text-sm font-medium text-emerald-400">Verified changes ready to commit</span>
+          <span lang="ar" className="text-sm font-medium text-emerald-400">التغييرات جاهزة للاعتماد في Git بحسب الفحوص المسجلة</span>
         </div>
         <div className="px-4 py-3">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Apply and behavioral verification passed for {paths.length} file{paths.length !== 1 ? 's' : ''}.
-            Commit remains a separate manual action.
+            سُجّل نجاح التطبيق والتحقق السلوكي لـ {paths.length} ملف.
+            اعتماد التغييرات في Git إجراء يدوي منفصل، ولا يعني رفعها إلى المستودع البعيد.
           </p>
           <p className="text-[11px] text-amber-300/80 mt-2">
-            The current Git endpoint stages all working-tree changes, including unrelated local edits.
+            تنبيه: إجراء Git الحالي يضم جميع تغييرات مساحة العمل، بما فيها تعديلاتك المحلية غير المرتبطة بهذا المقترح.
           </p>
           <Input
             value={message}
             onChange={(event) => onMessageChange(event.target.value)}
-            placeholder="Commit message"
+            placeholder="وصف اعتماد التغييرات في Git"
+            aria-label="وصف اعتماد التغييرات في Git"
+            dir="auto"
             className="mt-3 h-8 text-xs bg-secondary border-border"
             disabled={isPending}
           />
@@ -4865,7 +4867,7 @@ function VerifiedCommitCard({
             disabled={isPending || !message.trim()}
           >
             {isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : <GitMerge className="w-3 h-3 mr-1.5" />}
-            Commit verified changes
+            اعتماد التغييرات في Git
           </Button>
         </div>
       </div>
@@ -4885,11 +4887,11 @@ function PushCommitCard({
       <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-sky-500/20 bg-sky-500/10">
           <GitMerge className="w-4 h-4 text-sky-400 shrink-0" />
-          <span className="text-sm font-medium text-sky-400">Committed changes ready to push</span>
+          <span lang="ar" className="text-sm font-medium text-sky-400">تغييرات Git جاهزة للرفع إلى المستودع البعيد</span>
         </div>
         <div className="px-4 py-3">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            The scoped commit was created successfully. Push remains a separate manual action and requires a configured HTTPS remote and GitHub token.
+            أُنشئ اعتماد Git بحسب السجل. رفعه إجراء يدوي منفصل، ويتطلب مستودعًا بعيدًا عبر HTTPS وصلاحية وصول إلى GitHub معدّة مسبقًا.
           </p>
         </div>
         <div className="flex px-4 py-3 border-t border-sky-500/20">
@@ -4900,7 +4902,7 @@ function PushCommitCard({
             disabled={isPending}
           >
             {isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" /> : <GitMerge className="w-3 h-3 mr-1.5" />}
-            Push committed changes
+            رفع تغييرات Git إلى المستودع البعيد
           </Button>
         </div>
       </div>
@@ -5626,12 +5628,12 @@ function TaskResultPanel({
       const approvalBlocked = result.approvalStatus === 'PENDING_APPROVAL' && !hasVerifiedFileScope;
       const statusLabel =
         result.approvalStatus === 'APPROVED'
-          ? 'Approved for Build'
+          ? 'موافَق عليها لبدء التنفيذ'
           : result.approvalStatus === 'REJECTED'
-            ? 'Rejected'
+            ? 'مرفوضة'
             : approvalBlocked
-              ? 'Source scope required'
-              : 'Approval required';
+              ? 'يلزم نطاق ملفات متحقق منه'
+              : 'بانتظار الموافقة';
       const statusStyle =
         result.approvalStatus === 'APPROVED'
           ? 'border-green-500/50 bg-green-500/10 text-green-300'
@@ -5641,18 +5643,18 @@ function TaskResultPanel({
               ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
               : '';
       return (
-        <div className="mt-1 w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-3 flex flex-col gap-2.5">
+        <div dir="rtl" lang="ar" className="mt-1 w-full rounded-lg border border-primary/30 bg-primary/5 px-3 py-3 flex flex-col gap-2.5">
           <div className="flex items-center gap-1.5">
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="text-xs font-medium text-foreground">Implementation plan</span>
+            <span className="text-xs font-medium text-foreground">خطة التنفيذ</span>
             <Badge variant="outline" className={`ml-auto shrink-0 text-[10px] ${statusStyle}`}>{statusLabel}</Badge>
           </div>
-          <p className="text-sm font-medium leading-snug text-foreground/95">{result.objective}</p>
-          <p className="text-xs leading-relaxed text-foreground/80">{result.summary}</p>
+          <p dir="auto" className="text-sm font-medium leading-snug text-foreground/95">{result.objective}</p>
+          <p dir="auto" className="text-xs leading-relaxed text-foreground/80">{result.summary}</p>
           <ol className="flex flex-col gap-2">
             {steps.map((rawStep, index) => {
               const step = rawStep && typeof rawStep === 'object' ? rawStep : {};
-              const title = typeof step.title === 'string' ? step.title : `Step ${index + 1}`;
+              const title = typeof step.title === 'string' ? step.title : `الخطوة ${index + 1}`;
               const description = typeof step.description === 'string' ? step.description : '';
               const files = Array.isArray(step.files)
                 ? step.files.filter((file): file is string => typeof file === 'string')
@@ -5664,18 +5666,18 @@ function TaskResultPanel({
                 <li key={typeof step.id === 'string' ? step.id : index} className="rounded border border-border/40 bg-background/25 px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <span className="rounded border border-border/40 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{index + 1}</span>
-                    <span className="min-w-0 text-xs font-medium leading-snug">{title}</span>
+                    <span dir="auto" className="min-w-0 text-xs font-medium leading-snug">{title}</span>
                   </div>
-                  {description && <p className="mt-1.5 text-xs leading-relaxed text-foreground/80">{description}</p>}
+                  {description && <p dir="auto" className="mt-1.5 text-xs leading-relaxed text-foreground/80">{description}</p>}
                   {planDetailsExpanded && (
                     <div className="mt-2 flex flex-col gap-1.5 border-t border-border/30 pt-2">
                       {files.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                          {files.map((file) => <code key={file} className="max-w-full break-all text-[10px] font-mono text-muted-foreground">{file}</code>)}
+                          {files.map((file) => <code dir="ltr" key={file} className="max-w-full break-all text-[10px] font-mono text-muted-foreground">{file}</code>)}
                         </div>
                       )}
                       {validation.length > 0 && (
-                        <div className="text-[10px] leading-relaxed text-muted-foreground">Validate: {validation.join('; ')}</div>
+                          <div className="text-[10px] leading-relaxed text-muted-foreground">التحقق: <bdi dir="auto">{validation.join('; ')}</bdi></div>
                       )}
                     </div>
                   )}
@@ -5684,7 +5686,7 @@ function TaskResultPanel({
             })}
           </ol>
           {result.risks.length > 0 && (
-            <div className="text-[10px] leading-relaxed text-muted-foreground">Risks: {result.risks.join(' · ')}</div>
+            <div className="text-[10px] leading-relaxed text-muted-foreground">المخاطر: <bdi dir="auto">{result.risks.join(' · ')}</bdi></div>
           )}
           {hasPlanDetails && (
             <button
@@ -5694,37 +5696,37 @@ function TaskResultPanel({
               aria-expanded={planDetailsExpanded}
             >
               <ChevronRight className={`h-3 w-3 transition-transform ${planDetailsExpanded ? 'rotate-90' : ''}`} />
-              Files, validation, and assumptions
+               الملفات والتحقق والافتراضات
             </button>
           )}
           {planDetailsExpanded && assumptions.length > 0 && (
             <div className="rounded border border-border/30 bg-background/20 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground/80">Assumptions:</span> {assumptions.join(' · ')}
+              <span className="font-medium text-foreground/80">الافتراضات:</span> <bdi dir="auto">{assumptions.join(' · ')}</bdi>
             </div>
           )}
           {planDetailsExpanded && validationCommands.length > 0 && (
             <div className="rounded border border-border/30 bg-background/20 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground/80">Validation commands:</span> {validationCommands.join(' · ')}
+              <span className="font-medium text-foreground/80">أوامر التحقق المقترحة:</span> <bdi dir="ltr">{validationCommands.join(' · ')}</bdi>
             </div>
           )}
           {planDetailsExpanded && typeof result.browserValidationProfile === 'string' && (
             <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground/80">Browser validation:</span> {result.browserValidationProfile}
+              <span className="font-medium text-foreground/80">فحص المتصفح:</span> <bdi dir="ltr">{result.browserValidationProfile}</bdi>
               {resolvedBrowserProfileFreshness && (
                 <span className={`ml-2 ${resolvedBrowserProfileFreshness.freshnessStatus === 'fresh' ? 'text-emerald-400' : 'text-amber-300'}`}>
-                  · {resolvedBrowserProfileFreshness.freshnessStatus === 'fresh' ? 'fresh for current revision' : 'unavailable: stale revision'}
+                   · {resolvedBrowserProfileFreshness.freshnessStatus === 'fresh' ? 'مرتبط بالنسخة الحالية' : 'غير متاح: مرتبط بنسخة قديمة'}
                 </span>
               )}
             </div>
           )}
           {result.approvalStatus === 'PENDING_APPROVAL' && approvalBlocked ? (
             <div className="border-t border-border/40 pt-2 text-[10px] leading-relaxed text-amber-200/90">
-              <span className="font-medium text-amber-100">Approval unavailable.</span>{' '}
-              This plan has no verified file scope. Retry the plan after the relevant source files are discovered; no Build Mode or write access is available.
+              <span className="font-medium text-amber-100">الموافقة غير متاحة.</span>{' '}
+              لا تملك الخطة نطاق ملفات متحققًا منه. أعد إعدادها بعد تحديد ملفات المصدر ذات الصلة؛ لا يُسمح ببدء التنفيذ أو الكتابة من هذه الخطة.
             </div>
           ) : result.approvalStatus === 'PENDING_APPROVAL' && messageId && onPlanDecision ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-2">
-              <span className="mr-auto text-[10px] text-muted-foreground">No files were changed. Approval only stages the next Build step.</span>
+              <span className="mr-auto text-[10px] text-muted-foreground">لم تتغير الملفات. الموافقة تجهّز خطوة التنفيذ التالية فقط.</span>
               <Button
                 type="button"
                 size="sm"
@@ -5733,7 +5735,7 @@ function TaskResultPanel({
                 onClick={() => onPlanDecision(messageId, 'reject')}
                 className="h-7 px-2 text-[11px] text-red-300 hover:text-red-200"
               >
-                Reject
+                رفض الخطة
               </Button>
               <Button
                 type="button"
@@ -5746,17 +5748,17 @@ function TaskResultPanel({
                 className="h-7 px-2 text-[11px]"
               >
                 {planDecisionPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Check className="mr-1 h-3 w-3" />}
-                Approve plan
+                الموافقة على الخطة
               </Button>
               {result.browserValidationProfile && resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh' && (
                 <span className="basis-full text-[10px] text-amber-300">
-                  Refresh the project and register this browser check again before approving delivery.
+                  حدّث المشروع وسجّل فحص المتصفح مجددًا قبل الموافقة على هذه الخطة.
                 </span>
               )}
             </div>
           ) : result.approvalStatus === 'APPROVED' && messageId && onPlanBuild ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-2">
-              <span className="mr-auto text-[10px] text-muted-foreground">Approved for Build. Changes will remain in a reviewable diff until you apply them.</span>
+              <span className="mr-auto text-[10px] text-muted-foreground">الخطة موافَق عليها للتنفيذ. تبقى التغييرات فروقًا قابلة للمراجعة حتى تطبّقها صراحةً.</span>
               <Button
                 type="button"
                 size="sm"
@@ -5768,21 +5770,21 @@ function TaskResultPanel({
                 className="h-7 px-2 text-[11px]"
               >
                 {planBuildPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
-                Start Build
+                بدء التنفيذ وفق الخطة
               </Button>
               {result.browserValidationProfile && resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh' && (
                 <span className="basis-full text-[10px] text-amber-300">
-                  Refresh the project and register this browser check again before starting delivery.
+                  حدّث المشروع وسجّل فحص المتصفح مجددًا قبل بدء تنفيذ هذه الخطة.
                 </span>
               )}
             </div>
           ) : (
             <div className="text-[10px] text-muted-foreground">
               {result.approvalStatus === 'APPROVED'
-                ? 'Plan approved for the next Build step. No files were changed.'
+                ? 'الخطة موافَق عليها لخطوة التنفيذ التالية. لم تتغير الملفات.'
                 : result.approvalStatus === 'REJECTED'
-                  ? 'Plan rejected. No files were changed.'
-                  : 'No files were changed. Approve the plan before Build mode.'}
+                  ? 'رُفضت الخطة. لم تتغير الملفات.'
+                  : 'لم تتغير الملفات. وافق على الخطة قبل بدء تنفيذها.'}
             </div>
           )}
         </div>
@@ -6675,10 +6677,10 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
-        toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+        toast({ title: 'حُفظ مفتاح DeepSeek', description: `نهايته ···${data.last4}` });
       },
       onError: (err) => {
-        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر حفظ المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6688,10 +6690,10 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
       onSuccess: () => {
         void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
-        toast({ title: 'DeepSeek key removed' });
+        toast({ title: 'أُزيل مفتاح DeepSeek الشخصي' });
       },
       onError: (err) => {
-        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر إزالة المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6699,35 +6701,37 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
   function handleSave() {
     const trimmed = keyInput.trim();
     if (trimmed.length < 10) {
-      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+      toast({ title: 'المفتاح أقصر من الحد المطلوب', description: 'أدخل مفتاح وصول صالحًا إلى DeepSeek في هذا الحقل.', variant: 'destructive' });
       return;
     }
     saveMutation.mutate({ data: { apiKey: trimmed } });
   }
 
   return (
-    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+    <div dir="rtl" lang="ar" className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Optional</span>
+        <span className="min-w-0 flex-1 text-muted-foreground">مفتاح DeepSeek</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">اختياري</span>
       </div>
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
       ) : status?.configured ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span className="break-all">···{status.last4}</span>
+            <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
-              Change
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح DeepSeek" onClick={() => setShowInput((v) => !v)}>
+              تغيير
             </Button>
             <Button
               size="sm" variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+              aria-label="إزالة مفتاح DeepSeek الشخصي"
+              title="إزالة مفتاح DeepSeek الشخصي"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -6737,7 +6741,7 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          Get a free API key at <span className="font-mono break-all">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+          يمكنك إدارة مفتاح DeepSeek عبر <bdi dir="ltr" className="font-mono break-all">platform.deepseek.com</bdi> ثم إدخاله هنا لاستخدام المزود.
         </p>
       )}
 
@@ -6747,6 +6751,8 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
+            aria-label="مفتاح الوصول إلى DeepSeek"
+            dir="ltr"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="sk-…"
@@ -6756,10 +6762,11 @@ function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMet
           />
           <Button
             size="sm" className="h-7 px-2 text-xs"
+            aria-label="حفظ مفتاح DeepSeek"
             onClick={handleSave}
             disabled={saveMutation.isPending || !keyInput.trim()}
           >
-            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'حفظ'}
           </Button>
         </div>
       )}
@@ -6788,10 +6795,10 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
-        toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
+        toast({ title: 'حُفظ مفتاح Groq', description: `نهايته ···${data.last4}` });
       },
       onError: (err) => {
-        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر حفظ المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6803,10 +6810,10 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         void qc.invalidateQueries({ queryKey: ['groq-key-status'] });
         void qc.invalidateQueries({ queryKey: ['ai-metrics'] });
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
-        toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
+        toast({ title: 'أُزيل مفتاح Groq الشخصي', description: 'سيُستخدم الإعداد الافتراضي للخادم إن كان متاحًا.' });
       },
       onError: (err) => {
-        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر إزالة المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6814,35 +6821,37 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
   function handleSave() {
     const trimmed = keyInput.trim();
     if (trimmed.length < 10) {
-      toast({ title: 'Key too short', description: 'Enter a valid Groq API key.', variant: 'destructive' });
+      toast({ title: 'المفتاح أقصر من الحد المطلوب', description: 'أدخل مفتاح وصول صالحًا إلى Groq في هذا الحقل.', variant: 'destructive' });
       return;
     }
     saveMutation.mutate({ data: { apiKey: trimmed } });
   }
 
   return (
-    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+    <div dir="rtl" lang="ar" className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+        <span className="min-w-0 flex-1 text-muted-foreground">مفتاح Groq</span>
       </div>
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
       ) : status?.configured ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span className="break-all">···{status.last4}</span>
+            <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
-              Change
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Groq" onClick={() => setShowInput((v) => !v)}>
+              تغيير
             </Button>
             <Button
               size="sm"
               variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+              aria-label="إزالة مفتاح Groq الشخصي"
+              title="إزالة مفتاح Groq الشخصي"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -6851,7 +6860,7 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
           </div>
         </div>
       ) : (
-        <p className="mb-2 break-words text-muted-foreground">No personal key saved — the server's key will be used if one is configured.</p>
+        <p className="mb-2 break-words text-muted-foreground">لا يوجد مفتاح شخصي محفوظ؛ يُستخدم مفتاح الخادم إن كان معدًّا.</p>
       )}
 
       <GroqModelAvailabilityNotice availability={status?.modelAvailability} />
@@ -6862,6 +6871,8 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
+            aria-label="مفتاح الوصول إلى Groq"
+            dir="ltr"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="gsk_…"
@@ -6872,10 +6883,11 @@ function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric 
           <Button
             size="sm"
             className="h-7 px-2 text-xs"
+            aria-label="حفظ مفتاح Groq"
             onClick={handleSave}
             disabled={saveMutation.isPending || !keyInput.trim()}
           >
-            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'حفظ'}
           </Button>
         </div>
       )}
@@ -6902,10 +6914,10 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
-        toast({ title: 'Gemini key saved', description: `Ends in ···${data.last4}` });
+        toast({ title: 'حُفظ مفتاح Gemini', description: `نهايته ···${data.last4}` });
       },
       onError: (err) => {
-        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر حفظ المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6915,10 +6927,10 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
       onSuccess: () => {
         void qc.setQueryData(['gemini-key-status'], { configured: false, last4: null, updatedAt: null });
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
-        toast({ title: 'Gemini key removed' });
+        toast({ title: 'أُزيل مفتاح Gemini الشخصي' });
       },
       onError: (err) => {
-        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر إزالة المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -6926,35 +6938,37 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
   function handleSave() {
     const trimmed = keyInput.trim();
     if (trimmed.length < 10) {
-      toast({ title: 'Key too short', description: 'Enter a valid Gemini API key.', variant: 'destructive' });
+      toast({ title: 'المفتاح أقصر من الحد المطلوب', description: 'أدخل مفتاح وصول صالحًا إلى Gemini في هذا الحقل.', variant: 'destructive' });
       return;
     }
     saveMutation.mutate({ data: { apiKey: trimmed } });
   }
 
   return (
-    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+    <div dir="rtl" lang="ar" className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Free · Priority</span>
+        <span className="min-w-0 flex-1 text-muted-foreground">مفتاح Gemini</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">أولوية</span>
       </div>
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
       ) : status?.configured ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span className="break-all">···{status.last4}</span>
+            <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
-              Change
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح Gemini" onClick={() => setShowInput((v) => !v)}>
+              تغيير
             </Button>
             <Button
               size="sm" variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+              aria-label="إزالة مفتاح Gemini الشخصي"
+              title="إزالة مفتاح Gemini الشخصي"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -6964,7 +6978,7 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          Free key at <span className="font-mono break-all">aistudio.google.com/apikey</span> — 1,500 req/day, 1M tokens/day.
+          يمكنك إدارة مفتاح Gemini عبر <bdi dir="ltr" className="font-mono break-all">aistudio.google.com/apikey</bdi> ثم إدخاله هنا. تخضع حدود الاستخدام لحسابك لدى المزود.
         </p>
       )}
 
@@ -6975,6 +6989,8 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
+            aria-label="مفتاح الوصول إلى Gemini"
+            dir="ltr"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="AIza…"
@@ -6985,10 +7001,11 @@ function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetri
           <Button
             size="sm"
             className="h-7 text-xs px-2"
+            aria-label="حفظ مفتاح Gemini"
             onClick={handleSave}
             disabled={saveMutation.isPending}
           >
-            Save
+            حفظ
           </Button>
         </div>
       )}
@@ -7015,10 +7032,10 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
-        toast({ title: 'OpenRouter key saved', description: `Ends in ···${data.last4}` });
+        toast({ title: 'حُفظ مفتاح OpenRouter', description: `نهايته ···${data.last4}` });
       },
       onError: (err) => {
-        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر حفظ المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -7028,10 +7045,10 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
       onSuccess: () => {
         void qc.setQueryData(['openrouter-key-status'], { configured: false, last4: null, updatedAt: null });
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
-        toast({ title: 'OpenRouter key removed' });
+        toast({ title: 'أُزيل مفتاح OpenRouter الشخصي' });
       },
       onError: (err) => {
-        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+        toast({ title: 'تعذر إزالة المفتاح', description: describeAiError(err), variant: 'destructive' });
       },
     },
   });
@@ -7039,35 +7056,37 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
   function handleSave() {
     const trimmed = keyInput.trim();
     if (trimmed.length < 10) {
-      toast({ title: 'Key too short', description: 'Enter a valid OpenRouter API key.', variant: 'destructive' });
+      toast({ title: 'المفتاح أقصر من الحد المطلوب', description: 'أدخل مفتاح وصول صالحًا إلى OpenRouter في هذا الحقل.', variant: 'destructive' });
       return;
     }
     saveMutation.mutate({ data: { apiKey: trimmed } });
   }
 
   return (
-    <div className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+    <div dir="rtl" lang="ar" className="provider-key-card mx-2 mb-2 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary/50 p-3 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Priority</span>
+        <span className="min-w-0 flex-1 text-muted-foreground">مفتاح OpenRouter</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">أولوية</span>
       </div>
 
       {isLoading ? (
-        <p className="text-muted-foreground">Loading…</p>
+        <p className="text-muted-foreground">جارٍ تحميل حالة المفتاح…</p>
       ) : status?.configured ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-green-500">
             <Check className="w-3 h-3" />
-            <span className="break-all">···{status.last4}</span>
+            <span dir="ltr" className="break-all">···{status.last4}</span>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" onClick={() => setShowInput((v) => !v)}>
-              Change
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs max-md:min-h-7 max-md:px-2" aria-label="تغيير مفتاح OpenRouter" onClick={() => setShowInput((v) => !v)}>
+              تغيير
             </Button>
             <Button
               size="sm" variant="ghost"
               className="h-5 px-1.5 text-xs text-destructive hover:text-destructive max-md:min-h-7 max-md:px-2"
+              aria-label="إزالة مفتاح OpenRouter الشخصي"
+              title="إزالة مفتاح OpenRouter الشخصي"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -7077,7 +7096,7 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         </div>
       ) : (
         <p className="mb-2 break-words text-muted-foreground">
-          Get a free key at <span className="font-mono break-all">openrouter.ai/keys</span> — routes to 300+ models, used first when configured.
+          يمكنك إدارة مفاتيح OpenRouter عبر <bdi dir="ltr" className="font-mono break-all">openrouter.ai/keys</bdi> ثم إدخال مفتاحك هنا. يظل ترتيب اختيار المزود تابعًا للإعداد القائم.
         </p>
       )}
 
@@ -7088,6 +7107,8 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         <div className="flex min-w-0 gap-1 mt-2">
           <Input
             type="password"
+            aria-label="مفتاح الوصول إلى OpenRouter"
+            dir="ltr"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder="sk-or-…"
@@ -7097,10 +7118,11 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
           />
           <Button
             size="sm" className="h-7 px-2 text-xs"
+            aria-label="حفظ مفتاح OpenRouter"
             onClick={handleSave}
             disabled={saveMutation.isPending || !keyInput.trim()}
           >
-            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'حفظ'}
           </Button>
         </div>
       )}
@@ -7315,14 +7337,14 @@ function structuredFailurePresentation(
 }
 
 const AI_ACTIONS = [
-  { id: 'analyze', label: 'Analyze Scan', description: 'Turn the latest scan into three practical improvements.', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
-  { id: 'review', label: 'Code Review', description: 'Find the most important quality issues in this project.', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
-  { id: 'tasks', label: 'Task Status', description: 'See what needs attention next.', icon: Zap, prompt: 'Summarize the current task backlog and what I should focus on next.' },
-  { id: 'workflow', label: 'Workflow Health', description: 'Check progress, blockers, and risks.', icon: GitMerge, prompt: 'How are my workflows progressing? Any blockers or risks?' },
+  { id: 'analyze', label: 'حلّل نتائج الفحص', description: 'اقترح ثلاثة تحسينات عملية من أحدث فحص.', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
+  { id: 'review', label: 'راجع جودة المشروع', description: 'حدّد أهم مشكلات الجودة في هذا المشروع.', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
+  { id: 'tasks', label: 'لخّص المهام', description: 'اعرف ما يحتاج إلى اهتمامك تاليًا.', icon: Zap, prompt: 'Summarize the current task backlog and what I should focus on next.' },
+  { id: 'workflow', label: 'راجع تقدم العمل', description: 'راجع التقدم والعوائق والمخاطر.', icon: GitMerge, prompt: 'How are my workflows progressing? Any blockers or risks?' },
   // #80: one-click model capability probe. Sends the canonical probe body
   // (C1–C7) straight to the chat agent; all SSE diagnostics / forensic_status
   // panels surface per-sub-question in the existing live-activity UI.
-  { id: 'probe', label: 'Capability Probe', description: 'Run a structured capability check.', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
+  { id: 'probe', label: 'افحص قدرات المساعد', description: 'شغّل فحصًا منظمًا لقدرات المساعد ضمن المشروع.', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
 ];
 const COMMON_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id === 'analyze' || action.id === 'review');
 const ADDITIONAL_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !== 'analyze' && action.id !== 'review');
@@ -10942,7 +10964,7 @@ export default function AiChat() {
           });
           return;
         }
-        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+        throw new Error(payload.error || 'تعذر إكمال استرداد مساحة التسليم.');
       }
       void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
       if (action === 'resume-validation') {
@@ -10950,18 +10972,18 @@ export default function AiChat() {
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
         toast({
           title: payload.automaticPromotion
-            ? 'Validated delivery promoted automatically'
+            ? 'طُبّق مرشح التسليم تلقائيًا بعد الفحوص'
             : payload.lifecycle === 'validated'
-              ? 'Validation recovered'
-              : 'Validation remains blocked',
+              ? 'استُكملت الفحوص المسجلة'
+              : 'الفحوص ما زالت محجوبة',
           description: payload.automaticPromotion
-            ? 'The owner-approved policy promoted this low-risk candidate through the existing guarded apply flow.'
+            ? 'طبّقت سياسة المالك المعتمدة هذا المرشح منخفض المخاطر عبر مسار التطبيق المحمي القائم.'
             : payload.lifecycle === 'validated'
-              ? 'The retained operation workspace passed its registered validation checks.'
-            : 'The retained evidence was preserved and the operation remains blocked.',
+              ? 'اجتازت مساحة العملية المحفوظة فحوصها المسجلة؛ هذا لا يعني رفع تغييرات Git.'
+            : 'حُفظت الأدلة المتاحة، وما زالت العملية محجوبة.',
         });
       } else {
-        toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+        toast({ title: 'أُزيلت مساحة التسليم المؤقتة', description: 'أُزيلت المساحة التابعة لهذه العملية فقط، لا مشروعك.' });
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
         if (sessionId === proposal.sessionId) {
           liveProposalRef.current = null;
@@ -10975,8 +10997,8 @@ export default function AiChat() {
        publishAiChatData(selectedProjectId, proposal.sessionId);
     } catch (error) {
       toast({
-        title: 'Delivery recovery failed',
-        description: error instanceof Error ? error.message : 'The operation was not changed.',
+        title: 'تعذر استرداد مساحة التسليم',
+        description: error instanceof Error ? error.message : 'لم تتغير العملية.',
         variant: 'destructive',
       });
     } finally {
@@ -11550,7 +11572,7 @@ export default function AiChat() {
   ) {
     if (!msg.trim()) return;
     if (!selectedProjectId) {
-      toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
+      toast({ title: 'اختر مشروعًا للمحادثة', description: 'حدد المشروع المقصود قبل إرسال الرسالة.', variant: 'destructive' });
       return;
     }
     if (!options?.executionId && homeGoalNeedsProjectConfirmation) {
@@ -11559,17 +11581,17 @@ export default function AiChat() {
     }
     const isProjectScanRequest = isRunProjectScanRequest(msg);
     if (!isProjectScanRequest && !activeProvider) {
-      toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
+      toast({ title: 'جارٍ التحقق من إعداد المساعد', description: 'انتظر قليلًا ثم أعد المحاولة صراحةً.', variant: 'default' });
       return;
     }
     if (!isProjectScanRequest && (!activeProvider?.configured || !activeProvider?.provider)) {
-      toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+      toast({ title: 'المساعد غير مهيّأ للإرسال', description: 'راجع إعدادات المزود في بطاقاته. لا تكتب مفتاح الوصول داخل المحادثة.', variant: 'destructive' });
       return;
     }
     if (!isProjectScanRequest && activeProviderSendBlocked) {
       toast({
-        title: 'AI provider temporarily unavailable',
-        description: 'Wait for the provider to recover or configure another provider before retrying.',
+        title: 'الإرسال متوقف بسبب حالة المزود',
+        description: 'راجع تنبيه الجاهزية. انتظر عودة المزود أو اختر مزودًا آخر مهيّأ للإرسال، ثم أعد المحاولة صراحةً.',
         variant: 'destructive',
       });
       return;
@@ -12554,14 +12576,14 @@ export default function AiChat() {
         ),
       );
       toast({
-        title: decision === 'approve' ? 'Plan approved' : 'Plan rejected',
+        title: decision === 'approve' ? 'سُجّلت الموافقة على الخطة' : 'سُجّل رفض الخطة',
         description: decision === 'approve'
-          ? 'The plan is staged for Build Mode. No files were changed.'
-          : 'The plan remains non-executable. No files were changed.',
+          ? 'الخطة مهيأة لبدء التنفيذ. لم تتغير الملفات.'
+          : 'الخطة لا تسمح بالتنفيذ. لم تتغير الملفات.',
       });
     } catch (error) {
       toast({
-        title: 'Failed to save plan decision',
+        title: 'تعذر حفظ قرار الخطة',
         description: error instanceof Error ? error.message : String(error),
         variant: 'destructive',
       });
@@ -12581,8 +12603,8 @@ export default function AiChat() {
       plan.writeAccess !== 'APPROVED_FOR_BUILD'
     ) {
       toast({
-        title: 'Approval required',
-        description: 'Approve this implementation plan before starting Build Mode.',
+        title: 'تلزم الموافقة على الخطة',
+        description: 'وافق على خطة التنفيذ قبل بدء العمل وفقها.',
         variant: 'destructive',
       });
       return;
@@ -12662,20 +12684,26 @@ export default function AiChat() {
 
   // Textarea placeholder follows the same classification.
   function getPlaceholder(): string {
-    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
-    if (projectLoadFailure) return `${projectLoadFailure.message} Try refreshing\u2026`;
-    if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
-    if (sessionId && messagesError) return 'Retry loading conversation messages before continuing\u2026';
-    return 'Ask about your codebase, tasks, or metrics\u2026 (Enter to send)';
+    if (!isLoaded || projectsLoading) return 'جارٍ تحميل مشاريعك…';
+    if (projectLoadFailure) return 'تعذر تحميل المشاريع. راجع التنبيه وحدّث البيانات…';
+    if (!selectedProjectId) return 'اختر مشروعًا أو أنشئ مشروعًا أولًا…';
+    if (sessionId && messagesError) return 'أعد تحميل رسائل المحادثة قبل المتابعة…';
+    if (!activeProvider) return 'جارٍ التحقق من إعداد المساعد…';
+    if (!activeProvider.configured || !activeProvider.provider) return 'راجع إعدادات المزود قبل الإرسال…';
+    if (activeProviderSendBlocked) return 'الإرسال متوقف بسبب حالة المزود؛ راجع التنبيه…';
+    return 'اكتب ما تريد فهمه أو إنجازه في هذا المشروع… (Enter للإرسال)';
   }
 
   // Send-button title follows the same classification.
   function getSendTitle(): string | undefined {
-    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+    if (!isLoaded || projectsLoading) return 'جارٍ تحميل مشاريعك…';
     if (projectLoadFailure) return projectLoadFailure.message;
-    if (!selectedProjectId) return 'Select a project first';
-    if (sessionId && messagesError) return 'Retry loading conversation messages before continuing';
-    return undefined;
+    if (!selectedProjectId) return 'اختر مشروعًا أولًا';
+    if (sessionId && messagesError) return 'أعد تحميل رسائل المحادثة قبل المتابعة';
+    if (!activeProvider) return 'جارٍ التحقق من إعداد المساعد';
+    if (!activeProvider.configured || !activeProvider.provider) return 'راجع إعدادات المزود قبل الإرسال';
+    if (activeProviderSendBlocked) return 'الإرسال متوقف بسبب حالة المزود؛ راجع التنبيه';
+    return 'إرسال الرسالة';
   }
 
   const messages = localMessages;
@@ -12688,10 +12716,10 @@ export default function AiChat() {
   );
   const projectName = projects.find((project) => project.id === selectedProjectId)?.name;
   const sessionName = historicalExecutionId
-    ? 'Past audit'
+    ? 'مراجعة سابقة'
     : sessionId
-      ? sessions.find((session) => session.id === sessionId)?.title ?? 'Conversation'
-      : sessionHistoryLoading ? 'Loading sessions' : 'New session';
+      ? sessions.find((session) => session.id === sessionId)?.title ?? 'محادثة'
+      : sessionHistoryLoading ? 'جارٍ تحميل المحادثات' : 'محادثة جديدة';
   const routeSessionUnavailable = Boolean(
     !sessionId
     && chatRouteTarget?.projectId === selectedProjectId
@@ -12701,20 +12729,20 @@ export default function AiChat() {
     && !sessions.some((session) => session.id === chatRouteTarget.sessionId),
   );
   const emptyContext = !isLoaded || projectsLoading
-    ? { title: 'Loading your projects', subtitle: 'Your project list is loading.' }
+    ? { title: 'جارٍ تحميل مشاريعك', subtitle: 'نحمّل قائمة المشاريع المتاحة لحسابك.' }
     : projectLoadFailure
-      ? { title: 'Projects unavailable', subtitle: projectLoadFailure.message }
+      ? { title: 'المشاريع غير متاحة الآن', subtitle: projectLoadFailure.message }
       : !selectedProjectId
-        ? { title: 'Choose a project to begin', subtitle: 'Select an existing project or create one before starting a conversation.' }
+        ? { title: 'اختر مشروعًا للبدء', subtitle: 'اختر مشروعًا موجودًا أو أنشئ مشروعًا قبل بدء محادثته.' }
         : conversationLoading
-          ? { title: 'Loading conversation', subtitle: 'Waiting for the saved session and its messages. No new session has been started.' }
+          ? { title: 'جارٍ تحميل المحادثة', subtitle: 'بانتظار المحادثة المحفوظة ورسائلها. لم نبدأ محادثة جديدة.' }
           : sessionId && messagesError
-            ? { title: 'Conversation unavailable', subtitle: 'Messages could not be loaded. Retry them or choose another session; the server record has not been deleted.' }
+            ? { title: 'المحادثة غير متاحة الآن', subtitle: 'تعذر تحميل الرسائل؛ هذا لا يعني حذفها. أعد تحميلها أو اختر محادثة أخرى.' }
           : sessionsError
-            ? { title: 'Session history unavailable', subtitle: 'Your session list could not load. You can retry it or start a new conversation.' }
+            ? { title: 'قائمة المحادثات غير متاحة الآن', subtitle: 'تعذر تحميل القائمة. أعد المحاولة، أو ابدأ محادثة جديدة صراحةً.' }
             : sessionId
-              ? { title: 'No messages in this session', subtitle: 'This session is empty. Ask a question to continue in this project.' }
-              : { title: 'Start a new session', subtitle: 'Ask a question about this project, or choose a starting point below.' };
+              ? { title: 'لا توجد رسائل في هذا العرض', subtitle: 'اكتب سؤالًا للمتابعة في هذا المشروع.' }
+              : { title: 'ابدأ محادثة جديدة', subtitle: 'اكتب سؤالًا عن المشروع، أو اختر نقطة بداية أدناه.' };
   const showStartingPoints = Boolean(selectedProjectId && !projectLoadFailure && !conversationLoading && !messagesError);
   const latestForensicMessage = [...messages]
     .reverse()
@@ -12950,7 +12978,7 @@ export default function AiChat() {
             event.stopPropagation();
           }}
           className="absolute inset-0 z-20 bg-black/55 md:hidden"
-          aria-label="Close sessions backdrop"
+          aria-label="إغلاق قائمة المحادثات من الخلفية"
         />
       )}
 
@@ -12962,7 +12990,7 @@ export default function AiChat() {
         id="ai-sessions-drawer"
         data-testid="sessions-drawer"
         role={sidebarOpen && isMobileSessionDrawer ? 'dialog' : undefined}
-        aria-label={sidebarOpen && isMobileSessionDrawer ? 'Chat sessions' : undefined}
+        aria-label={sidebarOpen && isMobileSessionDrawer ? 'محادثات المشروع' : undefined}
         aria-modal={sidebarOpen && isMobileSessionDrawer ? true : undefined}
         tabIndex={-1}
         className={`${sidebarOpen ? 'flex md:flex' : 'hidden md:hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:h-auto md:w-56 md:max-w-none md:shadow-none`}
@@ -12970,7 +12998,7 @@ export default function AiChat() {
         onTouchMove={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border p-3">
-          <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Sessions</span>
+          <span lang="ar" className="text-xs text-muted-foreground">محادثات المشروع</span>
           <div className="flex items-center gap-1">
             <Button
               ref={sessionsCloseRef}
@@ -12978,7 +13006,7 @@ export default function AiChat() {
               variant="ghost"
               className="h-6 w-6 p-0"
               onClick={newSession}
-              aria-label="New session"
+              aria-label="محادثة جديدة"
             >
               <Plus className="w-3.5 h-3.5" />
             </Button>
@@ -12988,8 +13016,8 @@ export default function AiChat() {
               variant="ghost"
               className="h-6 w-6 p-0 md:hidden"
               onClick={() => setSidebarOpen(false)}
-              title="Close sidebar"
-              aria-label="Close sidebar"
+              title="إغلاق قائمة المحادثات"
+              aria-label="إغلاق قائمة المحادثات"
             >
               <X className="w-3.5 h-3.5" />
             </Button>
@@ -13000,7 +13028,8 @@ export default function AiChat() {
         <div className="p-2 border-b border-border">
           <div className="relative">
             <select
-              aria-label="Project for chat and model quality"
+              aria-label="مشروع المحادثة"
+              dir="auto"
               data-testid="select-chat-project"
               value={selectedProjectId}
               onChange={(e) => {
@@ -13012,7 +13041,7 @@ export default function AiChat() {
               }}
               className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
             >
-              {projects.length === 0 && <option value="">No projects available</option>}
+              {projects.length === 0 && <option value="">لا توجد مشاريع متاحة</option>}
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -13026,26 +13055,26 @@ export default function AiChat() {
             <div className="p-2 flex flex-col gap-1">
             {!selectedProjectId ? (
               <p className="px-2 py-2 text-xs text-muted-foreground" data-testid="text-sessions-select-project">
-                Select a project to see its sessions.
+                اختر مشروعًا لعرض محادثاته.
               </p>
             ) : sessionHistoryLoading ? (
               <p className="px-2 py-2 text-xs text-muted-foreground" role="status" data-testid="status-sessions-loading">
-                Loading sessions…
+                جارٍ تحميل المحادثات…
               </p>
             ) : sessionsError ? (
               <div className="px-2 py-2 text-xs text-muted-foreground" role="alert" data-testid="alert-sessions-unavailable">
-                <p>Session history could not load. Existing conversations have not been removed.</p>
+                <p dir="rtl">تعذر تحميل قائمة المحادثات. هذا لا يعني حذف المحادثات المحفوظة.</p>
                 <Button type="button" size="sm" variant="outline" className="mt-2 h-7 text-xs"
                   data-testid="button-retry-sessions"
                   onClick={() => void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] })}>
-                  Retry sessions
+                  إعادة تحميل المحادثات
                 </Button>
               </div>
             ) : sessions.length === 0 ? (
               <p className="px-2 py-2 text-xs text-muted-foreground" data-testid="text-no-sessions">
                 {sessionId
-                  ? 'No sessions are listed yet. A retained execution may still be available in this conversation.'
-                  : 'No sessions yet. Start one with the button above or ask a question.'}
+                  ? 'لا توجد محادثات في القائمة الحالية. قد يبقى تنفيذ محفوظ متاحًا في هذه المحادثة.'
+                  : 'لا توجد محادثات في هذا العرض بعد. ابدأ محادثة من الزر أعلاه أو اكتب سؤالًا.'}
               </p>
             ) : (
             sessions.map((s) => (
@@ -13255,15 +13284,15 @@ export default function AiChat() {
           <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2">
             <button
               type="button"
-              aria-label="AI settings and diagnostics"
+              aria-label="إعدادات المساعد والتشخيص"
               aria-expanded={providerSettingsOpen}
               aria-controls="ai-provider-settings-content"
               onClick={() => setProviderSettingsOpen((open) => !open)}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary/70"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-xs font-medium text-foreground">AI settings and diagnostics</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">Providers, credentials, model quality</span>
+                <span className="block text-xs font-medium text-foreground">إعدادات المساعد والتشخيص</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">المزودون وبيانات الوصول وجودة النماذج</span>
               </span>
               <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${providerSettingsOpen ? 'rotate-90' : ''}`} />
             </button>
@@ -13305,8 +13334,8 @@ export default function AiChat() {
             variant="ghost"
             className={`h-8 w-8 shrink-0 ${sidebarOpen ? 'hidden md:inline-flex' : 'inline-flex'}`}
             onClick={() => setSidebarOpen((open) => !open)}
-            title={sidebarOpen ? 'Close sessions' : 'Open sessions'}
-            aria-label={sidebarOpen ? 'Close sessions' : 'Open sessions'}
+            title={sidebarOpen ? 'إغلاق المحادثات' : 'فتح المحادثات'}
+            aria-label={sidebarOpen ? 'إغلاق المحادثات' : 'فتح المحادثات'}
             aria-expanded={sidebarOpen}
             aria-controls="ai-sessions-drawer"
           >
@@ -13480,14 +13509,14 @@ export default function AiChat() {
           )}
           {(recoverableDeliveries?.operations?.length ?? 0) > 0 && (
             <div id="region-recoverable-deliveries" tabIndex={-1}
-              className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
+              className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="عمليات تسليم قابلة للاسترداد">
               <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
                 <RotateCcw className="h-3.5 w-3.5" />
-                Recoverable delivery work
+                مساحات تسليم محفوظة تحتاج إلى متابعة
               </div>
                <p className="mt-1 text-[11px] leading-4 text-amber-100/80">
-                 These are retained delivery workspaces, not paused AI executions. Resuming validation reruns the registered checks;
-                 an owner-enabled automatic promotion policy may then apply a passing low-risk candidate.
+                 هذه مساحات تغييرات محفوظة للتسليم، وليست تنفيذات ذكاء اصطناعي متوقفة. استئناف التحقق يعيد تشغيل الفحوص المسجلة؛
+                 وإذا فعّل المالك سياسة التطبيق التلقائي، فقد يُطبّق بعدها مرشح منخفض المخاطر يجتاز الفحوص.
                </p>
               <div className="mt-2 space-y-2">
                   {recoverableDeliveries!.operations.map((delivery) => (
@@ -13500,17 +13529,17 @@ export default function AiChat() {
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <Badge variant={delivery.recoveryState === 'discarded' ? 'secondary' : delivery.recoveryState === 'missing_workspace' ? 'destructive' : 'outline'} className="text-[10px]">
                         {delivery.recoveryState === 'recoverable'
-                          ? 'Recoverable'
+                          ? 'قابلة للاسترداد'
                           : delivery.recoveryState === 'missing_workspace'
-                            ? 'Workspace unavailable'
-                            : 'Already discarded'}
+                            ? 'المساحة غير متاحة'
+                            : 'أُزيلت المساحة مسبقًا'}
                       </Badge>
-                      <span className="text-muted-foreground">{delivery.changeCount} change{delivery.changeCount === 1 ? '' : 's'}</span>
+                      <span className="text-muted-foreground">{delivery.changeCount} تغيير</span>
                       <span className="text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()}</span>
                     </div>
-                    <div className="mt-1 break-words text-foreground/90">{delivery.operatorExplanation}</div>
+                    <div dir="auto" className="mt-1 break-words text-foreground/90">{delivery.operatorExplanation}</div>
                     {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
-                      <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
+                      <div className="mt-1 break-words text-red-200">السبب المسجل: <bdi dir="auto">{delivery.conflictReason}</bdi></div>
                     )}
                     {delivery.promotionDecision && (
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -13523,10 +13552,10 @@ export default function AiChat() {
                           className="text-[10px]"
                         >
                           {delivery.promotionDecision === 'AUTO_PROMOTE_ELIGIBLE'
-                            ? 'Eligible for automatic promotion'
+                            ? 'مؤهل للتطبيق التلقائي بحسب السياسة'
                             : delivery.promotionDecision === 'BLOCKED'
-                              ? 'Automatic promotion blocked'
-                              : 'Review required'}
+                              ? 'التطبيق التلقائي محجوب'
+                              : 'تلزم المراجعة'}
                         </Badge>
                         {delivery.promotionReasons?.length ? (
                           <span className="text-muted-foreground">
@@ -13565,7 +13594,7 @@ export default function AiChat() {
                         onClick={() => void recoverDelivery(delivery, 'resume-validation')}
                       >
                         {deliveryRecoveryPending === delivery.proposalId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
-                        Resume delivery validation
+                        استئناف فحوص التسليم
                       </Button>
                       <Button
                         type="button"
@@ -13576,7 +13605,7 @@ export default function AiChat() {
                         onClick={() => setDeliveryToDiscard({ projectId: selectedProjectId, delivery })}
                       >
                         <Trash2 className="mr-1 h-3 w-3" />
-                        Discard delivery workspace
+                        إزالة مساحة التسليم المؤقتة
                       </Button>
                     </div>
                   </div>
@@ -13626,18 +13655,18 @@ export default function AiChat() {
                 {!projectLoadFailure && !selectedProjectId && !projectsLoading && isLoaded && (
                   <Link href="/projects" data-testid="link-chat-projects"
                     className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
-                    Browse projects <ArrowUpRight className="h-4 w-4" />
+                    عرض المشاريع <ArrowUpRight className="h-4 w-4" />
                   </Link>
                 )}
                 {selectedProjectId && sessionsError && (
                   <Button type="button" variant="outline" size="sm" data-testid="button-retry-session-list"
                     onClick={() => void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] })}>
-                    Retry session list
+                    إعادة تحميل قائمة المحادثات
                   </Button>
                 )}
                 {showStartingPoints && (
                   <>
-                <div aria-label="Common starting points" className="grid gap-3 sm:grid-cols-2">
+                <div dir="rtl" lang="ar" aria-label="نقاط بداية شائعة" className="grid gap-3 sm:grid-cols-2">
                   {COMMON_AI_ACTIONS.map((action) => (
                     <button
                       key={action.id}
@@ -13646,7 +13675,7 @@ export default function AiChat() {
                       aria-describedby={`ai-chat-action-${action.id}-description`}
                       onClick={() => handleQuickAction(action)}
                       disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
-                      className="group relative flex min-h-28 w-full min-w-0 items-start gap-3 rounded-xl border border-border/80 bg-card/70 p-4 text-left text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border/80"
+                      className="group relative flex min-h-28 w-full min-w-0 items-start gap-3 rounded-xl border border-border/80 bg-card/70 p-4 text-start text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border/80"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
                         <action.icon className="h-4 w-4" />
@@ -13663,16 +13692,16 @@ export default function AiChat() {
                 </div>
 
                 {ADDITIONAL_AI_ACTIONS.length > 0 && (
-                  <div className="border-t border-border/70 pt-3">
+                  <div dir="rtl" lang="ar" className="border-t border-border/70 pt-3">
                     <button
                       type="button"
-                      aria-label="More actions"
+                      aria-label="إجراءات إضافية"
                       aria-expanded={moreActionsExpanded}
                       aria-controls="ai-additional-actions"
                       onClick={() => setMoreActionsExpanded((expanded) => !expanded)}
                       className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="flex-1 font-medium">More actions</span>
+                      <span className="flex-1 font-medium">إجراءات إضافية</span>
                       <span aria-hidden="true" className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[10px]">
                         {ADDITIONAL_AI_ACTIONS.length}
                       </span>
@@ -13687,7 +13716,7 @@ export default function AiChat() {
                           aria-describedby={`ai-chat-action-${action.id}-description`}
                           onClick={() => handleQuickAction(action)}
                           disabled={!isLoaded || projectsLoading || !selectedProjectId}
-                          className="flex min-w-0 items-start gap-2 rounded-lg border border-border/70 bg-secondary/35 px-3 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:border-primary/35 hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex min-w-0 items-start gap-2 rounded-lg border border-border/70 bg-secondary/35 px-3 py-2.5 text-start text-xs text-muted-foreground transition-colors hover:border-primary/35 hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <action.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                           <span className="min-w-0">
@@ -13951,7 +13980,7 @@ export default function AiChat() {
                 >
                   <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
                   <div className="min-w-0">
-                    <p className="font-medium text-amber-100">Changes need more verification before review</p>
+                    <p className="font-medium text-amber-100">تحتاج التغييرات إلى مزيد من التحقق قبل المراجعة</p>
                     <p className="mt-1 break-words text-amber-200/80">{proposalUnavailable}</p>
                   </div>
                 </div>
@@ -14068,7 +14097,9 @@ export default function AiChat() {
               onChange={(e) => draftHandoff.edit(e.target.value)}
               onKeyDown={handleKeyDown}
               maxLength={draftHandoff.activeDraft ? (draftHandoff.activeDraft.source === 'home' ? HOME_GOAL_MAX_LENGTH : STARTER_GOAL_MAX_LENGTH) : undefined}
-              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
+              placeholder={applyMutation.isPending ? 'جارٍ تطبيق التغييرات… انتظر قليلًا' : isAgentBusy ? 'العمل جارٍ… يظهر التقدم أعلاه' : getPlaceholder()}
+              aria-label="رسالتك لمساعد المشروع"
+              dir="auto"
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
               rows={1}
               disabled={!isLoaded || applyMutation.isPending || isAgentBusy || (!draftHandoff.activeDraft && (projectsLoading || !selectedProjectId || Boolean(sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked))}
@@ -14079,8 +14110,8 @@ export default function AiChat() {
               onClick={handleSend}
                disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || homeGoalNeedsProjectConfirmation || (sessionId && messagesError) || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
                className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
-              title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
-              aria-label={applyMutation.isPending ? 'Applying changes' : isAgentBusy ? 'AI is working' : getSendTitle()}
+              title={applyMutation.isPending ? 'جارٍ تطبيق التغييرات…' : isAgentBusy ? 'المساعد يعمل الآن…' : getSendTitle()}
+              aria-label={applyMutation.isPending ? 'جارٍ تطبيق التغييرات' : isAgentBusy ? 'المساعد يعمل الآن' : getSendTitle()}
             >
               {isSending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -14098,18 +14129,18 @@ export default function AiChat() {
           if (!open && !deliveryRecoveryPending) setDeliveryToDiscard(null);
         }}
       >
-        <DialogContent>
+        <DialogContent dir="rtl" lang="ar">
           <DialogHeader>
-            <DialogTitle>Discard this delivery workspace?</DialogTitle>
+            <DialogTitle>إزالة مساحة التسليم المؤقتة؟</DialogTitle>
             <DialogDescription>
-              This removes the temporary workspace and its unapplied candidate changes for this delivery operation.
-              It does not delete your project. This is not the same as stopping or resuming the AI execution.
+              سيُزيل هذا الإجراء مساحة العمل المؤقتة وتغييراتها المقترحة غير المطبقة لهذه العملية.
+              لن يحذف مشروعك. إزالة المساحة ليست إيقافًا أو استئنافًا لتنفيذ المساعد.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeliveryToDiscard(null)}
               disabled={deliveryRecoveryPending !== null} data-testid="button-cancel-delivery-discard">
-              Keep workspace
+              الاحتفاظ بالمساحة
             </Button>
             <Button type="button" variant="destructive" data-testid="button-confirm-delivery-discard"
               disabled={deliveryRecoveryPending !== null}
@@ -14119,7 +14150,7 @@ export default function AiChat() {
                 setDeliveryToDiscard(null);
                 void recoverDelivery(delivery, 'discard');
               }}>
-              Discard temporary workspace
+              تأكيد إزالة المساحة المؤقتة
             </Button>
           </DialogFooter>
         </DialogContent>

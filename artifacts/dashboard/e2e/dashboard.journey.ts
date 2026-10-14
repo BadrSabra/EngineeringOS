@@ -4179,7 +4179,7 @@ async function openPastAudits(page: Page) {
 
 async function openAiSettings(page: Page) {
   const toggle = page.getByRole("button", {
-    name: "AI settings and diagnostics",
+    name: "إعدادات المساعد والتشخيص",
     exact: true,
   });
   if (await toggle.getAttribute("aria-expanded") !== "true") {
@@ -5536,7 +5536,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         `/api/ai/projects/${fixture.projectId}/review/stream`,
       ),
     );
-    await page.getByRole("button", { name: "Code Review", exact: true }).click();
+    await page.getByRole("button", { name: "راجع جودة المشروع", exact: true }).click();
     const streamResponse = await streamResponsePromise;
     expect(streamResponse.status()).toBe(200);
     const streamEvents = parseSse(await streamResponse.text());
@@ -5665,7 +5665,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         `/api/ai/projects/${fixture.projectId}/review/stream`,
       ),
     );
-    await page.getByRole("button", { name: "Code Review", exact: true }).click();
+    await page.getByRole("button", { name: "راجع جودة المشروع", exact: true }).click();
     const streamResponse = await streamResponsePromise;
     const streamEvents = parseSse(await streamResponse.text());
     expect(streamEvents.at(-1)).toEqual(
@@ -6104,17 +6104,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .getByLabel("Expand task Recover authentication failure")
       .click();
     const taskDetails = page.locator("#task-details-e2e-auth-failed-task");
-    await expect(taskDetails).toContainText("Provider authentication failed");
+    await expect(taskDetails).toContainText("تعذر التحقق من بيانات وصول المزود");
     await expect(taskDetails).toContainText(
       "Replace the provider API key with a valid key, then retry.",
     );
     await expect(taskDetails).toContainText(
-      `Support reference: ${supportReferences.authentication_failed}`,
+      `مرجع الدعم: ${supportReferences.authentication_failed}`,
     );
     await page.getByLabel("Expand task Recover quota exhaustion").click();
-    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(page.getByText("انتهت حصة الاستخدام لدى المزود")).toBeVisible();
     await expect(
-      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+      page.getByText(`مرجع الدعم: ${supportReferences.quota_exhausted}`),
     ).toBeVisible();
     await page.reload();
     await expect(
@@ -6127,18 +6127,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "#task-details-e2e-auth-failed-task",
     );
     await expect(reloadedAuthDetails).toContainText(
-      "Provider authentication failed",
+      "تعذر التحقق من بيانات وصول المزود",
     );
     await expect(reloadedAuthDetails).toContainText(
       "Replace the provider API key with a valid key, then retry.",
     );
     await expect(reloadedAuthDetails).toContainText(
-      `Support reference: ${supportReferences.authentication_failed}`,
+      `مرجع الدعم: ${supportReferences.authentication_failed}`,
     );
     await page.getByLabel("Expand task Recover quota exhaustion").click();
-    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(page.getByText("انتهت حصة الاستخدام لدى المزود")).toBeVisible();
     await expect(
-      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+      page.getByText(`مرجع الدعم: ${supportReferences.quota_exhausted}`),
     ).toBeVisible();
     const reloadedTaskText = await page.locator("body").innerText();
     expect(reloadedTaskText).not.toContain(rawDiagnostic);
@@ -6155,13 +6155,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .locator("..")
       .locator("..");
     await expect(execution).toContainText(
-      "The provider is temporarily unavailable",
+      "المزود غير متاح مؤقتًا",
     );
     await expect(execution).toContainText(
       "Retry in a moment; configure another provider if the issue persists.",
     );
     await expect(execution).toContainText(
-      `Support reference: ${supportReferences.provider_outage}`,
+      `مرجع الدعم: ${supportReferences.provider_outage}`,
     );
     await page.reload();
     await expect(page.getByText("Recover provider outage")).toBeVisible();
@@ -6171,13 +6171,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .locator("..")
       .locator("..");
     await expect(reloadedExecution).toContainText(
-      "The provider is temporarily unavailable",
+      "المزود غير متاح مؤقتًا",
     );
     await expect(reloadedExecution).toContainText(
       "Retry in a moment; configure another provider if the issue persists.",
     );
     await expect(reloadedExecution).toContainText(
-      `Support reference: ${supportReferences.provider_outage}`,
+      `مرجع الدعم: ${supportReferences.provider_outage}`,
     );
 
     const visibleText = await page.locator("body").innerText();
@@ -10024,12 +10024,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "data-recovery-state",
       "discarded",
     );
-    await expect(available.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
-    await expect(available.getByRole("button", { name: "Discard delivery workspace" })).toBeEnabled();
-    await expect(missing.getByRole("button", { name: "Resume delivery validation" })).toBeDisabled();
-    await expect(missing.getByRole("button", { name: "Discard delivery workspace" })).toBeDisabled();
-    await expect(discarded.getByRole("button", { name: "Resume delivery validation" })).toBeDisabled();
-    await expect(discarded.getByRole("button", { name: "Discard delivery workspace" })).toBeDisabled();
+    await expect(available.getByRole("button", { name: "استئناف فحوص التسليم" })).toBeEnabled();
+    await expect(available.getByRole("button", { name: "إزالة مساحة التسليم المؤقتة" })).toBeEnabled();
+    await expect(missing.getByRole("button", { name: "استئناف فحوص التسليم" })).toBeDisabled();
+    await expect(missing.getByRole("button", { name: "إزالة مساحة التسليم المؤقتة" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "استئناف فحوص التسليم" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "إزالة مساحة التسليم المؤقتة" })).toBeDisabled();
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
@@ -10045,12 +10045,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       reloadedRegion
         .locator('[data-operation-id="e2e-recovery-missing-operation"]')
-        .getByRole("button", { name: "Resume delivery validation" }),
+        .getByRole("button", { name: "استئناف فحوص التسليم" }),
     ).toBeDisabled();
     await expect(
       reloadedRegion
         .locator('[data-operation-id="e2e-recovery-discarded-operation"]')
-        .getByRole("button", { name: "Discard delivery workspace" }),
+        .getByRole("button", { name: "إزالة مساحة التسليم المؤقتة" }),
     ).toBeDisabled();
     expect(recovery.requests.length).toBeGreaterThanOrEqual(2);
     expect(recovery.requests.every((url) => url.includes("projectId=e2e-project"))).toBe(true);
@@ -10121,8 +10121,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-race-operation"]',
     );
-    await expect(operation.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
-    await operation.getByRole("button", { name: "Resume delivery validation" }).click();
+    await expect(operation.getByRole("button", { name: "استئناف فحوص التسليم" })).toBeEnabled();
+    await operation.getByRole("button", { name: "استئناف فحوص التسليم" }).click();
 
     await expect(page.getByText("Recovery state changed", { exact: true })).toBeVisible();
     await expect(
@@ -10200,8 +10200,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-deleted-operation"]',
     );
-    await expect(operation.getByRole("button", { name: "Resume delivery validation" })).toBeEnabled();
-    await operation.getByRole("button", { name: "Resume delivery validation" }).click();
+    await expect(operation.getByRole("button", { name: "استئناف فحوص التسليم" })).toBeEnabled();
+    await operation.getByRole("button", { name: "استئناف فحوص التسليم" }).click();
 
     await expect(page.getByText("Recovery link expired", { exact: true })).toBeVisible();
     await expect(
@@ -10237,7 +10237,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const beforeOpen = await composer.boundingBox();
     expect(beforeOpen?.width).toBeGreaterThan(250);
 
-    await page.getByRole("button", { name: "Open sessions" }).click();
+    await page.getByRole("button", { name: "فتح المحادثات" }).click();
     await expect(page.getByText("Sessions", { exact: true })).toBeVisible();
     const drawer = page
       .getByText("Sessions", { exact: true })
@@ -10250,7 +10250,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
     await expect(
-      page.getByRole("button", { name: "Open sessions" }),
+      page.getByRole("button", { name: "فتح المحادثات" }),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
@@ -10271,7 +10271,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(composer).toBeVisible();
       await expectWithinViewport(composer, viewport, `composer at ${width}px`);
 
-      await page.getByRole("button", { name: "Open sessions" }).click();
+      await page.getByRole("button", { name: "فتح المحادثات" }).click();
       const drawer = page.getByTestId("sessions-drawer");
       await expect(drawer).toBeVisible();
       await openAiSettings(page);
@@ -10286,14 +10286,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(providerCards).toHaveCount(4);
       for (const provider of ["OpenRouter", "Gemini", "DeepSeek", "Groq"]) {
         const card = providerCards.filter({
-          hasText: `${provider} API Key`,
+          hasText: `مفتاح ${provider}`,
         });
         await expect(card).toHaveCount(1);
         await card.scrollIntoViewIfNeeded();
         await expect(card).toBeVisible();
 
         const input = card.locator('input[type="password"]');
-        const save = card.getByRole("button", { name: "Save", exact: true });
+        const save = card.getByRole("button", { name: `حفظ مفتاح ${provider}`, exact: true });
         await expect(input).toBeVisible();
         await expect(save).toBeVisible();
         await input.scrollIntoViewIfNeeded();
