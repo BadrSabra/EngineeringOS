@@ -797,7 +797,7 @@ test("authenticated dashboard smoke proves the protected redirect and session", 
   );
   assert.match(
     journeySource,
-    /getByRole\("link", \{ name: "Sign In", exact: true \}\)/,
+    /getByRole\("link", \{ name: "تسجيل الدخول", exact: true \}\)/,
     "The pre-auth state must show the public entry point.",
   );
   assert.match(
@@ -900,9 +900,9 @@ test("model-quality journey covers durable metrics and the scoped empty state", 
     "The dashboard journey fixture must include durable model rows.",
   );
   for (const label of [
-    "Acceptance 66.7%",
-    "Citation match 75.0%",
-    "Recovery 1\\/1 · 100.0%",
+    "القبول 66.7%",
+    "مطابقة الاستشهادات 75.0%",
+    "الاسترداد 1\\/1 · 100.0%",
     "missing_citation \\(1\\)",
   ]) {
     assert.match(
