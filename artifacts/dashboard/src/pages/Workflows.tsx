@@ -256,7 +256,7 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
                     </div>
                   ))}
                   {/* PR-D: optional advance condition per phase */}
-                  <div className="ml-7 mt-1">
+                  <div className="mr-7 mt-1">
                     <input
                       aria-label={`شرط الانتقال للمرحلة ${idx + 1}`}
                       value={phase.condition ?? ''}
@@ -440,7 +440,7 @@ function ExecutionHistory({
                       title={`إعادة التنفيذ من المرحلة ${targetPhase}`}
                       aria-label={`إعادة التشغيل من المرحلة ${targetPhase}`}
                     >
-                      <RotateCcw className="w-3 h-3" /> {targetPhase}
+                      <RotateCcw className="w-3 h-3" /> إعادة من <bdi dir="auto">{targetPhase}</bdi>
                     </button>
                   ))}
                 </div>
@@ -506,7 +506,7 @@ export default function Workflows() {
         onError: (requestError) => setOrchestrationState({
           workflowId,
           status: 'error',
-          message: requestError instanceof Error ? requestError.message : 'Unable to get an AI suggestion.',
+          message: requestError instanceof Error ? requestError.message : 'تعذر الحصول على مقترح من المساعد.',
         }),
       },
     );
@@ -551,13 +551,15 @@ export default function Workflows() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">تنفيذ مهام المشروع عبر مراحل متتابعة.</p>
         </div>
-          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث مسارات العمل" />
+        <div className="flex items-center gap-2">
           <button
           onClick={() => setShowCreateModal(true)}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
         >
           <Plus className="w-4 h-4" /> مسار عمل جديد
         </button>
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث مسارات العمل" />
+        </div>
       </div>
 
       {showCreateModal && <CreateWorkflowModal onClose={() => setShowCreateModal(false)} />}
@@ -592,7 +594,7 @@ export default function Workflows() {
                   <div className="flex items-center gap-3">
                     <h2 dir="auto" className="text-xl font-bold">{workflow.name}</h2>
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border
+                      className={`px-2 py-0.5 rounded text-xs font-bold border
                       ${
                         workflow.status === 'running'
                           ? 'bg-primary/10 text-primary border-primary/20'
@@ -602,7 +604,7 @@ export default function Workflows() {
                       }`}
                     >
                       {workflow.status === 'running' ? (
-                        <Activity className="w-3 h-3 inline mr-1 animate-pulse" />
+                        <Activity className="w-3 h-3 inline ml-1 animate-pulse" />
                       ) : null}
                       {workflowStatusLabel(workflow.status)}
                     </span>
@@ -619,7 +621,7 @@ export default function Workflows() {
                         title="الانتقال إلى المرحلة التالية"
                         aria-label="الانتقال إلى المرحلة التالية"
                       >
-                        <ChevronRight className="w-4 h-4" /> انتقال للمرحلة التالية
+                        <ChevronRight className="w-4 h-4 rotate-180" /> انتقال للمرحلة التالية
                       </button>
                       <button
                         onClick={() => handleFailPhase(workflow.id)}
@@ -627,7 +629,6 @@ export default function Workflows() {
                         title="تسجيل فشل المرحلة الحالية"
                         aria-label="تسجيل فشل المرحلة الحالية"
                         className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50 bg-secondary text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-                        title="Mark current phase as failed"
                       >
                         <XCircle className="w-4 h-4" />
                       </button>
@@ -705,7 +706,7 @@ export default function Workflows() {
                   {orchestrationState.decision.blockers && orchestrationState.decision.blockers.length > 0 && (
                     <div className="mt-3">
                       <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">ما يعيق التقدم</h4>
-                      <ul className="mt-1 list-disc pl-5 text-sm">
+                      <ul className="mt-1 list-disc pr-5 text-sm">
                         {orchestrationState.decision.blockers.map((blocker, index) => <li dir="auto" key={`${index}-${blocker}`}>{blocker}</li>)}
                       </ul>
                     </div>
@@ -713,7 +714,7 @@ export default function Workflows() {
                   {orchestrationState.decision.suggestions && orchestrationState.decision.suggestions.length > 0 && (
                     <div className="mt-3">
                       <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">مقترحات</h4>
-                      <ul className="mt-1 list-disc pl-5 text-sm">
+                      <ul className="mt-1 list-disc pr-5 text-sm">
                         {orchestrationState.decision.suggestions.map((suggestion, index) => <li dir="auto" key={`${index}-${suggestion}`}>{suggestion}</li>)}
                       </ul>
                     </div>

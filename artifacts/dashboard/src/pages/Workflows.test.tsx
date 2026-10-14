@@ -39,6 +39,7 @@ import {
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
 const aiOrchestrationMutation = mutation();
 const deleteWorkflowMutation = mutation();
+const createWorkflowMutation = mutation();
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -108,6 +109,7 @@ beforeEach(() => {
   ]) {
     vi.mocked(hook).mockReturnValue(mutation() as never);
   }
+  vi.mocked(useCreateWorkflow).mockReturnValue(createWorkflowMutation as never);
   vi.mocked(useAiOrchestrateWorkflow).mockReturnValue(aiOrchestrationMutation as never);
   vi.mocked(useDeleteWorkflow).mockReturnValue(deleteWorkflowMutation as never);
 });
@@ -115,18 +117,25 @@ beforeEach(() => {
 describe('Workflows recovery rendering', () => {
   it('renders execution recovery metadata and preserves the support reference', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
 
     const card = screen.getByRole('region', { name: 'إرشادات استعادة جاهزية المزود' });
     expect(within(card).getByRole('heading', { name: 'المزود غير متاح مؤقتًا' })).toBeInTheDocument();
     expect(within(card).getByText('provider_outage')).toHaveAttribute('dir', 'ltr');
     expect(within(card).getByText('Retry in a moment; configure another provider if the issue persists.')).toHaveAttribute('dir', 'auto');
     expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
+    expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
+    const completedPhase = screen.getAllByText('build').find(
+      (node) => node.tagName === 'BDI' && node.parentElement?.textContent === 'مراحل مكتملة: build',
+    );
+    expect(completedPhase).toBeDefined();
+    expect(completedPhase).toHaveAttribute('dir', 'ltr');
+    expect(screen.getByText('إعادة المحاولة')).toBeInTheDocument();
   });
 
   it('does not expose raw provider diagnostics or credentials from an execution', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: /Execution history/i }));
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
 
     expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
@@ -135,7 +144,7 @@ describe('Workflows recovery rendering', () => {
 
   it('shows AI decisions as recommendations without advancing the workflow', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'اطلب مقترحًا' }));
 
     expect(aiOrchestrationMutation.mutate).toHaveBeenCalledWith(
       { workflowId: 'workflow-1', data: {} },
@@ -154,11 +163,13 @@ describe('Workflows recovery rendering', () => {
     };
     act(() => options.onSuccess?.(decision));
 
-    const suggestion = screen.getByRole('region', { name: 'AI workflow suggestion' });
-    expect(within(suggestion).getByText('AI suggestion: advance')).toBeInTheDocument();
+    const suggestion = screen.getByRole('region', { name: 'مقترح مسار العمل' });
+    expect(within(suggestion).getByText('مقترح المساعد: الانتقال إلى المرحلة التالية')).toBeInTheDocument();
     expect(within(suggestion).getByText('The build phase passed its checks.')).toBeInTheDocument();
-    expect(within(suggestion).getByText('Next phase: deploy')).toBeInTheDocument();
-    expect(within(suggestion).getByText('Recommendation only. It does not advance, fail, or complete this workflow.')).toBeInTheDocument();
+    const nextPhase = within(suggestion).getByText('deploy');
+    expect(nextPhase).toHaveAttribute('dir', 'auto');
+    expect(nextPhase.parentElement).toHaveTextContent('المرحلة التالية: deploy');
+    expect(within(suggestion).getByText('هذا مقترح فقط؛ لا يقدّم المسار ولا يسجّل فشله أو اكتماله.')).toBeInTheDocument();
     expect(within(suggestion).getByText('Review the release notes.')).toBeInTheDocument();
     expect(vi.mocked(useAdvanceWorkflow).mock.results[0]?.value.mutate).not.toHaveBeenCalled();
   });
@@ -166,10 +177,10 @@ describe('Workflows recovery rendering', () => {
   it('requires confirmation before deleting and warns that history is removed', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حذف' }));
 
     expect(confirm).toHaveBeenCalledWith(
-      'Delete "Release pipeline"? This also permanently deletes its workflow execution history.',
+      'حذف «Release pipeline»؟ سيؤدي ذلك أيضًا إلى حذف سجل تشغيل المسار نهائيًا.',
     );
     expect(deleteWorkflowMutation.mutate).toHaveBeenCalledWith(
       { workflowId: 'workflow-1' },
@@ -181,7 +192,7 @@ describe('Workflows recovery rendering', () => {
   it('does not delete a workflow when the operator cancels confirmation', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حذف' }));
 
     expect(confirm).toHaveBeenCalledOnce();
     expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
@@ -193,7 +204,7 @@ describe('Workflows recovery rendering', () => {
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
     const removeQueries = vi.spyOn(queryClient, 'removeQueries');
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حذف' }));
     const options = deleteWorkflowMutation.mutate.mock.calls[0]?.[1] as {
       onSuccess?: () => void;
     };
@@ -210,7 +221,7 @@ describe('Workflows recovery rendering', () => {
   it('shows the server reason when deletion is rejected', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حذف' }));
     const options = deleteWorkflowMutation.mutate.mock.calls[0]?.[1] as {
       onError?: (error: Error) => void;
     };
@@ -225,7 +236,7 @@ describe('Workflows recovery rendering', () => {
 
   it('shows an orchestration error without rendering a recommendation', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    fireEvent.click(screen.getByRole('button', { name: 'اطلب مقترحًا' }));
     const options = aiOrchestrationMutation.mutate.mock.calls[0]?.[1] as {
       onError?: (error: Error) => void;
     };
@@ -236,7 +247,7 @@ describe('Workflows recovery rendering', () => {
       'AI service temporarily unavailable',
     );
     expect(
-      screen.queryByRole('region', { name: 'AI workflow suggestion' }),
+      screen.queryByRole('region', { name: 'مقترح مسار العمل' }),
     ).not.toBeInTheDocument();
   });
 
@@ -261,8 +272,50 @@ describe('Workflows recovery rendering', () => {
     } as ReturnType<typeof useListWorkflows>);
     renderPage();
 
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
-    expect(screen.getByText('Stop this workflow before deleting it.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'حذف' })).toBeDisabled();
+    expect(screen.getByText('أوقف مسار العمل قبل حذفه.')).toBeInTheDocument();
     expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps Arabic creation copy separate from phase names, shell commands, and conditions sent to the API', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ id: 'project-1', name: 'المشروع' }],
+    } as ReturnType<typeof useListProjects>);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'مسار عمل جديد' }));
+    const dialog = screen.getByRole('dialog', { name: 'إنشاء مسار عمل' });
+    expect(dialog).toHaveAttribute('dir', 'rtl');
+    expect(within(dialog).getByLabelText('اسم المرحلة 1')).toHaveValue('build');
+    expect(within(dialog).getByLabelText('اسم المرحلة 2')).toHaveValue('test');
+    expect(within(dialog).getByLabelText('اسم المرحلة 3')).toHaveValue('deploy');
+
+    fireEvent.change(within(dialog).getByLabelText('المشروع'), { target: { value: 'project-1' } });
+    fireEvent.change(within(dialog).getByLabelText('اسم المسار'), { target: { value: 'Release pipeline' } });
+    fireEvent.change(within(dialog).getByLabelText('الوصف (اختياري)'), { target: { value: 'A staged release.' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إضافة خطوة إلى المرحلة 1' }));
+    fireEvent.change(within(dialog).getByLabelText('وصف الخطوة 1 من المرحلة 1'), {
+      target: { value: 'pnpm run build' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('شرط الانتقال للمرحلة 1'), {
+      target: { value: 'qualityScore >= 80' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إنشاء المسار' }));
+
+    expect(createWorkflowMutation.mutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          name: 'Release pipeline',
+          description: 'A staged release.',
+          phases: [
+            { name: 'build', steps: ['pnpm run build'], condition: 'qualityScore >= 80' },
+            { name: 'test', steps: [] },
+            { name: 'deploy', steps: [] },
+          ],
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
   });
 });
