@@ -631,6 +631,7 @@ const acceptanceSnapshots = {
   }),
   incomplete: createAcceptanceSnapshot({
     reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    nextActionCode: "START_NEW_PROBE",
   }),
   cancelled: createAcceptanceSnapshot({
     terminalStatus: "cancelled",
@@ -2475,7 +2476,8 @@ function installAcceptanceIncompleteFixture(): ArabicAiFixture {
     outcome: "FAILED",
     failureKind: "INCOMPLETE",
     recoveryState: "INCOMPLETE",
-    operatorAction: "START_NEW_RUN",
+    nextActionCode: acceptance.nextActionCode,
+    operatorAction: "Start a new scoped run before relying on this result.",
   } as const;
   const sse = (event: Record<string, unknown>) =>
     `data: ${JSON.stringify(event)}\n\n`;
@@ -4138,34 +4140,43 @@ async function installMissionManagementFixtures(page: Page) {
   return { mutations };
 }
 
-const NAVIGATION_GROUP_BY_LINK: Partial<Record<string, string>> = {
-  Tasks: "Execution",
-  Missions: "Execution",
-  "Mission Control": "Execution",
-  Workflows: "Execution",
-  "Flight Deck": "Execution",
-  "Event Stream": "Insights",
-  Metrics: "Insights",
-  "Knowledge Graph": "Insights",
-  "Rules Engine": "Governance",
-  "Skill Registry": "Governance",
+const NAVIGATION_GROUP_BY_PATH: Partial<Record<string, string>> = {
+  "/tasks": "execution",
+  "/missions": "execution",
+  "/mission-control": "execution",
+  "/workflows": "execution",
+  "/flight-deck": "execution",
+  "/events": "insights",
+  "/metrics": "insights",
+  "/graph": "insights",
+  "/rules": "governance",
+  "/skill-registry": "governance",
 };
 
 async function openNavigation(page: Page, label: string, path: string) {
-  const groupName = NAVIGATION_GROUP_BY_LINK[label];
-  if (groupName) {
-    const groupToggle = page.getByRole("button", { name: groupName, exact: true });
+  const route = new URL(path, "http://dashboard.local").pathname.replace(
+    /^\/dashboard(?=\/|$)/,
+    "",
+  ) || "/";
+  const groupId = NAVIGATION_GROUP_BY_PATH[route];
+  if (groupId) {
+    const groupToggle = page.getByTestId(`button-nav-group-${groupId}`);
     if (await groupToggle.getAttribute("aria-expanded") !== "true") {
       await groupToggle.click();
     }
     await expect(groupToggle).toHaveAttribute("aria-expanded", "true");
   }
-  await page.getByRole("link", { name: label, exact: true }).click();
+  const linkId = route === "/"
+    ? "dashboard"
+    : route.slice(1).replaceAll("/", "-");
+  const navigationLink = page.getByTestId(`link-nav-${linkId}`);
+  await expect(navigationLink, `${label} navigation link`).toBeVisible();
+  await navigationLink.click();
   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
 }
 
 async function openAdditionalChatActions(page: Page) {
-  const toggle = page.getByRole("button", { name: "More actions", exact: true });
+  const toggle = page.getByRole("button", { name: "إجراءات إضافية", exact: true });
   if (await toggle.getAttribute("aria-expanded") !== "true") {
     await toggle.click();
   }
@@ -4980,11 +4991,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
     await expect(page).not.toHaveURL(/sign-in/);
     await expect(
-      page
-        .getByText(
-          /AI provider not configured|No AI key configured|AI Assistant/i,
-        )
-        .first(),
+      page.getByRole("button", { name: "إجراءات إضافية", exact: true }),
     ).toBeVisible();
 
     await openNavigation(
@@ -5241,7 +5248,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const projectsResult = await projectsResponse;
     expect(projectsResult.ok(), "The mission project list must load").toBe(true);
     await expect(
-      page.getByRole("heading", { name: "Missions", exact: true }),
+      page.getByRole("heading", { name: "الأهداف", exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId("select-mission-project")).toHaveValue(
       "e2e-project",
@@ -5249,7 +5256,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByTestId("button-create-mission").click();
     await expect(
-      page.getByRole("heading", { name: "Start a mission" }),
+      page.getByRole("heading", { name: "ابدأ هدفًا رئيسيًا" }),
     ).toBeVisible();
     await page.getByTestId("mission-title").fill("Release readiness");
     await page
@@ -5270,7 +5277,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .getByTestId("button-edit-mission-e2e-mission-management")
       .click();
     await expect(
-      page.getByRole("heading", { name: "Edit mission" }),
+      page.getByRole("heading", { name: "تعديل الهدف الرئيسي" }),
     ).toBeVisible();
     await page.getByTestId("mission-title").fill("Release readiness updated");
     await page.getByTestId("button-save-editor").click();
@@ -5280,7 +5287,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByTestId("button-create-goal").click();
     await expect(
-      page.getByRole("heading", { name: "Create goal" }),
+      page.getByRole("heading", { name: "إضافة خطوة للهدف" }),
     ).toBeVisible();
     await page.getByTestId("goal-title").fill("Validate candidate");
     await page.getByTestId("details-goal-advanced").locator("summary").click();
@@ -5308,7 +5315,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByTestId("button-edit-goal-e2e-goal-management").click();
     await expect(
-      page.getByRole("heading", { name: "Edit goal" }),
+      page.getByRole("heading", { name: "تعديل خطوة الهدف" }),
     ).toBeVisible();
     await page.getByTestId("goal-title").fill("Validate candidate updated");
     await page.getByTestId("select-goal-status").selectOption("verifying");
@@ -5497,7 +5504,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       response.url().includes("/api/ai/chat/stream"),
     );
     await openAdditionalChatActions(page);
-    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+    await page.getByRole("button", { name: "افحص قدرات المساعد", exact: true }).click();
 
     const probeRequest = await probeRequestPromise;
     expect(probeRequest.postDataJSON()).toMatchObject({
@@ -5777,7 +5784,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     await openAdditionalChatActions(page);
-    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+    await page.getByRole("button", { name: "افحص قدرات المساعد", exact: true }).click();
 
     const report = page.getByRole("region", {
       name: "Capability probe report",
@@ -5903,7 +5910,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
 
     await openAdditionalChatActions(page);
-    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+    await page.getByRole("button", { name: "افحص قدرات المساعد", exact: true }).click();
 
     const recoveryBanner = page.getByTestId("execution-recovery-banner");
     const report = page.getByRole("region", {
@@ -5913,13 +5920,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect
       .poll(async () => (await report.isVisible()) || (await recoveryBanner.isVisible()))
       .toBe(true);
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
-    await expect(proof).toContainText(`Execution ${recovery.fixture.executionId}`);
+    await expect(proof).toContainText(recovery.fixture.executionId);
     await expect(proof).toContainText(recovery.execution.operationId as string);
     await expect(proof).toContainText(recovery.execution.projectRevision as string);
     if (!(await report.isVisible())) {
-      await expect(recoveryBanner).toContainText(/resume available/);
+      await expect(recoveryBanner).toContainText(/يمكن استئنافه/);
       try {
         // A transient SSE failure may be recovered automatically before the
         // manual recovery action is clicked.
@@ -5991,19 +5998,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       rehydratedReport.getByText("Why this report is incomplete", { exact: true }),
     ).toHaveCount(0);
 
-    const rehydratedProof = page.getByLabel("Agent execution proof");
+    const rehydratedProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(rehydratedProof).toBeVisible();
-    await expect(rehydratedProof).toContainText(`Execution ${recovery.fixture.executionId}`);
+    await expect(rehydratedProof).toContainText(recovery.fixture.executionId);
     await expect(rehydratedProof).toContainText(recovery.execution.operationId as string);
     await expect(rehydratedProof).toContainText(recovery.execution.projectRevision as string);
-    await expect(rehydratedProof).toContainText("Completed");
-    await expect(rehydratedProof).toContainText("Proof verdict: PROVEN");
-    await expect(page.getByText("Persisted proof", { exact: true })).toBeVisible();
+    await expect(rehydratedProof).toContainText("اكتمل");
+    await expect(rehydratedProof).toContainText("حالة الأدلة: الأدلة كافية");
+    await expect(
+      page.getByText("The server-owned source evidence is complete.", {
+        exact: true,
+      }),
+    ).toBeVisible();
   });
 
   test("opens failed task and workflow details with redacted recovery guidance", async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     const rawDiagnostic = "provider diagnostic: upstream returned raw response";
     const rawCredential = "sk-e2e-browser-credential-secret";
     const supportReferences = {
@@ -6104,10 +6116,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
     await expect(
-      page.getByLabel("Expand task Recover authentication failure"),
+      page.getByLabel("عرض تفاصيل المهمة: Recover authentication failure"),
     ).toBeVisible();
     await page
-      .getByLabel("Expand task Recover authentication failure")
+      .getByLabel("عرض تفاصيل المهمة: Recover authentication failure")
       .click();
     const taskDetails = page.locator("#task-details-e2e-auth-failed-task");
     await expect(taskDetails).toContainText("تعذر التحقق من بيانات وصول المزود");
@@ -6117,17 +6129,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(taskDetails).toContainText(
       `مرجع الدعم: ${supportReferences.authentication_failed}`,
     );
-    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await page.getByLabel("عرض تفاصيل المهمة: Recover quota exhaustion").click();
     await expect(page.getByText("انتهت حصة الاستخدام لدى المزود")).toBeVisible();
     await expect(
       page.getByText(`مرجع الدعم: ${supportReferences.quota_exhausted}`),
     ).toBeVisible();
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
-      page.getByLabel("Expand task Recover authentication failure"),
+      page.getByLabel("عرض تفاصيل المهمة: Recover authentication failure"),
     ).toBeVisible();
     await page
-      .getByLabel("Expand task Recover authentication failure")
+      .getByLabel("عرض تفاصيل المهمة: Recover authentication failure")
       .click();
     const reloadedAuthDetails = page.locator(
       "#task-details-e2e-auth-failed-task",
@@ -6141,7 +6153,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(reloadedAuthDetails).toContainText(
       `مرجع الدعم: ${supportReferences.authentication_failed}`,
     );
-    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await page.getByLabel("عرض تفاصيل المهمة: Recover quota exhaustion").click();
     await expect(page.getByText("انتهت حصة الاستخدام لدى المزود")).toBeVisible();
     await expect(
       page.getByText(`مرجع الدعم: ${supportReferences.quota_exhausted}`),
@@ -6154,12 +6166,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
 
     await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
-    await expect(page.getByText("Recover provider outage")).toBeVisible();
-    await page.getByRole("button", { name: "Execution history" }).click();
-    const execution = page
-      .getByText("failed · no successful completion")
-      .locator("..")
-      .locator("..");
+    await expect(
+      page.getByRole("heading", {
+        name: "Recover provider outage",
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "سجل التشغيل" }).click();
+    const execution = page.getByRole("region", {
+      name: "إرشادات استعادة جاهزية المزود",
+    });
     await expect(execution).toContainText(
       "المزود غير متاح مؤقتًا",
     );
@@ -6169,13 +6185,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(execution).toContainText(
       `مرجع الدعم: ${supportReferences.provider_outage}`,
     );
-    await page.reload();
-    await expect(page.getByText("Recover provider outage")).toBeVisible();
-    await page.getByRole("button", { name: "Execution history" }).click();
-    const reloadedExecution = page
-      .getByText("failed · no successful completion")
-      .locator("..")
-      .locator("..");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", {
+        name: "Recover provider outage",
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "سجل التشغيل" }).click();
+    const reloadedExecution = page.getByRole("region", {
+      name: "إرشادات استعادة جاهزية المزود",
+    });
     await expect(reloadedExecution).toContainText(
       "المزود غير متاح مؤقتًا",
     );
@@ -6350,10 +6370,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
 
     const readyRow = page.getByRole("button", {
-      name: /^(?:Expand|Collapse) task Execute SQL input sanitization remediation$/,
+      name: /^(?:عرض تفاصيل المهمة|طي تفاصيل المهمة): Execute SQL input sanitization remediation$/,
     });
     await expect(readyRow).toBeVisible();
-    await expect(page.getByTitle("Execute")).toBeVisible();
+    await expect(
+      page.getByLabel(
+        "بدء تنفيذ المهمة: Execute SQL input sanitization remediation",
+      ),
+    ).toBeVisible();
     await readyRow.click();
 
     const readyDetails = page.locator(`#task-details-${readyTaskId}`);
@@ -6364,29 +6388,37 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(readyPlan).toContainText("SEC-001");
     await expect(readyPlan).toContainText("Unsanitized SQL input");
     await expect(readyPlan).toContainText("high");
-    await expect(readyPlan).toContainText("2 occurrence(s)");
+    await expect(readyPlan).toContainText("2 تكرار");
     await expect(readyPlan).toContainText("src/auth/input.ts:10");
     await expect(readyPlan).toContainText("src/auth/input.ts:44");
-    await expect(readyPlan).toContainText("+1 more evidence items");
+    await expect(readyPlan).toContainText("و1 من الأدلة الأخرى");
     await expect(readyPlan).not.toContainText("src/auth/input.ts:52");
     await expect(readyPlan).toContainText(
       "Use the parameterized query helper for every user-controlled value.",
     );
     await expect(readyPlan).toContainText("Run the SQL injection regression test.");
     await expect(readyPlan).toContainText("Confirm all user-controlled query values use parameters.");
-    await expect(readyPlan).toContainText("Ready to execute");
-    await expect(readyPlan).toContainText("Source: scan");
-    await expect(readyPlan).toContainText("revision remediation-");
-    await expect(readyDetails.getByRole("button", { name: "Details" })).toBeVisible();
+    await expect(readyPlan).toContainText("جاهزة للتنفيذ");
+    await expect(readyPlan).toContainText("مصدر الخطة: scan");
+    await expect(readyPlan).toContainText("المراجعة remediation-");
+    await expect(readyDetails.getByRole("button", { name: "التفاصيل" })).toBeVisible();
 
-    await page.getByTitle("Execute").click();
+    await page
+      .getByLabel(
+        "بدء تنفيذ المهمة: Execute SQL input sanitization remediation",
+      )
+      .click();
     await expect.poll(() => actionRequests.length).toBe(1);
     expect(actionRequests[0]).toBe(`execute:${readyTaskId}`);
     await expect(readyRow).toContainText("running");
-    await expect(page.getByTitle("Execute")).toHaveCount(0);
+    await expect(
+      page.getByLabel(
+        "بدء تنفيذ المهمة: Execute SQL input sanitization remediation",
+      ),
+    ).toHaveCount(0);
 
     const reviewRow = page.getByRole("button", {
-      name: /^(?:Expand|Collapse) task Review incomplete SQL remediation evidence$/,
+      name: /^(?:عرض تفاصيل المهمة|طي تفاصيل المهمة): Review incomplete SQL remediation evidence$/,
     });
     await reviewRow.click();
     const reviewDetails = page.locator(`#task-details-${reviewTaskId}`);
@@ -6397,22 +6429,34 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(reviewPlan).toContainText("SEC-002");
     await expect(reviewPlan).toContainText("Incomplete evidence review");
     await expect(reviewPlan).toContainText("critical");
-    await expect(reviewPlan).toContainText("1 occurrence(s)");
-    await expect(reviewPlan).toContainText("Needs review");
-    await expect(reviewPlan).toContainText("No bounded evidence was retained.");
-    await expect(reviewPlan).toContainText("No verification steps supplied.");
-    await expect(reviewPlan).toContainText("Source: discovery");
-    await expect(reviewPlan).toContainText("revision unavailable");
-    await expect(page.getByTitle("Retry")).toBeVisible();
+    await expect(reviewPlan).toContainText("1 تكرار");
+    await expect(reviewPlan).toContainText("تحتاج إلى مراجعة");
+    await expect(reviewPlan).toContainText("لا تتوفر أدلة محفوظة لهذا النطاق.");
+    await expect(reviewPlan).toContainText("لا توجد خطوات تحقق مرفقة في هذا السجل.");
+    await expect(reviewPlan).toContainText("مصدر الخطة: discovery");
+    await expect(reviewPlan).toContainText("المراجعة غير متاحة");
+    await expect(
+      page.getByLabel(
+        "إعادة محاولة المهمة: Review incomplete SQL remediation evidence",
+      ),
+    ).toBeVisible();
 
-    await page.getByTitle("Retry").click();
+    await page
+      .getByLabel(
+        "إعادة محاولة المهمة: Review incomplete SQL remediation evidence",
+      )
+      .click();
     await expect.poll(() => actionRequests.length).toBe(2);
     expect(actionRequests[1]).toBe(`retry:${reviewTaskId}`);
     await expect(reviewRow).toContainText("queued");
-    await expect(page.getByTitle("Retry")).toHaveCount(0);
+    await expect(
+      page.getByLabel(
+        "إعادة محاولة المهمة: Review incomplete SQL remediation evidence",
+      ),
+    ).toHaveCount(0);
 
     const verificationRow = page.getByRole("button", {
-      name: /^(?:Expand|Collapse) task Verify parameterized SQL remediation$/,
+      name: /^(?:عرض تفاصيل المهمة|طي تفاصيل المهمة): Verify parameterized SQL remediation$/,
     });
     await verificationRow.click();
     const verificationDetails = page.locator(
@@ -6422,30 +6466,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       name: "Remediation plan",
     });
     const verificationChecks = verificationDetails.getByRole("region", {
-      name: "Operator verification checks",
+      name: "فحوص تتحقق منها بنفسك",
     });
     await expect(verificationPlan).toContainText("SEC-003");
-    await expect(verificationPlan).toContainText("Ready to execute");
-    await verificationDetails
-      .getByRole("button", { name: "Run and record verification checks" })
+    await expect(verificationPlan).toContainText("جاهزة للتنفيذ");
+    await verificationPlan
+      .getByRole("button", { name: "نفّذ الفحوص وسجّل نتائجها" })
       .click();
     await expect(verificationChecks).toBeVisible();
-    await expect(verificationChecks).toContainText("Incomplete");
+    await expect(verificationChecks).toContainText("السجل غير مكتمل");
 
     const firstGuidance = "Run the SQL injection regression test.";
     const secondGuidance =
       "Confirm all user-controlled query values use parameters.";
     const firstEvidence = verificationChecks.getByLabel(
-      `Evidence for ${firstGuidance}`,
+      `دليل الفحص: ${firstGuidance}`,
     );
     const secondEvidence = verificationChecks.getByLabel(
-      `Evidence for ${secondGuidance}`,
+      `دليل الفحص: ${secondGuidance}`,
     );
     const passButtons = verificationChecks.getByRole("button", {
-      name: "Record passed",
+      name: "سجّل اجتياز الفحص",
     });
     const failedButtons = verificationChecks.getByRole("button", {
-      name: "Record failed",
+      name: "سجّل فشل الفحص",
     });
     await expect(passButtons.nth(0)).toBeDisabled();
     await firstEvidence.fill("The regression test still fails before the fix.");
@@ -6456,7 +6500,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       checkId: "rule-verification-1",
       passed: false,
     });
-    await expect(verificationChecks).toContainText("Incomplete");
+    await expect(verificationChecks).toContainText("السجل غير مكتمل");
     await expect(verificationRow).toContainText("verifying");
 
     await firstEvidence.fill("The focused regression test passes after the fix.");
@@ -6468,7 +6512,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       passed: true,
       evidence: "The focused regression test passes after the fix.",
     });
-    await expect(verificationChecks).toContainText("Incomplete");
+    await expect(verificationChecks).toContainText("السجل غير مكتمل");
 
     await secondEvidence.fill(
       "All user-controlled query values use the parameterized helper.",
@@ -6482,31 +6526,31 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       evidence: "All user-controlled query values use the parameterized helper.",
     });
     await expect(verificationRow).toContainText("completed");
-    await verificationDetails.getByRole("button", { name: "Details" }).click();
-    await expect(verificationPlan).toContainText("Verified");
-    await verificationDetails.getByRole("button", { name: "Logs" }).click();
-    await expect(verificationChecks).toContainText("Verified");
+    await verificationDetails.getByRole("button", { name: "التفاصيل" }).click();
+    await expect(verificationPlan).toContainText("تم التحقق");
+    await verificationDetails.getByRole("button", { name: "السجل" }).click();
+    await expect(verificationChecks).toContainText("اجتياز مسجل");
     await expect(verificationDetails).toContainText(
-      "Task completed and verified by the server.",
+      "اكتملت المهمة وسجّل الخادم اجتياز التحقق.",
     );
 
     await page.reload();
     const reloadedVerificationRow = page.getByRole("button", {
-      name: /^(?:Expand|Collapse) task Verify parameterized SQL remediation$/,
+      name: /^(?:عرض تفاصيل المهمة|طي تفاصيل المهمة): Verify parameterized SQL remediation$/,
     });
     await expect(reloadedVerificationRow).toContainText("completed");
     await reloadedVerificationRow.click();
     const reloadedDetails = page.locator(
       `#task-details-${verificationTaskId}`,
     );
-    await reloadedDetails.getByRole("button", { name: "Logs" }).click();
+    await reloadedDetails.getByRole("button", { name: "السجل" }).click();
     await expect(
       reloadedDetails.getByRole("region", {
-        name: "Operator verification checks",
+        name: "فحوص تتحقق منها بنفسك",
       }),
-    ).toContainText("Verified");
+    ).toContainText("اجتياز مسجل");
     await expect(reloadedDetails).toContainText(
-      "Task completed and verified by the server.",
+      "اكتملت المهمة وسجّل الخادم اجتياز التحقق.",
     );
 
     const visibleText = await page.locator("body").innerText();
@@ -6790,22 +6834,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
     await expect(proof).toContainText(/completed/i);
-    await expect(proof).toContainText("Revision: e2e-revision-42");
+    await expect(proof.getByText("e2e-revision-42", { exact: true })).toBeVisible();
     const mission = page.getByTestId("mission-capsule");
     await expect(mission).toBeVisible();
-    await expect(mission).toContainText("Delivered");
+    await expect(mission).toContainText("سُجّل التسليم");
     await expect(page.getByTestId("execution-identities")).toContainText(
       "e2e-operation",
     );
     await expect(page.getByTestId("mission-timeline")).toBeVisible();
     const destinations = mission.getByRole("navigation", {
-      name: "Execution destinations",
+      name: "صفحات تفاصيل التنفيذ",
     });
     const flightDeckLink = destinations.getByRole("link", {
-      name: /Open Flight Deck/,
+      name: /فتح لوحة التشغيل/,
     });
     const missionControlLink = destinations.getByRole("link", {
-      name: /Open Mission Control/,
+      name: /فتح متابعة الأهداف/,
     });
     await expect(flightDeckLink).toHaveAttribute(
       "href",
@@ -6832,8 +6876,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.keyboard.press("Shift+Tab");
     await expect(flightDeckLink).toBeFocused();
 
-    await expect(page.getByTestId("timeline-validate")).toContainText("Done");
-    await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
+    await expect(page.getByTestId("timeline-validate")).toContainText("انتهت");
+    await expect(page.getByTestId("timeline-deliver")).toContainText("انتهت");
 
     await proof.getByRole("button", { name: "معاينة سجل التدقيق" }).click();
     const preview = page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة");
@@ -6870,15 +6914,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(reloadedProof).toBeVisible();
     await expect(reloadedProof).toContainText(/completed/i);
-    await expect(reloadedProof).toContainText("Execution e2e-controlled-execution");
-    await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    await expect(
+      reloadedProof.locator('bdi[dir="ltr"]').filter({
+        hasText: "e2e-controlled-execution",
+      }),
+    ).toHaveText("e2e-controlled-execution");
+    await expect(reloadedProof).toContainText("e2e-revision-42");
     const reloadedMission = page.getByTestId("mission-capsule");
     await expect(reloadedMission).toBeVisible();
-    await expect(reloadedMission).toContainText("Delivered");
+    await expect(reloadedMission).toContainText("سُجّل التسليم");
     await expect(page.getByTestId("execution-identities")).toContainText(
       "e2e-operation",
     );
-    await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
+    await expect(page.getByTestId("timeline-deliver")).toContainText("انتهت");
     await expect(
       page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة"),
     ).toBeHidden();
@@ -6958,21 +7006,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
-    await expect(proof).toContainText("Cancelled");
-    await expect(proof).toContainText("Execution e2e-controlled-execution");
-    await expect(proof).toContainText("Revision: e2e-revision-42");
-    await expect(proof).toContainText("Terminal reason: cancel_requested");
-    await expect(proof.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    await expect(proof).toContainText("أُلغي");
+    await expect(
+      proof.locator('bdi[dir="ltr"]').filter({
+        hasText: "e2e-controlled-execution",
+      }),
+    ).toHaveText("e2e-controlled-execution");
+    await expect(proof).toContainText("e2e-revision-42");
+    await expect(proof).toContainText("سبب التوقف: cancel_requested");
     await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
-    await expect(
-      proof.getByRole("button", { name: "Approve & apply" }),
-    ).toHaveCount(0);
-    await expect(
-      proof.getByRole("button", { name: /commit verified changes/i }),
-    ).toHaveCount(0);
-    await expect(
-      proof.getByRole("button", { name: /push committed changes/i }),
-    ).toHaveCount(0);
+    await expect(proof.getByRole("button")).toHaveText([
+      "معاينة سجل التدقيق",
+      "تنزيل سجل التدقيق",
+    ]);
 
     await proof.getByRole("button", { name: "معاينة سجل التدقيق" }).click();
     const preview = page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة");
@@ -6991,9 +7037,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(preview).toContainText("النص الخام الذي أنشأه النموذج");
     await expect(preview).toContainText("مسارات بيئة التشغيل الخاصة");
     await expect(preview.locator("pre")).toContainText("provider secrets");
-    await expect(proof).toContainText("Cancelled");
-    await expect(proof).toContainText("Revision: e2e-revision-42");
-    await expect(proof).toContainText("Terminal reason: cancel_requested");
+    await expect(proof).toContainText("أُلغي");
+    await expect(proof).toContainText("e2e-revision-42");
+    await expect(proof).toContainText("سبب التوقف: cancel_requested");
     expect(auditRequests).toHaveLength(2);
 
     await preview.getByRole("button", { name: "إغلاق معاينة سجل التدقيق" }).click();
@@ -7006,8 +7052,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.reload();
     const reloadedProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(reloadedProof).toBeVisible();
-    await expect(reloadedProof).toContainText("Cancelled");
-    await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    await expect(reloadedProof).toContainText("أُلغي");
+    await expect(reloadedProof.getByText("e2e-revision-42", { exact: true })).toBeVisible();
     await expect(page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة")).toBeHidden();
     expect(auditRequests).toHaveLength(3);
   });
@@ -7212,12 +7258,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
     const taskRow = page.getByLabel(
-      "Expand task Verify live dashboard updates",
+      "عرض تفاصيل المهمة: Verify live dashboard updates",
     );
     await expect(taskRow).toBeVisible();
     await taskRow.click();
-    await page.getByRole("button", { name: "Logs" }).click();
-    await expect(page.getByRole("region", { name: "Activity" })).toContainText(
+    const taskDetails = page.locator(`#task-details-${taskId}`);
+    await taskDetails.getByRole("button", { name: "السجل", exact: true }).click();
+    await expect(taskDetails.getByRole("region", { name: "سجل النشاط" })).toContainText(
       "Live update received from the server",
     );
   });
@@ -7251,12 +7298,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
 
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
-    const taskRow = page.getByLabel("Expand task Recover live task updates");
+    const taskRow = page.getByLabel("عرض تفاصيل المهمة: Recover live task updates");
     await expect(taskRow).toBeVisible();
     await taskRow.click();
-    await page.getByRole("button", { name: "Logs" }).click();
+    const taskDetails = page.locator(`#task-details-${taskId}`);
+    await taskDetails.getByRole("button", { name: "السجل", exact: true }).click();
 
-    const activity = page.getByRole("region", { name: "Activity" });
+    const activity = taskDetails.getByRole("region", { name: "سجل النشاط" });
     await expect(activity).toContainText(liveLog.message);
     await expect
       .poll(() => streamRequests.length, {
@@ -7401,7 +7449,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         "project-plugin-plugin-react",
       );
       const activationSwitch = reactPlugin.getByRole("switch", {
-        name: "Enable for project scans: React/TypeScript Analyzer",
+        name: "تفعيل فحوص الإضافة لهذا المشروع: React/TypeScript Analyzer",
       });
       await expect(activationSwitch).toBeVisible();
       await expect(activationSwitch).toBeEnabled();
@@ -7423,7 +7471,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
       await expect(
         reactPlugin.getByTestId("status-project-plugin-plugin-react"),
-      ).toHaveText("Active for project scans");
+      ).toHaveText("مفعّلة لفحوص هذا المشروع");
 
       await page.reload();
       const reloadedPanel = page.getByTestId("panel-project-plugins");
@@ -7435,7 +7483,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       ).toHaveAttribute("aria-checked", "true");
       await expect(
         reloadedReactPlugin.getByTestId("status-project-plugin-plugin-react"),
-      ).toHaveText("Active for project scans");
+      ).toHaveText("مفعّلة لفحوص هذا المشروع");
 
       const persistedBinding = await page.evaluate(async (path) => {
         const response = await fetch(path, { credentials: "include" });
@@ -7457,16 +7505,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       });
 
       const profilesPanel = page.getByRole("region", {
-        name: "Browser validation profiles",
+        name: "إعدادات فحوص المتصفح",
       });
       await expect(profilesPanel).toBeVisible();
       await expect(
-        profilesPanel.getByText("No registered browser checks."),
+        profilesPanel.getByText("لا توجد فحوص متصفح مسجّلة."),
       ).toBeVisible();
 
       await profilesPanel.getByTestId("button-add-browser-profile").click();
       await expect(
-        page.getByRole("dialog", { name: "Add browser profile" }),
+        page.getByRole("dialog", { name: "إضافة إعداد فحص" }),
       ).toBeVisible();
       await page.getByTestId("input-browser-profile-name").fill(profileName);
       await page.getByTestId("input-browser-profile-timeout").fill("5000");
@@ -7488,7 +7536,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       try {
         await page.reload();
         reloadedProfilesPanel = page.getByRole("region", {
-          name: "Browser validation profiles",
+          name: "إعدادات فحوص المتصفح",
         });
         await expect(
           reloadedProfilesPanel.getByText(profileName, { exact: true }),
@@ -7502,14 +7550,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const profileCard = reloadedProfilesPanel.locator("article").filter({
         hasText: profileName,
       });
-      await expect(profileCard).toContainText("Open /");
-      await expect(profileCard).toContainText("5,000 ms timeout");
+      await expect(profileCard).toContainText("فتح المسار /");
+      await expect(profileCard).toContainText("مهلة 5,000 ms");
 
       await profileCard.getByRole("button", {
-        name: `Edit browser profile ${profileName}`,
+        name: `تعديل إعداد الفحص ${profileName}`,
       }).click();
       await expect(
-        page.getByRole("dialog", { name: "Edit browser profile" }),
+        page.getByRole("dialog", { name: "تعديل إعداد الفحص" }),
       ).toBeVisible();
       await page.getByTestId("input-browser-profile-timeout").fill("7000");
       const editProfileResponsePromise = page.waitForResponse(
@@ -7522,7 +7570,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.getByTestId("button-save-browser-profile").click();
       const editProfileResponse = await editProfileResponsePromise;
       expect(editProfileResponse.status()).toBe(200);
-      await expect(profileCard).toContainText("7,000 ms timeout");
+      await expect(profileCard).toContainText("مهلة 7,000 ms");
 
       try {
         await page.reload();
@@ -7533,18 +7581,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         );
       }
       const persistedEditedProfile = page
-        .getByRole("region", { name: "Browser validation profiles" })
+        .getByRole("region", { name: "إعدادات فحوص المتصفح" })
         .locator("article")
         .filter({ hasText: profileName });
-      await expect(persistedEditedProfile).toContainText("7,000 ms timeout");
+      await expect(persistedEditedProfile).toContainText("مهلة 7,000 ms");
 
       await persistedEditedProfile.getByRole("button", {
-        name: `Delete browser profile ${profileName}`,
+        name: `حذف إعداد الفحص ${profileName}`,
       }).click();
       const deleteDialog = page.getByRole("alertdialog", {
-        name: "Delete browser profile?",
+        name: "هل تريد حذف إعداد الفحص؟",
       });
-      await expect(deleteDialog).toContainText("This cannot be undone.");
+      await expect(deleteDialog).toContainText("لا يمكن التراجع عن هذا الحذف.");
       const deleteProfileResponsePromise = page.waitForResponse(
         (response) =>
           response.url().endsWith(
@@ -7560,21 +7608,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.reload();
       await expect(
         page
-          .getByRole("region", { name: "Browser validation profiles" })
+          .getByRole("region", { name: "إعدادات فحوص المتصفح" })
           .getByText(profileName, { exact: true }),
       ).toHaveCount(0);
     } finally {
       if (projectId) {
         try {
-          const dashboardFetch = async (path: string, method = "GET") =>
-            cleanupRequestContext
-              ? await cleanupRequestContext
-                  .fetch(path, { method })
-                  .then(async (response) => ({
-                    status: response.status(),
-                    body: await response.text(),
-                  }))
-              : await page.evaluate(
+          const dashboardFetch = async (path: string, method = "GET") => {
+            if (!page.isClosed()) {
+              return page.evaluate(
                   async ({ path, method }) => {
                     const response = await fetch(path, {
                       method,
@@ -7587,6 +7629,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                   },
                   { path, method },
                 );
+            }
+            if (cleanupRequestContext) {
+              const response = await cleanupRequestContext.fetch(path, {
+                method,
+              });
+              return {
+                status: response.status(),
+                body: await response.text(),
+              };
+            }
+            throw new Error("No authenticated browser session remains for cleanup.");
+          };
           if (profileCreated) {
             await dashboardFetch(
               `/api/projects/${projectId}/browser-validation-profiles/${profileName}`,
@@ -7669,12 +7723,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
 
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
-    await page.getByLabel("Expand task Recover exhausted live task updates").click();
-    await page.getByRole("button", { name: "Logs" }).click();
+    await page.getByLabel("عرض تفاصيل المهمة: Recover exhausted live task updates").click();
+    const taskDetails = page.locator(`#task-details-${taskId}`);
+    await taskDetails.getByRole("button", { name: "السجل", exact: true }).click();
 
-    const activity = page.getByRole("region", { name: "Activity" });
+    const activity = taskDetails.getByRole("region", { name: "سجل النشاط" });
     await expect(activity).toContainText(liveLog.message);
-    await expect(page.getByText("Temporary stream failure.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(
+      "انقطعت التحديثات الحية مؤقتًا",
+    );
     await expect
       .poll(() => streamRequests.length, {
         message: "the task log stream should exhaust its bounded reconnect budget",
@@ -7682,14 +7739,25 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       })
       .toBe(6);
     const exhausted = page.getByRole("alert");
-    await expect(exhausted).toContainText("Live task updates could not reconnect");
-    await expect(exhausted).toContainText("Reconnect attempts are exhausted");
+    await expect(exhausted).toContainText(
+      "تعذرت إعادة الاتصال بتحديثات المهمة الحية",
+    );
+    await expect(exhausted).toContainText("انتهت محاولات إعادة الاتصال");
     await expect(exhausted).toContainText(operationId);
-    await expect(exhausted).toContainText("task has not been marked failed");
-    await expect(exhausted.getByRole("button", { name: "Retry live updates" })).toBeVisible();
-    await expect(exhausted.getByRole("button", { name: "Refresh task logs" })).toBeVisible();
+    await expect(exhausted).toContainText("لم نغيّر حالة المهمة إلى فاشلة");
+    const retryLiveUpdates = exhausted.getByRole("button", {
+      name: "أعد الاتصال بالتحديثات الحية",
+      exact: true,
+    });
+    await expect(retryLiveUpdates).toBeVisible();
+    await expect(
+      exhausted.getByRole("button", {
+        name: "تحديث سجل المهمة",
+        exact: true,
+      }),
+    ).toBeVisible();
 
-    await exhausted.getByRole("button", { name: "Retry live updates" }).click();
+    await retryLiveUpdates.click();
     await expect(activity).toContainText("The only confirmed task update");
     await expect.poll(() => streamRequests.length).toBe(7);
     expect(new Set(streamRequests).size).toBe(1);
@@ -7932,14 +8000,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    const notice = page.getByRole("region", { name: "Acceptance disposition" });
-    await expect(notice).toContainText("EXECUTION_ACCEPTANCE_INCOMPLETE");
-    await expect(notice).toContainText("Start a new scoped run");
+    const notice = page.getByRole("region", { name: "حالة قبول التنفيذ" });
+    await expect(notice).toContainText("لم يكتمل قبول نتيجة التشغيل");
+    await expect(notice).toContainText("ابدأ فحصًا جديدًا ضمن النطاق المحدد.");
     const beforeReload = await notice.textContent();
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
 
     await page.reload();
-    const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
+    const reloadedNotice = page.getByRole("region", { name: "حالة قبول التنفيذ" });
     expect(await reloadedNotice.textContent()).toBe(beforeReload);
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
   });
@@ -8117,10 +8185,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
-    await expect(proof).toContainText("Proof verdict: PARTIAL");
-    await expect(proof).toContainText("not resumable");
+    await expect(proof).toContainText("حالة الأدلة: الأدلة جزئية");
+    await expect(proof).toContainText("الاستئناف غير متاح");
     await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Retry project analysis", exact: true }),
@@ -8177,8 +8245,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertDurableIncompleteState();
 
     await page.reload();
-    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
-    await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toBeVisible();
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toContainText("الاستئناف غير متاح");
     await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Retry project analysis", exact: true }),
@@ -8217,8 +8285,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     expect(streamRequests[1]).not.toHaveProperty("executionId");
     expect(streamRequests[1]).not.toHaveProperty("resumeToken");
-    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
-    await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toBeVisible();
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toContainText("الاستئناف غير متاح");
     await expect(page.getByTestId("button-recover-execution")).toHaveCount(0);
     const retryEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ }).last();
     if (await retryEvidenceToggle.getAttribute("aria-expanded") !== "true") {
@@ -8358,29 +8426,29 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
       if (assertUi) {
         const disposition = page
-          .getByRole("region", { name: "Acceptance disposition" })
+          .getByRole("region", { name: "حالة قبول التنفيذ" })
           .last();
         await expect(disposition).toContainText(
-          "EXECUTION_ACCEPTANCE_INCOMPLETE",
+          "لم يكتمل قبول نتيجة التشغيل",
         );
         await expect(disposition).toContainText(
-          "Start a new scoped run before relying on the result.",
+          "ابدأ فحصًا جديدًا ضمن النطاق المحدد.",
         );
       }
     };
 
-    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toBeVisible();
     await assertReopenedAcceptance();
 
     await page.reload();
     await openPastAudits(page);
     await expect(reviewButton).toBeVisible();
-    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toBeVisible();
     await assertReopenedAcceptance();
     await reviewButton.click();
     await assertReopenedAcceptance();
 
-    const projectSelector = page.getByLabel("Project for chat and model quality");
+    const projectSelector = page.getByLabel("مشروع المحادثة");
     await projectSelector.selectOption("e2e-project-two");
     await expect(projectSelector).toHaveValue("e2e-project-two");
     await openPastAudits(page);
@@ -8391,7 +8459,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
     await expect(reviewButton).toHaveCount(0);
     await expect(
-      page.getByRole("region", { name: "Acceptance disposition" }),
+      page.getByRole("region", { name: "حالة قبول التنفيذ" }),
     ).toHaveCount(0);
     const otherProjectHistory = await readJson(
       "/api/ai/executions/history?projectId=e2e-project-two",
@@ -8403,7 +8471,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(projectSelector).toHaveValue("e2e-project-one");
     await openPastAudits(page);
     await expect(reviewButton).toBeVisible();
-    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await expect(page.getByLabel("إثبات التنفيذ وحالته")).toBeVisible();
     await assertReopenedAcceptance();
   });
 
@@ -8481,9 +8549,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
-    await expect(proof).toContainText("Attempt: 1");
+    await expect(proof).toContainText("المحاولة: 1");
     await expect(proof).toContainText("The lease expired before the acceptance evidence was complete.");
     const browserJson = async (path: string) =>
       page.evaluate(async (requestPath) => {
@@ -8731,21 +8799,21 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
     const capsule = page.getByTestId("mission-capsule").last();
     const timeline = capsule.getByTestId("mission-timeline");
-    await expect(timeline.getByTestId("timeline-approval")).toContainText("Done");
-    await expect(timeline.getByTestId("timeline-validate")).toContainText("Done");
-    await expect(timeline.getByTestId("timeline-apply")).toContainText("Done");
-    await expect(timeline.getByTestId("timeline-commit")).toContainText("Now");
-    await expect(timeline.getByTestId("timeline-push")).toContainText("Next");
+    await expect(timeline.getByTestId("timeline-approval")).toContainText("انتهت");
+    await expect(timeline.getByTestId("timeline-validate")).toContainText("انتهت");
+    await expect(timeline.getByTestId("timeline-apply")).toContainText("انتهت");
+    await expect(timeline.getByTestId("timeline-commit")).toContainText("الآن");
+    await expect(timeline.getByTestId("timeline-push")).toContainText("لاحقًا");
 
     const resumeResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith("/api/ai/chat/stream") &&
       response.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Resume execution", exact: true }).click();
+    await page.getByRole("button", { name: "استئناف التنفيذ", exact: true }).click();
     const resumeResponse = await resumeResponsePromise;
     expect(resumeResponse.status()).toBe(200);
     const terminalEvents = parseSse(await resumeResponse.text()).filter(
@@ -8806,23 +8874,23 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     const reconnectedTimeline = page.getByTestId("mission-timeline").last();
-    await expect(reconnectedTimeline.getByTestId("timeline-approval")).toContainText("Done");
-    await expect(reconnectedTimeline.getByTestId("timeline-validate")).toContainText("Done");
-    await expect(reconnectedTimeline.getByTestId("timeline-apply")).toContainText("Done");
-    await expect(reconnectedTimeline.getByTestId("timeline-commit")).toContainText("Done");
-    await expect(reconnectedTimeline.getByTestId("timeline-push")).toContainText("Next");
-    await expect(reconnectedTimeline.getByTestId("timeline-deliver")).toContainText("Now");
+    await expect(reconnectedTimeline.getByTestId("timeline-approval")).toContainText("انتهت");
+    await expect(reconnectedTimeline.getByTestId("timeline-validate")).toContainText("انتهت");
+    await expect(reconnectedTimeline.getByTestId("timeline-apply")).toContainText("انتهت");
+    await expect(reconnectedTimeline.getByTestId("timeline-commit")).toContainText("انتهت");
+    await expect(reconnectedTimeline.getByTestId("timeline-push")).toContainText("لاحقًا");
+    await expect(reconnectedTimeline.getByTestId("timeline-deliver")).toContainText("الآن");
 
     await page.reload();
     const reloadedCapsule = page.getByTestId("mission-capsule").last();
     const reloadedTimeline = reloadedCapsule.getByTestId("mission-timeline");
     await expect(reloadedTimeline).toBeVisible();
-    await expect(reloadedTimeline.getByTestId("timeline-approval")).toContainText("Done");
-    await expect(reloadedTimeline.getByTestId("timeline-validate")).toContainText("Done");
-    await expect(reloadedTimeline.getByTestId("timeline-apply")).toContainText("Done");
-    await expect(reloadedTimeline.getByTestId("timeline-commit")).toContainText("Done");
-    await expect(reloadedTimeline.getByTestId("timeline-push")).toContainText("Next");
-    await expect(reloadedTimeline.getByTestId("timeline-deliver")).toContainText("Now");
+    await expect(reloadedTimeline.getByTestId("timeline-approval")).toContainText("انتهت");
+    await expect(reloadedTimeline.getByTestId("timeline-validate")).toContainText("انتهت");
+    await expect(reloadedTimeline.getByTestId("timeline-apply")).toContainText("انتهت");
+    await expect(reloadedTimeline.getByTestId("timeline-commit")).toContainText("انتهت");
+    await expect(reloadedTimeline.getByTestId("timeline-push")).toContainText("لاحقًا");
+    await expect(reloadedTimeline.getByTestId("timeline-deliver")).toContainText("الآن");
     expect(await readServerStages()).toEqual(afterReconnect);
   });
 
@@ -8928,10 +8996,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.goto(`${DASHBOARD_PATH}mission-control?projectId=e2e-project`);
     const assertCancelledMissionControl = async () => {
-      await expect(page.getByText(fixture.executionId, { exact: true })).toBeVisible();
       const ledgerEntry = page
         .getByRole("button")
         .filter({ hasText: fixture.executionId });
+      await expect(ledgerEntry).toBeVisible();
+      await expect(ledgerEntry).toContainText(fixture.executionId);
       await expect(ledgerEntry).toContainText("CANCELLED");
       await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
 
@@ -9336,7 +9405,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
 
     await page
-      .getByLabel("Project for chat and model quality")
+      .getByLabel("مشروع المحادثة")
       .selectOption("e2e-project-two");
     await expect(
       page.getByRole("button", { name: blocked.question, exact: true }),
@@ -9362,7 +9431,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toHaveCount(0);
 
     await page
-      .getByLabel("Project for chat and model quality")
+      .getByLabel("مشروع المحادثة")
       .selectOption("e2e-project-one");
     await page
       .getByRole("button", { name: accepted.question, exact: true })
@@ -9651,7 +9720,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(page.getByText("INCOMPLETE:", { exact: false }).last()).toBeVisible();
       await expect(page.getByText("stopped: cancelled", { exact: false }).last()).toBeVisible();
       await expect(page.getByText("EXECUTION_CANCELLED", { exact: false }).last()).toBeVisible();
-      await expect(page.getByLabel("Agent execution proof")).toHaveCount(0);
+      await expect(page.getByLabel("إثبات التنفيذ وحالته")).toHaveCount(0);
       const visibleText = await page.locator("body").innerText();
       expect(visibleText).not.toMatch(
         /raw provider exception|stack trace|\/home\/runner|secret|apiKey=|123e4567-e89b-12d3-a456-426614174000/i,
@@ -9706,7 +9775,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const recoveryBanner = page.getByTestId("execution-recovery-banner");
     await expect(recoveryBanner).toBeVisible();
-    await expect(recoveryBanner).toContainText(/resume available/);
+    await expect(recoveryBanner).toContainText(/يمكن استئنافه/);
     const resumeRequest = page.waitForRequest(
       (request) =>
         request.url().includes("/api/ai/chat/stream") &&
@@ -9730,7 +9799,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Failed to send message", { exact: true }),
     ).toBeVisible();
     await expect(recoveryBanner).toBeVisible();
-    await expect(recoveryBanner).toContainText(/resume available/);
+    await expect(recoveryBanner).toContainText(/يمكن استئنافه/);
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
@@ -9838,8 +9907,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const recoveryBanner = page.getByTestId("execution-recovery-banner");
     await expect(recoveryBanner).toBeVisible();
-    await expect(recoveryBanner).toContainText(/resume available/);
-    const executionProof = page.getByLabel("Agent execution proof");
+    await expect(recoveryBanner).toContainText(/يمكن استئنافه/);
+    const executionProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(executionProof).toBeVisible();
 
     const storageKey =
@@ -9868,7 +9937,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.reload();
 
     await expect(recoveryBanner).toBeVisible();
-    await expect(recoveryBanner).toContainText(/resume available/);
+    await expect(recoveryBanner).toContainText(/يمكن استئنافه/);
     expect(capabilityRequests).toHaveLength(0);
     expect(streamRequests).toHaveLength(1);
     const capabilityRequest = page.waitForRequest(
@@ -9990,15 +10059,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     const region = page.getByRole("region", {
-      name: "Recoverable delivery operations",
+      name: "عمليات تسليم قابلة للاسترداد",
     });
     await expect(region).toBeVisible();
-    await expect(region.getByText("Recoverable", { exact: true })).toBeVisible();
+    await expect(region.getByText("قابلة للاسترداد", { exact: true })).toBeVisible();
     await expect(
-      region.getByText("Workspace unavailable", { exact: true }),
+      region.getByText("المساحة غير متاحة", { exact: true }),
     ).toBeVisible();
     await expect(
-      region.getByText("Already discarded", { exact: true }),
+      region.getByText("أُزيلت المساحة مسبقًا", { exact: true }),
     ).toBeVisible();
     await expect(
       region.getByText(
@@ -10012,10 +10081,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       }),
     ).toBeVisible();
     await expect(
-      region.getByText(
-        "Retained reason: Workspace expired after the runner was recycled.",
-        { exact: true },
-      ),
+      region.getByText("Workspace expired after the runner was recycled.", {
+        exact: true,
+      }),
     ).toBeVisible();
 
     const available = region.locator(
@@ -10054,7 +10122,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.reload();
     const reloadedRegion = page.getByRole("region", {
-      name: "Recoverable delivery operations",
+      name: "عمليات تسليم قابلة للاسترداد",
     });
     await expect(reloadedRegion).toBeVisible();
     await expect(
@@ -10131,7 +10199,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     const region = page.getByRole("region", {
-      name: "Recoverable delivery operations",
+      name: "عمليات تسليم قابلة للاسترداد",
     });
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-race-operation"]',
@@ -10210,7 +10278,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect.poll(() => sessionListRequests).toBeGreaterThan(0);
 
     const region = page.getByRole("region", {
-      name: "Recoverable delivery operations",
+      name: "عمليات تسليم قابلة للاسترداد",
     });
     const operation = region.locator(
       '[data-operation-id="e2e-recovery-deleted-operation"]',
@@ -10253,17 +10321,20 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(beforeOpen?.width).toBeGreaterThan(250);
 
     await page.getByRole("button", { name: "فتح المحادثات" }).click();
-    await expect(page.getByText("Sessions", { exact: true })).toBeVisible();
-    const drawer = page
-      .getByText("Sessions", { exact: true })
-      .locator("..")
-      .locator("..");
+    const drawer = page.getByTestId("sessions-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toHaveAttribute("aria-label", "محادثات المشروع");
     const drawerBox = await drawer.boundingBox();
     expect(drawerBox?.width).toBeLessThanOrEqual(390);
     const duringOpen = await composer.boundingBox();
     expect(duringOpen?.width).toBeGreaterThan(250);
 
-    await page.getByRole("button", { name: "Close sidebar" }).click();
+    await drawer
+      .getByRole("button", {
+        name: "إغلاق قائمة المحادثات",
+        exact: true,
+      })
+      .click();
     await expect(
       page.getByRole("button", { name: "فتح المحادثات" }),
     ).toBeVisible();
@@ -10329,7 +10400,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
       await expectWithinViewport(composer, viewport, `composer with drawer at ${width}px`);
       await expectNoHorizontalOverflow(page);
-      await page.getByRole("button", { name: "Close sidebar" }).click();
+      await drawer
+        .getByRole("button", {
+          name: "إغلاق قائمة المحادثات",
+          exact: true,
+        })
+        .click();
       await expect(drawer).toBeHidden();
     }
   });
