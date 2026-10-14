@@ -16,13 +16,15 @@ describe('dashboard navigation', () => {
     const hrefs = allItems.map((item) => item.href);
 
     expect(hrefs).toEqual([
-      '/', '/projects', '/ai', '/general-chat',
+      '/', '/projects', '/ai',
       '/tasks', '/missions', '/mission-control', '/workflows', '/flight-deck',
       '/events', '/metrics', '/graph', '/rules', '/skill-registry',
     ]);
     expect(new Set(hrefs).size).toBe(hrefs.length);
     expect(hrefs).toContain('/mission-control');
     expect(hrefs).toContain('/skill-registry');
+    expect(hrefs).not.toContain('/general-chat');
+    expect(PRIMARY_NAV_ITEMS.filter((item) => item.href === '/ai' || item.href === '/general-chat')).toHaveLength(1);
   });
 
   it('maps nested project routes to their parent destination', () => {

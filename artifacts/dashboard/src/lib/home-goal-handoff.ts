@@ -134,6 +134,6 @@ export function removeGoalDraft(ownerId: string, id: string): boolean {
   }
 }
 
-export function storeHomeGoalDraft(text: string, ownerId: string): GoalDraft | null {
-  return storeGoalDraft(ownerId, text);
+export function storeHomeGoalDraft(text: string, ownerId: string, projectId: string | null = null): GoalDraft | null {
+  return storeGoalDraft(ownerId, text, 'home', projectId);
 }

@@ -37,9 +37,11 @@ vi.mock("@/components/OperatorResilience", () => ({
 vi.mock("@workspace/api-client-react", () => ({
   getGetHealthQueryKey: vi.fn(() => ["/api/healthz"]),
   getListOperatorAlertsQueryKey: vi.fn(() => ["/api/ai/operator-alerts"]),
+  getListProjectsQueryKey: vi.fn(() => ["/api/projects"]),
   useGetDashboard: vi.fn(),
   useGetHealth: vi.fn(),
   useListOperatorAlerts: vi.fn(),
+  useListProjects: vi.fn(),
   getGetDashboardWorkSummaryQueryKey: vi.fn(() => ["/api/dashboard/work-summary"]),
   useGetDashboardWorkSummary: vi.fn(() => ({ data: undefined, isLoading: true, error: null, isFetching: true, refetch: vi.fn() })),
 }));
@@ -48,6 +50,7 @@ import {
   useGetDashboard,
   useGetHealth,
   useListOperatorAlerts,
+  useListProjects,
 } from "@workspace/api-client-react";
 
 const dashboard = {
@@ -77,6 +80,12 @@ beforeEach(() => {
     data: { aiDiagnosticsRetention: { status: "success", completedAt: new Date() } },
     refetch: vi.fn(),
   } as ReturnType<typeof useGetHealth>);
+  vi.mocked(useListProjects).mockReturnValue({
+    data: [{ id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' }],
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useListProjects>);
 });
 
 describe("Dashboard goal-first home", () => {
@@ -99,11 +108,15 @@ describe("Dashboard goal-first home", () => {
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول");
     expect(draft.sendAttemptedAt).toBeNull();
-    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
+    expect(draft.projectId).toBe('project-1');
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
   });
 
   it('keeps a zero-project goal through the existing starter route', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [], isLoading: false, isError: false, refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
     vi.mocked(useGetDashboard).mockReturnValue({
       data: { ...dashboard, projectCount: 0 }, isLoading: false, error: null, refetch: vi.fn(),
     } as ReturnType<typeof useGetDashboard>);
@@ -113,6 +126,28 @@ describe("Dashboard goal-first home", () => {
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects?create=1&goalDraftId=${draft.id}`);
     expect(draft.text).toBe('أريد تطبيق متابعة العملاء');
+  });
+
+  it('deliberately routes a general goal as an owned unsent no-project draft', () => {
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'اشرح لي خيارات التخزين المؤقت' } });
+    fireEvent.click(screen.getByTestId('choice-goal-general'));
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft).toMatchObject({ text: 'اشرح لي خيارات التخزين المؤقت', projectId: null, sendAttemptedAt: null });
+    expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
+  });
+
+  it('does not turn a failed project lookup into a general-chat handoff', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [], isLoading: false, isError: true, refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'افحص مشروعي' } });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل قائمة المشاريع');
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
   });
 
   it("labels task totals as recorded status rather than proof", () => {

@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GeneralChat from './GeneralChat';
+import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
 
+vi.mock('@clerk/react', () => ({ useUser: () => ({ user: { id: 'user-1' }, isLoaded: true }) }));
 const mocks = vi.hoisted(() => {
   const session = { id: 'session-1', title: 'نقاش المشروع', updatedAt: '2026-10-14T10:00:00Z' };
   return {
@@ -30,6 +32,8 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/general-chat');
   mocks.sessions.data = [mocks.session];
   mocks.sessions.isLoading = false;
   mocks.sessions.isError = false;
@@ -58,6 +62,46 @@ describe('Arabic conversation feedback boundaries', () => {
     expect(screen.getByRole('status')).toHaveTextContent('لا توجد محادثات في القائمة بعد');
     expect(screen.getByTestId('button-create-first-general-chat')).toHaveTextContent('إنشاء محادثة');
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps a home handoff separate from the latest session until the user creates a new conversation', () => {
+    const saved = storeHomeGoalDraft('أريد فهم سبب بطء الصفحة', 'user-1');
+    expect(saved).not.toBeNull();
+    window.history.replaceState({}, '', `/general-chat?goalDraftId=${saved!.id}`);
+    renderPage();
+
+    expect(screen.getByText('هدف محفوظ — لم يُرسل')).toBeInTheDocument();
+    expect(screen.getByTestId('button-select-general-session-session-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('input-general-chat-message')).not.toBeInTheDocument();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).toBeNull();
+
+    fireEvent.click(screen.getByTestId('button-continue-home-goal-new-chat'));
+    expect(mocks.create).toHaveBeenCalledOnce();
+    const onSuccess = mocks.create.mock.calls[0][1].onSuccess;
+    act(() => onSuccess({ id: 'session-new', title: 'محادثة جديدة', createdAt: '2026-10-15T10:00:00Z', updatedAt: '2026-10-15T10:00:00Z' }));
+    expect(screen.getByTestId('input-general-chat-message')).toHaveValue('أريد فهم سبب بطء الصفحة');
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).toBeNull();
+  });
+
+  it('records a home draft send attempt before sending so reload cannot replay it', () => {
+    const saved = storeHomeGoalDraft('راجع فكرة التخزين المؤقت', 'user-1');
+    window.history.replaceState({}, '', `/general-chat?goalDraftId=${saved!.id}`);
+    const view = renderPage();
+    fireEvent.click(screen.getByTestId('button-continue-home-goal-new-chat'));
+    const onSuccess = mocks.create.mock.calls[0][1].onSuccess;
+    act(() => onSuccess({ id: 'session-new', title: 'محادثة جديدة', createdAt: '2026-10-15T10:00:00Z', updatedAt: '2026-10-15T10:00:00Z' }));
+    fireEvent.click(screen.getByTestId('button-send-general-message'));
+
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).not.toBeNull();
+    view.unmount();
+    renderPage();
+    expect(screen.getByText('تعذر استعادة المسودة')).toBeInTheDocument();
+    expect(screen.queryByText('هدف محفوظ — لم يُرسل')).not.toBeInTheDocument();
+    expect(mocks.send).toHaveBeenCalledOnce();
   });
 
   it('restores the exact draft after send failure without claiming rejection or retrying', () => {

@@ -3,7 +3,9 @@ import { useUser } from '@clerk/react';
 import {
   getGetHealthQueryKey,
   getListOperatorAlertsQueryKey,
+  getListProjectsQueryKey,
   useListOperatorAlerts,
+  useListProjects,
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
@@ -187,6 +189,12 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [goalDraft, setGoalDraft] = useState('');
   const [goalHandoffError, setGoalHandoffError] = useState('');
+  const [goalContext, setGoalContext] = useState<'project' | 'general'>('project');
+  const [selectedGoalProjectId, setSelectedGoalProjectId] = useState('');
+  const projectsQuery = useListProjects(undefined, {
+    query: { queryKey: getListProjectsQueryKey() },
+  });
+  const projects = projectsQuery.data ?? [];
   const dashboardQuery = useGetDashboard();
   const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
   const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
@@ -210,15 +218,33 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
 
-    const savedDraft = user?.id ? storeHomeGoalDraft(normalizedGoal, user.id) : null;
+    if (goalContext === 'project' && projectsQuery.isLoading) return;
+    if (goalContext === 'project' && projectsQuery.isError) {
+      setGoalHandoffError('تعذر تحميل مشاريعك. أعد المحاولة قبل اختيار نطاق المشروع.');
+      return;
+    }
+    const selectedProject = projects.find((project) => project.id === selectedGoalProjectId) ?? projects[0];
+    if (goalContext === 'project' && projects.length > 0 && !selectedProject) {
+      setGoalHandoffError('اختر مشروعًا من القائمة قبل المتابعة.');
+      return;
+    }
+
+    const savedDraft = user?.id
+      ? storeHomeGoalDraft(normalizedGoal, user.id, goalContext === 'project' ? selectedProject?.id ?? null : null)
+      : null;
     if (!savedDraft) {
       setGoalHandoffError('تعذر نقل المسودة إلى المساعد. احتفظ بنصك وحاول مرة أخرى.');
       return;
     }
 
     setGoalHandoffError('');
-    const target = dashboard?.projectCount === 0 ? '/projects?create=1' : '/ai?';
-    setLocation(`${target}${dashboard?.projectCount === 0 ? '&' : ''}goalDraftId=${encodeURIComponent(savedDraft.id)}`);
+    if (goalContext === 'general') {
+      setLocation(`/general-chat?goalDraftId=${encodeURIComponent(savedDraft.id)}`);
+    } else if (!selectedProject) {
+      setLocation(`/projects?create=1&goalDraftId=${encodeURIComponent(savedDraft.id)}`);
+    } else {
+      setLocation(`/ai?projectId=${encodeURIComponent(selectedProject.id)}&goalDraftId=${encodeURIComponent(savedDraft.id)}`);
+    }
   }
 
   if (isLoading) {
@@ -303,6 +329,60 @@ export default function Dashboard() {
           placeholder="مثال: ساعدني أفهم سبب بطء صفحة تسجيل الدخول وأقترح حلًا آمنًا."
           className="mt-5 min-h-28 resize-y border-border/80 bg-background/80 text-sm leading-6"
         />
+        <fieldset className="mt-4 space-y-3">
+          <legend className="text-sm font-medium">أين تريد متابعة هذا الهدف؟</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              data-testid="choice-goal-project"
+              aria-pressed={goalContext === 'project'}
+              onClick={() => { setGoalContext('project'); setGoalHandoffError(''); }}
+              className={`rounded-xl border p-3 text-right transition-colors ${goalContext === 'project' ? 'border-primary/50 bg-primary/8' : 'border-border bg-background/50 hover:border-primary/30'}`}
+            >
+              <span className="block text-sm font-medium">داخل مشروع</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">المساعد يعمل ضمن سياق المشروع وصلاحياته المحددة.</span>
+            </button>
+            <button
+              type="button"
+              data-testid="choice-goal-general"
+              aria-pressed={goalContext === 'general'}
+              onClick={() => { setGoalContext('general'); setGoalHandoffError(''); }}
+              className={`rounded-xl border p-3 text-right transition-colors ${goalContext === 'general' ? 'border-primary/50 bg-primary/8' : 'border-border bg-background/50 hover:border-primary/30'}`}
+            >
+              <span className="block text-sm font-medium">محادثة عامة</span>
+              <span className="mt-1 block text-xs leading-5 text-muted-foreground">نقاش نصّي مستقل؛ لا يطّلع على ملفات المشاريع أو أدواتها.</span>
+            </button>
+          </div>
+          {goalContext === 'project' && (
+            <div className="space-y-2">
+              {projectsQuery.isLoading ? (
+                <div aria-label="جارٍ تحميل المشاريع" data-testid="status-goal-projects-loading" className="h-10 animate-pulse rounded-lg bg-secondary/60" />
+              ) : projectsQuery.isError ? (
+                <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs">
+                  <span>تعذر تحميل قائمة المشاريع. لن نوجّه طلب المشروع إلى محادثة عامة.</span>
+                  <button type="button" onClick={() => void projectsQuery.refetch()} className="shrink-0 font-medium text-primary hover:underline">إعادة المحاولة</button>
+                </div>
+              ) : projects.length > 0 ? (
+                <label className="block space-y-1.5 text-xs font-medium">
+                  <span>اختر المشروع</span>
+                  <select
+                    data-testid="select-goal-project"
+                    value={selectedGoalProjectId || projects[0]?.id || ''}
+                    onChange={(event) => { setSelectedGoalProjectId(event.target.value); setGoalHandoffError(''); }}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                  >
+                    <option value="">اختر مشروعًا</option>
+                    {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <p className="rounded-lg border border-border/80 bg-background/50 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  لا توجد مشاريع بعد. يمكنك إنشاء مشروع لمتابعة الهدف أو اختيار محادثة عامة.
+                </p>
+              )}
+            </div>
+          )}
+        </fieldset>
         <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs leading-5 text-muted-foreground">
             لن يُرسل النص تلقائيًا، وكتابته لا توافق على أي تغييرات.
@@ -313,11 +393,11 @@ export default function Dashboard() {
           <Button
             type="button"
             data-testid="button-start-goal"
-            disabled={!goalDraft.trim()}
+            disabled={!goalDraft.trim() || (goalContext === 'project' && projectsQuery.isLoading) || (goalContext === 'project' && projectsQuery.isError)}
             onClick={continueWithGoal}
             className="w-full gap-2 sm:w-auto"
           >
-            ابدأ مع المساعد
+            {goalContext === 'general' ? 'ابدأ محادثة عامة' : projects.length === 0 && !projectsQuery.isLoading && !projectsQuery.isError ? 'أنشئ مشروعًا للمتابعة' : 'تابع داخل المشروع'}
             <ArrowLeft aria-hidden="true" className="h-4 w-4" />
           </Button>
         </div>
