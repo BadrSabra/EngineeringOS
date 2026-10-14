@@ -9027,6 +9027,22 @@ export function auditExportFilename(
   return filename || fallback;
 }
 
+export function auditRedactionCategoryLabel(category: unknown): string {
+  if (typeof category !== 'string') return 'فئة بيانات مستبعدة';
+  switch (category.trim().toLowerCase()) {
+    case 'provider secrets':
+      return 'أسرار مزوّد الخدمة';
+    case 'raw model output':
+      return 'النص الخام الذي أنشأه النموذج';
+    case 'raw provider messages':
+      return 'رسائل مزوّد الخدمة الخام';
+    case 'private runtime paths':
+      return 'مسارات بيئة التشغيل الخاصة';
+    default:
+      return 'فئة بيانات مستبعدة';
+  }
+}
+
 type AuditPreview = ExportAiExecutionAudit200;
 
 function AgentExecutionProofPanel({
@@ -9386,14 +9402,17 @@ function AgentExecutionProofPanel({
       />
 
       {(auditPreview || auditPreviewError) && (
-        <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">
+        <div
+          className="border-b border-border/40 bg-background/30 px-3 py-3"
+          aria-label="معاينة سجل التدقيق بعد إخفاء البيانات الحساسة"
+        >
           {auditPreviewError ? (
             <div className="flex items-start gap-2.5">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold text-foreground">Audit preview temporarily unavailable</div>
-                <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                  The redacted audit handoff is still available. Check the connection and retry this same execution and revision.
+                <div className="text-[11px] font-semibold text-foreground">تعذّرت معاينة سجل التدقيق مؤقتًا</div>
+                <p dir="rtl" lang="ar" className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                  ما زال سجل التدقيق المنقّح متاحًا للتنزيل. تحقّق من الاتصال ثم أعد محاولة المعاينة للتشغيل ونسخة المشروع نفسيهما.
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <Button
@@ -9404,14 +9423,14 @@ function AgentExecutionProofPanel({
                     disabled={previewPending}
                     aria-busy={previewPending}
                   >
-                    {previewPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                    {previewPending ? 'Retrying…' : 'Retry preview'}
+                    {previewPending && <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />}
+                    {previewPending ? 'جارٍ إعادة المحاولة…' : 'إعادة محاولة المعاينة'}
                   </Button>
                   <button
                     type="button"
                     onClick={onClosePreview}
                     className="rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                    aria-label="Close audit preview"
+                    aria-label="إغلاق معاينة سجل التدقيق"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -9424,17 +9443,17 @@ function AgentExecutionProofPanel({
             <div>
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
                 <Eye className="h-3.5 w-3.5 text-primary" />
-                Redacted audit preview
+                معاينة سجل التدقيق المنقّح
               </div>
-              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                This is the same redacted record that will be downloaded. Sensitive categories excluded:
+              <p dir="rtl" lang="ar" className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                هذه هي البيانات المنقّحة نفسها التي ستُنزل. الفئات المستبعدة لحماية الخصوصية:
               </p>
             </div>
             <button
               type="button"
               onClick={onClosePreview}
               className="rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
-              aria-label="Close audit preview"
+              aria-label="إغلاق معاينة سجل التدقيق"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -9445,10 +9464,13 @@ function AgentExecutionProofPanel({
                 key={String(category)}
                 className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] text-amber-100"
               >
-                {String(category)}
+                {auditRedactionCategoryLabel(category)}
               </span>
             ))}
           </div>
+          <p dir="rtl" lang="ar" className="mt-2 text-[9px] leading-4 text-muted-foreground">
+            يعرض مربع JSON سجل الخادم بصيغته الأصلية للتدقيق؛ وتُشرح فئات الإخفاء بالعربية أعلاه.
+          </p>
           <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/50 bg-background/70 p-2.5 text-[9px] leading-4 text-foreground/80">
             {JSON.stringify(auditPreview, null, 2)}
           </pre>
@@ -9972,8 +9994,8 @@ export default function AiChat() {
     } catch (error) {
       setAuditPreviewError('temporary_network_failure');
       toast({
-        title: 'Audit preview temporarily unavailable',
-        description: 'Check the connection and retry the same redacted execution handoff.',
+        title: 'تعذّرت معاينة سجل التدقيق مؤقتًا',
+        description: 'تحقّق من الاتصال ثم أعد محاولة المعاينة للتشغيل ونسخة المشروع نفسيهما.',
         variant: 'destructive',
       });
     } finally {

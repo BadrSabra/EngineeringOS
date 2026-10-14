@@ -6781,7 +6781,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
     await expect(proof).toContainText(/completed/i);
     await expect(proof).toContainText("Revision: e2e-revision-42");
@@ -6829,18 +6829,20 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTestId("timeline-validate")).toContainText("Done");
     await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
 
-    await proof.getByRole("button", { name: "Preview audit" }).click();
-    const preview = page.getByLabel("Redacted audit preview");
+    await proof.getByRole("button", { name: "معاينة سجل التدقيق" }).click();
+    const preview = page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة");
     await expect(preview).toBeVisible();
-    await expect(preview).toContainText("Audit preview temporarily unavailable");
-    await expect(preview).toContainText("same execution and revision");
-    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+    await expect(preview).toContainText("تعذّرت معاينة سجل التدقيق مؤقتًا");
+    await expect(preview).toContainText("للتشغيل ونسخة المشروع نفسيهما");
+    await expect(preview.getByRole("button", { name: "إعادة محاولة المعاينة" })).toBeVisible();
     expect(auditRequests).toHaveLength(1);
 
-    await preview.getByRole("button", { name: "Retry preview" }).click();
-    await expect(preview).toContainText("provider secrets");
-    await expect(preview).toContainText("raw model output");
-    await expect(preview).toContainText("private runtime paths");
+    await preview.getByRole("button", { name: "إعادة محاولة المعاينة" }).click();
+    await expect(preview).toContainText("أسرار مزوّد الخدمة");
+    await expect(preview).toContainText("النص الخام الذي أنشأه النموذج");
+    await expect(preview).toContainText("مسارات بيئة التشغيل الخاصة");
+    await expect(preview.locator("pre")).toContainText("provider secrets");
+    await expect(preview).toContainText("يعرض مربع JSON سجل الخادم بصيغته الأصلية");
     await expect(preview).toContainText(EXECUTION_ID);
     await expect(preview).toContainText("e2e-operation");
     await expect(preview).toContainText("e2e-revision-42");
@@ -6849,17 +6851,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       `/api/ai/executions/${EXECUTION_ID}/audit-export`,
     );
 
-    await preview.getByRole("button", { name: "Close audit preview" }).click();
+    await preview.getByRole("button", { name: "إغلاق معاينة سجل التدقيق" }).click();
     await expect(preview).toBeHidden();
 
     const downloadPromise = page.waitForEvent("download");
-    await proof.getByRole("button", { name: "Export audit" }).click();
+    await proof.getByRole("button", { name: "تنزيل سجل التدقيق" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("server-supplied-audit-name.json");
     expect(auditRequests).toHaveLength(3);
 
     await page.reload();
-    const reloadedProof = page.getByLabel("Agent execution proof");
+    const reloadedProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(reloadedProof).toBeVisible();
     await expect(reloadedProof).toContainText(/completed/i);
     await expect(reloadedProof).toContainText("Execution e2e-controlled-execution");
@@ -6872,7 +6874,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
     await expect(
-      page.getByLabel("Redacted audit preview"),
+      page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة"),
     ).toBeHidden();
     expect(auditRequests).toHaveLength(3);
   });
@@ -6948,7 +6950,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    const proof = page.getByLabel("Agent execution proof");
+    const proof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(proof).toBeVisible();
     await expect(proof).toContainText("Cancelled");
     await expect(proof).toContainText("Execution e2e-controlled-execution");
@@ -6966,40 +6968,41 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       proof.getByRole("button", { name: /push committed changes/i }),
     ).toHaveCount(0);
 
-    await proof.getByRole("button", { name: "Preview audit" }).click();
-    const preview = page.getByLabel("Redacted audit preview");
+    await proof.getByRole("button", { name: "معاينة سجل التدقيق" }).click();
+    const preview = page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة");
     await expect(preview).toBeVisible();
-    await expect(preview).toContainText("Audit preview temporarily unavailable");
-    await expect(preview).toContainText("same execution and revision");
-    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+    await expect(preview).toContainText("تعذّرت معاينة سجل التدقيق مؤقتًا");
+    await expect(preview).toContainText("للتشغيل ونسخة المشروع نفسيهما");
+    await expect(preview.getByRole("button", { name: "إعادة محاولة المعاينة" })).toBeVisible();
     expect(auditRequests).toHaveLength(1);
 
-    await preview.getByRole("button", { name: "Retry preview" }).click();
+    await preview.getByRole("button", { name: "إعادة محاولة المعاينة" }).click();
     await expect(preview).toContainText("cancelled");
     await expect(preview).toContainText(EXECUTION_ID);
     await expect(preview).toContainText("e2e-operation");
     await expect(preview).toContainText("e2e-revision-42");
-    await expect(preview).toContainText("provider secrets");
-    await expect(preview).toContainText("raw model output");
-    await expect(preview).toContainText("private runtime paths");
+    await expect(preview).toContainText("أسرار مزوّد الخدمة");
+    await expect(preview).toContainText("النص الخام الذي أنشأه النموذج");
+    await expect(preview).toContainText("مسارات بيئة التشغيل الخاصة");
+    await expect(preview.locator("pre")).toContainText("provider secrets");
     await expect(proof).toContainText("Cancelled");
     await expect(proof).toContainText("Revision: e2e-revision-42");
     await expect(proof).toContainText("Terminal reason: cancel_requested");
     expect(auditRequests).toHaveLength(2);
 
-    await preview.getByRole("button", { name: "Close audit preview" }).click();
+    await preview.getByRole("button", { name: "إغلاق معاينة سجل التدقيق" }).click();
     const downloadPromise = page.waitForEvent("download");
-    await proof.getByRole("button", { name: "Export audit" }).click();
+    await proof.getByRole("button", { name: "تنزيل سجل التدقيق" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("cancelled-server-audit.json");
     expect(auditRequests).toHaveLength(3);
 
     await page.reload();
-    const reloadedProof = page.getByLabel("Agent execution proof");
+    const reloadedProof = page.getByLabel("إثبات التنفيذ وحالته");
     await expect(reloadedProof).toBeVisible();
     await expect(reloadedProof).toContainText("Cancelled");
     await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
-    await expect(page.getByLabel("Redacted audit preview")).toBeHidden();
+    await expect(page.getByLabel("معاينة سجل التدقيق بعد إخفاء البيانات الحساسة")).toBeHidden();
     expect(auditRequests).toHaveLength(3);
   });
 

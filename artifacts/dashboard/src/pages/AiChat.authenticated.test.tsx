@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AiChat, {
   AI_CHAT_SELECTION_STORAGE_PREFIX,
   auditExportFilename,
+  auditRedactionCategoryLabel,
   BenchmarkMissionControlPanel,
   parseAiChatRouteTarget,
 } from './AiChat';
@@ -1332,6 +1333,15 @@ describe('AiChat authenticated generated mutations', () => {
       'fallback.json',
     )).toBe('.._audit.json');
     expect(auditExportFilename(null, 'fallback.json')).toBe('fallback.json');
+  });
+
+  it('translates known audit redaction categories and hides unknown category values', () => {
+    expect(auditRedactionCategoryLabel('provider secrets')).toBe('أسرار مزوّد الخدمة');
+    expect(auditRedactionCategoryLabel('RAW MODEL OUTPUT')).toBe('النص الخام الذي أنشأه النموذج');
+    expect(auditRedactionCategoryLabel('raw provider messages')).toBe('رسائل مزوّد الخدمة الخام');
+    expect(auditRedactionCategoryLabel('private runtime paths')).toBe('مسارات بيئة التشغيل الخاصة');
+    expect(auditRedactionCategoryLabel('UNKNOWN_CATEGORY_SENTINEL')).toBe('فئة بيانات مستبعدة');
+    expect(auditRedactionCategoryLabel({ private: true })).toBe('فئة بيانات مستبعدة');
   });
 
   it('renders provider-unavailable benchmark evidence without counting it as Grade F', () => {
