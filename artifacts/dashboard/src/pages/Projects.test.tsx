@@ -90,6 +90,8 @@ describe("Projects", () => {
     const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع' });
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مشاريع تطابق بحثك');
+    expect(mocks.mutate).not.toHaveBeenCalled();
   });
 
   it("renders loading skeletons while fetching", () => {

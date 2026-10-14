@@ -9,15 +9,19 @@ export function RefreshButton({
   isRefreshing = false,
   lastUpdated,
   label = 'Refresh',
+  refreshingLabel = 'Refreshing…',
+  updatedLabel = 'Updated',
 }: {
   onRefresh: () => void | Promise<unknown>;
   isRefreshing?: boolean;
   lastUpdated?: number;
   label?: string;
+  refreshingLabel?: string;
+  updatedLabel?: string;
 }) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      {lastUpdated ? <span>Updated {new Date(lastUpdated).toLocaleTimeString()}</span> : null}
+      {lastUpdated ? <span>{updatedLabel} <bdi dir="ltr">{new Date(lastUpdated).toLocaleTimeString()}</bdi></span> : null}
       <button
         type="button"
         onClick={() => void onRefresh()}
@@ -27,7 +31,7 @@ export function RefreshButton({
         className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-60"
       >
         <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-        {isRefreshing ? 'Refreshing…' : label}
+        {isRefreshing ? refreshingLabel : label}
       </button>
     </div>
   );

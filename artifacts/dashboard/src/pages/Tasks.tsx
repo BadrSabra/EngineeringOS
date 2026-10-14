@@ -195,13 +195,13 @@ function acceptanceStatus(acceptance: TaskAcceptance): {
 function acceptanceNextAction(acceptance: TaskAcceptance): string {
   if (acceptance.disposition?.operatorAction) return acceptance.disposition.operatorAction;
   switch (acceptance.nextActionCode) {
-    case 'RESUME_ALLOWED': return 'Resume the saved execution checkpoint.';
-    case 'START_NEW_PROBE': return 'Start a new scoped probe.';
-    case 'REVIEW_INCOMPLETE_EVIDENCE': return 'Review the incomplete evidence before relying on this result.';
-    case 'RETRY_AFTER_PARSE': return 'Retry after correcting the model response format.';
-    case 'RETRY_AFTER_TIMEOUT': return 'Retry after the timeout window has cleared.';
-    case 'ABANDON_EXECUTION': return 'Start a new scoped run before relying on this result.';
-    default: return 'No operator action is required.';
+    case 'RESUME_ALLOWED': return 'استأنف التنفيذ من نقطة الحفظ المسجلة.';
+    case 'START_NEW_PROBE': return 'ابدأ فحصًا جديدًا ضمن النطاق المحدد.';
+    case 'REVIEW_INCOMPLETE_EVIDENCE': return 'راجع الأدلة الناقصة قبل الاعتماد على هذه النتيجة.';
+    case 'RETRY_AFTER_PARSE': return 'أعد المحاولة بعد تصحيح صيغة رد النموذج.';
+    case 'RETRY_AFTER_TIMEOUT': return 'أعد المحاولة بعد انتهاء مهلة الانتظار.';
+    case 'ABANDON_EXECUTION': return 'ابدأ تشغيلًا جديدًا ضمن النطاق المحدد قبل الاعتماد على هذه النتيجة.';
+    default: return 'لا يوجد إجراء إضافي مسجل للمستخدم.';
   }
 }
 
@@ -227,14 +227,14 @@ function TaskAcceptancePanel({
   if (isLoading) {
     return (
       <div className="mb-4 rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
-        Loading server acceptance…
+        جارٍ تحميل سجل قبول الخادم…
       </div>
     );
   }
   if (isError) {
     return (
       <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
-        Server acceptance is temporarily unavailable. Refresh the task details to see the authoritative outcome.
+        سجل قبول الخادم غير متاح الآن. حدّث تفاصيل المهمة لمعرفة نتيجتها المسجلة؛ تعذر التحميل لا يثبت نجاحها أو فشلها.
       </div>
     );
   }
@@ -245,7 +245,7 @@ function TaskAcceptancePanel({
     acceptance.resumable && acceptance.nextActionCode === "RESUME_ALLOWED";
   const nextAction =
     acceptanceOffersResume && !taskCanResume
-      ? "The Task status does not allow resume right now. Refresh the task to see its current action."
+      ? "حالة المهمة لا تسمح بالاستئناف الآن. حدّث تفاصيلها لمعرفة الإجراء المتاح."
       : acceptanceNextAction(acceptance);
   return (
     <section
@@ -278,10 +278,10 @@ function TaskAcceptancePanel({
           onClick={onResume}
           disabled={isResuming}
           className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Resume task execution"
+          aria-label="استئناف تنفيذ المهمة"
         >
           <Play className={`h-3.5 w-3.5 ${isResuming ? 'animate-pulse' : ''}`} />
-          {isResuming ? 'Resuming…' : 'Resume'}
+          {isResuming ? 'جارٍ الاستئناف…' : 'استئناف'}
         </button>
       )}
     </section>
@@ -339,7 +339,7 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
   );
 }
 
-function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
+function safeTaskText(value: unknown, fallback = 'لا تتوفر تفاصيل إضافية مسجلة.'): string {
   if (typeof value !== 'string') return fallback;
   return value
     .replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, '[project path]')
@@ -608,8 +608,8 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
         onError: (err: unknown) => {
           toast({
-            title: 'Verification update failed',
-            description: err instanceof Error ? err.message : 'The server could not record this check.',
+            title: 'تعذر حفظ قرار التحقق',
+            description: err instanceof Error ? err.message : 'تعذر تأكيد حفظ قرار هذا الفحص لدى الخادم.',
             variant: 'destructive',
           });
         },
@@ -655,7 +655,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       </div>
       {isRunning && connectionState === 'reconnecting' && (
         <div className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-300" role="status">
-          Temporary stream failure. Retrying live task updates; the task itself is still running.
+          انقطعت التحديثات الحية مؤقتًا، ونحاول إعادة الاتصال. انقطاع التحديثات ليس حكمًا بفشل المهمة.
         </div>
       )}
       {isRunning && connectionState === 'exhausted' && (
@@ -664,17 +664,17 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           role="alert"
           data-operation-id={operationId}
         >
-          <p className="font-medium text-destructive">Live task updates could not reconnect.</p>
+          <p dir="rtl" className="font-medium text-destructive">تعذرت إعادة الاتصال بتحديثات المهمة الحية.</p>
           <p className="mt-1 text-muted-foreground">
-            Reconnect attempts are exhausted. The task has not been marked failed; refresh the task logs to see the latest confirmed state.
-            {operationId && <> Operation: <span className="font-mono">{safeTaskText(operationId)}</span>.</>}
+            انتهت محاولات إعادة الاتصال. لم نغيّر حالة المهمة إلى فاشلة؛ حدّث سجلها لمعرفة أحدث حالة مؤكدة.
+            {operationId && <> معرّف العملية: <bdi dir="ltr" className="font-mono">{safeTaskText(operationId)}</bdi>.</>}
           </p>
           <div className="mt-2 flex flex-wrap gap-3">
             <button type="button" onClick={retryLiveUpdates} className="inline-flex items-center gap-1.5 font-medium text-foreground underline">
-              <RotateCcw className="w-3.5 h-3.5" /> Retry live updates
+              <RotateCcw className="w-3.5 h-3.5" /> أعد الاتصال بالتحديثات الحية
             </button>
             <button type="button" onClick={() => void refetchLogs()} className="inline-flex items-center gap-1.5 font-medium text-foreground underline">
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh task logs
+              <RefreshCw className="w-3.5 h-3.5" /> تحديث سجل المهمة
             </button>
           </div>
         </div>
@@ -710,15 +710,15 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         </h4>
       <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-72 p-3 space-y-2">
         {!isRunning && isLoading ? (
-          <span className="text-muted-foreground animate-pulse">Loading activity…</span>
+          <span dir="rtl" className="text-muted-foreground animate-pulse">جارٍ تحميل سجل النشاط…</span>
         ) : logsError ? (
           <div className="text-destructive">
-            <p>Could not load execution logs.</p>
-            <button type="button" onClick={() => void refetchLogs()} className="mt-2 underline">Retry logs</button>
+            <p dir="rtl">تعذر تحميل سجل التنفيذ.</p>
+            <button type="button" onClick={() => void refetchLogs()} className="mt-2 underline">إعادة تحميل السجل</button>
           </div>
         ) : logs.length === 0 ? (
           <span className="text-muted-foreground italic">
-            {isRunning ? 'Waiting for confirmed activity…' : 'No activity recorded.'}
+            {isRunning ? 'بانتظار نشاط مسجل من الخادم…' : 'لا يوجد نشاط مسجل في هذا العرض.'}
           </span>
         ) : (
           <>
@@ -749,16 +749,16 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           <div className="flex items-start justify-between gap-3 mb-3">
             <div>
               <h4 id={`operator-verification-${taskId}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-primary" /> Operator verification checks
+                <ShieldCheck className="w-4 h-4 text-primary" /> فحوص تتحقق منها بنفسك
               </h4>
               <p className="text-xs text-muted-foreground mt-1">
-                These checks are server-owned guidance. Record evidence after you perform each check; no model-supplied command is executed.
+                هذه إرشادات من الخادم. نفّذ الفحص ثم سجّل ما لاحظته؛ لا يُنفّذ أي أمر يقترحه النموذج هنا. تسجيلك ليس اختبارًا آليًا أو إثبات قبول شاملًا.
               </p>
             </div>
             <span className={`text-[10px] uppercase font-semibold shrink-0 ${
               task.verificationResult?.passed ? 'text-emerald-500' : 'text-amber-500'
             }`}>
-              {task.verificationResult?.passed ? 'Verified' : 'Incomplete'}
+              {task.verificationResult?.passed ? 'اجتياز مسجل' : 'السجل غير مكتمل'}
             </span>
           </div>
           <div className="space-y-3">
@@ -776,10 +776,10 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                         ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
                         : <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />}
                       <div className="min-w-0">
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Current decision</div>
-                        <div className="font-medium">{check.guidance}</div>
-                        <div className="text-[11px] text-muted-foreground mt-1">
-                          {result?.passed ? 'Passed — evidence recorded' : result?.output ?? 'Not recorded yet'}
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">القرار الحالي المسجل</div>
+                        <div dir="auto" className="font-medium">{check.guidance}</div>
+                        <div dir="auto" className="text-[11px] text-muted-foreground mt-1">
+                          {result?.passed ? 'اجتاز بحسب القرار والدليل المسجلين' : result?.output ?? 'لا يوجد قرار مسجل بعد'}
                         </div>
                       </div>
                     </div>
@@ -787,10 +787,11 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                   {taskStatus === 'verifying' && (
                     <>
                       <textarea
-                        aria-label={`Evidence for ${check.guidance}`}
+                        aria-label={`دليل الفحص: ${check.guidance}`}
                         value={evidence}
                         onChange={(event) => setVerificationEvidence((previous) => ({ ...previous, [check.id]: event.target.value }))}
-                        placeholder="Describe the observed result or attach a bounded evidence reference"
+                        placeholder="صف ما لاحظته أو أضف مرجع دليل ضمن نطاق الفحص"
+                        dir="auto"
                         maxLength={2000}
                         rows={2}
                         className="mt-2 w-full rounded border border-border bg-card px-2 py-1.5 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-primary"
@@ -803,7 +804,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                           disabled={recordVerification.isPending || evidence.trim().length === 0}
                           className="rounded border border-emerald-500/40 px-2.5 py-1 text-xs text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-50"
                         >
-                          Record passed
+                          سجّل اجتياز الفحص
                         </button>
                         <button
                           type="button"
@@ -811,17 +812,17 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                           disabled={recordVerification.isPending}
                           className="rounded border border-amber-500/40 px-2.5 py-1 text-xs text-amber-600 hover:bg-amber-500/10 disabled:opacity-50"
                         >
-                          Record failed
+                          سجّل فشل الفحص
                         </button>
                       </div>
                     </>
                   )}
                   <details className="mt-3 border-t border-border/70 pt-2" open={false}>
                     <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-                      Verification history ({history.length})
+                      سجل قرارات التحقق ({history.length})
                     </summary>
                     {history.length === 0 ? (
-                      <p className="mt-2 text-[11px] text-muted-foreground italic">No prior decisions recorded.</p>
+                      <p dir="rtl" className="mt-2 text-[11px] text-muted-foreground italic">لا توجد قرارات تحقق سابقة مسجلة.</p>
                     ) : (
                       <ol className="mt-2 space-y-2">
                         {history.map((entry, index) => (
@@ -834,7 +835,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                               <span className="text-muted-foreground">· decision {history.length - index}</span>
                             </div>
                             <div className="mt-1 text-muted-foreground">
-                              {entry.evidence ? safeTaskText(entry.evidence) : 'No evidence supplied.'}
+                              {entry.evidence ? safeTaskText(entry.evidence) : 'لا يوجد دليل مرفق بهذا القرار.'}
                             </div>
                             <div className="mt-1 text-[10px] text-muted-foreground">
                               By {safeTaskText(entry.actor, 'Unknown actor')} · {new Date(entry.recordedAt).toLocaleString()}
@@ -877,7 +878,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                 <span>{step.guidance ?? step.name}</span><span className="text-muted-foreground">— {safeTaskText(step.evidence ?? step.output, step.passed ? 'Passed' : 'Not confirmed')}</span>
               </div>
             ))}</div>
-          ) : <p className="text-xs text-muted-foreground mt-2">No server-owned verification details were recorded.</p>}
+          ) : <p dir="rtl" className="text-xs text-muted-foreground mt-2">لا تتوفر تفاصيل تحقق مسجلة من الخادم. هذا لا يثبت أن المهمة لم تُختبر.</p>}
         </section>
       )}
     </div>
@@ -1168,7 +1169,7 @@ export default function Tasks() {
   ) ?? [];
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
-    const label = action.charAt(0).toUpperCase() + action.slice(1);
+    const label = { execute: 'التنفيذ', retry: 'إعادة المحاولة', rollback: 'التراجع', resume: 'الاستئناف' }[action];
     const options = {
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
@@ -1176,8 +1177,8 @@ export default function Tasks() {
         void queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
       },
       onError: (err: unknown) => {
-        const description = err instanceof Error ? err.message : 'Request failed — check the API server logs.';
-        toast({ title: `${label} failed`, description, variant: 'destructive' });
+        const description = err instanceof Error ? err.message : 'تعذر إتمام الطلب. راجع تفاصيل المهمة قبل المحاولة مجددًا.';
+        toast({ title: `تعذر ${label}`, description, variant: 'destructive' });
       },
     };
     if (action === 'execute') executeTask.mutate({ taskId }, options);
@@ -1206,12 +1207,12 @@ export default function Tasks() {
           setCreateOpen(false);
           selectProject(created.projectId);
           void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
-          toast({ title: 'Task created', description: `${created.title} is now in the task backlog.` });
+          toast({ title: 'أُنشئت المهمة', description: `أُضيفت «${created.title}» إلى قائمة مهام المشروع.` });
         },
         onError: (err: unknown) => {
           toast({
-            title: 'Task creation failed',
-            description: err instanceof Error ? err.message : 'The API rejected the task.',
+            title: 'تعذر إنشاء المهمة',
+            description: err instanceof Error ? err.message : 'رفض الخادم طلب إنشاء المهمة.',
             variant: 'destructive',
           });
         },
@@ -1229,12 +1230,12 @@ export default function Tasks() {
           setEditingTask(null);
           void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
           void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
-          toast({ title: 'Task updated', description: `${updated.title} was saved.` });
+          toast({ title: 'حُفظ تعديل المهمة', description: `حُفظت تفاصيل «${updated.title}».` });
         },
         onError: (err: unknown) => {
           toast({
-            title: 'Task update failed',
-            description: err instanceof Error ? err.message : 'The API rejected the task update.',
+            title: 'تعذر تعديل المهمة',
+            description: err instanceof Error ? err.message : 'رفض الخادم طلب تعديل المهمة.',
             variant: 'destructive',
           });
         },
@@ -1327,42 +1328,44 @@ export default function Tasks() {
             <span className="text-base leading-none">+</span>
             مهمة جديدة
           </button>
-          {projectId && <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />}
-          <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border">
+          {projectId && <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث المهام" refreshingLabel="جارٍ التحديث…" updatedLabel="آخر تحديث:" />}
+          <div dir="rtl" lang="ar" className="flex flex-wrap items-center gap-2 bg-secondary p-1 rounded-md border border-border">
             <select
+              aria-label="تصفية المهام حسب الحالة"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as TaskStatusFilter | '')}
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground border-r border-border min-w-[120px]"
             >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="running">Running</option>
-              <option value="verifying">Verifying</option>
-              <option value="completed">Completed</option>
-              <option value="failed">Failed</option>
+              <option value="">كل الحالات</option>
+              <option value="pending">بانتظار التنفيذ</option>
+              <option value="running">قيد التنفيذ</option>
+              <option value="verifying">قيد التحقق</option>
+              <option value="completed">انتهت بحسب السجل</option>
+              <option value="failed">فشل مسجل</option>
             </select>
             <select
+              aria-label="تصفية المهام حسب الأولوية"
               value={filterPriority}
               onChange={(e) => setFilterPriority(e.target.value as TaskPriorityFilter | '')}
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground min-w-[100px]"
             >
-              <option value="">All Priorities</option>
-              <option value="p0">P0 — Critical</option>
-              <option value="p1">P1 — High</option>
-              <option value="p2">P2 — Medium</option>
-              <option value="p3">P3 — Low</option>
+              <option value="">كل الأولويات</option>
+              <option value="p0">حرجة (P0)</option>
+              <option value="p1">عالية (P1)</option>
+              <option value="p2">متوسطة (P2)</option>
+              <option value="p3">منخفضة (P3)</option>
             </select>
             <select
-              aria-label="Filter by acceptance"
+              aria-label="تصفية المهام حسب القبول"
               value={filterAcceptance}
               onChange={(e) => setFilterAcceptance(e.target.value as TaskAcceptanceFilter | '')}
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground min-w-[145px]"
             >
-              <option value="">All Acceptance</option>
-              <option value="accepted">Accepted</option>
-              <option value="interrupted">Interrupted</option>
-              <option value="failed">Failed</option>
-              <option value="recovery-required">Recovery required</option>
+              <option value="">كل حالات القبول</option>
+              <option value="accepted">قبول مسجل</option>
+              <option value="interrupted">تنفيذ منقطع</option>
+              <option value="failed">فشل مسجل</option>
+              <option value="recovery-required">يتطلب استردادًا</option>
             </select>
           </div>
           <div className="relative">
@@ -1371,12 +1374,15 @@ export default function Tasks() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search tasks..."
+              aria-label="ابحث عن مهمة"
+              placeholder="ابحث عن مهمة..."
+              dir="auto"
               className="bg-card border border-border rounded-md pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
+                aria-label="مسح البحث عن المهام"
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="w-3.5 h-3.5" />
@@ -1389,9 +1395,9 @@ export default function Tasks() {
       {/* Active filter badge */}
       {(searchTerm || filterAcceptance) && (
         <div className="shrink-0 flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Showing</span>
+          <span className="text-muted-foreground">يعرض الفلتر</span>
           <span className="font-semibold">{visibleTasks.length}</span>
-          <span className="text-muted-foreground">of {tasks?.length ?? 0} tasks matching</span>
+          <span className="text-muted-foreground">من {tasks?.length ?? 0} مهمة في القائمة المحمّلة</span>
           {searchTerm && (
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
               {searchTerm}
@@ -1399,9 +1405,7 @@ export default function Tasks() {
           )}
           {filterAcceptance && (
             <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
-              {filterAcceptance === 'recovery-required'
-                ? 'Recovery required'
-                : filterAcceptance.charAt(0).toUpperCase() + filterAcceptance.slice(1)}
+              {{ accepted: 'قبول مسجل', interrupted: 'تنفيذ منقطع', failed: 'فشل مسجل', 'recovery-required': 'يتطلب استردادًا' }[filterAcceptance]}
             </span>
           )}
         </div>
@@ -1415,7 +1419,7 @@ export default function Tasks() {
             ))}
           </div>
         ) : projectsError ? (
-          <RequestError message={projectError instanceof Error ? projectError.message : 'تعذر تحميل المشاريع.'} onRetry={() => void refetchProjects()} />
+          <RequestError title="تعذر تحميل المشاريع" retryLabel="إعادة المحاولة" message={projectError instanceof Error ? projectError.message : 'تعذر تحميل المشاريع.'} onRetry={() => void refetchProjects()} />
         ) : !projectId ? (
           <div role="status" className="rounded-xl border border-border p-6 text-sm">
             {requestedTaskId && requestedTaskError
@@ -1426,21 +1430,26 @@ export default function Tasks() {
           </div>
         ) : isError ? (
           <RequestError
-            message={error instanceof Error ? error.message : 'Unable to load tasks.'}
+            title="تعذر تحميل المهام"
+            retryLabel="إعادة المحاولة"
+            message={error instanceof Error ? error.message : 'تفاصيل المهام غير متاحة الآن.'}
             onRetry={() => void refetch()}
           />
         ) : visibleTasks.length === 0 ? (
-          <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
+          <div dir="rtl" lang="ar" role="status" className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <TerminalSquare className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">
               {filterAcceptance
-                ? `No tasks with ${filterAcceptance === 'recovery-required' ? 'recovery required' : filterAcceptance} acceptance`
-                : searchTerm ? 'No tasks match your search' : 'No tasks found'}
+                ? `لا توجد مهام ضمن فلتر ${{
+                    accepted: 'القبول المسجل', interrupted: 'التنفيذ المنقطع',
+                    failed: 'الفشل المسجل', 'recovery-required': 'الاسترداد المطلوب',
+                  }[filterAcceptance]}`
+                : searchTerm ? 'لا توجد مهام تطابق بحثك' : filterStatus || filterPriority ? 'لا توجد مهام تطابق الفلاتر' : 'لا توجد مهام في هذا العرض'}
             </h3>
             <p className="text-muted-foreground text-sm">
-              {filterAcceptance || searchTerm
-                ? 'Try a different search term or clear the filters.'
-                 : 'Create a task here, or let a project scan create one from a detected issue.'}
+              {filterAcceptance || searchTerm || filterStatus || filterPriority
+                ? 'جرّب عبارة بحث أخرى أو أزل الفلاتر. هذه نتيجة العرض الحالي، لا حكم على كل مهام المشروع.'
+                 : 'يمكنك إنشاء مهمة هنا، أو مراجعة المهام التي تنشأ عن مشكلات يكشفها فحص المشروع.'}
             </p>
           </div>
         ) : (
@@ -1462,7 +1471,7 @@ export default function Tasks() {
                 }}
                 aria-expanded={expandedTask === task.id}
                 aria-controls={`task-details-${task.id}`}
-                aria-label={`${expandedTask === task.id ? 'Collapse' : 'Expand'} task ${task.title}`}
+                aria-label={`${expandedTask === task.id ? 'طي تفاصيل المهمة' : 'عرض تفاصيل المهمة'}: ${task.title}`}
               >
                 <StatusIcon status={task.status} />
                 <div className="flex-1 min-w-0">
@@ -1509,7 +1518,8 @@ export default function Tasks() {
                       onClick={(e) => { e.stopPropagation(); handleAction('execute', task.id); }}
                       disabled={executeTask.isPending}
                       className="p-1.5 text-primary hover:bg-primary/10 rounded transition-colors disabled:opacity-50"
-                      title="Execute"
+                      title="بدء تنفيذ المهمة"
+                      aria-label={`بدء تنفيذ المهمة: ${task.title}`}
                     >
                       <Play className="w-4 h-4" />
                     </button>
@@ -1519,7 +1529,8 @@ export default function Tasks() {
                       onClick={(e) => { e.stopPropagation(); handleAction('retry', task.id); }}
                       disabled={retryTask.isPending}
                       className="p-1.5 text-primary hover:bg-primary/10 rounded transition-colors disabled:opacity-50"
-                      title="Retry"
+                      title="إعادة محاولة المهمة"
+                      aria-label={`إعادة محاولة المهمة: ${task.title}`}
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
@@ -1529,7 +1540,8 @@ export default function Tasks() {
                       onClick={(e) => { e.stopPropagation(); handleAction('rollback', task.id); }}
                       disabled={rollbackTask.isPending}
                       className="p-1.5 text-muted-foreground hover:bg-secondary rounded transition-colors disabled:opacity-50"
-                      title="Rollback"
+                      title="التراجع عن المهمة"
+                      aria-label={`التراجع عن المهمة: ${task.title}`}
                     >
                       <RotateCcw className="w-4 h-4" />
                     </button>
@@ -1586,7 +1598,7 @@ export default function Tasks() {
                             : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        {tab === 'logs' ? <span className="flex items-center gap-1"><Terminal className="w-3 h-3" /> Logs</span> : 'Details'}
+                        {tab === 'logs' ? <span className="flex items-center gap-1"><Terminal className="w-3 h-3" /> السجل</span> : 'التفاصيل'}
                       </button>
                     ))}
                   </div>
@@ -1656,7 +1668,7 @@ export default function Tasks() {
                                       )}
                                     </div>
                                   ) : (
-                                    <div className="text-xs text-amber-600 dark:text-amber-400">No bounded evidence was retained.</div>
+                                    <div dir="rtl" className="text-xs text-amber-600 dark:text-amber-400">لا تتوفر أدلة محفوظة لهذا النطاق.</div>
                                   )}
                                 </div>
                                 <div>
@@ -1668,7 +1680,7 @@ export default function Tasks() {
                                       ))}
                                     </ol>
                                   ) : (
-                                    <div className="text-xs text-amber-600 dark:text-amber-400">No verification steps supplied.</div>
+                                    <div dir="rtl" className="text-xs text-amber-600 dark:text-amber-400">لا توجد خطوات تحقق مرفقة في هذا السجل.</div>
                                   )}
                                 </div>
                               </div>

@@ -293,6 +293,67 @@ describe('project-scoped task list contracts', () => {
     vi.mocked(useListTasks).mockReturnValue({ ...previous, data: [], dataUpdatedAt: 2 });
     view.rerender(page());
     expect(screen.queryByText('Repair provider authentication')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام في هذا العرض');
+  });
+
+  it('retries a failed list read without replacing the error with an empty result or executing a task', () => {
+    const refetch = vi.fn();
+    vi.mocked(useListTasks).mockReturnValue({
+      data: undefined, isLoading: false, isError: true,
+      error: new Error('Owner-scoped read unavailable'), refetch,
+    } as unknown as ReturnType<typeof useListTasks>);
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل المهام');
+    expect(screen.getByRole('alert')).toHaveTextContent('Owner-scoped read unavailable');
+    expect(screen.queryByText('لا توجد مهام في هذا العرض')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+  });
+
+  it('describes filter emptiness as the current view and preserves the stored status code', () => {
+    renderPage();
+    const previous = vi.mocked(useListTasks).mock.results.at(-1)!.value;
+    vi.mocked(useListTasks).mockImplementation((params) => ({
+      ...previous, data: params?.status === 'running' ? [] : previous.data,
+    }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الحالة' }), { target: { value: 'running' } });
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام تطابق الفلاتر');
+    expect(screen.getByRole('status')).toHaveTextContent('لا حكم على كل مهام المشروع');
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-1', status: 'running' }), expect.anything(),
+    );
+  });
+
+  it('keeps Arabic labels separate from server priority codes and local acceptance filtering', () => {
+    renderPage();
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب الأولوية' }), { target: { value: 'p1' } });
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-1', priority: 'p1' }), expect.anything(),
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' }), { target: { value: 'recovery-required' } });
+    expect(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' })).toHaveValue('recovery-required');
+    expect(useListTasks).toHaveBeenLastCalledWith(
+      { projectId: 'project-1', priority: 'p1', status: undefined }, expect.anything(),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('لا توجد مهام ضمن فلتر الاسترداد المطلوب');
+    fireEvent.change(screen.getByRole('textbox', { name: 'ابحث عن مهمة' }), { target: { value: 'Repair' } });
+    fireEvent.click(screen.getByRole('button', { name: 'مسح البحث عن المهام' }));
+    expect(screen.getByRole('textbox', { name: 'ابحث عن مهمة' })).toHaveValue('');
+    expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+  });
+
+  it('routes a named Arabic retry to the same task without executing, rolling back, or opening its card', () => {
+    renderPage();
+    const snapshot = vi.mocked(useListTasks).mock.results.at(-1)!.value;
+    const task = snapshot.data!.find((item) => item.title === 'Repair provider authentication')!;
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة محاولة المهمة: Repair provider authentication' }));
+    expect(vi.mocked(useRetryTask).mock.results.at(-1)!.value.mutate).toHaveBeenCalledWith(
+      { taskId: task.id }, expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+    expect(vi.mocked(useRollbackTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Server acceptance outcome' })).not.toBeInTheDocument();
   });
 });
 
@@ -391,19 +452,19 @@ describe('Tasks recovery rendering', () => {
     renderPage();
 
     for (const item of recoveryCases) {
-      fireEvent.click(screen.getByRole('button', { name: `Expand task ${item.title}` }));
+      fireEvent.click(screen.getByRole('button', { name: `عرض تفاصيل المهمة: ${item.title}` }));
       const card = screen.getByRole('region', { name: 'Provider recovery actions' });
       expect(within(card).getByRole('heading', { name: item.heading })).toBeInTheDocument();
       expect(within(card).getByText(`Availability: ${item.availabilityState.replaceAll('_', ' ')}`)).toBeInTheDocument();
       expect(within(card).getByText(`Next step: ${item.action}`)).toBeInTheDocument();
       expect(within(card).getByText(`Support reference: ${item.correlationId}`)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: `Collapse task ${item.title}` }));
+      fireEvent.click(screen.getByRole('button', { name: `طي تفاصيل المهمة: ${item.title}` }));
     }
   });
 
   it('labels the execution attempt separately from provider attempts', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.getByText('Execution attempt: 3')).toBeInTheDocument();
     expect(screen.getByText('Provider attempts: 2')).toBeInTheDocument();
@@ -413,7 +474,7 @@ describe('Tasks recovery rendering', () => {
     mockTaskExecutionProjection('correlation-current', 'correlation-prior');
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
   });
@@ -422,7 +483,7 @@ describe('Tasks recovery rendering', () => {
     mockTaskExecutionProjection('correlation-current', 'correlation-current');
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
   });
@@ -455,13 +516,13 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useGetTask>);
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
     expect(within(acceptance).getByText('Recovery required')).toBeInTheDocument();
     expect(within(acceptance).getByText('Outcome: FAILED')).toBeInTheDocument();
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
-    expect(within(acceptance).getByRole('button', { name: 'Resume task execution' })).toBeInTheDocument();
+    expect(within(acceptance).getByRole('button', { name: 'استئناف تنفيذ المهمة' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
   });
 
@@ -493,11 +554,11 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useGetTask>);
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
-    expect(within(acceptance).getByText(/Task status does not allow resume/)).toBeInTheDocument();
-    expect(within(acceptance).queryByRole('button', { name: 'Resume task execution' })).not.toBeInTheDocument();
+    expect(within(acceptance).getByText(/حالة المهمة لا تسمح بالاستئناف/)).toBeInTheDocument();
+    expect(within(acceptance).queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
   });
 
   it('shows public acceptance badges and filters task rows by acceptance outcome', () => {
@@ -561,7 +622,7 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByLabelText('Acceptance: Accepted')).toBeInTheDocument();
     expect(screen.getByLabelText('Acceptance: Recovery required')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by acceptance' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' }), {
       target: { value: 'accepted' },
     });
     expect(screen.getByText('Accepted task')).toBeInTheDocument();
@@ -570,7 +631,7 @@ describe('Tasks recovery rendering', () => {
 
   it('does not expose raw provider diagnostics or credentials in task details', () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.queryByText(/raw provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
@@ -642,8 +703,8 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useGetTaskLogs>);
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Replay progress timeline' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Replay progress timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
     expect(screen.getByText('Build context')).toBeInTheDocument();
     expect(screen.getByText('Final result')).toBeInTheDocument();
@@ -686,8 +747,8 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useGetTaskLogs>);
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Keep a long timeline readable' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Keep a long timeline readable' }));
+    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
     expect(screen.getByRole('status')).toHaveTextContent('latest 79 of 120 activity entries');
     expect(screen.getByText(/activity event 0/)).toBeInTheDocument();
@@ -770,12 +831,12 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useListTasks>);
 
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand task Review a rule with reversals' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Review a rule with reversals' }));
+    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
-    expect(screen.getByText('Current decision')).toBeInTheDocument();
-    expect(screen.getByText('Passed — evidence recorded')).toBeInTheDocument();
-    const history = screen.getByText('Verification history (2)');
+    expect(screen.getByText('القرار الحالي المسجل')).toBeInTheDocument();
+    expect(screen.getByText('اجتاز بحسب القرار والدليل المسجلين')).toBeInTheDocument();
+    const history = screen.getByText('سجل قرارات التحقق (2)');
     fireEvent.click(history);
     expect(screen.getByText('The behavior still failed.')).toBeInTheDocument();
     expect(screen.getByText(/By operator-a/)).toBeInTheDocument();

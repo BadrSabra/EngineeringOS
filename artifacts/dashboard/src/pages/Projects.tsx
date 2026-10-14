@@ -348,42 +348,42 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
         )}
 
         {projectLoadFailure && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div dir="rtl" lang="ar" role="alert" className="flex flex-col items-center justify-center py-16 text-center">
             <div className="w-14 h-14 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-center justify-center mb-4">
               <Activity className="w-6 h-6 text-destructive/70" />
             </div>
-            <h3 className="font-semibold text-lg mb-1">Could not load projects</h3>
-            <p className="text-sm text-muted-foreground max-w-xs mb-5">
+            <h3 className="font-semibold text-lg mb-1">تعذر تحميل المشاريع</h3>
+            <p dir="auto" className="text-sm text-muted-foreground max-w-xs mb-5">
               {projectLoadFailure.message}
             </p>
             <button
               onClick={() => window.location.reload()}
               className="bg-secondary hover:bg-secondary/80 text-foreground px-4 py-2 rounded-md text-sm font-medium transition-colors border border-border"
             >
-              Refresh
+              تحديث الصفحة
             </button>
           </div>
         )}
 
         {!isLoading && !projectLoadFailure && (!filtered || filtered.length === 0) && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div dir="rtl" lang="ar" role="status" className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
               <Radar className="w-7 h-7 text-primary/60" />
             </div>
             <h3 className="font-semibold text-lg mb-1">
-              {search ? 'No projects match your search' : 'No projects yet'}
+              {search ? 'لا توجد مشاريع تطابق بحثك' : 'لا توجد مشاريع بعد'}
             </h3>
             <p className="text-sm text-muted-foreground max-w-xs mb-5">
               {search
-                ? 'Try a different search term.'
-                : 'Click Discover Project to let EngineeringOS autonomously analyze your first repository.'}
+                ? 'جرّب عبارة بحث أخرى.'
+                : 'يمكنك إنشاء مشروع جديد، أو استكشاف مشروع موجود لفهم ملفاته ومشكلاته.'}
             </p>
             {!search && (
               <button
                 onClick={() => setShowDiscover(true)}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground px-5 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 transition-colors"
               >
-                <Radar className="w-4 h-4" /> Discover Project
+                <Radar className="w-4 h-4" /> استكشف مشروعًا موجودًا
               </button>
             )}
           </div>

@@ -148,7 +148,7 @@ describe('Missions management', () => {
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
-    expect(screen.getByRole('status')).toHaveTextContent('Mission started.');
+    expect(screen.getByRole('status')).toHaveTextContent('بدأ الهدف الرئيسي.');
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -324,7 +324,7 @@ describe('Missions management', () => {
     fireEvent.click(screen.getByTestId('button-save-editor'));
 
     await waitFor(() => expect(bindMissionDeliveryMock).toHaveBeenCalledWith(deliveryGoal.id, 'proposal-1'));
-    expect(await screen.findByRole('status')).toHaveTextContent('Delivery proposal bound.');
+    expect(await screen.findByRole('status')).toHaveTextContent('رُبط مقترح التسليم.');
   });
 
   it('confirms a server-owned replan and refreshes mission state after success', async () => {
@@ -342,7 +342,7 @@ describe('Missions management', () => {
     fireEvent.click(await screen.findByTestId(`button-replan-mission-${mission.id}`));
 
     expect(screen.getByRole('alertdialog')).toHaveTextContent(
-      'Previous Goals and evidence remain in the Mission history.',
+      'تبقى الخطوات والأدلة السابقة في سجل الهدف.',
     );
     fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
 
@@ -362,7 +362,7 @@ describe('Missions management', () => {
     ];
     callbacks.onSuccess();
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'A new plan revision was created.',
+      'أُنشئت نسخة خطة جديدة',
     );
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });
@@ -430,7 +430,7 @@ describe('Missions management', () => {
       '/mission-control?projectId=project-1&executionId=execution-approval-1',
     );
     expect(screen.getByRole('alertdialog')).toHaveTextContent(
-      'it does not apply or deliver files by itself.',
+      'لا تطبّق الملفات أو تسلّمها بذاتها.',
     );
     fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
 
@@ -450,7 +450,7 @@ describe('Missions management', () => {
     ];
     callbacks.onSuccess();
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'The Goal was approved and Mission execution resumed.',
+      'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي.',
     );
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });

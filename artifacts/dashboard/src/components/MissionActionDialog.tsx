@@ -55,16 +55,16 @@ export default function MissionActionDialog({
         if (!open && !isPending) onClose();
       }}
     >
-      <AlertDialogContent data-testid="mission-action-confirm-dialog">
+      <AlertDialogContent dir="rtl" lang="ar" data-testid="mission-action-confirm-dialog">
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-300" />
-            {action?.type === 'replan' ? 'Create a new plan revision?' : `Approve “${action?.goalTitle ?? 'Goal'}”?`}
+            {action?.type === 'replan' ? 'إنشاء نسخة جديدة من الخطة؟' : <>الموافقة على «<bdi dir="auto">{action?.goalTitle ?? 'خطوة الهدف'}</bdi>»؟</>}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {action?.type === 'replan'
-              ? `This uses the current intent for “${action.missionTitle}” to create and start a new server-owned plan revision. Previous Goals and evidence remain in the Mission history.`
-              : `This approves the server-held proposal for “${action?.goalTitle ?? 'this Goal'}” and resumes “${action?.missionTitle ?? 'the Mission'}”. Approval clears the gate; it does not apply or deliver files by itself.`}
+              ? <>سيستخدم الخادم الغاية الحالية للهدف الرئيسي «<bdi dir="auto">{action.missionTitle}</bdi>» لإنشاء نسخة خطة جديدة وبدء تنفيذها. تبقى الخطوات والأدلة السابقة في سجل الهدف.</>
+              : <>ستوافق على المقترح المحفوظ لدى الخادم للخطوة «<bdi dir="auto">{action?.goalTitle ?? 'هذه الخطوة'}</bdi>»، وتستأنف الهدف الرئيسي «<bdi dir="auto">{action?.missionTitle ?? 'الهدف الرئيسي'}</bdi>». الموافقة تزيل بوابة الانتظار، لكنها لا تطبّق الملفات أو تسلّمها بذاتها.</>}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -74,15 +74,15 @@ export default function MissionActionDialog({
             className="text-sm font-medium text-cyan-200 underline underline-offset-4 hover:text-cyan-100"
             data-testid="link-review-mission-approval"
           >
-            Review the linked execution in Mission Control
+            راجع التنفيذ المرتبط في صفحة متابعة الأهداف
           </a>
         ) : null}
 
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p dir="auto" role="alert" className="text-sm text-destructive">{error}</p> : null}
 
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isPending} data-testid="button-cancel-mission-action">
-            Cancel
+            إلغاء
           </AlertDialogCancel>
           <AlertDialogAction
             disabled={isPending || !action}
@@ -94,10 +94,10 @@ export default function MissionActionDialog({
             data-testid="button-confirm-mission-action"
           >
             {isPending
-              ? 'Working…'
+              ? 'جارٍ التنفيذ…'
               : action?.type === 'replan'
-                ? 'Create new plan'
-                : 'Approve and resume'}
+                 ? 'إنشاء خطة جديدة'
+                 : 'الموافقة والاستئناف'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

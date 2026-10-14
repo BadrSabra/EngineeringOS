@@ -243,7 +243,7 @@ function EmptyState({
   description: string;
 }) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
+    <div dir="rtl" lang="ar" className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
       <div className="mb-4 rounded-xl border border-slate-700 bg-slate-800/40 p-3 text-slate-500">
         <Icon className="h-5 w-5" />
       </div>
@@ -265,12 +265,12 @@ function ErrorState({
   onRetry: () => void;
 }) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
+    <div dir="rtl" lang="ar" role="alert" className="flex min-h-56 flex-col items-center justify-center px-6 text-center">
       <div className="mb-4 rounded-xl border border-rose-400/20 bg-rose-400/10 p-3 text-rose-300">
         {forbidden ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
       </div>
       <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
-      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">{message}</p>
+      <p dir="auto" className="mt-1 max-w-sm text-xs leading-5 text-slate-500">{message}</p>
       <button
         type="button"
         onClick={onRetry}
@@ -278,7 +278,7 @@ function ErrorState({
         className="mt-4 inline-flex items-center gap-2 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:border-cyan-400/50 hover:bg-slate-700"
       >
         <RefreshCw className="h-3.5 w-3.5" />
-        Try again
+        إعادة المحاولة
       </button>
     </div>
   );
@@ -308,7 +308,7 @@ function CollectionLine({
 
 function TaskList({ tasks }: { tasks: ProjectionTask[] }) {
   if (tasks.length === 0) {
-    return <p className="text-xs text-slate-600">No linked tasks in this projection.</p>;
+    return <p dir="rtl" className="text-xs text-slate-600">لا توجد مهام مرتبطة في هذا العرض.</p>;
   }
   return (
     <div className="space-y-1.5">
@@ -326,7 +326,7 @@ function TaskList({ tasks }: { tasks: ProjectionTask[] }) {
 
 function WorkflowList({ workflows }: { workflows: ProjectionWorkflow[] }) {
   if (workflows.length === 0) {
-    return <p className="text-xs text-slate-600">No linked workflows in this projection.</p>;
+    return <p dir="rtl" className="text-xs text-slate-600">لا توجد مسارات عمل مرتبطة في هذا العرض.</p>;
   }
   return (
     <div className="space-y-1.5">
@@ -344,7 +344,7 @@ function WorkflowList({ workflows }: { workflows: ProjectionWorkflow[] }) {
 
 function ExecutionList({ executions }: { executions: ProjectionExecution[] }) {
   if (executions.length === 0) {
-    return <p className="text-xs text-slate-600">No executions attached to this goal.</p>;
+    return <p dir="rtl" className="text-xs text-slate-600">لا توجد تشغيلات مرتبطة بهذه الخطوة في هذا العرض.</p>;
   }
   return (
     <div className="space-y-1.5">
@@ -362,7 +362,7 @@ function ExecutionList({ executions }: { executions: ProjectionExecution[] }) {
 
 function EventList({ events }: { events: ProjectionEvent[] }) {
   if (events.length === 0) {
-    return <p className="text-xs text-slate-600">No events attached to this goal.</p>;
+    return <p dir="rtl" className="text-xs text-slate-600">لا توجد أحداث مرتبطة بهذه الخطوة في هذا العرض.</p>;
   }
   return (
     <div className="space-y-1.5">
@@ -939,7 +939,7 @@ function GoalCard({
             <h3 className="truncate text-sm font-semibold text-slate-100">{goal.title}</h3>
             <StatusPill status={goal.status} />
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{goal.description || 'No description provided.'}</p>
+          <p dir="auto" className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{goal.description || 'لا يوجد وصف مسجل.'}</p>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] text-slate-600">
             <span>priority {goal.priority ?? '—'}</span>
             <span>{linkedCount} linked records</span>
@@ -970,8 +970,8 @@ function GoalCard({
               className="inline-flex items-center gap-1 rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-wait disabled:opacity-60"
             >
               <ShieldAlert className="h-3 w-3" />
-              <span className="hidden sm:inline">Review approval</span>
-              <span className="sm:hidden">Approve</span>
+              <span className="hidden sm:inline">مراجعة الموافقة</span>
+              <span className="sm:hidden">مراجعة</span>
             </button>
           ) : null}
           <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`تعديل خطوة الهدف: ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
@@ -994,7 +994,7 @@ function GoalCard({
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-slate-600">Next action</p>
               <p className="mt-1 break-words text-xs leading-5 text-slate-300">
-                {displayJsonValue(goal.nextAction, 'No next action recorded.')}
+                {displayJsonValue(goal.nextAction, 'لا يوجد إجراء تالٍ مسجل.')}
               </p>
             </div>
             {goal.blockedReason ? (
@@ -1279,7 +1279,7 @@ export default function Missions() {
       setApplyProposalId('');
       setApplyTitle('');
       setApplyIntent('');
-      setMutationNotice('Apply Mission created. The approved proposal is waiting for Apply Changes.');
+      setMutationNotice('أُنشئ هدف التطبيق. المقترح الموافَق عليه ينتظر خطوة تطبيق التغييرات.');
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       setMutationError(error);
@@ -1298,7 +1298,7 @@ export default function Missions() {
         setMissions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
         setSelectedMissionId(created.id);
         setEditor(null);
-        setMutationNotice('Mission started. Your first plan is running.');
+        setMutationNotice('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'mission-edit') {
         const updated = await updateMission(editor.mission.id, data as UpdateMissionInput);
@@ -1307,15 +1307,15 @@ export default function Missions() {
         setEditor(null);
         setMutationNotice(
           updated.status === 'active' && editor.mission.status !== 'active'
-            ? 'Mission activated. Initial plan queued.'
-            : 'Mission updated.',
+            ? 'فُعّل الهدف الرئيسي، وأُضيف إعداد خطته الأولى إلى قائمة الانتظار.'
+            : 'حُفظت تفاصيل الهدف الرئيسي.',
         );
         setMissionsReload((value) => value + 1);
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'goal-create') {
         await createGoal(editor.missionId, data as CreateGoalInput);
         setEditor(null);
-        setMutationNotice('Goal created.');
+        setMutationNotice('أُضيفت خطوة الهدف.');
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'goal-edit') {
         const updated = await updateGoal(editor.goal.id, data as UpdateGoalInput);
@@ -1324,12 +1324,12 @@ export default function Missions() {
           goals: current.goals.map((item) => item.goal.id === updated.id ? { ...item, goal: updated } : item),
         } : current);
         setEditor(null);
-        setMutationNotice('Goal updated.');
+        setMutationNotice('حُفظت تفاصيل خطوة الهدف.');
         setProjectionReload((value) => value + 1);
       } else {
         const created = await createTask(data as ApiCreateTaskInput);
         setEditor(null);
-        setMutationNotice(`Task created: ${created.title}`);
+        setMutationNotice(`أُنشئت المهمة: ${created.title}`);
         setProjectionReload((value) => value + 1);
       }
     } catch (error: unknown) {
@@ -1348,8 +1348,8 @@ export default function Missions() {
       setEditor(null);
       setMutationNotice(
         result.run.status === 'waiting'
-          ? 'Delivery proposal bound. The Goal will resume when its dependencies complete.'
-          : 'Delivery proposal bound. The Goal has been queued for delivery.',
+          ? 'رُبط مقترح التسليم. تنتظر الخطوة اكتمال الخطوات التي تعتمد عليها قبل المتابعة.'
+          : 'رُبط مقترح التسليم وأُضيفت الخطوة إلى قائمة انتظار التسليم.',
       );
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
@@ -1368,7 +1368,7 @@ export default function Missions() {
       const updated = await updateMission(activeMission.id, { status: 'active' });
       setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
       setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
-      setMutationNotice('Mission started. Your first plan is running.');
+      setMutationNotice('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
@@ -1391,11 +1391,11 @@ export default function Missions() {
         {
           onSuccess: () => {
             setPendingMissionAction(null);
-            setMutationNotice('A new plan revision was created. Mission execution has resumed.');
+            setMutationNotice('أُنشئت نسخة خطة جديدة وسُجّل استئناف تنفيذ الهدف الرئيسي.');
             refreshMissionData();
           },
           onError: (error) => {
-            setMissionActionError(errorMessage(error, 'The Mission could not be replanned. Refresh and try again.'));
+            setMissionActionError(errorMessage(error, 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'));
             refreshMissionData();
           },
         },
@@ -1411,11 +1411,11 @@ export default function Missions() {
       {
         onSuccess: () => {
           setPendingMissionAction(null);
-          setMutationNotice('The Goal was approved and Mission execution resumed.');
+          setMutationNotice('سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.');
           refreshMissionData();
         },
         onError: (error) => {
-          setMissionActionError(errorMessage(error, 'The Goal could not be approved. Refresh and try again.'));
+          setMissionActionError(errorMessage(error, 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.'));
           refreshMissionData();
         },
       },
@@ -1456,7 +1456,7 @@ export default function Missions() {
         {mutationNotice ? (
           <div role="status" className="mb-4 flex items-center justify-between gap-3 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-3 py-2.5 text-xs text-emerald-100">
             <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" />{mutationNotice}</span>
-            <button type="button" onClick={() => setMutationNotice(null)} className="text-emerald-200/70 hover:text-emerald-100" aria-label="Dismiss notification"><X className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={() => setMutationNotice(null)} className="text-emerald-200/70 hover:text-emerald-100" aria-label="إغلاق الإشعار"><X className="h-3.5 w-3.5" /></button>
           </div>
         ) : null}
 
@@ -1482,25 +1482,26 @@ export default function Missions() {
         ) : projectsError ? (
           <section className="rounded-xl border border-slate-800 bg-slate-900/50">
             <ErrorState
-              title={projectErrorStatus === 403 ? 'Project access is restricted' : 'Projects are unavailable'}
-              message={projectErrorStatus === 403 ? 'Your account cannot view the owned project set.' : errorMessage(projectsQueryError, 'The project list could not be loaded.')}
+              title={projectErrorStatus === 403 ? 'لا تملك صلاحية عرض المشاريع' : 'المشاريع غير متاحة الآن'}
+              message={projectErrorStatus === 403 ? 'لا يسمح حسابك بعرض قائمة هذه المشاريع.' : errorMessage(projectsQueryError, 'تعذر تحميل قائمة المشاريع.')}
               forbidden={projectErrorStatus === 403}
               onRetry={() => void refetchProjects()}
             />
           </section>
         ) : projects.length === 0 ? (
           <section className="rounded-xl border border-slate-800 bg-slate-900/50">
-            <EmptyState icon={Layers3} title="No owned projects" description="Missions appear here when an owned project is available to your account." />
+            <EmptyState icon={Layers3} title="لا توجد مشاريع متاحة لحسابك" description="تظهر الأهداف هنا عند توفر مشروع تملكه. ابدأ من صفحة المشاريع." />
           </section>
         ) : (
           <>
             <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/50 p-3 sm:flex-row sm:items-center">
               <label htmlFor="mission-project-select" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
                 <Code2 className="h-3.5 w-3.5 text-cyan-300/70" />
-                Choose a project
+                اختر مشروعًا
               </label>
               <select
                 id="mission-project-select"
+                dir="auto"
                 value={projectId}
                 onChange={(event) => { setRouteTargetReleased(true); setProjectId(event.target.value); }}
                 data-testid="select-mission-project"
@@ -1519,7 +1520,7 @@ export default function Missions() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Your missions</p>
-                      <p className="mt-1 text-xs text-slate-600">{selectedProject?.name ?? 'Select a project'}</p>
+                      <p dir="auto" className="mt-1 text-xs text-slate-600">{selectedProject?.name ?? 'اختر مشروعًا'}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{missions.length} total</span>
@@ -1540,13 +1541,13 @@ export default function Missions() {
                   </div>
                 ) : missionsError ? (
                   <ErrorState
-                    title={errorStatus(missionsError) === 403 ? 'Mission access is restricted' : 'Missions are unavailable'}
-                    message={errorStatus(missionsError) === 403 ? 'This project does not permit mission projection access.' : errorMessage(missionsError, 'The mission list could not be loaded.')}
+                    title={errorStatus(missionsError) === 403 ? 'لا تملك صلاحية عرض الأهداف' : 'الأهداف غير متاحة الآن'}
+                    message={errorStatus(missionsError) === 403 ? 'لا تتوفر لك صلاحية عرض أهداف هذا المشروع.' : errorMessage(missionsError, 'تعذر تحميل قائمة الأهداف.')}
                     forbidden={errorStatus(missionsError) === 403}
                     onRetry={() => setMissionsReload((value) => value + 1)}
                   />
                 ) : missions.length === 0 ? (
-                  <EmptyState icon={ListChecks} title="No missions for this project" description="Create the first durable objective for this project." />
+                  <EmptyState icon={ListChecks} title="لا توجد أهداف لهذا المشروع في العرض الحالي" description="يمكنك بدء هدف رئيسي وتحديد ما تريد إنجازه في هذا المشروع." />
                 ) : (
                   <div className="space-y-2 p-3">
                     {missions.map((mission) => {
@@ -1566,7 +1567,7 @@ export default function Missions() {
                                 <span className="line-clamp-2 text-sm font-semibold text-slate-200">{mission.title}</span>
                                 <StatusPill status={mission.status} />
                               </div>
-                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{mission.intent || 'No intent recorded.'}</p>
+                              <p dir="auto" className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{mission.intent || 'لا توجد غاية مسجلة.'}</p>
                               <p className="mt-2 font-mono text-[10px] text-slate-600">{compactId(mission.id)} · updated {formatDate(mission.updatedAt, true)}</p>
                             </div>
                           </div>
@@ -1579,7 +1580,7 @@ export default function Missions() {
 
               <section className="min-w-0 rounded-xl border border-slate-800 bg-slate-900/55">
                 {!activeMission ? (
-                  <EmptyState icon={Layers3} title="Select a mission" description="Choose a mission from the queue to inspect its goals and linked operational records." />
+                  <EmptyState icon={Layers3} title="اختر هدفًا رئيسيًا" description="اختر هدفًا من القائمة لعرض خطواته وسجلات التنفيذ المرتبطة به." />
                 ) : (
                   <>
                     <div className="border-b border-slate-800 px-4 py-4 md:px-5">
@@ -1589,7 +1590,7 @@ export default function Missions() {
                             <StatusPill status={activeMission.status} />
                           </div>
                           <h2 data-testid={`text-mission-title-${activeMission.id}`} className="text-xl font-semibold tracking-tight text-slate-50">{activeMission.title}</h2>
-                          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeMission.intent || 'No intent recorded for this mission.'}</p>
+                          <p dir="auto" className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeMission.intent || 'لا توجد غاية مسجلة لهذا الهدف الرئيسي.'}</p>
                         </div>
                         <div className="flex shrink-0 items-start gap-3 sm:flex-col sm:items-end">
                           <div className="flex items-center gap-2">
@@ -1609,13 +1610,13 @@ export default function Missions() {
                                 className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-wait disabled:opacity-60"
                               >
                                 <RefreshCw className="h-3.5 w-3.5" />
-                                Create new plan
+                                إنشاء خطة جديدة
                               </button>
                             ) : null}
                             {activeMission.status === 'draft' ? (
                               <button type="button" onClick={() => void startMission()} disabled={mutationSaving} data-testid={`button-start-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-300/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/25 disabled:cursor-wait disabled:opacity-60">
                                 {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
-                                Start mission
+                                بدء الهدف الرئيسي
                               </button>
                             ) : null}
                             <button type="button" onClick={() => openEditor({ type: 'mission-edit', mission: activeMission })} data-testid={`button-edit-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-100">
@@ -1733,8 +1734,8 @@ export default function Missions() {
                       </div>
                     ) : projectionError ? (
                       <ErrorState
-                        title={errorStatus(projectionError) === 403 ? 'Projection access is restricted' : 'Projection unavailable'}
-                        message={errorStatus(projectionError) === 403 ? 'You can see the mission but not its linked operational records.' : errorMessage(projectionError, 'The mission projection could not be loaded.')}
+                        title={errorStatus(projectionError) === 403 ? 'لا تملك صلاحية عرض تفاصيل التنفيذ' : 'تفاصيل التنفيذ غير متاحة الآن'}
+                        message={errorStatus(projectionError) === 403 ? 'يمكنك عرض الهدف الرئيسي، لكن سجلاته التشغيلية المرتبطة ليست متاحة لحسابك.' : errorMessage(projectionError, 'تعذر تحميل تفاصيل تنفيذ الهدف الرئيسي.')}
                         forbidden={errorStatus(projectionError) === 403}
                         onRetry={() => setProjectionReload((value) => value + 1)}
                       />
@@ -1804,8 +1805,8 @@ export default function Missions() {
                         {projectionGoals.length === 0 ? (
                           <EmptyState
                             icon={activeMission.status === 'draft' ? ArrowUpRight : ListChecks}
-                            title={activeMission.status === 'draft' ? 'Ready to start' : 'No progress yet'}
-                            description={activeMission.status === 'draft' ? 'Start this mission to create the plan and begin execution.' : 'The plan is being prepared. Refresh shortly to see its first result.'}
+                            title={activeMission.status === 'draft' ? 'جاهز للبدء' : 'لا توجد تفاصيل تقدم في هذا العرض بعد'}
+                            description={activeMission.status === 'draft' ? 'ابدأ الهدف الرئيسي لإنشاء الخطة وبدء تنفيذها.' : 'قد تكون الخطة قيد الإعداد. حدّث البيانات بعد قليل لمعرفة الحالة المسجلة.'}
                           />
                         ) : (
                           <div className="space-y-2">
@@ -1847,7 +1848,7 @@ export default function Missions() {
                          </details>
                       </div>
                     ) : (
-                      <EmptyState icon={Layers3} title="No projection returned" description="The mission exists, but its read-only projection was empty." />
+                      <EmptyState icon={Layers3} title="لم تصل تفاصيل تنفيذ للعرض" description="الهدف الرئيسي موجود، لكن الاستجابة القرائية لا تتضمن تفاصيله. هذا لا يثبت اكتماله أو فشله." />
                     )}
                   </>
                 )}

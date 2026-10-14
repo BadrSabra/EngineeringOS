@@ -76,13 +76,13 @@ export default function GeneralChat() {
         setDraft('');
         void queryClient.invalidateQueries({ queryKey: getListGeneralChatSessionsQueryKey() });
       },
-      onError: () => setActionError('A new conversation could not be created. Your existing conversations are unchanged.'),
+      onError: () => setActionError('تعذر تأكيد إنشاء محادثة جديدة. لم نغيّر قائمة محادثاتك السابقة في هذا العرض.'),
     });
   };
 
   const handleDelete = (sessionId: string) => {
     const session = orderedSessions.find((item) => item.id === sessionId);
-    if (!session || !window.confirm(`Delete “${session.title}” and its messages? This cannot be undone.`)) return;
+    if (!session || !window.confirm(`حذف «${session.title}» ورسائلها نهائيًا؟ لا يمكن التراجع عن ذلك.`)) return;
     setActionError('');
     deleteSession.mutate({ sessionId }, {
       onSuccess: () => {
@@ -95,7 +95,7 @@ export default function GeneralChat() {
         void queryClient.invalidateQueries({ queryKey: getListGeneralChatSessionsQueryKey() });
         void queryClient.removeQueries({ queryKey: getListGeneralChatMessagesQueryKey(sessionId) });
       },
-      onError: () => setActionError('That conversation could not be deleted. It is still available in your list.'),
+      onError: () => setActionError('تعذر تأكيد حذف المحادثة. حدّث القائمة لمعرفة حالتها الحالية.'),
     });
   };
 
@@ -122,7 +122,7 @@ export default function GeneralChat() {
         },
         onError: () => {
           setDraft(message);
-          setActionError('The message was not accepted. Your draft has been restored; retry when ready.');
+          setActionError('تعذر تأكيد قبول الرسالة. أعدنا نصها إلى المسودة؛ راجع حالة المحادثة قبل إعادة الإرسال.'),
           void queryClient.invalidateQueries({ queryKey: getListGeneralChatMessagesQueryKey(sessionId) });
         },
       },
@@ -157,26 +157,26 @@ export default function GeneralChat() {
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)]">
-        <aside aria-label="Saved conversations" className="flex max-h-52 flex-col border-b border-border bg-background/35 md:max-h-none md:border-b-0 md:border-r">
+        <aside aria-label="المحادثات المحفوظة" className="flex max-h-52 flex-col border-b border-border bg-background/35 md:max-h-none md:border-b-0 md:border-r">
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Conversation log</span>
+            <span lang="ar" className="text-[10px] text-muted-foreground">المحادثات المحفوظة</span>
             <span className="font-mono text-[10px] text-muted-foreground">{sessions.length.toString().padStart(2, '0')}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {sessionsQuery.isLoading ? (
-              <div className="space-y-2 p-2" aria-label="Loading conversations">
+              <div className="space-y-2 p-2" aria-label="جارٍ تحميل المحادثات">
                 {[0, 1, 2].map((item) => <div key={item} className="h-14 animate-pulse rounded-lg border border-border/70 bg-secondary/35" />)}
               </div>
             ) : sessionsQuery.isError ? (
-              <div className="m-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs text-muted-foreground">
-                <p>Saved conversations could not be loaded.</p>
-                <button type="button" onClick={() => void sessionsQuery.refetch()} data-testid="button-retry-general-sessions" className="mt-2 inline-flex items-center gap-1.5 font-medium text-foreground"><RefreshCw className="h-3 w-3" /> Retry</button>
+              <div dir="rtl" lang="ar" role="alert" className="m-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-xs text-muted-foreground">
+                <p>تعذر تحميل المحادثات المحفوظة.</p>
+                <button type="button" onClick={() => void sessionsQuery.refetch()} data-testid="button-retry-general-sessions" className="mt-2 inline-flex items-center gap-1.5 font-medium text-foreground"><RefreshCw className="h-3 w-3" /> إعادة المحاولة</button>
               </div>
             ) : orderedSessions.length === 0 ? (
-              <div className="m-2 rounded-lg border border-dashed border-border px-3 py-5 text-center">
+              <div dir="rtl" lang="ar" role="status" className="m-2 rounded-lg border border-dashed border-border px-3 py-5 text-center">
                 <div className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-muted-foreground"><MessageSquareText className="h-4 w-4" /></div>
-                <p className="text-xs font-medium">No conversations yet</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Create one to start a saved engineering discussion.</p>
+                <p className="text-xs font-medium">لا توجد محادثات في القائمة بعد</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">أنشئ محادثة لبدء نقاش محفوظ، منفصل عن مشاريعك.</p>
               </div>
             ) : (
               <div className="space-y-1">
@@ -189,14 +189,14 @@ export default function GeneralChat() {
                       aria-current={activeSessionId === session.id ? 'true' : undefined}
                       className="min-w-0 flex-1 px-1.5 py-1 text-left"
                     >
-                      <span className="block truncate text-xs font-medium">{session.title || 'Untitled conversation'}</span>
+                      <span dir="auto" className="block truncate text-xs font-medium">{session.title || 'محادثة بلا عنوان'}</span>
                       <span className="mt-1 block font-mono text-[9px] text-muted-foreground">{new Date(session.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(session.id)}
                       disabled={deleteSession.isPending}
-                      aria-label={`Delete ${session.title || 'conversation'}`}
+                       aria-label={`حذف المحادثة: ${session.title || 'محادثة بلا عنوان'}`}
                       data-testid={`button-delete-general-session-${session.id}`}
                       className="rounded p-1.5 text-muted-foreground opacity-100 transition hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                     >
@@ -209,31 +209,31 @@ export default function GeneralChat() {
           </div>
         </aside>
 
-        <section className="flex min-h-[430px] min-w-0 flex-col md:min-h-0" aria-label="General conversation">
+        <section className="flex min-h-[430px] min-w-0 flex-col md:min-h-0" aria-label="المحادثة العامة">
           {activeSession ? (
             <>
               <div className="flex min-w-0 items-center gap-2 border-b border-border/70 px-5 py-3">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{activeSession.title}</h2>
-                <span className="hidden font-mono text-[9px] uppercase tracking-wider text-muted-foreground sm:inline">User-owned / durable</span>
+                <span lang="ar" className="hidden text-[9px] text-muted-foreground sm:inline">محادثة محفوظة لحسابك</span>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8">
                 {messagesQuery.isLoading ? (
-                  <div className="mx-auto max-w-2xl space-y-4" aria-label="Loading messages">
+                  <div className="mx-auto max-w-2xl space-y-4" aria-label="جارٍ تحميل الرسائل">
                     {[0, 1].map((item) => <div key={item} className={`h-20 animate-pulse rounded-xl border border-border bg-secondary/30 ${item ? 'ml-auto w-3/4' : 'w-4/5'}`} />)}
                   </div>
                 ) : messagesQuery.isError ? (
-                  <div className="mx-auto mt-8 max-w-md rounded-xl border border-amber-500/25 bg-amber-500/5 p-5 text-center">
+                  <div dir="rtl" lang="ar" role="alert" className="mx-auto mt-8 max-w-md rounded-xl border border-amber-500/25 bg-amber-500/5 p-5 text-center">
                     <AlertTriangle className="mx-auto h-5 w-5 text-amber-300" />
-                    <p className="mt-2 text-sm font-medium">Messages are unavailable</p>
-                    <p className="mt-1 text-xs text-muted-foreground">This conversation is unchanged. Try loading it again.</p>
-                    <button type="button" onClick={() => void messagesQuery.refetch()} data-testid="button-retry-general-messages" className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-secondary"><RefreshCw className="h-3 w-3" /> Retry</button>
+                    <p className="mt-2 text-sm font-medium">الرسائل غير متاحة الآن</p>
+                    <p className="mt-1 text-xs text-muted-foreground">تعذر تحميل رسائل هذه المحادثة؛ هذا لا يعني حذفها. أعد تحميلها لمعرفة حالتها.</p>
+                    <button type="button" onClick={() => void messagesQuery.refetch()} data-testid="button-retry-general-messages" className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-secondary"><RefreshCw className="h-3 w-3" /> إعادة المحاولة</button>
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="mx-auto mt-12 max-w-md text-center">
+                  <div dir="rtl" lang="ar" role="status" className="mx-auto mt-12 max-w-md text-center">
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-secondary/55 text-primary"><Bot className="h-5 w-5" /></div>
-                    <h3 className="mt-4 text-base font-semibold">A clean slate</h3>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">Ask about an engineering decision, system design, debugging approach, or anything else. This conversation has no project workspace or project tools attached.</p>
+                    <h3 className="mt-4 text-base font-semibold">ابدأ برسالتك الأولى</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">ناقش سؤالًا أو فكرة أو قارن بين خيارات. هذه المحادثة منفصلة عن مساحة المشروع وملفاته وأدواته.</p>
                   </div>
                 ) : (
                   <div className="mx-auto max-w-3xl space-y-5">
@@ -244,16 +244,16 @@ export default function GeneralChat() {
                         </div>
                         <div className={`min-w-0 max-w-[85%] rounded-xl border px-4 py-3 ${message.role === 'user' ? 'border-primary/20 bg-primary/8' : 'border-border bg-card'}`}>
                           <div className="mb-1.5 flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
-                            <span>{message.role === 'user' ? 'You' : 'EngineeringOS'}</span>
-                            {message.status === 'pending' && <span className="inline-flex items-center gap-1 text-primary"><Activity className="h-3 w-3 animate-pulse" /> In progress</span>}
-                            {message.status === 'failed' && <span className="text-amber-300">Could not complete</span>}
+                            <span>{message.role === 'user' ? 'أنت' : 'EngineeringOS'}</span>
+                            {message.status === 'pending' && <span className="inline-flex items-center gap-1 text-primary"><Activity className="h-3 w-3 animate-pulse" /> جارٍ إعداد الرد</span>}
+                            {message.status === 'failed' && <span lang="ar" className="text-amber-300">لم يكتمل الرد</span>}
                           </div>
-                          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.content}</p>
-                          {message.status === 'failed' && <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">{message.errorMessage || 'This response did not complete. You can send a follow-up when ready.'}</p>}
+                          <p dir="auto" className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.content}</p>
+                          {message.status === 'failed' && <p dir="auto" className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">{message.errorMessage || 'لم يكتمل هذا الرد. راجع ما سُجّل، ويمكنك إرسال رسالة متابعة عندما تكون جاهزًا.'}</p>}
                         </div>
                       </article>
                     ))}
-                    <div aria-live="polite" className="sr-only">{hasPendingReply ? 'The assistant is preparing a response.' : ''}</div>
+                    <div aria-live="polite" className="sr-only">{hasPendingReply ? 'المساعد يعد ردًا الآن.' : ''}</div>
                   </div>
                 )}
               </div>
@@ -267,8 +267,9 @@ export default function GeneralChat() {
                       onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); } }}
                       maxLength={12000}
                       rows={2}
-                      placeholder={hasPendingReply ? 'Waiting for the assistant to complete…' : 'Write an engineering question or thought…'}
-                      aria-label="Message to EngineeringOS"
+                      placeholder={hasPendingReply ? 'بانتظار اكتمال رد المساعد…' : 'اكتب سؤالًا أو فكرة لمناقشتها…'}
+                      aria-label="رسالتك إلى المساعد"
+                      dir="auto"
                       data-testid="input-general-chat-message"
                       className="max-h-40 min-h-11 min-w-0 flex-1 resize-y bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/65"
                     />
@@ -277,27 +278,27 @@ export default function GeneralChat() {
                       onClick={handleSend}
                       disabled={!draft.trim() || sendMessage.isPending || hasPendingReply}
                       data-testid="button-send-general-message"
-                      aria-label="Send message"
+                      aria-label="إرسال الرسالة"
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {sendMessage.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-primary" /> Standalone conversation. No project files or tools are in scope.</span>
+                    <span dir="rtl" lang="ar" className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3 w-3 text-primary" /> محادثة مستقلة؛ ملفات المشاريع وأدواتها خارج نطاقها.</span>
                     <span className="shrink-0 font-mono">{draft.length}/12000</span>
                   </div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
+            <div dir="rtl" lang="ar" className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-secondary/50 text-muted-foreground"><MessageSquareText className="h-6 w-6" /></div>
-              <h2 className="mt-4 text-base font-semibold">{sessionsQuery.isLoading ? 'Loading saved conversations' : 'Start a conversation'}</h2>
-              <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">{sessionsQuery.isLoading ? 'Your conversation list is being retrieved.' : 'Create an independent engineering thread. It will remain separate from all projects.'}</p>
+              <h2 className="mt-4 text-base font-semibold">{sessionsQuery.isLoading ? 'جارٍ تحميل المحادثات المحفوظة' : sessionsQuery.isError ? 'تعذر عرض المحادثات' : 'ابدأ محادثة عامة'}</h2>
+              <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">{sessionsQuery.isLoading ? 'نحمّل قائمة محادثاتك.' : sessionsQuery.isError ? 'فشل تحميل القائمة لا يعني أنها فارغة. أعد المحاولة من قائمة المحادثات.' : 'أنشئ نقاشًا مستقلًا. سيبقى منفصلًا عن العمل في مشاريعك.'}</p>
               {!sessionsQuery.isLoading && !sessionsQuery.isError && (
                 <button type="button" onClick={handleCreate} disabled={createSession.isPending} data-testid="button-create-first-general-chat" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/15 disabled:opacity-50">
-                  <Plus className="h-4 w-4" /> Create conversation
+                  <Plus className="h-4 w-4" /> إنشاء محادثة
                 </button>
               )}
               {actionError && <p role="alert" className="mt-4 text-xs text-amber-200">{actionError}</p>}
