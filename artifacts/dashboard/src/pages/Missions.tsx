@@ -1400,14 +1400,14 @@ export default function Missions() {
     <main className="min-h-[100dvh] bg-[#08111d] px-4 py-5 text-slate-100 md:px-7 md:py-7">
       <div className="mx-auto max-w-[1700px]">
         <header className="mb-6 flex flex-col gap-4 border-b border-slate-800/90 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div dir="rtl" lang="ar">
             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-cyan-300/70">
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-              Work toward a goal
+              العمل نحو هدف
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">Missions</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">الأهداف</h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
-              Tell the system what you want to achieve. It creates the plan and shows you the result.
+              حدد ما تريد إنجازه، ثم تابع الخطة والقرارات والنتيجة المسجلة.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1422,7 +1422,7 @@ export default function Missions() {
               className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 transition-colors hover:border-cyan-400/40 hover:bg-slate-800 hover:text-slate-100"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Refresh
+              تحديث
             </button>
           </div>
         </header>

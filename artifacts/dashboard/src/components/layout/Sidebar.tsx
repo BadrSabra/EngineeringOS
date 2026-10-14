@@ -38,7 +38,7 @@ export function Sidebar({
     activeGroupId ? [activeGroupId] : [],
   );
   const displayName =
-    user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || 'Operator';
+    user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || 'المستخدم';
 
   useEffect(() => {
     if (!activeGroupId) return;
@@ -85,25 +85,27 @@ export function Sidebar({
       ref={mobileDrawerRef}
       id="mobile-navigation-drawer"
       role={mobileOpen ? 'dialog' : undefined}
-      aria-label={mobileOpen ? 'Main navigation menu' : undefined}
+      aria-label={mobileOpen ? 'قائمة التنقل الرئيسية' : undefined}
       aria-modal={mobileOpen ? true : undefined}
       tabIndex={-1}
-      className={`${mobileOpen ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-50 w-72 max-w-[calc(100vw-1rem)] border-r border-border bg-card flex-col h-full shrink-0 shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-64 md:max-w-none md:shadow-none`}
+      dir="rtl"
+      lang="ar"
+      className={`${mobileOpen ? 'flex' : 'hidden'} fixed inset-y-0 right-0 z-50 w-72 max-w-[calc(100vw-1rem)] border-e border-border bg-card flex-col h-full shrink-0 shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-64 md:max-w-none md:shadow-none`}
     >
       <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
         <div className="flex items-center gap-2 text-primary font-bold text-lg tracking-tight">
           <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground">
             <Network className="w-4 h-4" />
           </div>
-          EngineeringOS
+          <span dir="ltr">EngineeringOS</span>
         </div>
         <button
           ref={mobileCloseRef}
           type="button"
           onClick={onMobileClose}
-          className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
-          aria-label="Close navigation"
-          title="Close navigation"
+          className="ms-auto rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
+          aria-label="إغلاق القائمة"
+          title="إغلاق القائمة"
           data-testid="button-close-navigation"
         >
           <X className="h-4 w-4" />
@@ -111,17 +113,23 @@ export function Sidebar({
       </div>
 
       <nav
-        aria-label="Main navigation"
+        aria-label="التنقل الرئيسي"
         className="flex-1 overflow-y-auto px-3 py-4"
       >
-        <div className="mb-2 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          Workspace
+        <div className="mb-2 px-3 text-[11px] font-medium tracking-wider text-muted-foreground">
+          الأساسيات
         </div>
         <div className="space-y-1">
           {PRIMARY_NAV_ITEMS.map(renderNavigationLink)}
         </div>
 
-        <div className="mt-5 space-y-2">
+        <div className="mt-5 mb-2 px-3 text-[11px] font-medium tracking-wider text-muted-foreground">
+          أدوات متقدمة
+        </div>
+        <p className="mb-2 px-3 text-xs text-muted-foreground">
+          للمستخدمين المتمرسين. افتح أي قسم لعرض صفحاته.
+        </p>
+        <div className="space-y-2">
           {NAV_GROUPS.map((group) => {
             const isOpen = openGroupIds.includes(group.id);
             const isActive = group.items.some((item) =>
@@ -134,10 +142,11 @@ export function Sidebar({
                 <button
                   type="button"
                   aria-expanded={isOpen}
+                  aria-describedby={`${groupContentId}-description`}
                   aria-controls={groupContentId}
                   data-testid={`button-nav-group-${group.id}`}
                   onClick={() => toggleGroup(group.id)}
-                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors ${
                     isActive
                       ? 'text-primary'
                       : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
@@ -149,10 +158,11 @@ export function Sidebar({
                     className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
                   />
                 </button>
+                <p id={`${groupContentId}-description`} className="px-3 pb-1 text-xs text-muted-foreground">{group.description}</p>
                 <div
                   id={groupContentId}
                   hidden={!isOpen}
-                  className="space-y-1 pl-2"
+                  className="space-y-1 ps-2"
                 >
                   {group.items.map(renderNavigationLink)}
                 </div>
@@ -175,8 +185,8 @@ export function Sidebar({
           <button
             type="button"
             onClick={() => signOut({ redirectUrl: basePath || '/' })}
-            title="Sign out"
-            aria-label="Sign out"
+            title="تسجيل الخروج"
+            aria-label="تسجيل الخروج"
             data-testid="button-sign-out"
             className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-secondary shrink-0"
           >

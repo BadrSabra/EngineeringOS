@@ -78,7 +78,7 @@ describe("Projects", () => {
 
   it("filters projects by name (case-insensitive)", () => {
     render(<Projects />);
-    const input = screen.getByPlaceholderText(/filter projects/i);
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع' });
     fireEvent.change(input, { target: { value: "ALPHA" } });
     expect(screen.getByText("alpha-service")).toBeInTheDocument();
     expect(screen.queryByText("beta-worker")).not.toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("Projects", () => {
 
   it("shows empty state when no projects match the search", () => {
     render(<Projects />);
-    const input = screen.getByPlaceholderText(/filter projects/i);
+    const input = screen.getByRole('textbox', { name: 'ابحث عن مشروع' });
     fireEvent.change(input, { target: { value: "zzz-no-match" } });
     expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
   });
@@ -101,18 +101,18 @@ describe("Projects", () => {
     } as ReturnType<typeof useListProjects>);
     render(<Projects />);
     // Skeleton cards have animate-pulse; heading should still be present
-    expect(screen.getByText("Projects")).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'المشاريع' })).toBeInTheDocument();
   });
 
   it("opens discover wizard when Discover Project button is clicked", () => {
     render(<Projects />);
-    fireEvent.click(screen.getByRole("button", { name: /discover project/i }));
+    fireEvent.click(screen.getByRole("button", { name: 'استكشف مشروعًا موجودًا' }));
     expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
   });
 
   it("closes discover wizard when onClose is called", () => {
     render(<Projects />);
-    fireEvent.click(screen.getByRole("button", { name: /discover project/i }));
+    fireEvent.click(screen.getByRole("button", { name: 'استكشف مشروعًا موجودًا' }));
     expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(screen.queryByTestId("discover-wizard")).not.toBeInTheDocument();

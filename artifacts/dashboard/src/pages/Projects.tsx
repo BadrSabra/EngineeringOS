@@ -291,10 +291,10 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
 
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
+          <div dir="rtl" lang="ar">
+            <h1 className="text-2xl font-bold tracking-tight">المشاريع</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Manage repositories under autonomous observation.
+              اختر مشروعًا للعمل عليه، أو ابدأ مشروعًا جديدًا.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -304,7 +304,9 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Filter projects..."
+                aria-label="ابحث عن مشروع"
+                placeholder="ابحث عن مشروع..."
+                dir="auto"
                 className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
               />
             </div>
@@ -312,7 +314,7 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
               onClick={() => setShowDiscover(true)}
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
             >
-              <Radar className="w-4 h-4" /> Discover Project
+              <Radar className="w-4 h-4" /> استكشف مشروعًا موجودًا
             </button>
             <button
               type="button"
@@ -320,7 +322,7 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
               data-testid="button-new-project"
               className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-secondary"
             >
-              <Plus className="h-4 w-4" /> New project
+              <Plus className="h-4 w-4" /> مشروع جديد
             </button>
           </div>
         </div>

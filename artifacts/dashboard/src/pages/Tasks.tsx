@@ -1300,10 +1300,10 @@ export default function Tasks() {
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Task Backlog</h1>
+        <div dir="rtl" lang="ar">
+          <h1 className="text-2xl font-bold tracking-tight">المهام</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Orchestrate and monitor autonomous agent tasks.
+            تابع مهام المشروع وافتح تفاصيلها لمراجعة العمل والتحقق المسجل.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

@@ -138,10 +138,10 @@ export default function GeneralChat() {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-lg font-semibold tracking-tight">General engineering chat</h1>
-              <span className="hidden rounded border border-border bg-background/70 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground sm:inline">No project scope</span>
+              <h1 dir="rtl" lang="ar" className="truncate text-lg font-semibold tracking-tight">محادثة عامة</h1>
+              <span lang="ar" className="hidden rounded border border-border bg-background/70 px-2 py-0.5 text-[9px] text-muted-foreground sm:inline">خارج نطاق المشاريع</span>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">A durable conversation space, separate from project workspaces.</p>
+            <p dir="rtl" lang="ar" className="mt-0.5 text-xs text-muted-foreground">محادثات محفوظة للأسئلة العامة، منفصلة عن العمل داخل مشاريعك.</p>
           </div>
         </div>
         <button
@@ -152,7 +152,7 @@ export default function GeneralChat() {
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
         >
           {createSession.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CirclePlus className="h-4 w-4" />}
-          New conversation
+          محادثة جديدة
         </button>
       </header>
 

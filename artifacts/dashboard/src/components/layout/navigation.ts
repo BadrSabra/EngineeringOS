@@ -25,43 +25,47 @@ export type NavigationItem = {
 export type NavigationGroup = {
   id: string;
   label: string;
+  description: string;
   items: NavigationItem[];
 };
 
 export const PRIMARY_NAV_ITEMS: NavigationItem[] = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects', label: 'Projects', icon: FolderGit2 },
-  { href: '/ai', label: 'AI Assistant', icon: Bot },
-  { href: '/general-chat', label: 'General Chat', icon: MessageSquareText },
+  { href: '/', label: 'الرئيسية', icon: LayoutDashboard },
+  { href: '/projects', label: 'المشاريع', icon: FolderGit2 },
+  { href: '/ai', label: 'المساعد الذكي', icon: Bot },
+  { href: '/general-chat', label: 'محادثة عامة', icon: MessageSquareText },
 ];
 
 export const NAV_GROUPS: NavigationGroup[] = [
   {
     id: 'execution',
-    label: 'Execution',
+    label: 'متقدم: التنفيذ والمتابعة',
+    description: 'أدوات تشغيلية لمتابعة المهام وخطوات العمل بالتفصيل.',
     items: [
-      { href: '/tasks', label: 'Tasks', icon: ListTodo },
-      { href: '/missions', label: 'Missions', icon: Target },
-      { href: '/mission-control', label: 'Mission Control', icon: Gauge },
-      { href: '/workflows', label: 'Workflows', icon: GitMerge },
-      { href: '/flight-deck', label: 'Flight Deck', icon: Plane },
+      { href: '/tasks', label: 'المهام', icon: ListTodo },
+      { href: '/missions', label: 'الأهداف', icon: Target },
+      { href: '/mission-control', label: 'متابعة الأهداف', icon: Gauge },
+      { href: '/workflows', label: 'مسارات العمل', icon: GitMerge },
+      { href: '/flight-deck', label: 'لوحة التشغيل', icon: Plane },
     ],
   },
   {
     id: 'insights',
-    label: 'Insights',
+    label: 'متقدم: السجلات والمؤشرات',
+    description: 'سجل الأحداث والأرقام وخريطة الترابط بين أجزاء المشروع.',
     items: [
-      { href: '/events', label: 'Event Stream', icon: Activity },
-      { href: '/metrics', label: 'Metrics', icon: BarChart3 },
-      { href: '/graph', label: 'Knowledge Graph', icon: Network },
+      { href: '/events', label: 'سجل الأحداث', icon: Activity },
+      { href: '/metrics', label: 'المؤشرات', icon: BarChart3 },
+      { href: '/graph', label: 'خريطة الترابط', icon: Network },
     ],
   },
   {
     id: 'governance',
-    label: 'Governance',
+    label: 'متقدم: القواعد والصلاحيات',
+    description: 'قواعد العمل والمهارات المسموح بها للمساعد.',
     items: [
-      { href: '/rules', label: 'Rules Engine', icon: ShieldAlert },
-      { href: '/skill-registry', label: 'Skill Registry', icon: ShieldCheck },
+      { href: '/rules', label: 'القواعد', icon: ShieldAlert },
+      { href: '/skill-registry', label: 'سجل المهارات', icon: ShieldCheck },
     ],
   },
 ];
@@ -81,5 +85,5 @@ export function getNavigationPageLabel(pathname: string): string {
     .filter((item) => isNavigationItemActive(pathname, item.href))
     .sort((left, right) => right.href.length - left.href.length)[0];
 
-  return matchingItem?.label ?? 'Workspace';
+  return matchingItem?.label ?? 'مساحة العمل';
 }

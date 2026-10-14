@@ -13,28 +13,36 @@ describe("Landing", () => {
   it("renders the product heading", () => {
     render(<Landing />);
     expect(
-      screen.getByText("One console for how your code actually moves"),
+      screen.getByRole('heading', { level: 1, name: 'ابدأ بهدفك، ونساعدك على متابعة الطريق إليه' }),
     ).toBeInTheDocument();
   });
 
   it("renders Sign In and Create Account CTAs", () => {
     render(<Landing />);
-    const signIn = screen.getByRole("link", { name: /sign in/i });
-    const createAccount = screen.getByRole("link", { name: /create account/i });
+    const signIn = screen.getByRole("link", { name: 'تسجيل الدخول' });
+    const createAccount = screen.getByRole("link", { name: 'إنشاء حساب' });
     expect(signIn).toHaveAttribute("href", "/sign-in");
     expect(createAccount).toHaveAttribute("href", "/sign-up");
   });
 
   it("renders all four feature cards", () => {
     render(<Landing />);
-    expect(screen.getByText(/knowledge graph/i)).toBeInTheDocument();
-    expect(screen.getByText(/workflow orchestration/i)).toBeInTheDocument();
-    expect(screen.getByText(/rule-driven governance/i)).toBeInTheDocument();
-    expect(screen.getByText(/live event stream/i)).toBeInTheDocument();
+    expect(screen.getByText('خريطة توضح كيف ترتبط أجزاء مشروعك ببعضها')).toBeInTheDocument();
+    expect(screen.getByText('خطوات واضحة من الفحص إلى المراجعة ثم الإصدار')).toBeInTheDocument();
+    expect(screen.getByText('قواعد تحددها أنت مع سجل لما تم تنفيذه')).toBeInTheDocument();
+    expect(screen.getByText('متابعة مباشرة لما يحدث في مشاريعك')).toBeInTheDocument();
   });
 
   it("renders the EngineeringOS brand name in the header", () => {
     render(<Landing />);
     expect(screen.getByText("EngineeringOS")).toBeInTheDocument();
+  });
+
+  it('isolates the Latin brand inside an Arabic RTL page and limits the approval wording', () => {
+    const { container } = render(<Landing />);
+    expect(container.firstElementChild).toHaveAttribute('dir', 'rtl');
+    expect(container.firstElementChild).toHaveAttribute('lang', 'ar');
+    expect(screen.getByText('EngineeringOS')).toHaveAttribute('dir', 'ltr');
+    expect(screen.getByText(/راجع القرارات التي تحتاج موافقتك/)).toBeInTheDocument();
   });
 });

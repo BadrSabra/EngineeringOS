@@ -76,13 +76,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }, [mobileNavOpen]);
 
   return (
-    <div className="flex h-[100dvh] w-full bg-background text-foreground overflow-hidden">
+    <div dir="rtl" lang="ar" className="flex h-[100dvh] w-full bg-background text-foreground overflow-hidden">
       {mobileNavOpen && (
         <button
           type="button"
           onClick={() => setMobileNavOpen(false)}
           className="fixed inset-0 z-40 bg-black/60 md:hidden"
-          aria-label="Close navigation"
+          aria-label="إغلاق القائمة"
           tabIndex={-1}
         />
       )}
@@ -100,16 +100,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
               onClick={() => setMobileNavOpen(true)}
               ref={navigationOpenerRef}
               className="shrink-0 rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
-              aria-label="Open navigation"
-              title="Open navigation"
+              aria-label="فتح القائمة"
+              title="فتح القائمة"
               aria-expanded={mobileNavOpen}
               aria-controls="mobile-navigation-drawer"
               data-testid="button-open-navigation"
             >
               <Menu className="h-4 w-4" />
             </button>
-            <nav aria-label="Current location" className="min-w-0 truncate text-sm">
-              <span className="text-muted-foreground">EngineeringOS</span>
+            <nav aria-label="موقعك الحالي" className="min-w-0 truncate text-sm">
+              <span dir="ltr" className="text-muted-foreground">EngineeringOS</span>
               <span aria-hidden="true" className="px-2 text-muted-foreground/60">/</span>
               <span className="font-semibold text-foreground" data-testid="text-current-page">
                 {pageLabel}
@@ -117,7 +117,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background p-3 sm:p-6">
+        <main dir="ltr" className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background p-3 sm:p-6">
           <div className="h-full min-h-0 max-w-7xl mx-auto w-full">{children}</div>
         </main>
       </div>

@@ -8,3 +8,13 @@ EngineeringOS targets Arabic-speaking users without programming or engineering e
 **Why:** The user-provided product brief identifies this audience and experience as central to EngineeringOS.
 
 **How to apply:** Keep the primary flow goal-first and plain-language, explain only the progress and decisions users need, and retain detailed technical evidence in optional advanced views.
+
+Localize direction at reviewed surfaces rather than globally flipping every
+technical page. The navigation shell can be RTL while legacy page content keeps
+its layout until its own direction and mixed code/path content are reviewed.
+
+**Why:** Arabic navigation should not silently reverse unreviewed operational
+tables, source paths, or embedded technical controls.
+
+**How to apply:** Expand RTL deliberately with page-level verification; keep
+Latin brands, source paths, and identifiers direction-isolated where needed.
