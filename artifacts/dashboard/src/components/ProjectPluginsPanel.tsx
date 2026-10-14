@@ -51,41 +51,42 @@ export default function ProjectPluginsPanel({
       aria-labelledby="project-plugins-title"
       className="rounded-xl border border-border bg-card p-5 shadow-sm"
       data-testid="panel-project-plugins"
+      dir="rtl"
     >
       <div className="mb-4">
         <h2 id="project-plugins-title" className="font-semibold text-foreground">
-          Project plugins
+          إضافات المشروع
         </h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          Global availability is only a ceiling. Enable a plugin here to run its
-          supported scan hook for this project.
+          إتاحة الإضافة على مستوى النظام لا تعني تفعيلها لهذا المشروع. فعّلها هنا
+          لتشغيل فحصها المدعوم على ملفات المشروع.
         </p>
       </div>
 
       {pluginsQuery.isLoading ? (
         <p className="animate-pulse text-sm text-muted-foreground" role="status">
-          Loading project plugins…
+          جارٍ تحميل الإضافات…
         </p>
       ) : pluginsQuery.isError ? (
         <p className="text-sm text-destructive" role="alert">
-          Plugin settings could not be loaded. Refresh this panel to try again.
+          تعذّر تحميل إعدادات الإضافات. حدّث هذه اللوحة وحاول مرة أخرى.
         </p>
       ) : !pluginsQuery.data?.length ? (
         <p className="text-sm text-muted-foreground">
-          No plugin definitions are registered.
+          لا توجد إضافات مسجّلة في النظام.
         </p>
       ) : (
-        <ul className="space-y-3" aria-label="Project plugins">
+        <ul className="space-y-3" aria-label="إضافات المشروع">
           {pluginsQuery.data.map((plugin) => {
             const state = plugin.effectiveForProjectScan
-              ? "Active for project scans"
+              ? "مفعّلة لفحوص هذا المشروع"
               : !plugin.scanHookImplemented
-                ? "No scan hook is registered"
+                ? "لا يتوفر فحص لهذه الإضافة"
               : plugin.projectEnabled
-                ? "Project-enabled, but globally unavailable"
+                ? "مفعّلة للمشروع لكنها غير متاحة على مستوى النظام"
                 : plugin.available
-                  ? "Available, not activated"
-                  : "Globally unavailable";
+                  ? "متاحة لكنها غير مفعّلة لهذا المشروع"
+                  : "غير متاحة على مستوى النظام";
 
             return (
               <li
@@ -96,15 +97,15 @@ export default function ProjectPluginsPanel({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-sm font-medium text-foreground">
-                      {plugin.name}
+                      <bdi>{plugin.name}</bdi>
                     </h3>
                     <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {plugin.available ? "Globally available" : "Unavailable"}
+                      {plugin.available ? "متاحة على مستوى النظام" : "غير متاحة"}
                     </span>
                   </div>
                   {plugin.description && (
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {plugin.description}
+                      <bdi>{plugin.description}</bdi>
                     </p>
                   )}
                   <p
@@ -119,7 +120,7 @@ export default function ProjectPluginsPanel({
                   type="button"
                   role="switch"
                   aria-checked={plugin.projectEnabled}
-                  aria-label={`${plugin.projectEnabled ? "Disable" : "Enable"} for project scans: ${plugin.name}`}
+                  aria-label={`${plugin.projectEnabled ? "إيقاف" : "تفعيل"} فحوص الإضافة لهذا المشروع: ${plugin.name}`}
                   disabled={
                     updateBinding.isPending ||
                     (!plugin.projectEnabled &&
@@ -135,8 +136,8 @@ export default function ProjectPluginsPanel({
                   data-testid={`toggle-project-plugin-${plugin.id}`}
                 >
                   {plugin.projectEnabled
-                    ? "Disable for project"
-                    : "Enable for project"}
+                    ? "إيقافها لهذا المشروع"
+                    : "تفعيلها لهذا المشروع"}
                 </button>
               </li>
             );

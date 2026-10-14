@@ -38,7 +38,7 @@ async function mutateRuntime(projectId: string, action: 'start' | 'restart' | 's
 }
 
 function statusLabel(status: RuntimeStatus): string {
-  return status === 'running' ? 'Running' : status === 'starting' ? 'Starting' : status === 'failed' ? 'Failed' : 'Stopped';
+  return status === 'running' ? 'قيد التشغيل' : status === 'starting' ? 'جارٍ التشغيل' : status === 'failed' ? 'تعذّر التشغيل' : 'متوقّف';
 }
 
 export default function WorkspaceRuntimePanel({ projectId }: { projectId: string }) {
@@ -73,7 +73,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
   if (runtimeQuery.isLoading) {
     return (
       <div className="bg-card border border-border rounded-xl p-5 shadow-sm animate-pulse text-sm text-muted-foreground">
-        Loading workspace runtime…
+        جارٍ تحميل حالة تشغيل المشروع…
       </div>
     );
   }
@@ -81,7 +81,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
   if (runtimeQuery.isError || !runtime) {
     return (
       <div className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200">
-        Workspace runtime status is unavailable. Refresh the project and try again.
+        تعذّر تحميل حالة تشغيل المشروع. حدّث المشروع وحاول مرة أخرى.
       </div>
     );
   }
@@ -96,14 +96,14 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
         : 'border-border bg-secondary/30 text-muted-foreground';
 
   return (
-    <section className="bg-card border border-border rounded-xl p-5 shadow-sm" aria-label="Workspace runtime">
+    <section className="bg-card border border-border rounded-xl p-5 shadow-sm" aria-label="تشغيل المشروع" dir="rtl">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-semibold flex items-center gap-2">
-            <Server className="w-4 h-4 text-primary" /> Workspace runtime
+            <Server className="w-4 h-4 text-primary" /> تشغيل المشروع
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Server-owned preview profile: <span className="font-mono">{runtime.command}</span>
+            إعداد المعاينة يديره الخادم: <span className="font-mono" dir="ltr">{runtime.command}</span>
           </p>
         </div>
         <div className={`rounded-md border px-2.5 py-1 text-xs font-medium ${statusClass}`}>
@@ -113,22 +113,22 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
         <div className="rounded-md bg-secondary/40 px-3 py-2">
-          <div className="text-muted-foreground mb-1">Port</div>
-          <div className="font-mono text-foreground">{runtime.port ?? '—'}</div>
+          <div className="text-muted-foreground mb-1">المنفذ</div>
+          <div className="font-mono text-foreground" dir="ltr">{runtime.port ?? '—'}</div>
         </div>
         <div className="rounded-md bg-secondary/40 px-3 py-2">
-          <div className="text-muted-foreground mb-1">Process</div>
-          <div className="font-mono text-foreground">{runtime.pid ?? '—'}</div>
+          <div className="text-muted-foreground mb-1">معرّف العملية</div>
+          <div className="font-mono text-foreground" dir="ltr">{runtime.pid ?? '—'}</div>
         </div>
         <div className="rounded-md bg-secondary/40 px-3 py-2">
-          <div className="text-muted-foreground mb-1">Revision</div>
-          <div className="font-mono text-foreground truncate">{runtime.revision ?? '—'}</div>
+          <div className="text-muted-foreground mb-1">مراجعة الملفات</div>
+          <div className="font-mono text-foreground truncate" dir="ltr">{runtime.revision ?? '—'}</div>
         </div>
       </div>
 
       {runtime.error && (
         <div className="mt-3 rounded-md border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-200" role="alert">
-          {runtime.error}
+          <span dir="auto">{runtime.error}</span>
         </div>
       )}
 
@@ -139,7 +139,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
           disabled={busy || runtime.status === 'running'}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
         >
-          <Play className="w-3.5 h-3.5" /> Start preview
+          <Play className="w-3.5 h-3.5" /> تشغيل المعاينة
         </button>
         <button
           type="button"
@@ -147,7 +147,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
           disabled={busy || runtime.status === 'stopped'}
           className="border border-border hover:bg-secondary px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
         >
-          <RotateCw className="w-3.5 h-3.5" /> Restart
+          <RotateCw className="w-3.5 h-3.5" /> إعادة التشغيل
         </button>
         <button
           type="button"
@@ -155,16 +155,16 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
           disabled={busy || runtime.status === 'stopped'}
           className="border border-border hover:bg-secondary px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
         >
-          <Square className="w-3.5 h-3.5" /> Stop
+          <Square className="w-3.5 h-3.5" /> إيقاف التشغيل
         </button>
       </div>
 
       {runtime.logs.length > 0 && (
         <details className="mt-4 rounded-md border border-border/60 bg-secondary/20">
           <summary className="cursor-pointer px-3 py-2 text-xs font-medium flex items-center gap-2">
-            <TerminalSquare className="w-3.5 h-3.5 text-muted-foreground" /> Recent runtime logs
+            <TerminalSquare className="w-3.5 h-3.5 text-muted-foreground" /> سجل التشغيل الأخير
           </summary>
-          <pre className="max-h-48 overflow-auto border-t border-border/60 px-3 py-2 text-[11px] leading-5 text-muted-foreground whitespace-pre-wrap">
+          <pre dir="ltr" className="max-h-48 overflow-auto border-t border-border/60 px-3 py-2 text-left text-[11px] leading-5 text-muted-foreground whitespace-pre-wrap">
             {runtime.logs.join('\n')}
           </pre>
         </details>

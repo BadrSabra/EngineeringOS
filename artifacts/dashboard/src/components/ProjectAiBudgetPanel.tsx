@@ -24,9 +24,17 @@ import {
 import { Input } from '@/components/ui/input';
 
 const budgetFormSchema = z.object({
-  dailyAttemptLimit: z.number().int().min(1).max(10_000),
-  dailyTokenLimit: z.number().int().min(1_000).max(10_000_000),
-  warningThresholdPercent: z.number().min(50).max(99),
+  dailyAttemptLimit: z.number({ invalid_type_error: 'أدخل عددًا صحيحًا للمحاولات.' })
+    .int('يجب أن يكون عدد المحاولات عددًا صحيحًا.')
+    .min(1, 'الحد الأدنى محاولة واحدة يوميًا.')
+    .max(10_000, 'الحد الأقصى 10,000 محاولة يوميًا.'),
+  dailyTokenLimit: z.number({ invalid_type_error: 'أدخل عددًا صحيحًا للرموز.' })
+    .int('يجب أن يكون حد الرموز عددًا صحيحًا.')
+    .min(1_000, 'الحد الأدنى 1,000 رمز يوميًا.')
+    .max(10_000_000, 'الحد الأقصى 10,000,000 رمز يوميًا.'),
+  warningThresholdPercent: z.number({ invalid_type_error: 'أدخل نسبة مئوية.' })
+    .min(50, 'يجب ألا تقل النسبة عن 50%.')
+    .max(99, 'يجب ألا تزيد النسبة عن 99%.'),
 });
 
 type BudgetFormValues = z.infer<typeof budgetFormSchema>;
@@ -35,11 +43,36 @@ const numberFormat = new Intl.NumberFormat();
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Unavailable' : date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? 'غير متاح'
+    : new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
 function formatBudgetState(state: string): string {
-  return state.replaceAll('_', ' ');
+  switch (state) {
+    case 'healthy':
+    case 'within_limit':
+      return 'ضمن الحد';
+    case 'warning':
+      return 'قريب من الحد';
+    case 'exhausted':
+      return 'تم استهلاك الحد';
+    default:
+      return state.replaceAll('_', ' ');
+  }
+}
+
+function formatAlertStatus(status: string): string {
+  switch (status) {
+    case 'open':
+      return 'مفتوح';
+    case 'acknowledged':
+      return 'تم تأكيد الاطلاع';
+    case 'resolved':
+      return 'تمت معالجته';
+    default:
+      return status;
+  }
 }
 
 function budgetStateClass(state: string): string {
@@ -126,10 +159,10 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
           void queryClient.invalidateQueries({
             queryKey: getGetAiProjectBudgetQueryKey(projectId),
           });
-          setBudgetMessage('Project AI budget saved.');
+          setBudgetMessage('تم حفظ ميزانية الذكاء الاصطناعي للمشروع.');
         },
         onError: () => {
-          setBudgetError('Could not save the Project AI budget. Try again.');
+          setBudgetError('تعذّر حفظ ميزانية الذكاء الاصطناعي للمشروع. حاول مرة أخرى.');
         },
       },
     );
@@ -151,10 +184,10 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
           void queryClient.invalidateQueries({
             queryKey: getGetAiProjectBudgetQueryKey(projectId),
           });
-          setAlertMessage(action === 'acknowledge' ? 'Alert acknowledged.' : 'Alert resolved.');
+          setAlertMessage(action === 'acknowledge' ? 'تم تأكيد الاطلاع على التنبيه.' : 'تم إغلاق التنبيه.');
         },
         onError: () => {
-          setAlertError('Could not update this budget alert. Try again.');
+          setAlertError('تعذّر تحديث تنبيه الميزانية. حاول مرة أخرى.');
         },
       },
     );
@@ -171,14 +204,15 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
       className="bg-card border border-border rounded-xl p-5 shadow-sm"
       aria-labelledby="project-ai-budget-heading"
       data-testid="project-ai-budget-panel"
+      dir="rtl"
     >
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h2 id="project-ai-budget-heading" className="font-semibold flex items-center gap-2">
-            <Gauge className="w-4 h-4 text-primary" /> Project AI budget
+            <Gauge className="w-4 h-4 text-primary" /> ميزانية الذكاء الاصطناعي للمشروع
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Daily usage limits and alerts for this project. Mission budgets are managed separately.
+            حدود الاستخدام اليومية وتنبيهاته لهذا المشروع. ميزانية المهمة الرئيسية تُدار بصورة مستقلة.
           </p>
         </div>
         {budget && (
@@ -190,12 +224,12 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
 
       {budgetQuery.isLoading ? (
         <p className="mt-5 animate-pulse text-sm text-muted-foreground" role="status">
-          Loading project budget…
+          جارٍ تحميل الميزانية…
         </p>
       ) : budgetQuery.isError || !budget ? (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
           <p className="text-amber-100" role="alert">
-            Project AI budget is unavailable.
+            ميزانية الذكاء الاصطناعي للمشروع غير متاحة.
           </p>
           <button
             type="button"
@@ -203,41 +237,41 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
             className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary"
             data-testid="retry-project-ai-budget"
           >
-            <RotateCw className="h-3.5 w-3.5" /> Retry
+            <RotateCw className="h-3.5 w-3.5" /> إعادة المحاولة
           </button>
         </div>
       ) : (
         <>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-lg border border-border bg-secondary/30 p-3">
-              <div className="text-xs text-muted-foreground">Attempts used</div>
+              <div className="text-xs text-muted-foreground">المحاولات المستخدمة</div>
               <div className="mt-1 font-mono text-lg font-semibold">
                 {numberFormat.format(budget.consumedAttempts)}
                 <span className="text-sm font-normal text-muted-foreground">
-                  {' '}+ {numberFormat.format(budget.reservedAttempts)} reserved
+                  {' '}+ {numberFormat.format(budget.reservedAttempts)} محجوزة
                 </span>
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {numberFormat.format(budget.remainingAttempts)} remaining today
+                {numberFormat.format(budget.remainingAttempts)} متبقية اليوم
               </div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 p-3">
-              <div className="text-xs text-muted-foreground">Recorded tokens</div>
+              <div className="text-xs text-muted-foreground">الرموز المسجّلة</div>
               <div className="mt-1 font-mono text-lg font-semibold">
                 {tokenTotal == null ? '—' : numberFormat.format(tokenTotal)}
               </div>
               <div className="mt-1 text-xs capitalize text-muted-foreground">
                 {budget.tokenUsage.status === 'known'
-                  ? 'Usage reporting complete'
+                  ? 'اكتمل تسجيل بيانات الاستخدام'
                   : budget.tokenUsage.status === 'partial'
-                    ? 'Partial usage data'
-                    : 'Usage data unavailable'}
+                    ? 'بيانات الاستخدام جزئية'
+                    : 'بيانات الاستخدام غير متاحة'}
               </div>
               {tokenProgress != null && (
                 <div
                   className="mt-2 h-1.5 overflow-hidden rounded-full bg-background"
                   role="progressbar"
-                  aria-label="Recorded token use"
+                  aria-label="نسبة الرموز المستخدمة"
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(tokenProgress)}
@@ -250,11 +284,11 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
               )}
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 p-3">
-              <div className="text-xs text-muted-foreground">Budget resets</div>
+              <div className="text-xs text-muted-foreground">موعد إعادة ضبط الميزانية</div>
               <div className="mt-1 text-sm font-medium">{formatDate(budget.resetAt)}</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Token headroom: {budget.tokenUsage.remaining == null
-                  ? 'unavailable'
+                المتبقي من حد الرموز: {budget.tokenUsage.remaining == null
+                  ? 'غير متاح'
                   : numberFormat.format(budget.tokenUsage.remaining)}
               </div>
             </div>
@@ -264,7 +298,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
             <form
               className="mt-5 border-t border-border pt-5"
               onSubmit={form.handleSubmit(onSaveBudget)}
-              aria-label="Update project AI budget"
+              aria-label="تعديل ميزانية الذكاء الاصطناعي للمشروع"
             >
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <FormField
@@ -272,11 +306,12 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                   name="dailyAttemptLimit"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Daily attempt limit</FormLabel>
+                      <FormLabel>الحد اليومي للمحاولات</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
                           type="number"
+                          dir="ltr"
                           min={1}
                           max={10_000}
                           step={1}
@@ -285,7 +320,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                           data-testid="input-ai-budget-attempt-limit"
                         />
                       </FormControl>
-                      <FormDescription>1–10,000 attempts per day.</FormDescription>
+                      <FormDescription>من 1 إلى 10,000 محاولة يوميًا.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -295,11 +330,12 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                   name="dailyTokenLimit"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Daily token limit</FormLabel>
+                      <FormLabel>الحد اليومي للرموز</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
                           type="number"
+                          dir="ltr"
                           min={1_000}
                           max={10_000_000}
                           step={1}
@@ -308,7 +344,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                           data-testid="input-ai-budget-token-limit"
                         />
                       </FormControl>
-                      <FormDescription>1,000–10,000,000 tokens per day.</FormDescription>
+                      <FormDescription>من 1,000 إلى 10,000,000 رمز يوميًا.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -318,11 +354,12 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                   name="warningThresholdPercent"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Warning threshold (%)</FormLabel>
+                      <FormLabel>نسبة بدء التنبيه (%)</FormLabel>
                       <FormControl>
                         <Input
                           {...field}
                           type="number"
+                          dir="ltr"
                           min={50}
                           max={99}
                           step="any"
@@ -331,7 +368,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                           data-testid="input-ai-budget-warning-threshold"
                         />
                       </FormControl>
-                      <FormDescription>Warn between 50% and 99% of the limit.</FormDescription>
+                      <FormDescription>يبدأ التنبيه عند بلوغ نسبة بين 50% و99% من الحد.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -344,7 +381,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                   data-testid="save-project-ai-budget"
                 >
-                  {updateBudget.isPending ? 'Saving…' : 'Save budget'}
+                  {updateBudget.isPending ? 'جارٍ الحفظ…' : 'حفظ الميزانية'}
                 </button>
                 {budgetMessage && (
                   <p role="status" className="text-sm text-emerald-300" data-testid="status-project-ai-budget">
@@ -364,37 +401,37 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
 
       <div className="mt-5 border-t border-border pt-5">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Budget alerts</h3>
+          <h3 className="text-sm font-semibold">تنبيهات الميزانية</h3>
           <button
             type="button"
             onClick={() => void alertsQuery.refetch()}
             disabled={alertsQuery.isFetching}
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
-            aria-label="Refresh budget alerts"
+            aria-label="تحديث تنبيهات الميزانية"
           >
             <RotateCw className={`h-3.5 w-3.5 ${alertsQuery.isFetching ? 'animate-spin' : ''}`} />
-            Refresh
+            تحديث
           </button>
         </div>
 
         {alertsQuery.isLoading ? (
           <p className="mt-3 animate-pulse text-sm text-muted-foreground" role="status">
-            Loading budget alerts…
+            جارٍ تحميل التنبيهات…
           </p>
         ) : alertsQuery.isError ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
-            <p className="text-amber-100" role="alert">Budget alerts are unavailable.</p>
+            <p className="text-amber-100" role="alert">تنبيهات الميزانية غير متاحة.</p>
             <button
               type="button"
               onClick={() => void alertsQuery.refetch()}
               className="rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary"
               data-testid="retry-project-ai-budget-alerts"
             >
-              Retry alerts
+              إعادة تحميل التنبيهات
             </button>
           </div>
         ) : alerts.length === 0 ? (
-          <p className="mt-3 text-sm text-muted-foreground">No active budget alerts.</p>
+          <p className="mt-3 text-sm text-muted-foreground">لا توجد تنبيهات ميزانية نشطة.</p>
         ) : (
           <div className="mt-3 space-y-3">
             {alerts.map((alert) => (
@@ -407,19 +444,19 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-300" />
-                      <h4 className="text-sm font-medium">{alert.title}</h4>
+                        <h4 className="text-sm font-medium" dir="auto">{alert.title}</h4>
                       <span className={`rounded border px-2 py-0.5 text-[10px] font-medium capitalize ${alertStatusClass(alert.status)}`}>
-                        {alert.status}
+                          {formatAlertStatus(alert.status)}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{alert.message}</p>
+                    <p className="mt-2 text-sm text-muted-foreground" dir="auto">{alert.message}</p>
                     {alert.remediation && (
-                      <p className="mt-1 text-xs text-muted-foreground">{alert.remediation}</p>
+                      <p className="mt-1 text-xs text-muted-foreground" dir="auto">{alert.remediation}</p>
                     )}
                     <p className="mt-2 text-[11px] text-muted-foreground">
-                      Last seen {formatDate(alert.lastSeenAt)}
+                      آخر ظهور: {formatDate(alert.lastSeenAt)}
                       {alert.occurrenceCount > 1
-                        ? ` · ${numberFormat.format(alert.occurrenceCount)} occurrences`
+                        ? ` · مرات الظهور: ${numberFormat.format(alert.occurrenceCount)}`
                         : ''}
                     </p>
                   </div>
@@ -432,7 +469,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                         className="rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary disabled:opacity-50"
                         data-testid={`acknowledge-budget-alert-${alert.id}`}
                       >
-                        Acknowledge
+                        تأكيد الاطلاع
                       </button>
                     )}
                     <button
@@ -442,7 +479,7 @@ export default function ProjectAiBudgetPanel({ projectId }: { projectId: string 
                       className="rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-secondary disabled:opacity-50"
                       data-testid={`resolve-budget-alert-${alert.id}`}
                     >
-                      Resolve
+                      إغلاق التنبيه
                     </button>
                   </div>
                 </div>
