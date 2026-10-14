@@ -38,6 +38,27 @@ import {
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 
+function workflowStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    idle: 'لم يبدأ',
+    running: 'قيد التنفيذ',
+    completed: 'انتهى بحسب السجل',
+    failed: 'فشل مسجل',
+    stopped: 'متوقف',
+  };
+  return labels[status] ?? status;
+}
+
+function orchestrationActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    advance: 'الانتقال إلى المرحلة التالية',
+    wait: 'الانتظار',
+    fail: 'تسجيل فشل المرحلة',
+    complete: 'إنهاء المسار',
+  };
+  return labels[action] ?? action;
+}
+
 function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data: projects } = useListProjects();
@@ -115,13 +136,15 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg p-6 space-y-5">
+      <div role="dialog" aria-modal="true" aria-labelledby="create-workflow-title" dir="rtl" lang="ar" className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg p-6 space-y-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <GitMerge className="w-5 h-5 text-primary" /> Build Pipeline
+          <h2 id="create-workflow-title" className="text-lg font-bold flex items-center gap-2">
+            <GitMerge className="w-5 h-5 text-primary" /> إنشاء مسار عمل
           </h2>
           <button
             onClick={onClose}
+            type="button"
+            aria-label="إغلاق نافذة إنشاء مسار العمل"
             className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary"
           >
             <X className="w-4 h-4" />
@@ -130,13 +153,14 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Project</label>
+            <label htmlFor="workflow-project" className="text-xs font-medium text-muted-foreground block mb-1">المشروع</label>
             <select
+              id="workflow-project"
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">Select a project…</option>
+              <option value="">اختر مشروعًا…</option>
               {projects?.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -146,30 +170,34 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">Name</label>
+            <label htmlFor="workflow-name" className="text-xs font-medium text-muted-foreground block mb-1">اسم المسار</label>
             <input
+              id="workflow-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Release Pipeline"
+              placeholder="مثال: مسار الإصدار"
+              dir="auto"
               className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-muted-foreground block mb-1">
-              Description (optional)
+            <label htmlFor="workflow-description" className="text-xs font-medium text-muted-foreground block mb-1">
+              الوصف (اختياري)
             </label>
             <input
+              id="workflow-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this pipeline orchestrate?"
+              placeholder="ما الذي ينظمه هذا المسار؟"
+              dir="auto"
               className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">
-              Phases (run in order)
+              المراحل (تُنفذ بالترتيب)
             </label>
             <div className="space-y-2">
               {phases.map((phase, idx) => (
@@ -179,16 +207,19 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
                       {idx + 1}
                     </span>
                     <input
+                      aria-label={`اسم المرحلة ${idx + 1}`}
                       value={phase.name}
                       onChange={(e) => updatePhaseName(idx, e.target.value)}
-                      placeholder="phase name"
+                      placeholder="اسم المرحلة"
+                      dir="auto"
                       className="flex-1 bg-secondary/50 border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                     <button
                       type="button"
                       onClick={() => addPhaseStep(idx)}
                       className="text-muted-foreground hover:text-primary p-1 shrink-0"
-                      title="Add a step to this phase"
+                      title="إضافة خطوة إلى هذه المرحلة"
+                      aria-label={`إضافة خطوة إلى المرحلة ${idx + 1}`}
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -197,22 +228,28 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
                       onClick={() => removePhase(idx)}
                       disabled={phases.length <= 1}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-30 p-1 shrink-0"
+                      title="حذف المرحلة"
+                      aria-label={`حذف المرحلة ${idx + 1}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   {phase.steps.map((step, stepIdx) => (
-                    <div key={stepIdx} className="flex items-center gap-2 ml-7">
+                    <div key={stepIdx} className="flex items-center gap-2 mr-7">
                       <input
+                        aria-label={`وصف الخطوة ${stepIdx + 1} من المرحلة ${idx + 1}`}
                         value={step}
                         onChange={(e) => updatePhaseStep(idx, stepIdx, e.target.value)}
-                        placeholder="step description or shell command"
+                        placeholder="وصف الخطوة أو أمر الطرفية"
+                        dir="auto"
                         className="flex-1 bg-secondary/30 border border-border/60 rounded-md px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                       <button
                         type="button"
                         onClick={() => removePhaseStep(idx, stepIdx)}
                         className="text-muted-foreground hover:text-destructive p-1 shrink-0"
+                        title="حذف الخطوة"
+                        aria-label={`حذف الخطوة ${stepIdx + 1} من المرحلة ${idx + 1}`}
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -221,10 +258,12 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
                   {/* PR-D: optional advance condition per phase */}
                   <div className="ml-7 mt-1">
                     <input
+                      aria-label={`شرط الانتقال للمرحلة ${idx + 1}`}
                       value={phase.condition ?? ''}
                       onChange={(e) => updatePhaseCondition(idx, e.target.value)}
-                      placeholder="Advance condition (optional) — e.g. qualityScore >= 80"
-                      title="JS expression evaluated before advancing past this phase. Available: qualityScore, currentPhase, completedPhases"
+                      placeholder="شرط الانتقال (اختياري) — مثال: qualityScore >= 80"
+                      title="شرط JavaScript يُقيّم قبل تجاوز المرحلة. المتغيرات المتاحة: qualityScore وcurrentPhase وcompletedPhases"
+                      dir="auto"
                       className="w-full bg-secondary/20 border border-border/40 rounded-md px-2.5 py-1 text-xs font-mono text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary placeholder:italic"
                     />
                   </div>
@@ -235,13 +274,13 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
               onClick={addPhase}
               className="mt-2 text-xs text-primary hover:underline flex items-center gap-1"
             >
-              <Plus className="w-3 h-3" /> Add phase
+              <Plus className="w-3 h-3" /> إضافة مرحلة
             </button>
           </div>
         </div>
 
         {createWorkflow.isError && (
-          <p className="text-xs text-destructive">Failed to create pipeline. Please try again.</p>
+          <p className="text-xs text-destructive" role="alert">تعذر إنشاء مسار العمل. حاول مرة أخرى.</p>
         )}
 
         <div className="flex justify-end gap-2 pt-2 border-t border-border">
@@ -249,14 +288,14 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             className="px-4 py-2 rounded-md font-medium text-sm text-muted-foreground hover:bg-secondary transition-colors"
           >
-            Cancel
+            إلغاء
           </button>
           <button
             onClick={handleSubmit}
             disabled={!canSubmit || createWorkflow.isPending}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm disabled:opacity-50 transition-colors"
           >
-            {createWorkflow.isPending ? 'Creating…' : 'Create Pipeline'}
+            {createWorkflow.isPending ? 'جارٍ الإنشاء…' : 'إنشاء المسار'}
           </button>
         </div>
       </div>
@@ -284,13 +323,13 @@ function ExecutionHistory({
   };
 
   if (isLoading) {
-    return <div className="text-xs text-muted-foreground animate-pulse py-2">Loading executions...</div>;
+    return <div dir="rtl" className="text-xs text-muted-foreground animate-pulse py-2">جارٍ تحميل سجلات التشغيل…</div>;
   }
   if (isError) {
-    return <RequestError message={error instanceof Error ? error.message : 'Unable to load executions.'} onRetry={() => void refetch()} />;
+    return <RequestError message={error instanceof Error ? error.message : 'تعذر تحميل سجلات التشغيل.'} onRetry={() => void refetch()} />;
   }
   if (!executions || executions.length === 0) {
-    return <p className="text-xs text-muted-foreground italic py-2">No executions yet.</p>;
+    return <p dir="rtl" className="text-xs text-muted-foreground italic py-2">لا توجد تشغيلات مسجلة بعد.</p>;
   }
 
   const statusStyle = (status: string) =>
@@ -318,29 +357,29 @@ function ExecutionHistory({
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className={`font-bold uppercase tracking-wider ${statusStyle(exec.status)}`}>
+              <span className={`font-bold ${statusStyle(exec.status)}`}>
                 {exec.status === 'completed'
-                  ? 'completed · server reported success'
+                  ? 'انتهى التشغيل · أكّد الخادم النجاح'
                   : exec.status === 'failed'
-                    ? 'failed · no successful completion'
+                    ? 'فشل التشغيل · لم يُسجل اكتماله بنجاح'
                     : exec.status === 'stopped'
-                      ? 'stopped · not completed'
-                      : exec.status}
+                      ? 'توقف التشغيل · لم يكتمل'
+                      : workflowStatusLabel(exec.status)}
               </span>
               {exec.currentPhase && (
-                <span className="text-muted-foreground font-mono truncate">
-                  @ {exec.currentPhase}
+                <span dir="ltr" className="text-muted-foreground font-mono truncate">
+                  @ <bdi>{exec.currentPhase}</bdi>
                 </span>
               )}
             </div>
             {exec.completedPhases && exec.completedPhases.length > 0 && (
-              <div className="text-[10px] text-muted-foreground font-mono mt-1 truncate">
-                completed: {exec.completedPhases.join(' → ')}
+              <div className="text-[10px] text-muted-foreground mt-1 truncate">
+                مراحل مكتملة: <bdi dir="ltr" className="font-mono">{exec.completedPhases.join(' → ')}</bdi>
               </div>
             )}
             {exec.errorMessage && (
-              <div className="text-[10px] text-destructive mt-1 truncate" title="Workflow execution failed">
-                Workflow execution did not complete.
+              <div dir="rtl" className="text-[10px] text-destructive mt-1 truncate" title="فشل تشغيل مسار العمل">
+                لم يكتمل تشغيل مسار العمل.
               </div>
             )}
             {(() => {
@@ -350,8 +389,8 @@ function ExecutionHistory({
               return <ProviderRecoveryCard recovery={recovery} className="mt-2" />;
             })()}
           </div>
-          <div className="text-[10px] text-muted-foreground font-mono shrink-0">
-            {new Date(exec.startedAt).toLocaleString()}
+          <div dir="ltr" className="text-[10px] text-muted-foreground font-mono shrink-0">
+            {new Date(exec.startedAt).toLocaleString('ar-EG')}
           </div>
           {exec.status === 'failed' && (
             <button
@@ -364,7 +403,7 @@ function ExecutionHistory({
               disabled={retryPhase.isPending}
               className="shrink-0 flex items-center gap-1 text-primary hover:underline disabled:opacity-50"
             >
-              <RotateCcw className="w-3 h-3" /> Retry
+              <RotateCcw className="w-3 h-3" /> إعادة المحاولة
             </button>
           )}
           {['running', 'failed', 'completed'].includes(exec.status) &&
@@ -387,7 +426,7 @@ function ExecutionHistory({
                       onClick={() => {
                         if (
                           window.confirm(
-                            `Roll this execution back to "${targetPhase}"? Later completed phases will need to run again.`,
+                            `إعادة هذا التشغيل إلى المرحلة "${targetPhase}"؟ ستحتاج المراحل اللاحقة المكتملة إلى التنفيذ مجددًا.`,
                           )
                         ) {
                           rollbackPhase.mutate(
@@ -398,7 +437,8 @@ function ExecutionHistory({
                       }}
                       disabled={rollbackPhase.isPending}
                       className="flex items-center gap-1 text-amber-500 hover:underline disabled:opacity-50"
-                      title={`Roll back to ${targetPhase}`}
+                      title={`إعادة التنفيذ من المرحلة ${targetPhase}`}
+                      aria-label={`إعادة التشغيل من المرحلة ${targetPhase}`}
                     >
                       <RotateCcw className="w-3 h-3" /> {targetPhase}
                     </button>
@@ -474,7 +514,7 @@ export default function Workflows() {
 
   const handleDelete = (workflowId: string, workflowName: string) => {
     const confirmed = window.confirm(
-      `Delete "${workflowName}"? This also permanently deletes its workflow execution history.`,
+      `حذف «${workflowName}»؟ سيؤدي ذلك أيضًا إلى حذف سجل تشغيل المسار نهائيًا.`,
     );
     if (!confirmed) return;
 
@@ -495,7 +535,7 @@ export default function Workflows() {
         onError: (requestError) => {
           setDeleteErrors((previous) => ({
             ...previous,
-            [workflowId]: requestError instanceof Error ? requestError.message : 'Unable to delete this workflow.',
+            [workflowId]: requestError instanceof Error ? requestError.message : 'تعذر حذف مسار العمل.',
           }));
         },
       },
@@ -503,20 +543,20 @@ export default function Workflows() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl" lang="ar">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <GitMerge className="w-6 h-6 text-primary" /> Workflows
+            <GitMerge className="w-6 h-6 text-primary" /> مسارات العمل
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">Multi-stage autonomous pipelines.</p>
+          <p className="text-muted-foreground text-sm mt-1">تنفيذ مهام المشروع عبر مراحل متتابعة.</p>
         </div>
-          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh workflows" />
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="تحديث مسارات العمل" />
           <button
           onClick={() => setShowCreateModal(true)}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
         >
-          <Plus className="w-4 h-4" /> Build Pipeline
+          <Plus className="w-4 h-4" /> مسار عمل جديد
         </button>
       </div>
 
@@ -526,19 +566,19 @@ export default function Workflows() {
         {isLoading ? (
           <div className="h-64 bg-card border border-border rounded-xl animate-pulse"></div>
         ) : isError ? (
-          <RequestError message={error instanceof Error ? error.message : 'Unable to load workflows.'} onRetry={() => void refetch()} />
+          <RequestError message={error instanceof Error ? error.message : 'تعذر تحميل مسارات العمل.'} onRetry={() => void refetch()} />
         ) : workflows?.length === 0 ? (
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
-            <h3 className="text-lg font-semibold mb-2">No workflows defined</h3>
+            <h3 className="text-lg font-semibold mb-2">لا توجد مسارات عمل بعد</h3>
             <p className="text-muted-foreground text-sm max-w-sm mb-6">
-              Create a pipeline to orchestrate tasks across multiple agents automatically.
+              أنشئ مسارًا لتنسيق خطوات العمل تلقائيًا عبر عدة مراحل.
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
             >
-              <Plus className="w-4 h-4" /> Build Pipeline
+              <Plus className="w-4 h-4" /> مسار عمل جديد
             </button>
           </div>
         ) : (
@@ -550,7 +590,7 @@ export default function Workflows() {
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-bold">{workflow.name}</h2>
+                    <h2 dir="auto" className="text-xl font-bold">{workflow.name}</h2>
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider border
                       ${
@@ -564,10 +604,10 @@ export default function Workflows() {
                       {workflow.status === 'running' ? (
                         <Activity className="w-3 h-3 inline mr-1 animate-pulse" />
                       ) : null}
-                      {workflow.status}
+                      {workflowStatusLabel(workflow.status)}
                     </span>
                   </div>
-                  <p className="text-muted-foreground text-sm mt-1">{workflow.description}</p>
+                  <p dir="auto" className="text-muted-foreground text-sm mt-1">{workflow.description}</p>
                 </div>
                 <div className="flex gap-2">
                   {workflow.status === 'running' && (
@@ -576,13 +616,16 @@ export default function Workflows() {
                         onClick={() => handleAdvance(workflow.id)}
                         disabled={advanceWorkflow.isPending}
                         className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white border border-emerald-500/20"
-                        title="Advance to next phase"
+                        title="الانتقال إلى المرحلة التالية"
+                        aria-label="الانتقال إلى المرحلة التالية"
                       >
-                        <ChevronRight className="w-4 h-4" /> Advance
+                        <ChevronRight className="w-4 h-4" /> انتقال للمرحلة التالية
                       </button>
                       <button
                         onClick={() => handleFailPhase(workflow.id)}
                         disabled={failPhase.isPending}
+                        title="تسجيل فشل المرحلة الحالية"
+                        aria-label="تسجيل فشل المرحلة الحالية"
                         className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50 bg-secondary text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
                         title="Mark current phase as failed"
                       >
@@ -602,11 +645,11 @@ export default function Workflows() {
                   >
                     {workflow.status === 'running' ? (
                       <>
-                        <Square className="w-4 h-4" fill="currentColor" /> Stop
+                        <Square className="w-4 h-4" fill="currentColor" /> إيقاف
                       </>
                     ) : (
                       <>
-                        <Play className="w-4 h-4" /> Execute
+                        <Play className="w-4 h-4" /> تشغيل
                       </>
                     )}
                   </button>
@@ -618,65 +661,65 @@ export default function Workflows() {
                   onClick={() => handleOrchestrate(workflow.id)}
                   disabled={orchestrateWorkflow.isPending}
                   className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 disabled:opacity-50"
-                  title="Get an AI recommendation without changing workflow state"
+                  title="احصل على مقترح من المساعد دون تغيير حالة مسار العمل"
                 >
                   <Sparkles className="w-4 h-4" />
                   {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'loading'
-                    ? 'Analyzing…'
-                    : 'Ask AI'}
+                    ? 'جارٍ التحليل…'
+                    : 'اطلب مقترحًا'}
                 </button>
                 <button
                   onClick={() => handleDelete(workflow.id, workflow.name)}
                   disabled={workflow.status === 'running' || deleteWorkflow.isPending}
                   className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 border border-destructive/25 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={workflow.status === 'running' ? 'Stop the workflow before deleting it' : 'Delete workflow and its execution history'}
+                  title={workflow.status === 'running' ? 'أوقف مسار العمل قبل حذفه' : 'حذف مسار العمل وسجل تشغيله'}
                 >
-                  <Trash2 className="w-4 h-4" /> Delete
+                  <Trash2 className="w-4 h-4" /> حذف
                 </button>
                 {workflow.status === 'running' && (
-                  <span className="text-xs text-muted-foreground">Stop this workflow before deleting it.</span>
+                  <span className="text-xs text-muted-foreground">أوقف مسار العمل قبل حذفه.</span>
                 )}
               </div>
 
               {deleteErrors[workflow.id] && (
-                <p className="mb-4 text-sm text-destructive" role="alert">{deleteErrors[workflow.id]}</p>
+                <p dir="auto" className="mb-4 text-sm text-destructive" role="alert">{deleteErrors[workflow.id]}</p>
               )}
 
               {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'error' && (
-                <p className="mb-4 text-sm text-destructive" role="alert">{orchestrationState.message}</p>
+                <p dir="auto" className="mb-4 text-sm text-destructive" role="alert">{orchestrationState.message}</p>
               )}
               {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'success' && (
-                <section className="mb-5 rounded-lg border border-primary/20 bg-primary/5 p-4" aria-label="AI workflow suggestion">
+                <section className="mb-5 rounded-lg border border-primary/20 bg-primary/5 p-4" aria-label="مقترح مسار العمل" dir="rtl">
                   <div className="flex flex-wrap items-center gap-2">
                     <Sparkles className="h-4 w-4 text-primary" />
                     <h3 className="font-semibold text-sm">
-                      AI suggestion: {orchestrationState.decision.action}
+                      مقترح المساعد: {orchestrationActionLabel(orchestrationState.decision.action)}
                     </h3>
                     {orchestrationState.decision.nextPhase && (
                       <span className="rounded bg-background px-2 py-0.5 text-xs text-muted-foreground">
-                        Next phase: {orchestrationState.decision.nextPhase}
+                        المرحلة التالية: <bdi dir="auto">{orchestrationState.decision.nextPhase}</bdi>
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{orchestrationState.decision.reasoning}</p>
+                  <p dir="auto" className="mt-2 text-sm text-muted-foreground">{orchestrationState.decision.reasoning}</p>
                   {orchestrationState.decision.blockers && orchestrationState.decision.blockers.length > 0 && (
                     <div className="mt-3">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Blockers</h4>
+                      <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">ما يعيق التقدم</h4>
                       <ul className="mt-1 list-disc pl-5 text-sm">
-                        {orchestrationState.decision.blockers.map((blocker, index) => <li key={`${index}-${blocker}`}>{blocker}</li>)}
+                        {orchestrationState.decision.blockers.map((blocker, index) => <li dir="auto" key={`${index}-${blocker}`}>{blocker}</li>)}
                       </ul>
                     </div>
                   )}
                   {orchestrationState.decision.suggestions && orchestrationState.decision.suggestions.length > 0 && (
                     <div className="mt-3">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Suggestions</h4>
+                      <h4 className="text-xs font-semibold tracking-wide text-muted-foreground">مقترحات</h4>
                       <ul className="mt-1 list-disc pl-5 text-sm">
-                        {orchestrationState.decision.suggestions.map((suggestion, index) => <li key={`${index}-${suggestion}`}>{suggestion}</li>)}
+                        {orchestrationState.decision.suggestions.map((suggestion, index) => <li dir="auto" key={`${index}-${suggestion}`}>{suggestion}</li>)}
                       </ul>
                     </div>
                   )}
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Recommendation only. It does not advance, fail, or complete this workflow.
+                    هذا مقترح فقط؛ لا يقدّم المسار ولا يسجّل فشله أو اكتماله.
                   </p>
                 </section>
               )}
@@ -697,10 +740,10 @@ export default function Workflows() {
                   totalPhases > 0 ? (completedCount / totalPhases) * 100 : 0;
                 return (
                 <div className="relative">
-                  <div className="absolute top-1/2 left-0 w-full h-0.5 bg-secondary -translate-y-1/2 z-0"></div>
+                    <div className="absolute top-1/2 right-0 w-full h-0.5 bg-secondary -translate-y-1/2 z-0"></div>
                   {(workflow.status === 'running' || workflow.status === 'completed') && (
                     <div
-                      className={`absolute top-1/2 left-0 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-500${workflow.status === 'running' ? ' animate-pulse' : ''}`}
+                      className={`absolute top-1/2 right-0 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-500${workflow.status === 'running' ? ' animate-pulse' : ''}`}
                       style={{ width: `${progressPct}%` }}
                     ></div>
                   )}
@@ -738,10 +781,10 @@ export default function Workflows() {
                                 : 'text-muted-foreground'
                             }`}
                           >
-                            {phase.name}
+                            <bdi dir="auto">{phase.name}</bdi>
                           </span>
-                          <span className="text-[10px] text-muted-foreground mt-1 font-mono">
-                            {phase.steps.length} steps
+                          <span className="text-[10px] text-muted-foreground mt-1">
+                            عدد الخطوات: {phase.steps.length}
                           </span>
                         </div>
                       );
@@ -753,11 +796,11 @@ export default function Workflows() {
 
               <div className="mt-8 bg-secondary/30 rounded-lg p-4 text-xs font-mono text-muted-foreground flex justify-between items-center">
                 <span>
-                  Runs:{' '}
+                  مرات التشغيل:{' '}
                   <span className="text-foreground font-bold">{workflow.executionCount || 0}</span>
                 </span>
-                <span>ID: {workflow.id}</span>
-                <span>Project: {workflow.projectId}</span>
+                <span>المعرّف: <bdi dir="ltr">{workflow.id}</bdi></span>
+                <span>معرّف المشروع: <bdi dir="ltr">{workflow.projectId}</bdi></span>
               </div>
 
               <button
@@ -765,7 +808,7 @@ export default function Workflows() {
                 className="mt-4 w-full flex items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors border-t border-border pt-4"
               >
                 <span className="flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5" /> Execution history
+                  <History className="w-3.5 h-3.5" /> سجل التشغيل
                 </span>
                 {expandedId === workflow.id ? (
                   <ChevronUp className="w-4 h-4" />
