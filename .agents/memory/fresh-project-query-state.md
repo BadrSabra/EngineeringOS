@@ -15,6 +15,12 @@ Continuation recognition must cover user-facing language variants, including com
 
 **How to apply:** Test both vocalized and unvocalized forms for each supported short follow-up, and keep the same no-state negative tests so generic short questions cannot inherit stale evidence.
 
+For Arabic message matching, NFD plus JavaScript `\p{Diacritic}` may leave combining hamza marks in place. Normalize by removing Unicode marks (`\p{M}`) if matching unvocalized Arabic text.
+
+**Why:** A fallback-explanation matcher kept missing valid Arabic phrases because the combining hamza survived its first normalization pass.
+
+**How to apply:** When an Arabic classifier compares decomposed text against unvocalized literals, test representative hamza and tashkeel forms and use `\p{M}` rather than assuming `\p{Diacritic}` removes every Arabic mark.
+
 Terminal SSE state construction must carry the resolved project-query target again; the initial state candidate does not survive automatically into the final persistence seam.
 
 **Why:** The stream classified and executed a grounded PROJECT_QUERY correctly, but the terminal state builder omitted the target and silently cleared the session state after acceptance.

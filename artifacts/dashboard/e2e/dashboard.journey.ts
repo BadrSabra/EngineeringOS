@@ -7833,11 +7833,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .last(),
     ).toBeVisible();
 
-    const provenance = page.locator('[aria-label="Context provenance"]');
+    const provenance = page.locator('[aria-label="سياق الإجابة ومصادره"]');
     await expect(provenance).toBeVisible();
     await provenance.getByRole("button").click();
-    await expect(provenance).toContainText("Revision: workspace-revision-safe-7");
-    await expect(provenance).toContainText("Links: 2");
+    await expect(provenance).toContainText("نسخة المشروع: workspace-revision-safe-7");
+    await expect(provenance).toContainText("الروابط: 2");
     await expect(provenance).toContainText("file/context: context dependency");
     const provenanceBeforeReload = await provenance.innerText();
 
@@ -7848,11 +7848,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.reload();
     await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
-    const reloadedProvenance = page.locator('[aria-label="Context provenance"]');
+    const reloadedProvenance = page.locator('[aria-label="سياق الإجابة ومصادره"]');
     await expect(reloadedProvenance).toBeVisible();
     await reloadedProvenance.getByRole("button").click();
-    await expect(reloadedProvenance).toContainText("Revision: workspace-revision-safe-7");
-    await expect(reloadedProvenance).toContainText("Links: 2");
+    await expect(reloadedProvenance).toContainText("نسخة المشروع: workspace-revision-safe-7");
+    await expect(reloadedProvenance).toContainText("الروابط: 2");
     await expect(reloadedProvenance).toContainText("file/context: context dependency");
     expect(await reloadedProvenance.innerText()).toBe(provenanceBeforeReload);
     const reloadedText = await page.locator("body").innerText();
@@ -9187,15 +9187,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.goto(`${DASHBOARD_PATH}ai`);
     await openAiSettings(page);
 
-    const card = page.getByRole("region", { name: "Model contract quality" });
+    const card = page.getByRole("region", { name: "جودة إجابات المساعد" });
     const emptyState =
-      "No model contract telemetry matches this project, provider, and time window.";
+      "لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.";
     await expect(card).toContainText("llama-e2e");
-    await expect(card).toContainText("Acceptance 66.7%");
-    await expect(card).toContainText("Citation match 75.0%");
-    await expect(card).toContainText("Recovery 1/1 · 100.0%");
+    await expect(card).toContainText("القبول 66.7%");
+    await expect(card).toContainText("مطابقة الاستشهادات 75.0%");
+    await expect(card).toContainText("الاسترداد 1/1 · 100.0%");
     await expect(card).toContainText("missing_citation (1)");
-    await card.getByLabel("Model quality time window").selectOption("7");
+    await card.getByLabel("فترة تقرير الجودة").selectOption("7");
     await expect.poll(() =>
       requests.some((request) => {
         const url = new URL(request);
@@ -9210,12 +9210,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.reload();
     await openAiSettings(page);
     await expect(card).toContainText("llama-e2e");
-    await expect(card).toContainText("Acceptance 66.7%");
-    await expect(card).toContainText("Citation match 75.0%");
-    await expect(card).toContainText("Recovery 1/1 · 100.0%");
+    await expect(card).toContainText("القبول 66.7%");
+    await expect(card).toContainText("مطابقة الاستشهادات 75.0%");
+    await expect(card).toContainText("الاسترداد 1/1 · 100.0%");
     await expect(card).toContainText("missing_citation (1)");
 
-    await card.getByLabel("Model quality provider").selectOption("deepseek");
+    await card.getByLabel("مزود تقرير الجودة").selectOption("deepseek");
     await expect(card.getByText(emptyState, { exact: true })).toHaveCount(1);
     await expect(card.getByText("llama-e2e", { exact: true })).toHaveCount(0);
     await expect.poll(() =>

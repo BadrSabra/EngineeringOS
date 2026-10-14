@@ -288,18 +288,18 @@ const projectQueryTargetCopy: Record<
   { title: string; detail: string; className: string }
 > = {
   resolved_target: {
-    title: 'Target resolved',
-    detail: 'Evidence collection used the resolved subsystem target.',
+    title: 'حُدد الجزء المقصود من المشروع',
+    detail: 'جُمعت المصادر من الجزء المحدد، وهذا وحده لا يثبت صحة الإجابة.',
     className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
   },
   bounded_unresolved_hint: {
-    title: 'Bounded target hint',
-    detail: 'The subsystem was ambiguous, so collection used only a small set of high-confidence source hints.',
+    title: 'نطاق مرجّح ومحدود',
+    detail: 'الجزء المقصود غير واضح؛ اقتصر جمع المصادر على إشارات قليلة مرجّحة.',
     className: 'border-sky-500/30 bg-sky-500/10 text-sky-200',
   },
   source_first_discovery: {
-    title: 'Source-first discovery',
-    detail: 'No subsystem could be selected safely, so collection started from project sources without broad graph candidates.',
+    title: 'بدء البحث من مصادر المشروع',
+    detail: 'تعذّر تحديد الجزء المقصود بأمان؛ بدأ جمع المصادر دون توسيع البحث إلى ملفات مرشحة من خريطة الترابط.',
     className: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
   },
 };
@@ -308,11 +308,34 @@ function ProjectQueryTargetCard({ decision }: { decision: NonNullable<ChatMessag
   const copy = projectQueryTargetCopy[decision.mode];
   if (!copy) return null;
   return (
-    <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${copy.className}`}>
+    <div dir="rtl" lang="ar" className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${copy.className}`}>
       <div className="font-medium">{copy.title}</div>
       <div className="mt-0.5 opacity-85">{copy.detail}</div>
     </div>
   );
+}
+
+function acceptanceFollowUpLabel(code: AcceptanceNextActionCode | undefined): string | undefined {
+  switch (code) {
+    case 'NONE':
+      return 'لا يوجد إجراء إضافي مسجل.';
+    case 'RESUME_ALLOWED':
+      return 'استأنف التنفيذ من نقطة الحفظ المسجلة.';
+    case 'START_NEW_PROBE':
+      return 'ابدأ فحصًا جديدًا ضمن النطاق المحدد.';
+    case 'REVIEW_INCOMPLETE_EVIDENCE':
+      return 'راجع الأدلة غير المكتملة قبل الاعتماد على النتيجة.';
+    case 'ABANDON_EXECUTION':
+      return 'ابدأ تشغيلًا جديدًا ضمن النطاق المحدد قبل الاعتماد على النتيجة.';
+    case 'RETRY_AFTER_PARSE':
+      return 'أعد المحاولة بعد تصحيح صيغة رد النموذج.';
+    case 'RETRY_AFTER_TIMEOUT':
+      return 'أعد المحاولة بعد انتهاء مهلة الانتظار.';
+    case 'RETRY_AFTER_RATE_LIMIT':
+      return 'انتظر انتهاء مهلة الحدّ ثم أعد المحاولة.';
+    default:
+      return undefined;
+  }
 }
 
 function ProjectQueryResponseCard({
@@ -351,36 +374,42 @@ function ProjectQueryResponseCard({
   );
   const hasIncompleteAcceptance = Boolean(acceptanceDisposition);
   if (!source && !hasIncompleteAcceptance) return null;
+  const followUpLabel = acceptanceFollowUpLabel(acceptanceDisposition?.nextActionCode);
   const sourceLabel = source === 'provider_synthesis'
-    ? 'Provider synthesis'
+    ? 'صياغة من النموذج'
     : source === 'deterministic_fallback'
-      ? 'Evidence-based fallback'
-      : 'Evidence validation blocked';
+      ? 'إجابة بديلة مبنية على الأدلة'
+      : 'تعذّر قبول الإجابة';
   const reasonLabel = fallbackReason === 'synthesis_failed'
-    ? 'Synthesis failed'
+    ? 'تعذّرت صياغة الإجابة من النموذج'
     : fallbackReason === 'provider_candidate_incomplete'
-      ? 'Provider candidate was incomplete'
+      ? 'ردّ النموذج لم يستوفِ شروط الإجابة'
       : isFallback
-        ? 'Not provided'
+        ? 'غير محدد'
         : hasIncompleteAcceptance
-          ? 'The required objective evidence was not accepted'
+          ? 'لم تُقبل الأدلة المطلوبة للهدف'
           : null;
   const className = isFallback || hasIncompleteAcceptance
     ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
     : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
   return (
-    <div className={`mt-2 w-full rounded-lg border px-3 py-2 text-[11px] ${className}`} aria-label="Project query response provenance">
+    <div dir="rtl" lang="ar" className={`mt-2 w-full rounded-lg border px-3 py-2 text-[11px] ${className}`} aria-label="مصدر إجابة استعلام المشروع">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-medium">{sourceLabel}</span>
         {reasonLabel && (
           <span className="text-current/75">
-            <span className="font-medium">Fallback reason:</span> {reasonLabel}
+            <span className="font-medium">{isFallback ? 'سبب الإجابة البديلة:' : 'سبب عدم القبول:'}</span> {reasonLabel}
           </span>
         )}
       </div>
       {hasIncompleteAcceptance && (
         <div className="mt-1 text-current/75">
-          The answer remains fail-closed until the objective evidence is complete.
+          لم تكتمل الأدلة المطلوبة؛ لا تعتمد على هذه النتيجة حتى تُراجع الأدلة وتُقبل.
+        </div>
+      )}
+      {followUpLabel && (
+        <div className="mt-1 text-current/75">
+          <span className="font-medium">المتابعة المسجلة:</span> {followUpLabel}
         </div>
       )}
       {canExplainFallback && onExplainFallback && (
@@ -395,9 +424,9 @@ function ProjectQueryResponseCard({
             data-testid={`button-explain-fallback-${messageId}`}
           >
             {diagnosticPending
-              ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              : <Search className="mr-1 h-3 w-3" />}
-            {diagnosticPending ? 'Checking this run…' : 'Explain this fallback'}
+              ? <Loader2 className="me-1 h-3 w-3 animate-spin" />
+              : <Search className="me-1 h-3 w-3" />}
+            {diagnosticPending ? 'جارٍ التحقق من هذا التشغيل…' : 'اشرح سبب الإجابة البديلة'}
           </Button>
         </div>
       )}
@@ -405,30 +434,31 @@ function ProjectQueryResponseCard({
         <div
           className="mt-2 rounded-md border border-amber-300/20 bg-background/30 p-2 text-current/90"
           role="status"
-          aria-label="Verified fallback explanation"
+          aria-label="تفسير موثّق للإجابة البديلة"
           data-testid={`fallback-explanation-${messageId}`}
         >
-          <div className="font-medium">Why this fallback was used</div>
+          <div className="font-medium">سبب استخدام الإجابة البديلة</div>
           <p className="mt-1">
             {diagnostic.fallbackReason === 'provider_candidate_incomplete'
-              ? 'The provider-generated answer did not satisfy the response contract, so the system used its deterministic evidence-based answer.'
-              : 'The provider could not produce an acceptable synthesis, so the system used its deterministic evidence-based answer.'}
+              ? 'لم يستوفِ الرد الذي أنشأه النموذج شروط الإجابة، لذا عُرضت الإجابة البديلة المبنية على الأدلة.'
+              : 'تعذّرت صياغة رد مقبول من النموذج، لذا عُرضت الإجابة البديلة المبنية على الأدلة.'}
           </p>
           {diagnostic.acceptanceOutcome === 'SUCCEEDED'
             && diagnostic.evidenceRequired
             && diagnostic.evidenceComplete && (
               <p className="mt-1">
-                This reason concerns answer generation, not missing source evidence: the referenced run was accepted with its required evidence complete.
+                هذا يشرح سبب اختيار طريقة الصياغة، لا نقص الأدلة: قُبل التشغيل المشار إليه واكتملت أدلته المطلوبة.
               </p>
             )}
           <div className="mt-1 text-[10px] opacity-75">
-            Verified against execution attempt {diagnostic.attempt}.
+            <span>تم التحقق من التشخيص مقابل المحاولة </span>
+            <bdi dir="ltr">{diagnostic.attempt}</bdi>.
           </div>
         </div>
       )}
       {diagnosticError && (
         <p className="mt-2 text-[11px] text-amber-100/80" role="alert">
-          This run’s diagnostic could not be verified. Try again from this message.
+          تعذّر التحقق من تشخيص هذا التشغيل. أعد المحاولة من هذه الرسالة.
         </p>
       )}
     </div>
@@ -438,16 +468,17 @@ function ProjectQueryResponseCard({
 function isFallbackDiagnosticQuestion(value: string): boolean {
   const normalized = value
     .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\p{M}/gu, '')
     .trim();
   if (!normalized || normalized.length > 300) return false;
   const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length === 2) {
-    return /^evidence-based fallback$/i.test(lines[0] ?? '')
-      && /^fallback reason:\s*(?:provider candidate was incomplete|synthesis failed)[.!?؟]*$/i.test(lines[1] ?? '');
+    return /^(?:evidence-based fallback|اجابة بديلة مبنية على الادلة)$/i.test(lines[0] ?? '')
+      && /^(?:fallback reason:\s*(?:provider candidate was incomplete|synthesis failed)|سبب الاجابة البديلة:\s*(?:رد النموذج لم يستوف شروط الاجابة|تعذرت صياغة الاجابة من النموذج))[.!?؟]*$/i
+        .test(lines[1] ?? '');
   }
   if (lines.length !== 1) return false;
-  return /^(?:explain(?: this)? fallback|why did (?:the )?fallback happen|what does fallback mean|fallback reason|اشرح (?:سبب )?(?:الـ?\s*)?(?:fallback|التراجع)|ما سبب (?:الـ?\s*)?(?:fallback|التراجع)|سبب (?:الـ?\s*)?(?:fallback|التراجع))[.!?؟]*$/i
+  return /^(?:explain(?: this)? fallback|why did (?:the )?fallback happen|what does fallback mean|fallback reason|اشرح (?:سبب )?(?:الـ?\s*)?(?:fallback|التراجع|الاجابة البديلة)|ما سبب (?:الـ?\s*)?(?:fallback|التراجع|الاجابة البديلة)|سبب (?:الـ?\s*)?(?:fallback|التراجع|الاجابة البديلة))[.!?؟]*$/i
     .test(lines[0] ?? '');
 }
 // ── PR-011: Source Coverage Panel ─────────────────────────────────────────────
@@ -460,19 +491,19 @@ const readStatusBadge: Record<
   NonNullable<ChatMessage['sourceSelectionRecord']>['fileStatuses'][number]['readStatus'],
   { label: string; className: string }
 > = {
-  READ_COMPLETE: { label: 'complete', className: 'border-emerald-500/40 text-emerald-300' },
-  READ_TRUNCATED: { label: 'truncated', className: 'border-amber-500/40 text-amber-300' },
-  READ_FAILED: { label: 'failed', className: 'border-red-500/40 text-red-300' },
-  READ_SKIPPED: { label: 'skipped', className: 'border-border/60 text-muted-foreground' },
+  READ_COMPLETE: { label: 'قراءة كاملة', className: 'border-emerald-500/40 text-emerald-300' },
+  READ_TRUNCATED: { label: 'قراءة جزئية', className: 'border-amber-500/40 text-amber-300' },
+  READ_FAILED: { label: 'تعذرت القراءة', className: 'border-red-500/40 text-red-300' },
+  READ_SKIPPED: { label: 'لم يُقرأ', className: 'border-border/60 text-muted-foreground' },
 };
 
 const plannerTierInfo: Record<
   NonNullable<ChatMessage['sourceSelectionRecord']>['plannerTier'],
   { label: string; className: string }
 > = {
-  targeted: { label: 'Targeted', className: 'border-sky-500/30 bg-sky-500/10 text-sky-300' },
-  graph_enriched: { label: 'Graph-enriched', className: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300' },
-  fallback: { label: 'Fallback plan', className: 'border-amber-500/30 bg-amber-500/10 text-amber-300' },
+  targeted: { label: 'بحث موجّه', className: 'border-sky-500/30 bg-sky-500/10 text-sky-300' },
+  graph_enriched: { label: 'بحث يستعين بترابط الملفات', className: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300' },
+  fallback: { label: 'خطة بحث بديلة', className: 'border-amber-500/30 bg-amber-500/10 text-amber-300' },
 };
 
 function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
@@ -480,29 +511,31 @@ function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
 
   const plannedStatuses = record.fileStatuses.filter((e) => e.origin === 'planned');
   const modelChosenStatuses = record.fileStatuses.filter((e) => e.origin === 'model_chosen');
-  const tierInfo = plannerTierInfo[record.plannerTier];
+  const tierInfo = plannerTierInfo[record.plannerTier] ?? { label: 'طريقة بحث غير معروفة', className: 'border-border/60 text-muted-foreground' };
 
   return (
-    <div className="mt-2 rounded-lg border border-border/40 bg-background/20 text-[11px]">
+    <div dir="rtl" lang="ar" className="mt-2 rounded-lg border border-border/40 bg-background/20 text-[11px]">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-muted-foreground hover:text-foreground"
+        className="flex w-full flex-wrap items-center gap-1.5 px-3 py-2 text-start text-muted-foreground hover:text-foreground"
+        aria-label="تفاصيل مصادر الإجابة"
         aria-expanded={expanded}
       >
         <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-        <span className="flex-1 font-medium">Sources</span>
+        <span className="flex-1 font-medium">مصادر الإجابة</span>
         <span className={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${tierInfo.className}`}>
           {tierInfo.label}
         </span>
-        <span className="ml-1 text-muted-foreground">
+        <span className="ms-1 text-muted-foreground">
           {record.plannedFiles.length > 0
-            ? `${record.plannedFiles.length} planned`
-            : 'No planned files'}
+            ? `الملفات المخططة: ${record.plannedFiles.length}`
+            : 'لا توجد ملفات مخططة'}
         </span>
       </button>
       {expanded && (
         <div className="border-t border-border/40 px-3 py-2 space-y-2">
+          <p className="text-muted-foreground">هذه تفاصيل اختيار المصادر وقراءتها؛ القراءة الكاملة لا تعني قبول كل ادعاء أو اكتمال التنفيذ.</p>
           {record.orientationCoverage && (
             <div
               className={`rounded border px-2 py-1 ${
@@ -513,37 +546,37 @@ function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
               data-testid="orientation-coverage"
             >
               <div className="font-semibold">
-                Project orientation: {record.orientationCoverage.complete ? 'complete' : 'incomplete'}
+                تغطية التعرف على المشروع: {record.orientationCoverage.complete ? 'كاملة' : 'غير مكتملة'}
               </div>
               {record.orientationCoverage.missingRoles.length > 0 && (
                 <div className="mt-0.5 text-[10px] text-amber-200">
-                  Missing roles: {record.orientationCoverage.missingRoles.join(', ')}
+                  أدوار المصادر الناقصة: <bdi dir="ltr">{record.orientationCoverage.missingRoles.join(', ')}</bdi>
                 </div>
               )}
             </div>
           )}
           {record.plannedFiles.length === 0 && (
             <div className="rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
-              No files were selected by the planner. This answer used fallback source discovery; review coverage before relying on it.
+              لم تختر خطة البحث ملفات. استُخدمت طريقة بديلة لاكتشاف المصادر؛ راجع التغطية قبل الاعتماد على الإجابة.
             </div>
           )}
           {record.truncatedPlannedCount > 0 && (
             <div className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
               <AlertCircle className="h-3 w-3 shrink-0" />
               <span>
-                {record.truncatedPlannedCount} planned file{record.truncatedPlannedCount !== 1 ? 's' : ''} truncated — answers may reflect partial source coverage.
+                ملفات مخططة قُرئت جزئيًا: {record.truncatedPlannedCount} — قد تعتمد الإجابة على تغطية جزئية للمصادر.
               </span>
             </div>
           )}
           {plannedStatuses.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Planned</div>
+              <div className="text-[10px] font-semibold text-muted-foreground mb-1">ملفات خطة البحث</div>
               {plannedStatuses.map((entry) => {
-                const badge = readStatusBadge[entry.readStatus];
+                const badge = readStatusBadge[entry.readStatus] ?? { label: 'حالة قراءة غير معروفة', className: 'border-border/60 text-muted-foreground' };
                 return (
                   <div key={entry.path} className="flex items-center gap-2 min-w-0">
-                    <code className="flex-1 truncate font-mono text-[10px] text-foreground/80">{entry.path}</code>
-                    <Badge variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
+                    <code dir="ltr" title={entry.path} className="min-w-0 flex-1 truncate font-mono text-[10px] text-foreground/80">{entry.path}</code>
+                    <Badge title={entry.readStatus} variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
                       {badge.label}
                     </Badge>
                   </div>
@@ -553,13 +586,13 @@ function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
           )}
           {modelChosenStatuses.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Also read</div>
+              <div className="text-[10px] font-semibold text-muted-foreground mb-1">المصادر الإضافية المختارة</div>
               {modelChosenStatuses.map((entry) => {
-                const badge = readStatusBadge[entry.readStatus];
+                const badge = readStatusBadge[entry.readStatus] ?? { label: 'حالة قراءة غير معروفة', className: 'border-border/60 text-muted-foreground' };
                 return (
                   <div key={entry.path} className="flex items-center gap-2 min-w-0">
-                    <code className="flex-1 truncate font-mono text-[10px] text-foreground/60">{entry.path}</code>
-                    <Badge variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
+                    <code dir="ltr" title={entry.path} className="min-w-0 flex-1 truncate font-mono text-[10px] text-foreground/60">{entry.path}</code>
+                    <Badge title={entry.readStatus} variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
                       {badge.label}
                     </Badge>
                   </div>
@@ -1128,7 +1161,7 @@ type MetricsResponse = {
 type MetricsProviderFilter = 'all' | 'groq' | 'deepseek' | 'openrouter' | 'gemini';
 
 const METRICS_PROVIDER_OPTIONS: Array<{ value: MetricsProviderFilter; label: string }> = [
-  { value: 'all', label: 'All providers' },
+  { value: 'all', label: 'جميع المزودين' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'deepseek', label: 'DeepSeek' },
@@ -1238,25 +1271,25 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
   const lastSuccessLabel = metric.lastSuccessAt
     ? (() => {
         const secs = Math.floor((Date.now() - new Date(metric.lastSuccessAt).getTime()) / 1000);
-        if (secs < 60)   return `${secs}s ago`;
-        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-        return `${Math.floor(secs / 3600)}h ago`;
+        if (secs < 60)   return `منذ ${secs} ثانية`;
+        if (secs < 3600) return `منذ ${Math.floor(secs / 60)} دقيقة`;
+        return `منذ ${Math.floor(secs / 3600)} ساعة`;
       })()
     : null;
 
   const stateLabels: Record<string, string> = {
-    missing_credentials: 'Not configured',
-    authentication_failed: 'Authentication failed',
-    incompatible_model: 'Model incompatible',
-    no_compatible_free_model: 'No compatible model',
-    catalog_stale: 'Model catalog stale',
-    quota_exhausted: 'Quota exhausted',
-    rate_limited: 'Rate limited',
-    circuit_open: 'Circuit open',
-    provider_outage: 'Provider unavailable',
-    degraded: 'Degraded',
-    healthy: 'Healthy',
-    unknown: 'Not checked',
+    missing_credentials: 'بيانات الوصول غير معدّة',
+    authentication_failed: 'رُفضت بيانات الوصول',
+    incompatible_model: 'النموذج غير متوافق',
+    no_compatible_free_model: 'لا يوجد نموذج متوافق بحسب الفحص',
+    catalog_stale: 'قائمة النماذج تحتاج إلى تحديث',
+    quota_exhausted: 'نفدت حصة الاستخدام',
+    rate_limited: 'بلغ المزود حد الاستخدام',
+    circuit_open: 'أُوقفت المحاولات مؤقتًا بعد إخفاقات',
+    provider_outage: 'المزود غير متاح',
+    degraded: 'توجد مشكلات في الاستجابة',
+    healthy: 'المزود متاح بحسب الحالة المسجلة',
+    unknown: 'لم تُفحص الحالة بعد',
   };
   const lifecycleState = metric.lifecycle?.overallStatus === 'unconfigured'
     ? 'missing_credentials'
@@ -1276,12 +1309,12 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
 
   if (state === 'circuit_open' || metric.circuitOpen) {
     return (
-      <div className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
+      <div dir="rtl" lang="ar" className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
         <div className="flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-          <span>{stateLabels[state]}{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+          <span className="min-w-0 break-words">{stateLabels[state] ?? 'حالة المزود غير معروفة'}{cooldownSec != null ? ` · انتظار ${cooldownSec} ثانية` : ''}</span>
         </div>
-        {metric.operatorAction && <div className="pl-3 text-red-300/80">{metric.operatorAction}</div>}
+        {metric.operatorAction && <div dir="auto" className="break-words ps-3 text-red-300/80">{metric.operatorAction}</div>}
       </div>
     );
   }
@@ -1292,22 +1325,25 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
   const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
 
   return (
-    <div className={`mt-1.5 space-y-0.5 text-[10px] ${isActionable ? 'text-amber-300' : 'text-muted-foreground'}`}>
+    <div dir="rtl" lang="ar" className={`mt-1.5 space-y-0.5 text-[10px] ${isActionable ? 'text-amber-300' : 'text-muted-foreground'}`}>
       <div className="flex items-center gap-1.5">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHealthy ? 'bg-green-400' : isDegraded ? 'bg-yellow-400' : 'bg-muted-foreground'}`} />
-      <span className="flex-1 truncate">
+      <span className="min-w-0 flex-1 break-words">
         {isActionable
-          ? stateLabels[state] ?? state.replace(/_/g, ' ')
+          ? stateLabels[state] ?? <>حالة المزود غير معروفة: <bdi dir="ltr">{state}</bdi></>
+          : state === 'unknown'
+          ? stateLabels.unknown
           : metric.consecutiveFailures > 0
-          ? `${metric.consecutiveFailures} consecutive fail${metric.consecutiveFailures > 1 ? 's' : ''}`
+          ? `إخفاقات متتالية: ${metric.consecutiveFailures}`
           : lastSuccessLabel
-            ? `OK · ${lastSuccessLabel}`
-            : 'Active'}
-        {metric.avgLatencyMs != null ? ` · ${metric.avgLatencyMs}ms` : ''}
+            ? `آخر استجابة ناجحة · ${lastSuccessLabel}`
+            : stateLabels.healthy}
+        {metric.avgLatencyMs != null ? ` · متوسط زمن الاستجابة: ${metric.avgLatencyMs} مللي ثانية` : ''}
       </span>
       </div>
-      {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
-      {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
+      {metric.operatorAction && <div dir="auto" className="break-words ps-3 text-amber-200/80">{metric.operatorAction}</div>}
+      {isActionable && metric.correlationId && <div className="break-words ps-3 text-muted-foreground">مرجع المتابعة: <bdi dir="ltr">{metric.correlationId}</bdi></div>}
+      <p className="break-words">هذه مؤشرات استجابة المزود، وليست إثباتًا لاكتمال طلبك.</p>
     </div>
   );
 }
@@ -1324,14 +1360,14 @@ function ModelQualityTrend({
   timeline: AiUsageSummary['timeline'];
 }) {
   return (
-    <div className="mt-3 rounded border border-border/60 bg-background/20 p-2.5" aria-label="Model quality trends">
+    <div className="mt-3 rounded border border-border/60 bg-background/20 p-2.5" aria-label="اتجاه جودة الإجابات">
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="font-medium text-foreground">Daily quality trend</h3>
-        <span className="text-[10px] text-muted-foreground">Recorded days only</span>
+        <h3 className="font-medium text-foreground">الجودة حسب اليوم</h3>
+        <span className="text-[10px] text-muted-foreground">الأيام المسجلة فقط</span>
       </div>
       {timeline.length === 0 ? (
         <p className="mt-2 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
-          No model-quality history matches this project, provider, and time window.
+          لا يوجد سجل جودة يطابق المشروع والمزود والفترة المحددة.
         </p>
       ) : (
         <div className="mt-2 space-y-1.5">
@@ -1339,7 +1375,7 @@ function ModelQualityTrend({
             const failureKinds = Object.entries(point.failureKinds)
               .sort(([, a], [, b]) => b - a)
               .slice(0, 2);
-            const dayLabel = new Date(`${point.day}T00:00:00Z`).toLocaleDateString(undefined, {
+            const dayLabel = new Date(`${point.day}T00:00:00Z`).toLocaleDateString('ar', {
               month: 'short',
               day: 'numeric',
             });
@@ -1347,29 +1383,29 @@ function ModelQualityTrend({
               <div key={point.day} className="rounded border border-border/40 bg-secondary/30 px-2 py-1.5">
                 <div className="flex items-center justify-between gap-2 text-[10px]">
                   <span className="font-medium text-foreground">{dayLabel}</span>
-                  <span className="text-muted-foreground">{point.attempts} attempt{point.attempts === 1 ? '' : 's'}</span>
+                  <span className="text-muted-foreground">المحاولات: {point.attempts}</span>
                 </div>
                 <div className="mt-1 grid grid-cols-3 gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
                   <span>
-                    Acceptance <strong className="font-medium text-emerald-200">{contractRate(point.acceptanceRate)}</strong>
+                    القبول <strong dir="ltr" className="font-medium text-emerald-200">{contractRate(point.acceptanceRate)}</strong>
                   </span>
                   <span>
-                    Citation <strong className="font-medium text-sky-200">{contractRate(point.citationMatchRate)}</strong>
+                    مطابقة الاستشهادات <strong dir="ltr" className="font-medium text-sky-200">{contractRate(point.citationMatchRate)}</strong>
                   </span>
                   <span>
-                    Recovery <strong className="font-medium text-amber-200">
+                    الاسترداد <strong dir="ltr" className="font-medium text-amber-200">
                       {point.recoveryAttempts > 0
                         ? `${point.recoveryAccepted}/${point.recoveryAttempts}`
-                        : 'none'}
+                        : 'لا توجد محاولات'}
                     </strong>
                   </span>
                 </div>
                 <div className="mt-1 truncate text-[10px] text-muted-foreground" title={failureKinds.map(([kind, count]) => `${kind} (${count})`).join(', ')}>
                   {failureKinds.length > 0
-                    ? <>Failures: {failureKinds.map(([kind, count], index) => (
-                      <span key={kind}>{index > 0 ? ', ' : ''}{kind} ({count})</span>
+                    ? <>الإخفاقات: {failureKinds.map(([kind, count], index) => (
+                      <span key={kind}>{index > 0 ? '، ' : ''}<bdi dir="ltr">{kind} ({count})</bdi></span>
                     ))}</>
-                    : 'Failures: none recorded'}
+                    : 'لم تُسجل إخفاقات'}
                 </div>
               </div>
             );
@@ -1413,22 +1449,25 @@ function ModelContractQualityCard({
   const sortedModels = [...models].sort((a, b) => b.attempts - a.attempts || a.model.localeCompare(b.model));
 
   return (
-    <section className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs" aria-label="Model contract quality">
+    <section dir="rtl" lang="ar" className="mx-2 mb-2 min-w-0 rounded-lg border border-border bg-secondary/50 p-3 text-xs" aria-label="جودة إجابات المساعد">
       <div className="flex items-start gap-2">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
         <div className="min-w-0">
-          <h2 className="font-medium text-foreground">Model contract quality</h2>
+          <h2 className="font-medium text-foreground">جودة إجابات المساعد</h2>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            Acceptance and citation matching from the durable metrics window.
+            نسب قبول الإجابات ومطابقة استشهاداتها بحسب السجل المحفوظ للفترة المحددة. استجابة المزود وحدها لا تعني قبول الإجابة، وهذه النسب ليست إثباتًا لاكتمال طلب بعينه.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            الاسترداد يبيّن المقبول من محاولات الاسترداد المسجلة. الشرطة (—) تعني أن النسبة غير متاحة، لا أنها صفر.
           </p>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <label className="min-w-0 text-xs text-muted-foreground">
-          <span className="mb-1 block">Provider</span>
+          <span className="mb-1 block">المزود</span>
           <select
-            aria-label="Model quality provider"
+            aria-label="مزود تقرير الجودة"
             value={provider}
             onChange={(event) => onProviderChange(event.target.value as MetricsProviderFilter)}
             className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
@@ -1439,15 +1478,15 @@ function ModelContractQualityCard({
           </select>
         </label>
         <label className="min-w-0 text-xs text-muted-foreground">
-          <span className="mb-1 block">Time window</span>
+          <span className="mb-1 block">الفترة</span>
           <select
-            aria-label="Model quality time window"
+            aria-label="فترة تقرير الجودة"
             value={days}
             onChange={(event) => onDaysChange(Number(event.target.value))}
             className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
           >
             {METRICS_WINDOW_OPTIONS.map((windowDays) => (
-              <option key={windowDays} value={windowDays}>{windowDays} days</option>
+              <option key={windowDays} value={windowDays}>{windowDays} يومًا</option>
             ))}
           </select>
         </label>
@@ -1462,23 +1501,23 @@ function ModelContractQualityCard({
           disabled={isExporting || isLoading || isError}
         >
           {isExporting ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Download className="mr-1.5 h-3 w-3" />}
-          {isExporting ? 'Exporting…' : 'Export report'}
+          {isExporting ? 'جارٍ تصدير التقرير…' : 'تصدير تقرير الجودة'}
         </Button>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Project: <span className="text-foreground/80">{projectLabel}</span>
-        {isFetching && !isLoading && <span className="ml-1.5 text-primary">Refreshing…</span>}
+        المشروع: <bdi dir="auto" className="text-foreground/80">{projectLabel}</bdi>
+        {isFetching && !isLoading && <span className="ms-1.5 text-primary">جارٍ تحديث البيانات…</span>}
       </p>
 
       {isLoading ? (
         <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground" role="status">
-          Loading model contract telemetry…
+          جارٍ تحميل بيانات جودة الإجابات…
         </p>
       ) : isError ? (
         <div className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground">
-          <p>Unable to load model contract telemetry for this filter.</p>
+          <p>تعذر تحميل بيانات الجودة للمرشحات المحددة.</p>
           <Button type="button" variant="ghost" size="sm" className="mt-1 h-8 px-2 text-xs" onClick={onRetry}>
-            Try again
+            إعادة تحميل تقرير الجودة
           </Button>
         </div>
       ) : (
@@ -1486,7 +1525,7 @@ function ModelContractQualityCard({
           <ModelQualityTrend timeline={usage?.timeline ?? []} />
           {sortedModels.length === 0 ? (
             <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground">
-              No model contract telemetry matches this project, provider, and time window.
+              لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.
             </p>
           ) : (
             <div className="mt-3 space-y-2">
@@ -1497,34 +1536,34 @@ function ModelContractQualityCard({
                 return (
                   <div key={`${model.provider}:${model.model}`} className="rounded border border-border/60 bg-background/25 px-2.5 py-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={model.model}>{model.model}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
+                      <bdi dir="ltr" className="min-w-0 flex-1 truncate font-mono text-xs" title={model.model}>{model.model}</bdi>
+                      <span className="shrink-0 text-xs text-muted-foreground">المحاولات: {model.attempts}</span>
                     </div>
                     <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>Acceptance <strong className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
-                      <span>Citation match <strong className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
+                      <span>القبول <strong dir="ltr" className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
+                      <span>مطابقة الاستشهادات <strong dir="ltr" className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
                       <span>
-                        Recovery{' '}
-                        <strong className="font-medium text-amber-200">
+                        الاسترداد{' '}
+                        <strong dir="ltr" className="font-medium text-amber-200">
                           {model.contract.recoveryAttempts > 0
                             ? `${model.contract.recoveryAccepted}/${model.contract.recoveryAttempts} · ${contractRate(model.contract.recoveryAcceptanceRate)}`
-                            : 'none'}
+                            : 'لا توجد محاولات'}
                         </strong>
                       </span>
-                      <span>Evaluated <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
+                      <span>الإجابات المقيّمة <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
                     </div>
                     <div className="mt-1.5 border-t border-border/40 pt-1.5 text-xs text-muted-foreground">
                       {failureKinds.length > 0 ? (
                         <span>
-                          Failure kinds:{' '}
+                          أنواع الإخفاق:{' '}
                           {failureKinds.map(([kind, count], index) => (
                             <span key={kind}>
-                              {index > 0 ? ', ' : ''}{kind} ({count})
+                              {index > 0 ? '، ' : ''}<bdi dir="ltr">{kind} ({count})</bdi>
                             </span>
                           ))}
                         </span>
                       ) : (
-                        <span>No contract failures recorded</span>
+                        <span>لم تُسجل إخفاقات في شروط قبول الإجابة</span>
                       )}
                     </div>
                   </div>
@@ -1554,9 +1593,9 @@ function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleS
               : 'لم يكتمل التحقق من جاهزية المزود.'}
         </span>
       </div>
-      <div className="pl-4 break-words text-amber-200/80">
+      <div className="ps-4 break-words text-amber-200/80">
         {lifecycle.reasonCodes.length
-          ? `رمز السبب المسجل: ${lifecycle.reasonCodes[0]}.`
+          ? <>رمز السبب المسجل: <bdi dir="ltr">{lifecycle.reasonCodes[0]}</bdi>.</>
           : 'أعد فحص جاهزية المزود قبل الاعتماد عليه.'}
       </div>
     </div>
@@ -6493,14 +6532,14 @@ function MessageBubble({
           <div aria-hidden="true" className="mt-1 flex items-center gap-2 px-1">
             <span className="h-px w-4 shrink-0 bg-sky-400/40" />
             <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-sky-200/70">
-              Evidence &amp; context
+              الأدلة وسياق الإجابة
             </span>
             <span className="h-px flex-1 bg-border/60" />
           </div>
         )}
         <div
           role={hasEvidenceDetails ? 'group' : undefined}
-          aria-label={hasEvidenceDetails ? 'Evidence and context' : undefined}
+          aria-label={hasEvidenceDetails ? 'الأدلة وسياق الإجابة' : undefined}
           className={hasEvidenceDetails
             ? 'flex w-full flex-col gap-3 border-l-2 border-sky-400/20 pl-3'
             : 'flex w-full flex-col gap-0'}
@@ -8583,27 +8622,27 @@ type AgentExecutionProofStatus = {
 function flightDeckStateLabel(state: AgentExecutionProofStatus['flightState']): string {
   switch (state) {
     case 'READY_FOR_REVIEW':
-      return 'Ready for review';
+      return 'جاهز للمراجعة';
     case 'VALIDATING':
-      return 'Validating';
+      return 'جارٍ التحقق';
     case 'REPAIRING':
-      return 'Repairing';
+      return 'جارٍ الإصلاح';
     case 'BLOCKED':
-      return 'Blocked';
+      return 'متعذّر';
     case 'APPLIED':
-      return 'Applied';
+      return 'طُبّق';
     case 'COMMITTED':
-      return 'Committed';
+      return 'أُودع في Git';
     case 'PUSHED':
-      return 'Pushed';
+      return 'أُرسل إلى المستودع';
     case 'CANCELLED':
-      return 'Cancelled';
+      return 'أُلغي';
     case 'COMPLETED':
-      return 'Completed';
+      return 'اكتمل';
     case 'BUILDING':
-      return 'Building';
+      return 'جارٍ التنفيذ';
     default:
-      return 'Preparing';
+      return 'جارٍ التجهيز';
   }
 }
 
@@ -8645,6 +8684,23 @@ function checkpointExecutionNodes(
   });
 }
 
+function executionNodeStatusLabel(status: string): string {
+  switch (status) {
+    case 'queued':
+      return 'بانتظار البدء';
+    case 'running':
+      return 'جارٍ تنفيذها';
+    case 'passed':
+      return 'اكتملت';
+    case 'failed':
+      return 'لم تكتمل';
+    case 'blocked':
+      return 'متوقفة بانتظار المعالجة';
+    default:
+      return 'حالة غير معروفة';
+  }
+}
+
 function ExecutionMissionControl({
   nodes,
 }: {
@@ -8664,23 +8720,29 @@ function ExecutionMissionControl({
   };
 
   return (
-    <div className="border-t border-border/40 px-3 py-2.5" aria-label="Execution mission control">
+    <div
+      dir="rtl"
+      lang="ar"
+      className="border-t border-border/40 px-3 py-2.5"
+      role="region"
+      aria-label="مراحل تنفيذ التشغيل"
+    >
       <div className="flex items-center gap-2">
         <GitMerge className="h-3.5 w-3.5 text-primary" />
-        <span className="text-[11px] font-semibold text-foreground">Mission Control</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">
-          {counts.passed ?? 0}/{nodes.length} complete
+        <span className="text-[11px] font-semibold text-foreground">خطوات هذا التشغيل</span>
+        <span className="ms-auto text-[10px] text-muted-foreground">
+          الخطوات المكتملة: {counts.passed ?? 0} من {nodes.length}
         </span>
       </div>
       <div className="mt-2 space-y-1.5">
         {nodes.map((node) => (
           <div key={node.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border/40 bg-background/20 px-2 py-1.5">
-            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase ${statusClasses[node.status] ?? statusClasses.queued}`}>
-              {node.status}
+            <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold ${statusClasses[node.status] ?? 'border-border/60 bg-background/30 text-muted-foreground'}`}>
+              {executionNodeStatusLabel(node.status)}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[10px] text-foreground/90">{node.title}</span>
+            <span className="min-w-0 flex-1 truncate text-[10px] text-foreground/90"><bdi dir="auto">{node.title}</bdi></span>
             <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground">
-              {node.attempts}/3
+              المحاولة {node.attempts} من 3
             </span>
           </div>
         ))}
@@ -8797,29 +8859,76 @@ function BenchmarkMissionControl() {
 function proofStatusLabel(status: string | undefined): string {
   switch (status) {
     case 'checking':
-      return 'Checking status';
+      return 'جارٍ التحقق من الحالة';
     case 'queued':
-      return 'Queued';
+      return 'في قائمة الانتظار';
     case 'running':
-      return 'Running';
+      return 'جارٍ التنفيذ';
     case 'paused':
-      return 'Paused';
+      return 'متوقف مؤقتًا';
     case 'failed':
-      return 'Failed safely';
+      return 'توقف بأمان';
     case 'cancelling':
-      return 'Stopping';
+      return 'جارٍ الإيقاف';
     case 'cancelled':
-      return 'Cancelled';
+      return 'أُلغي';
     case 'completed':
-      return 'Completed';
+      return 'اكتمل التشغيل';
     case 'ready-to-apply':
-      return 'Ready to apply';
+      return 'التغييرات بانتظار الموافقة';
     case 'ready-to-commit':
-      return 'Ready to commit';
+      return 'التغييرات جاهزة للإيداع في Git';
     case 'ready-to-push':
-      return 'Ready to push';
+      return 'التغييرات جاهزة للإرسال إلى المستودع';
     default:
-      return 'Preparing';
+      return 'جارٍ التجهيز';
+  }
+}
+
+function evidenceVerdictLabel(verdict: NonNullable<AgentExecutionProofStatus['evidenceVerdict']>): string {
+  switch (verdict) {
+    case 'PROVEN':
+      return 'الأدلة كافية';
+    case 'PARTIAL':
+      return 'الأدلة جزئية';
+    case 'UNAVAILABLE':
+      return 'الأدلة غير متاحة';
+    case 'BLOCKED':
+      return 'لم يثبت اكتمال الأدلة';
+    case 'NOT_RECORDED':
+      return 'لم تُسجّل حالة الأدلة';
+  }
+}
+
+function forensicVerdictLabel(verdict: FinalForensicVerdict): string {
+  switch (verdict) {
+    case 'FINDING PROVEN':
+      return 'النتيجة مدعومة بالأدلة';
+    case 'NO FINDING':
+      return 'لم يظهر دليل على خلل';
+    case 'NOT PROVEN':
+      return 'لم تثبت النتيجة';
+    case 'INCOMPLETE':
+      return 'التحليل غير مكتمل';
+  }
+}
+
+function verdictScopeLabel(scope: string): string {
+  switch (scope) {
+    case 'PRODUCTION':
+      return 'بيئة الإنتاج';
+    case 'FIXTURE_LOCAL':
+      return 'بيئة اختبار معزولة';
+    case 'TEST_LOCAL':
+      return 'بيئة الاختبار';
+    case 'SPEC_LOCAL':
+      return 'بيئة المواصفات';
+    case 'MIXED':
+      return 'نطاقات متعددة';
+    case 'NOT_PROVEN':
+      return 'النطاق غير مثبت';
+    default:
+      return 'نطاق مسجل';
   }
 }
 
@@ -8831,36 +8940,69 @@ function proofStatusClasses(status: string | undefined): string {
   return 'border-primary/40 bg-primary/10 text-primary';
 }
 
+function acceptanceReasonLabel(reasonCode: string): string | undefined {
+  switch (reasonCode) {
+    case 'EVIDENCE_INCOMPLETE':
+    case 'EXECUTION_ACCEPTANCE_INCOMPLETE':
+    case 'REVIEW_INCOMPLETE_EVIDENCE':
+      return 'الأدلة المطلوبة غير مكتملة، لذلك لم يُقبل إثبات النتيجة.';
+    case 'EXECUTION_PROVIDER_FAILURE':
+    case 'PROVIDER_FAILURE':
+      return 'تعذّر إكمال التشغيل بسبب مشكلة في خدمة الذكاء الاصطناعي.';
+    case 'MODEL_OUTPUT_INVALID':
+      return 'لم يستوفِ رد النموذج شروط الصيغة المطلوبة.';
+    case 'EXECUTION_CANCELLED':
+      return 'أُلغي التشغيل قبل اكتمال قبول النتيجة.';
+    case 'EXECUTION_ABANDONED':
+      return 'توقف التشغيل قبل اكتمال قبول النتيجة.';
+    case 'EXECUTION_LEASE_EXPIRED':
+      return 'انتهت مدة التشغيل قبل تسجيل قبول النتيجة.';
+    case 'CAPABILITY_PROBE_FINAL':
+      return 'انتهى فحص الإمكانات، لكنه لا يثبت إنجاز الهدف.';
+    default:
+      return undefined;
+  }
+}
+
 function AcceptanceDispositionNotice({
   disposition,
 }: {
   disposition?: AcceptanceDispositionView | null;
 }) {
   if (!disposition) return null;
+  const reasonLabels = [...new Set(
+    disposition.reasonCodes
+      .slice(0, 4)
+      .map(acceptanceReasonLabel)
+      .filter((label): label is string => Boolean(label)),
+  )];
+  const followUpLabel = acceptanceFollowUpLabel(disposition.nextActionCode);
+  const title = disposition.outcome === 'INTERRUPTED'
+    ? 'توقف التشغيل قبل اكتمال قبول النتيجة'
+    : 'لم يكتمل قبول نتيجة التشغيل';
   return (
     <div
+      dir="rtl"
+      lang="ar"
       className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-100"
       role="region"
-      aria-label="Acceptance disposition"
+      aria-label="حالة قبول التنفيذ"
     >
-      <div className="font-medium">Acceptance incomplete</div>
-      <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">
-        {disposition.reasonCodes.join(', ')}
+      <div className="font-medium">{title}</div>
+      <div className="mt-1 text-[11px]">
+        <span className="font-medium">السبب المسجل:</span>
+        {reasonLabels.length > 0 ? (
+          <ul className="mt-0.5 list-disc space-y-0.5 pe-4">
+            {reasonLabels.map((label) => <li key={label}>{label}</li>)}
+          </ul>
+        ) : (
+          <span className="ms-1">لا تتوفر تفاصيل موثوقة إضافية لهذا السبب.</span>
+        )}
       </div>
       <div className="mt-1 text-[11px]">
-        {disposition.nextActionCode === 'RESUME_ALLOWED'
-          ? 'Resume the saved execution checkpoint.'
-          : disposition.nextActionCode === 'START_NEW_PROBE'
-            ? 'Start a new capability probe; this result is not resumable.'
-            : disposition.nextActionCode === 'REVIEW_INCOMPLETE_EVIDENCE'
-              ? 'Review the incomplete evidence before relying on the result.'
-              : 'Start a new scoped run before relying on the result.'}
+        <span className="font-medium">المتابعة المسجلة:</span>{' '}
+        {followUpLabel ?? 'لا توجد خطوة متابعة معروفة لهذا التشغيل.'}
       </div>
-      {disposition.nextActionCode && (
-        <div className="mt-1 font-mono text-[10px] text-amber-300/80">
-          Next action: {disposition.nextActionCode}
-        </div>
-      )}
     </div>
   );
 }
@@ -9067,9 +9209,9 @@ function AgentExecutionProofPanel({
             ? 'border-violet-500/30 bg-violet-500/5'
             : 'border-primary/20 bg-primary/5'
       }`}
-      aria-label="Agent execution proof"
+      aria-label="إثبات التنفيذ وحالته"
     >
-      <div className="flex flex-wrap items-start gap-2 border-b border-border/40 px-3 py-2.5">
+      <div dir="rtl" lang="ar" className="flex flex-wrap items-start gap-2 border-b border-border/40 px-3 py-2.5">
         <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-background/40">
            {status === 'failed' || proofBlocked || forensicIncomplete
             ? <ShieldAlert className="h-3.5 w-3.5 text-red-300" />
@@ -9079,7 +9221,7 @@ function AgentExecutionProofPanel({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-foreground">Agent execution proof</span>
+            <span className="text-xs font-semibold text-foreground">حالة التنفيذ والإثبات</span>
              <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
                flightState ? flightDeckStateClasses(flightState) : proofStatusClasses(status)
              }`}>
@@ -9087,7 +9229,7 @@ function AgentExecutionProofPanel({
             </span>
              {execution?.evidenceVerdict && (
                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(execution.evidenceVerdict)}`}>
-                  Proof verdict: {execution.evidenceVerdict.replace('_', ' ')}
+                  حالة الأدلة: {evidenceVerdictLabel(execution.evidenceVerdict)}
                </span>
              )}
              {forensicVerdict && (
@@ -9100,7 +9242,7 @@ function AgentExecutionProofPanel({
                        : 'border-border/60 bg-background/30 text-muted-foreground'
                  }`}
                >
-                 Forensic: {forensicVerdict === 'INCOMPLETE' ? 'ANALYSIS INCOMPLETE' : forensicVerdict}
+                  نتيجة فحص المشروع: {forensicVerdictLabel(forensicVerdict)}
                </span>
              )}
             {scopeLabel && (
@@ -9109,11 +9251,11 @@ function AgentExecutionProofPanel({
                   ? 'border-green-500/40 bg-green-500/10 text-green-200'
                   : 'border-violet-500/40 bg-violet-500/10 text-violet-200'
               }`}>
-                {scopeLabel.replace(/_/g, ' ')}
+                {verdictScopeLabel(scopeLabel)}
               </span>
             )}
             <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
-              {busy ? `${formatElapsed(elapsedSeconds)} elapsed` : 'Persisted proof'}
+              {busy ? `${formatElapsed(elapsedSeconds)} منقضٍ` : 'سجل التنفيذ محفوظ'}
             </span>
             {canExport || canCancel ? (
               <div className="flex shrink-0 items-center gap-1.5">
@@ -9126,12 +9268,12 @@ function AgentExecutionProofPanel({
                       onClick={onPreview}
                       disabled={controlPending || exportPending || previewPending}
                       aria-busy={previewPending}
-                      title="Preview the redacted execution audit"
+                      title="معاينة سجل التدقيق بعد إخفاء البيانات الحساسة"
                     >
                       {previewPending
-                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        : <Eye className="mr-1.5 h-3.5 w-3.5" />}
-                      {previewPending ? 'Loading…' : 'Preview audit'}
+                        ? <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />
+                        : <Eye className="me-1.5 h-3.5 w-3.5" />}
+                      {previewPending ? 'جارٍ التحميل…' : 'معاينة سجل التدقيق'}
                     </Button>
                     <Button
                       type="button"
@@ -9140,12 +9282,12 @@ function AgentExecutionProofPanel({
                       onClick={onExport}
                       disabled={controlPending || exportPending || previewPending}
                       aria-busy={exportPending}
-                      title="Download the redacted execution audit"
+                      title="تنزيل سجل التدقيق بعد إخفاء البيانات الحساسة"
                     >
                       {exportPending
-                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        : <Download className="mr-1.5 h-3.5 w-3.5" />}
-                      {exportPending ? 'Exporting…' : 'Export audit'}
+                        ? <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />
+                        : <Download className="me-1.5 h-3.5 w-3.5" />}
+                      {exportPending ? 'جارٍ التنزيل…' : 'تنزيل سجل التدقيق'}
                     </Button>
                   </>
                 )}
@@ -9158,14 +9300,14 @@ function AgentExecutionProofPanel({
                     disabled={controlPending || status === 'cancelling'}
                     className="h-6 border-red-500/40 px-2 text-[10px] text-red-200 hover:bg-red-500/10"
                   >
-                    <Square className="mr-1 h-3 w-3" />
-                    {status === 'cancelling' ? 'Cancelling…' : 'Cancel'}
+                    <Square className="me-1 h-3 w-3" />
+                    {status === 'cancelling' ? 'جارٍ إيقاف التشغيل…' : 'إلغاء التشغيل'}
                   </Button>
                 )}
               </div>
             ) : null}
           </div>
-          <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{phase}</p>
+          <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground"><bdi dir="auto">{phase}</bdi></p>
           {recoveryView && (
             <p className="mt-1 text-[10px] font-medium text-foreground" data-testid="text-execution-recovery-state">
               {recoveryView.title} · {recoveryView.nextStep}
@@ -9176,25 +9318,25 @@ function AgentExecutionProofPanel({
             role="note"
             data-testid="text-execution-lifecycle-distinction"
           >
-            <span className="font-semibold text-foreground">Separate outcomes.</span>{' '}
-            Run completion does not mean proof was accepted, and accepted proof does not approve changes for delivery.
-            Check each status independently.
+            <span className="font-semibold text-foreground">حالات منفصلة:</span>{' '}
+            اكتمال التشغيل لا يعني قبول الإثبات، وقبول الإثبات لا يوافق على تسليم التغييرات.
+            تحقّق من كل حالة على حدة.
           </p>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-            <span>Phase: <strong className="font-medium text-foreground/80">{checkpointStage ?? phase}</strong></span>
-            <span>Attempt: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
-            <span>Operation: <code className="text-foreground/80">{execution?.operationId ?? 'not recorded'}</code></span>
-            <span>Revision: <code className="text-foreground/80">{execution?.projectRevision ?? 'not recorded'}</code></span>
+            <span>المرحلة: <strong className="font-medium text-foreground/80"><bdi dir="auto">{checkpointStage ?? phase}</bdi></strong></span>
+            <span>المحاولة: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
+            <span>العملية: <code dir="ltr" className="text-foreground/80">{execution?.operationId ?? 'غير مسجل'}</code></span>
+            <span>نسخة المشروع: <code dir="ltr" className="text-foreground/80">{execution?.projectRevision ?? 'غير مسجلة'}</code></span>
           </div>
           {(execution?.id ?? executionId) && (
             <div className="mt-1 flex items-center gap-2">
               <code className="min-w-0 truncate text-[9px] text-muted-foreground">
-                Execution {execution?.id ?? executionId}
+                معرّف التشغيل: <bdi dir="ltr">{execution?.id ?? executionId}</bdi>
               </code>
               <Link
                 href={`/flight-deck?executionId=${encodeURIComponent(execution?.id ?? executionId ?? '')}`}
                 className="inline-flex shrink-0 items-center gap-1 rounded border border-primary/30 px-1.5 py-0.5 text-[9px] text-primary hover:bg-primary/10"
-                aria-label="Open execution in Flight Deck"
+                aria-label="فتح التشغيل في Flight Deck"
               >
                 Flight Deck <ExternalLink className="h-2.5 w-2.5" />
               </Link>
@@ -9205,20 +9347,20 @@ function AgentExecutionProofPanel({
           )}
           {execution?.terminalReason && (
             <p className="mt-1 break-words text-[10px] leading-4 text-amber-200">
-              Terminal reason: {execution.terminalReason}
+              سبب التوقف: <bdi dir="auto">{execution.terminalReason}</bdi>
             </p>
           )}
           {projectedTerminal && (
             <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
-              Terminal identity: attempt {projectedTerminal.attempt}
+              الحالة النهائية: المحاولة {projectedTerminal.attempt}
               {' · '}
               {projectedTerminal.outcome.replace('_', ' ')}
               {' · '}
-              {projectedTerminal.resumable ? 'resume available' : 'not resumable'}
+              {projectedTerminal.resumable ? 'يمكن استئنافها' : 'لا يمكن استئنافها'}
             </p>
           )}
           {execution?.evidenceReason && (
-            <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{execution.evidenceReason}</p>
+            <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground"><bdi dir="auto">{execution.evidenceReason}</bdi></p>
           )}
           <AcceptanceDispositionNotice disposition={execution?.acceptanceDisposition} />
         </div>
@@ -10546,12 +10688,12 @@ export default function AiChat() {
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
       toast({
-        title: 'Model-quality report exported',
-        description: 'The filtered aggregate report is ready for handoff.',
+        title: 'صُدّر تقرير جودة الإجابات',
+        description: 'التقرير التجميعي وفق المرشحات المحددة جاهز للمشاركة.',
       });
     } catch (error) {
       toast({
-        title: 'Model-quality export failed',
+        title: 'تعذر تصدير تقرير الجودة',
         description: describeAiError(error),
         variant: 'destructive',
       });
@@ -12483,8 +12625,8 @@ export default function AiChat() {
         });
       } else {
         toast({
-          title: 'Which run should I explain?',
-          description: 'Open the exact fallback message and choose “Explain this fallback.”',
+          title: 'ما التشغيل الذي تريد شرحه؟',
+          description: 'افتح رسالة الإجابة البديلة نفسها واختر «اشرح سبب الإجابة البديلة».',
           variant: 'default',
         });
       }
@@ -13303,7 +13445,7 @@ export default function AiChat() {
             >
               <ModelContractQualityCard
                 usage={metricsData?.usage}
-                projectLabel={projects.find((project) => project.id === selectedProjectId)?.name ?? (selectedProjectId || 'All projects')}
+                projectLabel={projects.find((project) => project.id === selectedProjectId)?.name ?? (selectedProjectId || 'جميع المشاريع')}
                 provider={metricsProvider}
                 days={metricsWindowDays}
                 isLoading={metricsLoading}
@@ -14168,46 +14310,51 @@ function ContextProvenanceCard({
   const loaded = provenance.slices.filter((slice) => slice.status === 'loaded').length;
   const failed = provenance.slices.filter((slice) => slice.status === 'load_failed').length;
   const unavailable = provenance.slices.filter((slice) => slice.status === 'not_requested' || slice.status === 'empty').length;
+  const sliceLabels: Record<string, string> = {
+    loaded: 'حُمّل', load_failed: 'تعذر التحميل', not_requested: 'لم يُطلب', empty: 'لا توجد بيانات',
+  };
   return (
-    <div className="mt-2 w-full overflow-hidden rounded-lg border border-border/60 bg-muted/20 text-[11px]" aria-label="Context provenance">
+    <div dir="rtl" lang="ar" className="mt-2 w-full overflow-hidden rounded-lg border border-border/60 bg-muted/20 text-[11px]" aria-label="سياق الإجابة ومصادره">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+        aria-label="تفاصيل سياق الإجابة"
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-start transition-colors hover:bg-muted/40"
       >
-        <span className="font-medium text-foreground">Context provenance</span>
+        <span className="font-medium text-foreground">سياق الإجابة ومصادره</span>
         <span className="text-muted-foreground">
-          {loaded} loaded · {unavailable} unavailable{failed > 0 ? ` · ${failed} failed` : ''}
+          محمّل: {loaded} · غير متوفر: {unavailable}{failed > 0 ? ` · تعذر تحميله: ${failed}` : ''}
         </span>
-        <ChevronRight className={`ml-auto h-3 w-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <ChevronRight className={`ms-auto h-3 w-3 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
       {expanded && (
         <div className="space-y-1 border-t border-border/40 px-3 py-2 text-muted-foreground">
-          <div><span className="text-foreground">Intent:</span> {provenance.intentKind}</div>
-          <div><span className="text-foreground">Revision:</span> {provenance.revisionLabel}</div>
-          <div><span className="text-foreground">Links:</span> {provenance.links.returnedCount}{provenance.links.truncated ? ' (truncated)' : ''}</div>
+          <p>تحميل السياق لا يثبت صحة الادعاءات أو اكتمال التنفيذ.</p>
+          <div><span className="text-foreground">نوع الطلب:</span> <bdi dir="ltr">{provenance.intentKind}</bdi></div>
+          <div className="break-words"><span className="text-foreground">نسخة المشروع:</span> <bdi dir="ltr">{provenance.revisionLabel}</bdi></div>
+          <div><span className="text-foreground">الروابط:</span> {provenance.links.returnedCount}{provenance.links.truncated ? ' (عرض جزئي)' : ''}</div>
           {provenance.links.details.length > 0 && (
             <div className="space-y-0.5">
               {provenance.links.details.slice(0, 12).map((link, index) => (
-                <div key={`${link.source}-${link.layer}-${index}`}>
-                  <span className="text-foreground">{link.source}/{link.layer}:</span>{' '}
-                  {link.linkReason} ({link.direction}, {link.status}, {link.sourceRefCount} refs)
+                <div className="break-words" key={`${link.source}-${link.layer}-${index}`}>
+                  <bdi dir="ltr" className="text-foreground">{link.source}/{link.layer}:</bdi>{' '}
+                  <bdi dir="auto">{link.linkReason}</bdi> (<bdi dir="ltr">{link.direction}, {link.status}</bdi>، المراجع: {link.sourceRefCount})
                 </div>
               ))}
             </div>
           )}
           <div className="space-y-0.5">
             {provenance.slices.map((slice) => (
-              <div key={slice.layer}>
-                <span className="text-foreground">{slice.layer}:</span> {slice.status}, {slice.rowCount} rows
-                {slice.truncated ? ' (truncated)' : ''}
-                {slice.failureCode ? ` · ${slice.failureCode}` : ''}
+              <div className="break-words" key={slice.layer}>
+                <bdi dir="ltr" className="text-foreground">{slice.layer}:</bdi> {sliceLabels[slice.status] ?? <bdi dir="ltr">{slice.status}</bdi>}، السجلات: {slice.rowCount}
+                {slice.truncated ? ' (عرض جزئي)' : ''}
+                {slice.failureCode && <> · <bdi dir="ltr">{slice.failureCode}</bdi></>}
               </div>
             ))}
           </div>
           {provenance.citations.length > 0 && (
-            <div><span className="text-foreground">Citations:</span> {provenance.citations.join(', ')}</div>
+            <div className="break-words"><span className="text-foreground">الاستشهادات:</span> <bdi dir="ltr">{provenance.citations.join(', ')}</bdi></div>
           )}
         </div>
       )}

@@ -194,6 +194,8 @@ const mocks = vi.hoisted(() => {
       usage: undefined as unknown,
     },
     useGetAiMetrics: vi.fn(),
+    metricsQueryState: { isLoading: false, isFetching: false, isError: false },
+    refetchMetrics: vi.fn(),
     qualityExport: vi.fn(),
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
@@ -307,8 +309,8 @@ vi.mock('@workspace/api-client-react', () => {
     useGetActiveProvider: vi.fn(() => ({ data: mocks.activeProvider, isLoading: false, isError: false, error: null })),
     useGetAiMetrics: mocks.useGetAiMetrics.mockImplementation(() => ({
       data: mocks.aiMetrics,
-      isLoading: false,
-      isError: false,
+      ...mocks.metricsQueryState,
+      refetch: mocks.refetchMetrics,
       error: null,
     })),
     exportAiMetrics: mocks.qualityExport,
@@ -523,6 +525,7 @@ beforeEach(() => {
   mocks.serverProposal = undefined;
   mocks.groqStatus = undefined;
   mocks.keyStatusConfigured = false;
+  mocks.metricsQueryState = { isLoading: false, isFetching: false, isError: false };
   mocks.activeProvider = { provider: 'groq', configured: true };
   mocks.aiMetrics = {
     metrics: [],
@@ -616,6 +619,10 @@ beforeEach(() => {
     acceptanceDisposition: undefined,
     terminalProjection: undefined,
     forensicDiagnostic: undefined,
+    projectQueryTarget: undefined,
+    sourceSelectionRecord: undefined,
+    contextProvenance: undefined,
+    evidenceGraph: undefined,
   };
   mocks.operationEvents = [];
   for (const mutation of Object.values(mocks.mutations)) {
@@ -836,7 +843,7 @@ describe('AiChat settings disclosure', () => {
     const settingsToggle = screen.getByRole('button', { name: 'إعدادات المساعد والتشخيص' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('المزودون وبيانات الوصول وجودة النماذج')).toHaveClass('text-xs');
-    expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'جودة إجابات المساعد' })).not.toBeInTheDocument();
     const emptyAudits = screen.getByText('No cancelled or incomplete audits for this project.');
     expect(emptyAudits).toHaveClass('text-xs', 'leading-5');
     expect(emptyAudits.closest('#historical-audits-content')).toHaveAttribute('hidden');
@@ -853,11 +860,11 @@ describe('AiChat settings disclosure', () => {
 
     fireEvent.click(settingsToggle);
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'true');
-    const modelQuality = screen.getByRole('region', { name: 'Model contract quality' });
+    const modelQuality = screen.getByRole('region', { name: 'جودة إجابات المساعد' });
     expect(modelQuality).toBeInTheDocument();
-    expect(within(modelQuality).getByText('Acceptance and citation matching from the durable metrics window.'))
+    expect(within(modelQuality).getByText(/نسب قبول الإجابات ومطابقة استشهاداتها بحسب السجل المحفوظ/))
       .toHaveClass('text-xs', 'leading-5');
-    expect(within(modelQuality).getByRole('combobox', { name: 'Model quality provider' }))
+    expect(within(modelQuality).getByRole('combobox', { name: 'مزود تقرير الجودة' }))
       .toHaveClass('text-xs');
   });
 });
@@ -936,7 +943,7 @@ describe('AiChat fallback explanation', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Explain this fallback' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'اشرح سبب الإجابة البديلة' }));
 
     expect(mocks.mutations.fallbackDiagnostic.mutate).toHaveBeenCalledWith({
       data: {
@@ -965,16 +972,19 @@ describe('AiChat fallback explanation', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const explanation = await screen.findByTestId('fallback-explanation-fallback-message-1');
-    expect(explanation).toHaveTextContent('did not satisfy the response contract');
-    expect(explanation).toHaveTextContent('required evidence complete');
-    expect(explanation).toHaveTextContent('attempt 2');
+    expect(explanation).toHaveTextContent('لم يستوفِ الرد الذي أنشأه النموذج شروط الإجابة');
+    expect(explanation).toHaveTextContent('اكتملت أدلته المطلوبة');
+    expect(explanation).toHaveTextContent('المحاولة 2');
   });
 
-  it('binds a narrow manual follow-up to the latest fallback in the active session', async () => {
+  it.each([
+    'Explain this fallback',
+    'اشرح الإجابة البديلة',
+  ])('binds the %s manual follow-up to the latest fallback in the active session', async (question) => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     const input = screen.getByTestId('input-ai-chat-composer');
-    fireEvent.change(input, { target: { value: 'Explain this fallback' } });
+    fireEvent.change(input, { target: { value: question } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
     expect(mocks.mutations.fallbackDiagnostic.mutate).toHaveBeenCalledWith({
@@ -998,13 +1008,62 @@ describe('AiChat fallback explanation', () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     const input = screen.getByTestId('input-ai-chat-composer');
-    fireEvent.change(input, { target: { value: 'Explain this fallback' } });
+    fireEvent.change(input, { target: { value: 'اشرح الإجابة البديلة' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
 
     expect(mocks.mutations.fallbackDiagnostic.mutate).not.toHaveBeenCalled();
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Which run should I explain?',
+      title: 'ما التشغيل الذي تريد شرحه؟',
     }));
+  });
+
+  it('does not display raw operator instructions or unknown follow-up codes', async () => {
+    mocks.serverProposal = { proposalId: 'unknown-follow-up', changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent: 'PROJECT_QUERY',
+      content: 'Project query response',
+      projectQueryResponseSource: undefined,
+      projectQueryResponseFallbackReason: undefined,
+      acceptanceDisposition: {
+        reasonCodes: ['UNRECOGNIZED_ACCEPTANCE_CODE'],
+        outcome: 'FAILED',
+        failureKind: 'INCOMPLETE',
+        recoveryState: 'INCOMPLETE',
+        nextActionCode: 'UNRECOGNIZED_NEXT_ACTION',
+        operatorAction: 'Run an unapproved command now.',
+      },
+    } as typeof mocks.proposalMessages[number];
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const card = screen.getByLabelText('مصدر إجابة استعلام المشروع');
+    expect(card).toHaveTextContent('لم تُقبل الأدلة المطلوبة للهدف');
+    expect(card).not.toHaveTextContent('UNRECOGNIZED_ACCEPTANCE_CODE');
+    expect(card).not.toHaveTextContent('UNRECOGNIZED_NEXT_ACTION');
+    expect(card).not.toHaveTextContent('Run an unapproved command now.');
+    expect(within(card).queryByRole('button', { name: /تشغيل جديد|أعد المحاولة|راجع الأدلة/ })).not.toBeInTheDocument();
+  });
+
+  it('recognizes the Arabic two-line fallback explanation shown in the card', async () => {
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const input = screen.getByTestId('input-ai-chat-composer');
+    fireEvent.change(input, {
+      target: { value: 'إجابة بديلة مبنية على الأدلة\nسبب الإجابة البديلة: ردّ النموذج لم يستوفِ شروط الإجابة' },
+    });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+
+    expect(mocks.mutations.fallbackDiagnostic.mutate).toHaveBeenCalledWith({
+      data: {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        messageId: 'fallback-message-1',
+        executionId: 'execution-1',
+      },
+    });
+    expect(mocks.sentParams).toBeUndefined();
   });
 });
 
@@ -1090,15 +1149,20 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
     openProviderSettings();
 
-    const card = screen.getByRole('region', { name: 'Model contract quality' });
+    const card = screen.getByRole('region', { name: 'جودة إجابات المساعد' });
     expect(card).toHaveTextContent('llama-test');
-    expect(card).toHaveTextContent('Acceptance 66.7%');
-    expect(card).toHaveTextContent('Citation match 75.0%');
-    expect(card).toHaveTextContent('Recovery 1/1 · 100.0%');
+    expect(card).toHaveTextContent('القبول 66.7%');
+    expect(card).toHaveTextContent('مطابقة الاستشهادات 75.0%');
+    expect(card).toHaveTextContent('الاسترداد 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
-    expect(card).toHaveTextContent('Daily quality trend');
-    expect(card).toHaveTextContent('Aug 12');
-    expect(card).toHaveTextContent('Failures: missing_citation (1)');
+    expect(card).toHaveTextContent('الجودة حسب اليوم');
+    expect(card).toHaveTextContent(new Date('2026-08-12T00:00:00Z').toLocaleDateString('ar', { month: 'short', day: 'numeric' }));
+    expect(card).toHaveTextContent('الإخفاقات: missing_citation (1)');
+    expect(card).toHaveAttribute('dir', 'rtl');
+    expect(within(card).getByTitle('llama-test')).toHaveAttribute('dir', 'ltr');
+    for (const rate of within(card).getAllByText('66.7%', { selector: 'strong', exact: true })) {
+      expect(rate).toHaveAttribute('dir', 'ltr');
+    }
     expect(card).not.toHaveTextContent(/prompt|source fragment|api key/i);
   });
 
@@ -1111,10 +1175,10 @@ describe('AiChat authenticated generated mutations', () => {
       expect.objectContaining({ query: expect.any(Object) }),
     );
 
-    fireEvent.change(screen.getByLabelText('Model quality provider'), {
+    fireEvent.change(screen.getByLabelText('مزود تقرير الجودة'), {
       target: { value: 'gemini' },
     });
-    fireEvent.change(screen.getByLabelText('Model quality time window'), {
+    fireEvent.change(screen.getByLabelText('فترة تقرير الجودة'), {
       target: { value: '7' },
     });
 
@@ -1125,20 +1189,36 @@ describe('AiChat authenticated generated mutations', () => {
   });
 
   it('exports the currently selected model-quality filters', async () => {
-    const createObjectURL = vi.fn(() => 'blob:quality-report');
+    const report = {
+      schemaVersion: 2,
+      generatedAt: '2026-08-13T00:00:00.000Z',
+      scope: { projectId: 'project-1', provider: 'gemini', windowDays: 7 },
+      summary: {
+        evaluated: 0, accepted: 0, acceptanceRate: null, citationMatchRate: null,
+        recoveryAttempts: 0, recoveryAccepted: 0, recoveryAcceptanceRate: null, failureKinds: {},
+      },
+      providers: [], timeline: [],
+    };
+    mocks.qualityExport.mockResolvedValueOnce(report);
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:quality-report');
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
 
+    let filename = '';
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      filename = this.download;
+    });
+    try {
     renderAiChat();
     openProviderSettings();
-    fireEvent.change(screen.getByLabelText('Model quality provider'), {
+    fireEvent.change(screen.getByLabelText('مزود تقرير الجودة'), {
       target: { value: 'gemini' },
     });
-    fireEvent.change(screen.getByLabelText('Model quality time window'), {
+    fireEvent.change(screen.getByLabelText('فترة تقرير الجودة'), {
       target: { value: '7' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Export report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير تقرير الجودة' }));
 
     await waitFor(() => {
       expect(mocks.qualityExport).toHaveBeenCalledWith({
@@ -1148,6 +1228,94 @@ describe('AiChat authenticated generated mutations', () => {
       });
     });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(filename).toBe('model-quality-demo-service-gemini-7d.json');
+    const exported = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(createObjectURL.mock.calls[0][0]);
+    });
+    expect(JSON.parse(exported)).toEqual(report);
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'صُدّر تقرير جودة الإجابات',
+      description: 'التقرير التجميعي وفق المرشحات المحددة جاهز للمشاركة.',
+    }));
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:quality-report'));
+    expect(mocks.sentParams).toBeUndefined();
+    } finally {
+      click.mockRestore();
+    }
+  });
+
+  it.each(['loading', 'error', 'refreshing', 'empty'] as const)('explains the %s quality report state without fabricating results', async (state) => {
+    mocks.metricsQueryState = {
+      isLoading: state === 'loading', isError: state === 'error', isFetching: state === 'refreshing',
+    };
+    renderAiChat();
+    openProviderSettings();
+    const card = screen.getByRole('region', { name: 'جودة إجابات المساعد' });
+    const exportButton = within(card).getByRole('button', { name: 'تصدير تقرير الجودة' });
+    expect(within(card).getByText('demo-service')).toHaveAttribute('dir', 'auto');
+    expect(within(card).getByText(/ليست إثباتًا لاكتمال طلب بعينه/)).toBeInTheDocument();
+    if (state === 'loading') {
+      expect(within(card).getByRole('status')).toHaveTextContent('جارٍ تحميل بيانات جودة الإجابات…');
+      expect(exportButton).toBeDisabled();
+    } else if (state === 'error') {
+      expect(within(card).getByText('تعذر تحميل بيانات الجودة للمرشحات المحددة.')).toBeInTheDocument();
+      expect(exportButton).toBeDisabled();
+      fireEvent.click(within(card).getByRole('button', { name: 'إعادة تحميل تقرير الجودة' }));
+      expect(mocks.refetchMetrics).toHaveBeenCalledTimes(1);
+    } else {
+      expect(within(card).getByText('لا توجد بيانات جودة تطابق المشروع والمزود والفترة المحددة.')).toBeInTheDocument();
+      expect(within(card).getByText('لا يوجد سجل جودة يطابق المشروع والمزود والفترة المحددة.')).toBeInTheDocument();
+      expect(exportButton).toBeEnabled();
+      if (state === 'refreshing') expect(within(card).getByText('جارٍ تحديث البيانات…')).toBeInTheDocument();
+    }
+    expect(mocks.qualityExport).not.toHaveBeenCalled();
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
+  it('keeps missing acceptance rates distinct from zero and absent recovery attempts', () => {
+    mocks.aiMetrics.usage = {
+      providers: [{ provider: 'groq', models: [{
+        model: 'fixture-model', attempts: 0,
+        contract: {
+          evaluated: 0, accepted: 0, acceptanceRate: null, averageClaims: null, citationMatchRate: null,
+          recoveryAttempts: 0, recoveryAccepted: 0, recoveryAcceptanceRate: null, failureKinds: {},
+        },
+      }] }],
+      timeline: [],
+    };
+    renderAiChat();
+    openProviderSettings();
+    const card = screen.getByRole('region', { name: 'جودة إجابات المساعد' });
+    expect(within(card).getAllByText('—')).toHaveLength(2);
+    expect(within(card).getByText(/الشرطة \(—\) تعني أن النسبة غير متاحة، لا أنها صفر/)).toBeInTheDocument();
+    expect(within(card).getByText('لا توجد محاولات')).toBeInTheDocument();
+    expect(within(card).getByText('لم تُسجل إخفاقات في شروط قبول الإجابة')).toBeInTheDocument();
+    expect(card).not.toHaveTextContent('0.0%');
+  });
+
+  it('keeps export pending and reports failure in Arabic without a false download or success', async () => {
+    let rejectExport!: (error: Error) => void;
+    mocks.qualityExport.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectExport = reject; }));
+    const createObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    renderAiChat();
+    openProviderSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'تصدير تقرير الجودة' }));
+    const pending = await screen.findByRole('button', { name: 'جارٍ تصدير التقرير…' });
+    expect(pending).toBeDisabled();
+    fireEvent.click(pending);
+    expect(mocks.qualityExport).toHaveBeenCalledTimes(1);
+    await act(async () => rejectExport(new Error('fixture report unavailable')));
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'تعذر تصدير تقرير الجودة', description: 'fixture report unavailable', variant: 'destructive',
+    }));
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'صُدّر تقرير جودة الإجابات' }));
+    expect(screen.getByRole('button', { name: 'تصدير تقرير الجودة' })).toBeEnabled();
+    expect(mocks.sentParams).toBeUndefined();
   });
 
   it('uses the server-provided audit filename and falls back safely', () => {
@@ -1226,6 +1394,90 @@ describe('AiChat authenticated generated mutations', () => {
     assertSafeRecovery();
   });
 
+  describe('AiChat execution acceptance explanation', () => {
+    function renderAcceptanceNotice(disposition: Record<string, unknown>) {
+      mocks.activeExecutionStatus = {
+        id: 'execution-acceptance-notice',
+        status: 'failed',
+        proofRequired: true,
+        acceptanceDisposition: disposition,
+      } as never;
+      localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+      localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+        id: 'execution-acceptance-notice',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        proofRequired: true,
+        message: 'Review the required source evidence',
+      }));
+      renderAiChat();
+      return screen.findByRole('region', { name: 'حالة قبول التنفيذ' });
+    }
+
+    it.each([
+      ['EXECUTION_ACCEPTANCE_INCOMPLETE', 'الأدلة المطلوبة غير مكتملة، لذلك لم يُقبل إثبات النتيجة.'],
+      ['EVIDENCE_INCOMPLETE', 'الأدلة المطلوبة غير مكتملة، لذلك لم يُقبل إثبات النتيجة.'],
+      ['EXECUTION_PROVIDER_FAILURE', 'تعذّر إكمال التشغيل بسبب مشكلة في خدمة الذكاء الاصطناعي.'],
+      ['MODEL_OUTPUT_INVALID', 'لم يستوفِ رد النموذج شروط الصيغة المطلوبة.'],
+      ['EXECUTION_CANCELLED', 'أُلغي التشغيل قبل اكتمال قبول النتيجة.'],
+    ])('explains known reason %s without exposing protocol codes', async (reasonCode, reasonLabel) => {
+      const notice = await renderAcceptanceNotice({
+        reasonCodes: [reasonCode, 'UNKNOWN_REASON_SENTINEL'],
+        outcome: 'FAILED',
+        failureKind: 'INCOMPLETE',
+        recoveryState: 'INCOMPLETE',
+        nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
+        operatorAction: 'RAW_OPERATOR_ACTION_SENTINEL',
+      });
+
+      expect(notice).toHaveAttribute('dir', 'rtl');
+      expect(notice).toHaveTextContent('لم يكتمل قبول نتيجة التشغيل');
+      expect(notice).toHaveTextContent(reasonLabel);
+      expect(notice).toHaveTextContent(
+        'المتابعة المسجلة: راجع الأدلة غير المكتملة قبل الاعتماد على النتيجة.',
+      );
+      expect(notice).not.toHaveTextContent('UNKNOWN_REASON_SENTINEL');
+      expect(notice).not.toHaveTextContent('RAW_OPERATOR_ACTION_SENTINEL');
+      expect(notice).not.toHaveTextContent(reasonCode);
+      expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('uses the recorded retry guidance for a provider failure without creating an action', async () => {
+      const notice = await renderAcceptanceNotice({
+        reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+        outcome: 'FAILED',
+        failureKind: 'TOOL_FAILURE',
+        recoveryState: 'REQUIRED',
+        nextActionCode: 'RETRY_AFTER_TIMEOUT',
+        operatorAction: 'Retry this now.',
+      });
+
+      expect(notice).toHaveTextContent(
+        'المتابعة المسجلة: أعد المحاولة بعد انتهاء مهلة الانتظار.',
+      );
+      expect(notice).not.toHaveTextContent('Retry this now.');
+      expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('keeps unknown reason and follow-up codes generic and fail-closed', async () => {
+      const notice = await renderAcceptanceNotice({
+        reasonCodes: ['UNRECOGNIZED_REASON_SENTINEL'],
+        outcome: 'FAILED',
+        failureKind: 'INCOMPLETE',
+        recoveryState: 'INCOMPLETE',
+        nextActionCode: 'UNRECOGNIZED_ACTION_SENTINEL',
+        operatorAction: 'Run an unapproved command.',
+      });
+
+      expect(notice).toHaveTextContent('لا تتوفر تفاصيل موثوقة إضافية لهذا السبب.');
+      expect(notice).toHaveTextContent('لا توجد خطوة متابعة معروفة لهذا التشغيل.');
+      expect(notice).not.toHaveTextContent('UNRECOGNIZED_REASON_SENTINEL');
+      expect(notice).not.toHaveTextContent('UNRECOGNIZED_ACTION_SENTINEL');
+      expect(notice).not.toHaveTextContent('Run an unapproved command.');
+      expect(within(notice).queryByRole('button')).not.toBeInTheDocument();
+    });
+  });
+
   it('retains proof-required execution context for an unknown terminal outcome', async () => {
     mocks.activeExecutionStatus = {
       status: 'completed',
@@ -1264,16 +1516,16 @@ describe('AiChat authenticated generated mutations', () => {
 
     const firstRender = renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    const proofPanel = await screen.findByRole('region', { name: 'Agent execution proof' });
+    const proofPanel = await screen.findByRole('region', { name: 'إثبات التنفيذ وحالته' });
     expect(screen.getByTestId('current-work-summary'))
       .toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
-    expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
+    expect(proofPanel).toHaveTextContent('حالة الأدلة: لم يثبت اكتمال الأدلة');
 
     firstRender.unmount();
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    expect(await screen.findByRole('region', { name: 'Agent execution proof' }))
-      .toHaveTextContent('Proof verdict: BLOCKED');
+    expect(await screen.findByRole('region', { name: 'إثبات التنفيذ وحالته' }))
+      .toHaveTextContent('حالة الأدلة: لم يثبت اكتمال الأدلة');
   });
 
   it('keeps a provider failure category and safe guidance from live SSE through reload', async () => {
@@ -1637,8 +1889,8 @@ describe('AiChat authenticated generated mutations', () => {
       });
     });
 
-    expect(await screen.findByText('Terminal identity: attempt 2 · FAILED · resume available')).toBeInTheDocument();
-    expect(screen.getByText(/Execution execution-/)).toBeInTheDocument();
+    expect(await screen.findByText('الحالة النهائية: المحاولة 2 · FAILED · يمكن استئنافها')).toBeInTheDocument();
+    expect(screen.getByText('execution-failed')).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}')).toEqual(
       expect.objectContaining({
         id: 'execution-failed',
@@ -2497,7 +2749,7 @@ describe('AiChat authenticated generated mutations', () => {
       proofRequired: true,
     }));
     renderAiChat();
-    expect(await screen.findByRole('region', { name: 'Agent execution proof' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'إثبات التنفيذ وحالته' })).toBeInTheDocument();
     expect(screen.getByText(
       'The saved execution has retained proof, but no conversation messages were recorded for this session.',
     )).toBeInTheDocument();
@@ -2523,10 +2775,10 @@ describe('AiChat authenticated generated mutations', () => {
     const summary = await screen.findByTestId('current-work-summary');
     expect(summary).toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
     expect(summary).toHaveTextContent('Next step: مراجعة الأدلة المسجلة');
-    const proofPanel = screen.getByLabelText('Agent execution proof');
+    const proofPanel = screen.getByLabelText('إثبات التنفيذ وحالته');
     expect(within(proofPanel).getByTestId('text-execution-lifecycle-distinction'))
-      .toHaveTextContent('Run completion does not mean proof was accepted');
-    expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
+      .toHaveTextContent('اكتمال التشغيل لا يعني قبول الإثبات');
+    expect(proofPanel).toHaveTextContent('حالة الأدلة: لم يثبت اكتمال الأدلة');
     fireEvent.click(within(summary).getByRole('button', {
       name: 'Go to next step: مراجعة الأدلة المسجلة',
     }));
@@ -2589,7 +2841,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    const proofPanel = await screen.findByLabelText('Agent execution proof');
+    const proofPanel = await screen.findByLabelText('إثبات التنفيذ وحالته');
     const timeline = within(proofPanel).getByTestId('mission-timeline');
     expect(timeline).toHaveAttribute('open');
     expect(timeline).toHaveTextContent('مراحل التسليم');
@@ -2842,7 +3094,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(retainedAudit).toHaveClass('bg-primary/10');
     expect(within(retainedAudit).getByText('Review the retained audit')).toHaveClass('text-xs');
     expect(within(retainedAudit).getByText('Cancelled').closest('span.mt-1')).toHaveClass('text-xs');
-    expect(screen.getByText(/Execution historical-/)).toBeInTheDocument();
+    expect(screen.getByText('historical-execution-1')).toBeInTheDocument();
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
       JSON.stringify({
         version: 1,
@@ -2927,7 +3179,7 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.activeExecutionStatus = { status: 'paused' };
 
     renderAiChat();
-    expect(await screen.findByText(/Execution execution-/)).toBeInTheDocument();
+    expect(await screen.findByText('execution-project-one')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Project one session' })).toHaveClass('bg-primary/10');
 
     const projectSelector = screen.getByLabelText('مشروع المحادثة');
@@ -3136,6 +3388,92 @@ it('shows Groq model readiness without requiring a personal key when the server 
   expect(screen.getByText(/لا يوجد مفتاح شخصي محفوظ/)).toBeInTheDocument();
 });
 
+it.each([
+  ['missing_credentials', 'بيانات الوصول غير معدّة'],
+  ['authentication_failed', 'رُفضت بيانات الوصول'],
+  ['incompatible_model', 'النموذج غير متوافق'],
+  ['no_compatible_free_model', 'لا يوجد نموذج متوافق بحسب الفحص'],
+  ['catalog_stale', 'قائمة النماذج تحتاج إلى تحديث'],
+  ['quota_exhausted', 'نفدت حصة الاستخدام'],
+  ['rate_limited', 'بلغ المزود حد الاستخدام'],
+  ['provider_outage', 'المزود غير متاح'],
+  ['degraded', 'توجد مشكلات في الاستجابة'],
+  ['healthy', 'المزود متاح بحسب الحالة المسجلة'],
+  ['unknown', 'لم تُفحص الحالة بعد'],
+])('explains recorded provider state %s without claiming request completion', async (availabilityState, label) => {
+  mocks.aiMetrics.metrics = [{
+    provider: 'groq', availabilityState, requests: 12, consecutiveFailures: 0,
+    successRate: 0.95, circuitOpen: false, avgLatencyMs: 240,
+    operatorAction: 'Check the provider account', correlationId: 'provider-ref/fixture-42',
+  }];
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText(new RegExp(label))).toHaveTextContent('متوسط زمن الاستجابة: 240 مللي ثانية');
+  expect(within(card).getByText('هذه مؤشرات استجابة المزود، وليست إثباتًا لاكتمال طلبك.')).toBeInTheDocument();
+  expect(within(card).getByText('Check the provider account')).toHaveAttribute('dir', 'auto');
+  if (!['healthy', 'unknown'].includes(availabilityState)) {
+    expect(within(card).getByText('provider-ref/fixture-42')).toHaveAttribute('dir', 'ltr');
+  }
+  expect(within(card).queryByText('Active', { exact: true })).not.toBeInTheDocument();
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it('keeps the recorded circuit cooldown rounded up without starting a retry', async () => {
+  mocks.aiMetrics.metrics = [{
+    provider: 'groq', availabilityState: 'circuit_open', circuitOpen: true,
+    cooldownRemainingMs: 2100, operatorAction: 'Wait for the provider cooldown',
+  }];
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText(/أُوقفت المحاولات مؤقتًا بعد إخفاقات/)).toHaveTextContent('انتظار 3 ثانية');
+  expect(within(card).getByText('Wait for the provider cooldown')).toHaveAttribute('dir', 'auto');
+  expect(mocks.sentParams).toBeUndefined();
+  expect(mocks.taskSentParams).toBeUndefined();
+});
+
+it.each([
+  [30_000, 'ثانية'],
+  [120_000, 'دقيقة'],
+  [7_200_000, 'ساعة'],
+])('describes a past provider success in Arabic (%s ms) without accepting the current work', async (elapsedMs, unit) => {
+  mocks.aiMetrics.metrics = [{
+    provider: 'groq', availabilityState: 'healthy', circuitOpen: false,
+    consecutiveFailures: 0, lastSuccessAt: new Date(Date.now() - elapsedMs).toISOString(),
+  }];
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText(new RegExp(`آخر استجابة ناجحة · منذ \\d+ ${unit}`))).toBeInTheDocument();
+  expect(within(card).getByText(/ليست إثباتًا لاكتمال طلبك/)).toBeInTheDocument();
+  expect(mocks.sentParams).toBeUndefined();
+});
+
+it('preserves lifecycle precedence and unknown codes without inventing provider readiness', async () => {
+  mocks.aiMetrics.metrics = [{
+    provider: 'groq', availabilityState: 'healthy', circuitOpen: false,
+    lifecycle: { overallStatus: 'unavailable', reasonCodes: ['future_provider_state'] },
+  }];
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).getByText(/حالة المزود غير معروفة:/)).toBeInTheDocument();
+  for (const code of within(card).getAllByText('future_provider_state')) {
+    expect(code).toHaveAttribute('dir', 'ltr');
+  }
+  expect(within(card).queryByText(/المزود متاح بحسب الحالة المسجلة/)).not.toBeInTheDocument();
+  expect(mocks.sentParams).toBeUndefined();
+});
+
+it('does not fabricate provider statistics when no runtime metric is available', async () => {
+  renderAiChat();
+  openProviderSettings();
+  const card = screen.getByText('مفتاح Groq', { exact: true }).closest('.provider-key-card') as HTMLElement;
+  expect(within(card).queryByText(/متوسط زمن الاستجابة|آخر استجابة ناجحة|لم تُفحص الحالة بعد/)).not.toBeInTheDocument();
+});
+
 it('explains missing provider configuration in Arabic, preserves the draft, and never sends on recovery', async () => {
   renderAiChat();
   const composer = await screen.findByTestId('input-ai-chat-composer');
@@ -3217,7 +3555,7 @@ it.each([
   it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
     renderAiChat(false);
 
-    expect(screen.queryByRole('region', { name: 'Agent execution proof' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'إثبات التنفيذ وحالته' })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('test-model');
 
     expect(screen.queryByRole('button', { name: 'فتح المحادثات' })).toBeInTheDocument();
@@ -3501,6 +3839,137 @@ it.each([
     expect(screen.queryByText(/Review the unread scope|Start a new audit|Retry/i)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['resolved_target', 'حُدد الجزء المقصود من المشروع'],
+    ['bounded_unresolved_hint', 'نطاق مرجّح ومحدود'],
+    ['source_first_discovery', 'بدء البحث من مصادر المشروع'],
+  ])('explains project source targeting %s without changing the recorded decision', async (mode, title) => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent: 'PROJECT_QUERY',
+      projectQueryTarget: { mode },
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'الأدلة وسياق الإجابة' })).toBeInTheDocument();
+    expect(mocks.proposalMessages[0].projectQueryTarget).toEqual({ mode });
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
+  it('distinguishes planned read outcomes, partial orientation, and additional sources in Arabic', async () => {
+    mocks.serverProposal = { changes: [] };
+    const record = {
+      plannerTier: 'graph_enriched',
+      plannedFiles: ['src/full.ts', 'src/partial.ts', 'src/failed.ts', 'src/skipped.ts'],
+      fileStatuses: [
+        { path: 'src/full.ts', origin: 'planned', readStatus: 'READ_COMPLETE' },
+        { path: 'src/partial.ts', origin: 'planned', readStatus: 'READ_TRUNCATED' },
+        { path: 'src/failed.ts', origin: 'planned', readStatus: 'READ_FAILED' },
+        { path: 'src/skipped.ts', origin: 'planned', readStatus: 'READ_SKIPPED' },
+        { path: 'src/additional.ts', origin: 'model_chosen', readStatus: 'READ_COMPLETE' },
+      ],
+      truncatedPlannedCount: 1, skippedPlannedCount: 1,
+      orientationCoverage: {
+        complete: false, missingRoles: ['purpose'],
+        purpose: { plannedFiles: [], complete: false },
+        components: { plannedFiles: ['src/full.ts'], complete: true },
+        primaryFlow: { plannedFiles: ['src/full.ts'], complete: true },
+        uncertainty: { plannedFiles: ['src/full.ts'], complete: true },
+      },
+    };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0], turnIntent: 'PROJECT_QUERY', sourceSelectionRecord: record,
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const toggle = await screen.findByRole('button', { name: 'تفاصيل مصادر الإجابة' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('src/full.ts')).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('بحث يستعين بترابط الملفات')).toBeInTheDocument();
+    expect(screen.getByTestId('orientation-coverage')).toHaveTextContent('تغطية التعرف على المشروع: غير مكتملة');
+    expect(screen.getByText('purpose')).toHaveAttribute('dir', 'ltr');
+    expect(screen.getByText(/ملفات مخططة قُرئت جزئيًا: 1/)).toBeInTheDocument();
+    expect(screen.getByText(/القراءة الكاملة لا تعني قبول كل ادعاء أو اكتمال التنفيذ/)).toBeInTheDocument();
+    for (const entry of record.fileStatuses) {
+      expect(screen.getByTitle(entry.path)).toHaveAttribute('dir', 'ltr');
+      expect(screen.getByText(entry.path).parentElement).toContainElement(screen.getAllByTitle(entry.readStatus).find((badge) => badge.parentElement?.textContent?.includes(entry.path))!);
+    }
+    expect(screen.getByText('قراءة جزئية')).toBeInTheDocument();
+    expect(screen.getByText('تعذرت القراءة')).toBeInTheDocument();
+    expect(screen.getByText('لم يُقرأ')).toBeInTheDocument();
+    expect(screen.getByText('المصادر الإضافية المختارة')).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByText('src/partial.ts')).not.toBeInTheDocument();
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
+  it('keeps an empty source plan and unknown read metadata non-authoritative', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0], turnIntent: 'PROJECT_QUERY',
+      sourceSelectionRecord: {
+        plannerTier: 'future_tier', plannedFiles: [],
+        fileStatuses: [{ path: 'src/future.ts', origin: 'model_chosen', readStatus: 'FUTURE_READ_STATUS' }],
+        truncatedPlannedCount: 0, skippedPlannedCount: 0,
+      },
+    };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'تفاصيل مصادر الإجابة' }));
+    expect(screen.getByText('طريقة بحث غير معروفة')).toBeInTheDocument();
+    expect(screen.getByText('لا توجد ملفات مخططة')).toBeInTheDocument();
+    expect(screen.getByText(/استُخدمت طريقة بديلة لاكتشاف المصادر/)).toBeInTheDocument();
+    expect(screen.getByTitle('FUTURE_READ_STATUS')).toHaveTextContent('حالة قراءة غير معروفة');
+    expect(screen.queryByText('قراءة كاملة')).not.toBeInTheDocument();
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
+  it('explains loaded, missing, empty, failed, and unknown context without claiming completion', async () => {
+    mocks.serverProposal = { changes: [] };
+    const provenance = {
+      schemaVersion: '1', intentKind: 'PROJECT_QUERY', revisionLabel: 'revision/fixture-42',
+      slices: [
+        { layer: 'tasks', source: 'db:tasks', status: 'loaded', freshness: 'fresh', rowCount: 2, truncated: false },
+        { layer: 'goals', source: 'db:goals', status: 'load_failed', freshness: 'unknown', rowCount: 0, truncated: false, failureCode: 'FIXTURE_FAILURE' },
+        { layer: 'context', source: 'db:context', status: 'empty', freshness: 'fresh', rowCount: 0, truncated: false },
+        { layer: 'events', source: 'db:events', status: 'not_requested', freshness: 'unknown', rowCount: 0, truncated: false },
+        { layer: 'future', source: 'future:source', status: 'FUTURE_CONTEXT_STATUS', freshness: 'unknown', rowCount: 0, truncated: false },
+      ],
+      links: {
+        returnedCount: 2, truncated: true, statuses: ['loaded'],
+        details: [{ source: 'file', layer: 'context', direction: 'outbound', status: 'loaded', freshness: 'fresh', rowCount: 1, linkReason: 'context dependency', sourceRefCount: 1 }],
+      },
+      citations: ['src/fixture.ts:10-24'],
+    };
+    mocks.proposalMessages[0] = { ...mocks.proposalMessages[0], contextProvenance: provenance };
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const toggle = await screen.findByRole('button', { name: 'تفاصيل سياق الإجابة' });
+    expect(toggle).toHaveTextContent('محمّل: 1 · غير متوفر: 2 · تعذر تحميله: 1');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    const panel = screen.getByLabelText('سياق الإجابة ومصادره');
+    expect(panel).toHaveAttribute('dir', 'rtl');
+    expect(within(panel).getByText(/تحميل السياق لا يثبت صحة الادعاءات أو اكتمال التنفيذ/)).toBeInTheDocument();
+    expect(panel).toHaveTextContent('الروابط: 2 (عرض جزئي)');
+    expect(within(panel).getByText('revision/fixture-42')).toHaveAttribute('dir', 'ltr');
+    expect(within(panel).getByText('context dependency')).toHaveAttribute('dir', 'auto');
+    for (const code of ['FIXTURE_FAILURE', 'FUTURE_CONTEXT_STATUS', 'src/fixture.ts:10-24']) {
+      expect(within(panel).getByText(code)).toHaveAttribute('dir', 'ltr');
+    }
+    expect(panel).toHaveTextContent('حُمّل، السجلات: 2');
+    expect(panel).toHaveTextContent('تعذر التحميل، السجلات: 0');
+    expect(panel).toHaveTextContent('لا توجد بيانات، السجلات: 0');
+    expect(panel).toHaveTextContent('لم يُطلب، السجلات: 0');
+    fireEvent.click(toggle);
+    expect(within(panel).queryByText('revision/fixture-42')).not.toBeInTheDocument();
+    expect(mocks.sentParams).toBeUndefined();
+  });
+
   it('does not render a historical generic forensic diagnostic for a project query', async () => {
     mocks.serverProposal = { proposalId: 'historical-project-query', changes: [] };
     mocks.proposalMessages[0] = {
@@ -3565,7 +4034,7 @@ it.each([
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(screen.getByText(/The embedded AI is implemented/)).toBeInTheDocument();
-    expect(screen.getByText('Sources')).toBeInTheDocument();
+    expect(screen.getByText('مصادر الإجابة')).toBeInTheDocument();
     expect(screen.queryByText('ANALYSIS_INCOMPLETE')).not.toBeInTheDocument();
     expect(screen.queryByText(/stale generic forensic projection|Review the audit scope/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Forensic evidence/ })).not.toBeInTheDocument();
@@ -3576,22 +4045,22 @@ it.each([
       name: 'provider synthesis',
       source: 'provider_synthesis' as const,
       fallbackReason: undefined,
-      expectedSource: 'Provider synthesis',
+      expectedSource: 'صياغة من النموذج',
       expectedReason: undefined,
     },
     {
       name: 'deterministic fallback',
       source: 'deterministic_fallback' as const,
       fallbackReason: 'synthesis_failed' as const,
-      expectedSource: 'Evidence-based fallback',
-      expectedReason: 'Synthesis failed',
+      expectedSource: 'إجابة بديلة مبنية على الأدلة',
+      expectedReason: 'تعذّرت صياغة الإجابة من النموذج',
     },
     {
       name: 'fallback without a reason',
       source: 'deterministic_fallback' as const,
       fallbackReason: undefined,
-      expectedSource: 'Evidence-based fallback',
-      expectedReason: 'Not provided',
+      expectedSource: 'إجابة بديلة مبنية على الأدلة',
+      expectedReason: 'غير محدد',
     },
     {
       name: 'telemetry-blocked response',
@@ -3602,10 +4071,12 @@ it.each([
         outcome: 'FAILED',
         failureKind: 'INCOMPLETE',
         recoveryState: 'INCOMPLETE',
+        nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
         operatorAction: 'START_NEW_RUN',
       },
-      expectedSource: 'Evidence validation blocked',
-      expectedReason: 'required objective evidence was not accepted',
+      expectedSource: 'تعذّر قبول الإجابة',
+      expectedReason: 'لم تُقبل الأدلة المطلوبة للهدف',
+      expectedFollowUp: 'راجع الأدلة غير المكتملة قبل الاعتماد على النتيجة.',
     },
   ])('renders $name project-query provenance', async ({
     source,
@@ -3613,6 +4084,7 @@ it.each([
     acceptanceDisposition,
     expectedSource,
     expectedReason,
+    expectedFollowUp,
   }) => {
     mocks.serverProposal = { proposalId: `provenance-${expectedSource}`, changes: [] };
     mocks.proposalMessages[0] = {
@@ -3627,10 +4099,15 @@ it.each([
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(screen.getByLabelText('Project query response provenance')).toBeInTheDocument();
+    const provenance = screen.getByLabelText('مصدر إجابة استعلام المشروع');
+    expect(provenance).toBeInTheDocument();
     expect(screen.getByText(expectedSource)).toBeInTheDocument();
     if (expectedReason) {
-      expect(screen.getByText(new RegExp(expectedReason, 'i'))).toBeInTheDocument();
+      expect(provenance).toHaveTextContent(expectedReason);
+    }
+    if (expectedFollowUp) {
+      expect(provenance).toHaveTextContent(`المتابعة المسجلة: ${expectedFollowUp}`);
+      expect(within(provenance).queryByRole('button', { name: /مراجعة|ابدأ/ })).not.toBeInTheDocument();
     }
   });
 
@@ -4722,7 +5199,7 @@ it.each([
     expect(screen.getAllByText('if (!flag) return "partial"').length).toBeGreaterThan(0);
     expect(screen.getAllByText('src/pick.ts').length).toBeGreaterThan(0);
     expect(screen.getByRole('group', { name: 'Assistant response' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Evidence and context' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'الأدلة وسياق الإجابة' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Run details' })).toBeInTheDocument();
   });
 
@@ -5373,9 +5850,9 @@ it.each([
       });
     });
 
-    const proofPanel = await screen.findByRole('region', { name: 'Agent execution proof' });
-    expect(proofPanel).toHaveTextContent('Agent execution proof');
-    expect(proofPanel).toHaveTextContent('Checking status');
+    const proofPanel = await screen.findByRole('region', { name: 'إثبات التنفيذ وحالته' });
+    expect(proofPanel).toHaveTextContent('حالة التنفيذ والإثبات');
+    expect(proofPanel).toHaveTextContent('جارٍ التحقق من الحالة');
     expect(proofPanel).toHaveTextContent('execution-proof-1');
     expect(proofPanel).toHaveTextContent('Telemetry consistent');
     expect(proofPanel).toHaveTextContent('No writes applied automatically');
@@ -5386,6 +5863,49 @@ it.each([
     expect(objectiveProof).toHaveTextContent('PRODUCTION REACHABILITY');
     expect(objectiveProof).toHaveTextContent('PRODUCTION_REACHABILITY');
     expect(objectiveProof).toHaveTextContent('client->server');
+  });
+
+  it('localizes execution steps and hides unknown status codes', async () => {
+    renderAiChat();
+    const textarea = await screen.findByTestId('input-ai-chat-composer');
+    fireEvent.change(textarea, { target: { value: 'Inspect execution steps' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    act(() => {
+      const callbacks = mocks.streamCallbacks as Record<string, unknown> & {
+        onExecutionStarted?: (event: Record<string, unknown>) => void;
+        onExecutionNodes?: (event: Record<string, unknown>) => void;
+      };
+      callbacks.onExecutionStarted?.({
+        type: 'execution_started',
+        executionId: 'execution-node-progress',
+        status: 'running',
+        proofRequired: true,
+      });
+      callbacks.onExecutionNodes?.({
+        type: 'execution_nodes',
+        executionId: 'execution-node-progress',
+        nodes: [
+          { id: 'step-queued', title: 'Queued step', status: 'queued', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 0 },
+          { id: 'step-running', title: 'Running step', status: 'running', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 1 },
+          { id: 'step-passed', title: 'Passed step', status: 'passed', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 2 },
+          { id: 'step-failed', title: 'Failed step', status: 'failed', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 3 },
+          { id: 'step-blocked', title: 'Blocked step', status: 'blocked', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 1 },
+          { id: 'step-unknown', title: 'Unknown step', status: 'UNRECOGNIZED_STATUS_SENTINEL', allowedFiles: [], dependencies: [], validationProfile: 'default', attempts: 1 },
+        ],
+      });
+    });
+
+    const missionControl = await screen.findByRole('region', { name: 'مراحل تنفيذ التشغيل' });
+    expect(missionControl).toHaveTextContent('الخطوات المكتملة: 1 من 6');
+    expect(missionControl).toHaveTextContent('بانتظار البدء');
+    expect(missionControl).toHaveTextContent('جارٍ تنفيذها');
+    expect(missionControl).toHaveTextContent('اكتملت');
+    expect(missionControl).toHaveTextContent('لم تكتمل');
+    expect(missionControl).toHaveTextContent('متوقفة بانتظار المعالجة');
+    expect(missionControl).toHaveTextContent('حالة غير معروفة');
+    expect(missionControl).toHaveTextContent('المحاولة 2 من 3');
+    expect(missionControl).not.toHaveTextContent('UNRECOGNIZED_STATUS_SENTINEL');
   });
 
   it('keeps evidence integrity failure visible when proof metrics are collapsed', async () => {
@@ -5414,7 +5934,7 @@ it.each([
       });
     });
 
-    const panel = await screen.findByLabelText('Agent execution proof');
+    const panel = await screen.findByLabelText('إثبات التنفيذ وحالته');
     expect(within(panel).getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
     expect(within(panel).getByTestId('alert-execution-evidence-integrity')).toHaveTextContent('1 violation');
     expect(within(panel).getByTestId('alert-execution-evidence-integrity').closest('details')).toBeNull();
