@@ -1246,7 +1246,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                     {v.verifySteps?.length ? <span>{v.verifySteps.length} خطوات تحقق</span> : null}
                   </div>
                   <details className="mt-2 rounded-md border border-border/40 bg-secondary/20 px-3 py-2 text-xs">
-                    <summary className="cursor-pointer font-medium text-primary">
+                    <summary
+                      data-testid={`summary-discovery-violation-${i}`}
+                      className="cursor-pointer font-medium text-primary"
+                    >
                       عرض العنوان والأدلة والتفاصيل الفنية الأصلية
                     </summary>
                     <div className="mt-3 space-y-2 text-muted-foreground">
