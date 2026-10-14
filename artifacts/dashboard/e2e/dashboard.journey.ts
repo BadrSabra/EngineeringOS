@@ -3767,7 +3767,10 @@ async function programmaticSignIn(
     handoffTimeoutMs?: number;
   } = {},
 ) {
-  const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
+  const signInLink = page.getByRole("link", {
+    name: "تسجيل الدخول",
+    exact: true,
+  });
   let signInLoaded = false;
   for (let attempt = 0; attempt < 3 && !signInLoaded; attempt += 1) {
     await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
@@ -5363,7 +5366,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
     );
     await expect(
-      page.getByRole("link", { name: "Sign In", exact: true }),
+      page.getByRole("link", { name: "تسجيل الدخول", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "مساحة العمل" }),
