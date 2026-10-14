@@ -223,7 +223,7 @@ export default function Dashboard() {
       setGoalHandoffError('تعذر تحميل مشاريعك. أعد المحاولة قبل اختيار نطاق المشروع.');
       return;
     }
-    const selectedProject = projects.find((project) => project.id === selectedGoalProjectId) ?? projects[0];
+    const selectedProject = projects.find((project) => project.id === selectedGoalProjectId);
     if (goalContext === 'project' && projects.length > 0 && !selectedProject) {
       setGoalHandoffError('اختر مشروعًا من القائمة قبل المتابعة.');
       return;
@@ -367,7 +367,7 @@ export default function Dashboard() {
                   <span>اختر المشروع</span>
                   <select
                     data-testid="select-goal-project"
-                    value={selectedGoalProjectId || projects[0]?.id || ''}
+                    value={selectedGoalProjectId}
                     onChange={(event) => { setSelectedGoalProjectId(event.target.value); setGoalHandoffError(''); }}
                     className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
                   >
@@ -393,7 +393,10 @@ export default function Dashboard() {
           <Button
             type="button"
             data-testid="button-start-goal"
-            disabled={!goalDraft.trim() || (goalContext === 'project' && projectsQuery.isLoading) || (goalContext === 'project' && projectsQuery.isError)}
+            disabled={!goalDraft.trim()
+              || (goalContext === 'project' && projectsQuery.isLoading)
+              || (goalContext === 'project' && projectsQuery.isError)
+              || (goalContext === 'project' && projects.length > 0 && !selectedGoalProjectId)}
             onClick={continueWithGoal}
             className="w-full gap-2 sm:w-auto"
           >

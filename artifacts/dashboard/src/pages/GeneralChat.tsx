@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import {
   Activity,
   AlertTriangle,
@@ -31,18 +32,23 @@ function createUuid(): string {
 
 export default function GeneralChat() {
   const { user, isLoaded } = useUser();
-  const [routeDraftId] = useState(() => new URLSearchParams(window.location.search).get('goalDraftId'));
+  const [, setLocation] = useLocation();
+  const routeParams = new URLSearchParams(window.location.search);
+  const routeDraftId = routeParams.get('goalDraftId');
+  const routeSessionId = routeParams.get('sessionId');
   const queryClient = useQueryClient();
   const sessionsQuery = useListGeneralChatSessions({
     query: { queryKey: getListGeneralChatSessionsQueryKey() },
   });
-  const [activeSessionId, setActiveSessionId] = useState('');
+  const [activeSessionId, setActiveSessionId] = useState(() => new URLSearchParams(window.location.search).get('sessionId') ?? '');
   const [draft, setDraft] = useState('');
   const [actionError, setActionError] = useState('');
   const [incomingGoalDraft, setIncomingGoalDraft] = useState<GoalDraft | null>(null);
   const [goalDraftAttached, setGoalDraftAttached] = useState<GoalDraft | null>(null);
   const [goalDraftResolved, setGoalDraftResolved] = useState(!routeDraftId);
   const [goalDraftError, setGoalDraftError] = useState('');
+  const [pendingGeneralDrafts, setPendingGeneralDrafts] = useState<GoalDraft[]>([]);
+  const [pendingDraftStorageError, setPendingDraftStorageError] = useState('');
   const createSession = useCreateGeneralChatSession();
   const deleteSession = useDeleteGeneralChatSession();
   const sendMessage = useSendGeneralChatMessage();
@@ -64,24 +70,67 @@ export default function GeneralChat() {
   });
   const messages = messagesQuery.data ?? [];
   const hasPendingReply = messages.some((message) => message.status === 'pending');
+  const resumableGeneralDrafts = pendingGeneralDrafts.filter((item) =>
+    item.id !== routeDraftId
+    && item.id !== incomingGoalDraft?.id
+    && item.id !== goalDraftAttached?.id);
 
   useEffect(() => {
     if (!routeDraftId || !isLoaded || !user?.id) return;
+    if (routeSessionId && sessionsQuery.isLoading) return;
+    if (routeSessionId && sessionsQuery.isError) {
+      setGoalDraftError('تعذر التحقق من المحادثة المحددة. لم نستخدم محادثة أخرى تلقائيًا.');
+      setGoalDraftResolved(true);
+      return;
+    }
+    if (routeSessionId && !orderedSessions.some((session) => session.id === routeSessionId)) {
+      setGoalDraftError('المحادثة المحددة غير متاحة لهذا الحساب. لم نستخدم محادثة أخرى تلقائيًا.');
+      setGoalDraftResolved(true);
+      return;
+    }
     const stored = readGoalDrafts(user.id);
     const candidate = stored.drafts.find((item) =>
       item.id === routeDraftId && item.projectId === null && item.sendAttemptedAt === null && item.text.trim());
     if (stored.error) setGoalDraftError(stored.error);
-    else if (candidate) setIncomingGoalDraft(candidate);
+    else if (candidate && routeSessionId) {
+      setGoalDraftError('');
+      setActiveSessionId(routeSessionId);
+      setDraft(candidate.text);
+      setGoalDraftAttached(candidate);
+      setIncomingGoalDraft(null);
+    } else if (candidate) {
+      setGoalDraftError('');
+      setIncomingGoalDraft(candidate);
+    }
     else setGoalDraftError('المسودة العامة غير متاحة لهذا الحساب أو سبق بدء إرسالها. لم نستخدم محادثة أخرى تلقائيًا.');
     setGoalDraftResolved(true);
-  }, [routeDraftId, isLoaded, user?.id]);
+  }, [routeDraftId, routeSessionId, isLoaded, user?.id, sessionsQuery.isLoading, sessionsQuery.isError, orderedSessions]);
 
   useEffect(() => {
-    if (!routeDraftId && !activeSessionId && orderedSessions.length > 0) setActiveSessionId(orderedSessions[0].id);
+    if (!isLoaded) return;
+    const stored = readGoalDrafts(user?.id);
+    setPendingDraftStorageError(stored.error ?? '');
+    setPendingGeneralDrafts(stored.drafts.filter((item) =>
+      item.projectId === null && item.sendAttemptedAt === null && item.text.trim()));
+  }, [isLoaded, user?.id, routeDraftId, goalDraftAttached?.id, incomingGoalDraft?.id]);
+
+  useEffect(() => {
+    if (routeDraftId && !routeSessionId) return;
+    if (routeSessionId) {
+      if (sessionsQuery.isLoading || sessionsQuery.isError) return;
+      if (orderedSessions.some((session) => session.id === routeSessionId)) {
+        if (activeSessionId !== routeSessionId) setActiveSessionId(routeSessionId);
+      } else if (activeSessionId) {
+        setActiveSessionId('');
+        setActionError('المحادثة المطلوبة غير متاحة؛ لم نفتح محادثة أخرى بدلًا منها.');
+      }
+      return;
+    }
+    if (!activeSessionId && orderedSessions.length > 0) setActiveSessionId(orderedSessions[0].id);
     if (activeSessionId && !sessionsQuery.isLoading && !orderedSessions.some((session) => session.id === activeSessionId)) {
       setActiveSessionId(orderedSessions[0]?.id ?? '');
     }
-  }, [routeDraftId, activeSessionId, orderedSessions, sessionsQuery.isLoading]);
+  }, [routeDraftId, routeSessionId, activeSessionId, orderedSessions, sessionsQuery.isLoading, sessionsQuery.isError]);
 
   const handleCreate = () => {
     setActionError('');
@@ -93,6 +142,9 @@ export default function GeneralChat() {
         );
         setActiveSessionId(session.id);
         setDraft('');
+        setIncomingGoalDraft(null);
+        setGoalDraftAttached(null);
+        setLocation(`/general-chat?sessionId=${encodeURIComponent(session.id)}`, { replace: true });
         void queryClient.invalidateQueries({ queryKey: getListGeneralChatSessionsQueryKey() });
       },
       onError: () => setActionError('تعذر تأكيد إنشاء محادثة جديدة. لم نغيّر قائمة محادثاتك السابقة في هذا العرض.'),
@@ -112,6 +164,7 @@ export default function GeneralChat() {
         setDraft(incomingGoalDraft.text);
         setGoalDraftAttached(incomingGoalDraft);
         setIncomingGoalDraft(null);
+        setLocation(`/general-chat?sessionId=${encodeURIComponent(session.id)}&goalDraftId=${encodeURIComponent(incomingGoalDraft.id)}`, { replace: true });
         void queryClient.invalidateQueries({ queryKey: getListGeneralChatSessionsQueryKey() });
       },
       onError: () => setActionError('تعذر إنشاء محادثة جديدة. بقي الهدف محفوظًا كمسودة ولم يُرسل.'),
@@ -147,6 +200,7 @@ export default function GeneralChat() {
         return;
       }
       setGoalDraftAttached(null);
+      setLocation(`/general-chat?sessionId=${encodeURIComponent(sessionId)}`, { replace: true });
     }
     setActionError('');
     setDraft('');
@@ -192,7 +246,7 @@ export default function GeneralChat() {
         <button
           type="button"
           onClick={handleCreate}
-          disabled={createSession.isPending}
+            disabled={createSession.isPending || Boolean(incomingGoalDraft) || Boolean(goalDraftAttached)}
           data-testid="button-create-general-chat"
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
         >
@@ -229,7 +283,12 @@ export default function GeneralChat() {
                   <div key={session.id} className={`group flex items-center gap-1 rounded-lg border px-2 py-1.5 transition-colors ${activeSessionId === session.id ? 'border-primary/30 bg-primary/8' : 'border-transparent hover:border-border hover:bg-secondary/45'}`}>
                     <button
                       type="button"
-                      onClick={() => { setActiveSessionId(session.id); setActionError(''); }}
+                      onClick={() => {
+                        setActiveSessionId(session.id);
+                        setActionError('');
+                        setLocation(`/general-chat?sessionId=${encodeURIComponent(session.id)}`, { replace: true });
+                      }}
+                      disabled={Boolean(goalDraftAttached) || Boolean(incomingGoalDraft)}
                       data-testid={`button-select-general-session-${session.id}`}
                       aria-current={activeSessionId === session.id ? 'true' : undefined}
                       className="min-w-0 flex-1 px-1.5 py-1 text-left"
@@ -240,7 +299,7 @@ export default function GeneralChat() {
                     <button
                       type="button"
                       onClick={() => handleDelete(session.id)}
-                      disabled={deleteSession.isPending}
+                      disabled={deleteSession.isPending || Boolean(goalDraftAttached) || Boolean(incomingGoalDraft)}
                        aria-label={`حذف المحادثة: ${session.title || 'محادثة بلا عنوان'}`}
                       data-testid={`button-delete-general-session-${session.id}`}
                       className="rounded p-1.5 text-muted-foreground opacity-100 transition hover:bg-destructive/10 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
@@ -251,11 +310,50 @@ export default function GeneralChat() {
                 ))}
               </div>
             )}
+            {pendingDraftStorageError && (
+              <p role="alert" className="m-2 rounded-lg border border-destructive/25 p-2 text-[11px] text-muted-foreground">
+                تعذر قراءة بعض المسودات المحفوظة لهذا التبويب.
+              </p>
+            )}
+            {resumableGeneralDrafts.length > 0 && (
+              <section dir="rtl" lang="ar" aria-label="مسودات عامة غير مرسلة" data-testid="section-pending-general-drafts" className="mt-3 border-t border-border px-2 pt-3">
+                <h2 className="px-1 text-[10px] font-medium text-muted-foreground">
+                  مسودات عامة غير مرسلة ({resumableGeneralDrafts.length})
+                </h2>
+                <ul className="mt-2 space-y-2">
+                  {resumableGeneralDrafts.map((item) => (
+                    <li key={item.id} className="rounded-lg border border-border/70 bg-background/45 p-2">
+                      <p dir="auto" className="line-clamp-3 whitespace-pre-wrap break-words text-[11px] leading-5">{item.text}</p>
+                      <button
+                        type="button"
+                        disabled={Boolean(draft.trim()) || Boolean(goalDraftAttached) || Boolean(incomingGoalDraft)}
+                        onClick={() => {
+                          setActiveSessionId('');
+                          setDraft('');
+                          setIncomingGoalDraft(null);
+                          setGoalDraftResolved(false);
+                          setGoalDraftError('');
+                          setLocation(`/general-chat?goalDraftId=${encodeURIComponent(item.id)}`, { replace: true });
+                        }}
+                        data-testid={`button-resume-general-goal-${item.id}`}
+                        className="mt-2 text-[11px] font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        متابعة هذه المسودة
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         </aside>
 
         <section className="flex min-h-[430px] min-w-0 flex-col md:min-h-0" aria-label="المحادثة العامة">
-          {incomingGoalDraft ? (
+          {routeDraftId && routeSessionId && !goalDraftResolved ? (
+            <div dir="rtl" lang="ar" role="status" className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+              نتحقق من المحادثة ونستعيد المسودة المحفوظة قبل إتاحتها للإرسال.
+            </div>
+          ) : incomingGoalDraft ? (
             <div dir="rtl" lang="ar" className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
               <div className="max-w-lg rounded-2xl border border-primary/25 bg-primary/5 p-6 text-right">
                 <div className="flex items-center gap-2 text-sm font-semibold"><MessageSquareText className="h-4 w-4 text-primary" /> هدف محفوظ — لم يُرسل</div>
@@ -320,9 +418,17 @@ export default function GeneralChat() {
                   <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2 transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
                     <textarea
                       value={draft}
-                      onChange={(event) => setDraft(event.target.value.slice(0, 12000))}
+                      onChange={(event) => {
+                        const nextDraft = event.target.value.slice(0, goalDraftAttached ? 2_000 : 12_000);
+                        setDraft(nextDraft);
+                        if (goalDraftAttached && user?.id) {
+                          const updated = updateGoalDraft(user.id, goalDraftAttached.id, { text: nextDraft });
+                          if (updated) setGoalDraftAttached(updated);
+                          else setActionError('تعذر حفظ تعديل المسودة؛ بقي النص في خانة الكتابة.');
+                        }
+                      }}
                       onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); } }}
-                      maxLength={12000}
+                      maxLength={goalDraftAttached ? 2_000 : 12_000}
                       rows={2}
                       placeholder={hasPendingReply ? 'بانتظار اكتمال رد المساعد…' : 'اكتب سؤالًا أو فكرة لمناقشتها…'}
                       aria-label="رسالتك إلى المساعد"
@@ -352,8 +458,8 @@ export default function GeneralChat() {
             <div dir="rtl" lang="ar" className="flex flex-1 flex-col items-center justify-center px-6 py-14 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-secondary/50 text-muted-foreground"><MessageSquareText className="h-6 w-6" /></div>
               <h2 className="mt-4 text-base font-semibold">{!goalDraftResolved ? 'جارٍ استعادة المسودة المحفوظة' : goalDraftError ? 'تعذر استعادة المسودة' : sessionsQuery.isLoading ? 'جارٍ تحميل المحادثات المحفوظة' : sessionsQuery.isError ? 'تعذر عرض المحادثات' : 'ابدأ محادثة عامة'}</h2>
-              <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">{goalDraftError || (!goalDraftResolved ? 'نراجع المسودة المحفوظة لهذا الحساب.' : sessionsQuery.isLoading ? 'نحمّل قائمة محادثاتك.' : sessionsQuery.isError ? 'فشل تحميل القائمة لا يعني أنها فارغة. أعد المحاولة من قائمة المحادثات.' : 'أنشئ نقاشًا مستقلًا. سيبقى منفصلًا عن العمل في مشاريعك.')}</p>
-              {!sessionsQuery.isLoading && !sessionsQuery.isError && (
+              <p role={goalDraftError ? 'alert' : undefined} className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">{goalDraftError || (!goalDraftResolved ? 'نراجع المسودة المحفوظة لهذا الحساب.' : sessionsQuery.isLoading ? 'نحمّل قائمة محادثاتك.' : sessionsQuery.isError ? 'فشل تحميل القائمة لا يعني أنها فارغة. أعد المحاولة من قائمة المحادثات.' : 'أنشئ نقاشًا مستقلًا. سيبقى منفصلًا عن العمل في مشاريعك.')}</p>
+              {!sessionsQuery.isLoading && !sessionsQuery.isError && goalDraftResolved && (
                 <button type="button" onClick={handleCreate} disabled={createSession.isPending} data-testid="button-create-first-general-chat" className="mt-5 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/15 disabled:opacity-50">
                   <Plus className="h-4 w-4" /> إنشاء محادثة
                 </button>

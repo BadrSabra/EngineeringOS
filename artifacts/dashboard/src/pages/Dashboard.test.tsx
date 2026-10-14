@@ -103,6 +103,11 @@ describe("Dashboard goal-first home", () => {
     fireEvent.change(screen.getByTestId("input-home-goal"), {
       target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول" },
     });
+    expect(screen.getByTestId("select-goal-project")).toHaveValue("");
+    expect(screen.getByTestId("button-start-goal")).toBeDisabled();
+    fireEvent.change(screen.getByTestId("select-goal-project"), {
+      target: { value: "project-1" },
+    });
     fireEvent.click(screen.getByTestId("button-start-goal"));
 
     const [draft] = readGoalDrafts('user-1').drafts;
