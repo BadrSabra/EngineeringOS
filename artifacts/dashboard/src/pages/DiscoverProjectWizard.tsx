@@ -15,6 +15,12 @@ import {
 import type { ArchiveUploadOutput, Project } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
 import {
+  discoveryRiskLabel,
+  discoveryViolationSummary,
+  relatedFilesCountLabel,
+  supportDetailLabel,
+} from '@/lib/discovery-copy';
+import {
   X,
   FolderOpen,
   Loader2,
@@ -241,17 +247,6 @@ const DISCOVERY_STEP_LABELS: Record<string, string> = {
 
 function discoveryStepLabel(name: string): string {
   return DISCOVERY_STEP_LABELS[name] ?? name;
-}
-
-function severityLabel(severity: string): string {
-  const labels: Record<string, string> = {
-    critical: 'حرج',
-    high: 'مرتفع',
-    medium: 'متوسط',
-    low: 'منخفض',
-    info: 'معلومة',
-  };
-  return labels[severity.toLowerCase()] ?? severity;
 }
 
 function scoreColor(score: number): string {
@@ -1134,6 +1129,9 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 مستوى الدعم
               </span>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  هذه مؤشرات منفصلة: اكتشاف اللغة لا يعني توافر التحليل البنيوي أو خريطة العلاقات أو التحقق أو جاهزية التغيير.
+                </p>
             </div>
             <div className="p-4 space-y-3">
               {[...report.supportMatrix.languages, ...report.supportMatrix.frameworks].map((target) => {
@@ -1154,15 +1152,20 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                         {target.level === 'deep' ? 'تحليل متقدم' : target.level === 'partial' ? 'دعم جزئي' : 'بيانات وصفية فقط'}
                       </span>
                     </div>
-                    <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
-                      <span><strong className="text-foreground/80">تحليل الملفات:</strong> <bdi>{target.parser}</bdi></span>
-                      <span><strong className="text-foreground/80">خريطة العلاقات:</strong> <bdi>{target.graph}</bdi></span>
-                      <span><strong className="text-foreground/80">التحقق:</strong> <bdi>{target.validation}</bdi></span>
+                    <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                      <span><strong className="text-foreground/80">تحليل الملفات:</strong> <bdi>{supportDetailLabel(target.parser)}</bdi></span>
+                      <span><strong className="text-foreground/80">خريطة العلاقات:</strong> <bdi>{supportDetailLabel(target.graph)}</bdi></span>
+                      <span><strong className="text-foreground/80">التحقق:</strong> <bdi>{supportDetailLabel(target.validation)}</bdi></span>
+                      <span><strong className="text-foreground/80">جاهزية التغيير:</strong> <bdi>{supportDetailLabel(target.changeReadiness)}</bdi></span>
                     </div>
                     {target.limitations.length > 0 && (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        <span dir="auto">{target.limitations[0]}</span>
-                      </div>
+                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted-foreground">
+                        {target.limitations.map((limitation, index) => (
+                          <li key={`${target.id}-limitation-${index}`} dir="auto">
+                            {supportDetailLabel(limitation)}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 );
@@ -1203,8 +1206,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               </span>
             </div>
             {report.detectedRisks.map((r, i) => (
-              <div key={i} dir="auto" className="text-xs text-yellow-300/80 flex items-start gap-2">
-                <span className="text-yellow-500 mt-0.5">▸</span>{r}
+                <div key={i} dir="auto" className="text-xs text-yellow-300/80 flex items-start gap-2">
+                <span className="text-yellow-500 mt-0.5">▸</span>{discoveryRiskLabel(r)}
               </div>
             ))}
           </div>
@@ -1221,35 +1224,82 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             <div className="divide-y divide-border/30">
               {report.ruleViolations.slice(0, 5).map((v, i) => (
                 <React.Fragment key={i}>
-                <div className="flex items-center gap-3 px-4 py-2.5">
-                  <span className={`text-[10px] border px-1.5 py-0.5 rounded ${severityBadge(v.severity)}`}>{severityLabel(v.severity)}</span>
-                  <span className="text-xs font-mono text-muted-foreground">{v.code}</span>
-                  <span dir="auto" className="text-xs text-muted-foreground flex-1 truncate">{v.title}</span>
-                  <span className="text-xs font-mono text-muted-foreground/60 shrink-0">{v.count}×</span>
-                </div>
-                <div className="px-4 pb-3 -mt-1 text-[11px] text-muted-foreground">
-                  <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    <span>
+                <div className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-[10px] border px-1.5 py-0.5 rounded ${severityBadge(v.severity)}`}>
+                      {discoveryViolationSummary(v.severity, v.count)}
+                    </span>
+                    <span className="text-xs font-mono text-muted-foreground" dir="ltr">{v.code}</span>
+                    <span className="mr-auto text-[11px] text-muted-foreground">
                       {v.remediationPlan?.status === 'ready'
                         ? 'جاهز للتنفيذ'
                         : v.remediationPlan?.status === 'verified'
                           ? 'تم التحقق'
                           : 'يحتاج إلى مراجعة'}
                     </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                     {v.remediationPlan?.relatedFiles?.length ? (
-                      <span>{v.remediationPlan.relatedFiles.length} ملفات متأثرة</span>
+                      <span>{relatedFilesCountLabel(v.remediationPlan.relatedFiles.length)}</span>
                     ) : null}
                     {v.fixDescription ? <span>إرشادات الإصلاح متاحة</span> : <span>لا توجد إرشادات للإصلاح</span>}
+                    {v.verifySteps?.length ? <span>{v.verifySteps.length} خطوات تحقق</span> : null}
                   </div>
-                  {v.fixDescription && <p dir="auto" className="mt-1 truncate">الإصلاح المقترح: {v.fixDescription}</p>}
-                  {v.matches?.slice(0, 2).map((match, matchIndex) => (
-                    <div key={`${match.file}:${match.line}:${matchIndex}`} dir="ltr" className="font-mono truncate">
-                      {match.file}:{match.line} — {match.snippet}
+                  <details className="mt-2 rounded-md border border-border/40 bg-secondary/20 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-primary">
+                      عرض العنوان والأدلة والتفاصيل الفنية الأصلية
+                    </summary>
+                    <div className="mt-3 space-y-2 text-muted-foreground">
+                      <div>
+                        <span className="font-semibold text-foreground/80">العنوان الأصلي: </span>
+                        <span dir="auto">{v.title}</span>
+                      </div>
+                      {v.ruleId && (
+                        <div>
+                          <span className="font-semibold text-foreground/80">معرّف القاعدة: </span>
+                          <bdi dir="ltr" className="font-mono">{v.ruleId}</bdi>
+                        </div>
+                      )}
+                      {v.fixDescription && (
+                        <div>
+                          <span className="font-semibold text-foreground/80">وصف الإصلاح الأصلي: </span>
+                          <span dir="auto">{v.fixDescription}</span>
+                        </div>
+                      )}
+                      {v.remediationPlan?.relatedFiles?.length ? (
+                        <div>
+                          <span className="font-semibold text-foreground/80">الملفات المرتبطة: </span>
+                          <ul className="mt-1 list-inside list-disc space-y-1">
+                            {v.remediationPlan.relatedFiles.map((file, fileIndex) => (
+                              <li key={`${file}-${fileIndex}`} dir="ltr" className="font-mono text-left break-all">{file}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {v.matches?.length ? (
+                        <div>
+                          <span className="font-semibold text-foreground/80">المواضع والمقتطفات الأصلية:</span>
+                          <ul className="mt-1 space-y-1">
+                            {v.matches.map((match, matchIndex) => (
+                              <li key={`${match.file}:${match.line}:${matchIndex}`} dir="ltr" className="font-mono text-left break-all">
+                                {match.file}:{match.line} — {match.snippet} ({match.occurrences})
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {v.verifySteps?.length ? (
+                        <div>
+                          <span className="font-semibold text-foreground/80">خطوات التحقق الأصلية:</span>
+                          <ol className="mt-1 list-inside list-decimal space-y-1">
+                            {v.verifySteps.map((step, stepIndex) => (
+                              <li key={`${stepIndex}-${step}`} dir="auto">{step}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
-                  {v.verifySteps?.length ? (
-                    <div className="mt-1">خطوات التحقق: {v.verifySteps.length}</div>
-                  ) : null}
+                  </details>
                 </div>
                 </React.Fragment>
               ))}

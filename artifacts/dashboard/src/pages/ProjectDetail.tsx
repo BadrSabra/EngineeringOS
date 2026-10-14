@@ -15,7 +15,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft,
+  ArrowRight,
   Activity,
   Settings,
   Play,
@@ -39,6 +39,7 @@ import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
 import ProjectPluginsPanel from '@/components/ProjectPluginsPanel';
 import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
+import { formatProjectTimestamp, projectStatusLabel } from '@/lib/project-detail-copy';
 
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
@@ -115,18 +116,20 @@ export default function ProjectDetail() {
 
   if (loadingProject || loadingSummary) {
     return (
-      <div className="p-8 text-center animate-pulse text-muted-foreground">
-        Loading project telemetry...
+      <div dir="rtl" className="p-8 text-center animate-pulse text-muted-foreground">
+        جارٍ تحميل بيانات المشروع...
       </div>
     );
   }
 
   if (projectError || summaryError || !project || !summary) {
     return (
-      <RequestError
-        message={projectErrorValue instanceof Error ? projectErrorValue.message : 'Project telemetry is unavailable.'}
-        onRetry={() => void Promise.all([refetchProject(), refetchSummary()])}
-      />
+      <div dir="rtl">
+        <RequestError
+          message={projectErrorValue instanceof Error ? projectErrorValue.message : 'بيانات المشروع غير متاحة.'}
+          onRetry={() => void Promise.all([refetchProject(), refetchSummary()])}
+        />
+      </div>
     );
   }
 
@@ -134,16 +137,18 @@ export default function ProjectDetail() {
   const hasCurrentScan = Boolean(project.lastScanAt) && project.status !== 'scanning';
 
   return (
-    <div className="space-y-6">
+    <div dir="rtl" className="space-y-6">
       <div className="flex items-center gap-2 mb-2">
         <Link
           href="/projects"
           className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-secondary"
+          aria-label="العودة إلى قائمة المشاريع"
+          title="العودة إلى قائمة المشاريع"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowRight className="w-4 h-4" />
         </Link>
         <div className="text-sm font-mono text-muted-foreground flex items-center gap-2">
-          <span>PROJECTS</span>
+          <span>المشاريع</span>
           <span className="text-border">/</span>
           <span className="text-foreground">{project.name}</span>
         </div>
@@ -160,10 +165,10 @@ export default function ProjectDetail() {
         role="status"
       >
         {project.status === 'scanning'
-          ? 'A scan is in progress. Scores and graph data below remain from the last completed scan until the server reports the new result.'
+          ? 'الفحص جارٍ الآن. تظل الدرجات وبيانات خريطة المشروع أدناه من آخر فحص مكتمل حتى يعلن الخادم نتيجة الفحص الجديد.'
           : hasCurrentScan
-            ? `Analysis reflects the completed scan from ${new Date(project.lastScanAt!).toLocaleString()}.`
-            : 'No completed scan is recorded for this project. Scores and graph data are not verified for the current source.'}
+            ? `تعكس هذه البيانات الفحص المكتمل بتاريخ ${formatProjectTimestamp(project.lastScanAt)}.`
+            : 'لا يوجد فحص مكتمل لهذا المشروع. لم يُتحقق من الدرجات أو خريطة المشروع للمصدر الحالي.'}
       </div>
 
       {/* Project header */}
@@ -186,7 +191,7 @@ export default function ProjectDetail() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
               )}
               {project.status === 'scanning' && <Activity className="w-3 h-3 animate-pulse" />}
-              {project.status}
+              {projectStatusLabel(project.status)}
             </span>
           </div>
           <p className="text-muted-foreground font-mono text-sm flex items-center gap-2">
@@ -194,27 +199,28 @@ export default function ProjectDetail() {
           </p>
           <div className="flex items-center gap-4 mt-4 text-sm">
             <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md">
-              <span className="text-muted-foreground">Lang:</span>{' '}
+              <span className="text-muted-foreground">اللغة:</span>{' '}
               <span className="font-semibold capitalize">{project.language}</span>
             </span>
             {project.framework && (
               <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md">
-                <span className="text-muted-foreground">Framework:</span>{' '}
+                <span className="text-muted-foreground">إطار العمل:</span>{' '}
                 <span className="font-semibold">{project.framework}</span>
               </span>
             )}
             <span className="flex items-center gap-1.5 border border-border bg-secondary/50 px-2 py-1 rounded-md text-muted-foreground">
-              <Clock className="w-3.5 h-3.5" /> Last Scan:{' '}
-              {project.lastScanAt ? new Date(project.lastScanAt).toLocaleString() : 'Never'}
+              <Clock className="w-3.5 h-3.5" /> آخر فحص:{' '}
+              {formatProjectTimestamp(project.lastScanAt)}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <RefreshButton onRefresh={async () => { await refetchProject(); await refetchSummary(); }} isRefreshing={projectRefreshing} lastUpdated={dataUpdatedAt} label="Refresh project" />
+          <RefreshButton onRefresh={async () => { await refetchProject(); await refetchSummary(); }} isRefreshing={projectRefreshing} lastUpdated={dataUpdatedAt} label="تحديث المشروع" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}
             className={`p-2 border rounded-md transition-colors ${showProjectInfo ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-secondary text-muted-foreground'}`}
-            title="Project info"
+            title="معلومات المشروع"
+            aria-label="معلومات المشروع"
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -225,48 +231,49 @@ export default function ProjectDetail() {
           >
             {project.status === 'scanning' ? (
               <>
-                <Activity className="w-4 h-4 animate-pulse" /> Scanning…
+                <Activity className="w-4 h-4 animate-pulse" /> جارٍ الفحص…
               </>
             ) : (
               <>
-                <Play className="w-4 h-4" /> Trigger Scan
+                <Play className="w-4 h-4" /> ابدأ الفحص
               </>
             )}
           </button>
         </div>
       </div>
 
-      <WorkspaceRuntimePanel projectId={projectId} />
-      <ProjectAiBudgetPanel projectId={projectId} />
-      <ProjectPluginsPanel projectId={projectId} />
+      <div dir="ltr"><WorkspaceRuntimePanel projectId={projectId} /></div>
+      <div dir="ltr"><ProjectAiBudgetPanel projectId={projectId} /></div>
+      <div dir="ltr"><ProjectPluginsPanel projectId={projectId} /></div>
 
       {/* Project info panel */}
       {showProjectInfo && (
         <div className="bg-card border border-primary/30 rounded-xl p-5 shadow-sm text-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold flex items-center gap-2 text-primary">
-              <Settings className="w-4 h-4" /> Project Info
+              <Settings className="w-4 h-4" /> معلومات المشروع
             </h2>
             <button
               onClick={() => setShowProjectInfo(false)}
               className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-secondary"
+              aria-label="إغلاق معلومات المشروع"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
             {[
-              { label: 'ID',          value: project.id },
-              { label: 'Root path',   value: project.rootPath },
-              { label: 'Language',    value: project.language },
-              { label: 'Framework',   value: project.framework ?? '—' },
-              { label: 'Status',      value: project.status },
-              { label: 'Created',     value: project.createdAt ? new Date(project.createdAt).toLocaleString() : '—' },
-              { label: 'Last scan',   value: project.lastScanAt ? new Date(project.lastScanAt).toLocaleString() : 'Never' },
+              { label: 'المعرّف',          value: project.id },
+              { label: 'مسار المشروع',     value: project.rootPath },
+              { label: 'اللغة',            value: project.language },
+              { label: 'إطار العمل',       value: project.framework ?? '—' },
+              { label: 'الحالة',           value: project.status },
+              { label: 'تاريخ الإضافة',    value: project.createdAt ? formatProjectTimestamp(project.createdAt) : '—' },
+              { label: 'آخر فحص',          value: formatProjectTimestamp(project.lastScanAt) },
             ].map(({ label, value }) => (
               <div key={label} className="flex flex-col gap-0.5 bg-secondary/40 rounded-md px-3 py-2">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-sans">{label}</span>
-                <span className="text-foreground break-all">{value}</span>
+                <span dir="auto" className="text-foreground break-all">{value}</span>
               </div>
             ))}
           </div>
@@ -288,19 +295,18 @@ export default function ProjectDetail() {
                   htmlFor="strategy-replay-opt-in"
                   className="font-sans text-sm font-medium text-foreground"
                 >
-                  Allow future Strategy Replay case registration
+                  السماح بتسجيل حالات جديدة لإعادة تشغيل الاستراتيجية
                 </label>
                 <p
                   id="strategy-replay-opt-in-description"
                   className="mt-1 font-sans text-xs leading-relaxed text-muted-foreground"
                 >
-                  Off by default. Only new, accepted recipe episodes that match a frozen
-                  pending candidate can be registered. Stored cases contain IDs and proof
-                  hashes, not prompts, chat text, or source contents.
+                  هذا الخيار معطّل افتراضيًا. لا تُسجّل إلا جلسات الوصفات الجديدة المقبولة
+                  التي تطابق مرشحًا معلّقًا ومجمّدًا. تحتوي الحالات المخزنة على معرّفات
+                  وبصمات إثبات فقط، ولا تتضمن الطلبات أو المحادثات أو محتوى الملفات.
                 </p>
                 <p className="mt-1 font-sans text-xs leading-relaxed text-muted-foreground">
-                  Turning this off removes registered cases that have not been replayed.
-                  It does not change the candidate.
+                  عند إيقافه، تُحذف الحالات المسجّلة التي لم تُعَد تشغيلها. ولا يتغير المرشح.
                 </p>
                 <p
                   role="status"
@@ -308,10 +314,10 @@ export default function ProjectDetail() {
                   className="mt-2 font-sans text-xs font-medium text-foreground"
                 >
                   {updateProject.isPending
-                    ? 'Saving…'
+                    ? 'جارٍ الحفظ…'
                     : project.strategyReplayOptIn
-                      ? 'Enabled'
-                      : 'Disabled'}
+                      ? 'مفعّل'
+                      : 'معطّل'}
                 </p>
                 {strategyReplayOptInError && (
                   <p
@@ -328,36 +334,36 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      <BrowserValidationProfilesPanel projectId={projectId} />
+      <div dir="ltr"><BrowserValidationProfilesPanel projectId={projectId} /></div>
 
       {/* Knowledge graph summary strip */}
       {loadingGraphSummary ? (
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm text-sm text-muted-foreground animate-pulse">
-          Loading knowledge graph summary…
+          جارٍ تحميل ملخص خريطة العلاقات…
         </div>
       ) : graphSummaryError ? (
         <div className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200" role="status">
-          Knowledge graph data is unavailable. Refresh the project before relying on dependency counts.
+          بيانات خريطة العلاقات غير متاحة. حدّث المشروع قبل الاعتماد على أعداد الاعتماديات.
         </div>
       ) : graphSummary ? (
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold flex items-center gap-2">
-              <Network className="w-4 h-4 text-primary" /> Knowledge Graph
+              <Network className="w-4 h-4 text-primary" /> خريطة العلاقات
             </h2>
             <Link
               href="/graph"
               className="text-xs text-primary hover:underline flex items-center gap-1"
             >
-              Explore in Graph <ExternalLink className="w-3 h-3" />
+              استكشف الخريطة <ExternalLink className="w-3 h-3" />
             </Link>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
-              { label: 'Entities',       value: graphSummary.entityCount,      color: 'text-primary' },
-              { label: 'Relations',      value: graphSummary.relationshipCount, color: 'text-primary' },
-              { label: 'Clusters',       value: graphSummary.clusterCount,      color: 'text-foreground' },
-              { label: 'Isolated nodes', value: graphSummary.isolatedCount,    color: graphSummary.isolatedCount > 0 ? 'text-yellow-500' : 'text-foreground' },
+              { label: 'العناصر',       value: graphSummary.entityCount,      color: 'text-primary' },
+              { label: 'العلاقات',      value: graphSummary.relationshipCount, color: 'text-primary' },
+              { label: 'المجموعات',     value: graphSummary.clusterCount,      color: 'text-foreground' },
+              { label: 'عناصر منفصلة', value: graphSummary.isolatedCount,    color: graphSummary.isolatedCount > 0 ? 'text-yellow-500' : 'text-foreground' },
             ].map((s) => (
               <div key={s.label} className="bg-secondary/50 rounded-lg p-3 text-center">
                 <div className={`text-2xl font-bold font-mono ${s.color}`}>{s.value}</div>
@@ -368,7 +374,7 @@ export default function ProjectDetail() {
           {graphSummary.topConnected.length > 0 && (
             <div className="mt-4 pt-4 border-t border-border">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <GitMerge className="w-3.5 h-3.5" /> Most connected
+                <GitMerge className="w-3.5 h-3.5" /> الأكثر ارتباطًا
               </div>
               <div className="flex flex-wrap gap-2">
                 {graphSummary.topConnected.slice(0, 5).map((c) => (
@@ -383,19 +389,19 @@ export default function ProjectDetail() {
         </div>
       ) : (
         <div className="bg-card border border-dashed border-border rounded-xl p-5 shadow-sm text-sm text-muted-foreground">
-          No verified knowledge graph is available for this project yet. Run a scan to extract dependencies.
+          لا تتوفر خريطة علاقات متحقق منها لهذا المشروع بعد. ابدأ فحصًا لاستخراج الاعتماديات.
         </div>
       )}
 
       {/* GitHub integration */}
-      <GitPanel projectId={projectId} />
+      <div dir="ltr"><GitPanel projectId={projectId} /></div>
 
       {/* Metrics + tasks grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quality score */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <ShieldAlert className="w-4 h-4 text-primary" /> Quality Score
+            <ShieldAlert className="w-4 h-4 text-primary" /> جودة المشروع
           </h2>
           <div className="text-center mb-6">
              <div
@@ -409,18 +415,18 @@ export default function ProjectDetail() {
             >
                {hasCurrentScan ? summary.qualityScore : '—'}
             </div>
-            <div className="text-muted-foreground text-sm mt-1">{hasCurrentScan ? '/ 100' : 'not verified'}</div>
+            <div className="text-muted-foreground text-sm mt-1">{hasCurrentScan ? '/ 100' : 'غير متحقق منها'}</div>
           </div>
 
           {metrics && (
             <div className="space-y-4">
               {[
-                { label: 'Architecture', score: metrics.architectureScore || 0, icon: GitCommit },
-                { label: 'Security', score: metrics.securityScore || 0, icon: ShieldAlert },
-                { label: 'Performance', score: metrics.performanceScore || 0, icon: Zap },
-                { label: 'Reliability', score: metrics.reliabilityScore || 0, icon: Activity },
+                { label: 'البنية', score: metrics.architectureScore || 0, icon: GitCommit },
+                { label: 'الأمان', score: metrics.securityScore || 0, icon: ShieldAlert },
+                { label: 'الأداء', score: metrics.performanceScore || 0, icon: Zap },
+                { label: 'الاعتمادية', score: metrics.reliabilityScore || 0, icon: Activity },
                 {
-                  label: 'Maintainability',
+                  label: 'سهولة الصيانة',
                   score: metrics.maintainabilityScore || 0,
                   icon: Wrench,
                 },
@@ -453,27 +459,27 @@ export default function ProjectDetail() {
         {/* Task breakdown */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-primary" /> Task Breakdown
+            <Activity className="w-4 h-4 text-primary" /> ملخص المهام
           </h2>
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-secondary/50 border border-border rounded-lg p-3 text-center">
               <div className="text-2xl font-bold font-mono">{summary.taskCounts.total}</div>
               <div className="text-xs text-muted-foreground uppercase mt-1 tracking-wider">
-                Total
+                الإجمالي
               </div>
             </div>
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold font-mono text-blue-500">
                 {summary.taskCounts.running}
               </div>
-              <div className="text-xs text-blue-500/80 uppercase mt-1 tracking-wider">Running</div>
+              <div className="text-xs text-blue-500/80 uppercase mt-1 tracking-wider">قيد التنفيذ</div>
             </div>
             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold font-mono text-emerald-500">
                 {summary.taskCounts.completed}
               </div>
               <div className="text-xs text-emerald-500/80 uppercase mt-1 tracking-wider">
-                Completed
+                مكتملة
               </div>
             </div>
             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-center">
@@ -481,7 +487,7 @@ export default function ProjectDetail() {
                 {summary.taskCounts.failed}
               </div>
               <div className="text-xs text-destructive/80 uppercase mt-1 tracking-wider">
-                Failed
+                فاشلة
               </div>
             </div>
           </div>
@@ -490,7 +496,7 @@ export default function ProjectDetail() {
         {/* Recent events */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm flex flex-col">
           <h2 className="font-semibold flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-primary" /> Recent Events
+            <Clock className="w-4 h-4 text-primary" /> الأحداث الأخيرة
           </h2>
           <div className="flex-1 overflow-y-auto space-y-2">
             {summary.recentEvents?.length ? (
@@ -507,7 +513,7 @@ export default function ProjectDetail() {
                     <Activity className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
                   )}
                   <div>
-                    <div className="text-xs font-medium">{evt.message || evt.type}</div>
+                    <div dir="auto" className="text-xs font-medium">{evt.message || evt.type}</div>
                     <div className="text-[10px] text-muted-foreground font-mono">
                       {new Date(evt.timestamp).toLocaleTimeString()}
                     </div>
@@ -515,7 +521,7 @@ export default function ProjectDetail() {
                 </div>
               ))
             ) : (
-              <div className="text-sm text-muted-foreground italic">No recent events.</div>
+              <div className="text-sm text-muted-foreground italic">لا توجد أحداث حديثة.</div>
             )}
           </div>
         </div>

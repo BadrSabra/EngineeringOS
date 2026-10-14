@@ -23,6 +23,14 @@ describe("Arabic discovery report copy", () => {
     expect(supportDetailLabel("Not proven for Java-specific changes")).toBe(
       "لم تثبت جاهزية التغييرات الخاصة بـ Java.",
     );
+    expect(
+      supportDetailLabel("Source-grounded planning plus bounded Go validation"),
+    ).toBe("يمكن إعداد خطة تستند إلى الملفات، مع فحص Go محدود النطاق.");
+    expect(
+      supportDetailLabel(
+        "One or more Go files failed parsing; structural proof is incomplete for those files.",
+      ),
+    ).toBe("تعذّر تحليل ملف Go واحد أو أكثر، لذلك لا تكتمل الأدلة البنيوية لهذه الملفات.");
     expect(supportDetailLabel("A future capability value")).toBe(
       "A future capability value",
     );
