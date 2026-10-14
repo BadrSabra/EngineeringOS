@@ -89,7 +89,7 @@ beforeEach(() => {
 });
 
 describe("Dashboard goal-first home", () => {
-  it("hands the goal to the assistant as an owned persisted unsent draft", () => {
+  it("suggests a uniquely named project and hands off an owned unsent draft", () => {
     vi.mocked(useListOperatorAlerts).mockReturnValue({
       data: { alerts: [] },
       isLoading: false,
@@ -101,24 +101,51 @@ describe("Dashboard goal-first home", () => {
     render(<Dashboard />);
 
     fireEvent.change(screen.getByTestId("input-home-goal"), {
-      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول" },
-    });
-    expect(screen.getByTestId("select-goal-project")).toHaveValue("");
-    expect(screen.getByTestId("button-start-goal")).toBeDisabled();
-    fireEvent.change(screen.getByTestId("select-goal-project"), {
-      target: { value: "project-1" },
+      target: { value: "ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء" },
     });
     fireEvent.click(screen.getByTestId("button-start-goal"));
 
     const [draft] = readGoalDrafts('user-1').drafts;
-    expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول");
+    expect(draft.text).toBe("ساعدني أفهم سبب بطء صفحة تسجيل الدخول في مشروع بوابة العملاء");
     expect(draft.sendAttemptedAt).toBeNull();
     expect(draft.projectId).toBe('project-1');
     expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
     expect(screen.getByText(/لن يُرسل النص تلقائيًا/)).toBeInTheDocument();
+    expect(screen.queryByTestId('panel-goal-destination')).not.toBeInTheDocument();
   });
 
-  it('keeps a zero-project goal through the existing starter route', () => {
+  it('waits for project names before showing a suggestion and never routes while they load', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: undefined, isLoading: true, isError: false, refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    const view = render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'راجع الأداء في مشروع بوابة العملاء' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('قائمة المشاريع ما زالت تُحمّل');
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [{ id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    view.rerender(<Dashboard />);
+
+    expect(screen.getByTestId('text-goal-project-suggestion')).toHaveTextContent('بوابة العملاء');
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('button-route-goal-suggested-project'));
+
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft.projectId).toBe('project-1');
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?projectId=project-1&goalDraftId=${draft.id}`);
+  });
+
+  it('preserves a zero-project goal only after the user chooses to create a project', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [], isLoading: false, isError: false, refetch: vi.fn(),
     } as ReturnType<typeof useListProjects>);
@@ -128,31 +155,87 @@ describe("Dashboard goal-first home", () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'أريد تطبيق متابعة العملاء' } });
     fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(mockSetLocation).toHaveBeenCalledWith(`/projects?create=1&goalDraftId=${draft.id}`);
     expect(draft.text).toBe('أريد تطبيق متابعة العملاء');
+    expect(draft.projectId).toBeNull();
   });
 
-  it('deliberately routes a general goal as an owned unsent no-project draft', () => {
+  it('asks for a destination when no project name is present, then routes an explicit general choice', () => {
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'اشرح لي خيارات التخزين المؤقت' } });
-    fireEvent.click(screen.getByTestId('choice-goal-general'));
     fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('panel-goal-destination')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-route-goal-general'));
+
     const [draft] = readGoalDrafts('user-1').drafts;
     expect(draft).toMatchObject({ text: 'اشرح لي خيارات التخزين المؤقت', projectId: null, sendAttemptedAt: null });
     expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
   });
 
-  it('does not turn a failed project lookup into a general-chat handoff', () => {
+  it('does not convert a failed project lookup into a general-chat handoff without an explicit choice', () => {
     vi.mocked(useListProjects).mockReturnValue({
       data: [], isLoading: false, isError: true, refetch: vi.fn(),
     } as ReturnType<typeof useListProjects>);
     render(<Dashboard />);
     fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'افحص مشروعي' } });
     fireEvent.click(screen.getByTestId('button-start-goal'));
+
     expect(mockSetLocation).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('تعذر تحميل قائمة المشاريع');
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('تعذر التحقق من أسماء مشاريعك');
     expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-route-goal-general'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft.projectId).toBeNull();
+    expect(mockSetLocation).toHaveBeenCalledWith(`/general-chat?goalDraftId=${draft.id}`);
+  });
+
+  it('does not select the only project when the goal does not name it', () => {
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), { target: { value: 'ساعدني على فهم التخزين المؤقت' } });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('لم يظهر اسم مشروع واحد بوضوح');
+    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft.projectId).toBeNull();
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
+  });
+
+  it('keeps a goal that mentions multiple projects ambiguous until the user chooses a route', () => {
+    vi.mocked(useListProjects).mockReturnValue({
+      data: [
+        { id: 'project-1', name: 'بوابة العملاء', status: 'active', ownerId: 'user-1' },
+        { id: 'project-2', name: 'لوحة الإدارة', status: 'active', ownerId: 'user-1' },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListProjects>);
+    render(<Dashboard />);
+    fireEvent.change(screen.getByTestId('input-home-goal'), {
+      target: { value: 'قارن بوابة العملاء مع لوحة الإدارة' },
+    });
+    fireEvent.click(screen.getByTestId('button-start-goal'));
+
+    expect(screen.getByTestId('panel-goal-destination')).toHaveTextContent('ظهر أكثر من مشروع محتمل');
+    expect(mockSetLocation).not.toHaveBeenCalled();
+    expect(readGoalDrafts('user-1').drafts).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('button-route-goal-project'));
+    const [draft] = readGoalDrafts('user-1').drafts;
+    expect(draft.projectId).toBeNull();
+    expect(mockSetLocation).toHaveBeenCalledWith(`/ai?goalDraftId=${draft.id}`);
   });
 
   it("labels task totals as recorded status rather than proof", () => {
