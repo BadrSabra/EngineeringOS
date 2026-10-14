@@ -861,7 +861,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                               <span className="font-semibold">{entry.passed ? 'اجتاز' : 'لم يجتز'}</span>
                               <span className="text-muted-foreground">· القرار {history.length - index}</span>
                             </div>
-                            <div className="mt-1 text-muted-foreground">
+                            <div dir="auto" className="mt-1 text-muted-foreground">
                               {entry.evidence ? safeTaskText(entry.evidence) : 'لا يوجد دليل مرفق بهذا القرار.'}
                             </div>
                             <div className="mt-1 text-[10px] text-muted-foreground">
@@ -1731,7 +1731,7 @@ export default function Tasks() {
                             </section>
                           )}
                           {task.description && (
-                            <p className="text-muted-foreground mb-3">{task.description}</p>
+                            <p dir="auto" className="text-muted-foreground mb-3">{task.description}</p>
                           )}
                           {task.relatedFiles && task.relatedFiles.length > 0 && (
                             <div className="mb-4">

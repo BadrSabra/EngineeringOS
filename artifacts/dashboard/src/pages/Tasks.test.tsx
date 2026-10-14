@@ -520,7 +520,10 @@ describe('Tasks recovery rendering', () => {
 
     const acceptance = screen.getByRole('region', { name: 'نتيجة قبول الخادم' });
     expect(within(acceptance).getByText('يتطلب الاسترداد')).toBeInTheDocument();
-    expect(within(acceptance).getByText('النتيجة: FAILED')).toBeInTheDocument();
+    expect(within(acceptance).getByText('FAILED')).toHaveAttribute('dir', 'ltr');
+    expect(within(acceptance).getByText(
+      (_, element) => element?.tagName === 'SPAN' && element.textContent === 'النتيجة: FAILED',
+    )).toBeInTheDocument();
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
     expect(within(acceptance).getByRole('button', { name: 'استئناف تنفيذ المهمة' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
@@ -711,6 +714,10 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('100% تقدم بحسب الخادم')).toBeInTheDocument();
     expect(screen.getAllByText('Project context is ready.')).toHaveLength(1);
     expect(screen.getByText('تقدم التنفيذ')).toBeInTheDocument();
+    expect(screen.getByText(/context ready/)).toHaveAttribute('dir', 'auto');
+    expect(screen.getByText(/task complete/)).toHaveAttribute('dir', 'auto');
+    expect(screen.getByText('الحالة')).toBeInTheDocument();
+    expect(screen.getByText('انتهت بحسب السجل', { selector: 'div' })).toBeInTheDocument();
     expect(screen.getByText('نتيجة التنفيذ')).toBeInTheDocument();
   });
 
@@ -753,7 +760,9 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
     expect(screen.getByRole('status')).toHaveTextContent('آخر 79 من أصل 120 سجل نشاط');
-    expect(screen.getByText(/activity event 0/)).toBeInTheDocument();
+    const firstUnknownEvent = screen.getByText(/activity event 0/);
+    expect(firstUnknownEvent).toHaveAttribute('dir', 'auto');
+    expect(firstUnknownEvent.closest('details')).toHaveTextContent('نشاط');
     expect(screen.getByText(/activity event 119/)).toBeInTheDocument();
     expect(screen.queryByText(/activity event 40/)).not.toBeInTheDocument();
   });
@@ -840,9 +849,16 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('اجتاز بحسب القرار والدليل المسجلين')).toBeInTheDocument();
     const history = screen.getByText('سجل قرارات التحقق (2)');
     fireEvent.click(history);
-    expect(screen.getByText('The behavior still failed.')).toBeInTheDocument();
-    expect(screen.getByText(/بواسطة operator-a/)).toBeInTheDocument();
-    expect(screen.getByText(/بواسطة operator-b/)).toBeInTheDocument();
+    const previousEvidence = screen.getByText('The behavior still failed.');
+    expect(previousEvidence).toHaveAttribute('dir', 'auto');
+    const operatorA = screen.getByText('operator-a');
+    const operatorB = screen.getByText('operator-b');
+    expect(operatorA).toHaveAttribute('dir', 'auto');
+    expect(operatorB).toHaveAttribute('dir', 'auto');
+    expect(operatorA.parentElement).toHaveTextContent(/بواسطة\s*operator-a/);
+    expect(operatorB.parentElement).toHaveTextContent(/بواسطة\s*operator-b/);
+    expect(screen.getByText('قرار التحقق:')).toBeInTheDocument();
+    expect(screen.getByText('verified')).toHaveAttribute('dir', 'ltr');
   });
 });
 
