@@ -110,28 +110,28 @@ describe('GitPanel generated mutations', () => {
     mocks.queries.token = { configured: true, last4: '1234' };
     renderPanel();
 
-    fireEvent.click(screen.getByTitle('Configure'));
+    fireEvent.click(screen.getByTitle('إعداد الربط'));
     fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repo.git'), {
       target: { value: 'https://github.com/acme/updated.git' },
     });
     fireEvent.change(screen.getByPlaceholderText('main'), { target: { value: 'release' } });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ الإعدادات' }));
 
     expect(mocks.mutations.updateConfig.mutate).toHaveBeenCalledWith({
       projectId: 'project-1',
       data: { remoteUrl: 'https://github.com/acme/updated.git', branch: 'release' },
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Commit message…'), {
+    fireEvent.change(screen.getByPlaceholderText('اكتب وصفًا موجزًا للتغييرات…'), {
       target: { value: 'Ship generated client migration' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Commit all changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تسجيل كل التغييرات' }));
     expect(mocks.mutations.commit.mutate).toHaveBeenCalledWith({
       projectId: 'project-1',
       data: { message: 'Ship generated client migration' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Push to main/i }));
+    fireEvent.click(screen.getByRole('button', { name: /إرسال التغييرات إلى الفرع main/i }));
     expect(mocks.mutations.push.mutate).toHaveBeenCalledWith({ projectId: 'project-1' });
   });
 
@@ -139,8 +139,8 @@ describe('GitPanel generated mutations', () => {
     mocks.queries.token = { configured: true, last4: '1234' };
     const { invalidateQueries } = renderPanel();
 
-    fireEvent.click(screen.getByTitle('Configure'));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    fireEvent.click(screen.getByTitle('إعداد الربط'));
+    fireEvent.click(screen.getByRole('button', { name: 'حذف الرمز' }));
     expect(mocks.mutations.deleteToken.mutate).toHaveBeenCalledWith();
     mocks.mutationOptions.deleteToken?.onSuccess?.();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['github-token'] });
@@ -149,9 +149,9 @@ describe('GitPanel generated mutations', () => {
     // Render the save flow with the unconfigured state in a fresh test render.
     mocks.queries.token = { configured: false, last4: null };
     renderPanel();
-    fireEvent.click(screen.getAllByTitle('Configure')[1] ?? screen.getByTitle('Configure'));
+    fireEvent.click(screen.getAllByTitle('إعداد الربط')[1] ?? screen.getByTitle('إعداد الربط'));
     fireEvent.change(screen.getByPlaceholderText('ghp_...'), { target: { value: 'ghp_test_token' } });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ الرمز' }));
     expect(mocks.mutations.saveToken.mutate).toHaveBeenCalledWith({ data: { token: 'ghp_test_token' } });
     mocks.mutationOptions.saveToken?.onSuccess?.();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['github-token'] });
@@ -162,7 +162,7 @@ describe('GitPanel generated mutations', () => {
     mocks.mutations.updateConfig.error = new Error('Remote URL rejected');
     renderPanel();
 
-    fireEvent.click(screen.getByTitle('Configure'));
+    fireEvent.click(screen.getByTitle('إعداد الربط'));
     expect(screen.getByText('Remote URL rejected')).toBeInTheDocument();
   });
 });

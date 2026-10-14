@@ -73,14 +73,14 @@ describe("ProjectPluginsPanel", () => {
     renderPanel();
 
     expect(
-      screen.getByText("Available, not activated"),
+      screen.getByText("متاحة لكنها غير مفعّلة لهذا المشروع"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Globally unavailable"),
+      screen.getByText("غير متاحة على مستوى النظام"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("switch", {
-        name: "Enable for project scans: Performance Profiler",
+        name: "تفعيل فحوص الإضافة لهذا المشروع: Performance Profiler",
       }),
     ).toBeDisabled();
   });
@@ -95,7 +95,7 @@ describe("ProjectPluginsPanel", () => {
 
     fireEvent.click(
       screen.getByRole("switch", {
-        name: "Enable for project scans: React/TypeScript Analyzer",
+        name: "تفعيل فحوص الإضافة لهذا المشروع: React/TypeScript Analyzer",
       }),
     );
 

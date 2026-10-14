@@ -73,18 +73,18 @@ beforeEach(() => {
 describe('BrowserValidationProfilesPanel', () => {
   it('creates a profile with all five supported step types using the generated mutation', async () => {
     const { invalidateQueries } = renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: /add profile/i }));
+    fireEvent.click(screen.getByRole('button', { name: /إضافة فحص/i }));
 
-    fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'dashboard.smoke' } });
+    fireEvent.change(screen.getByLabelText('اسم الإعداد'), { target: { value: 'dashboard.smoke' } });
     for (let index = 0; index < 4; index += 1) {
-      fireEvent.click(screen.getByRole('button', { name: 'Add step' }));
+      fireEvent.click(screen.getByRole('button', { name: 'إضافة خطوة' }));
     }
-    fireEvent.change(screen.getByLabelText('Step 2 type'), { target: { value: 'assert_visible' } });
-    fireEvent.change(screen.getByLabelText('Step 3 type'), { target: { value: 'assert_text' } });
-    fireEvent.change(screen.getByLabelText('Step 3 text to find'), { target: { value: 'Dashboard ready' } });
-    fireEvent.change(screen.getByLabelText('Step 4 type'), { target: { value: 'read_visible_text' } });
-    fireEvent.change(screen.getByLabelText('Step 5 type'), { target: { value: 'screenshot' } });
-    fireEvent.change(screen.getByLabelText('Step 5 screenshot name'), { target: { value: 'overview' } });
+    fireEvent.change(screen.getByLabelText('نوع الخطوة 2'), { target: { value: 'assert_visible' } });
+    fireEvent.change(screen.getByLabelText('نوع الخطوة 3'), { target: { value: 'assert_text' } });
+    fireEvent.change(screen.getByLabelText('النص المطلوب في الخطوة 3'), { target: { value: 'Dashboard ready' } });
+    fireEvent.change(screen.getByLabelText('نوع الخطوة 4'), { target: { value: 'read_visible_text' } });
+    fireEvent.change(screen.getByLabelText('نوع الخطوة 5'), { target: { value: 'screenshot' } });
+    fireEvent.change(screen.getByLabelText('اسم الصورة للخطوة 5'), { target: { value: 'overview' } });
 
     fireEvent.click(screen.getByTestId('button-save-browser-profile'));
     await waitFor(() => {
@@ -115,7 +115,7 @@ describe('BrowserValidationProfilesPanel', () => {
       { onSuccess: (saved: ReturnType<typeof profile>) => void },
     ];
     act(() => callbacks.onSuccess(profile({ name: 'dashboard.smoke' })));
-    expect(screen.getByRole('status')).toHaveTextContent('Profile “dashboard.smoke” saved.');
+    expect(screen.getByRole('status')).toHaveTextContent('تم حفظ إعداد الفحص.');
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['/api/projects/project-1/browser-validation-profiles'],
     });
@@ -125,12 +125,12 @@ describe('BrowserValidationProfilesPanel', () => {
     mocks.profiles = [profile({ freshnessStatus: 'stale', freshnessReason: 'stale_revision' })];
     renderPanel();
 
-    expect(screen.getByText('Stale revision')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit browser profile smoke' }));
-    expect(screen.getByLabelText('Profile name')).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Timeout (milliseconds)'), { target: { value: '7000' } });
-    fireEvent.change(screen.getByLabelText('Step 1 type'), { target: { value: 'assert_text' } });
-    fireEvent.change(screen.getByLabelText('Step 1 text to find'), { target: { value: 'Ready' } });
+    expect(screen.getByText('يخص مراجعة أقدم')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'تعديل إعداد الفحص smoke' }));
+    expect(screen.getByLabelText('اسم الإعداد')).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('المهلة (مللي ثانية)'), { target: { value: '7000' } });
+    fireEvent.change(screen.getByLabelText('نوع الخطوة 1'), { target: { value: 'assert_text' } });
+    fireEvent.change(screen.getByLabelText('النص المطلوب في الخطوة 1'), { target: { value: 'Ready' } });
     fireEvent.click(screen.getByTestId('button-save-browser-profile'));
 
     await waitFor(() => expect(mocks.upsert.mutate).toHaveBeenCalledWith(
@@ -151,15 +151,15 @@ describe('BrowserValidationProfilesPanel', () => {
     ];
     act(() => callbacks.onError(new Error('Project write access required.')));
     expect(screen.getByRole('alert')).toHaveTextContent('Project write access required.');
-    expect(screen.getByLabelText('Profile name')).toHaveValue('smoke');
+    expect(screen.getByLabelText('اسم الإعداد')).toHaveValue('smoke');
   });
 
   it('confirms deletion, displays authorization failures, and refreshes after success', async () => {
     mocks.profiles = [profile()];
     const { invalidateQueries } = renderPanel();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete browser profile smoke' }));
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('This cannot be undone.');
+    fireEvent.click(screen.getByRole('button', { name: 'حذف إعداد الفحص smoke' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('لا يمكن التراجع عن هذا الحذف.');
     fireEvent.click(screen.getByTestId('button-confirm-delete-browser-profile'));
     await waitFor(() => expect(mocks.remove.mutate).toHaveBeenCalledWith(
       { projectId: 'project-1', name: 'smoke' },
@@ -179,7 +179,7 @@ describe('BrowserValidationProfilesPanel', () => {
       { onSuccess: () => void },
     ];
     act(() => retryCallbacks.onSuccess());
-    expect(screen.getByRole('status')).toHaveTextContent('Profile “smoke” deleted.');
+    expect(screen.getByRole('status')).toHaveTextContent('تم حذف إعداد الفحص.');
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['/api/projects/project-1/browser-validation-profiles'],
     });
@@ -187,12 +187,12 @@ describe('BrowserValidationProfilesPanel', () => {
 
   it('rejects a protocol-relative navigation path before sending it to the server', () => {
     renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: /add profile/i }));
-    fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: 'unsafe' } });
-    fireEvent.change(screen.getByLabelText('Step 1 path'), { target: { value: '//outside.example' } });
+    fireEvent.click(screen.getByRole('button', { name: /إضافة فحص/i }));
+    fireEvent.change(screen.getByLabelText('اسم الإعداد'), { target: { value: 'unsafe' } });
+    fireEvent.change(screen.getByLabelText('مسار الخطوة 1'), { target: { value: '//outside.example' } });
     fireEvent.click(screen.getByTestId('button-save-browser-profile'));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('use a relative path beginning with one slash');
+    expect(screen.getByRole('alert')).toHaveTextContent('استخدم مسارًا نسبيًا يبدأ بشرطة مائلة واحدة');
     expect(mocks.upsert.mutate).not.toHaveBeenCalled();
   });
 });

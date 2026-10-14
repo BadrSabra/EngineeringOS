@@ -124,20 +124,20 @@ describe('ProjectAiBudgetPanel', () => {
   it('shows project usage and submits the API budget contract', async () => {
     const { invalidateQueries } = renderPanel();
 
-    expect(screen.getByRole('heading', { name: 'Project AI budget' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ميزانية الذكاء الاصطناعي للمشروع' })).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('3,000')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Daily attempt limit'), {
+    fireEvent.change(screen.getByLabelText('الحد اليومي للمحاولات'), {
       target: { value: '250' },
     });
-    fireEvent.change(screen.getByLabelText('Daily token limit'), {
+    fireEvent.change(screen.getByLabelText('الحد اليومي للرموز'), {
       target: { value: '250000' },
     });
-    fireEvent.change(screen.getByLabelText('Warning threshold (%)'), {
+    fireEvent.change(screen.getByLabelText('نسبة بدء التنبيه (%)'), {
       target: { value: '85' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save budget' }));
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ الميزانية' }));
 
     await waitFor(() => {
       expect(mocks.mutations.updateBudget.mutate).toHaveBeenCalledWith(
@@ -170,7 +170,7 @@ describe('ProjectAiBudgetPanel', () => {
     act(() => callbacks.onSuccess(savedBudget));
 
     expect(screen.getByTestId('status-project-ai-budget')).toHaveTextContent(
-      'Project AI budget saved.',
+      'تم حفظ ميزانية الذكاء الاصطناعي للمشروع.',
     );
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['/api/ai/projects/project-1/budget'],
@@ -181,7 +181,7 @@ describe('ProjectAiBudgetPanel', () => {
     const { invalidateQueries } = renderPanel();
 
     expect(screen.getByText('Daily budget warning')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تأكيد الاطلاع' }));
 
     await waitFor(() => {
       expect(mocks.mutations.updateAlert.mutate).toHaveBeenCalledWith(
@@ -204,7 +204,7 @@ describe('ProjectAiBudgetPanel', () => {
     act(() => callbacks.onSuccess());
 
     expect(screen.getByTestId('status-project-ai-budget-alert')).toHaveTextContent(
-      'Alert acknowledged.',
+      'تم تأكيد الاطلاع على التنبيه.',
     );
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ['/api/ai/projects/project-1/budget/alerts'],
@@ -213,7 +213,7 @@ describe('ProjectAiBudgetPanel', () => {
       queryKey: ['/api/ai/projects/project-1/budget'],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إغلاق التنبيه' }));
     await waitFor(() => {
       expect(mocks.mutations.updateAlert.mutate).toHaveBeenCalledTimes(2);
       expect(mocks.mutations.updateAlert.mutate).toHaveBeenLastCalledWith(
@@ -235,16 +235,16 @@ describe('ProjectAiBudgetPanel', () => {
     ];
     act(() => resolveCallbacks.onSuccess());
     expect(screen.getByTestId('status-project-ai-budget-alert')).toHaveTextContent(
-      'Alert resolved.',
+      'تم إغلاق التنبيه.',
     );
   });
 
   it('blocks values outside the server-supported limit ranges', async () => {
     renderPanel();
 
-    const attemptLimit = screen.getByLabelText('Daily attempt limit');
+    const attemptLimit = screen.getByLabelText('الحد اليومي للمحاولات');
     fireEvent.change(attemptLimit, { target: { value: '0' } });
-    fireEvent.submit(screen.getByRole('form', { name: 'Update project AI budget' }));
+    fireEvent.submit(screen.getByRole('form', { name: 'تعديل ميزانية الذكاء الاصطناعي للمشروع' }));
 
     await waitFor(() => {
       expect(attemptLimit).toHaveAttribute('aria-invalid', 'true');

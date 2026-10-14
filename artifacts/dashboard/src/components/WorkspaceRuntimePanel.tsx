@@ -22,7 +22,7 @@ const runtimeKey = (projectId: string) => ['workspace-runtime', projectId] as co
 
 async function readRuntime(projectId: string): Promise<RuntimeSnapshot> {
   const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/runtime`);
-  if (!response.ok) throw new Error('Workspace runtime status is unavailable.');
+  if (!response.ok) throw new Error('تعذّر تحميل حالة تشغيل المشروع.');
   return response.json() as Promise<RuntimeSnapshot>;
 }
 
@@ -33,7 +33,7 @@ async function mutateRuntime(projectId: string, action: 'start' | 'restart' | 's
     body: '{}',
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Workspace runtime operation failed.');
+  if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.');
   return payload as RuntimeSnapshot;
 }
 
@@ -62,7 +62,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
       queryClient.setQueryData(runtimeKey(projectId), next);
     } catch (error) {
       queryClient.setQueryData(runtimeKey(projectId), (old: RuntimeSnapshot | undefined) => old
-        ? { ...old, status: 'failed', error: error instanceof Error ? error.message : 'Runtime operation failed.' }
+        ? { ...old, status: 'failed', error: error instanceof Error ? error.message : 'تعذّر تنفيذ الإجراء على تشغيل المشروع.' }
         : old);
     } finally {
       setAction(null);
@@ -72,7 +72,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
 
   if (runtimeQuery.isLoading) {
     return (
-      <div className="bg-card border border-border rounded-xl p-5 shadow-sm animate-pulse text-sm text-muted-foreground">
+      <div dir="rtl" className="bg-card border border-border rounded-xl p-5 shadow-sm animate-pulse text-sm text-muted-foreground">
         جارٍ تحميل حالة تشغيل المشروع…
       </div>
     );
@@ -80,7 +80,7 @@ export default function WorkspaceRuntimePanel({ projectId }: { projectId: string
 
   if (runtimeQuery.isError || !runtime) {
     return (
-      <div className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200">
+      <div dir="rtl" className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200">
         تعذّر تحميل حالة تشغيل المشروع. حدّث المشروع وحاول مرة أخرى.
       </div>
     );

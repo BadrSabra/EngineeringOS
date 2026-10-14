@@ -39,7 +39,7 @@ export default function ProjectPluginsPanel({
           setError(
             mutationError instanceof Error
               ? mutationError.message
-              : "Could not update project plugin activation.",
+              : "تعذّر تحديث تفعيل الإضافة لهذا المشروع.",
           );
         },
       },

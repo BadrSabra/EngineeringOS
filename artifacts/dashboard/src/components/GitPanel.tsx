@@ -48,9 +48,9 @@ function FileBadge({ status }: { status: string }) {
     R: 'bg-blue-500/10 text-blue-500 border-blue-500/30',
   };
   const key = status[0] ?? '?';
-  const label = key === '?' ? 'new' : key === 'M' ? 'mod' : key === 'A' ? 'add' : key === 'D' ? 'del' : key === 'R' ? 'ren' : key;
+  const label = key === '?' ? 'جديد' : key === 'M' ? 'تعديل' : key === 'A' ? 'إضافة' : key === 'D' ? 'حذف' : key === 'R' ? 'نقل' : key;
   return (
-    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase ${map[key] ?? map['?']}`}>
+    <span dir="rtl" title={label} aria-label={`حالة الملف: ${label}`} className={`text-[10px] font-mono px-1.5 py-0.5 rounded border uppercase ${map[key] ?? map['?']}`}>
       {label}
     </span>
   );
@@ -64,15 +64,15 @@ function NotAGitRepo({ error }: { error: Error }) {
     return (
       <div className="flex flex-col gap-1">
         <p className="text-xs text-muted-foreground">
-          This directory is not a git repository yet.
+          مجلد المشروع غير مهيّأ كمستودع Git بعد.
         </p>
         <p className="text-xs text-muted-foreground font-mono bg-secondary/60 rounded px-2 py-1 mt-0.5">
-          git init &amp;&amp; git remote add origin &lt;url&gt;
+          <bdi dir="ltr">git init &amp;&amp; git remote add origin &lt;url&gt;</bdi>
         </p>
       </div>
     );
   }
-  return <p className="text-xs text-destructive">{error.message}</p>;
+  return <p dir="auto" className="text-xs text-destructive">{error.message}</p>;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -186,26 +186,28 @@ export default function GitPanel({ projectId }: Props) {
   const isConfigured = !!config?.remoteUrl && (isGitHubRemote || Boolean(token?.configured));
 
   return (
-    <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden" dir="rtl" aria-label="ربط GitHub">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border">
         <h2 className="font-semibold flex items-center gap-2 text-sm">
           <Github className="w-4 h-4 text-primary" />
-          GitHub Integration
+          ربط GitHub
         </h2>
         <div className="flex items-center gap-1">
           <a
             href={`/api/projects/${projectId}/export`}
             download
             className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Download project as tar.gz"
+            title="تنزيل نسخة من ملفات المشروع بصيغة tar.gz"
+            aria-label="تنزيل نسخة من ملفات المشروع"
           >
             <Download className="w-3.5 h-3.5" />
           </a>
           <button
             onClick={openSettings}
             className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-            title="Configure"
+            title="إعداد الربط"
+            aria-label="إعداد الربط"
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>
@@ -224,18 +226,18 @@ export default function GitPanel({ projectId }: Props) {
             }`}
           >
             {isConfigured ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-            {isConfigured ? 'Ready' : 'Not configured'}
+            {isConfigured ? 'الإعداد مكتمل' : 'غير مُهيّأ'}
           </span>
 
           {config?.remoteUrl && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground font-mono truncate max-w-[240px]">
+            <span dir="ltr" className="flex items-center gap-1 text-xs text-muted-foreground font-mono truncate max-w-[240px]">
               <Github className="w-3 h-3 shrink-0" />
               {config.remoteUrl.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}
             </span>
           )}
 
           {config?.branch && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground font-mono">
+            <span dir="ltr" className="flex items-center gap-1 text-xs text-muted-foreground font-mono">
               <GitBranch className="w-3 h-3" />
               {config.branch}
             </span>
@@ -244,7 +246,7 @@ export default function GitPanel({ projectId }: Props) {
           {token?.configured && (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Key className="w-3 h-3" />
-              token ···{token.last4}
+              رمز محفوظ ···<bdi dir="ltr">{token.last4}</bdi>
             </span>
           )}
         </div>
@@ -252,12 +254,13 @@ export default function GitPanel({ projectId }: Props) {
         {/* Settings panel */}
         {showSettings && (
           <div className="bg-secondary/40 border border-border rounded-lg p-4 space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings</h3>
+            <h3 className="text-xs font-semibold text-muted-foreground">إعدادات الربط</h3>
 
             {/* Remote URL */}
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Remote URL</label>
+              <label className="text-xs text-muted-foreground">عنوان المستودع البعيد</label>
               <input
+                dir="ltr"
                 className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="https://github.com/owner/repo.git"
                 value={remoteInput}
@@ -266,15 +269,16 @@ export default function GitPanel({ projectId }: Props) {
               {remoteInput.trim() && !remoteInput.trim().match(/^https?:\/\//) && (
                 <p className="text-xs text-yellow-500 flex items-center gap-1 mt-1">
                   <AlertTriangle className="w-3 h-3 shrink-0" />
-                  SSH URLs are not supported — push requires an HTTPS URL.
+                  روابط <bdi dir="ltr">SSH</bdi> غير مدعومة؛ الإرسال إلى المستودع يتطلب رابط <bdi dir="ltr">HTTPS</bdi>.
                 </p>
               )}
             </div>
 
             {/* Branch */}
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Branch</label>
+              <label className="text-xs text-muted-foreground">اسم الفرع</label>
               <input
+                dir="ltr"
                 className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="main"
                 value={branchInput}
@@ -297,37 +301,37 @@ export default function GitPanel({ projectId }: Props) {
                 className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 py-1.5 rounded-md font-medium disabled:opacity-60 flex items-center gap-1.5"
               >
                 {saveConfig.isPending && <Loader2 className="w-3 h-3 animate-spin" />}
-                Save
+                حفظ الإعدادات
               </button>
               <button
                 onClick={() => setShowSettings(false)}
                 className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-secondary text-muted-foreground"
               >
-                Cancel
+                إلغاء
               </button>
             </div>
 
             {saveConfig.isError && (
-              <p className="text-xs text-destructive">{(saveConfig.error as Error).message}</p>
+              <p dir="auto" className="text-xs text-destructive">{(saveConfig.error as Error).message}</p>
             )}
 
             {/* Legacy token fallback for non-GitHub HTTPS remotes */}
             <div className="border-t border-border pt-4 space-y-2">
               <label className="text-xs text-muted-foreground flex items-center gap-1">
-                <Key className="w-3 h-3" /> Legacy HTTPS token
+                <Key className="w-3 h-3" /> رمز اتصال HTTPS بديل
               </label>
               <p className="text-[11px] text-muted-foreground">
-                github.com remotes use the connected GitHub integration automatically. This token is only for non-GitHub HTTPS remotes.
+                يستخدم المستودع على <bdi dir="ltr">github.com</bdi> ربط GitHub تلقائيًا. لا يُستخدم هذا الرمز إلا مع مستودعات HTTPS الأخرى.
               </p>
               {token?.configured ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground font-mono">Saved ···{token.last4}</span>
+                  <span className="text-xs text-muted-foreground font-mono">محفوظ ···<bdi dir="ltr">{token.last4}</bdi></span>
                   <button
                     onClick={() => removeToken.mutate()}
                     disabled={removeToken.isPending}
                     className="text-xs text-destructive hover:underline"
                   >
-                    Remove
+                    حذف الرمز
                   </button>
                 </div>
               ) : (
@@ -335,6 +339,7 @@ export default function GitPanel({ projectId }: Props) {
                   <input
                     type="password"
                     className="flex-1 bg-background border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    dir="ltr"
                     placeholder="ghp_..."
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
@@ -344,12 +349,12 @@ export default function GitPanel({ projectId }: Props) {
                     disabled={saveToken.isPending || !tokenInput.trim()}
                     className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs px-3 py-1.5 rounded-md font-medium disabled:opacity-60"
                   >
-                    Save
+                    حفظ الرمز
                   </button>
                 </div>
               )}
               {saveToken.isError && (
-                <p className="text-xs text-destructive">{(saveToken.error as Error).message}</p>
+                <p dir="auto" className="text-xs text-destructive">{(saveToken.error as Error).message}</p>
               )}
             </div>
           </div>
@@ -359,29 +364,30 @@ export default function GitPanel({ projectId }: Props) {
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Working Tree
+              حالة ملفات المشروع
             </span>
             <button
               onClick={() => qc.invalidateQueries({ queryKey: ['git-status', projectId] })}
               className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-              title="Refresh"
+              title="تحديث حالة الملفات"
+              aria-label="تحديث حالة الملفات"
             >
               <RefreshCw className={`w-3 h-3 ${statusQ.isFetching ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
           {statusQ.isLoading ? (
-            <div className="text-xs text-muted-foreground animate-pulse">Loading status…</div>
+            <div className="text-xs text-muted-foreground animate-pulse">جارٍ تحميل حالة الملفات…</div>
           ) : statusQ.isError ? (
             <NotAGitRepo error={statusQ.error as Error} />
           ) : status?.clean ? (
             <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-emerald-500" /> Nothing to commit
+              <Check className="w-3 h-3 text-emerald-500" /> لا توجد تغييرات جديدة لتسجيلها في Git
             </div>
           ) : (
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {changedFiles.map((f) => (
-                <div key={f.path} className="flex items-center gap-2 text-xs font-mono">
+                <div key={f.path} dir="ltr" className="flex items-center gap-2 text-xs font-mono">
                   <FileBadge status={f.status} />
                   <span className="truncate text-foreground/80">{f.path}</span>
                 </div>
@@ -394,12 +400,16 @@ export default function GitPanel({ projectId }: Props) {
         {statusQ.isSuccess && !status?.clean && (
           <div className="space-y-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Commit
+              تسجيل التغييرات (Commit)
             </span>
+            <p className="text-[11px] leading-relaxed text-amber-200">
+              سيسجّل هذا الإجراء جميع التغييرات الحالية في مجلد المشروع، وليس الملفات المعروضة هنا فقط. لا يرسلها إلى GitHub.
+            </p>
             <textarea
+              dir="auto"
               rows={2}
               className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-              placeholder="Commit message…"
+              placeholder="اكتب وصفًا موجزًا للتغييرات…"
               value={commitMsg}
               onChange={(e) => setCommitMsg(e.target.value)}
             />
@@ -413,13 +423,13 @@ export default function GitPanel({ projectId }: Props) {
               ) : (
                 <GitCommit className="w-3 h-3" />
               )}
-              Commit all changes
+              تسجيل كل التغييرات
             </button>
             {commitMut.isError && (
-              <p className="text-xs text-destructive">{(commitMut.error as Error).message}</p>
+              <p dir="auto" className="text-xs text-destructive">{(commitMut.error as Error).message}</p>
             )}
             {commitMut.isSuccess && (
-              <p className="text-xs text-emerald-500 font-mono">{(commitMut.data as { output: string }).output}</p>
+              <p dir="ltr" className="text-xs text-emerald-500 font-mono">{(commitMut.data as { output: string }).output}</p>
             )}
           </div>
         )}
@@ -430,21 +440,21 @@ export default function GitPanel({ projectId }: Props) {
             onClick={() => pushMut.mutate({ projectId })}
             disabled={pushMut.isPending || !isConfigured}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-border hover:bg-secondary text-foreground disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center font-medium transition-colors"
-             title={!isConfigured ? 'Configure an HTTPS GitHub remote first' : ''}
+              title={!isConfigured ? 'أعدّ مستودع GitHub بعنوان HTTPS أولًا' : ''}
           >
             {pushMut.isPending ? (
               <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
               <Upload className="w-3 h-3" />
             )}
-            Push to {config?.branch ?? 'main'}
+            إرسال التغييرات إلى الفرع <bdi dir="ltr">{config?.branch ?? 'main'}</bdi>
           </button>
           {pushMut.isError && (
-            <p className="text-xs text-destructive mt-1">{(pushMut.error as Error).message}</p>
+            <p dir="auto" className="text-xs text-destructive mt-1">{(pushMut.error as Error).message}</p>
           )}
           {pushMut.isSuccess && (
             <p className="text-xs text-emerald-500 font-mono mt-1">
-              ✓ Pushed to {(pushMut.data as { branch: string }).branch}
+              ✓ تم إرسال التغييرات إلى الفرع <bdi dir="ltr">{(pushMut.data as { branch: string }).branch}</bdi>
             </p>
           )}
         </div>
@@ -456,23 +466,23 @@ export default function GitPanel({ projectId }: Props) {
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             {showLog ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            Commit history
+            سجل تغييرات Git
           </button>
 
           {showLog && (
             <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
               {logQ.isLoading ? (
-                <div className="text-xs text-muted-foreground animate-pulse">Loading log…</div>
+                <div className="text-xs text-muted-foreground animate-pulse">جارٍ تحميل السجل…</div>
               ) : logQ.isError ? (
-                <div className="text-xs text-destructive">{(logQ.error as Error).message}</div>
+                <div dir="auto" className="text-xs text-destructive">{(logQ.error as Error).message}</div>
               ) : !logQ.data?.commits.length ? (
-                <div className="text-xs text-muted-foreground">No commits yet.</div>
+                <div className="text-xs text-muted-foreground">لا توجد تغييرات مسجّلة بعد.</div>
               ) : (
                 logQ.data.commits.map((c) => (
-                  <div key={c.hash} className="flex items-start gap-2 text-xs">
+                  <div key={c.hash} dir="ltr" className="flex items-start gap-2 text-xs">
                     <span className="font-mono text-primary shrink-0">{c.shortHash}</span>
                     <span className="text-muted-foreground shrink-0">{c.date}</span>
-                    <span className="truncate">{c.subject}</span>
+                    <span dir="auto" className="truncate">{c.subject}</span>
                   </div>
                 ))
               )}
