@@ -807,6 +807,11 @@ test("authenticated dashboard smoke proves the protected redirect and session", 
   );
   assert.match(
     journeySource,
+    /expect\(page\.getByRole\("heading", \{ name: "المشاريع" \}\)\)\.toBeVisible\(\)/,
+    "The authenticated projects page must assert its Arabic heading.",
+  );
+  assert.match(
+    journeySource,
     /async function expectAuthenticatedProjectsRequest\(\s*page: Page,/,
     "The smoke must define an authenticated protected-API assertion.",
   );

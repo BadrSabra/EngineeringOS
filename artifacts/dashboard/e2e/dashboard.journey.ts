@@ -4961,8 +4961,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .getByTestId("event-home-e2e-event")
         .getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
-    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
-    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
+    await expect(page.getByRole("heading", { name: "المشاريع" })).toBeVisible();
     await expect(
       page.getByText("Smoke Project", { exact: true }),
     ).toBeVisible();
@@ -5379,7 +5379,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const browserErrors = installBrowserErrorMonitor(page);
     await expectAuthenticatedProjectsRequest(page);
     await page.goto(`${DASHBOARD_PATH}projects`);
-    await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "المشاريع" })).toBeVisible();
     await expect(
       page.getByText("Smoke Project", { exact: true }),
     ).toBeVisible();
@@ -7035,7 +7035,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
 
     await page.getByRole("button", { name: "Discover Project" }).first().click();
     await expect(
@@ -7104,7 +7104,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
     await page.getByRole("button", { name: "Discover Project" }).first().click();
     await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
 
@@ -7304,7 +7304,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         extraHTTPHeaders: { Origin: dashboardOrigin },
         storageState: await page.context().storageState(),
       });
-      await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+      await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
       await page.getByRole("button", { name: "Discover Project" }).first().click();
       await expect(page.getByRole("heading", { name: "Discover Project" })).toBeVisible();
       await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
@@ -9445,7 +9445,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .click();
     await assertAcceptedCitation();
 
-    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
     await navigateBrowserHistory(page, "back");
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
