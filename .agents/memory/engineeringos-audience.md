@@ -9,6 +9,12 @@ EngineeringOS targets Arabic-speaking users without programming or engineering e
 
 **How to apply:** Keep the primary flow goal-first and plain-language, explain only the progress and decisions users need, and retain detailed technical evidence in optional advanced views.
 
+The user considers the current frontend too complex: separate assistant, general chat, workflows, tasks, and other pages risk confusing nontechnical users. Make eligible backend capabilities easy to request through one goal-first conversation, without requiring users to choose an internal subsystem first.
+
+**Why:** The user explicitly said this complexity could prevent people from benefiting from the backend.
+
+**How to apply:** Audit real chat reachability against server-owned capability manifests and endpoints. Keep approval and evidence gates intact; make detailed operational pages optional, not a second required path for ordinary users.
+
 Localize direction at reviewed surfaces rather than globally flipping every
 technical page. The navigation shell can be RTL while legacy page content keeps
 its layout until its own direction and mixed code/path content are reviewed.
