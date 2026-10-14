@@ -526,18 +526,18 @@ export function DiscoverProjectWizard({ onClose }: Props) {
 
   // Computed display label for the progress step header
   const sourceLabel = (): string => {
-    if (sourceType === 'GIT_REPOSITORY') return gitUrl || 'Git Repository';
+    if (sourceType === 'GIT_REPOSITORY') return gitUrl || 'مستودع Git';
     if (sourceType === 'LOCAL_FOLDER') {
       const p = localPath.trim();
-      return p ? (p.startsWith('/') ? p : `/${p}`) : 'Local Folder';
+      return p ? (p.startsWith('/') ? p : `/${p}`) : 'مجلد على الخادم';
     }
     if (sourceType === 'WORKSPACE_PROJECT') {
       const projects = projectsListData as Project[] | undefined;
       const proj = projects?.find((p) => p.id === workspaceProjectId);
-      return proj?.name ?? 'Existing Project';
+      return proj?.name ?? 'مشروع مسجّل';
     }
     if (sourceType === 'ARCHIVE_UPLOAD') {
-      return uploadedArchive?.originalName ?? archiveFile?.name ?? 'Archive Upload';
+      return uploadedArchive?.originalName ?? archiveFile?.name ?? 'رفع ملف مشروع';
     }
     return sourceType;
   };
@@ -550,24 +550,24 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     let sourceConfig: Record<string, unknown> = {};
     if (sourceType === 'LOCAL_FOLDER') {
       const rawPath = localPath.trim();
-      if (!rawPath) { setStartError('Please provide a folder path.'); return; }
+      if (!rawPath) { setStartError('أدخل مسار مجلد المشروع.'); return; }
       sourceConfig = { path: rawPath.startsWith('/') ? rawPath : `/${rawPath}` };
     } else if (sourceType === 'GIT_REPOSITORY') {
       const url = gitUrl.trim();
-      if (!url) { setStartError('Please provide a repository URL.'); return; }
+      if (!url) { setStartError('أدخل رابط المستودع.'); return; }
       sourceConfig = { url };
       if (gitBranch.trim()) sourceConfig.branch = gitBranch.trim();
       if (useCredentials && gitToken.trim()) {
         sourceConfig.credentials = { username: gitUsername.trim() || 'oauth2', token: gitToken.trim() };
       }
     } else if (sourceType === 'WORKSPACE_PROJECT') {
-      if (!workspaceProjectId) { setStartError('Please select a project.'); return; }
+      if (!workspaceProjectId) { setStartError('اختر مشروعًا أولًا.'); return; }
       sourceConfig = { projectId: workspaceProjectId };
     } else if (sourceType === 'ARCHIVE_UPLOAD') {
       const file = archiveFile;
       const fileError = getArchiveFileError(file);
       if (fileError || !file) {
-        setStartError(fileError ?? 'Choose an archive file to continue.');
+        setStartError(fileError ?? 'اختر ملفًا مضغوطًا للمتابعة.');
         return;
       }
 
@@ -593,7 +593,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       setSession(s);
       setStep(2);
     } catch (err: unknown) {
-      setStartError(extractApiError(err, 'Failed to start discovery. Check your configuration and try again.'));
+      setStartError(extractApiError(err, 'تعذر بدء استكشاف المشروع. تحقق من البيانات وحاول مرة أخرى.'));
     }
   };
 
@@ -613,7 +613,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         navigate(`/projects/${pid}`);
       }, 2200);
     } catch (err) {
-      setImportError(extractApiError(err, 'Import failed'));
+      setImportError(extractApiError(err, 'تعذرت إضافة المشروع. حاول مرة أخرى.'));
     }
   };
 
@@ -624,9 +624,9 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const renderStep1 = () => (
     <form onSubmit={handleStart} className="space-y-5">
       <div>
-        <h2 className="text-xl font-bold tracking-tight mb-1">Discover Project</h2>
+        <h2 className="text-xl font-bold tracking-tight mb-1">اكتشف مشروعًا</h2>
         <p className="text-sm text-muted-foreground">
-          Choose how to bring your project in — EngineeringOS will analyze it automatically.
+          اختر طريقة إضافة مشروعك، وسيفحصه EngineeringOS تلقائيًا.
         </p>
       </div>
 
@@ -642,7 +642,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               type="button"
               disabled={!src.available}
               onClick={() => { if (src.available) setSourceType(src.type); }}
-              className={`relative text-left rounded-xl border p-3.5 flex items-start gap-3 transition-all
+              className={`relative text-right rounded-xl border p-3.5 flex items-start gap-3 transition-all
                 ${src.available ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}
                 ${selected
                   ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
@@ -665,8 +665,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                 )}
               </div>
               {src.badge && (
-                <span className={`absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                  src.badge === 'Recommended'
+                <span className={`absolute top-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                  src.badge === 'موصى به'
                     ? 'bg-primary/15 text-primary border-primary/30'
                     : 'bg-secondary text-muted-foreground/60 border-border/50'
                 }`}>{src.badge}</span>
@@ -685,13 +685,13 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       <div className="space-y-3">
         {sourceType === 'WORKSPACE_PROJECT' && (
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Project</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">اختر مشروعًا</label>
             {(() => {
               const projects = projectsListData as Project[] | undefined;
               if (!projects || projects.length === 0) {
                 return (
                   <p className="text-xs text-muted-foreground/60 py-2">
-                    No projects found. Import a project first via Local Folder or Git Repository.
+                    لا توجد مشاريع مسجّلة. أضف مشروعًا من Git أو من ملف مضغوط أولًا.
                   </p>
                 );
               }
@@ -702,7 +702,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                       key={proj.id}
                       type="button"
                       onClick={() => setWorkspaceProjectId(proj.id)}
-                      className={`w-full text-left rounded-lg border px-3.5 py-2.5 flex items-center gap-3 transition-all
+                      className={`w-full text-right rounded-lg border px-3.5 py-2.5 flex items-center gap-3 transition-all
                         ${workspaceProjectId === proj.id
                           ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
                           : 'border-border hover:border-primary/40 bg-card'
@@ -732,7 +732,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               htmlFor="discovery-archive-file"
               className="text-xs font-semibold text-muted-foreground uppercase tracking-wider"
             >
-              Project Archive
+              ملف المشروع المضغوط
             </label>
             <input
               id="discovery-archive-file"
@@ -748,20 +748,21 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                 setUploadedArchive(null);
                 setStartError(getArchiveFileError(file));
               }}
-              className="block w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90 focus:outline-none focus:ring-1 focus:ring-primary/40"
+              className="block w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground file:ml-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90 focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
             <p id="discovery-archive-help" className="text-xs text-muted-foreground/70">
-              Supported formats: .zip, .tar.gz, and .tgz. Maximum size: 50 MiB.
+              الصيغ المدعومة: <code dir="ltr">.zip</code> و<code dir="ltr">.tar.gz</code> و<code dir="ltr">.tgz</code>.
+              الحد الأقصى للحجم: 50 ميبيبايت.
             </p>
             {archiveFile && (
-              <p data-testid="archive-file-selection" className="text-xs text-muted-foreground">
-                Selected: <span className="font-medium text-foreground">{archiveFile.name}</span>
+              <p data-testid="archive-file-selection" dir="rtl" className="text-xs text-muted-foreground">
+                الملف المحدد: <span dir="auto" className="font-medium text-foreground">{archiveFile.name}</span>
                 {' · '}{fmt(archiveFile.size)}
               </p>
             )}
             {uploadedArchive && (
               <p data-testid="archive-upload-success" role="status" className="text-xs text-emerald-400">
-                Archive uploaded. If discovery needs a retry, it will reuse this upload.
+                تم رفع الملف. سيُعاد استخدامه إذا احتاج الفحص إلى محاولة أخرى.
               </p>
             )}
           </div>
@@ -770,26 +771,27 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         {sourceType === 'LOCAL_FOLDER' && (
           <>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Repository Root Path</label>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">مسار مجلد المشروع</label>
               <div className="relative">
-                <Terminal className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Terminal className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
+                  dir="ltr"
                   required
                   autoFocus
                   value={localPath}
                   onChange={(e) => setLocalPath(e.target.value)}
                   placeholder="/path/to/your/project"
-                  className="w-full bg-secondary border border-border rounded-lg pl-10 pr-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                  className="w-full bg-secondary border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
                 />
               </div>
               {localPath.trim() && !localPath.trim().startsWith('/') && (
                 <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
                   <AlertTriangle className="w-3 h-3 shrink-0" />
-                  Will be treated as <span className="font-mono">/{localPath.trim()}</span>
+                  سيُستخدم المسار <span dir="ltr" className="font-mono">/{localPath.trim()}</span>
                 </p>
               )}
-              <p className="text-xs text-muted-foreground/60">Absolute path to the project root on the server.</p>
+              <p className="text-xs text-muted-foreground/60">أدخل المسار الكامل لمجلد المشروع على الخادم.</p>
             </div>
           </>
         )}
@@ -797,34 +799,36 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         {sourceType === 'GIT_REPOSITORY' && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Repository URL</label>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">رابط مستودع Git</label>
               <div className="relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Globe className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="url"
+                  dir="ltr"
                   required
                   autoFocus
                   value={gitUrl}
                   onChange={(e) => setGitUrl(e.target.value)}
                   placeholder="https://github.com/owner/repo"
-                  className="w-full bg-secondary border border-border rounded-lg pl-10 pr-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                  className="w-full bg-secondary border border-border rounded-lg pr-10 pl-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
                 />
               </div>
               {(() => {
                 const u = gitUrl.trim();
                 const isSsh = u.startsWith('ssh://') || u.startsWith('git@');
                 return isSsh ? (
-                  <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                  <p dir="rtl" className="text-xs text-amber-400/80 flex items-center gap-1.5">
                     <AlertTriangle className="w-3 h-3 shrink-0" />
-                    SSH URLs are not supported. Use the <span className="font-mono">https://</span> URL instead.
+                    روابط SSH غير مدعومة. استخدم رابط <span dir="ltr" className="font-mono">https://</span> بدلًا منها.
                   </p>
                 ) : null;
               })()}
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Branch <span className="normal-case font-normal text-muted-foreground/60">(optional, defaults to HEAD)</span></label>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">الفرع <span className="normal-case font-normal text-muted-foreground/60">(اختياري، الافتراضي HEAD)</span></label>
               <input
                 type="text"
+                dir="ltr"
                 value={gitBranch}
                 onChange={(e) => setGitBranch(e.target.value)}
                 placeholder="main"
@@ -838,15 +842,16 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                 className="text-xs text-muted-foreground/60 hover:text-primary flex items-center gap-1.5 transition-colors"
               >
                 <Lock className="w-3 h-3" />
-                {useCredentials ? 'Hide credentials' : 'Private repo? Add credentials'}
+                {useCredentials ? 'إخفاء بيانات الدخول' : 'هل المستودع خاص؟ أضف بيانات الدخول'}
               </button>
             </div>
             {useCredentials && (
               <div className="space-y-2 bg-secondary/50 rounded-lg p-3 border border-border/50">
                 <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Username</label>
+                  <label className="text-xs text-muted-foreground">اسم المستخدم</label>
                   <input
                     type="text"
+                    dir="ltr"
                     value={gitUsername}
                     onChange={(e) => setGitUsername(e.target.value)}
                     placeholder="your-github-username"
@@ -854,9 +859,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Personal Access Token</label>
+                  <label className="text-xs text-muted-foreground">رمز الوصول الشخصي</label>
                   <input
                     type="password"
+                    dir="ltr"
                     value={gitToken}
                     onChange={(e) => setGitToken(e.target.value)}
                     placeholder="ghp_..."
@@ -871,10 +877,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                     rel="noopener noreferrer"
                     className="text-primary/70 hover:text-primary underline underline-offset-2"
                   >
-                    generate a Personal Access Token
+                    أنشئ رمز وصول شخصيًا
                   </a>
-                  {' '}with <code className="font-mono bg-secondary px-1 rounded">repo</code> scope.
-                  GitLab/Bitbucket: use an access token with read permissions.
+                  {' '}بصلاحية <code dir="ltr" className="font-mono bg-secondary px-1 rounded">repo</code>.
+                  لمستودعات GitLab وBitbucket، استخدم رمزًا بصلاحية القراءة.
                 </p>
               </div>
             )}
@@ -886,6 +892,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         <div
           role="alert"
           data-testid="discovery-start-error"
+          dir="auto"
           className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3"
         >
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -899,7 +906,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           onClick={onClose}
           className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors"
         >
-          Cancel
+          إلغاء
         </button>
         <button
           type="submit"
@@ -909,12 +916,12 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         >
           {startDiscovery.isPending || archiveUpload.isPending
             ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <ChevronRight className="w-4 h-4" />}
+            : <ChevronLeft className="w-4 h-4" />}
           {archiveUpload.isPending
-            ? 'Uploading archive…'
+            ? 'جارٍ رفع الملف…'
             : startDiscovery.isPending
-              ? 'Starting discovery…'
-              : 'Start Discovery'}
+              ? 'جارٍ بدء الاستكشاف…'
+              : 'ابدأ استكشاف المشروع'}
         </button>
       </div>
     </form>
@@ -929,14 +936,14 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold tracking-tight mb-1">Analyzing Repository…</h2>
-          <p className="text-sm text-muted-foreground font-mono truncate">{sourceLabel()}</p>
+          <h2 className="text-xl font-bold tracking-tight mb-1">جارٍ تحليل المشروع…</h2>
+          <p dir="auto" className="text-sm text-muted-foreground font-mono truncate">{sourceLabel()}</p>
         </div>
 
         {/* Progress bar */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{isError ? 'Discovery failed' : progress < 100 ? 'Discovering…' : 'Complete'}</span>
+            <span>{isError ? 'فشل الاستكشاف' : progress < 100 ? 'جارٍ الاستكشاف…' : 'اكتمل'}</span>
             <span className="font-mono">{progress}%</span>
           </div>
           <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -956,7 +963,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             >
               <StepIcon status={s.status} />
               <span className={`text-sm flex-1 ${s.status === 'done' ? 'text-foreground/60' : s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground/40'}`}>
-                {s.name}
+                {discoveryStepLabel(s.name)}
               </span>
               {s.durationMs !== undefined && s.status === 'done' && (
                 <span className="text-xs font-mono text-muted-foreground/40">{s.durationMs}ms</span>
@@ -972,8 +979,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               <div className="flex items-start gap-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div className="space-y-1.5">
-                  <div className="font-medium">Discovery failed</div>
-                  <div className="text-xs opacity-80 leading-snug">{message}</div>
+                  <div className="font-medium">فشل استكشاف المشروع</div>
+                  <div dir="auto" className="text-xs opacity-80 leading-snug">{message}</div>
                   {suggestCredentials && (
                     <button
                       onClick={() => {
@@ -984,20 +991,20 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                       }}
                       className="text-xs text-primary/80 hover:text-primary underline underline-offset-2 mt-1"
                     >
-                      ← Go back and add credentials
+                      ارجع وأضف بيانات الدخول
                     </button>
                   )}
                 </div>
               </div>
               <div className="flex justify-between pt-2">
                 <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors">
-                  Close
+                  إغلاق
                 </button>
                 <button
                   onClick={() => { setStep(1); setDiscoveryId(null); setSession(null); }}
                   className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg"
                 >
-                  Try Again
+                  حاول مرة أخرى
                 </button>
               </div>
             </>
@@ -1016,19 +1023,19 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             <div className="flex items-start gap-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <div>
-                <div className="font-medium mb-0.5">Failed to load discovery report</div>
-                <div className="text-xs opacity-80">{extractApiError(summaryError, 'Unable to retrieve the analysis results.')}</div>
+                <div className="font-medium mb-0.5">تعذر تحميل نتائج الاستكشاف</div>
+                <div dir="auto" className="text-xs opacity-80">{extractApiError(summaryError, 'تعذر تحميل نتائج التحليل.')}</div>
               </div>
             </div>
             <div className="flex justify-between pt-2">
               <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors">
-                Close
+                إغلاق
               </button>
               <button
                 onClick={() => { setStep(1); setDiscoveryId(null); setSession(null); setReport(null); }}
                 className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg"
               >
-                Try Again
+                حاول مرة أخرى
               </button>
             </div>
           </div>
@@ -1049,14 +1056,14 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       <div className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-bold tracking-tight mb-0.5">Discovery Report</h2>
-            <p className="text-sm text-muted-foreground">EngineeringOS has analyzed your repository. Review and confirm.</p>
+            <h2 className="text-xl font-bold tracking-tight mb-0.5">نتائج استكشاف المشروع</h2>
+            <p className="text-sm text-muted-foreground">حلّل EngineeringOS مشروعك. راجع التفاصيل قبل إضافته.</p>
           </div>
           <div className="text-right shrink-0">
             <div className={`text-2xl font-bold font-mono ${scoreColor(report.qualityScore)}`}>
               {report.qualityScore}<span className="text-sm text-muted-foreground font-sans font-normal">/100</span>
             </div>
-            <div className="text-xs text-muted-foreground">Quality Score</div>
+            <div className="text-xs text-muted-foreground">مؤشر جودة المشروع</div>
           </div>
         </div>
 
@@ -1064,7 +1071,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         <div className="bg-card border border-border/50 rounded-xl px-4 py-3 flex items-center gap-4">
           <div className="flex-1">
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">Detection Confidence</span>
+              <span className="text-muted-foreground">موثوقية الاكتشاف</span>
               <span className="font-mono font-semibold text-emerald-400">{report.confidenceScore}%</span>
             </div>
             <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -1072,7 +1079,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             </div>
           </div>
           <div className="text-xs text-muted-foreground text-right shrink-0">
-            <div className="font-mono">{report.moduleCount} modules</div>
+            <div className="font-mono">{report.moduleCount} وحدات</div>
             <div className="font-mono">{fmt(report.repoSizeBytes)}</div>
           </div>
         </div>
@@ -1080,39 +1087,39 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         {/* Identity */}
         <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Identity</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">معلومات المشروع</span>
           </div>
           <div className="px-4 py-1">
-            <ReportRow icon={FileCode2} label="Project Name" value={name} isOverride={!!overrides['name']} editable onEdit={setOverride('name')} />
-            <ReportRow icon={Terminal} label="Primary Language" value={language} isOverride={!!overrides['language']} editable onEdit={setOverride('language')} />
-            <ReportRow icon={Layers} label="Framework" value={framework} isOverride={!!overrides['framework']} editable onEdit={setOverride('framework')} />
-            <ReportRow icon={Cpu} label="Runtime" value={report.detectedRuntime} />
-            <ReportRow icon={Package} label="Package Manager" value={report.detectedPackageManager} />
-            <ReportRow icon={GitBranch} label="Architecture" value={report.detectedArchitecture} />
+            <ReportRow icon={FileCode2} label="اسم المشروع" value={name} isOverride={!!overrides['name']} editable onEdit={setOverride('name')} />
+            <ReportRow icon={Terminal} label="لغة البرمجة الأساسية" value={language} isOverride={!!overrides['language']} editable onEdit={setOverride('language')} />
+            <ReportRow icon={Layers} label="إطار العمل" value={framework} isOverride={!!overrides['framework']} editable onEdit={setOverride('framework')} />
+            <ReportRow icon={Cpu} label="بيئة التشغيل" value={report.detectedRuntime} />
+            <ReportRow icon={Package} label="أداة إدارة الحزم" value={report.detectedPackageManager} />
+            <ReportRow icon={GitBranch} label="بنية المشروع" value={report.detectedArchitecture} />
           </div>
         </div>
 
         {/* Infrastructure */}
         <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Infrastructure</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">التقنيات المستخدمة</span>
           </div>
           <div className="px-4 py-1">
-            <ReportRow icon={Database} label="Database" value={report.detectedDb} />
-            <ReportRow icon={Box} label="ORM" value={report.detectedOrm} />
-            <ReportRow icon={TestTube2} label="Test Framework" value={report.detectedTestFramework} />
-            <ReportRow icon={Hammer} label="Build Tool" value={report.detectedBuildTool} />
-            <ReportRow icon={GitFork} label="CI/CD" value={report.detectedCi} />
+            <ReportRow icon={Database} label="قاعدة البيانات" value={report.detectedDb} />
+            <ReportRow icon={Box} label="أداة ربط قاعدة البيانات (ORM)" value={report.detectedOrm} />
+            <ReportRow icon={TestTube2} label="أداة الاختبار" value={report.detectedTestFramework} />
+            <ReportRow icon={Hammer} label="أداة البناء" value={report.detectedBuildTool} />
+            <ReportRow icon={GitFork} label="التكامل والنشر المستمران (CI/CD)" value={report.detectedCi} />
           </div>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3">
           {[
-            { label: 'APIs', value: report.detectedApis.length },
-            { label: 'Modules', value: report.moduleCount },
-            { label: 'Packages', value: report.packageCount },
-            { label: 'Graph Nodes', value: report.graphSummary.entityCount },
+            { label: 'واجهات API', value: report.detectedApis.length },
+            { label: 'الوحدات', value: report.moduleCount },
+            { label: 'الحزم', value: report.packageCount },
+            { label: 'عناصر خريطة المشروع', value: report.graphSummary.entityCount },
           ].map(({ label, value }) => (
             <div key={label} className="bg-card border border-border/50 rounded-xl px-3 py-3 text-center">
               <div className="text-lg font-bold font-mono">{value}</div>
@@ -1125,7 +1132,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Support coverage
+                مستوى الدعم
               </span>
             </div>
             <div className="p-4 space-y-3">
@@ -1140,21 +1147,21 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                   <div key={`${target.kind}-${target.id}`} className="rounded-lg border border-border/50 bg-secondary/20 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium">{target.label}</span>
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{target.kind}</span>
+                        <span dir="auto" className="font-medium">{target.label}</span>
+                        <span className="text-[10px] text-muted-foreground">{target.kind === 'language' ? 'لغة' : 'إطار عمل'}</span>
                       </div>
                       <span className={`rounded border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${badgeClass}`}>
-                        {target.level === 'deep' ? 'Deep analysis' : target.level === 'partial' ? 'Partial support' : 'Metadata only'}
+                        {target.level === 'deep' ? 'تحليل متقدم' : target.level === 'partial' ? 'دعم جزئي' : 'بيانات وصفية فقط'}
                       </span>
                     </div>
                     <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
-                      <span><strong className="text-foreground/80">Parser:</strong> {target.parser}</span>
-                      <span><strong className="text-foreground/80">Graph:</strong> {target.graph}</span>
-                      <span><strong className="text-foreground/80">Validation:</strong> {target.validation}</span>
+                      <span><strong className="text-foreground/80">تحليل الملفات:</strong> <bdi>{target.parser}</bdi></span>
+                      <span><strong className="text-foreground/80">خريطة العلاقات:</strong> <bdi>{target.graph}</bdi></span>
+                      <span><strong className="text-foreground/80">التحقق:</strong> <bdi>{target.validation}</bdi></span>
                     </div>
                     {target.limitations.length > 0 && (
                       <div className="mt-2 text-xs text-muted-foreground">
-                        {target.limitations[0]}
+                        <span dir="auto">{target.limitations[0]}</span>
                       </div>
                     )}
                   </div>
@@ -1168,17 +1175,17 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         <div className="flex flex-wrap gap-2">
           {report.isMonorepo && (
             <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-              <GitBranch className="w-3 h-3" /> Monorepo
+              <GitBranch className="w-3 h-3" /> مشروع متعدد الحزم
             </span>
           )}
           {report.hasDocker && (
             <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-              <Box className="w-3 h-3" /> Docker
+              <Box className="w-3 h-3" /> يستخدم Docker
             </span>
           )}
           {report.hasOpenApi && (
             <span className="text-xs bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-              <FileCode2 className="w-3 h-3" /> OpenAPI
+              <FileCode2 className="w-3 h-3" /> واجهات OpenAPI
             </span>
           )}
           {report.detectedLanguages.slice(0, 4).map((l) => (
@@ -1192,11 +1199,11 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             <div className="flex items-center gap-2 mb-2">
               <ShieldAlert className="w-4 h-4 text-yellow-400" />
               <span className="text-xs font-semibold text-yellow-400 uppercase tracking-wider">
-                {report.detectedRisks.length} Risk{report.detectedRisks.length !== 1 ? 's' : ''} Detected
+                {report.detectedRisks.length} مخاطر مكتشفة
               </span>
             </div>
             {report.detectedRisks.map((r, i) => (
-              <div key={i} className="text-xs text-yellow-300/80 flex items-start gap-2">
+              <div key={i} dir="auto" className="text-xs text-yellow-300/80 flex items-start gap-2">
                 <span className="text-yellow-500 mt-0.5">▸</span>{r}
               </div>
             ))}
@@ -1208,54 +1215,60 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Remediation Plans ({report.ruleViolations.length})
+                مقترحات المعالجة ({report.ruleViolations.length})
               </span>
             </div>
             <div className="divide-y divide-border/30">
               {report.ruleViolations.slice(0, 5).map((v, i) => (
                 <React.Fragment key={i}>
                 <div className="flex items-center gap-3 px-4 py-2.5">
-                  <span className={`text-[10px] border px-1.5 py-0.5 rounded font-mono ${severityBadge(v.severity)}`}>{v.severity}</span>
+                  <span className={`text-[10px] border px-1.5 py-0.5 rounded ${severityBadge(v.severity)}`}>{severityLabel(v.severity)}</span>
                   <span className="text-xs font-mono text-muted-foreground">{v.code}</span>
-                  <span className="text-xs text-muted-foreground flex-1 truncate">{v.title}</span>
+                  <span dir="auto" className="text-xs text-muted-foreground flex-1 truncate">{v.title}</span>
                   <span className="text-xs font-mono text-muted-foreground/60 shrink-0">{v.count}×</span>
                 </div>
                 <div className="px-4 pb-3 -mt-1 text-[11px] text-muted-foreground">
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    <span>{v.remediationPlan?.status === 'ready' ? 'Ready to execute' : 'Needs review'}</span>
+                    <span>
+                      {v.remediationPlan?.status === 'ready'
+                        ? 'جاهز للتنفيذ'
+                        : v.remediationPlan?.status === 'verified'
+                          ? 'تم التحقق'
+                          : 'يحتاج إلى مراجعة'}
+                    </span>
                     {v.remediationPlan?.relatedFiles?.length ? (
-                      <span>{v.remediationPlan.relatedFiles.length} affected file(s)</span>
+                      <span>{v.remediationPlan.relatedFiles.length} ملفات متأثرة</span>
                     ) : null}
-                    {v.fixDescription ? <span>Fix guidance available</span> : <span>Fix guidance missing</span>}
+                    {v.fixDescription ? <span>إرشادات الإصلاح متاحة</span> : <span>لا توجد إرشادات للإصلاح</span>}
                   </div>
-                  {v.fixDescription && <p className="mt-1 truncate">Recommended fix: {v.fixDescription}</p>}
+                  {v.fixDescription && <p dir="auto" className="mt-1 truncate">الإصلاح المقترح: {v.fixDescription}</p>}
                   {v.matches?.slice(0, 2).map((match, matchIndex) => (
-                    <div key={`${match.file}:${match.line}:${matchIndex}`} className="font-mono truncate">
+                    <div key={`${match.file}:${match.line}:${matchIndex}`} dir="ltr" className="font-mono truncate">
                       {match.file}:{match.line} — {match.snippet}
                     </div>
                   ))}
                   {v.verifySteps?.length ? (
-                    <div className="mt-1">Verification: {v.verifySteps.length} step(s)</div>
+                    <div className="mt-1">خطوات التحقق: {v.verifySteps.length}</div>
                   ) : null}
                 </div>
                 </React.Fragment>
               ))}
               {report.ruleViolations.length > 5 && (
-                <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>
+                <div className="px-4 py-2 text-xs text-muted-foreground/50">و{report.ruleViolations.length - 5} مخالفات أخرى…</div>
               )}
             </div>
           </div>
         )}
 
         {importError && (
-          <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+          <div dir="auto" className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
             <AlertTriangle className="w-4 h-4 shrink-0" />{importError}
           </div>
         )}
 
         <div className="flex justify-between gap-3 pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors">
-            Cancel
+            إلغاء
           </button>
           <button
             onClick={handleImport}
@@ -1263,7 +1276,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors"
           >
             {importProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-            Confirm & Import Project
+            تأكيد وإضافة المشروع
           </button>
         </div>
       </div>
@@ -1277,21 +1290,21 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4">
           <CheckCircle2 className="w-7 h-7 text-emerald-400" />
         </div>
-        <h2 className="text-xl font-bold tracking-tight mb-1">Project Imported</h2>
+        <h2 className="text-xl font-bold tracking-tight mb-1">تمت إضافة المشروع</h2>
         <p className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{overrides['name'] ?? report?.detectedName}</span>{' '}
-          is now under autonomous observation.
+          <span dir="auto" className="font-semibold text-foreground">{overrides['name'] ?? report?.detectedName}</span>{' '}
+          أصبح الآن تحت المتابعة التلقائية.
         </p>
       </div>
 
       <div className="bg-card border border-emerald-500/20 rounded-xl divide-y divide-border/30">
         {[
-          'Project record created',
-          'Default rules initialized',
-          'Initial metrics calculated',
-          `Knowledge graph built (${report?.graphSummary.entityCount ?? 0} entities)`,
-          `Tasks created (${report?.ruleViolations.length ?? 0} from rule violations)`,
-          'Audit log entry written',
+          'تم إنشاء سجل المشروع',
+          'تم إعداد القواعد الافتراضية',
+          'تم حساب المؤشرات الأولية',
+          `تم إنشاء خريطة المعرفة (${report?.graphSummary.entityCount ?? 0} عنصر)`,
+          `تم إنشاء ${report?.ruleViolations.length ?? 0} مهمة بناءً على المخالفات`,
+          'تم تسجيل العملية في سجل المراجعة',
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-2.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -1311,29 +1324,34 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             className="px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-60 transition-colors"
           >
             {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
-            Scan Now
+            ابدأ الفحص
           </button>
         </div>
       )}
       {scanTriggered && !scanProject.isPending && !scanProject.isError && (
         <p className="text-center text-xs text-emerald-400 flex items-center justify-center gap-1.5">
-          <CheckCircle2 className="w-3.5 h-3.5" /> Scan enqueued — results will appear in the project dashboard.
+          <CheckCircle2 className="w-3.5 h-3.5" /> بدأ الفحص، وستظهر نتائجه في لوحة المشروع.
         </p>
       )}
       {scanProject.isError && (
-        <p className="text-center text-xs text-red-400 flex items-center justify-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'Scan could not be started.')}
+        <p dir="auto" className="text-center text-xs text-red-400 flex items-center justify-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'تعذر بدء الفحص.')}
         </p>
       )}
-      <p className="text-center text-xs text-muted-foreground">Redirecting to project dashboard…</p>
+      <p className="text-center text-xs text-muted-foreground">جارٍ الانتقال إلى لوحة المشروع…</p>
     </div>
   );
 
   // ── Step indicators ─────────────────────────────────────────────────────────
-  const stepLabels = ['Select Source', 'Analyzing', 'Discovery Report', 'Importing'];
+  const stepLabels = ['المصدر', 'الاستكشاف', 'النتائج', 'إضافة المشروع'];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      dir="rtl"
+      lang="ar"
+      data-testid="discovery-wizard"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={step === 1 ? onClose : undefined} />
 
@@ -1354,13 +1372,19 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                     </div>
                     <span className="hidden sm:block">{label}</span>
                   </div>
-                  {i < stepLabels.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground/20 shrink-0" />}
+                  {i < stepLabels.length - 1 && <ChevronLeft className="w-3 h-3 text-muted-foreground/20 shrink-0" />}
                 </React.Fragment>
               );
             })}
           </div>
           {step <= 2 && (
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors ml-4 shrink-0">
+            <button
+              type="button"
+              aria-label="إغلاق معالج اكتشاف المشروع"
+              title="إغلاق معالج اكتشاف المشروع"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground transition-colors mr-4 shrink-0"
+            >
               <X className="w-4 h-4" />
             </button>
           )}

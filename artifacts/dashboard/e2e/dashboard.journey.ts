@@ -7019,8 +7019,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       id: "e2e-archive-discovery",
       status: "discovering",
       progress: 0,
-      currentStep: "Initializing",
-      steps: [{ name: "Initialize", status: "running" }],
+      currentStep: "Finding repository",
+      steps: [{ name: "Finding repository", status: "running" }],
       startedAt: "2026-01-01T00:00:00.000Z",
     };
     await installApiFixtures(page, {
@@ -7037,10 +7037,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
 
-    await page.getByRole("button", { name: "Discover Project" }).first().click();
+    await page.getByRole("button", { name: "استكشف مشروعًا موجودًا" }).first().click();
     await expect(
-      page.getByRole("heading", { name: "Discover Project" }),
+      page.getByRole("heading", { name: "اكتشف مشروعًا" }),
     ).toBeVisible();
+    const discoveryWizard = page.getByTestId("discovery-wizard");
+    await expect(discoveryWizard).toHaveAttribute("dir", "rtl");
+    await expect(discoveryWizard).toHaveAttribute("lang", "ar");
     await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
     await page.getByTestId("archive-file-input").setInputFiles({
       name: "dashboard-journey.zip",
@@ -7053,8 +7056,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByTestId("start-discovery").click();
     await expect(
-      page.getByRole("heading", { name: "Analyzing Repository…" }),
+      page.getByRole("heading", { name: "جارٍ تحليل المشروع…" }),
     ).toBeVisible();
+    await expect(page.getByText("العثور على ملفات المشروع")).toBeVisible();
     await expect.poll(() => uploadRequests).toHaveLength(1);
     await expect.poll(() => discoveryRequests).toHaveLength(1);
     expect(discoveryRequests[0]).toMatchObject({
@@ -7072,8 +7076,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       id: "e2e-archive-retry",
       status: "discovering",
       progress: 0,
-      currentStep: "Initializing",
-      steps: [{ name: "Initialize", status: "running" }],
+      currentStep: "Finding repository",
+      steps: [{ name: "Finding repository", status: "running" }],
       startedAt: "2026-01-01T00:00:00.000Z",
     };
     await installApiFixtures(page, {
@@ -7105,7 +7109,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await programmaticSignIn(page);
     await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
-    await page.getByRole("button", { name: "Discover Project" }).first().click();
+    await page.getByRole("button", { name: "استكشف مشروعًا موجودًا" }).first().click();
     await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
 
     const archiveInput = page.getByTestId("archive-file-input");
@@ -7118,7 +7122,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       buffer: Buffer.from("not a supported archive"),
     });
     await expect(error).toHaveText(
-      "Choose a .zip, .tar.gz, or .tgz archive.",
+      "اختر ملفًا بصيغة .zip أو .tar.gz أو .tgz.",
     );
     await startButton.click();
     expect(uploadRequests).toHaveLength(0);
@@ -7138,7 +7142,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       input.files = transfer.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await expect(error).toHaveText("Archive must be 50 MiB or smaller.");
+    await expect(error).toHaveText("يجب ألا يتجاوز حجم الملف 50 ميبيبايت.");
     await startButton.click();
     expect(uploadRequests).toHaveLength(0);
     expect(discoveryRequests).toHaveLength(0);
@@ -7150,7 +7154,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await startButton.click();
     await expect(error).toContainText(
-      "This archive exceeds the 50 MiB limit. Choose a smaller archive and try again.",
+      "حجم الملف يتجاوز الحد الأقصى (50 ميبيبايت). اختر ملفًا أصغر وحاول مرة أخرى.",
     );
     expect(uploadRequests).toHaveLength(1);
     expect(discoveryRequests).toHaveLength(0);
@@ -7162,7 +7166,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await startButton.click();
     await expect(error).toContainText(
-      "We couldn't verify this archive.",
+      "تعذر التحقق من الملف.",
     );
     expect(uploadRequests).toHaveLength(2);
     expect(discoveryRequests).toHaveLength(0);
@@ -7175,7 +7179,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(error).toHaveCount(0);
     await startButton.click();
     await expect(
-      page.getByRole("heading", { name: "Analyzing Repository…" }),
+      page.getByRole("heading", { name: "جارٍ تحليل المشروع…" }),
     ).toBeVisible();
     expect(uploadRequests).toHaveLength(3);
     expect(discoveryRequests).toHaveLength(1);
@@ -7305,8 +7309,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         storageState: await page.context().storageState(),
       });
       await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
-      await page.getByRole("button", { name: "Discover Project" }).first().click();
-      await expect(page.getByRole("heading", { name: "Discover Project" })).toBeVisible();
+      await page.getByRole("button", { name: "استكشف مشروعًا موجودًا" }).first().click();
+      await expect(page.getByRole("heading", { name: "اكتشف مشروعًا" })).toBeVisible();
       await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
       await page.getByTestId("archive-file-input").setInputFiles({
         name: "e2e-real-archive.zip",
@@ -7342,24 +7346,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         sourceConfig: { uploadId: uploadBody.uploadId },
       });
 
-      await expect(page.getByRole("heading", { name: "Discovery Report" }))
+      await expect(page.getByRole("heading", { name: "نتائج استكشاف المشروع" }))
         .toBeVisible({ timeout: 120_000 });
       const importResponsePromise = page.waitForResponse((response) =>
         response.url().endsWith("/api/projects/import") &&
         response.request().method() === "POST",
       );
-      await page.getByRole("button", { name: "Confirm & Import Project" }).click();
+      await page.getByRole("button", { name: "تأكيد وإضافة المشروع" }).click();
       const importResponse = await importResponsePromise;
       expect(importResponse.status()).toBe(201);
       projectId = ((await importResponse.json()) as { id?: string }).id;
       expect(projectId).toEqual(expect.any(String));
-      await expect(page.getByRole("heading", { name: "Project Imported" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "تمت إضافة المشروع" })).toBeVisible();
 
       const scanResponsePromise = page.waitForResponse((response) =>
         response.url().endsWith(`/api/projects/${projectId}/scan`) &&
         response.request().method() === "POST",
       );
-      await page.getByRole("button", { name: "Scan Now" }).click();
+      await page.getByRole("button", { name: "ابدأ الفحص" }).click();
       const scanResponse = await scanResponsePromise;
       expect(scanResponse.status()).toBe(202);
       const scanBody = (await scanResponse.json()) as { jobId?: string; id?: string };
