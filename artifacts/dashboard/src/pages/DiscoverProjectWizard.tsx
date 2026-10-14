@@ -21,7 +21,7 @@ import {
   CheckCircle2,
   Circle,
   AlertTriangle,
-  ChevronRight,
+  ChevronLeft,
   Edit2,
   ShieldAlert,
   GitBranch,
@@ -143,14 +143,14 @@ const MAX_ARCHIVE_SIZE_BYTES = 50 * 1024 * 1024;
 const ARCHIVE_FILE_ACCEPT = '.zip,.tar.gz,.tgz';
 
 function getArchiveFileError(file: File | null): string | null {
-  if (!file) return 'Choose an archive file to continue.';
+  if (!file) return 'اختر ملفًا مضغوطًا للمتابعة.';
 
   const name = file.name.toLowerCase();
   if (!name.endsWith('.zip') && !name.endsWith('.tar.gz') && !name.endsWith('.tgz')) {
-    return 'Choose a .zip, .tar.gz, or .tgz archive.';
+    return 'اختر ملفًا بصيغة .zip أو .tar.gz أو .tgz.';
   }
   if (file.size > MAX_ARCHIVE_SIZE_BYTES) {
-    return 'Archive must be 50 MiB or smaller.';
+    return 'يجب ألا يتجاوز حجم الملف 50 ميبيبايت.';
   }
   return null;
 }
@@ -171,59 +171,87 @@ interface SourceDef {
 const SOURCE_DEFS: SourceDef[] = [
   {
     type: 'GIT_REPOSITORY',
-    label: 'Git Repository',
-    description: 'Clone a remote repo and scan it',
+    label: 'مستودع Git',
+    description: 'أضف مستودعًا بعيدًا لفحصه.',
     icon: GitBranch,
     available: true,
-    badge: 'Recommended',
+    badge: 'موصى به',
   },
   {
     type: 'LOCAL_FOLDER',
-    label: 'Local Folder',
-    description: 'Scan a directory on this server',
+    label: 'مجلد على الخادم',
+    description: 'افحص مجلدًا محفوظًا على هذا الخادم.',
     icon: FolderOpen,
     available: true,
   },
   {
     type: 'WORKSPACE_PROJECT',
-    label: 'Existing Project',
-    description: 'Re-scan a registered project',
+    label: 'مشروع مسجّل',
+    description: 'أعد فحص مشروع أضفته من قبل.',
     icon: Layers,
     available: true,
   },
   {
     type: 'ARCHIVE_UPLOAD',
-    label: 'Archive Upload',
-    description: 'Upload and scan a .zip, .tar.gz, or .tgz file',
+    label: 'رفع ملف مشروع',
+    description: 'ارفع ملفًا بصيغة .zip أو .tar.gz أو .tgz لفحصه.',
     icon: Package,
     available: true,
   },
   {
     type: 'REMOTE_FILESYSTEM',
-    label: 'Remote Filesystem',
-    description: 'Mount and scan a remote path',
+    label: 'مجلد على خادم بعيد',
+    description: 'افحص ملفات موجودة على خادم آخر.',
     icon: Cloud,
     available: false,
-    badge: 'Unavailable',
-    disabledReason: 'Requires server-side SSH/SFTP file access — not supported in this deployment.',
+    badge: 'غير متاح',
+    disabledReason: 'يتطلب اتصال SSH/SFTP بخادم آخر، وهذا غير متاح حاليًا.',
   },
   {
     type: 'DOCKER_VOLUME',
-    label: 'Docker Volume',
-    description: 'Scan a Docker container volume',
+    label: 'وحدة تخزين Docker',
+    description: 'افحص ملفات محفوظة داخل حاوية Docker.',
     icon: Box,
     available: false,
-    badge: 'Unavailable',
-    disabledReason: 'Requires a local Docker daemon — not supported in this deployment. Use Git Repository instead.',
+    badge: 'غير متاح',
+    disabledReason: 'يتطلب تشغيل Docker محليًا، وهذا غير متاح حاليًا. يمكنك استخدام مستودع Git بدلًا من ذلك.',
   },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024) return `${bytes} بايت`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} كيلوبايت`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} ميغابايت`;
+}
+
+const DISCOVERY_STEP_LABELS: Record<string, string> = {
+  'Finding repository': 'العثور على ملفات المشروع',
+  'Reading configuration files': 'قراءة ملفات الإعداد',
+  'Detecting languages': 'تحديد لغات البرمجة',
+  'Detecting frameworks & runtime': 'تحديد أطر العمل وبيئة التشغيل',
+  'Scanning source tree': 'فحص ملفات المشروع',
+  'Building dependency graph': 'بناء خريطة الاعتماديات',
+  'Calculating metrics': 'حساب المؤشرات',
+  'Extracting architecture': 'استنتاج بنية المشروع',
+  'Preparing summary': 'إعداد الملخص',
+  Initialize: 'تهيئة الاستكشاف',
+};
+
+function discoveryStepLabel(name: string): string {
+  return DISCOVERY_STEP_LABELS[name] ?? name;
+}
+
+function severityLabel(severity: string): string {
+  const labels: Record<string, string> = {
+    critical: 'حرج',
+    high: 'مرتفع',
+    medium: 'متوسط',
+    low: 'منخفض',
+    info: 'معلومة',
+  };
+  return labels[severity.toLowerCase()] ?? severity;
 }
 
 function scoreColor(score: number): string {
@@ -246,7 +274,7 @@ function severityBadge(sev: string): string {
 // ─── Git error parser ──────────────────────────────────────────────────────────
 
 function parseGitError(raw: string | null | undefined): { message: string; suggestCredentials: boolean } {
-  if (!raw) return { message: 'Unknown error occurred.', suggestCredentials: false };
+  if (!raw) return { message: 'تعذر إكمال الفحص لسبب غير معروف.', suggestCredentials: false };
   const lower = raw.toLowerCase();
   if (
     lower.includes('authentication failed') ||
@@ -255,19 +283,19 @@ function parseGitError(raw: string | null | undefined): { message: string; sugge
     lower.includes('403')
   ) {
     return {
-      message: 'Authentication failed — this repository requires credentials. Go back and add your Personal Access Token.',
+      message: 'تعذر تسجيل الدخول إلى المستودع. ارجع وأضف بيانات الوصول المطلوبة.',
       suggestCredentials: true,
     };
   }
   if (lower.includes('not found') && (lower.includes('repository') || lower.includes('remote'))) {
     return {
-      message: 'Repository not found. Verify the URL is correct. If it\'s a private repository, go back and add your credentials.',
+      message: 'لم يُعثر على المستودع. تحقق من الرابط، وأضف بيانات الوصول إذا كان المستودع خاصًا.',
       suggestCredentials: true,
     };
   }
   if (lower.includes('could not resolve host') || lower.includes('unable to access') || lower.includes('timed out')) {
     return {
-      message: 'Could not reach the repository host. Check the URL and try again.',
+      message: 'تعذر الاتصال بموقع المستودع. تحقق من الرابط وحاول مرة أخرى.',
       suggestCredentials: false,
     };
   }
@@ -279,14 +307,14 @@ function parseGitError(raw: string | null | undefined): { message: string; sugge
 // ─── API error helpers ─────────────────────────────────────────────────────────
 
 const REASON_HINTS: Record<string, string> = {
-  invalid_source: 'The source configuration is invalid. Check your path or URL.',
-  unsupported_source: 'This source type is not supported in this deployment. Use Local Folder or Git Repository instead.',
-  no_project_root: 'No recognizable project root was found at the given location.',
-  resolution_failed: 'Discovery did not complete successfully. Try starting over.',
-  not_found: 'The discovery session could not be found.',
-  permission_denied: 'You do not have access to this discovery session.',
-  import_failed: 'The project could not be imported. Try again.',
-  server_error: 'An unexpected server error occurred.',
+  invalid_source: 'بيانات المصدر غير صحيحة. تحقق من المسار أو الرابط.',
+  unsupported_source: 'هذا النوع من المصادر غير متاح حاليًا. استخدم مستودع Git أو ملف مشروع.',
+  no_project_root: 'لم يُعثر على مجلد مشروع معروف في هذا الموقع.',
+  resolution_failed: 'لم يكتمل استكشاف المشروع. ابدأ المحاولة من جديد.',
+  not_found: 'تعذر العثور على جلسة الاستكشاف.',
+  permission_denied: 'ليس لديك صلاحية الوصول إلى جلسة الاستكشاف هذه.',
+  import_failed: 'تعذرت إضافة المشروع. حاول مرة أخرى.',
+  server_error: 'حدث خطأ غير متوقع. حاول مرة أخرى.',
 };
 
 function extractApiError(err: unknown, fallback: string): string {
@@ -316,19 +344,19 @@ function extractArchiveUploadError(err: unknown): string {
     const code = typeof data?.['code'] === 'string' ? data['code'] : undefined;
 
     if (status === 413 || code === 'UPLOAD_TOO_LARGE') {
-      return 'This archive exceeds the 50 MiB limit. Choose a smaller archive and try again.';
+      return 'حجم الملف يتجاوز الحد الأقصى (50 ميبيبايت). اختر ملفًا أصغر وحاول مرة أخرى.';
     }
     if (status === 422) {
-      return "We couldn't verify this archive. Make sure it is a valid .zip, .tar.gz, or .tgz with no unsafe paths or links, then try again.";
+      return 'تعذر التحقق من الملف. تأكد أنه ملف .zip أو .tar.gz أو .tgz صالح ولا يحتوي على مسارات أو روابط غير آمنة.';
     }
     if (status === 400) {
-      return "This file isn't a supported archive. Choose a .zip, .tar.gz, or .tgz file and try again.";
+      return 'صيغة الملف غير مدعومة. اختر ملف .zip أو .tar.gz أو .tgz وحاول مرة أخرى.';
     }
   }
 
   return extractApiError(
     err,
-    'Archive upload failed. Check your connection and try again.',
+    'تعذر رفع الملف. تحقق من اتصالك وحاول مرة أخرى.',
   );
 }
 
@@ -368,10 +396,15 @@ function ReportRow({
       <div className="flex items-center gap-3 py-2.5 border-b border-border/30">
         <Icon className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
         <span className="text-xs text-muted-foreground/50 w-36 shrink-0">{label}</span>
-        <span className="text-xs text-muted-foreground/30 italic">Not detected</span>
+        <span className="text-xs text-muted-foreground/30 italic">لم يُكتشف</span>
         {editable && (
-          <button className="ml-auto text-xs text-muted-foreground/40 hover:text-primary flex items-center gap-1" onClick={() => setEditing(true)}>
-            <Edit2 className="w-3 h-3" /> Override
+          <button
+            aria-label={`إدخال ${label}`}
+            title={`إدخال ${label}`}
+            className="mr-auto text-xs text-muted-foreground/40 hover:text-primary flex items-center gap-1"
+            onClick={() => setEditing(true)}
+          >
+            <Edit2 className="w-3 h-3" /> تعديل
           </button>
         )}
       </div>
@@ -387,23 +420,29 @@ function ReportRow({
           <input
             autoFocus
             className="flex-1 bg-secondary border border-primary/40 rounded px-2 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            dir="auto"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
           />
-          <button className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded" onClick={commit}>Save</button>
+          <button className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded" onClick={commit}>حفظ</button>
         </div>
       ) : (
         <>
-          <span className="text-sm font-medium font-mono truncate">{value}</span>
+          <span dir="auto" className="text-sm font-medium font-mono truncate">{value}</span>
           {isOverride && (
-            <span className="ml-2 text-[10px] bg-primary/20 text-primary border border-primary/30 px-1.5 py-0.5 rounded-full shrink-0">override</span>
+            <span className="mr-2 text-[10px] bg-primary/20 text-primary border border-primary/30 px-1.5 py-0.5 rounded-full shrink-0">تعديل يدوي</span>
           )}
           {!isOverride && value && (
-            <span className="ml-2 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full shrink-0">detected</span>
+            <span className="mr-2 text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full shrink-0">تم اكتشافه</span>
           )}
           {editable && (
-            <button className="ml-auto text-muted-foreground/40 hover:text-primary shrink-0" onClick={() => { setDraft(value ?? ''); setEditing(true); }}>
+            <button
+              aria-label={`تعديل ${label}`}
+              title={`تعديل ${label}`}
+              className="mr-auto text-muted-foreground/40 hover:text-primary shrink-0"
+              onClick={() => { setDraft(value ?? ''); setEditing(true); }}
+            >
               <Edit2 className="w-3 h-3" />
             </button>
           )}
