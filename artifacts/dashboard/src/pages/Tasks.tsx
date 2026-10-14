@@ -181,15 +181,39 @@ function acceptanceStatus(acceptance: TaskAcceptance): {
   className: string;
 } {
   if (acceptance.disposition?.recoveryState && acceptance.disposition.recoveryState !== 'NONE') {
-    return { label: 'Recovery required', className: 'text-amber-500' };
+    return { label: 'يتطلب الاسترداد', className: 'text-amber-500' };
   }
   if (acceptance.outcome === 'SUCCEEDED') {
-    return { label: 'Accepted', className: 'text-emerald-500' };
+    return { label: 'مقبول', className: 'text-emerald-500' };
   }
   if (acceptance.outcome === 'INTERRUPTED') {
-    return { label: 'Interrupted', className: 'text-amber-500' };
+    return { label: 'منقطع', className: 'text-amber-500' };
   }
-  return { label: 'Failed', className: 'text-destructive' };
+  return { label: 'فشل مسجل', className: 'text-destructive' };
+}
+
+function taskStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    pending: 'بانتظار التنفيذ',
+    queued: 'في قائمة الانتظار',
+    running: 'قيد التنفيذ',
+    verifying: 'قيد التحقق',
+    completed: 'انتهت بحسب السجل',
+    failed: 'فشل مسجل',
+    cancelled: 'أُلغيت',
+  };
+  return labels[status] ?? status;
+}
+
+function timelineStatusLabel(status: TimelineStep['status']): string {
+  const labels: Record<TimelineStep['status'], string> = {
+    done: 'اكتملت',
+    active: 'جارية',
+    pending: 'بانتظار البدء',
+    blocked: 'متوقفة',
+    failed: 'فشلت',
+  };
+  return labels[status];
 }
 
 function acceptanceNextAction(acceptance: TaskAcceptance): string {
@@ -250,24 +274,25 @@ function TaskAcceptancePanel({
   return (
     <section
       className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs"
-      aria-label="Server acceptance outcome"
+      aria-label="نتيجة قبول الخادم"
+      dir="rtl"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold uppercase tracking-wider">Server acceptance</span>
+        <span className="font-semibold">قبول الخادم</span>
         <span className={`font-semibold ${status.className}`}>{status.label}</span>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-muted-foreground font-mono">
-        <span>Outcome: {acceptance.outcome}</span>
-        <span>Attempt: {acceptance.attempt}</span>
-        <span>Reason: {acceptance.reasonCode}</span>
-        <span>Evidence: {acceptance.evidenceComplete ? 'complete' : 'incomplete'}</span>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-muted-foreground">
+        <span>النتيجة: <bdi dir="ltr" className="font-mono">{acceptance.outcome}</bdi></span>
+        <span>المحاولة: <bdi dir="ltr" className="font-mono">{acceptance.attempt}</bdi></span>
+        <span>رمز السبب: <bdi dir="ltr" className="font-mono">{acceptance.reasonCode}</bdi></span>
+        <span>الأدلة: {acceptance.evidenceComplete ? 'مكتملة' : 'غير مكتملة'}</span>
       </div>
-      <div className="mt-3 border-t border-primary/15 pt-2 text-muted-foreground">
-        <span className="font-semibold text-foreground">Next action: </span>
-        {nextAction}
+      <div className="mt-3 border-t border-primary/15 pt-2 text-muted-foreground" dir="rtl">
+        <span className="font-semibold text-foreground">الإجراء التالي: </span>
+        <span dir="auto">{nextAction}</span>
       </div>
       <div className="mt-1 text-muted-foreground">
-        Provider diagnostics and credentials are not shown.
+        لا تُعرض تفاصيل تشخيص المزوّد أو بيانات الوصول.
       </div>
       {taskCanResume
         && acceptance.resumable
@@ -372,11 +397,13 @@ function activityItem(log: TaskLog): ActivityItem {
         : /file|pattern|search|project root/.test(lower)
           ? 'evidence'
           : 'activity';
-  const label = kind === 'evidence' ? 'Evidence collected'
-    : kind === 'result' ? 'Verification result'
-      : kind === 'warning' ? 'Needs attention'
-        : kind === 'error' ? 'Execution error'
-          : 'Activity';
+  const label = log.eventType === 'progress' ? 'تقدم التنفيذ'
+    : log.eventType === 'terminal' ? 'نتيجة التنفيذ'
+      : kind === 'evidence' ? 'أدلة مسجلة'
+        : kind === 'result' ? 'نتيجة التحقق'
+          : kind === 'warning' ? 'يتطلب الانتباه'
+            : kind === 'error' ? 'خطأ في التنفيذ'
+              : 'نشاط';
   return { key: `${kind}:${message}`, kind, label, summary: message, timestamp: log.timestamp, count: 1 };
 }
 
@@ -411,14 +438,14 @@ type TimelineStep = {
 };
 
 const TIMELINE_STAGES: Array<{ stage: string; title: string }> = [
-  { stage: 'acquisition', title: 'Wait / acquire' },
-  { stage: 'context', title: 'Build context' },
-  { stage: 'model', title: 'Call model' },
-  { stage: 'attempt', title: 'Attempt / fallback' },
-  { stage: 'analysis', title: 'Analyze response' },
-  { stage: 'verification', title: 'Verify result' },
-  { stage: 'finalization', title: 'Finalize' },
-  { stage: 'result', title: 'Final result' },
+  { stage: 'acquisition', title: 'انتظار بدء التنفيذ' },
+  { stage: 'context', title: 'إعداد سياق المشروع' },
+  { stage: 'model', title: 'طلب المساعدة من النموذج' },
+  { stage: 'attempt', title: 'محاولة التنفيذ أو البديل' },
+  { stage: 'analysis', title: 'تحليل الرد' },
+  { stage: 'verification', title: 'التحقق من النتيجة' },
+  { stage: 'finalization', title: 'إنهاء التنفيذ' },
+  { stage: 'result', title: 'النتيجة النهائية' },
 ];
 
 function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
@@ -443,7 +470,7 @@ function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
               : status === 'active'
                 ? 'active'
                 : 'pending',
-        detail: latest?.progressMessage ?? 'Waiting for the server to begin this stage.',
+        detail: latest?.progressMessage ?? 'بانتظار بدء هذه المرحلة من الخادم.',
         startedAt: latest?.startedAt,
         finishedAt: latest?.finishedAt,
         percent: latest?.progressPercent,
@@ -454,10 +481,10 @@ function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
   const terminal = ['completed', 'failed', 'cancelled'].includes(task.status);
   const verificationDone = Boolean(task.verificationResult);
   return [
-    { stage: 'legacy-goal', title: 'Understand the task', status: 'done', detail: 'Task goal and project scope recorded.' },
-    { stage: 'legacy-execute', title: 'Execute the approved workflow', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'Only the existing task execution path is used.' },
-    { stage: 'legacy-verify', title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
-    { stage: 'legacy-result', title: 'Report outcome', status: terminal ? 'done' : 'pending', detail: terminal ? 'Final outcome is preserved below.' : 'The final report will remain available after completion.' },
+    { stage: 'legacy-goal', title: 'فهم المطلوب', status: 'done', detail: 'سُجّل هدف المهمة ونطاق المشروع.' },
+    { stage: 'legacy-execute', title: 'تنفيذ مسار العمل المعتمد', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'يُستخدم مسار تنفيذ المهمة المعتمد فقط.' },
+    { stage: 'legacy-verify', title: 'التحقق من النتيجة', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'سجّل الخادم نتيجة التحقق.' : 'بانتظار نتيجة تحقق يسجلها الخادم.' },
+    { stage: 'legacy-result', title: 'عرض النتيجة', status: terminal ? 'done' : 'pending', detail: terminal ? 'النتيجة النهائية موضحة أدناه.' : 'سيظل التقرير النهائي متاحًا بعد اكتمال المهمة.' },
   ];
 }
 
@@ -476,7 +503,7 @@ function stageDuration(step: TimelineStep): string | null {
   const start = new Date(step.startedAt).getTime();
   if (!Number.isFinite(start) || end < start) return null;
   const seconds = Math.floor((end - start) / 1000);
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return seconds < 60 ? `${seconds} ث` : `${Math.floor(seconds / 60)} د ${seconds % 60} ث`;
 }
 
 function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
@@ -584,7 +611,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     .sort(logOrder)
     .at(-1)?.progressPercent;
   const elapsedMs = Math.max(0, new Date((task.completedAt ?? task.updatedAt)).getTime() - new Date(task.createdAt).getTime());
-  const elapsed = `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
+  const elapsed = `${Math.floor(elapsedMs / 60_000)} د ${Math.floor((elapsedMs % 60_000) / 1000)} ث`;
   const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
   const retryLiveUpdates = () => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -621,24 +648,24 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     <div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         {[
-          ['Goal', task.title],
-          ['Status', taskStatus],
-          ['Phase', task.phase || 'Execution'],
-          ['Progress', serverPercent !== null && serverPercent !== undefined
+          ['الهدف', task.title],
+          ['الحالة', taskStatusLabel(taskStatus)],
+          ['المرحلة', task.phase || 'التنفيذ'],
+          ['التقدم', serverPercent !== null && serverPercent !== undefined
             ? `${serverPercent}%`
             : plan.some((step) => step.status === 'active')
-              ? 'Indeterminate'
-              : `${completedSteps}/${plan.length} steps`],
-          ['Elapsed', elapsed],
+              ? 'غير محدد'
+              : `${completedSteps}/${plan.length} خطوات`],
+          ['الوقت المنقضي', elapsed],
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-border bg-background p-3 min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-            <div className="text-sm font-medium truncate mt-1">{value}</div>
+          <div className="text-[10px] tracking-wider text-muted-foreground">{label}</div>
+            <div dir="auto" className="text-sm font-medium truncate mt-1">{value}</div>
           </div>
         ))}
       </div>
       <div className="flex items-center justify-between mb-4 text-xs">
-        <span className="text-muted-foreground">Last confirmed update: {new Date(task.updatedAt).toLocaleString()}</span>
+        <span className="text-muted-foreground">آخر تحديث مؤكد: {new Date(task.updatedAt).toLocaleString('ar-EG')}</span>
         {isRunning && (
           <span
             className={`flex items-center gap-1.5 ${connectionState === 'connected' ? 'text-emerald-500' : connectionState === 'exhausted' ? 'text-destructive' : 'text-yellow-500'}`}
@@ -646,10 +673,10 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           >
             {connectionState === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
             {connectionState === 'connected'
-              ? 'Connected'
+              ? 'متصل'
               : connectionState === 'exhausted'
-                ? 'Reconnect exhausted'
-                : `Reconnecting… (attempt ${reconnectAttempt + 1} of ${MAX_RECONNECT_ATTEMPTS})`}
+                ? 'انتهت محاولات إعادة الاتصال'
+                : `جارٍ إعادة الاتصال… (المحاولة ${reconnectAttempt + 1} من ${MAX_RECONNECT_ATTEMPTS})`}
           </span>
         )}
       </div>
@@ -680,7 +707,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         </div>
       )}
       <section aria-labelledby={`plan-${taskId}`} className="mb-5">
-        <h4 id={`plan-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Execution plan</h4>
+        <h4 id={`plan-${taskId}`} className="text-xs font-semibold tracking-wider text-muted-foreground mb-2">خطة التنفيذ</h4>
         <div className="border border-border rounded-lg divide-y divide-border bg-background">
           {plan.map((step, index) => (
             <div key={step.stage} className="flex items-start gap-3 p-3">
@@ -688,25 +715,25 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                 {step.status === 'done' ? '✓' : step.status === 'failed' || step.status === 'blocked' ? '!' : index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{step.title}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{step.detail}</div>
+              <div dir="rtl" className="text-sm font-medium">{step.title}</div>
+                <div dir="auto" className="text-xs text-muted-foreground mt-0.5">{step.detail}</div>
                 {(step.startedAt || step.percent !== null && step.percent !== undefined) && (
                   <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                    {step.startedAt && <span>Started {new Date(step.startedAt).toLocaleTimeString('en', { hour12: false })}</span>}
-                    {stageDuration(step) && <span>Duration {stageDuration(step)}</span>}
-                    {step.percent !== null && step.percent !== undefined && <span>{step.percent}% server progress</span>}
+                    {step.startedAt && <span>بدأت {new Date(step.startedAt).toLocaleTimeString('ar-EG', { hour12: false })}</span>}
+                    {stageDuration(step) && <span>المدة {stageDuration(step)}</span>}
+                    {step.percent !== null && step.percent !== undefined && <span>{step.percent}% تقدم بحسب الخادم</span>}
                   </div>
                 )}
               </div>
-              <span className="ml-auto text-[10px] uppercase text-muted-foreground">{step.status}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">{timelineStatusLabel(step.status)}</span>
             </div>
           ))}
         </div>
       </section>
       <section aria-labelledby={`activity-${taskId}`}>
         <h4 id={`activity-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-          <Activity className="w-3.5 h-3.5" /> Activity
-          {isRunning && sseActive && <span className="ml-auto text-primary animate-pulse font-normal normal-case tracking-normal">Live updates</span>}
+          <Activity className="w-3.5 h-3.5" /> سجل النشاط
+          {isRunning && sseActive && <span className="ml-auto text-primary animate-pulse font-normal normal-case tracking-normal">تحديثات مباشرة</span>}
         </h4>
       <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-72 p-3 space-y-2">
         {!isRunning && isLoading ? (
@@ -724,17 +751,17 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           <>
             {groupedActivity.length > MAX_VISIBLE_ACTIVITY_ITEMS && (
               <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground" role="status">
-                Showing the first confirmed event and the latest {MAX_VISIBLE_ACTIVITY_ITEMS - 1} of {groupedActivity.length} activity entries.
+                نعرض أول حدث مؤكد وآخر {MAX_VISIBLE_ACTIVITY_ITEMS - 1} من أصل {groupedActivity.length} سجل نشاط.
               </div>
             )}
             {activityItems.map((item) => (
               <details key={item.key} open={item.kind === 'warning' || item.kind === 'error'} className={`rounded-md border p-2 ${item.kind === 'error' ? 'border-destructive/40' : item.kind === 'warning' ? 'border-yellow-500/40' : 'border-border'}`}>
                 <summary className="flex items-start gap-2 cursor-pointer list-none">
                   <span className={`text-base shrink-0 ${item.kind === 'error' ? 'text-destructive' : item.kind === 'warning' ? 'text-yellow-500' : ''}`}>{item.kind === 'result' ? '✓' : stepIcon(item.summary, item.kind === 'error' ? 'error' : item.kind === 'warning' ? 'warn' : 'info')}</span>
-                  <span className="flex-1"><span className="font-medium">{item.label}</span><span className="text-muted-foreground"> — {item.summary}</span></span>
+                  <span className="flex-1"><span className="font-medium">{item.label}</span><span dir="auto" className="text-muted-foreground"> — {item.summary}</span></span>
                   {item.count > 1 && <span className="text-muted-foreground">×{item.count}</span>}
                 </summary>
-                <div className="pl-6 pt-1 text-[10px] text-muted-foreground">Confirmed {new Date(item.timestamp).toLocaleTimeString('en', { hour12: false })}</div>
+                <div className="pl-6 pt-1 text-[10px] text-muted-foreground">وقت التسجيل: {new Date(item.timestamp).toLocaleTimeString('ar-EG', { hour12: false })}</div>
               </details>
             ))}
           </>
@@ -831,14 +858,14 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
                               {entry.passed
                                 ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                                 : <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />}
-                              <span className="font-semibold">{entry.passed ? 'Passed' : 'Failed'}</span>
-                              <span className="text-muted-foreground">· decision {history.length - index}</span>
+                              <span className="font-semibold">{entry.passed ? 'اجتاز' : 'لم يجتز'}</span>
+                              <span className="text-muted-foreground">· القرار {history.length - index}</span>
                             </div>
                             <div className="mt-1 text-muted-foreground">
                               {entry.evidence ? safeTaskText(entry.evidence) : 'لا يوجد دليل مرفق بهذا القرار.'}
                             </div>
                             <div className="mt-1 text-[10px] text-muted-foreground">
-                              By {safeTaskText(entry.actor, 'Unknown actor')} · {new Date(entry.recordedAt).toLocaleString()}
+                              بواسطة <bdi dir="auto">{safeTaskText(entry.actor, 'جهة غير معروفة')}</bdi> · {new Date(entry.recordedAt).toLocaleString('ar-EG')}
                             </div>
                           </li>
                         ))}
@@ -855,27 +882,27 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         <section aria-labelledby={`report-${taskId}`} className="mt-5 rounded-lg border border-border bg-background p-4">
           <h4 id={`report-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
             {task.verificationResult?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
-            Final report
+            التقرير النهائي
           </h4>
            <p className="text-sm font-medium">
              {taskStatus === 'completed' && task.verificationResult?.passed
-               ? 'Task completed and verified by the server.'
+               ? 'اكتملت المهمة وسجّل الخادم اجتياز التحقق.'
                : taskStatus === 'completed'
-                 ? 'Task completed, but no passed server verification is recorded.'
+                 ? 'اكتملت المهمة، لكن لا يوجد اجتياز تحقق مسجل من الخادم.'
                  : taskStatus === 'cancelled'
-                   ? 'Task cancelled before completion.'
-                   : 'Task ended without a confirmed successful verification.'}
+                   ? 'أُلغيت المهمة قبل اكتمالها.'
+                   : 'انتهت المهمة دون تأكيد اجتياز التحقق.'}
            </p>
           {task.verificationResult?.decision && (
             <div className="mt-2 text-xs text-muted-foreground">
-              Verification decision: <span className="font-semibold uppercase">{task.verificationResult.decision}</span>
+              قرار التحقق: <bdi dir="ltr" className="font-semibold uppercase">{task.verificationResult.decision}</bdi>
             </div>
           )}
           {task.verificationResult?.steps?.length ? (
             <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
               <div key={step.name} className="flex items-center gap-2 text-xs">
                 {step.passed ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />}
-                <span>{step.guidance ?? step.name}</span><span className="text-muted-foreground">— {safeTaskText(step.evidence ?? step.output, step.passed ? 'Passed' : 'Not confirmed')}</span>
+                <span dir="auto">{step.guidance ?? step.name}</span><span dir="auto" className="text-muted-foreground">— {safeTaskText(step.evidence ?? step.output, step.passed ? 'اجتاز' : 'لم يُؤكد')}</span>
               </div>
             ))}</div>
           ) : <p dir="rtl" className="text-xs text-muted-foreground mt-2">لا تتوفر تفاصيل تحقق مسجلة من الخادم. هذا لا يثبت أن المهمة لم تُختبر.</p>}
@@ -1482,7 +1509,7 @@ export default function Tasks() {
                       const acceptance = acceptanceStatus(task.acceptance);
                       return (
                         <span
-                          aria-label={`Acceptance: ${acceptance.label}`}
+                          aria-label={`القبول: ${acceptance.label}`}
                           className={`rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold ${acceptance.className}`}
                         >
                           {acceptance.label}
@@ -1628,11 +1655,11 @@ export default function Tasks() {
                                       ? 'border-primary/30 text-primary'
                                       : 'border-amber-500/30 text-amber-500'
                                 }`}>
-                                  {task.remediationPlan.status === 'verified'
-                                    ? 'Verified'
+              {task.remediationPlan.status === 'verified'
+                                    ? 'تم التحقق'
                                     : task.remediationPlan.status === 'ready'
-                                      ? 'Ready to execute'
-                                      : 'Needs review'}
+                                      ? 'جاهزة للتنفيذ'
+                                      : 'تحتاج إلى مراجعة'}
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
@@ -1640,31 +1667,31 @@ export default function Tasks() {
                                 <span className="text-muted-foreground">·</span>
                                 <span>{task.remediationPlan.ruleTitle}</span>
                                 <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
-                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} تكرار</span>
                               </div>
                               {task.remediationPlan.fixDescription ? (
                                 <p className="text-xs text-muted-foreground mb-3">
-                                  <span className="font-semibold text-foreground">Recommended fix: </span>
-                                  {task.remediationPlan.fixDescription}
+                                  <span className="font-semibold text-foreground">الإصلاح المقترح: </span>
+                                  <span dir="auto">{task.remediationPlan.fixDescription}</span>
                                 </p>
                               ) : (
                                 <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
-                                  Fix guidance is missing; review the rule before execution.
+                                  لا توجد إرشادات للإصلاح؛ راجع القاعدة قبل التنفيذ.
                                 </p>
                               )}
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                 <div>
-                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Evidence</div>
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">الأدلة</div>
                                   {task.remediationPlan.evidence.length > 0 ? (
                                     <div className="space-y-1.5">
                                       {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
                                         <div key={`${match.file}:${match.line}:${index}`} className="rounded border border-border bg-background px-2 py-1.5 text-[11px]">
-                                          <div className="font-mono">{match.file}:{match.line}</div>
-                                          <div className="text-muted-foreground truncate">{match.snippet}</div>
+                                          <div dir="ltr" className="font-mono">{match.file}:{match.line}</div>
+                                          <div dir="auto" className="text-muted-foreground truncate">{match.snippet}</div>
                                         </div>
                                       ))}
                                       {task.remediationPlan.evidence.length > 5 && (
-                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+                                        <div className="text-[11px] text-muted-foreground">و{task.remediationPlan.evidence.length - 5} من الأدلة الأخرى</div>
                                       )}
                                     </div>
                                   ) : (
@@ -1672,11 +1699,11 @@ export default function Tasks() {
                                   )}
                                 </div>
                                 <div>
-                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Required verification</div>
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">التحقق المطلوب</div>
                                   {task.remediationPlan.verificationSteps.length > 0 ? (
                                     <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
                                       {task.remediationPlan.verificationSteps.map((step, index) => (
-                                        <li key={`${step}:${index}`}>{step}</li>
+                                      <li key={`${step}:${index}`} dir="auto">{step}</li>
                                       ))}
                                     </ol>
                                   ) : (
@@ -1685,10 +1712,10 @@ export default function Tasks() {
                                 </div>
                               </div>
                               <div className="mt-3 text-[11px] text-muted-foreground font-mono">
-                                Source: {task.remediationPlan.source.type}
+                                مصدر الخطة: <bdi dir="ltr">{task.remediationPlan.source.type}</bdi>
                                 {task.remediationPlan.source.revision
-                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
-                                  : ' · revision unavailable'}
+                                  ? <> · المراجعة <bdi dir="ltr">{task.remediationPlan.source.revision.slice(0, 12)}</bdi></>
+                                  : ' · المراجعة غير متاحة'}
                               </div>
                               {task.status === 'verifying' &&
                                 (task.remediationPlan.verificationChecks?.length ?? task.remediationPlan.verificationSteps.length) > 0 && (
@@ -1698,7 +1725,7 @@ export default function Tasks() {
                                     className="mt-3 inline-flex items-center gap-1.5 rounded border border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
                                   >
                                     <ShieldCheck className="w-3.5 h-3.5" />
-                                    Run and record verification checks
+                                    نفّذ الفحوص وسجّل نتائجها
                                   </button>
                                 )}
                             </section>
@@ -1709,7 +1736,7 @@ export default function Tasks() {
                           {task.relatedFiles && task.relatedFiles.length > 0 && (
                             <div className="mb-4">
                               <div className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                                <FileCode className="w-3 h-3" /> Related Files
+                                <FileCode className="w-3 h-3" /> الملفات ذات الصلة
                               </div>
                               <div className="space-y-1">
                                 {task.relatedFiles.map((f, i) => (
@@ -1717,26 +1744,26 @@ export default function Tasks() {
                                     key={i}
                                     className="text-xs font-mono bg-background border border-border rounded px-2 py-1 truncate"
                                   >
-                                    {f}
+                                    <bdi dir="ltr">{f}</bdi>
                                   </div>
                                 ))}
                               </div>
                             </div>
                           )}
                           <div className="text-xs text-muted-foreground grid grid-cols-2 gap-2 mt-4 font-mono">
-                            <div>Created: {new Date(task.createdAt).toLocaleString()}</div>
-                            <div>Phase: {task.phase || 'default'}</div>
-                            <div>Retries: {task.retryCount || 0}/{task.maxRetries || 3}</div>
+                            <div>تاريخ الإنشاء: {new Date(task.createdAt).toLocaleString('ar-EG')}</div>
+                            <div>المرحلة: <bdi dir="ltr">{task.phase || 'default'}</bdi></div>
+                            <div>المحاولات: {task.retryCount || 0}/{task.maxRetries || 3}</div>
                           </div>
                         </div>
 
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                            Execution Data
+                            بيانات التنفيذ
                           </h4>
                           <div className="mb-4 rounded-lg border border-border bg-background p-3">
-                            <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
-                            <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
+                            <div className="text-xs text-muted-foreground mb-1">حدود ما يظهر هنا</div>
+                            <div className="text-sm">يعرض هذا القسم النشاط ونتائج التحقق المسجلة. لا تُعرض التعليمات الداخلية أو تفاصيل تشخيص المزوّد.</div>
                           </div>
                           <TaskExecutionProjection taskId={task.id} />
                           <TaskAcceptancePanel
@@ -1750,18 +1777,18 @@ export default function Tasks() {
                             return (
                               <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
                                 <div className="flex items-center justify-between gap-2 mb-2">
-                                  <span className="font-semibold uppercase tracking-wider">Execution receipt</span>
+                                  <span className="font-semibold">إيصال التنفيذ</span>
                                   <span className={receipt.terminalStatus === 'SUCCEEDED' ? 'text-emerald-500' : receipt.terminalStatus === 'BLOCKED' ? 'text-amber-500' : 'text-destructive'}>
                                     {receipt.terminalStatus ?? 'RECORDED'}
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-muted-foreground font-mono">
-                                  <span>Execution attempt: {receipt.attempt ?? '—'}</span>
-                                  <span>Provider attempts: {receipt.attempts ?? 1}</span>
-                                  <span>Duration: {receipt.durationMs != null ? `${receipt.durationMs}ms` : '—'}</span>
+                                  <span>محاولة التنفيذ: {receipt.attempt ?? '—'}</span>
+                                  <span>محاولات المزوّد: {receipt.attempts ?? 1}</span>
+                                  <span>المدة: {receipt.durationMs != null ? `${receipt.durationMs} مللي ثانية` : '—'}</span>
                                 </div>
                                 <div className="mt-2 text-muted-foreground">
-                                  Provider diagnostics and credentials are not shown.
+                                  لا تُعرض تفاصيل تشخيص المزوّد أو بيانات الوصول.
                                 </div>
                                 <ProviderRecoveryCard
                                   recovery={receipt}
@@ -1773,7 +1800,7 @@ export default function Tasks() {
                           {task.verificationResult && (
                             <div>
                               <div className="text-xs text-muted-foreground mb-2">
-                                Verification Steps:
+                                خطوات التحقق:
                               </div>
                               <div className="space-y-2">
                                 {task.verificationResult.steps.map((step, i) => (
@@ -1786,7 +1813,7 @@ export default function Tasks() {
                                     ) : (
                                       <AlertTriangle className="w-4 h-4 text-destructive" />
                                     )}
-                                    <span className="font-mono">{step.name}</span>
+                                    <span dir="auto" className="font-mono">{step.name}</span>
                                   </div>
                                 ))}
                               </div>

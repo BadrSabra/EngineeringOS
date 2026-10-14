@@ -353,7 +353,7 @@ describe('project-scoped task list contracts', () => {
     );
     expect(vi.mocked(useExecuteTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
     expect(vi.mocked(useRollbackTask).mock.results.at(-1)!.value.mutate).not.toHaveBeenCalled();
-    expect(screen.queryByRole('region', { name: 'Server acceptance outcome' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'نتيجة قبول الخادم' })).not.toBeInTheDocument();
   });
 });
 
@@ -466,8 +466,8 @@ describe('Tasks recovery rendering', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
-    expect(screen.getByText('Execution attempt: 3')).toBeInTheDocument();
-    expect(screen.getByText('Provider attempts: 2')).toBeInTheDocument();
+    expect(screen.getByText('محاولة التنفيذ: 3')).toBeInTheDocument();
+    expect(screen.getByText('محاولات المزوّد: 2')).toBeInTheDocument();
   });
 
   it('hides a prior execution projection after retry rotates the Task correlation pointer', () => {
@@ -518,9 +518,9 @@ describe('Tasks recovery rendering', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
-    const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
-    expect(within(acceptance).getByText('Recovery required')).toBeInTheDocument();
-    expect(within(acceptance).getByText('Outcome: FAILED')).toBeInTheDocument();
+    const acceptance = screen.getByRole('region', { name: 'نتيجة قبول الخادم' });
+    expect(within(acceptance).getByText('يتطلب الاسترداد')).toBeInTheDocument();
+    expect(within(acceptance).getByText('النتيجة: FAILED')).toBeInTheDocument();
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
     expect(within(acceptance).getByRole('button', { name: 'استئناف تنفيذ المهمة' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
@@ -556,7 +556,7 @@ describe('Tasks recovery rendering', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
-    const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
+    const acceptance = screen.getByRole('region', { name: 'نتيجة قبول الخادم' });
     expect(within(acceptance).getByText(/حالة المهمة لا تسمح بالاستئناف/)).toBeInTheDocument();
     expect(within(acceptance).queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
   });
@@ -619,8 +619,8 @@ describe('Tasks recovery rendering', () => {
     } as ReturnType<typeof useListTasks>);
 
     renderPage();
-    expect(screen.getByLabelText('Acceptance: Accepted')).toBeInTheDocument();
-    expect(screen.getByLabelText('Acceptance: Recovery required')).toBeInTheDocument();
+    expect(screen.getByLabelText('القبول: مقبول')).toBeInTheDocument();
+    expect(screen.getByLabelText('القبول: يتطلب الاسترداد')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'تصفية المهام حسب القبول' }), {
       target: { value: 'accepted' },
@@ -636,7 +636,7 @@ describe('Tasks recovery rendering', () => {
     expect(screen.queryByText(/raw provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/sk-provider-secret/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Internal prompts and provider diagnostics are not shown/i)).toBeInTheDocument();
+    expect(screen.getByText(/لا تُعرض التعليمات الداخلية أو تفاصيل تشخيص المزوّد/)).toBeInTheDocument();
   });
 
   it('renders the durable progress timeline from out-of-order logs without duplicates', () => {
@@ -706,10 +706,12 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Replay progress timeline' }));
     fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
-    expect(screen.getByText('Build context')).toBeInTheDocument();
-    expect(screen.getByText('Final result')).toBeInTheDocument();
-    expect(screen.getByText('100% server progress')).toBeInTheDocument();
+    expect(screen.getByText('إعداد سياق المشروع')).toBeInTheDocument();
+    expect(screen.getByText('النتيجة النهائية')).toBeInTheDocument();
+    expect(screen.getByText('100% تقدم بحسب الخادم')).toBeInTheDocument();
     expect(screen.getAllByText('Project context is ready.')).toHaveLength(1);
+    expect(screen.getByText('تقدم التنفيذ')).toBeInTheDocument();
+    expect(screen.getByText('نتيجة التنفيذ')).toBeInTheDocument();
   });
 
   it('keeps long activity timelines bounded while preserving the first and latest events', () => {
@@ -750,7 +752,7 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Keep a long timeline readable' }));
     fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
-    expect(screen.getByRole('status')).toHaveTextContent('latest 79 of 120 activity entries');
+    expect(screen.getByRole('status')).toHaveTextContent('آخر 79 من أصل 120 سجل نشاط');
     expect(screen.getByText(/activity event 0/)).toBeInTheDocument();
     expect(screen.getByText(/activity event 119/)).toBeInTheDocument();
     expect(screen.queryByText(/activity event 40/)).not.toBeInTheDocument();
@@ -839,8 +841,8 @@ describe('Tasks recovery rendering', () => {
     const history = screen.getByText('سجل قرارات التحقق (2)');
     fireEvent.click(history);
     expect(screen.getByText('The behavior still failed.')).toBeInTheDocument();
-    expect(screen.getByText(/By operator-a/)).toBeInTheDocument();
-    expect(screen.getByText(/By operator-b/)).toBeInTheDocument();
+    expect(screen.getByText(/بواسطة operator-a/)).toBeInTheDocument();
+    expect(screen.getByText(/بواسطة operator-b/)).toBeInTheDocument();
   });
 });
 
