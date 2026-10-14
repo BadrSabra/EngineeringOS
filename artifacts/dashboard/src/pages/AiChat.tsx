@@ -9043,6 +9043,44 @@ export function auditRedactionCategoryLabel(category: unknown): string {
   }
 }
 
+export function auditExportFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim().toLowerCase() : '';
+  if (message === 'no completed execution is selected.') {
+    return 'لا يوجد تشغيل مكتمل محدد لتنزيل سجله.';
+  }
+  if (message === 'ai execution not found') {
+    return 'لم يُعثر على سجل لهذا التشغيل. تحقّق من أن التشغيل ما زال متاحًا.';
+  }
+  if (/network|failed to fetch|connection|timeout/.test(message)) {
+    return 'تعذّر الاتصال لتنزيل سجل التدقيق. تحقّق من الاتصال ثم أعد المحاولة.';
+  }
+  return 'تعذّر تنزيل سجل التدقيق. تحقّق من إمكانية الوصول إلى التشغيل ثم أعد المحاولة.';
+}
+
+export function historicalAuditStatusLabel(status: unknown): string {
+  switch (status) {
+    case 'cancelled':
+      return 'ملغى';
+    case 'failed':
+      return 'غير مكتمل';
+    case 'paused':
+      return 'متوقف مؤقتًا';
+    default:
+      return 'حالة غير معروفة';
+  }
+}
+
+export function historicalAuditDispositionLabel(disposition: unknown): string {
+  switch (disposition) {
+    case 'NEW_RUN_RECOMMENDED':
+      return 'يُنصح ببدء تشغيل جديد';
+    case 'RETAIN_FOR_REVIEW':
+      return 'محفوظ للمراجعة';
+    default:
+      return 'إجراء متابعة غير معروف';
+  }
+}
+
 type AuditPreview = ExportAiExecutionAudit200;
 
 function AgentExecutionProofPanel({
@@ -9471,7 +9509,7 @@ function AgentExecutionProofPanel({
           <p dir="rtl" lang="ar" className="mt-2 text-[9px] leading-4 text-muted-foreground">
             يعرض مربع JSON سجل الخادم بصيغته الأصلية للتدقيق؛ وتُشرح فئات الإخفاء بالعربية أعلاه.
           </p>
-          <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/50 bg-background/70 p-2.5 text-[9px] leading-4 text-foreground/80">
+          <pre dir="ltr" className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/50 bg-background/70 p-2.5 text-start text-[9px] leading-4 text-foreground/80">
             {JSON.stringify(auditPreview, null, 2)}
           </pre>
           </>
@@ -9966,7 +10004,7 @@ export default function AiChat() {
 
   async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
     const executionId = activeExecution?.id;
-    if (!executionId) throw new Error('No completed execution is selected.');
+       if (!executionId) throw new Error('No completed execution is selected.');
     const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
@@ -10017,11 +10055,14 @@ export default function AiChat() {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      toast({ title: 'Audit exported', description: 'The redacted execution timeline is ready for handoff.' });
+      toast({
+        title: 'تم تنزيل سجل التدقيق',
+        description: 'سجل التدقيق المنقّح جاهز للمشاركة.',
+      });
     } catch (error) {
       toast({
-        title: 'Audit export failed',
-        description: error instanceof Error ? error.message : 'The execution audit could not be exported.',
+        title: 'تعذّر تنزيل سجل التدقيق',
+        description: auditExportFailureMessage(error),
         variant: 'destructive',
       });
     } finally {
@@ -13306,40 +13347,51 @@ export default function AiChat() {
             ))
             )}
             {(selectedProjectId || historicalAudits.length > 0 || historicalAuditsLoading || historicalAuditsError) && (
-              <div className="mt-3 border-t border-border pt-3">
+              <div dir="rtl" lang="ar" className="mt-3 border-t border-border pt-3">
                 <button
                   type="button"
-                  aria-label="Past audits"
+                  aria-label="التدقيقات السابقة"
                   aria-expanded={historicalAuditsExpanded}
                   aria-controls="historical-audits-content"
                   onClick={() => setHistoricalAuditsExpanded((expanded) => !expanded)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-secondary/70"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start transition-colors hover:bg-secondary/70"
                 >
-                  <span className="min-w-0 flex-1 text-xs font-mono uppercase tracking-wide text-muted-foreground">
-                    Past audits
+                  <span className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
+                    التدقيقات السابقة
                   </span>
                   {historicalAudits.length > 0 && (
                     <Badge variant="outline" className="h-5 px-1.5 text-xs">
                       {historicalAudits.length}
                     </Badge>
                   )}
-                  {historicalAuditsLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                  {historicalAuditsLoading && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+                      <span role="status">جارٍ تحميل التدقيقات السابقة…</span>
+                    </span>
+                  )}
                   <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${historicalAuditsExpanded ? 'rotate-90' : ''}`} />
                 </button>
                 <div id="historical-audits-content" hidden={!historicalAuditsExpanded} className="mt-1">
               {historicalAuditsError ? (
-                <div className="px-2 py-2 text-xs leading-5 text-muted-foreground">
-                  Historical audits are unavailable. Your current sessions are still available.
+                <div
+                  dir="rtl"
+                  lang="ar"
+                  role="alert"
+                  className="px-2 py-2 text-xs leading-5 text-muted-foreground"
+                >
+                  تعذّر تحميل التدقيقات السابقة. لا تزال جلساتك الحالية متاحة.
                 </div>
               ) : historicalAudits.length === 0 && !historicalAuditsLoading ? (
-                <div className="px-2 py-2 text-xs leading-5 text-muted-foreground">
-                  No cancelled or incomplete audits for this project.
+                <div dir="rtl" lang="ar" className="px-2 py-2 text-xs leading-5 text-muted-foreground">
+                  لا توجد سجلات تدقيق ملغاة أو غير مكتملة لهذا المشروع.
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
                   {historicalAudits.map((audit) => {
                     const selected = audit.id === historicalExecutionId;
                     const needsNewRun = audit.disposition === 'NEW_RUN_RECOMMENDED';
+                    const canRetainForReview = audit.disposition === 'RETAIN_FOR_REVIEW';
                     return (
                       <button
                         key={audit.id}
@@ -13406,26 +13458,32 @@ export default function AiChat() {
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                         }`}
-                        aria-label={`Review audit ${audit.objective}`}
+                         aria-label={`مراجعة سجل التدقيق: ${audit.objective}`}
                       >
                         <span className="flex items-start gap-1.5">
                           <FileSearch className="mt-0.5 h-3 w-3 shrink-0" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs">{audit.objective}</span>
+                             <span className="block truncate text-xs"><bdi dir="auto">{audit.objective}</bdi></span>
                             <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                               <span className={`rounded border px-1 py-0.5 ${
                                 audit.status === 'cancelled'
                                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                                  : 'border-border bg-secondary text-muted-foreground'
+                                   : audit.status === 'failed'
+                                     ? 'border-border bg-secondary text-muted-foreground'
+                                     : audit.status === 'paused'
+                                       ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                                       : 'border-border bg-secondary text-muted-foreground'
                               }`}>
-                                {audit.status === 'cancelled' ? 'Cancelled' : 'Incomplete'}
+                                 {historicalAuditStatusLabel(audit.status)}
                               </span>
                               <span className={`rounded border px-1 py-0.5 ${
                                 needsNewRun
                                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                                  : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                   : canRetainForReview
+                                     ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                     : 'border-border bg-secondary text-muted-foreground'
                               }`}>
-                                {needsNewRun ? 'New run recommended' : 'Retain for review'}
+                                 {historicalAuditDispositionLabel(audit.disposition)}
                               </span>
                               <time dateTime={audit.updatedAt}>
                                 {new Date(audit.updatedAt).toLocaleDateString()}

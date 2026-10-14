@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AiChat, {
   AI_CHAT_SELECTION_STORAGE_PREFIX,
   auditExportFilename,
+  auditExportFailureMessage,
   auditRedactionCategoryLabel,
+  historicalAuditDispositionLabel,
+  historicalAuditStatusLabel,
   BenchmarkMissionControlPanel,
   parseAiChatRouteTarget,
 } from './AiChat';
@@ -121,6 +124,8 @@ const mocks = vi.hoisted(() => {
     createMissionFromChat: vi.fn(),
     previewMissionPlanFromChat: vi.fn(),
     historicalAudits: [] as Array<Record<string, unknown>>,
+    historicalAuditsLoading: false,
+    historicalAuditsError: false,
     proposalMessages: [{
       id: 'message-1',
       sessionId: 'session-1',
@@ -323,8 +328,8 @@ vi.mock('@workspace/api-client-react', () => {
     })),
     useListAiExecutionHistory: vi.fn(() => ({
       data: mocks.historicalAudits,
-      isLoading: false,
-      isError: false,
+      isLoading: mocks.historicalAuditsLoading,
+      isError: mocks.historicalAuditsError,
       error: null,
     })),
     useListAiChatSessions: vi.fn(() => ({
@@ -576,6 +581,8 @@ beforeEach(() => {
   mocks.createMissionFromChat.mockReset();
   mocks.previewMissionPlanFromChat.mockReset();
   mocks.historicalAudits = [];
+  mocks.historicalAuditsLoading = false;
+  mocks.historicalAuditsError = false;
   mocks.fileContent = {
     available: true,
     path: 'src/routes/ai/chat.ts',
@@ -845,9 +852,11 @@ describe('AiChat settings disclosure', () => {
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByText('المزودون وبيانات الوصول وجودة النماذج')).toHaveClass('text-xs');
     expect(screen.queryByRole('region', { name: 'جودة إجابات المساعد' })).not.toBeInTheDocument();
-    const emptyAudits = screen.getByText('No cancelled or incomplete audits for this project.');
+    const emptyAudits = screen.getByText('لا توجد سجلات تدقيق ملغاة أو غير مكتملة لهذا المشروع.');
     expect(emptyAudits).toHaveClass('text-xs', 'leading-5');
     expect(emptyAudits.closest('#historical-audits-content')).toHaveAttribute('hidden');
+    fireEvent.click(screen.getByRole('button', { name: 'التدقيقات السابقة' }));
+    expect(emptyAudits.closest('#historical-audits-content')).not.toHaveAttribute('hidden');
 
     const policy = screen.getByRole('region', { name: 'Automatic delivery promotion policy' });
     const policyToggle = within(policy).getByRole('button', { name: /Automatic delivery promotion/i });
@@ -1335,6 +1344,19 @@ describe('AiChat authenticated generated mutations', () => {
     expect(auditExportFilename(null, 'fallback.json')).toBe('fallback.json');
   });
 
+  it('keeps audit download failures understandable without exposing unknown server text', () => {
+    expect(auditExportFailureMessage(new Error('No completed execution is selected.')))
+      .toBe('لا يوجد تشغيل مكتمل محدد لتنزيل سجله.');
+    expect(auditExportFailureMessage(new Error('AI execution not found')))
+      .toBe('لم يُعثر على سجل لهذا التشغيل. تحقّق من أن التشغيل ما زال متاحًا.');
+    expect(auditExportFailureMessage(new TypeError('Failed to fetch')))
+      .toBe('تعذّر الاتصال لتنزيل سجل التدقيق. تحقّق من الاتصال ثم أعد المحاولة.');
+    expect(auditExportFailureMessage(new Error('PRIVATE_SERVER_DIAGNOSTIC')))
+      .toBe('تعذّر تنزيل سجل التدقيق. تحقّق من إمكانية الوصول إلى التشغيل ثم أعد المحاولة.');
+    expect(auditExportFailureMessage(new Error('PRIVATE_SERVER_DIAGNOSTIC')))
+      .not.toContain('PRIVATE_SERVER_DIAGNOSTIC');
+  });
+
   it('translates known audit redaction categories and hides unknown category values', () => {
     expect(auditRedactionCategoryLabel('provider secrets')).toBe('أسرار مزوّد الخدمة');
     expect(auditRedactionCategoryLabel('RAW MODEL OUTPUT')).toBe('النص الخام الذي أنشأه النموذج');
@@ -1342,6 +1364,17 @@ describe('AiChat authenticated generated mutations', () => {
     expect(auditRedactionCategoryLabel('private runtime paths')).toBe('مسارات بيئة التشغيل الخاصة');
     expect(auditRedactionCategoryLabel('UNKNOWN_CATEGORY_SENTINEL')).toBe('فئة بيانات مستبعدة');
     expect(auditRedactionCategoryLabel({ private: true })).toBe('فئة بيانات مستبعدة');
+  });
+
+  it('translates known historical audit statuses and dispositions without exposing unknown values', () => {
+    expect(historicalAuditStatusLabel('cancelled')).toBe('ملغى');
+    expect(historicalAuditStatusLabel('failed')).toBe('غير مكتمل');
+    expect(historicalAuditStatusLabel('paused')).toBe('متوقف مؤقتًا');
+    expect(historicalAuditStatusLabel('UNRECOGNIZED_STATUS_SENTINEL')).toBe('حالة غير معروفة');
+    expect(historicalAuditDispositionLabel('NEW_RUN_RECOMMENDED')).toBe('يُنصح ببدء تشغيل جديد');
+    expect(historicalAuditDispositionLabel('RETAIN_FOR_REVIEW')).toBe('محفوظ للمراجعة');
+    expect(historicalAuditDispositionLabel('UNRECOGNIZED_DISPOSITION_SENTINEL'))
+      .toBe('إجراء متابعة غير معروف');
   });
 
   it('renders provider-unavailable benchmark evidence without counting it as Grade F', () => {
@@ -3097,13 +3130,15 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByText('Existing response')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Review audit Review the retained audit/ }))
+    expect(screen.queryByRole('button', { name: /مراجعة سجل التدقيق: Review the retained audit/ }))
       .not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Past audits' }));
-    const retainedAudit = screen.getByRole('button', { name: /Review audit Review the retained audit/ });
+    fireEvent.click(screen.getByRole('button', { name: 'التدقيقات السابقة' }));
+    const retainedAudit = screen.getByRole('button', { name: /مراجعة سجل التدقيق: Review the retained audit/ });
     expect(retainedAudit).toHaveClass('bg-primary/10');
-    expect(within(retainedAudit).getByText('Review the retained audit')).toHaveClass('text-xs');
-    expect(within(retainedAudit).getByText('Cancelled').closest('span.mt-1')).toHaveClass('text-xs');
+    expect(within(retainedAudit).getByText('Review the retained audit').closest('span.block'))
+      .toHaveClass('text-xs');
+    expect(within(retainedAudit).getByText('ملغى').closest('span.mt-1')).toHaveClass('text-xs');
+    expect(within(retainedAudit).getByText('محفوظ للمراجعة')).toBeInTheDocument();
     expect(screen.getByText('historical-execution-1')).toBeInTheDocument();
     expect(localStorage.getItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`)).toBe(
       JSON.stringify({
@@ -3114,6 +3149,51 @@ describe('AiChat authenticated generated mutations', () => {
         sessionId: 'session-1',
       }),
     );
+  });
+
+  it('renders generic localized text for unknown historical audit status and disposition codes', async () => {
+    mocks.historicalAudits = [{
+      id: 'historical-execution-unknown',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      status: 'UNRECOGNIZED_STATUS_SENTINEL',
+      objective: 'Review an unfamiliar audit',
+      evidenceVerdict: 'ANALYSIS_INCOMPLETE',
+      disposition: 'UNRECOGNIZED_DISPOSITION_SENTINEL',
+      recommendedAction: 'UNRECOGNIZED_ACTION_SENTINEL',
+      proofRequired: true,
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    }];
+
+    renderAiChat();
+    fireEvent.click(screen.getByRole('button', { name: 'التدقيقات السابقة' }));
+
+    const audit = screen.getByRole('button', { name: 'مراجعة سجل التدقيق: Review an unfamiliar audit' });
+    expect(within(audit).getByText('حالة غير معروفة')).toBeInTheDocument();
+    expect(within(audit).getByText('إجراء متابعة غير معروف')).toBeInTheDocument();
+    expect(audit).not.toHaveTextContent('UNRECOGNIZED_STATUS_SENTINEL');
+    expect(audit).not.toHaveTextContent('UNRECOGNIZED_DISPOSITION_SENTINEL');
+    expect(audit).not.toHaveTextContent('UNRECOGNIZED_ACTION_SENTINEL');
+  });
+
+  it('announces localized loading and unavailable states for historical audits', () => {
+    mocks.historicalAuditsLoading = true;
+    renderAiChat();
+    fireEvent.click(screen.getByRole('button', { name: 'التدقيقات السابقة' }));
+    expect(screen.getByText('جارٍ تحميل التدقيقات السابقة…')).toBeInTheDocument();
+    expect(screen.queryByText('لا توجد سجلات تدقيق ملغاة أو غير مكتملة لهذا المشروع.'))
+      .not.toBeInTheDocument();
+
+    cleanup();
+    mocks.historicalAuditsLoading = false;
+    mocks.historicalAuditsError = true;
+    renderAiChat();
+    fireEvent.click(screen.getByRole('button', { name: 'التدقيقات السابقة' }));
+    expect(screen.getByText('تعذّر تحميل التدقيقات السابقة. لا تزال جلساتك الحالية متاحة.'))
+      .toBeInTheDocument();
   });
 
   it('keeps the saved proof report visible while a reopened targeted audit rehydrates messages', async () => {

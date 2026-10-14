@@ -4170,7 +4170,10 @@ async function openAdditionalChatActions(page: Page) {
 }
 
 async function openPastAudits(page: Page) {
-  const toggle = page.getByRole("button", { name: "Past audits", exact: true });
+  const toggle = page.getByRole("button", {
+    name: "التدقيقات السابقة",
+    exact: true,
+  });
   if (await toggle.getAttribute("aria-expanded") !== "true") {
     await toggle.click();
   }
@@ -8181,7 +8184,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertDurableIncompleteState();
 
     const reviewAudit = page.getByRole("button", {
-      name: `Review audit ${fixture.question}`,
+      name: `مراجعة سجل التدقيق: ${fixture.question}`,
     });
     await openPastAudits(page);
     await expect(reviewAudit).toBeVisible();
@@ -8311,7 +8314,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await openPastAudits(page);
 
     const reviewButton = page.getByRole("button", {
-      name: `Review audit ${fixture.question}`,
+      name: `مراجعة سجل التدقيق: ${fixture.question}`,
     });
     await expect(reviewButton).toBeVisible();
 
@@ -8375,7 +8378,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(projectSelector).toHaveValue("e2e-project-two");
     await openPastAudits(page);
     await expect(
-      page.getByText("No cancelled or incomplete audits for this project.", {
+      page.getByText("لا توجد سجلات تدقيق ملغاة أو غير مكتملة لهذا المشروع.", {
         exact: true,
       }),
     ).toBeVisible();
@@ -9029,7 +9032,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByText(/Safe terminal reason: CANCELLED/).last()).toBeVisible();
     await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
     await expect(
-      page.getByRole("button", { name: `Review audit ${fixture.question}` }),
+      page.getByRole("button", {
+        name: `مراجعة سجل التدقيق: ${fixture.question}`,
+      }),
     ).toHaveClass(/bg-primary\/10/);
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("FINDING PROVEN");
