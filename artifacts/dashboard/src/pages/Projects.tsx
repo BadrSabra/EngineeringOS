@@ -31,6 +31,18 @@ import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { readGoalDrafts, storeGoalDraft, updateGoalDraft } from '@/lib/home-goal-handoff';
 
+// Display-only labels; the server status values are never changed.
+const bootstrapStatusLabels: Record<string, string> = {
+  queued: 'في الانتظار',
+  checking: 'جارٍ التحقق',
+  running: 'قيد التنفيذ',
+  completed: 'اكتمل',
+  failed: 'فشل',
+};
+function bootstrapStatusLabel(status: string) {
+  return bootstrapStatusLabels[status] ?? status;
+}
+
 export default function Projects() {
   const { isLoaded, user } = useUser();
   if (!isLoaded) return <p role="status">جارٍ تحميل الحساب…</p>;
@@ -175,7 +187,7 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
         },
         onError: () => {
           if (mounted.current && requestGeneration === createGeneration.current) {
-            setBootstrapError('The creation request could not be started. No project is confirmed as created. You can retry safely.');
+            setBootstrapError('تعذر بدء طلب الإنشاء. لم يُؤكَّد إنشاء أي مشروع، ويمكنك إعادة المحاولة بأمان.');
           }
         },
       },
@@ -204,14 +216,14 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
       )}
       {showCreate && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="presentation">
-          <section role="dialog" aria-modal="true" aria-labelledby="create-project-title" className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="create-project-title" dir="rtl" lang="ar" className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
             <div className="flex items-start justify-between border-b border-border px-6 py-5">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">Project bootstrap / React + Vite</div>
-                <h2 id="create-project-title" className="mt-1 text-xl font-semibold">Start from a governed starter</h2>
-                <p className="mt-1 text-sm text-muted-foreground">EngineeringOS provisions the locked template and reports its durable operation status.</p>
+                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">مشروع جديد / React + Vite</div>
+                <h2 id="create-project-title" className="mt-1 text-xl font-semibold">ابدأ مشروعًا من قالب جاهز</h2>
+                <p className="mt-1 text-sm text-muted-foreground">يجهّز EngineeringOS القالب المعتمد ويعرض لك حالة العملية خطوة بخطوة.</p>
               </div>
-              <button type="button" onClick={resetCreate} aria-label="Close create project" data-testid="button-close-project-create" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={resetCreate} aria-label="إغلاق نافذة إنشاء المشروع" data-testid="button-close-project-create" className="rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
             {bootstrapId && bootstrapError && (
               <div role="alert" data-testid="status-bootstrap-handoff-error" dir="rtl" className="mx-6 mt-4 rounded-lg border border-destructive/30 p-3 text-sm">
@@ -222,25 +234,25 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
             {!bootstrapId ? (
               <form onSubmit={submitCreate} className="space-y-5 px-6 py-6">
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium">Project name</span>
-                  <input autoFocus required maxLength={80} readOnly={Boolean(currentDraft?.bootstrap)} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="e.g. Atlas Field Notes" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
-                  <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
+                  <span className="text-sm font-medium">اسم المشروع</span>
+                  <input autoFocus required maxLength={80} readOnly={Boolean(currentDraft?.bootstrap)} value={projectName} onChange={(event) => { setProjectName(event.target.value); idempotencyKey.current = ''; }} placeholder="مثال: دفتر ملاحظات الورشة" dir="auto" data-testid="input-project-name" className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectName.length}/80</span>
                 </label>
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium">What are you planning to build?</span>
-                  <textarea maxLength={currentDraft?.source === 'home' ? 2000 : 3000} readOnly={Boolean(currentDraft?.bootstrap)} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="Describe the problem, intended users, and the first useful outcome." data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
-                  <span className="block text-right font-mono text-[10px] text-muted-foreground">{projectDescription.length}/3000</span>
+                  <span className="text-sm font-medium">ماذا تريد أن تبني؟ <span className="font-normal text-muted-foreground">(اختياري)</span></span>
+                  <textarea maxLength={currentDraft?.source === 'home' ? 2000 : 3000} readOnly={Boolean(currentDraft?.bootstrap)} rows={5} value={projectDescription} onChange={(event) => { setProjectDescription(event.target.value); idempotencyKey.current = ''; }} placeholder="صف المشكلة، ومن سيستخدم المشروع، وأول نتيجة مفيدة تريدها." dir="auto" data-testid="input-project-description" className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15" />
+                  <span dir="ltr" className="block text-left font-mono text-[10px] text-muted-foreground">{projectDescription.length}/3000</span>
                 </label>
                 <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-muted-foreground">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <p>The starter is server-owned. Your description will arrive in project chat as an unsent planning prompt; it does not authorize edits or start an AI run.</p>
+                  <p>القالب يديره الخادم. سيظهر وصفك في محادثة المشروع كمسودة تخطيط غير مُرسَلة؛ ولا يمنح إذنًا بأي تعديل ولا يبدأ تشغيل المساعد الذكي.</p>
                 </div>
                 {bootstrapError && <p role="alert" data-testid="status-bootstrap-error" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{bootstrapError}</p>}
                 <div className="flex justify-end gap-2 pt-1">
-                  <button type="button" onClick={resetCreate} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-secondary">Cancel</button>
+                  <button type="button" onClick={resetCreate} className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-secondary">إلغاء</button>
                   <button type="submit" disabled={!projectName.trim() || startBootstrap.isPending} data-testid="button-start-project-bootstrap" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
                     {startBootstrap.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                    {startBootstrap.isPending ? 'Starting operation…' : 'Create project'}
+                    {startBootstrap.isPending ? 'جارٍ بدء العملية…' : 'إنشاء المشروع'}
                   </button>
                 </div>
               </form>
@@ -249,38 +261,38 @@ function ProjectsForAccount({ ownerId }: { ownerId: string }) {
                 <div className="flex items-center gap-3">
                   {operation?.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-emerald-400" /> : operation?.status === 'failed' || bootstrapQuery.isError ? <AlertTriangle className="h-5 w-5 text-amber-400" /> : <Loader2 className="h-5 w-5 animate-spin text-primary" />}
                   <div>
-                    <div className="text-sm font-semibold" data-testid="status-bootstrap-operation">{operation?.status ?? (bootstrapQuery.isLoading ? 'queued' : 'checking')}</div>
-                    <div className="text-xs text-muted-foreground">{operation?.status === 'completed' && operation.projectId ? 'Project is ready. Opening its project conversation…' : operation?.status === 'completed' ? 'The operation completed without a project reference. No project chat was opened.' : operation?.status === 'failed' ? 'The starter was not provisioned.' : 'Checking the durable operation. This view will update as the server reports progress.'}</div>
+                    <div className="text-sm font-semibold" data-testid="status-bootstrap-operation">{bootstrapStatusLabel(operation?.status ?? (bootstrapQuery.isLoading ? 'queued' : 'checking'))}</div>
+                    <div className="text-xs text-muted-foreground">{operation?.status === 'completed' && operation.projectId ? 'المشروع جاهز. جارٍ فتح محادثة المشروع…' : operation?.status === 'completed' ? 'اكتملت العملية دون مرجع لمشروع. لم تُفتح أي محادثة.' : operation?.status === 'failed' ? 'لم يتم تجهيز القالب.' : 'نتحقق من حالة العملية. ستتحدث هذه الشاشة كلما أبلغ الخادم عن تقدم.'}</div>
                   </div>
                 </div>
-                <div className="mt-5 rounded-lg border border-border bg-background/60 p-4 font-mono text-xs">
-                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">Operation</span><span className="break-all text-foreground">{operation?.id ?? bootstrapId}</span></div>
-                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Template</span><span className="text-foreground">{operation?.templateVersion ?? 'Locked React / Vite'}</span></div>
-                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Updated</span><span className="text-foreground">{operation?.updatedAt ? new Date(operation.updatedAt).toLocaleTimeString() : 'Waiting for first status read'}</span></div>
+                <div className="mt-5 rounded-lg border border-border bg-background/60 p-4 text-xs">
+                  <div className="flex justify-between gap-3"><span className="text-muted-foreground">رقم العملية</span><span dir="ltr" className="break-all font-mono text-foreground">{operation?.id ?? bootstrapId}</span></div>
+                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">القالب</span><span dir="ltr" className="font-mono text-foreground">{operation?.templateVersion ?? 'Locked React / Vite'}</span></div>
+                  <div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">آخر تحديث</span><span className="text-foreground">{operation?.updatedAt ? <bdi dir="ltr" className="font-mono">{new Date(operation.updatedAt).toLocaleTimeString()}</bdi> : 'بانتظار أول قراءة للحالة'}</span></div>
                 </div>
                 {operation?.status === 'failed' && (
                   <div role="alert" data-testid="status-bootstrap-failed" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-                    <div className="font-medium text-amber-200">{operation.errorMessage || 'Project setup could not be completed.'}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">No project chat was opened. The server reported a safe failure state.</div>
-                    {operation.errorCode && <div className="mt-2 font-mono text-[10px] text-muted-foreground">Code: {operation.errorCode}</div>}
+                    <div dir="auto" className="font-medium text-amber-200">{operation.errorMessage || 'تعذر إكمال تجهيز المشروع.'}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">لم تُفتح محادثة المشروع. أبلغ الخادم عن فشل آمن دون آثار جانبية.</div>
+                    {operation.errorCode && <div className="mt-2 text-[10px] text-muted-foreground">الرمز: <bdi dir="ltr" className="font-mono">{operation.errorCode}</bdi></div>}
                   </div>
                 )}
                 {operation?.status === 'completed' && !operation.projectId && (
                   <div role="alert" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-amber-100">
-                    The server returned a completed operation without a project ID. No destination was inferred. Contact your workspace administrator with the operation ID above.
+                    أعاد الخادم عملية مكتملة دون معرّف مشروع، ولم نخمّن أي وجهة. تواصل مع مسؤول مساحة العمل وأرسل له رقم العملية أعلاه.
                   </div>
                 )}
-                {bootstrapQuery.isError && <p role="alert" className="mt-4 text-sm text-amber-200">The operation status is temporarily unavailable. The project was not assumed to be ready.</p>}
+                {bootstrapQuery.isError && <p role="alert" className="mt-4 text-sm text-amber-200">حالة العملية غير متاحة مؤقتًا. لم نفترض أن المشروع جاهز.</p>}
                 {pollLimitReached && operation?.status !== 'completed' && operation?.status !== 'failed' && (
                   <div role="status" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-100">
-                    Status polling paused after the bounded wait. The operation may still be running.
-                    <button type="button" onClick={() => { pollingStartedAt.current = Date.now(); setPollLimitReached(false); void bootstrapQuery.refetch(); }} data-testid="button-resume-bootstrap-polling" className="ml-2 inline-flex items-center gap-1 underline underline-offset-2">Check again <ArrowRight className="h-3 w-3" /></button>
+                    توقفنا عن متابعة الحالة بعد مدة الانتظار المحددة. قد تكون العملية ما زالت تعمل.
+                    <button type="button" onClick={() => { pollingStartedAt.current = Date.now(); setPollLimitReached(false); void bootstrapQuery.refetch(); }} data-testid="button-resume-bootstrap-polling" className="ms-2 inline-flex items-center gap-1 underline underline-offset-2">تحقق مرة أخرى <ArrowRight className="h-3 w-3 rotate-180" /></button>
                   </div>
                 )}
                 {(operation?.status === 'failed' || bootstrapQuery.isError || (operation?.status === 'completed' && !operation.projectId)) && (
                   <div className="mt-5 flex justify-end gap-2">
-                    <button type="button" onClick={() => void bootstrapQuery.refetch()} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">Retry status check</button>
-                    <button type="button" onClick={resetCreate} className="rounded-lg bg-secondary px-3 py-2 text-sm hover:bg-secondary/80">Close</button>
+                    <button type="button" onClick={() => void bootstrapQuery.refetch()} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary">أعد التحقق من الحالة</button>
+                    <button type="button" onClick={resetCreate} className="rounded-lg bg-secondary px-3 py-2 text-sm hover:bg-secondary/80">إغلاق</button>
                   </div>
                 )}
               </div>

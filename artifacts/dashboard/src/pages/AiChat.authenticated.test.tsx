@@ -1241,7 +1241,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     const proofPanel = await screen.findByRole('region', { name: 'Agent execution proof' });
     expect(screen.getByTestId('current-work-summary'))
-      .toHaveTextContent('Execution ended — proof not accepted');
+      .toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
     expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
 
     firstRender.unmount();
@@ -1469,11 +1469,11 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     const summary = await screen.findByTestId('current-work-summary');
-    expect(within(summary).getByText('Saved execution paused — resume available')).toBeInTheDocument();
+    expect(within(summary).getByText('التنفيذ المحفوظ متوقف — يمكن استئنافه')).toBeInTheDocument();
     fireEvent.click(within(summary).getByRole('button', {
-      name: 'Go to next step: Resume this saved execution',
+      name: 'Go to next step: استئناف هذا التنفيذ المحفوظ',
     }));
-    const resumeButton = screen.getByRole('button', { name: 'Resume execution' });
+    const resumeButton = screen.getByRole('button', { name: 'استئناف التنفيذ' });
     expect(resumeButton).toHaveFocus();
     fireEvent.click(resumeButton);
 
@@ -1498,7 +1498,7 @@ describe('AiChat authenticated generated mutations', () => {
     }));
 
     renderAiChat();
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'استئناف التنفيذ' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       projectId: 'project-1',
@@ -1653,7 +1653,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'استئناف التنفيذ' }));
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/ai/executions/execution-missing-token/resume-capability',
@@ -1662,7 +1662,7 @@ describe('AiChat authenticated generated mutations', () => {
       expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}').resumeToken)
         .toBe('recovered-opaque-resume-token');
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'استئناف التنفيذ' }));
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       executionId: 'execution-missing-token',
       resumeToken: 'recovered-opaque-resume-token',
@@ -1696,7 +1696,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Resume execution' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'استئناف التنفيذ' }));
     expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry resume execution' })).toBeInTheDocument();
     fetchSpy.mockRestore();
@@ -1750,9 +1750,9 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByTestId('execution-recovery-banner'))
-      .toHaveTextContent('Execution failed — checkpoint retry available');
-    expect(screen.getAllByRole('button', { name: 'Retry checkpoint' })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Retry checkpoint' }));
+      .toHaveTextContent('لم ينجح التنفيذ — يمكن إعادة المحاولة من نقطة الحفظ');
+    expect(screen.getAllByRole('button', { name: 'إعادة المحاولة من نقطة الحفظ' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة من نقطة الحفظ' }));
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/ai/executions/execution-retry-checkpoint/retry-capability',
@@ -1839,8 +1839,8 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(within(await screen.findByTestId('current-work-summary'))
-      .getByText('Execution ended — start a new run')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
+      .getByText('انتهى التنفيذ — الاستئناف غير متاح')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'استئناف التنفيذ' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Recovering…' })).not.toBeInTheDocument();
   });
 
@@ -1873,8 +1873,8 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByTestId('execution-recovery-banner'))
-      .toHaveTextContent('Task-owned execution — recover it from Tasks');
-    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
+      .toHaveTextContent('التنفيذ تابع لمهمة — الاسترداد من صفحة المهام');
+    expect(screen.queryByRole('button', { name: 'استئناف التنفيذ' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open owning Task' }))
       .toHaveAttribute('href', '/tasks?taskId=task-1');
     expect(mocks.sentParams).toBeUndefined();
@@ -1897,8 +1897,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
     expect(await screen.findByTestId('execution-recovery-banner'))
-      .toHaveTextContent('Checking saved execution status');
-    expect(screen.queryByRole('button', { name: 'Resume execution' })).not.toBeInTheDocument();
+      .toHaveTextContent('جارٍ التحقق من حالة التنفيذ المحفوظ');
+    expect(screen.queryByRole('button', { name: 'استئناف التنفيذ' })).not.toBeInTheDocument();
   });
 
   it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
@@ -1914,8 +1914,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     const { invalidateQueries } = renderAiChat();
     expect(within(await screen.findByTestId('current-work-summary'))
-      .getByText('Execution failed — resume available')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume execution' }));
+      .getByText('لم ينجح التنفيذ — يمكن استئنافه')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'استئناف التنفيذ' }));
 
     await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
       executionId: 'execution-failed-resume',
@@ -2496,14 +2496,14 @@ describe('AiChat authenticated generated mutations', () => {
     }));
     const first = renderAiChat();
     const summary = await screen.findByTestId('current-work-summary');
-    expect(summary).toHaveTextContent('Execution ended — proof not accepted');
-    expect(summary).toHaveTextContent('Next step: Review the recorded proof');
+    expect(summary).toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
+    expect(summary).toHaveTextContent('Next step: مراجعة الأدلة المسجلة');
     const proofPanel = screen.getByLabelText('Agent execution proof');
     expect(within(proofPanel).getByTestId('text-execution-lifecycle-distinction'))
       .toHaveTextContent('Run completion does not mean proof was accepted');
     expect(proofPanel).toHaveTextContent('Proof verdict: BLOCKED');
     fireEvent.click(within(summary).getByRole('button', {
-      name: 'Go to next step: Review the recorded proof',
+      name: 'Go to next step: مراجعة الأدلة المسجلة',
     }));
     expect(proofPanel).toHaveFocus();
     expect(summary.compareDocumentPosition(proofPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -2515,7 +2515,7 @@ describe('AiChat authenticated generated mutations', () => {
     first.unmount();
 
     renderAiChat();
-    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('Execution ended — proof not accepted');
+    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
     expect(screen.getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
   });
 
@@ -2567,12 +2567,12 @@ describe('AiChat authenticated generated mutations', () => {
     const proofPanel = await screen.findByLabelText('Agent execution proof');
     const timeline = within(proofPanel).getByTestId('mission-timeline');
     expect(timeline).toHaveAttribute('open');
-    expect(timeline).toHaveTextContent('Delivery stages');
-    expect(within(timeline).getByTestId('timeline-approval')).toHaveTextContent('Done');
-    expect(within(timeline).getByTestId('timeline-validate')).toHaveTextContent('Done');
-    expect(within(timeline).getByTestId('timeline-apply')).toHaveTextContent('Done');
-    expect(within(timeline).getByTestId('timeline-commit')).toHaveTextContent('Next');
-    expect(within(timeline).getByTestId('timeline-push')).toHaveTextContent('Next');
+    expect(timeline).toHaveTextContent('مراحل التسليم');
+    expect(within(timeline).getByTestId('timeline-approval')).toHaveTextContent('انتهت');
+    expect(within(timeline).getByTestId('timeline-validate')).toHaveTextContent('انتهت');
+    expect(within(timeline).getByTestId('timeline-apply')).toHaveTextContent('انتهت');
+    expect(within(timeline).getByTestId('timeline-commit')).toHaveTextContent('لاحقًا');
+    expect(within(timeline).getByTestId('timeline-push')).toHaveTextContent('لاحقًا');
     expect(within(timeline).getByTestId('timeline-deliver'))
       .toHaveTextContent('Apply is recorded; commit and push remain pending.');
   });
@@ -2664,7 +2664,7 @@ describe('AiChat authenticated generated mutations', () => {
       message: 'Review the current execution',
     }));
     renderAiChat();
-    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('Checking saved execution status');
+    expect(await screen.findByTestId('current-work-summary')).toHaveTextContent('جارٍ التحقق من حالة التنفيذ المحفوظ');
     expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
     expect(screen.getByTestId('link-current-work-mission-control'))
       .toHaveAttribute('href', '/mission-control?projectId=project-1');

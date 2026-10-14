@@ -99,12 +99,33 @@ beforeEach(() => {
 });
 
 describe('Missions management', () => {
+  it('rejects malformed advanced JSON in Arabic without granting scope or starting work', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByTestId('button-create-mission'));
+    const dialog = screen.getByRole('dialog', { name: 'ابدأ هدفًا رئيسيًا' });
+    expect(dialog).toHaveAttribute('dir', 'rtl');
+    expect(dialog).toHaveClass('max-h-[calc(100dvh-3rem)]', 'flex', 'flex-col', 'overflow-hidden');
+    expect(screen.getByTestId('editor-scroll-fields')).toHaveClass('min-h-0', 'overflow-y-auto');
+    expect(screen.getByTestId('editor-fixed-actions')).toHaveClass('shrink-0');
+    fireEvent.change(screen.getByTestId('mission-title'), { target: { value: 'هدف تجريبي' } });
+    fireEvent.change(screen.getByTestId('mission-intent'), { target: { value: 'وصف النتيجة' } });
+    fireEvent.click(screen.getByText('إعدادات متقدمة (اختيارية)'));
+    fireEvent.change(screen.getByTestId('mission-autonomy-policy'), { target: { value: '{"unfinished":' } });
+    expect(screen.getByTestId('mission-autonomy-policy')).toHaveAttribute('dir', 'ltr');
+    fireEvent.click(screen.getByTestId('button-save-editor'));
+    expect(screen.getByText('حقل «سياسة الاستقلالية» يحتوي على JSON غير صالح.')).toBeInTheDocument();
+    expect(createMissionMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('button-cancel-editor'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(createMissionMock).not.toHaveBeenCalled();
+  });
+
   it('opens the editor, creates a mission, and renders the returned mission immediately', async () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByTestId('button-create-mission')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('button-create-mission'));
-    expect(screen.getByRole('heading', { name: 'Start a mission' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'ابدأ هدفًا رئيسيًا' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId('mission-title'), {
       target: { value: 'Release readiness' },

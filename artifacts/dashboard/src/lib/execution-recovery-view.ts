@@ -50,20 +50,20 @@ export function getExecutionRecoveryView(
 ): ExecutionRecoveryView {
   if (historical) {
     return {
-      title: 'Historical audit — read-only',
-      detail: 'Review the retained execution and proof. Recovery actions belong to the current execution, not this historical view.',
+      title: 'سجل سابق — للقراءة فقط',
+      detail: 'راجع التنفيذ والأدلة المحفوظة. إجراءات الاسترداد تخص التنفيذ الحالي، لا هذا السجل السابق.',
       action: null,
       actionLabel: null,
-      nextStep: 'Review the retained proof',
+      nextStep: 'مراجعة الأدلة المحفوظة',
     };
   }
   if (!execution?.status) {
     return {
-      title: 'Checking saved execution status',
-      detail: 'Waiting for the server before offering a recovery action.',
+      title: 'جارٍ التحقق من حالة التنفيذ المحفوظ',
+      detail: 'ننتظر حالة الخادم قبل إتاحة إجراء للاسترداد.',
       action: null,
       actionLabel: null,
-      nextStep: 'Wait for the server status',
+      nextStep: 'انتظار حالة الخادم',
     };
   }
 
@@ -72,11 +72,11 @@ export function getExecutionRecoveryView(
     && (execution.status === 'paused' || execution.status === 'failed')
   ) {
     return {
-      title: 'Task-owned execution — recover it from Tasks',
-      detail: 'This execution is controlled by its Task. Resume or retry it from the owning Task so its lifecycle and remaining budget are checked.',
+      title: 'التنفيذ تابع لمهمة — الاسترداد من صفحة المهام',
+      detail: 'المهمة المرتبطة تدير هذا التنفيذ. استأنفه أو أعد محاولته من تلك المهمة حتى تُراجع حالتها والميزانية المتبقية.',
       action: null,
       actionLabel: null,
-      nextStep: 'Open the owning Task in Tasks',
+      nextStep: 'فتح المهمة المرتبطة في صفحة المهام',
     };
   }
 
@@ -90,11 +90,11 @@ export function getExecutionRecoveryView(
     );
   if (retryAllowed) {
     return {
-      title: 'Execution failed — checkpoint retry available',
-      detail: 'The server permits retrying this checkpoint in the same execution. Later delivery still follows the owner policy and server gates.',
+      title: 'لم ينجح التنفيذ — يمكن إعادة المحاولة من نقطة الحفظ',
+      detail: 'يسمح الخادم بإعادة المحاولة من نقطة الحفظ في التنفيذ نفسه. التسليم اللاحق يظل خاضعًا لسياسة المالك وبوابات الخادم.',
       action: 'retry',
-      actionLabel: 'Retry checkpoint',
-      nextStep: 'Retry this execution checkpoint',
+      actionLabel: 'إعادة المحاولة من نقطة الحفظ',
+      nextStep: 'إعادة محاولة هذا التنفيذ من نقطة الحفظ',
     };
   }
 
@@ -103,60 +103,60 @@ export function getExecutionRecoveryView(
   if (resumeAllowed) {
     return {
       title: execution.status === 'failed'
-        ? 'Execution failed — resume available'
-        : 'Saved execution paused — resume available',
-      detail: 'Continue this saved execution from its checkpoint. Later delivery still follows the owner policy and server gates.',
+        ? 'لم ينجح التنفيذ — يمكن استئنافه'
+        : 'التنفيذ المحفوظ متوقف — يمكن استئنافه',
+      detail: 'تابع التنفيذ المحفوظ من نقطة الحفظ. التسليم اللاحق يظل خاضعًا لسياسة المالك وبوابات الخادم.',
       action: 'resume',
-      actionLabel: 'Resume execution',
-      nextStep: 'Resume this saved execution',
+      actionLabel: 'استئناف التنفيذ',
+      nextStep: 'استئناف هذا التنفيذ المحفوظ',
     };
   }
 
   switch (execution.status) {
     case 'queued':
       return {
-        title: 'Execution queued on the server',
-        detail: 'The server has not started this execution yet.',
-        action: null, actionLabel: null, nextStep: 'Wait for execution to start',
+        title: 'التنفيذ في قائمة انتظار الخادم',
+        detail: 'لم يبدأ الخادم هذا التنفيذ بعد.',
+        action: null, actionLabel: null, nextStep: 'انتظار بدء التنفيذ',
       };
     case 'running':
       return {
-        title: 'Execution running on the server',
-        detail: 'Progress and proof will update as the server works.',
-        action: null, actionLabel: null, nextStep: 'Wait for the current execution',
+        title: 'التنفيذ جارٍ على الخادم',
+        detail: 'تتحدث بيانات التقدم والأدلة مع استمرار عمل الخادم.',
+        action: null, actionLabel: null, nextStep: 'انتظار التنفيذ الحالي',
       };
     case 'cancelling':
       return {
-        title: 'Execution cancellation in progress',
-        detail: 'Wait for the server to confirm the final outcome.',
-        action: null, actionLabel: null, nextStep: 'Wait for the cancellation outcome',
+        title: 'جارٍ إلغاء التنفيذ',
+        detail: 'انتظر تسجيل الخادم للنتيجة النهائية.',
+        action: null, actionLabel: null, nextStep: 'انتظار نتيجة الإلغاء',
       };
     case 'completed':
       return {
         title: execution.proofRequired && execution.evidenceVerdict !== 'PROVEN'
-          ? 'Execution ended — proof not accepted'
-          : 'Execution finished — review recorded proof',
-        detail: 'Completion of a run is not approval to apply changes. Check the recorded acceptance and evidence.',
-        action: null, actionLabel: null, nextStep: 'Review the recorded proof',
+          ? 'انتهى التنفيذ — الإثبات غير مقبول'
+          : 'انتهى التنفيذ — راجع الأدلة المسجلة',
+        detail: 'انتهاء التنفيذ ليس موافقة على تطبيق التغييرات. راجع القبول والأدلة المسجلة.',
+        action: null, actionLabel: null, nextStep: 'مراجعة الأدلة المسجلة',
       };
     case 'cancelled':
       return {
-        title: 'Execution cancelled — review retained proof',
-        detail: 'The execution stopped. Review its retained audit before deciding whether to start a new run.',
-        action: null, actionLabel: null, nextStep: 'Review the retained audit',
+        title: 'أُلغي التنفيذ — راجع الأدلة المحفوظة',
+        detail: 'توقف التنفيذ. راجع سجله المحفوظ قبل أن تقرر بدء تنفيذ جديد.',
+        action: null, actionLabel: null, nextStep: 'مراجعة السجل المحفوظ',
       };
     case 'paused':
     case 'failed':
       return {
-        title: 'Execution ended — start a new run',
-        detail: 'The server has not authorized resuming this execution. Review its proof before starting a separate run.',
-        action: null, actionLabel: null, nextStep: 'Review proof or start a new run',
+        title: 'انتهى التنفيذ — الاستئناف غير متاح',
+        detail: 'لم يسمح الخادم باستئناف هذا التنفيذ. راجع أدلته قبل بدء تنفيذ منفصل.',
+        action: null, actionLabel: null, nextStep: 'مراجعة الأدلة أو بدء تنفيذ جديد',
       };
     default:
       return {
-        title: 'Checking execution outcome',
-        detail: 'This status does not authorize a recovery action. Review the server record.',
-        action: null, actionLabel: null, nextStep: 'Review the server status',
+        title: 'جارٍ التحقق من نتيجة التنفيذ',
+        detail: 'هذه الحالة لا تمنح إذن استرداد. راجع سجل الخادم.',
+        action: null, actionLabel: null, nextStep: 'مراجعة حالة الخادم',
       };
   }
 }

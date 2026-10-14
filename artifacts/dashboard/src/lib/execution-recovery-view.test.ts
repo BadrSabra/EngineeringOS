@@ -4,14 +4,14 @@ import { getExecutionRecoveryView } from './execution-recovery-view';
 describe('execution recovery presentation', () => {
   it('waits for a server status instead of advertising a locally retained token', () => {
     const view = getExecutionRecoveryView(null, false);
-    expect(view.title).toBe('Checking saved execution status');
+    expect(view.title).toBe('جارٍ التحقق من حالة التنفيذ المحفوظ');
     expect(view.action).toBeNull();
   });
 
   it('offers resume only for a resumable saved execution', () => {
     const view = getExecutionRecoveryView({ status: 'paused', resumable: true }, false);
     expect(view.action).toBe('resume');
-    expect(view.actionLabel).toBe('Resume execution');
+    expect(view.actionLabel).toBe('استئناف التنفيذ');
     expect(getExecutionRecoveryView({
       status: 'failed',
       resumable: false,
@@ -27,7 +27,7 @@ describe('execution recovery presentation', () => {
       projection: { allowedActions: ['RETRY_CHECKPOINT'] },
     }, false);
     expect(view.action).toBe('retry');
-    expect(view.actionLabel).toBe('Retry checkpoint');
+    expect(view.actionLabel).toBe('إعادة المحاولة من نقطة الحفظ');
     expect(getExecutionRecoveryView({
       status: 'failed',
       resumable: false,
@@ -44,8 +44,8 @@ describe('execution recovery presentation', () => {
       acceptance: { resumable: true, nextActionCode: 'RESUME_ALLOWED' },
       projection: { allowedActions: ['RESUME_CHECKPOINT'] },
     }, false);
-    expect(paused.title).toBe('Task-owned execution — recover it from Tasks');
-    expect(paused.nextStep).toBe('Open the owning Task in Tasks');
+    expect(paused.title).toBe('التنفيذ تابع لمهمة — الاسترداد من صفحة المهام');
+    expect(paused.nextStep).toBe('فتح المهمة المرتبطة في صفحة المهام');
     expect(paused.action).toBeNull();
 
     const failed = getExecutionRecoveryView({
@@ -61,7 +61,7 @@ describe('execution recovery presentation', () => {
     const completed = getExecutionRecoveryView({
       status: 'completed', proofRequired: true, evidenceVerdict: 'BLOCKED',
     }, false);
-    expect(completed.title).toBe('Execution ended — proof not accepted');
+    expect(completed.title).toBe('انتهى التنفيذ — الإثبات غير مقبول');
     expect(completed.action).toBeNull();
     expect(getExecutionRecoveryView({
       status: 'paused', resumable: true,

@@ -59,19 +59,19 @@ function withPrimaryAction(
 function actionLabel(action: AiExecutionProjection['allowedActions'][number]): string {
   switch (action) {
     case 'CANCEL':
-      return 'Stop this run';
+      return 'إيقاف هذا التنفيذ';
     case 'RESUME_CHECKPOINT':
-      return 'Resume this execution';
+      return 'استئناف هذا التنفيذ';
     case 'RETRY_CHECKPOINT':
-      return 'Retry the checkpoint';
+      return 'إعادة المحاولة من نقطة الحفظ';
     case 'START_NEW_RUN':
-      return 'Start a new mission';
+      return 'بدء تنفيذ جديد';
     case 'REVIEW_PROOF':
-      return 'Review the proof';
+      return 'مراجعة الأدلة المسجلة';
     case 'REVIEW_DIFF':
-      return 'Review the changes';
+      return 'مراجعة التغييرات';
     case 'APPROVE_CHANGES':
-      return 'Approve the changes';
+      return 'الموافقة على التغييرات';
   }
 }
 
@@ -95,35 +95,35 @@ export function getMissionState(input: MissionStateInput): MissionState {
   if (nextAction.includes('REPLAN')) {
     return withPrimaryAction({
       key: 'NEEDS_REPLAN',
-      label: 'Needs replan',
-      detail: 'The server kept this execution incomplete and requires a bounded replan before it can continue.',
-    }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'REVIEW_PROOF', 'START_NEW_RUN'], 'Review the replan requirement', allowedActions);
+      label: 'يحتاج تعديل الخطة',
+      detail: 'أبقى الخادم هذا التنفيذ غير مكتمل. يلزم تعديل الخطة ضمن النطاق المسموح قبل المتابعة.',
+    }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'REVIEW_PROOF', 'START_NEW_RUN'], 'مراجعة سبب تعديل الخطة', allowedActions);
   }
 
   if (stopped === 'FAILED' || executionStatus === 'FAILED' || flightState === 'BLOCKED' || verification === 'failed' || evidenceVerdict === 'BLOCKED') {
     return withPrimaryAction({
       key: 'NEEDS_ATTENTION',
-      label: 'Needs attention',
-      detail: 'The server recorded a blocked or failed step. Review the proof and use the available recovery action.',
-    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'Review the recorded failure', allowedActions);
+      label: 'يحتاج مراجعتك',
+      detail: 'سجّل الخادم عائقًا أو خطوة لم تنجح. راجع الأدلة، ثم استخدم إجراء الاسترداد المتاح إن وجد.',
+    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'مراجعة سبب التوقف المسجل', allowedActions);
   }
 
   if (stopped === 'INTERRUPTED' || executionStatus === 'CANCELLED' || executionStatus === 'CANCELLING' || flightState === 'CANCELLED') {
     return withPrimaryAction({
       key: 'INCOMPLETE',
-      label: input.resumable ? 'Paused — resume available' : 'Incomplete',
+      label: input.resumable ? 'متوقف — يمكن استئنافه' : 'غير مكتمل',
       detail: input.resumable
-        ? 'This mission stopped with a retained checkpoint. Resume the same execution when you are ready.'
-        : 'This mission ended before a complete accepted result was recorded.',
-    }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'Start a new mission', allowedActions);
+        ? 'توقف العمل مع حفظ نقطة للمتابعة. يمكن استئناف التنفيذ نفسه من الإجراء المسموح.'
+        : 'توقف العمل قبل تسجيل نتيجة مكتملة ومقبولة.',
+    }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'بدء تنفيذ جديد', allowedActions);
   }
 
   if (input.projection.approval?.required && input.projection.approval.status === 'PENDING') {
     return withPrimaryAction({
       key: 'AWAITING_APPROVAL',
-      label: 'Awaiting approval',
-      detail: 'The plan or proposed changes are ready for your review. Nothing will be applied without approval.',
-    }, ['APPROVE_CHANGES', 'REVIEW_DIFF', 'REVIEW_PROOF'], 'Review the pending plan', allowedActions);
+      label: 'بانتظار موافقتك',
+      detail: 'الخطة أو التغييرات المقترحة جاهزة للمراجعة. تطبيق التغييرات يتطلب الموافقة اللازمة.',
+    }, ['APPROVE_CHANGES', 'REVIEW_DIFF', 'REVIEW_PROOF'], 'مراجعة الخطة التي تنتظر موافقتك', allowedActions);
   }
 
   const successfulTerminalClaim = flightState === 'PUSHED'
@@ -137,57 +137,57 @@ export function getMissionState(input: MissionStateInput): MissionState {
   ) {
     return withPrimaryAction({
       key: 'NEEDS_ATTENTION',
-      label: 'Proof incomplete',
-      detail: 'The server reports a successful terminal state, but the required proof is not proven. Do not treat this result as accepted.',
-    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Review the incomplete proof', allowedActions);
+      label: 'الإثبات المطلوب غير مكتمل',
+      detail: 'سجّل الخادم انتهاءً ناجحًا، لكن الإثبات المطلوب غير مثبت. لا تعتبر النتيجة مقبولة من هذه الحالة.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'مراجعة الإثبات غير المكتمل', allowedActions);
   }
 
   if (flightState === 'PUSHED') {
     return withPrimaryAction({
       key: 'DELIVERED',
-      label: 'Delivered',
-      detail: 'The server recorded the delivered change. The receipt and proof remain available below.',
-    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Open the delivery receipt', allowedActions);
+      label: 'سُجّل التسليم',
+      detail: 'سجّل الخادم تسليم التغيير. راجع إيصال التسليم والأدلة لمعرفة نطاق النتيجة وحدودها.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'فتح إيصال التسليم', allowedActions);
   }
 
   if (deliveryCompleted) {
     return withPrimaryAction({
       key: 'DELIVERED',
-      label: 'Delivered',
-      detail: 'The server recorded the delivered change. The receipt and proof remain available below.',
-    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Open the delivery receipt', allowedActions);
+      label: 'سُجّل التسليم',
+      detail: 'سجّل الخادم تسليم التغيير. راجع إيصال التسليم والأدلة لمعرفة نطاق النتيجة وحدودها.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'فتح إيصال التسليم', allowedActions);
   }
 
   if (flightState === 'COMMITTED') {
     return withPrimaryAction({
       key: 'DELIVERING',
-      label: 'Committed — ready to push',
-      detail: 'The verified change is committed. Push it only through the matching server-owned delivery action.',
-    }, ['REVIEW_PROOF'], 'Continue delivery from the owning surface', allowedActions);
+      label: 'حُفظ التغيير — لم يُرسل بعد',
+      detail: 'سُجّل حفظ التغيير في سجل الإصدارات. إرساله يتم فقط عبر إجراء التسليم المطابق الذي يتيحه الخادم.',
+    }, ['REVIEW_PROOF'], 'متابعة التسليم من صفحة التنفيذ المسؤولة', allowedActions);
   }
 
   if (flightState === 'APPLIED') {
     return withPrimaryAction({
       key: 'DELIVERING',
-      label: 'Applied — ready to commit',
-      detail: 'The approved change is applied to the project. The next delivery step is still pending.',
-    }, ['REVIEW_PROOF'], 'Continue delivery from the owning surface', allowedActions);
+      label: 'طُبّق التغيير — لم يُحفظ كإصدار بعد',
+      detail: 'سُجّل تطبيق التغيير المعتمد على المشروع. حفظه في سجل الإصدارات وتسليمه خطوتان منفصلتان.',
+    }, ['REVIEW_PROOF'], 'متابعة التسليم من صفحة التنفيذ المسؤولة', allowedActions);
   }
 
   if (flightState === 'READY_FOR_REVIEW' || input.projection.workspace?.diffStatus === 'available' && verification === 'passed') {
     return withPrimaryAction({
       key: 'READY_FOR_REVIEW',
-      label: 'Ready for review',
-      detail: 'The server has a reviewable change and recorded validation. Review the diff before delivery.',
-    }, ['REVIEW_DIFF', 'REVIEW_PROOF'], 'Review the recorded changes', allowedActions);
+      label: 'جاهز للمراجعة',
+      detail: 'يوجد تغيير قابل للمراجعة وتحقق مسجل. راجع الفروق قبل التسليم؛ هذه الحالة ليست إثبات قبول حديثًا.',
+    }, ['REVIEW_DIFF', 'REVIEW_PROOF'], 'مراجعة التغييرات المسجلة', allowedActions);
   }
 
   if (verification === 'unavailable' || evidenceVerdict === 'UNAVAILABLE') {
     return withPrimaryAction({
       key: 'NEEDS_ATTENTION',
-      label: 'Needs attention',
-      detail: 'The required verification or evidence is not complete. Do not treat this run as accepted.',
-    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'Review the incomplete evidence', allowedActions);
+      label: 'يحتاج مراجعتك',
+      detail: 'التحقق أو الأدلة المطلوبة غير مكتملة. لا تعتبر هذا التنفيذ مقبولًا من هذه البيانات.',
+    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'مراجعة الأدلة غير المكتملة', allowedActions);
   }
 
   // Retained checkpoints may still describe the last active phase. Terminal
@@ -195,54 +195,54 @@ export function getMissionState(input: MissionStateInput): MissionState {
   if (executionStatus === 'COMPLETED' || stopped === 'SUCCEEDED') {
     return withPrimaryAction({
       key: 'COMPLETE',
-      label: 'Complete',
-      detail: 'The server recorded a terminal result for this mission.',
-    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'Open the final receipt', allowedActions);
+      label: 'انتهى بحسب السجل',
+      detail: 'سجّل الخادم انتهاء التنفيذ. هذا العرض وحده لا يثبت قبول النتيجة أو تسليمها أو سلامة أحدث نسخة.',
+    }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'فتح سجل النتيجة', allowedActions);
   }
 
   if (verification === 'running' || flightState === 'VALIDATING' || phaseMatches(phase, 'VALIDAT')) {
     return withPrimaryAction({
       key: 'VALIDATING',
-      label: 'Validating',
-      detail: 'The server is checking the current result and collecting the evidence needed for acceptance.',
-    }, ['CANCEL'], 'Wait for validation to finish', allowedActions);
+      label: 'جارٍ التحقق',
+      detail: 'يفحص الخادم النتيجة الحالية ويجمع الأدلة المطلوبة للقبول.',
+    }, ['CANCEL'], 'انتظار انتهاء التحقق', allowedActions);
   }
 
   if (phaseMatches(phase, 'BUILD', 'REPAIR') || flightState === 'BUILDING' || flightState === 'REPAIRING') {
     return withPrimaryAction({
       key: 'BUILDING',
-      label: 'Building',
-      detail: 'The mission is preparing a bounded change inside the approved project scope.',
-    }, ['CANCEL'], 'Wait for the candidate build', allowedActions);
+      label: 'جارٍ إعداد التغيير',
+      detail: 'يجري إعداد تغيير داخل نطاق المشروع المعتمد.',
+    }, ['CANCEL'], 'انتظار إعداد التغيير المقترح', allowedActions);
   }
 
   if (phaseMatches(phase, 'PLAN')) {
     return withPrimaryAction({
       key: 'PLANNING',
-      label: 'Planning',
-      detail: 'The server is turning the request into a bounded plan and identifying the files it needs.',
-    }, ['CANCEL'], 'Review the plan when it is ready', allowedActions);
+      label: 'جارٍ إعداد الخطة',
+      detail: 'يحوّل الخادم الطلب إلى خطة محددة النطاق ويحدد الملفات اللازمة.',
+    }, ['CANCEL'], 'مراجعة الخطة عندما تصبح جاهزة', allowedActions);
   }
 
   if (phaseMatches(phase, 'DISCOVER', 'ORIENT', 'EXPLORE', 'READ', 'SEARCH')) {
     return withPrimaryAction({
       key: 'INVESTIGATING',
-      label: 'Investigating',
-      detail: 'The mission is reading the project and collecting the source evidence for the request.',
-    }, ['CANCEL'], 'Continue reading project evidence', allowedActions);
+      label: 'جارٍ فحص المشروع',
+      detail: 'يجري قراءة المشروع وجمع الأدلة من مصادره للإجابة عن الطلب.',
+    }, ['CANCEL'], 'متابعة جمع أدلة المشروع', allowedActions);
   }
 
   if (executionStatus === 'QUEUED' || phaseMatches(phase, 'CHAT', 'INTAKE')) {
     return withPrimaryAction({
       key: 'UNDERSTANDING',
-      label: 'Understanding the request',
-      detail: 'The server is preparing the mission scope before it starts project work.',
-    }, ['CANCEL'], 'Wait for execution to start', allowedActions);
+      label: 'جارٍ فهم الطلب',
+      detail: 'يحدد الخادم نطاق الطلب قبل بدء العمل على المشروع.',
+    }, ['CANCEL'], 'انتظار بدء التنفيذ', allowedActions);
   }
 
   return withPrimaryAction({
     key: 'INVESTIGATING',
-    label: 'Working',
-    detail: 'The mission is active. The server will update this state as the next bounded step is recorded.',
-  }, ['CANCEL'], 'Continue the active mission', allowedActions);
+    label: 'العمل جارٍ',
+    detail: 'التنفيذ نشط بحسب السجل. تتحدث هذه الحالة عند تسجيل الخطوة التالية ضمن النطاق المسموح.',
+  }, ['CANCEL'], 'متابعة العمل الجاري', allowedActions);
 }

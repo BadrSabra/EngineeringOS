@@ -347,7 +347,7 @@ describe('Tasks recovery rendering', () => {
   it('edits task title, description, and priority through the generated PATCH mutation', () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit task Repair provider authentication' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تعديل المهمة: Repair provider authentication' }));
     fireEvent.change(screen.getByTestId('input-edit-task-title'), { target: { value: 'Repair authentication flow' } });
     fireEvent.change(screen.getByTestId('input-edit-task-description'), { target: { value: '' } });
     fireEvent.change(screen.getByTestId('select-edit-task-priority'), { target: { value: 'p0' } });
@@ -369,9 +369,9 @@ describe('Tasks recovery rendering', () => {
   it('requires confirmation before deleting and shows server conflicts in the dialog', () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete task Repair provider authentication' }));
-    const confirmation = screen.getByRole('alertdialog', { name: 'Delete task?' });
-    expect(within(confirmation).getByText(/permanently deletes “Repair provider authentication” and its task execution logs/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'حذف المهمة: Repair provider authentication' }));
+    const confirmation = screen.getByRole('alertdialog', { name: 'حذف المهمة؟' });
+    expect(confirmation).toHaveTextContent('سيُحذف «Repair provider authentication» نهائيًا مع سجلات تنفيذه. لا يمكن التراجع عن ذلك.');
     fireEvent.click(within(confirmation).getByTestId('button-confirm-delete-task'));
 
     expect(deleteTaskMutate).toHaveBeenCalledWith(
@@ -784,10 +784,25 @@ describe('Tasks recovery rendering', () => {
 });
 
 describe('Task creation', () => {
+  it('keeps the Arabic form local until submit and resets cancelled input on reopen', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    const dialog = screen.getByRole('dialog', { name: 'إضافة مهمة' });
+    expect(dialog).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByTestId('input-create-task-title')).toHaveAttribute('dir', 'auto');
+    fireEvent.change(screen.getByTestId('input-create-task-title'), { target: { value: 'مسودة لا تُرسل' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'إلغاء' }));
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
+    expect(screen.getByTestId('input-create-task-title')).toHaveValue('');
+    expect(screen.getByTestId('select-create-task-priority')).toHaveValue('p2');
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('opens a clear form and sends the selected project and task fields', () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'مهمة جديدة' }));
     fireEvent.change(screen.getByTestId('input-create-task-title'), {
       target: { value: 'Add a health check' },
     });

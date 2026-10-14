@@ -18,3 +18,13 @@ tables, source paths, or embedded technical controls.
 
 **How to apply:** Expand RTL deliberately with page-level verification; keep
 Latin brands, source paths, and identifiers direction-isolated where needed.
+
+Plain Arabic must still distinguish the user's main objective, its subordinate
+steps, project tasks, and individual executions; do not call every level
+«مهمة» as a shortcut.
+
+**Why:** Those levels have different ownership, recovery and approval boundaries.
+Collapsing their names can imply that reviewing or resuming one affects another.
+
+**How to apply:** Explain the relationship in labels and forms. Translation is
+presentation only: stored status/action codes and authorization stay unchanged.

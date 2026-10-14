@@ -180,7 +180,7 @@ describe("Projects", () => {
     render(<Projects />);
     fireEvent.change(screen.getByTestId('input-project-name'), { target: { value: 'Original Project' } });
     fireEvent.click(screen.getByTestId('button-start-project-bootstrap'));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }));
     await act(async () => complete({ id: 'late-operation', status: 'completed', projectId: 'late-project' }));
     expect(mocks.setLocation).not.toHaveBeenCalled();
     expect(readGoalDrafts('user-1').drafts[0].bootstrap?.operationId).toBe('late-operation');

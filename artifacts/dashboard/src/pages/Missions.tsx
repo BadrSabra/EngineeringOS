@@ -383,6 +383,28 @@ function EventList({ events }: { events: ProjectionEvent[] }) {
 const goalStatuses: GoalStatus[] = ['queued', 'planning', 'running', 'waiting_for_event', 'waiting_for_approval', 'verifying', 'needs_replan', 'completed', 'blocked', 'failed', 'cancelled'];
 const priorities: NonNullable<CreateGoalInput['priority']>[] = ['p0', 'p1', 'p2', 'p3'];
 
+// Display-only Arabic labels. Option values stay the original enum strings.
+const priorityLabels: Record<string, string> = {
+  p0: 'P0 — حرجة',
+  p1: 'P1 — عالية',
+  p2: 'P2 — متوسطة',
+  p3: 'P3 — منخفضة',
+};
+
+const goalStatusLabels: Record<string, string> = {
+  queued: 'في الانتظار',
+  planning: 'قيد التخطيط',
+  running: 'قيد التنفيذ',
+  waiting_for_event: 'بانتظار حدث',
+  waiting_for_approval: 'بانتظار الموافقة',
+  verifying: 'قيد التحقق',
+  needs_replan: 'تحتاج إعادة تخطيط',
+  completed: 'مكتملة',
+  blocked: 'متوقفة',
+  failed: 'فشلت',
+  cancelled: 'ملغاة',
+};
+
 function jsonText(value: unknown) {
   if (value === null || value === undefined || value === '') return '';
   try {
@@ -411,18 +433,18 @@ function parseJsonObject(value: string, label: string): { value?: Record<string,
   try {
     const parsed: unknown = JSON.parse(value);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { error: `${label} must be a JSON object.` };
+      return { error: `يجب أن يكون حقل «${label}» كائن JSON.` };
     }
     return { value: parsed as Record<string, unknown> };
   } catch {
-    return { error: `${label} contains invalid JSON.` };
+    return { error: `حقل «${label}» يحتوي على JSON غير صالح.` };
   }
 }
 
 function FieldLabel({ htmlFor, children, optional = false }: { htmlFor: string; children: string; optional?: boolean }) {
   return (
     <label htmlFor={htmlFor} className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-slate-400">
-      {children} {optional ? <span className="text-slate-600">/ optional</span> : null}
+      {children} {optional ? <span className="text-slate-600">/ اختياري</span> : null}
     </label>
   );
 }
@@ -434,6 +456,7 @@ function TextInput({
   placeholder,
   multiline = false,
   rows = 3,
+  dir = 'auto',
 }: {
   id: string;
   value: string;
@@ -441,12 +464,13 @@ function TextInput({
   placeholder?: string;
   multiline?: boolean;
   rows?: number;
+  dir?: 'auto' | 'ltr' | 'rtl';
 }) {
   const className = "w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-700 focus:border-cyan-400/70 focus:ring-1 focus:ring-cyan-400/20";
   return multiline ? (
-    <textarea id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className={`${className} resize-y leading-5`} />
+    <textarea id={id} data-testid={id} dir={dir} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} rows={rows} className={`${className} resize-y leading-5`} />
   ) : (
-    <input id={id} data-testid={id} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={className} />
+    <input id={id} data-testid={id} dir={dir} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className={className} />
   );
 }
 
@@ -472,12 +496,13 @@ function JsonField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={4}
+        dir="ltr"
         spellCheck={false}
         placeholder={'{\n  "key": "value"\n}'}
         aria-invalid={Boolean(error)}
         className={`w-full resize-y rounded-md border bg-slate-950/70 px-3 py-2 font-mono text-xs leading-5 text-slate-200 outline-none transition-colors placeholder:text-slate-700 focus:ring-1 ${error ? 'border-rose-400/60 focus:ring-rose-400/20' : 'border-slate-700 focus:border-cyan-400/70 focus:ring-cyan-400/20'}`}
       />
-      {error ? <p className="mt-1 text-xs text-rose-300">{error}</p> : <p className="mt-1 text-[10px] text-slate-600">JSON object only. Leave blank to omit.</p>}
+      {error ? <p className="mt-1 text-xs text-rose-300">{error}</p> : <p className="mt-1 text-[10px] text-slate-600">كائن JSON فقط (بالمفاتيح الإنجليزية كما هي). اتركه فارغًا لتجاهله.</p>}
     </div>
   );
 }
@@ -512,31 +537,31 @@ function EditorModal({
   const status = errorStatus(error);
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#020811]/80 px-3 py-6 backdrop-blur-sm sm:px-6 sm:py-10" role="presentation">
-      <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-cyan-400/20 bg-[#0b1725] shadow-2xl shadow-cyan-950/20" role="dialog" aria-modal="true" aria-labelledby="mission-editor-title">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4">
+      <div className="flex max-h-[calc(100dvh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-cyan-400/20 bg-[#0b1725] shadow-2xl shadow-cyan-950/20 sm:max-h-[calc(100dvh-5rem)]" role="dialog" aria-modal="true" aria-labelledby="mission-editor-title" dir="rtl" lang="ar">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-800 px-5 py-4">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300/70">{eyebrow}</p>
             <h2 id="mission-editor-title" className="mt-1 text-lg font-semibold text-slate-100">{title}</h2>
           </div>
-          <button type="button" onClick={onClose} disabled={saving} aria-label="Close editor" data-testid="button-close-editor" className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40">
+          <button type="button" onClick={onClose} disabled={saving} aria-label="إغلاق النافذة" data-testid="button-close-editor" className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <form onSubmit={onSubmit}>
-          <div className="max-h-[calc(100dvh-12rem)] space-y-4 overflow-y-auto px-5 py-5">
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
+          <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5" data-testid="editor-scroll-fields">
             {error ? (
               <div role="alert" className="flex items-start gap-2.5 rounded-md border border-rose-400/25 bg-rose-400/10 px-3 py-2.5 text-xs text-rose-200">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
-                <span>{status === 403 ? 'Your account is not permitted to change this record. ' : ''}{errorMessage(error, 'The server rejected this change. Check the fields and try again.')}</span>
+                <span>{status === 403 ? 'حسابك لا يملك صلاحية تعديل هذا السجل. ' : ''}<bdi dir="auto">{errorMessage(error, 'رفض الخادم هذا التغيير. راجع الحقول ثم حاول مرة أخرى.')}</bdi></span>
               </div>
             ) : null}
             {children}
           </div>
-          <div className="flex flex-col-reverse gap-2 border-t border-slate-800 bg-slate-950/25 px-5 py-4 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onClose} disabled={saving} data-testid="button-cancel-editor" className="rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40">Cancel</button>
+          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-800 bg-slate-950/25 px-5 py-4 sm:flex-row sm:justify-end" data-testid="editor-fixed-actions">
+            <button type="button" onClick={onClose} disabled={saving} data-testid="button-cancel-editor" className="rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40">إلغاء</button>
             <button type="submit" disabled={saving} data-testid="button-save-editor" className="inline-flex items-center justify-center gap-2 rounded-md border border-cyan-300/40 bg-cyan-300/15 px-4 py-2 text-xs font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/25 disabled:cursor-wait disabled:opacity-60">
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {saving ? 'Saving…' : submitLabel}
+              {saving ? 'جارٍ الحفظ…' : submitLabel}
             </button>
           </div>
         </form>
@@ -572,10 +597,10 @@ function MissionEditor({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
-    if (!title.trim()) errors.title = 'Title is required.';
-    if (!intent.trim()) errors.intent = 'Intent is required.';
-    const policy = parseJsonObject(autonomyPolicy, 'Autonomy policy');
-    const budgetValue = parseJsonObject(budget, 'Budget');
+    if (!title.trim()) errors.title = 'العنوان مطلوب.';
+    if (!intent.trim()) errors.intent = 'اكتب ما تريد تحقيقه.';
+    const policy = parseJsonObject(autonomyPolicy, 'سياسة الاستقلالية');
+    const budgetValue = parseJsonObject(budget, 'الميزانية');
     if (policy.error) errors.autonomyPolicy = policy.error;
     if (budgetValue.error) errors.budget = budgetValue.error;
     setFieldErrors(errors);
@@ -588,32 +613,32 @@ function MissionEditor({
   };
 
   return (
-      <EditorModal title={editing ? 'Edit mission' : 'Start a mission'} eyebrow={editing ? 'Mission / update' : 'Mission / ready to run'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'Save details' : 'Start mission'}>
+      <EditorModal title={editing ? 'تعديل الهدف الرئيسي' : 'ابدأ هدفًا رئيسيًا'} eyebrow={editing ? 'الهدف الرئيسي / تعديل' : 'الهدف الرئيسي / جاهز للبدء'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'حفظ التفاصيل' : 'ابدأ الهدف الرئيسي'}>
       <div>
-        <FieldLabel htmlFor="mission-title">Title</FieldLabel>
-        <TextInput id="mission-title" value={title} onChange={setTitle} placeholder="A durable objective with a clear finish line" />
+        <FieldLabel htmlFor="mission-title">العنوان</FieldLabel>
+        <TextInput id="mission-title" value={title} onChange={setTitle} placeholder="هدف واضح له نهاية يمكن التحقق منها" />
         {fieldErrors.title ? <p className="mt-1 text-xs text-rose-300">{fieldErrors.title}</p> : null}
       </div>
       <div>
-        <FieldLabel htmlFor="mission-intent">Intent</FieldLabel>
-        <TextInput id="mission-intent" value={intent} onChange={setIntent} multiline rows={3} placeholder="What should this mission make true?" />
+        <FieldLabel htmlFor="mission-intent">ما الذي تريد تحقيقه؟</FieldLabel>
+        <TextInput id="mission-intent" value={intent} onChange={setIntent} multiline rows={3} placeholder="صف النتيجة التي يجب أن تصبح حقيقة عند انتهاء هذا الهدف" />
         {fieldErrors.intent ? <p className="mt-1 text-xs text-rose-300">{fieldErrors.intent}</p> : null}
       </div>
       {editing ? (
         <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
-          Mission execution is managed automatically from the mission workspace.
+          يُدار تنفيذ الهدف الرئيسي تلقائيًا من مساحة العمل الخاصة به. تعديل التفاصيل هنا لا يغيّر حالته.
         </div>
       ) : null}
       <details data-testid="details-mission-advanced" className="rounded-md border border-slate-800 bg-slate-950/25 px-3">
-        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">Advanced mission settings</summary>
+        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">إعدادات متقدمة (اختيارية)</summary>
         <div className="space-y-4 pb-3">
           <div>
-            <FieldLabel htmlFor="mission-deadline" optional>Deadline</FieldLabel>
-            <input id="mission-deadline" type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} data-testid="input-mission-deadline" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
-            <p className="mt-1 text-[10px] text-slate-600">Leave blank when there is no deadline.</p>
+            <FieldLabel htmlFor="mission-deadline" optional>الموعد النهائي</FieldLabel>
+            <input id="mission-deadline" type="datetime-local" dir="ltr" value={deadline} onChange={(event) => setDeadline(event.target.value)} data-testid="input-mission-deadline" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
+            <p className="mt-1 text-[10px] text-slate-600">اتركه فارغًا إن لم يكن هناك موعد نهائي.</p>
           </div>
-          <JsonField id="mission-autonomy-policy" label="Autonomy policy" value={autonomyPolicy} onChange={setAutonomyPolicy} error={fieldErrors.autonomyPolicy} />
-          <JsonField id="mission-budget" label="Budget" value={budget} onChange={setBudget} error={fieldErrors.budget} />
+          <JsonField id="mission-autonomy-policy" label="سياسة الاستقلالية" value={autonomyPolicy} onChange={setAutonomyPolicy} error={fieldErrors.autonomyPolicy} />
+          <JsonField id="mission-budget" label="الميزانية" value={budget} onChange={setBudget} error={fieldErrors.budget} />
         </div>
       </details>
     </EditorModal>
@@ -652,12 +677,12 @@ function GoalEditor({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
-    if (!title.trim()) errors.title = 'Title is required.';
+    if (!title.trim()) errors.title = 'العنوان مطلوب.';
     const parsed = {
-      successCriteria: parseJsonObject(successCriteria, 'Success criteria'),
-      evidenceContract: parseJsonObject(evidenceContract, 'Evidence contract'),
-      outcomeContract: parseJsonObject(outcomeContract, 'Outcome contract'),
-      nextAction: parseJsonObject(nextAction, 'Next action'),
+      successCriteria: parseJsonObject(successCriteria, 'معايير النجاح'),
+      evidenceContract: parseJsonObject(evidenceContract, 'عقد الأدلة'),
+      outcomeContract: parseJsonObject(outcomeContract, 'عقد النتيجة'),
+      nextAction: parseJsonObject(nextAction, 'الإجراء التالي'),
     };
     Object.entries(parsed).forEach(([key, result]) => {
       if (result.error) errors[key] = result.error;
@@ -678,61 +703,61 @@ function GoalEditor({
   };
 
   return (
-    <EditorModal title={editing ? 'Edit goal' : 'Create goal'} eyebrow={editing ? 'Goal / update' : 'Goal / new workstream'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'Save goal' : 'Create goal'}>
+    <EditorModal title={editing ? 'تعديل خطوة الهدف' : 'إضافة خطوة للهدف'} eyebrow={editing ? 'خطوة الهدف / تعديل' : 'خطوة الهدف / جديدة'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'حفظ الخطوة' : 'إضافة الخطوة'}>
       <div>
-        <FieldLabel htmlFor="goal-title">Title</FieldLabel>
-        <TextInput id="goal-title" value={title} onChange={setTitle} placeholder="A concrete result inside this mission" />
+        <FieldLabel htmlFor="goal-title">العنوان</FieldLabel>
+        <TextInput id="goal-title" value={title} onChange={setTitle} placeholder="نتيجة محددة ضمن الهدف الرئيسي" />
         {fieldErrors.title ? <p className="mt-1 text-xs text-rose-300">{fieldErrors.title}</p> : null}
       </div>
       <div>
-        <FieldLabel htmlFor="goal-description" optional>Description</FieldLabel>
-        <TextInput id="goal-description" value={description} onChange={setDescription} multiline rows={2} placeholder="Context for the operator and future runs" />
+        <FieldLabel htmlFor="goal-description" optional>الوصف</FieldLabel>
+        <TextInput id="goal-description" value={description} onChange={setDescription} multiline rows={2} placeholder="سياق يساعد من يتابع العمل والتشغيلات القادمة" />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <FieldLabel htmlFor="goal-priority">Priority</FieldLabel>
+          <FieldLabel htmlFor="goal-priority">الأولوية</FieldLabel>
           <select id="goal-priority" value={priority} onChange={(event) => setPriority(event.target.value as NonNullable<CreateGoalInput['priority']>)} data-testid="select-goal-priority" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-            {priorities.map((option) => <option key={option} value={option}>{option}</option>)}
+            {priorities.map((option) => <option key={option} value={option}>{priorityLabels[option] ?? option}</option>)}
           </select>
         </div>
         {editing ? (
           <div>
-            <FieldLabel htmlFor="goal-status">Status</FieldLabel>
+            <FieldLabel htmlFor="goal-status">الحالة</FieldLabel>
             <select id="goal-status" value={status} onChange={(event) => setStatus(event.target.value as GoalStatus)} data-testid="select-goal-status" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-              {goalStatuses.map((option) => <option key={option} value={option}>{option}</option>)}
+              {goalStatuses.map((option) => <option key={option} value={option}>{goalStatusLabels[option] ?? option}</option>)}
             </select>
           </div>
         ) : null}
       </div>
       <details data-testid="details-goal-advanced" className="rounded-md border border-slate-800 bg-slate-950/25 px-3">
-        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">Advanced goal settings</summary>
+        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">إعدادات متقدمة (اختيارية)</summary>
         <div className="space-y-4 pb-3">
           <div>
-            <FieldLabel htmlFor="goal-parent" optional>Parent goal</FieldLabel>
+            <FieldLabel htmlFor="goal-parent" optional>الخطوة الأم</FieldLabel>
             <select id="goal-parent" value={parentGoalId} onChange={(event) => setParentGoalId(event.target.value)} data-testid="select-goal-parent" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-              <option value="">No parent goal</option>
+              <option value="">بدون خطوة أم</option>
               {availableParents.filter((item) => item.id !== goal?.id).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
             </select>
           </div>
           {editing ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <FieldLabel htmlFor="goal-next-wake" optional>Next wake</FieldLabel>
-                <input id="goal-next-wake" type="datetime-local" value={nextWakeAt} onChange={(event) => setNextWakeAt(event.target.value)} data-testid="input-goal-next-wake" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
+                <FieldLabel htmlFor="goal-next-wake" optional>موعد المتابعة التالي</FieldLabel>
+                <input id="goal-next-wake" type="datetime-local" dir="ltr" value={nextWakeAt} onChange={(event) => setNextWakeAt(event.target.value)} data-testid="input-goal-next-wake" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
               </div>
               <div>
-                <FieldLabel htmlFor="goal-blocked-reason" optional>Blocked reason</FieldLabel>
-                <TextInput id="goal-blocked-reason" value={blockedReason} onChange={setBlockedReason} placeholder="Why execution cannot proceed" />
+                <FieldLabel htmlFor="goal-blocked-reason" optional>سبب التوقف</FieldLabel>
+                <TextInput id="goal-blocked-reason" value={blockedReason} onChange={setBlockedReason} placeholder="لماذا لا يمكن متابعة التنفيذ؟" />
               </div>
             </div>
           ) : null}
           <div className="border-t border-slate-800 pt-4">
-            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Contracts and next action</p>
+            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">العقود والإجراء التالي (للمستخدم المتقدم)</p>
             <div className="grid gap-4 lg:grid-cols-2">
-              <JsonField id="goal-success-criteria" label="Success criteria" value={successCriteria} onChange={setSuccessCriteria} error={fieldErrors.successCriteria} />
-              <JsonField id="goal-evidence-contract" label="Evidence contract" value={evidenceContract} onChange={setEvidenceContract} error={fieldErrors.evidenceContract} />
-              <JsonField id="goal-outcome-contract" label="Outcome contract" value={outcomeContract} onChange={setOutcomeContract} error={fieldErrors.outcomeContract} />
-              <JsonField id="goal-next-action" label="Next action" value={nextAction} onChange={setNextAction} error={fieldErrors.nextAction} />
+              <JsonField id="goal-success-criteria" label="معايير النجاح" value={successCriteria} onChange={setSuccessCriteria} error={fieldErrors.successCriteria} />
+              <JsonField id="goal-evidence-contract" label="عقد الأدلة" value={evidenceContract} onChange={setEvidenceContract} error={fieldErrors.evidenceContract} />
+              <JsonField id="goal-outcome-contract" label="عقد النتيجة" value={outcomeContract} onChange={setOutcomeContract} error={fieldErrors.outcomeContract} />
+              <JsonField id="goal-next-action" label="الإجراء التالي" value={nextAction} onChange={setNextAction} error={fieldErrors.nextAction} />
             </div>
           </div>
         </div>
@@ -761,7 +786,7 @@ function DeliveryBindingEditor({
     event.preventDefault();
     const value = proposalId.trim();
     if (!value) {
-      setFieldError('A committed proposal ID is required.');
+      setFieldError('معرّف المقترح المعتمَد (commit) مطلوب.');
       return;
     }
     setFieldError('');
@@ -770,27 +795,28 @@ function DeliveryBindingEditor({
 
   return (
     <EditorModal
-      title="Bind delivery proposal"
-      eyebrow={`Delivery / ${goal.title}`}
+      title="ربط مقترح التسليم"
+      eyebrow={`التسليم / ${goal.title}`}
       error={error}
       saving={saving}
       onClose={onClose}
       onSubmit={submit}
-      submitLabel="Bind and resume"
+      submitLabel="اربط وتابع"
     >
       <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
-        Only the proposal ID is entered here. The server verifies ownership and supplies the operation identity, remote, and branch.
+        الربط فقط: تُدخل هنا معرّف المقترح (UUID) لتربطه بخطوة التسليم هذه. الربط ليس موافقة ولا تطبيقًا للتغييرات. يتحقق الخادم من الملكية ويحدد هوية العملية والمستودع البعيد والفرع بنفسه.
       </div>
       <div>
-        <FieldLabel htmlFor="delivery-proposal-id">Committed proposal ID</FieldLabel>
+        <FieldLabel htmlFor="delivery-proposal-id">معرّف المقترح المعتمَد (Proposal ID)</FieldLabel>
         <TextInput
           id="delivery-proposal-id"
           value={proposalId}
           onChange={setProposalId}
+          dir="ltr"
           placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         />
         {fieldError ? <p className="mt-1 text-xs text-rose-300">{fieldError}</p> : (
-          <p className="mt-1 text-[10px] text-slate-600">The proposal must already be committed for this project.</p>
+          <p className="mt-1 text-[10px] text-slate-600">يجب أن يكون المقترح قد اعتُمد (commit) مسبقًا لهذا المشروع.</p>
         )}
       </div>
     </EditorModal>
@@ -820,7 +846,7 @@ function TaskEditor({
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!title.trim()) {
-      setFieldError('Task title is required.');
+      setFieldError('عنوان المهمة مطلوب.');
       return;
     }
     setFieldError('');
@@ -835,30 +861,30 @@ function TaskEditor({
 
   return (
     <EditorModal
-      title="Create task"
-      eyebrow={`Task / ${goal.title}`}
+      title="إضافة مهمة"
+      eyebrow={`مهمة / ${goal.title}`}
       error={error}
       saving={saving}
       onClose={onClose}
       onSubmit={submit}
-      submitLabel="Create task"
+      submitLabel="إضافة المهمة"
     >
       <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
-        This task will be saved under <span className="font-semibold text-cyan-100">{goal.title}</span>.
+        ستُحفظ هذه المهمة تحت خطوة الهدف: <bdi dir="auto" className="font-semibold text-cyan-100">{goal.title}</bdi>.
       </div>
       <div>
-        <FieldLabel htmlFor="task-title">Task title</FieldLabel>
-        <TextInput id="task-title" value={title} onChange={setTitle} placeholder="What needs to be done?" />
+        <FieldLabel htmlFor="task-title">عنوان المهمة</FieldLabel>
+        <TextInput id="task-title" value={title} onChange={setTitle} placeholder="ما الذي يجب إنجازه؟" />
         {fieldError ? <p className="mt-1 text-xs text-rose-300">{fieldError}</p> : null}
       </div>
       <div>
-        <FieldLabel htmlFor="task-description" optional>Description</FieldLabel>
-        <TextInput id="task-description" value={description} onChange={setDescription} multiline rows={3} placeholder="Add context for the operator or AI agent" />
+        <FieldLabel htmlFor="task-description" optional>الوصف</FieldLabel>
+        <TextInput id="task-description" value={description} onChange={setDescription} multiline rows={3} placeholder="أضف سياقًا يساعد المتابع أو المساعد الذكي" />
       </div>
       <div>
-        <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
+        <FieldLabel htmlFor="task-priority">الأولوية</FieldLabel>
         <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as ApiCreateTaskInput['priority'])} data-testid="select-task-priority" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-          {priorities.map((option) => <option key={option} value={option}>{option}</option>)}
+          {priorities.map((option) => <option key={option} value={option}>{priorityLabels[option] ?? option}</option>)}
         </select>
       </div>
     </EditorModal>
@@ -925,14 +951,14 @@ function GoalCard({
         <div className="flex shrink-0 items-center gap-1">
           <button type="button" onClick={onCreateTask} data-testid={`button-create-task-${goal.id}`} className="inline-flex items-center gap-1 rounded-md border border-cyan-400/25 bg-cyan-300/10 px-2 py-1.5 text-[10px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
             <Plus className="h-3 w-3" />
-            <span className="hidden sm:inline">New task</span>
-            <span className="sm:hidden">Task</span>
+            <span className="hidden sm:inline">مهمة جديدة</span>
+            <span className="sm:hidden">مهمة</span>
           </button>
           {isGithubDelivery && !hasProposal && !['completed', 'cancelled'].includes(goal.status) ? (
             <button type="button" onClick={onBindDelivery} data-testid={`button-bind-delivery-${goal.id}`} className="inline-flex items-center gap-1 rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20">
               <GitBranch className="h-3 w-3" />
-              <span className="hidden sm:inline">Bind proposal</span>
-              <span className="sm:hidden">Bind</span>
+              <span className="hidden sm:inline">ربط مقترح</span>
+              <span className="sm:hidden">ربط</span>
             </button>
           ) : null}
           {goal.status === 'waiting_for_approval' ? (
@@ -948,7 +974,7 @@ function GoalCard({
               <span className="sm:hidden">Approve</span>
             </button>
           ) : null}
-          <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`Edit ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
+          <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`تعديل خطوة الهدف: ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
             <Edit3 className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1499,11 +1525,11 @@ export default function Missions() {
                       <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{missions.length} total</span>
                       <button type="button" onClick={() => openEditor({ type: 'mission-create' })} data-testid="button-create-mission" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
                         <Plus className="h-3.5 w-3.5" />
-                         Start a mission
+                         ابدأ هدفًا رئيسيًا
                       </button>
                        <button type="button" onClick={() => { setMutationError(null); setApplyMissionOpen(true); }} data-testid="button-create-apply-mission" className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20">
                          <ArrowUpRight className="h-3.5 w-3.5" />
-                         Apply Mission
+                         تطبيق مقترح موافَق عليه
                        </button>
                     </div>
                   </div>
@@ -1594,11 +1620,11 @@ export default function Missions() {
                             ) : null}
                             <button type="button" onClick={() => openEditor({ type: 'mission-edit', mission: activeMission })} data-testid={`button-edit-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-100">
                               <Edit3 className="h-3.5 w-3.5" />
-                              Edit details
+                              تعديل التفاصيل
                             </button>
                             <button type="button" onClick={() => openEditor({ type: 'goal-create', missionId: activeMission.id })} data-testid="button-create-goal" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
                               <Plus className="h-3.5 w-3.5" />
-                              Add goal
+                              إضافة خطوة للهدف
                             </button>
                           </div>
                         </div>
@@ -1831,19 +1857,22 @@ export default function Missions() {
         )}
       </div>
       {applyMissionOpen ? (
-        <EditorModal title="Apply an existing proposal" eyebrow="Mission / apply handoff" error={mutationError} saving={mutationSaving} onClose={() => setApplyMissionOpen(false)} onSubmit={submitApplyMission} submitLabel="Create Apply Mission">
-          <div>
-            <FieldLabel htmlFor="apply-proposal-id">Proposal ID</FieldLabel>
-            <TextInput id="apply-proposal-id" value={applyProposalId} onChange={setApplyProposalId} placeholder="Approved proposal UUID" />
-            <p className="mt-1 text-[10px] text-slate-600">The server resolves the waiting Goal and all hashes. Goal IDs and requirement JSON are never submitted.</p>
+        <EditorModal title="تطبيق مقترح موافَق عليه" eyebrow="الهدف الرئيسي / تجهيز التطبيق" error={mutationError} saving={mutationSaving} onClose={() => setApplyMissionOpen(false)} onSubmit={submitApplyMission} submitLabel="إنشاء هدف التطبيق">
+          <div className="rounded-md border border-amber-300/20 bg-amber-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
+            هذا ينشئ هدفًا رئيسيًا لتطبيق مقترح سبقت الموافقة عليه. لا يمنح موافقة جديدة، ولا يطبّق التغييرات فورًا: سيبقى المقترح بانتظار خطوة «تطبيق التغييرات» (Apply Changes).
           </div>
           <div>
-            <FieldLabel htmlFor="apply-mission-title" optional>Title</FieldLabel>
-            <TextInput id="apply-mission-title" value={applyTitle} onChange={setApplyTitle} placeholder="Apply this approved change" />
+            <FieldLabel htmlFor="apply-proposal-id">معرّف المقترح (Proposal ID)</FieldLabel>
+            <TextInput id="apply-proposal-id" value={applyProposalId} onChange={setApplyProposalId} dir="ltr" placeholder="Approved proposal UUID" />
+            <p className="mt-1 text-[10px] text-slate-600">يحدد الخادم خطوة الهدف المنتظرة وكل البصمات (hashes) بنفسه. لا تُرسَل معرّفات الخطوات ولا JSON المتطلبات.</p>
           </div>
           <div>
-            <FieldLabel htmlFor="apply-mission-intent" optional>Objective</FieldLabel>
-            <TextInput id="apply-mission-intent" value={applyIntent} onChange={setApplyIntent} multiline rows={2} placeholder="What should be true after the live tree is updated?" />
+            <FieldLabel htmlFor="apply-mission-title" optional>العنوان</FieldLabel>
+            <TextInput id="apply-mission-title" value={applyTitle} onChange={setApplyTitle} placeholder="تطبيق هذا التغيير الموافَق عليه" />
+          </div>
+          <div>
+            <FieldLabel htmlFor="apply-mission-intent" optional>الغاية</FieldLabel>
+            <TextInput id="apply-mission-intent" value={applyIntent} onChange={setApplyIntent} multiline rows={2} placeholder="ما الذي يجب أن يصبح صحيحًا بعد تحديث ملفات المشروع؟" />
           </div>
         </EditorModal>
       ) : null}

@@ -61,6 +61,44 @@ function renderPanel(ui: React.ReactNode, queryClient?: QueryClient) {
 }
 
 describe('ExecutionProjectionPanel', () => {
+  it('keeps source bytes LTR and exposes only a server-allowed Arabic review action', () => {
+    const onAction = vi.fn();
+    renderPanel(<ExecutionProjectionPanel
+      projection={{ ...projection, allowedActions: ['REVIEW_PROOF'] }}
+      executionId="execution-source"
+      onAction={onAction}
+    />);
+    expect(screen.getByRole('region', { name: 'ملخص التنفيذ' })).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByTestId('file-src/App.tsx')).toHaveAttribute('dir', 'ltr');
+    expect(screen.getByTestId('file-src/App.tsx')).toHaveTextContent('src/App.tsx');
+    expect(screen.getByTestId('execution-identities').querySelector('code')).toHaveAttribute('dir', 'ltr');
+    expect(screen.queryByTestId('button-action-approve_changes')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-action-cancel')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'مراجعة الأدلة المسجلة' }));
+    expect(screen.getByTestId('toggle-proof').closest('details')).toHaveAttribute('open');
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('does not translate unknown record values into success or treat 100 percent as acceptance', () => {
+    renderPanel(<ExecutionProjectionPanel
+      projection={{
+        ...projection,
+        phase: 'CUSTOM_PHASE',
+        workspace: { changedFiles: [], diffStatus: 'not_available' },
+        progress: { ...projection.progress, percent: 100 },
+        approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
+        verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: true },
+        allowedActions: [],
+      }}
+      executionStatus="completed"
+    />);
+    expect(screen.getByTestId('status-mission-phase')).toHaveTextContent('Custom Phase');
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('انتهى بحسب السجل');
+    expect(screen.getByTestId('text-mission-state-detail')).toHaveTextContent('لا يثبت قبول النتيجة');
+    expect(screen.getByTestId('status-progress')).toHaveTextContent('100٪');
+    expect(screen.queryAllByTestId(/^button-action-/)).toHaveLength(0);
+  });
+
   it('keeps the shared result explanation read-only even when the projection lists mutating actions', () => {
     const onAction = vi.fn();
     renderPanel(
@@ -77,7 +115,9 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
     expect(screen.getByText('يحتاج مراجعتك')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Approve changes|Stop run|Resume checkpoint|Retry checkpoint|Start new run/i })).not.toBeInTheDocument();
+    for (const action of ['approve_changes', 'cancel', 'resume_checkpoint', 'retry_checkpoint', 'start_new_run']) {
+      expect(screen.queryByTestId(`button-action-${action}`)).not.toBeInTheDocument();
+    }
     expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByText(/لا يُستنتج من هذا الإسقاط/)).toBeInTheDocument();
   });
@@ -97,32 +137,32 @@ describe('ExecutionProjectionPanel', () => {
     );
 
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
-    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Awaiting approval');
-    expect(screen.getByTestId('status-canonical')).toHaveTextContent('Mission state');
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('بانتظار موافقتك');
+    expect(screen.getByTestId('status-canonical')).toHaveTextContent('الحالة المسجلة');
     const identities = screen.getByTestId('execution-identities');
-    expect(identities).toHaveTextContent('Execution execution-1');
-    expect(identities).toHaveTextContent('Operation operation-1');
-    expect(identities).not.toHaveTextContent('Mission');
-    const destinations = screen.getByRole('navigation', { name: 'Execution destinations' });
-    expect(destinations).toHaveTextContent('Open Flight Deck');
-    expect(destinations).toHaveTextContent('Run steps and evidence');
-    expect(destinations).toHaveTextContent('Open Mission Control');
-    expect(destinations).toHaveTextContent('Status, recovery, and validation');
+    expect(identities).toHaveTextContent('التنفيذ execution-1');
+    expect(identities).toHaveTextContent('العملية operation-1');
+    expect(identities).not.toHaveTextContent('الهدف الرئيسي');
+    const destinations = screen.getByRole('navigation', { name: 'صفحات تفاصيل التنفيذ' });
+    expect(destinations).toHaveTextContent('فتح لوحة التشغيل');
+    expect(destinations).toHaveTextContent('خطوات التنفيذ والأدلة');
+    expect(destinations).toHaveTextContent('فتح متابعة الأهداف');
+    expect(destinations).toHaveTextContent('الحالة والاسترداد والتحقق');
     expect(destinations.querySelector('a[href="/flight-deck?executionId=execution-1"]')).toBeTruthy();
     expect(destinations.querySelector('a[href="/mission-control?executionId=execution-1"]')).toBeTruthy();
-    expect(screen.queryByRole('link', { name: 'Open Task' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'فتح المهمة' })).not.toBeInTheDocument();
     expect(screen.getByTestId('mission-timeline')).toBeInTheDocument();
-    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
-    expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
+    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('الآن');
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('جزئي');
     expect(screen.getByTestId('text-next-action')).toHaveTextContent('Review the validation evidence');
     expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('tool-0')).toHaveTextContent('Completed');
+    expect(screen.getByTestId('tool-0')).toHaveTextContent('انتهى بحسب السجل');
     expect(screen.getByTestId('tool-0')).toHaveTextContent('read_file');
-    expect(screen.getByTestId('button-action-cancel')).toHaveTextContent('Stop run');
-    expect(screen.getByTestId('button-action-review_diff')).toHaveTextContent('Review changes');
-    expect(screen.getByTestId('button-action-approve_changes')).toHaveTextContent('Approve changes');
+    expect(screen.getByTestId('button-action-cancel')).toHaveTextContent('إيقاف التنفيذ');
+    expect(screen.getByTestId('button-action-review_diff')).toHaveTextContent('مراجعة التغييرات');
+    expect(screen.getByTestId('button-action-approve_changes')).toHaveTextContent('الموافقة على التغييرات');
     expect(screen.getByTestId('button-action-approve_changes')).toHaveAttribute('data-primary-action', 'true');
-    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('Next action');
+    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('الخطوة التالية');
     expect(screen.queryByTestId('button-action-resume_checkpoint')).not.toBeInTheDocument();
   });
 
@@ -137,9 +177,9 @@ describe('ExecutionProjectionPanel', () => {
     );
 
     const identities = screen.getByTestId('execution-identities');
-    expect(identities).toHaveTextContent('Mission mission-1');
-    expect(identities).toHaveTextContent('Execution execution-1');
-    expect(identities).toHaveTextContent('Operation operation-1');
+    expect(identities).toHaveTextContent('الهدف الرئيسي mission-1');
+    expect(identities).toHaveTextContent('التنفيذ execution-1');
+    expect(identities).toHaveTextContent('العملية operation-1');
   });
 
   it('keeps delivery gates and recorded apply/commit/push progress visible in compact chat capsules', () => {
@@ -167,12 +207,12 @@ describe('ExecutionProjectionPanel', () => {
 
     const timeline = screen.getByTestId('mission-timeline');
     expect(timeline).toHaveAttribute('open');
-    expect(timeline).toHaveTextContent('Delivery stages');
+    expect(timeline).toHaveTextContent('مراحل التسليم');
     expect(screen.getByTestId('timeline-approval')).toHaveTextContent('Approval required.');
-    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
-    expect(screen.getByTestId('timeline-apply')).toHaveTextContent('Done');
-    expect(screen.getByTestId('timeline-commit')).toHaveTextContent('Next');
-    expect(screen.getByTestId('timeline-push')).toHaveTextContent('Next');
+    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('الآن');
+    expect(screen.getByTestId('timeline-apply')).toHaveTextContent('انتهت');
+    expect(screen.getByTestId('timeline-commit')).toHaveTextContent('لاحقًا');
+    expect(screen.getByTestId('timeline-push')).toHaveTextContent('لاحقًا');
     expect(screen.getByTestId('timeline-deliver'))
       .toHaveTextContent('Apply is recorded; commit and push remain pending.');
   });
@@ -186,7 +226,7 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: 'Open Task' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'فتح المهمة' })).toHaveAttribute(
       'href',
       '/tasks?taskId=task-1',
     );
@@ -212,7 +252,7 @@ describe('ExecutionProjectionPanel', () => {
       queryClient,
     );
 
-    expect(screen.getByRole('button', { name: 'Retry Task' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'إعادة محاولة المهمة' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-action-retry_checkpoint'));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
@@ -241,9 +281,9 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: 'Resume Task' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Retry Task' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Review proof' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'استئناف المهمة' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'إعادة محاولة المهمة' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'مراجعة الأدلة المسجلة' })).toBeInTheDocument();
   });
 
   it('keeps destination links in natural order with visible keyboard focus styling', () => {
@@ -255,7 +295,7 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    const destinations = screen.getByRole('navigation', { name: 'Execution destinations' });
+    const destinations = screen.getByRole('navigation', { name: 'صفحات تفاصيل التنفيذ' });
     const links = Array.from(destinations.querySelectorAll('a'));
 
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
@@ -309,10 +349,10 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Incomplete');
-    expect(screen.getByTestId('status-stopped')).toHaveTextContent('Interrupted');
-    expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
-    expect(screen.queryByText('Completed and verified')).not.toBeInTheDocument();
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('غير مكتمل');
+    expect(screen.getByTestId('status-stopped')).toHaveTextContent('منقطع');
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('غير متاح');
+    expect(screen.queryByText('اكتمل مع التحقق')).not.toBeInTheDocument();
   });
 
   it('keeps a durable replan requirement visible as the primary recovery state', () => {
@@ -330,12 +370,12 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Needs replan');
-    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('Retry checkpoint');
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('يحتاج تعديل الخطة');
+    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('إعادة المحاولة من نقطة الحفظ');
     expect(screen.getByTestId('button-action-retry_checkpoint')).toHaveAttribute(
       'data-primary-action',
       'true',
     );
-    expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('غير متاح');
   });
 });

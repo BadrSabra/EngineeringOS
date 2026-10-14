@@ -19,6 +19,37 @@ const baseProjection: AiExecutionProjection = {
 };
 
 describe('getMissionState', () => {
+  it('keeps state precedence and action authority independent of Arabic labels', () => {
+    const actions: AiExecutionProjection['allowedActions'] = [
+      'CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN',
+      'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES',
+    ];
+    const cases = [
+      { status: 'running', phase: 'CHAT', key: 'UNDERSTANDING' },
+      { status: 'running', phase: 'READ', key: 'INVESTIGATING' },
+      { status: 'running', phase: 'PLAN', key: 'PLANNING' },
+      { status: 'running', phase: 'BUILD', key: 'BUILDING' },
+      { status: 'running', phase: 'VALIDATE', key: 'VALIDATING' },
+      { status: 'failed', phase: 'BUILD', key: 'NEEDS_ATTENTION' },
+      { status: 'cancelled', phase: 'BUILD', key: 'INCOMPLETE' },
+      { status: 'completed', phase: 'BUILD', key: 'NEEDS_ATTENTION' },
+    ];
+    for (const scenario of cases) {
+      for (let mask = 0; mask < 1 << actions.length; mask += 1) {
+        const allowedActions = actions.filter((_, index) => mask & (1 << index));
+        const state = getMissionState({
+          projection: { ...baseProjection, phase: scenario.phase, allowedActions },
+          executionStatus: scenario.status,
+        });
+        expect(state.key).toBe(scenario.key);
+        expect(state.label).toMatch(/[\u0600-\u06ff]/);
+        expect(state.detail).toMatch(/[\u0600-\u06ff]/);
+        expect(state.primaryActionLabel).toMatch(/[\u0600-\u06ff]/);
+        if (state.primaryAction) expect(allowedActions).toContain(state.primaryAction);
+      }
+    }
+  });
+
   it.each(['CHAT', 'INTAKE', 'READ', 'PLAN', 'BUILD', 'VALIDATE'])(
     'does not let a retained %s phase hide a completed accepted execution',
     (phase) => {
@@ -67,7 +98,7 @@ describe('getMissionState', () => {
       executionStatus: 'completed',
       flightState: 'PUSHED',
       evidenceVerdict: 'PROVEN',
-    })).toMatchObject({ key: 'DELIVERED', label: 'Delivered' });
+    })).toMatchObject({ key: 'DELIVERED', label: 'سُجّل التسليم' });
   });
 
   it('prefers a completed delivery timeline over a reviewable workspace snapshot', () => {
@@ -86,7 +117,7 @@ describe('getMissionState', () => {
       executionStatus: 'completed',
       flightState: 'COMPLETED',
       evidenceVerdict: 'PROVEN',
-    })).toMatchObject({ key: 'DELIVERED', label: 'Delivered' });
+    })).toMatchObject({ key: 'DELIVERED', label: 'سُجّل التسليم' });
   });
 
   it('does not present a completed execution as accepted when required proof is missing', () => {
@@ -94,7 +125,7 @@ describe('getMissionState', () => {
       projection: baseProjection,
       executionStatus: 'completed',
       evidenceVerdict: 'NOT_RECORDED',
-    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'Proof incomplete' });
+    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'الإثبات المطلوب غير مكتمل' });
   });
 
   it('does not present delivery as verified when required proof is missing', () => {
@@ -111,7 +142,7 @@ describe('getMissionState', () => {
       executionStatus: 'completed',
       flightState: 'PUSHED',
       evidenceVerdict: 'NOT_RECORDED',
-    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'Proof incomplete' });
+    })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'الإثبات المطلوب غير مكتمل' });
   });
 
   it('preserves successful terminal display when proof is not required', () => {
@@ -122,7 +153,7 @@ describe('getMissionState', () => {
         verification: { ...baseProjection.verification, proofRequired: false },
       },
       executionStatus: 'completed',
-    })).toMatchObject({ key: 'COMPLETE', label: 'Complete' });
+    })).toMatchObject({ key: 'COMPLETE', label: 'انتهى بحسب السجل' });
   });
 
   it('makes an interrupted run incomplete rather than successful', () => {
@@ -131,7 +162,7 @@ describe('getMissionState', () => {
       executionStatus: 'cancelled',
       flightState: 'CANCELLED',
       resumable: true,
-    })).toMatchObject({ key: 'INCOMPLETE', label: 'Paused — resume available' });
+    })).toMatchObject({ key: 'INCOMPLETE', label: 'متوقف — يمكن استئنافه' });
   });
 
   it('surfaces a server-owned replan requirement after reconnect', () => {
@@ -140,6 +171,6 @@ describe('getMissionState', () => {
       executionStatus: 'completed',
       flightState: 'BLOCKED',
       nextAction: 'NEEDS_REPLAN',
-    })).toMatchObject({ key: 'NEEDS_REPLAN', label: 'Needs replan' });
+    })).toMatchObject({ key: 'NEEDS_REPLAN', label: 'يحتاج تعديل الخطة' });
   });
 });
