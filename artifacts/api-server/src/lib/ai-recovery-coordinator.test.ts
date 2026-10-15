@@ -384,5 +384,17 @@ describe("automatic task recovery admission", () => {
       kind: "skip",
       reason: "automatic_recovery_exhausted",
     });
+    // Proof-required recovery is capped by intent and evidence requirements,
+    // not by a narrow allowlist of failure codes.
+    expect(planChatRecovery(chatCandidate({
+      executionAttempt: 3,
+      action: "RESUME_ALLOWED",
+      reasonCode: "EXECUTION_FAILED",
+      resumable: 1,
+      request: evidenceRecovery,
+    }))).toMatchObject({
+      kind: "skip",
+      reason: "automatic_recovery_exhausted",
+    });
   });
 });
