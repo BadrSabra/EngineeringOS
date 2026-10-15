@@ -46,6 +46,28 @@ describe("bounded code-review scope", () => {
     expect(prompt).toContain("Do not claim repository-wide coverage");
   });
 
+  it("allows empirical reviews to include complete bounded evidence without changing normal excerpts", () => {
+    const source = `${"x".repeat(1800)}\nTARGET_EVIDENCE`;
+    const normal = normalizeReviewInputs(context, { "src/auth.ts": source });
+    const empirical = normalizeReviewInputs(context, { "src/auth.ts": source }, {
+      maxExcerptChars: 24_000,
+      maxTotalExcerptChars: 24_000,
+    });
+    const prompt = buildCodeReviewUserPrompt(context, { "src/auth.ts": source }, {
+      empiricalStrictEvidence: true,
+      maxExcerptChars: 24_000,
+      maxTotalExcerptChars: 24_000,
+    });
+
+    expect(normal.fileContents["src/auth.ts"]).toHaveLength(1500);
+    expect(normal.scope.selectedFiles.clippedExcerpts).toBe(1);
+    expect(empirical.fileContents["src/auth.ts"]).toContain("TARGET_EVIDENCE");
+    expect(empirical.scope.selectedFiles.clippedExcerpts).toBe(0);
+    expect(prompt).toContain("TARGET_EVIDENCE");
+    expect(prompt).toContain("An empty issues array is valid");
+    expect(prompt).not.toMatch(/must include at least one issue/i);
+  });
+
   it("reports graph-and-metrics-only reviews without source contents in metadata", () => {
     const normalized = normalizeReviewInputs(context);
 

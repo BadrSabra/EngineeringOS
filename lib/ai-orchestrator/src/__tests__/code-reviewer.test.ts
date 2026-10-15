@@ -39,6 +39,17 @@ describe("reviewCode selected-file acceptance", () => {
     expect(prompt).toContain("Use 1-based source line numbers");
   });
 
+  it("provides a valid, neutral JSON shape for empirical reviews", () => {
+    const prompt = buildCodeReviewSystemPrompt({ empiricalStrictEvidence: true });
+    const block = prompt.match(/```json\s*([\s\S]*?)\s*```/i)?.[1];
+    const example = JSON.parse(block!);
+
+    expect(example.issues).toEqual([]);
+    expect(example.verdict).toBe("approved");
+    expect(prompt).toContain("The empty-array example is not a default verdict");
+    expect(prompt).toContain("An empty issues array is valid");
+  });
+
   it("adds the evidence-only rubric only for empirical evaluation", () => {
     const regularPrompt = buildCodeReviewSystemPrompt();
     const strictPrompt = buildCodeReviewSystemPrompt({ empiricalStrictEvidence: true });
@@ -177,6 +188,42 @@ describe("reviewCode selected-file acceptance", () => {
     expect(messages.some(({ content }) => content.includes("first non-whitespace character must be {"))).toBe(true);
     expect(result._parseError).toBeUndefined();
     expect(result._qualityError?.code).toBe("QUALITY_REVIEW_LOW");
+  });
+
+  it("accepts a clean empirical review for selected files and supplies the full bounded excerpt", async () => {
+    agentComplete.mockClear();
+    const source = `${"x".repeat(1800)}\nTARGET_EVIDENCE`;
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({
+        summary: "No actionable defects were found in the supplied source.",
+        overallScore: 92,
+        strengths: [],
+        issues: [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: "approved",
+      }),
+    });
+
+    const result = await reviewCode(
+      context,
+      { "src/example.ts": source },
+      { provider: "openrouter", apiKey: "test-key" },
+      {
+        empiricalStrictEvidence: true,
+        requireSelectedFileFinding: true,
+        maxExcerptChars: 24_000,
+        maxTotalExcerptChars: 24_000,
+      },
+    );
+
+    const messages = agentComplete.mock.calls.at(-1)?.[0] as Array<{ role: string; content: string }>;
+    expect(result._parseError).toBeUndefined();
+    expect(result._qualityError).toBeUndefined();
+    expect(result.issues).toEqual([]);
+    expect(messages.some(({ content }) => content.includes("TARGET_EVIDENCE"))).toBe(true);
+    expect(messages.some(({ content }) => content.includes("An empty issues array is valid"))).toBe(true);
+    expect(messages.some(({ content }) => /must include at least one issue/i.test(content))).toBe(false);
   });
 
   it("does not retry another model after an empirical contract failure", async () => {

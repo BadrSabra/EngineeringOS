@@ -90,6 +90,10 @@ export type CodeReviewOptions = {
   jsonObjectOnly?: boolean;
   /** Applies a conservative evidence-only rubric for empirical campaigns. */
   empiricalStrictEvidence?: boolean;
+  /** Per-file excerpt cap for bounded empirical evidence input. */
+  maxExcerptChars?: number;
+  /** Total excerpt cap shared across all selected files. */
+  maxTotalExcerptChars?: number;
 };
 
 export const CODE_REVIEW_CAMPAIGN_SCENARIOS = [
@@ -153,6 +157,8 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     private readonly jsonObjectOnly = false,
     private readonly strictResponseFormat = false,
     private readonly empiricalStrictEvidence = false,
+    private readonly maxExcerptChars?: number,
+    private readonly maxTotalExcerptChars?: number,
   ) {
     super();
   }
@@ -162,7 +168,11 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
       { role: "system", content: buildCodeReviewSystemPrompt({
         empiricalStrictEvidence: this.empiricalStrictEvidence,
       }) },
-      { role: "user", content: buildCodeReviewUserPrompt(projectContext, this.fileContents) },
+      { role: "user", content: buildCodeReviewUserPrompt(projectContext, this.fileContents, {
+        empiricalStrictEvidence: this.empiricalStrictEvidence,
+        maxExcerptChars: this.maxExcerptChars,
+        maxTotalExcerptChars: this.maxTotalExcerptChars,
+      }) },
     ];
     if (this.repairAttempt) {
       if (this.priorModelOutput) {
@@ -251,22 +261,28 @@ export async function reviewCode(
   opts?: AgentCompleteOpts,
   reviewOptions: CodeReviewOptions = {},
 ): Promise<CodeReviewResult & { reviewScope: ReviewScope }> {
-  const accounting = normalizeReviewInputs(projectContext, fileContents);
+  const accounting = normalizeReviewInputs(projectContext, fileContents, {
+    maxExcerptChars: reviewOptions.maxExcerptChars,
+    maxTotalExcerptChars: reviewOptions.maxTotalExcerptChars,
+  });
   const result = await new CodeReviewAgent(
     fileContents,
     reviewOptions.repairAttempt,
     reviewOptions.promptOnlyJson,
     reviewOptions.priorModelOutput,
-      reviewOptions.priorParseErrorMessage,
-      reviewOptions.jsonObjectOnly,
-      opts?.stopAfterFirstModelAttempt === true,
-      reviewOptions.empiricalStrictEvidence,
+    reviewOptions.priorParseErrorMessage,
+    reviewOptions.jsonObjectOnly,
+    opts?.stopAfterFirstModelAttempt === true,
+    reviewOptions.empiricalStrictEvidence,
+    reviewOptions.maxExcerptChars,
+    reviewOptions.maxTotalExcerptChars,
   ).run(projectContext, opts);
   const selectedPaths = accounting.includedFilePaths;
   if (
     !result._parseError &&
     !result._qualityError &&
     selectedPaths.length > 0 &&
+    !reviewOptions.empiricalStrictEvidence &&
     reviewOptions.requireSelectedFileFinding !== false &&
     !result.issues.some((issue) => typeof issue.file === "string" && selectedPaths.includes(issue.file))
   ) {

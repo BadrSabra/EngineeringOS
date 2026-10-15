@@ -11,6 +11,7 @@ import {
   refreshDynamicCatalog,
   reviewCode,
   runEmpiricalQualityCampaign,
+  normalizeReviewInputs,
   validateEmpiricalQualityCorpus,
   type CodeReviewResult,
   type EmpiricalCaseObservation,
@@ -27,7 +28,8 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-json-contract-v9";
+export const EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET = 24_000;
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-evidence-window-citation-v11";
 
 export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
   review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
@@ -222,6 +224,7 @@ function projectReviewObservation(
   testCase: EmpiricalCorpusCase,
   result: CodeReviewResult,
   latencyMs: number,
+  fileContents: Record<string, string>,
   providerModel?: string,
 ): Omit<EmpiricalCaseObservation, "caseId"> {
   const incomplete = Boolean(result._parseError || result._qualityError);
@@ -230,20 +233,46 @@ function projectReviewObservation(
     ? []
     : result.issues.map((issue) => {
         const file = typeof issue.file === "string" ? issue.file.trim() : "";
-        const citationValid = testCase.selectedFiles.includes(file);
+        const source = fileContents[file];
+        const lines = source?.split(/\r\n|\r|\n/u);
+        const lineStart = issue.lineStart ?? undefined;
+        const lineEnd = issue.lineEnd ?? lineStart;
+        const citationValid = Boolean(
+          testCase.selectedFiles.includes(file) &&
+          lines &&
+          typeof lineStart === "number" &&
+          Number.isSafeInteger(lineStart) &&
+          lineStart > 0 &&
+          typeof lineEnd === "number" &&
+          Number.isSafeInteger(lineEnd) &&
+          lineEnd >= lineStart &&
+          lineEnd <= lines.length &&
+          lines.slice(lineStart - 1, lineEnd).some((line) => line.trim().length > 0),
+        );
+        const citationMatchesGroundTruth = citationValid && testCase.findings.some((expected) => {
+          if (
+            expected.file !== file ||
+            expected.type !== issue.type ||
+            expected.severity !== issue.severity ||
+            typeof lineStart !== "number" ||
+            typeof lineEnd !== "number"
+          ) return false;
+          const expectedEnd = expected.lineEnd ?? expected.lineStart;
+          return lineStart <= expectedEnd && lineEnd >= expected.lineStart;
+        });
         return {
           file,
-          ...(typeof issue.lineStart === "number" ? { lineStart: issue.lineStart } : {}),
-          ...(typeof issue.lineEnd === "number" ? { lineEnd: issue.lineEnd } : {}),
+          ...(typeof lineStart === "number" ? { lineStart } : {}),
+          ...(typeof lineEnd === "number" ? { lineEnd } : {}),
           type: issue.type,
           severity: issue.severity,
           citationValid,
-          citationSupported: citationValid,
+          citationMatchesGroundTruth,
         };
       });
   const droppedCitation = incomplete
     ? 0
-    : result.issues.filter((issue) => !testCase.selectedFiles.includes((issue.file ?? "").trim())).length;
+    : observedFindings.filter((finding) => !finding.citationValid).length;
 
   return {
     outcome: incomplete ? "ERROR" : "COMPLETE",
@@ -337,15 +366,6 @@ async function cloneReviewedRepository(
 }
 
 const defaultReviewCase: EmpiricalCaseReview = async (input) => {
-  let promptOnlyJson = false;
-  let jsonObjectOnly = false;
-  if (input.provider === "openrouter" && input.model) {
-    const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
-    const selectedMode = await resolveEmpiricalJsonModeForModel(model, input.apiKey);
-    promptOnlyJson = selectedMode.promptOnlyJson;
-    jsonObjectOnly = selectedMode.jsonObjectOnly;
-    process.env.OPENROUTER_MODEL = input.model;
-  }
   const context: ProjectContext = {
     project: `Reviewed public repository ${input.testCase.repositoryId}`,
     recentTasks: "No task history is injected.",
@@ -355,6 +375,36 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     workflows: "The campaign is isolated and read-only.",
     metricsVerified: true,
   };
+  const missingFiles = input.testCase.selectedFiles.filter(
+    (file) => typeof input.fileContents[file] !== "string",
+  );
+  if (missingFiles.length > 0) {
+    throw new IncompleteEmpiricalEvidenceError(
+      "One or more selected source files were not available to the review.",
+    );
+  }
+  const reviewInputLimits = {
+    maxExcerptChars: EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET,
+    maxTotalExcerptChars: EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET,
+  };
+  const normalized = normalizeReviewInputs(context, input.fileContents, reviewInputLimits);
+  if (
+    normalized.scope.selectedFiles.omitted > 0 ||
+    normalized.scope.selectedFiles.clippedExcerpts > 0
+  ) {
+    throw new IncompleteEmpiricalEvidenceError(
+      "The complete selected source set exceeds the empirical review input budget.",
+    );
+  }
+  let promptOnlyJson = false;
+  let jsonObjectOnly = false;
+  if (input.provider === "openrouter" && input.model) {
+    const model = FREE_MODELS.find((candidate) => candidate.id === input.model);
+    const selectedMode = await resolveEmpiricalJsonModeForModel(model, input.apiKey);
+    promptOnlyJson = selectedMode.promptOnlyJson;
+    jsonObjectOnly = selectedMode.jsonObjectOnly;
+    process.env.OPENROUTER_MODEL = input.model;
+  }
   const runReview = (repairAttempt: boolean, priorParseError?: unknown) => {
     const priorModelOutput =
       typeof priorParseError === "object" &&
@@ -374,23 +424,23 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       context,
       input.fileContents,
       {
-      provider: input.provider,
-      apiKey: input.apiKey,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs,
-      maxFallbackModels: 1,
-      stopAfterFirstModelAttempt: true,
-      retryTransient: false,
-      qualityProfile: "code_review",
+        provider: input.provider,
+        apiKey: input.apiKey,
+        signal: input.signal,
+        timeoutMs: input.timeoutMs,
+        maxFallbackModels: 1,
+        stopAfterFirstModelAttempt: true,
+        retryTransient: false,
         maxTokens: empiricalReviewMaxTokens(input.maxTokens, repairAttempt),
-       onModelAttempt: ({ model }) => input.onProviderModel?.(model),
+        onModelAttempt: ({ model }) => input.onProviderModel?.(model),
       },
       {
-        requireSelectedFileFinding: input.testCase.outcome === "defect",
+        requireSelectedFileFinding: false,
         repairAttempt,
         promptOnlyJson,
         jsonObjectOnly,
         empiricalStrictEvidence: true,
+        ...reviewInputLimits,
         priorModelOutput,
         priorParseErrorMessage,
       },
@@ -501,7 +551,7 @@ export async function runApiEmpiricalQualityCampaign(
             };
           }),
         }));
-        return projectReviewObservation(testCase, result, Date.now() - startedAt, providerModel);
+        return projectReviewObservation(testCase, result, Date.now() - startedAt, fileContents, providerModel);
       } catch (error) {
         const errorCode = classifyProviderError(error);
         console.warn(JSON.stringify({

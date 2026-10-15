@@ -176,7 +176,7 @@ describe("empirical AI quality oracle", () => {
       type: "security" as const,
       severity: "high" as const,
       citationValid: true,
-      citationSupported: true,
+      citationMatchesGroundTruth: true,
     };
     const prior = await runEmpiricalQualityCampaign({
       corpus,
@@ -292,7 +292,7 @@ describe("empirical AI quality oracle", () => {
         type: "security",
         severity: "high",
         citationValid: true,
-        citationSupported: true,
+        citationMatchesGroundTruth: true,
       }] : [],
       latencyMs: testCase.id === "defect-001" ? 100 : 200,
     }));
@@ -327,7 +327,7 @@ describe("empirical AI quality oracle", () => {
           type: "security",
           severity: "high",
           citationValid: true,
-          citationSupported: true,
+          citationMatchesGroundTruth: true,
         },
         {
           file: "app/routes/session.js",
@@ -335,7 +335,7 @@ describe("empirical AI quality oracle", () => {
           type: "bug",
           severity: "medium",
           citationValid: true,
-          citationSupported: true,
+          citationMatchesGroundTruth: true,
         },
       ],
     });
@@ -377,7 +377,7 @@ describe("empirical AI quality oracle", () => {
         severity: finding.severity,
         ...(finding.lineStart === undefined ? {} : { lineStart: finding.lineStart }),
         citationValid: true,
-        citationSupported: true,
+        citationMatchesGroundTruth: true,
       }],
     });
 

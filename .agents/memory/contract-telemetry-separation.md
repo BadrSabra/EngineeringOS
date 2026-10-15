@@ -38,3 +38,15 @@ Project-orientation no-tools correction must be attributable as both a recovery 
 **Why:** A completed orientation can retain complete, accepted source evidence while its provider correction fails; an aggregate recovery count without the correction's outcome conceals why natural-language synthesis was unavailable.
 
 **How to apply:** Persist bounded phase-specific transport and contract outcomes separately, bind each attempt to the retained evidence snapshot, and keep deterministic fallback provenance visible without promoting it to provider success.
+
+In a 2026-10-15 NodeGoat defect/control evaluation, `liquid/lfm-2.5-2.6b:free` returned malformed JSON on the defect review and its same-model repair, while the clean README control returned approved with no findings. Treat that pair as contract-incomplete, not as a measured false negative.
+
+**Why:** The defect case could not be scored because no valid structured findings were accepted; the successful clean control did not establish balanced-pair capability.
+
+**How to apply:** Preserve the malformed-response contract failure separately from semantic quality, and require an accepted defect/control pair before interpreting broader candidate results.
+
+Further 2026-10-15 free-candidate pair attempts were blocked before quality scoring: Gemma 4 31B returned an upstream shared-pool 429 without Retry-After; Cohere North Mini Code, Nemotron variants, and Dots3 returned empty responses; Inkling Small was restricted to agentic harnesses; Poolside Laguna XS returned malformed JSON on the defect case.
+
+**Why:** A listed free model is not necessarily callable through the ordinary OpenRouter API, and provider or contract failures do not establish review quality.
+
+**How to apply:** Keep these outcomes as unavailable or contract-incomplete, avoid retries after shared-pool 429 without a retry deadline, and run the larger corpus only after one exact-model defect/control pair is PROVEN.

@@ -82,12 +82,14 @@ export type EmpiricalObservedFinding = {
   type: EmpiricalIssueType;
   severity: EmpiricalSeverity;
   citationValid: boolean;
-  citationSupported: boolean;
+  /** The valid citation range overlaps an annotation; this is not semantic adjudication. */
+  citationMatchesGroundTruth: boolean;
 };
 
 export type EmpiricalNormalizationCounters = {
   changedFindingType: number;
   changedSeverity: number;
+  /** Citation paths or line ranges that could not be resolved in supplied source. */
   droppedCitation: number;
 };
 
@@ -124,6 +126,7 @@ export type EmpiricalCaseScore = {
   falsePositives: number;
   falseNegatives: number;
   citationCoveredFindings: number;
+  /** Count of citations whose file/line range did not resolve in supplied source. */
   unsupportedCitations: number;
   expectedFindings: number;
   observedFindings: number;
@@ -152,7 +155,9 @@ export type EmpiricalQualityMetrics = {
   f1: number;
   falsePositiveRate: number;
   falseNegativeRate: number;
+  /** Fraction of ground-truth findings matched with a valid, annotation-aligned citation. */
   citationCoverage: number;
+  /** Fraction of observed citations whose file/line range did not resolve in supplied source. */
   unsupportedCitationRate: number;
   contractAcceptanceRate: number;
   semanticVerdictConsistencyRate: number;
@@ -494,14 +499,13 @@ export function scoreEmpiricalQualityCase(
   let unsupportedCitations = 0;
 
   for (const observed of observedFindings) {
+    if (!observed.citationValid) unsupportedCitations += 1;
     const match = expectedFindings.find((expected) =>
       !matchedExpected.has(expected.id) && sameFindingLocation(expected, observed));
     if (match) {
       matchedExpected.add(match.id);
       truePositives += 1;
-      if (observed.citationValid && observed.citationSupported) citationCoveredFindings += 1;
-    } else if (!observed.citationValid || !observed.citationSupported) {
-      unsupportedCitations += 1;
+      if (observed.citationValid && observed.citationMatchesGroundTruth) citationCoveredFindings += 1;
     }
   }
 
@@ -602,13 +606,20 @@ export function buildEmpiricalQualityScorecard(args: {
   if (notRunCaseIds.length > 0) blockers.push("cases not run after campaign stopped");
   if (results.some((result) => result.outcome === "PROVIDER_UNAVAILABLE")) blockers.push("provider unavailable");
   if (results.some((result) => result.outcome === "TIMEOUT")) blockers.push("campaign timeout");
-  if (results.some((result) => result.outcome === "ERROR")) blockers.push("campaign execution error");
+  if (results.some((result) => result.errorCode === "INCOMPLETE_EVIDENCE")) {
+    blockers.push("selected source evidence incomplete");
+  }
+  if (results.some((result) =>
+    result.outcome === "ERROR" && result.errorCode !== "INCOMPLETE_EVIDENCE"
+  )) blockers.push("campaign execution error");
   if (completed.some((result) => !result.contractPassed)) blockers.push("contract acceptance failure");
   if (falseAcceptanceCount > 0) blockers.push("false acceptance detected");
   if (falseRejectionCount > 0) blockers.push("false rejection detected");
   if (completed.some((result) => result.falsePositives > 0)) blockers.push("false positives detected");
   if (completed.some((result) => result.falseNegatives > 0)) blockers.push("false negatives detected");
-  if (completed.some((result) => result.unsupportedCitations > 0)) blockers.push("unsupported citations detected");
+  if (completed.some((result) => result.unsupportedCitations > 0)) {
+    blockers.push("citation ranges do not resolve to supplied source");
+  }
   if (completed.some((result) =>
     result.expectedFindings > 0 &&
     result.citationCoveredFindings < result.expectedFindings

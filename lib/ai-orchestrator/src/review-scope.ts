@@ -34,6 +34,8 @@ export type NormalizedReviewInputs = {
   fileContents: Record<string, string>;
   includedFilePaths: string[];
   scope: ReviewScope;
+  maxExcerptChars: number;
+  maxTotalExcerptChars: number;
 };
 
 function countMatch(text: string, pattern: RegExp): number {
@@ -45,7 +47,10 @@ function sectionAvailable(text: string, missingLabels: string[]): boolean {
   return missingLabels.every((label) => !text.includes(label));
 }
 
-function buildLimitations(scope: Omit<ReviewScope, "limitations">): string[] {
+function buildLimitations(
+  scope: Omit<ReviewScope, "limitations">,
+  limits: { maxExcerptChars: number; maxTotalExcerptChars: number },
+): string[] {
   const limitations = [
     "This is a bounded review of the supplied project evidence; approval does not mean every repository file was inspected.",
   ];
@@ -59,7 +64,10 @@ function buildLimitations(scope: Omit<ReviewScope, "limitations">): string[] {
   }
   if (scope.selectedFiles.clippedExcerpts > 0) {
     limitations.push(
-      `${scope.selectedFiles.clippedExcerpts} selected source excerpt(s) were clipped to ${REVIEW_MAX_EXCERPT_CHARS} characters.`,
+      limits.maxExcerptChars === REVIEW_MAX_EXCERPT_CHARS &&
+      limits.maxTotalExcerptChars === REVIEW_MAX_EXCERPT_CHARS * REVIEW_MAX_FILES
+        ? `${scope.selectedFiles.clippedExcerpts} selected source excerpt(s) were clipped to ${REVIEW_MAX_EXCERPT_CHARS} characters.`
+        : `${scope.selectedFiles.clippedExcerpts} selected source excerpt(s) were clipped by the ${limits.maxExcerptChars}-character per-file or ${limits.maxTotalExcerptChars}-character total input limit.`,
     );
   }
   if (scope.scanCompleteness !== "COMPLETE") {
@@ -78,15 +86,30 @@ function buildLimitations(scope: Omit<ReviewScope, "limitations">): string[] {
 export function normalizeReviewInputs(
   context: ProjectContext,
   fileContents?: Record<string, string>,
+  limits: { maxExcerptChars?: number; maxTotalExcerptChars?: number } = {},
 ): NormalizedReviewInputs {
+  const maxExcerptChars = limits.maxExcerptChars ?? REVIEW_MAX_EXCERPT_CHARS;
+  if (!Number.isSafeInteger(maxExcerptChars) ||
+      maxExcerptChars < 1 ||
+      maxExcerptChars > REVIEW_MAX_FILE_CONTENTS_BYTES) {
+    throw new Error(`Review excerpt limit must be an integer between 1 and ${REVIEW_MAX_FILE_CONTENTS_BYTES}.`);
+  }
+  const maxTotalExcerptChars = limits.maxTotalExcerptChars ??
+    Math.min(REVIEW_MAX_FILE_CONTENTS_BYTES, maxExcerptChars * REVIEW_MAX_FILES);
+  if (!Number.isSafeInteger(maxTotalExcerptChars) ||
+      maxTotalExcerptChars < 1 ||
+      maxTotalExcerptChars > REVIEW_MAX_FILE_CONTENTS_BYTES) {
+    throw new Error(`Review total excerpt limit must be an integer between 1 and ${REVIEW_MAX_FILE_CONTENTS_BYTES}.`);
+  }
   const entries = Object.entries(fileContents ?? {});
   const includedEntries = entries.slice(0, REVIEW_MAX_FILES);
-  const normalizedContents = Object.fromEntries(
-    includedEntries.map(([file, content]) => [
-      file,
-      content.slice(0, REVIEW_MAX_EXCERPT_CHARS),
-    ]),
-  );
+  let remainingTotalChars = maxTotalExcerptChars;
+  const normalizedContents: Record<string, string> = {};
+  for (const [file, content] of includedEntries) {
+    const excerptLength = Math.min(content.length, maxExcerptChars, remainingTotalChars);
+    normalizedContents[file] = content.slice(0, excerptLength);
+    remainingTotalChars -= excerptLength;
+  }
   const graphSummary = context.graphSummary;
   const scanCompleteness = context.contextManifest?.scanCompleteness
     ?? (context.metricsVerified ? "COMPLETE" : "UNAVAILABLE");
@@ -98,7 +121,8 @@ export function normalizeReviewInputs(
       received: entries.length,
       included: includedEntries.length,
       omitted: Math.max(0, entries.length - includedEntries.length),
-      clippedExcerpts: includedEntries.filter(([, content]) => content.length > REVIEW_MAX_EXCERPT_CHARS).length,
+      clippedExcerpts: includedEntries.filter(([file, content]) =>
+        normalizedContents[file]!.length < content.length).length,
     },
     context: {
       graphEntitiesIncluded: countMatch(graphSummary, /^(\d+) entities total:/m),
@@ -112,12 +136,14 @@ export function normalizeReviewInputs(
   };
   const scope = ReviewScopeSchema.parse({
     ...baseScope,
-    limitations: buildLimitations(baseScope),
+    limitations: buildLimitations(baseScope, { maxExcerptChars, maxTotalExcerptChars }),
   });
   return {
     fileContents: normalizedContents,
     includedFilePaths: includedEntries.map(([file]) => file),
     scope,
+    maxExcerptChars,
+    maxTotalExcerptChars,
   };
 }
 

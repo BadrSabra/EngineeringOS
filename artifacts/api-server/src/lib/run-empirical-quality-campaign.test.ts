@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
+  EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET,
   empiricalReviewMaxTokens,
   reviewWithOneSameModelJsonRepair,
   resolveEmpiricalJsonModeForModel,
@@ -96,7 +97,7 @@ async function workspaceFor(
   testCase: typeof corpus.cases[number],
   _timeoutMs?: number,
   _signal?: AbortSignal,
-  contents = "bounded source fixture\n",
+  contents = Array.from({ length: 100 }, (_, index) => `// source fixture line ${index + 1}`).join("\n"),
 ) {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-empirical-test-"));
   roots.push(rootPath);
@@ -315,6 +316,94 @@ describe("empirical provider campaign adapter", () => {
     expect(scorecard.metrics.latencyMs.p50).not.toBeNull();
     expect(cleaned).toEqual(["defect-001", "clean-001"]);
     expect(JSON.stringify(scorecard)).not.toContain("bounded source fixture");
+  });
+
+  it("does not score a citation whose line range is outside the supplied source", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase }) => ({
+        summary: "Bounded review",
+        overallScore: 40,
+        strengths: [],
+        issues: testCase.outcome === "defect" ? [{
+          type: "security",
+          severity: "high",
+          file: "src/auth.ts",
+          lineStart: 999,
+          lineEnd: 999,
+          title: "Unsafe authentication",
+          description: "The cited line is outside the supplied source range.",
+          suggestion: "Validate the input.",
+        }] : [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: testCase.outcome === "defect" ? "needs_changes" : "approved",
+      }),
+    });
+
+    expect(scorecard.metrics.unsupportedCitationRate).toBe(1);
+    expect(scorecard.metrics.normalizationCounters.droppedCitation).toBe(1);
+    expect(scorecard.empiricalQualityStatus).toBe("MEASURED");
+  });
+
+  it("keeps valid but unannotated locations separate from unresolved citations", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase }) => ({
+        summary: "Bounded review",
+        overallScore: 40,
+        strengths: [],
+        issues: testCase.outcome === "defect" ? [{
+          type: "security",
+          severity: "high",
+          file: "src/auth.ts",
+          lineStart: 50,
+          lineEnd: 50,
+          title: "Review the selected source",
+          description: "This valid source range does not match the corpus annotation.",
+          suggestion: "Review the cited behavior.",
+        }] : [],
+        refactoringOpportunities: [],
+        securityConcerns: [],
+        verdict: testCase.outcome === "defect" ? "needs_changes" : "approved",
+      }),
+    });
+
+    expect(scorecard.metrics.falsePositiveCount).toBe(1);
+    expect(scorecard.metrics.falseNegativeCount).toBe(1);
+    expect(scorecard.metrics.unsupportedCitationRate).toBe(0);
+    expect(scorecard.metrics.citationCoverage).toBe(0);
+  });
+
+  it("fails each over-budget empirical case before provider review", async () => {
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: async (testCase) => workspaceFor(
+        testCase,
+        undefined,
+        undefined,
+        "x".repeat(EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET + 1),
+      ),
+    });
+
+    expect(scorecard.status).toBe("INCOMPLETE");
+    expect(scorecard.cases).toHaveLength(corpus.cases.length);
+    expect(scorecard.cases.every((entry) => entry.outcome === "ERROR" && entry.errorCode === "INCOMPLETE_EVIDENCE")).toBe(true);
+    expect(scorecard.notRunCaseIds).toEqual([]);
+    expect(scorecard.cases[0]).toMatchObject({
+      outcome: "ERROR",
+      errorCode: "INCOMPLETE_EVIDENCE",
+      contractPassed: false,
+    });
+    expect(scorecard.blockers).toContain("selected source evidence incomplete");
   });
 
   it("keeps provider outages separate from quality failures", async () => {
