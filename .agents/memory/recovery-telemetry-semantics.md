@@ -20,3 +20,9 @@ Provider-attempt history should project completed `provider_request` ledger even
 **Why:** The outer chat fallback callback observed one successful provider while the request ledger had multiple model requests, so history undercounted the actual work.
 
 **How to apply:** Use the ledger completion events as the canonical per-request source, attach contract telemetry only to the terminal logical response, and keep capability-recovery telemetry separate from ordinary provider attempts.
+
+Provider-attempt events are scoped to an execution identity, not a specific execution recovery attempt. Old events can remain attached to the same execution after a later resume, so totals must be time-correlated before they are attributed to the current recovery.
+
+**Why:** A resumed execution had provider-attempt rows from an earlier date; counting by execution ID alone would have falsely attributed those calls to the current recovery.
+
+**How to apply:** Compare `occurred_at` with the recovery window and distinguish provider `attemptNumber` from the durable execution's attempt number. Missing current-window events do not prove that no provider call occurred when telemetry writes can fail.

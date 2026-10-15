@@ -64,6 +64,10 @@ describe("automatic task recovery admission", () => {
   it("retains only explicitly recognized server recovery error codes", () => {
     expect(sanitizeChatRecoveryFailureCode("EXECUTION_ACCEPTANCE_INCOMPLETE"))
       .toBe("EXECUTION_ACCEPTANCE_INCOMPLETE");
+    expect(sanitizeChatRecoveryFailureCode("TOOL_EXECUTION_FAILED"))
+      .toBe("TOOL_EXECUTION_FAILED");
+    expect(sanitizeChatRecoveryFailureCode("TOOL_ANALYSIS_TIMEOUT"))
+      .toBe("TOOL_ANALYSIS_TIMEOUT");
     expect(sanitizeChatRecoveryFailureCode("provider said: failed"))
       .toBeUndefined();
     expect(sanitizeChatRecoveryFailureCode("EXECUTION_UNKNOWN_PRIVATE_DETAIL"))
