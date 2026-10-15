@@ -143,6 +143,26 @@ async function main() {
     ], {
       env: databaseEnv,
     });
+
+    console.log("Running the database-backed AI telemetry tests.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/ai-telemetry.test.ts",
+    ], {
+      env: databaseEnv,
+    });
+
+    console.log("Running provider-mocked AI route tests that persist telemetry.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/routes/ai.test.ts",
+      "-t",
+      "recovers from malformed OpenRouter analysis output|recovers from malformed OpenRouter review output|makes malformed-then-429 review terminal",
+    ], {
+      env: databaseEnv,
+    });
   } finally {
     await stopPostgres(port);
     await rm(temporaryRoot, { recursive: true, force: true });

@@ -472,6 +472,26 @@ describe("application schema contract", () => {
     );
   });
 
+  it("reports a missing AI telemetry contract-failure column", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "ai_usage_events" &&
+            column.column_name === "contract_failure_kind"
+          ),
+      ),
+    });
+    assert.deepEqual(
+      issues
+        .filter((item) => item.kind === "missing_column" && item.tableName === "ai_usage_events")
+        .map((item) => item.objectName),
+      ["contract_failure_kind"],
+    );
+  });
+
   it("reports incompatible memory and outbox defaults or types", () => {
     const snapshot = completeSnapshot();
     const issues = findApplicationSchemaIssues({

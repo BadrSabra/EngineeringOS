@@ -172,9 +172,11 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     workspace_runtime: [
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
     ] as readonly ColumnContract[],
-    // Provider telemetry is release-critical even though its payload columns
-    // are owned by the AI diagnostics contract rather than execution proof.
-    ai_usage_events: [],
+    // Mission Control's usage summary reads contract failure categories from
+    // this table, so a stale telemetry schema must fail before the route does.
+    ai_usage_events: [
+      { name: "contract_failure_kind", dataType: "text", udtName: "text", nullable: true },
+    ] satisfies readonly ColumnContract[],
     ai_execution_evidence_snapshots: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       { name: "execution_id", dataType: "text", udtName: "text", nullable: false },
