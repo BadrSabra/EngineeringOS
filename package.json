@@ -10,6 +10,7 @@
     "db:schema:check": "pnpm --filter @workspace/db run schema:check && pnpm --filter @workspace/db run check-audit-schema && pnpm --filter @workspace/db run check-operator-alert-schema",
     "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
     "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+    "test:mission-control": "node scripts/run-mission-control-tests.mjs",
     "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
     "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
     "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
