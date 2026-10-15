@@ -120,7 +120,7 @@ describe("active task session state", () => {
     ],
     [
       "generic-project",
-      "Analyze my project architecture.",
+      "How does the EngineeringOS project-query evidence gate work?",
       "lib/ai-orchestrator/src/turn-intent.ts",
     ],
   ])("persists the %s target contract across a session resume", (targetId, message, evidencePath) => {

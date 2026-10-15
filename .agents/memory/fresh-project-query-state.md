@@ -39,6 +39,12 @@ Project-query continuation state must not be used as the new turn's mutable targ
 
 **How to apply:** Treat a new project question as a fresh target/objective. For recognized continuations, preserve the original immutable objective; otherwise never merge prior required claims into the current target. Deduplicate by claim ID as a fail-closed invariant.
 
+An ambiguous architecture question about the current project must not select a hardcoded EngineeringOS target. Use source-first discovery unless the user explicitly names EngineeringOS.
+
+**Why:** The bounded generic target asserts claims about fixed `lib/ai-orchestrator` files that may not exist in an unrelated project root, causing reads and recovery to follow the wrong source tree.
+
+**How to apply:** Keep regressions for generic architecture questions and explicit user-file references that stay unbound to the EngineeringOS target, plus an explicit EngineeringOS query that retains the bounded objective contract.
+
 Questions about a displayed execution-status badge require a bounded reference
 to its exact assistant message, execution, and attempt. Do not infer execution
 scope from role/content history or inherit the previous objective just because

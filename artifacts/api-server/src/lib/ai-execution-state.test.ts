@@ -288,9 +288,11 @@ describe("claimAiExecution", () => {
 
 describe("autonomous operation contract", () => {
   it("projects only completed immutable objective claims after accepted analysis", () => {
-    const target = resolveProjectQueryTarget("Analyze my project architecture.");
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
+    const target = resolveProjectQueryTarget(message);
     expect(target).toBeDefined();
-    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    const objective = buildProjectQueryObjective(target!, message);
     const complete = { allowed: true, reasons: [] };
     const claimIds = objective.requiredClaims.map((claim) => claim.claimId);
     expect(deriveAcceptedClaimRefs({
@@ -311,8 +313,10 @@ describe("autonomous operation contract", () => {
   });
 
   it("keeps canonical objective refs bounded", () => {
-    const target = resolveProjectQueryTarget("Analyze my project architecture.");
-    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
     expect(deriveAcceptedClaimRefs({
       objective,
       completedClaims: objective.requiredClaims.map(({ claimId }) => claimId),
@@ -321,8 +325,10 @@ describe("autonomous operation contract", () => {
   });
 
   it("rejects broad or non-generic objectives even with matching-looking refs", () => {
-    const target = resolveProjectQueryTarget("Analyze my project architecture.");
-    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
     expect(deriveAcceptedClaimRefs({
       objective: { ...objective, objectiveType: "PROJECT_QUERY_GAP-ANALYSIS" },
       completedClaims: objective.requiredClaims.map(({ claimId }) => claimId),

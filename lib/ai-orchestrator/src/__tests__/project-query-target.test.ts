@@ -564,8 +564,39 @@ describe("target-aware project queries", () => {
     expect(resolveProjectQueryTarget("راجع المشروع بالكامل وابحث عن الفجوات")).toBeUndefined();
   });
 
-  it("resolves a bounded architecture question to the finite generic target", () => {
+  it("does not bind an unspecified project architecture query to EngineOS source paths", () => {
     const message = "Analyze my project architecture.";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.projectTarget).toBeUndefined();
+    expect(classification.projectTargetResolution).toBe("unresolved");
+    expect(intent.projectTarget).toBeUndefined();
+    expect(intent.projectTargetResolution).toBe("unresolved");
+    expect(intent.projectQueryTargetMode).toBe("source_first_discovery");
+    expect(intent.requiresTools).toBe(true);
+    expect(intent.kind).toBe("PROJECT_QUERY");
+  });
+
+  it("keeps a user's explicitly named source files out of the EngineOS target", () => {
+    const message = [
+      "In this project, what retry limit is defined by src/process-recovery.ts and src/recovery-policy.ts?",
+      "Do canRetry(1) and canRetry(2) return true or false?",
+      "Cite both files. No changes requested.",
+    ].join(" ");
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.projectTarget).toBeUndefined();
+    expect(intent.projectTarget).toBeUndefined();
+    expect(intent.projectTargetResolution).toBe("not_applicable");
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresTools).toBe(true);
+  });
+
+  it("resolves an explicitly scoped architecture question to the finite generic target", () => {
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
@@ -584,8 +615,10 @@ describe("target-aware project queries", () => {
   });
 
   it("accepts only the exact server-owned generic objective contract", () => {
-    const target = resolveProjectQueryTarget("Analyze my project architecture.");
-    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
 
     expect(extractGenericProjectQueryClaimIds(objective)).toEqual([
       "generic-project-routing",

@@ -776,6 +776,7 @@ const GENERIC_PROJECT_QUERY_EXCLUSION_RE =
   /(?:\b(?:audit|forensic|review|scan|investigate|root\s+cause|mutate|modify|change|fix|implement|create|write|delete)\b|تدقيق|جنائي|مراجعة|فحص|تحقيق|السبب\s+الجذري|عدّل|غيّر|أصلح|نفّذ|أنشئ|اكتب|احذف)/iu;
 const GENERIC_PROJECT_SCOPE_RE =
   /(?:\b(?:project|workspace|repository|repo|codebase)\b|مشروع|المشروع|مشروعي|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))/iu;
+const GENERIC_PROJECT_INTERNAL_REQUEST_RE = /\bEngineeringOS\b/iu;
 
 function hasTargetedDomainRequest(
   message: string,
@@ -916,6 +917,22 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
   const targetScopeSignal =
     /(?:تحليل|حلل|طبقة|بنية|معمارية|داخل\s+المشروع|المشروع|embedded|integrated|architecture|layer|layers|stack|analy[sz]|trace|flow|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|كيف\s+يعمل)/iu;
   const capabilityGapAudit = isCapabilityGapAuditRequest(message);
+  const genericProjectQuery =
+    !BROAD_GAP_REQUEST_RE.test(message)
+    && !PROJECT_ORIENTATION_RE.test(message.trim())
+    && !GENERIC_PROJECT_QUERY_EXCLUSION_RE.test(message)
+    && GENERIC_PROJECT_SCOPE_RE.test(message)
+    && AMBIGUOUS_PROJECT_ANALYSIS_RE.test(message);
+  // This contract asserts facts about EngineeringOS internals, not an
+  // arbitrary user's repository. Only bind it when the user explicitly names
+  // EngineeringOS; otherwise ambiguous architecture questions use source-first
+  // discovery under the current project root.
+  if (
+    genericProjectQuery
+    && GENERIC_PROJECT_INTERNAL_REQUEST_RE.test(message)
+  ) {
+    return materializeTarget(GENERIC_PROJECT_TARGET, 0.82);
+  }
   if (
     capabilityGapAudit
     && isGapAnalysisRequest(message)
@@ -952,15 +969,7 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
       (!isGapAnalysisRequest(message) && !isCapabilityGapAuditRequest(message))
       || BROAD_GAP_REQUEST_RE.test(message)
     ) {
-      const genericProjectQuery =
-        !BROAD_GAP_REQUEST_RE.test(message)
-        && !PROJECT_ORIENTATION_RE.test(message.trim())
-        && !GENERIC_PROJECT_QUERY_EXCLUSION_RE.test(message)
-        && GENERIC_PROJECT_SCOPE_RE.test(message)
-        && AMBIGUOUS_PROJECT_ANALYSIS_RE.test(message);
-      return genericProjectQuery
-        ? materializeTarget(GENERIC_PROJECT_TARGET, 0.82)
-        : undefined;
+      return undefined;
     }
     return materializeTarget(
       isCapabilityGapAuditRequest(message)

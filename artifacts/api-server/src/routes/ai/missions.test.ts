@@ -228,7 +228,8 @@ async function insertAcceptedProjectQuery(projectId: string) {
   const sourceRevision = "a".repeat(40);
   const workspaceRoot = `/tmp/mission-test-${projectId}`;
   const now = new Date();
-  const userMessage = "Analyze my project architecture.";
+  const userMessage =
+    "How does the EngineeringOS project-query evidence gate work?";
   const target = resolveProjectQueryTarget(userMessage);
   if (!target) throw new Error("Expected the generic PROJECT_QUERY fixture target");
   const objective = buildProjectQueryObjective(

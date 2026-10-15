@@ -1414,7 +1414,8 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
   });
 
   it("closes the bounded generic-project objective from retained evidence when provider synthesis fails", async () => {
-    const message = "Analyze my project architecture.";
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const target = resolveProjectQueryTarget(message);
     expect(target?.id).toBe("generic-project");
     const objective = buildProjectQueryObjective(target!, message);
@@ -1613,7 +1614,8 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     evidenceCase,
     missingClaimId,
   }) => {
-    const message = "Analyze my project architecture.";
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const target = resolveProjectQueryTarget(message);
     expect(target?.id).toBe("generic-project");
     const objective = buildProjectQueryObjective(target!, message);

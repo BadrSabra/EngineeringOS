@@ -3212,7 +3212,9 @@ describe("Durable AI execution crash/reconnect", () => {
         ].join(" ");
         const routedRecoveryQuestion = resolveTurnIntent(recoveryQuestion);
         expect(routedRecoveryQuestion.kind).toBe("PROJECT_QUERY");
-        expect(routedRecoveryQuestion.projectTarget?.id).toBe("generic-project");
+        expect(routedRecoveryQuestion.projectTarget).toBeUndefined();
+        expect(routedRecoveryQuestion.projectTargetResolution).toBe("not_applicable");
+        expect(routedRecoveryQuestion.requiresTools).toBe(true);
         const firstStream = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -4196,7 +4198,8 @@ describe("Durable AI execution crash/reconnect", () => {
     const workspaceRevision = project!.updatedAt.toISOString();
     const { buildProjectQueryObjective, resolveProjectQueryTarget } =
       await import("@workspace/ai-orchestrator");
-    const message = "Analyze my project architecture.";
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const projectQueryTarget = resolveProjectQueryTarget(message);
     expect(projectQueryTarget).toBeDefined();
     const requestEnvelope = {
@@ -8884,7 +8887,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   it("accepts the bounded generic PROJECT_QUERY objective through JSON, SSE, claim refs, and history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
-    const message = "Analyze my project architecture.";
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const sources = [
       "lib/ai-orchestrator/src/turn-intent.ts",
       "lib/ai-orchestrator/src/project-query-target.ts",
@@ -9348,7 +9352,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   it("preserves proof-bearing PROJECT_QUERY acceptance after a post-commit SSE error and client disconnect", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
-    const message = "Analyze my project architecture.";
+    const message =
+      "How does the EngineeringOS project-query evidence gate work?";
     const sources = [
       "lib/ai-orchestrator/src/turn-intent.ts",
       "lib/ai-orchestrator/src/project-query-target.ts",

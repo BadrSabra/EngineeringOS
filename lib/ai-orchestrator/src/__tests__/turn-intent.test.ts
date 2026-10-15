@@ -340,7 +340,7 @@ describe("resolveTurnIntent", () => {
   it.each([
     "Analyze my project architecture.",
     "حلل معمارية مشروعي.",
-  ])("binds an otherwise untargeted architecture question to the bounded generic contract: %s", (message) => {
+  ])("routes an unspecified architecture question through source-first discovery: %s", (message) => {
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
@@ -351,8 +351,10 @@ describe("resolveTurnIntent", () => {
       requiresEvidence: true,
       scopeClarificationRequired: false,
       operationMode: "CHAT",
-      projectTargetResolution: "resolved",
+      projectTargetResolution: "unresolved",
+      projectQueryTargetMode: "source_first_discovery",
     });
+    expect(intent.projectTarget).toBeUndefined();
     expect(classification.orderedForensicRoots).toEqual([]);
   });
 
