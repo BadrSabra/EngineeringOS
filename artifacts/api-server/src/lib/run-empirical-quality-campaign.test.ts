@@ -1,13 +1,13 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FREE_MODELS, GroqClientError, type EmpiricalQualityCorpus } from "@workspace/ai-orchestrator";
 import {
   EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES,
   EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET,
   empiricalReviewMaxTokens,
-  reviewWithOneSameModelJsonRepair,
+  reviewWithOneSameModelCorrection,
   resolveEmpiricalJsonModeForModel,
   runApiEmpiricalQualityCampaign,
   selectEmpiricalJsonMode,
@@ -52,6 +52,7 @@ const corpus: EmpiricalQualityCorpus = {
 };
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
@@ -241,22 +242,108 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("makes at most one repair call while keeping the pinned runner", async () => {
-    const invoked: Array<{ repair: boolean; model: string }> = [];
+    const invoked: Array<{
+      correction?: { kind: "json" | "quality"; priorError: unknown };
+      model: string;
+    }> = [];
     const priorErrors: unknown[] = [];
-    const result = await reviewWithOneSameModelJsonRepair(async (repairAttempt, priorError) => {
-      invoked.push({ repair: repairAttempt, model: "liquid/lfm-2.5-2.6b:free" });
-      priorErrors.push(priorError);
-      return repairAttempt
+    const result = await reviewWithOneSameModelCorrection(async (correction) => {
+      invoked.push({ correction, model: "liquid/lfm-2.5-2.6b:free" });
+      priorErrors.push(correction?.priorError);
+      return correction
         ? { _parseError: undefined, accepted: true }
         : { _parseError: { code: "MALFORMED_JSON" }, accepted: false };
     });
 
     expect(invoked).toEqual([
-      { repair: false, model: "liquid/lfm-2.5-2.6b:free" },
-      { repair: true, model: "liquid/lfm-2.5-2.6b:free" },
+      { correction: undefined, model: "liquid/lfm-2.5-2.6b:free" },
+      {
+        correction: { kind: "json", priorError: { code: "MALFORMED_JSON" } },
+        model: "liquid/lfm-2.5-2.6b:free",
+      },
     ]);
     expect(priorErrors).toEqual([undefined, { code: "MALFORMED_JSON" }]);
     expect(result.accepted).toBe(true);
+    expect(result._empiricalAttemptErrors).toEqual(["MALFORMED_JSON"]);
+  });
+
+  it("uses one same-model correction when valid JSON fails the quality gate", async () => {
+    const qualityFailure = {
+      code: "QUALITY_REVIEW_LOW" as const,
+      score: 0.4,
+      threshold: 0.7,
+      reasons: ["review has no supported finding"],
+    };
+    const corrections: Array<{ kind: "json" | "quality"; priorError: unknown } | undefined> = [];
+    const result = await reviewWithOneSameModelCorrection(async (correction) => {
+      corrections.push(correction);
+      return correction
+        ? { _parseError: undefined, _qualityError: undefined, accepted: true }
+        : { _parseError: undefined, _qualityError: qualityFailure, accepted: false };
+    });
+
+    expect(corrections).toEqual([
+      undefined,
+      { kind: "quality", priorError: qualityFailure },
+    ]);
+    expect(result.accepted).toBe(true);
+    expect(result._empiricalAttemptErrors).toEqual(["QUALITY_REVIEW_LOW"]);
+  });
+
+  it("keeps a quality rejection when the bounded correction also fails quality", async () => {
+    const qualityFailure = {
+      code: "QUALITY_REVIEW_LOW" as const,
+      score: 0.4,
+      threshold: 0.7,
+      reasons: ["review has no supported finding"],
+    };
+    const result = await reviewWithOneSameModelCorrection(async () => ({
+      _parseError: undefined,
+      _qualityError: qualityFailure,
+      accepted: false,
+    }));
+
+    expect(result._qualityError).toEqual(qualityFailure);
+    expect(result.accepted).toBe(false);
+    expect(result._empiricalAttemptErrors).toEqual([
+      "QUALITY_REVIEW_LOW",
+      "QUALITY_REVIEW_LOW",
+    ]);
+  });
+
+  it("preserves both attempt failures when the same-model repair call fails", async () => {
+    const result = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async () => reviewWithOneSameModelCorrection(async (correction) => {
+        if (correction) {
+          throw new GroqClientError("EMPTY_RESPONSE", "provider returned no content");
+        }
+        return {
+          summary: "Code review completed",
+          overallScore: 70,
+          strengths: [],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: "needs_changes" as const,
+          _parseError: { code: "MALFORMED_JSON", message: "Invalid JSON", raw: "private output" },
+        };
+      }),
+    });
+
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.cases[0]).toMatchObject({
+      outcome: "PROVIDER_UNAVAILABLE",
+      errorCode: "PROVIDER_UNAVAILABLE",
+      attemptErrors: ["MALFORMED_JSON", "PROVIDER_UNAVAILABLE"],
+      scored: false,
+      falseNegatives: 0,
+    });
+    expect(result.notRunCaseIds).toEqual(["clean-001"]);
+    expect(JSON.stringify(result)).not.toContain("private output");
   });
 
   it("raises only the bounded same-model repair output budget", () => {
@@ -467,6 +554,7 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("classifies malformed model output as an incomplete contract result, not provider unavailability", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const scorecard = await runApiEmpiricalQualityCampaign({
       corpus,
       provider: "openrouter",
@@ -493,7 +581,24 @@ describe("empirical provider campaign adapter", () => {
     expect(scorecard.metrics.providerUnavailableCount).toBe(0);
     expect(scorecard.metrics.errorCount).toBe(2);
     expect(scorecard.cases.every((entry) => entry.errorCode === "MALFORMED_JSON")).toBe(true);
+    expect(scorecard.cases.every((entry) => !entry.scored && entry.falseNegatives === 0)).toBe(true);
+    expect(scorecard.metrics.falseNegativeCount).toBe(0);
     expect(JSON.stringify(scorecard)).not.toContain("private provider text");
+    const rejectedDiagnostic = info.mock.calls
+      .map(([line]) => {
+        try {
+          return JSON.parse(String(line)) as Record<string, unknown>;
+        } catch {
+          return undefined;
+        }
+      })
+      .find((entry) => entry?.action === "review_contract_rejected");
+    expect(rejectedDiagnostic).toMatchObject({
+      action: "review_contract_rejected",
+      errorCode: "MALFORMED_JSON",
+    });
+    expect(rejectedDiagnostic).not.toHaveProperty("verdict");
+    expect(rejectedDiagnostic).not.toHaveProperty("findings");
   });
 
   it("quarantines remaining empirical cases after a typed shared-pool limit", async () => {

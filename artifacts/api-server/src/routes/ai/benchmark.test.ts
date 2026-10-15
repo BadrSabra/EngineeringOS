@@ -155,6 +155,7 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
       cases: [{
         caseId: "defect-001",
         outcome: "COMPLETE",
+        scored: true,
         truePositives: 1,
         falsePositives: 1,
         falseNegatives: 0,
@@ -165,6 +166,7 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
         qualityGateAccepted: true,
         falseAcceptance: false,
         falseRejection: false,
+        attemptErrors: ["MALFORMED_JSON", "private source text"],
         normalization: { changedFindingType: 0, changedSeverity: 1, droppedCitation: 0 },
         rawResponse: "must not be exposed",
         sourceBody: "must not be exposed",
@@ -177,12 +179,15 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
     expect(response.body.empiricalQualityStatus).toBe("MEASURED");
     expect(response.body.metrics.truePositiveCount).toBe(1);
     expect(response.body.cases[0].caseId).toBe("defect-001");
+    expect(response.body.cases[0].scored).toBe(true);
+    expect(response.body.cases[0].attemptErrors).toEqual(["MALFORMED_JSON"]);
     expect(response.body.cases[0].rawResponse).toBeUndefined();
     expect(response.body.cases[0].sourceBody).toBeUndefined();
     expect(JSON.stringify(response.body)).not.toContain("must not be exposed");
     expect(JSON.stringify(response.body)).not.toContain("provider secret response");
     expect(JSON.stringify(response.body)).not.toContain("model secret response");
     expect(JSON.stringify(response.body)).not.toContain("raw blocker with source body");
+    expect(JSON.stringify(response.body)).not.toContain("private source text");
   });
 });
 

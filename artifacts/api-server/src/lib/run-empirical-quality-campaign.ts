@@ -29,20 +29,92 @@ import { createHostDisposableTempDirectory, HOST_DISPOSABLE_TEMP_ROOT } from "./
 const execFileAsync = promisify(execFile);
 export const EMPIRICAL_QUALITY_MAX_SELECTED_FILE_BYTES = 70_000;
 export const EMPIRICAL_QUALITY_REVIEW_INPUT_CHAR_BUDGET = 24_000;
-const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-evidence-window-citation-v11";
+const EMPIRICAL_QUALITY_EVALUATOR_REVISION = "code-review-evidence-window-citation-v12";
 
-export async function reviewWithOneSameModelJsonRepair<T extends { _parseError?: unknown }>(
-  review: (repairAttempt: boolean, priorParseError?: unknown) => Promise<T>,
-): Promise<T> {
-  const initial = await review(false);
-  if (!initial._parseError) return initial;
+type EmpiricalCaseErrorCode = NonNullable<EmpiricalCaseObservation["errorCode"]>;
+type ReviewResultWithAttemptErrors = CodeReviewResult & {
+  _empiricalAttemptErrors?: EmpiricalCaseErrorCode[];
+};
+
+const SAFE_EMPIRICAL_ATTEMPT_ERROR_CODES = new Set<EmpiricalCaseErrorCode>([
+  "PROVIDER_UNAVAILABLE",
+  "RATE_LIMITED",
+  "TIMEOUT",
+  "EXECUTION_ERROR",
+  "INCOMPLETE_EVIDENCE",
+  "EMPTY_MODEL_RESPONSE",
+  "MALFORMED_JSON",
+  "SCHEMA_VALIDATION_FAILED",
+  "QUALITY_REVIEW_LOW",
+]);
+
+function safeEmpiricalAttemptErrorCode(error: unknown): EmpiricalCaseErrorCode {
+  if (error instanceof GroqClientError) {
+    const classified = classifyProviderError(error);
+    return classified && SAFE_EMPIRICAL_ATTEMPT_ERROR_CODES.has(classified)
+      ? classified
+      : "EXECUTION_ERROR";
+  }
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && SAFE_EMPIRICAL_ATTEMPT_ERROR_CODES.has(code as EmpiricalCaseErrorCode)) {
+      return code as EmpiricalCaseErrorCode;
+    }
+  }
+  return "EXECUTION_ERROR";
+}
+
+class SameModelCorrectionFailure extends Error {
+  constructor(
+    readonly attemptErrors: EmpiricalCaseErrorCode[],
+    readonly repairError: unknown,
+  ) {
+    super("The same-model contract correction attempt failed.");
+    this.name = "SameModelCorrectionFailure";
+  }
+}
+
+export type SameModelReviewCorrection = {
+  kind: "json" | "quality";
+  priorError: unknown;
+};
+
+export async function reviewWithOneSameModelCorrection<T extends {
+  _parseError?: unknown;
+  _qualityError?: unknown;
+}>(
+  review: (correction?: SameModelReviewCorrection) => Promise<T>,
+): Promise<T & { _empiricalAttemptErrors?: EmpiricalCaseErrorCode[] }> {
+  const initial = await review();
+  const correction = initial._parseError
+    ? { kind: "json" as const, priorError: initial._parseError }
+    : initial._qualityError
+      ? { kind: "quality" as const, priorError: initial._qualityError }
+      : undefined;
+  if (!correction) return initial;
+  const initialErrorCode = safeEmpiricalAttemptErrorCode(correction.priorError);
   console.info(JSON.stringify({
     scope: "empirical-quality",
-    action: "same_model_json_repair",
+    action: "same_model_contract_correction",
     attempt: 2,
-    reason: "initial_contract_failure",
+    reason: correction.kind === "json" ? "initial_schema_failure" : "initial_quality_rejection",
   }));
-  return review(true, initial._parseError);
+  try {
+    const repaired = await review(correction);
+    const repairFailure = repaired._parseError ?? repaired._qualityError;
+    return {
+      ...repaired,
+      _empiricalAttemptErrors: [
+        initialErrorCode,
+        ...(repairFailure ? [safeEmpiricalAttemptErrorCode(repairFailure)] : []),
+      ],
+    };
+  } catch (repairError) {
+    throw new SameModelCorrectionFailure(
+      [initialErrorCode, safeEmpiricalAttemptErrorCode(repairError)],
+      repairError,
+    );
+  }
 }
 
 class IncompleteEmpiricalEvidenceError extends Error {
@@ -100,7 +172,7 @@ export type EmpiricalCaseWorkspaceFactory = (
 
 export type EmpiricalCaseReview = (
   input: EmpiricalCaseReviewInput,
-) => Promise<CodeReviewResult>;
+) => Promise<ReviewResultWithAttemptErrors>;
 
 export function selectEmpiricalJsonMode(
   model: OpenRouterFreeModel | undefined,
@@ -222,7 +294,7 @@ function classifyProviderError(error: unknown): EmpiricalCaseObservation["errorC
 
 function projectReviewObservation(
   testCase: EmpiricalCorpusCase,
-  result: CodeReviewResult,
+  result: ReviewResultWithAttemptErrors,
   latencyMs: number,
   fileContents: Record<string, string>,
   providerModel?: string,
@@ -280,6 +352,9 @@ function projectReviewObservation(
     qualityGateAccepted: !incomplete && result.verdict === "approved",
     semanticVerdict: incomplete ? "unknown" : result.issues.length > 0 ? "findings" : "clean",
     observedFindings,
+    ...(result._empiricalAttemptErrors?.length
+      ? { attemptErrors: result._empiricalAttemptErrors.slice(0, 2) }
+      : {}),
     ...(providerModel ? { providerModel } : {}),
     normalization: { droppedCitation },
     latencyMs,
@@ -405,20 +480,23 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     jsonObjectOnly = selectedMode.jsonObjectOnly;
     process.env.OPENROUTER_MODEL = input.model;
   }
-  const runReview = (repairAttempt: boolean, priorParseError?: unknown) => {
+  const runReview = (correction?: SameModelReviewCorrection) => {
+    const repairAttempt = correction?.kind === "json";
+    const qualityCorrectionAttempt = correction?.kind === "quality";
+    const priorError = correction?.priorError;
     const priorModelOutput =
-      typeof priorParseError === "object" &&
-      priorParseError !== null &&
-      "raw" in priorParseError &&
-      typeof priorParseError.raw === "string"
-        ? priorParseError.raw.slice(0, 16_000)
+      typeof priorError === "object" &&
+      priorError !== null &&
+      "raw" in priorError &&
+      typeof priorError.raw === "string"
+        ? priorError.raw.slice(0, 16_000)
         : undefined;
     const priorParseErrorMessage =
-      typeof priorParseError === "object" &&
-      priorParseError !== null &&
-      "message" in priorParseError &&
-      typeof priorParseError.message === "string"
-        ? priorParseError.message.replace(/\s+/g, " ").trim().slice(0, 240)
+      typeof priorError === "object" &&
+      priorError !== null &&
+      "message" in priorError &&
+      typeof priorError.message === "string"
+        ? priorError.message.replace(/\s+/g, " ").trim().slice(0, 240)
         : undefined;
     return reviewCode(
       context,
@@ -437,6 +515,10 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
       {
         requireSelectedFileFinding: false,
         repairAttempt,
+        qualityCorrectionAttempt,
+        priorQualityFailure: qualityCorrectionAttempt
+          ? priorError as NonNullable<CodeReviewResult["_qualityError"]>
+          : undefined,
         promptOnlyJson,
         jsonObjectOnly,
         empiricalStrictEvidence: true,
@@ -447,9 +529,9 @@ const defaultReviewCase: EmpiricalCaseReview = async (input) => {
     );
   };
   if (input.provider === "openrouter" && input.model) {
-    return reviewWithOneSameModelJsonRepair(runReview);
+    return reviewWithOneSameModelCorrection(runReview);
   }
-  return runReview(false);
+  return runReview();
 };
 
 const defaultWorkspaceFactory: EmpiricalCaseWorkspaceFactory = cloneReviewedRepository;
@@ -533,40 +615,56 @@ export async function runApiEmpiricalQualityCampaign(
             if (model) providerModel = model;
           },
         });
-        console.info(JSON.stringify({
-          scope: "empirical-quality",
-          action: "safe_finding_diagnostics",
-          caseId: testCase.id,
-          verdict: result.verdict,
-          findings: result.issues.map((issue) => {
-            const file = typeof issue.file === "string" && testCase.selectedFiles.includes(issue.file.trim())
-              ? issue.file.trim()
-              : null;
-            return {
-              file,
-              lineStart: Number.isInteger(issue.lineStart) ? issue.lineStart : null,
-              lineEnd: Number.isInteger(issue.lineEnd) ? issue.lineEnd : null,
-              type: issue.type,
-              severity: issue.severity,
-            };
-          }),
-        }));
+        const contractFailure = result._parseError ?? result._qualityError;
+        if (contractFailure) {
+          console.info(JSON.stringify({
+            scope: "empirical-quality",
+            action: "review_contract_rejected",
+            caseId: testCase.id,
+            errorCode: safeEmpiricalAttemptErrorCode(contractFailure),
+            ...(result._empiricalAttemptErrors?.length
+              ? { attemptErrors: result._empiricalAttemptErrors.slice(0, 2) }
+              : {}),
+          }));
+        } else {
+          console.info(JSON.stringify({
+            scope: "empirical-quality",
+            action: "safe_finding_diagnostics",
+            caseId: testCase.id,
+            verdict: result.verdict,
+            findings: result.issues.map((issue) => {
+              const file = typeof issue.file === "string" && testCase.selectedFiles.includes(issue.file.trim())
+                ? issue.file.trim()
+                : null;
+              return {
+                file,
+                lineStart: Number.isInteger(issue.lineStart) ? issue.lineStart : null,
+                lineEnd: Number.isInteger(issue.lineEnd) ? issue.lineEnd : null,
+                type: issue.type,
+                severity: issue.severity,
+              };
+            }),
+          }));
+        }
         return projectReviewObservation(testCase, result, Date.now() - startedAt, fileContents, providerModel);
       } catch (error) {
-        const errorCode = classifyProviderError(error);
+        const repairFailure = error instanceof SameModelCorrectionFailure ? error : undefined;
+        const underlyingError = repairFailure?.repairError ?? error;
+        const errorCode = classifyProviderError(underlyingError);
         console.warn(JSON.stringify({
           scope: "empirical-quality",
           action: "case_execution_failed",
           caseId: testCase.id,
           errorCode,
-          errorKind: error instanceof Error ? error.name : typeof error,
-          ...(error instanceof GroqClientError ? { providerErrorCode: error.code } : {}),
+          errorKind: underlyingError instanceof Error ? underlyingError.name : typeof underlyingError,
+          ...(underlyingError instanceof GroqClientError ? { providerErrorCode: underlyingError.code } : {}),
+          ...(repairFailure ? { attemptErrors: repairFailure.attemptErrors } : {}),
         }));
         const providerRateLimitScope =
-          error instanceof GroqClientError &&
-          (error.rateLimitScope === "upstream_shared_pool" ||
-            error.rateLimitScope === "provider_credential")
-            ? error.rateLimitScope
+          underlyingError instanceof GroqClientError &&
+          (underlyingError.rateLimitScope === "upstream_shared_pool" ||
+            underlyingError.rateLimitScope === "provider_credential")
+            ? underlyingError.rateLimitScope
             : undefined;
         return {
           outcome: errorCode === "TIMEOUT" ? "TIMEOUT" : errorCode === "PROVIDER_UNAVAILABLE" ? "PROVIDER_UNAVAILABLE" : "ERROR",
@@ -575,9 +673,10 @@ export async function runApiEmpiricalQualityCampaign(
           semanticVerdict: "unknown",
           observedFindings: [],
           errorCode,
+          ...(repairFailure ? { attemptErrors: repairFailure.attemptErrors } : {}),
           ...(providerRateLimitScope ? { providerRateLimitScope } : {}),
-          ...(error instanceof GroqClientError && error.providerModel
-            ? { providerModel: error.providerModel }
+          ...(underlyingError instanceof GroqClientError && underlyingError.providerModel
+            ? { providerModel: underlyingError.providerModel }
             : {}),
           latencyMs: Date.now() - startedAt,
         };

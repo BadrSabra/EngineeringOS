@@ -93,6 +93,17 @@ export type EmpiricalNormalizationCounters = {
   droppedCitation: number;
 };
 
+export type EmpiricalCaseErrorCode =
+  | "PROVIDER_UNAVAILABLE"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "EXECUTION_ERROR"
+  | "INCOMPLETE_EVIDENCE"
+  | "EMPTY_MODEL_RESPONSE"
+  | "MALFORMED_JSON"
+  | "SCHEMA_VALIDATION_FAILED"
+  | "QUALITY_REVIEW_LOW";
+
 export type EmpiricalCaseObservation = {
   caseId: string;
   outcome: "COMPLETE" | "PROVIDER_UNAVAILABLE" | "TIMEOUT" | "ERROR";
@@ -104,16 +115,9 @@ export type EmpiricalCaseObservation = {
   observedFindings: readonly EmpiricalObservedFinding[];
   normalization?: Partial<EmpiricalNormalizationCounters>;
   latencyMs?: number;
-  errorCode?:
-    | "PROVIDER_UNAVAILABLE"
-    | "RATE_LIMITED"
-    | "TIMEOUT"
-    | "EXECUTION_ERROR"
-    | "INCOMPLETE_EVIDENCE"
-    | "EMPTY_MODEL_RESPONSE"
-    | "MALFORMED_JSON"
-    | "SCHEMA_VALIDATION_FAILED"
-    | "QUALITY_REVIEW_LOW";
+  errorCode?: EmpiricalCaseErrorCode;
+  /** Ordered safe error codes from the initial review and optional repair attempt. */
+  attemptErrors?: EmpiricalCaseErrorCode[];
   /** Internal provider-lane signal; it is not emitted in the quality score. */
   providerRateLimitScope?: Extract<ProviderRateLimitScope, "upstream_shared_pool" | "provider_credential">;
 };
@@ -121,6 +125,8 @@ export type EmpiricalCaseObservation = {
 export type EmpiricalCaseScore = {
   caseId: string;
   outcome: EmpiricalCaseObservation["outcome"];
+  /** False means the case outcome could not be scored against ground truth. */
+  scored: boolean;
   providerModel?: string;
   truePositives: number;
   falsePositives: number;
@@ -138,6 +144,7 @@ export type EmpiricalCaseScore = {
   normalization: EmpiricalNormalizationCounters;
   latencyMs?: number;
   errorCode?: EmpiricalCaseObservation["errorCode"];
+  attemptErrors?: EmpiricalCaseErrorCode[];
 };
 
 export type EmpiricalQualityMetrics = {
@@ -491,8 +498,9 @@ export function scoreEmpiricalQualityCase(
   testCase: EmpiricalCorpusCase,
   observation: EmpiricalCaseObservation,
 ): EmpiricalCaseScore {
+  const scored = observation.outcome === "COMPLETE" && observation.contractPassed;
   const expectedFindings = [...testCase.findings];
-  const observedFindings = [...observation.observedFindings];
+  const observedFindings = scored ? [...observation.observedFindings] : [];
   const matchedExpected = new Set<string>();
   let truePositives = 0;
   let citationCoveredFindings = 0;
@@ -509,18 +517,19 @@ export function scoreEmpiricalQualityCase(
     }
   }
 
-  const falseNegatives = expectedFindings.length - matchedExpected.size;
+  const falseNegatives = scored ? expectedFindings.length - matchedExpected.size : 0;
   const falsePositives = observedFindings.length - truePositives;
   const semanticVerdictConsistent =
-    observation.semanticVerdict === testCase.expectedVerdict;
+    scored && observation.semanticVerdict === testCase.expectedVerdict;
   const falseAcceptance =
-    observation.qualityGateAccepted && testCase.expectedGateDecision === "reject";
+    scored && observation.qualityGateAccepted && testCase.expectedGateDecision === "reject";
   const falseRejection =
-    !observation.qualityGateAccepted && testCase.expectedGateDecision === "accept";
+    scored && !observation.qualityGateAccepted && testCase.expectedGateDecision === "accept";
 
   return {
     caseId: testCase.id,
     outcome: observation.outcome,
+    scored,
     ...(observation.providerModel
       ? { providerModel: safeLabel(observation.providerModel, "redacted-model") }
       : {}),
@@ -536,6 +545,9 @@ export function scoreEmpiricalQualityCase(
     qualityGateAccepted: observation.qualityGateAccepted,
     falseAcceptance,
     falseRejection,
+    ...(observation.attemptErrors?.length
+      ? { attemptErrors: observation.attemptErrors.slice(0, 2) }
+      : {}),
     normalization: safeNormalization(observation.normalization),
     ...(observation.latencyMs === undefined ? {} : {
       latencyMs: Math.max(0, Math.floor(observation.latencyMs)),
@@ -565,11 +577,13 @@ export function buildEmpiricalQualityScorecard(args: {
   generatedAt?: string;
 }): EmpiricalQualityScorecard {
   const results = [...args.results].slice(0, args.corpus.cases.length);
+  const isScored = (result: EmpiricalCaseScore) =>
+    result.scored ?? (result.outcome === "COMPLETE" && result.contractPassed);
   const observedCaseIds = new Set(results.map((result) => result.caseId));
   const notRunCaseIds = args.corpus.cases
     .filter((testCase) => !observedCaseIds.has(testCase.id))
     .map((testCase) => testCase.id);
-  const completed = results.filter((result) => result.outcome === "COMPLETE");
+  const completed = results.filter(isScored);
   const latencies = completed.flatMap((result) => result.latencyMs === undefined ? [] : [result.latencyMs]);
   const tp = completed.reduce((sum, result) => sum + result.truePositives, 0);
   const fp = completed.reduce((sum, result) => sum + result.falsePositives, 0);
@@ -612,7 +626,9 @@ export function buildEmpiricalQualityScorecard(args: {
   if (results.some((result) =>
     result.outcome === "ERROR" && result.errorCode !== "INCOMPLETE_EVIDENCE"
   )) blockers.push("campaign execution error");
-  if (completed.some((result) => !result.contractPassed)) blockers.push("contract acceptance failure");
+  if (results.some((result) => result.outcome === "COMPLETE" && !result.contractPassed)) {
+    blockers.push("contract acceptance failure");
+  }
   if (falseAcceptanceCount > 0) blockers.push("false acceptance detected");
   if (falseRejectionCount > 0) blockers.push("false rejection detected");
   if (completed.some((result) => result.falsePositives > 0)) blockers.push("false positives detected");
@@ -765,7 +781,12 @@ export async function runEmpiricalQualityCampaign(args: {
       }
       reusableById.set(result.caseId, result);
     }
-    results.push(...prior.cases.filter((entry) => entry.outcome === "COMPLETE"));
+     results.push(...prior.cases
+       .filter((entry) => entry.outcome === "COMPLETE")
+       .map((entry) => ({
+         ...entry,
+         scored: entry.scored ?? entry.contractPassed,
+       })));
   }
   const generatedAt = args.generatedAt ?? new Date().toISOString();
   const campaignDeadline = args.campaignTimeoutMs === undefined

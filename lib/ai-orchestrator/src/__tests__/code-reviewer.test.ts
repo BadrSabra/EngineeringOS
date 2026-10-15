@@ -76,6 +76,35 @@ describe("reviewCode selected-file acceptance", () => {
     expect(result._qualityError?.reasons.join(" ")).toContain("without findings");
   });
 
+  it("adds a bounded quality correction without echoing prior model output", async () => {
+    agentComplete.mockResolvedValue({
+      content: JSON.stringify({ ...baseReview, issues: [] }),
+    });
+    const qualityFailure = {
+      code: "QUALITY_REVIEW_LOW" as const,
+      score: 0.4,
+      threshold: 0.7,
+      reasons: ["review has no supported finding"],
+    };
+
+    await reviewCode(
+      context,
+      { "src/example.ts": "export const value = 1;" },
+      { provider: "openrouter", apiKey: "test-key", qualityProfile: "code_review" },
+      {
+        qualityCorrectionAttempt: true,
+        priorQualityFailure: qualityFailure,
+        promptOnlyJson: true,
+      },
+    );
+
+    const messages = agentComplete.mock.calls.at(-1)?.[0] as Array<{ role: string; content: string }>;
+    expect(messages.some(({ content }) => content.includes("[STRUCTURED REVIEW QUALITY CORRECTION]"))).toBe(true);
+    expect(messages.some(({ content }) => content.includes("review has no supported finding"))).toBe(true);
+    expect(messages.some(({ content }) => content.includes("[FINAL OUTPUT FORMAT — REQUIRED]"))).toBe(true);
+    expect(JSON.stringify(messages)).not.toContain("prior model output");
+  });
+
   it("accepts a finding that cites one of the selected files", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({

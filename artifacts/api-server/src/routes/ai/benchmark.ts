@@ -492,6 +492,7 @@ const SAFE_EMPIRICAL_BLOCKERS = new Set([
 ]);
 const SAFE_EMPIRICAL_ERROR_CODES = new Set([
   "PROVIDER_UNAVAILABLE", "RATE_LIMITED", "TIMEOUT", "EXECUTION_ERROR", "INCOMPLETE_EVIDENCE",
+  "EMPTY_MODEL_RESPONSE", "MALFORMED_JSON", "SCHEMA_VALIDATION_FAILED", "QUALITY_REVIEW_LOW",
 ]);
 const SAFE_EMPIRICAL_OUTCOMES = new Set(["COMPLETE", "PROVIDER_UNAVAILABLE", "TIMEOUT", "ERROR"]);
 const SAFE_PUBLIC_IDENTIFIER = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
@@ -735,6 +736,9 @@ function projectBoundedEmpiricalScorecard(value: unknown): BoundedEmpiricalQuali
     .map((entry) => ({
       caseId: safePublicIdentifier(entry.caseId, 160)!,
       outcome: entry.outcome,
+      scored: typeof entry.scored === "boolean"
+        ? entry.scored
+        : entry.outcome === "COMPLETE" && entry.contractPassed === true,
       ...(typeof entry.truePositives === "number" ? { truePositives: entry.truePositives } : {}),
       ...(typeof entry.falsePositives === "number" ? { falsePositives: entry.falsePositives } : {}),
       ...(typeof entry.falseNegatives === "number" ? { falseNegatives: entry.falseNegatives } : {}),
@@ -745,6 +749,14 @@ function projectBoundedEmpiricalScorecard(value: unknown): BoundedEmpiricalQuali
       ...(typeof entry.qualityGateAccepted === "boolean" ? { qualityGateAccepted: entry.qualityGateAccepted } : {}),
       ...(typeof entry.falseAcceptance === "boolean" ? { falseAcceptance: entry.falseAcceptance } : {}),
       ...(typeof entry.falseRejection === "boolean" ? { falseRejection: entry.falseRejection } : {}),
+      ...(Array.isArray(entry.attemptErrors)
+        ? {
+            attemptErrors: entry.attemptErrors
+              .filter((code): code is string =>
+                typeof code === "string" && SAFE_EMPIRICAL_ERROR_CODES.has(code))
+              .slice(0, 2),
+          }
+        : {}),
       ...(typeof entry.latencyMs === "number" ? { latencyMs: entry.latencyMs } : {}),
        ...(typeof entry.errorCode === "string" && SAFE_EMPIRICAL_ERROR_CODES.has(entry.errorCode)
          ? { errorCode: entry.errorCode } : {}),

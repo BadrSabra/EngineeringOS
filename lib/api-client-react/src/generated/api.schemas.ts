@@ -745,6 +745,21 @@ export const AiEmpiricalQualityCaseOutcome = {
   ERROR: 'ERROR',
 } as const;
 
+export type AiEmpiricalQualityCaseAttemptErrorsItem = typeof AiEmpiricalQualityCaseAttemptErrorsItem[keyof typeof AiEmpiricalQualityCaseAttemptErrorsItem];
+
+
+export const AiEmpiricalQualityCaseAttemptErrorsItem = {
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  RATE_LIMITED: 'RATE_LIMITED',
+  TIMEOUT: 'TIMEOUT',
+  EXECUTION_ERROR: 'EXECUTION_ERROR',
+  INCOMPLETE_EVIDENCE: 'INCOMPLETE_EVIDENCE',
+  EMPTY_MODEL_RESPONSE: 'EMPTY_MODEL_RESPONSE',
+  MALFORMED_JSON: 'MALFORMED_JSON',
+  SCHEMA_VALIDATION_FAILED: 'SCHEMA_VALIDATION_FAILED',
+  QUALITY_REVIEW_LOW: 'QUALITY_REVIEW_LOW',
+} as const;
+
 export interface AiEmpiricalQualityCase {
   caseId: string;
   outcome: AiEmpiricalQualityCaseOutcome;
@@ -758,6 +773,9 @@ export interface AiEmpiricalQualityCase {
   qualityGateAccepted: boolean;
   falseAcceptance: boolean;
   falseRejection: boolean;
+  scored?: boolean;
+  /** @maxItems 2 */
+  attemptErrors?: AiEmpiricalQualityCaseAttemptErrorsItem[];
   normalization: AiEmpiricalQualityNormalizationCounters;
   latencyMs?: number;
   errorCode?: string;

@@ -9,6 +9,12 @@ OpenRouter catalog access and a successful completion are not sufficient for a l
 
 **How to apply:** Keep provider readiness, model fallback, contract parsing, evidence correlation, and final acceptance as separate gates in future live campaigns and release receipts. When reconciling a run, pass partial prefetch paths explicitly so the ledger excludes them while the UI can still report incomplete coverage.
 
+OpenRouter's public `/models` catalog does not attest that a model is eligible for the ordinary chat-completions endpoint. The model-specific endpoints API is restricted to management keys; do not infer endpoint eligibility from `supported_parameters` or maintain an unsupported static denylist. Agent-harness-only 400/403 responses remain model-unavailable failures, and bounded empirical campaigns stop rather than retrying the rejected route across cases.
+
+**Why:** The documented endpoint-list operation returns 403 unless the caller has a management key, while public model metadata only describes model-level capabilities.
+
+**How to apply:** Add a preflight only if the runtime gains documented access to endpoint eligibility data or another server-owned source; until then, keep the narrow failure classification and do not run broader campaigns after the model is rejected.
+
 OpenRouter telemetry's `outputTextLength` measures only top-level `output_text`; a zero there does not mean `message.content` is empty. Some free endpoints return nonempty visible content that is malformed JSON, while others return an empty object or no message content. Reasoning metadata is separate and never substitutes for accepted structured output. Raising the code-review output budget from 2,048 to 4,096 tokens did not establish reliable acceptance.
 
 **Why:** Live probes showed `contentLength` can be substantial while `outputTextLength` is zero; relying on the latter alone misclassifies malformed visible completions as reasoning-only output.

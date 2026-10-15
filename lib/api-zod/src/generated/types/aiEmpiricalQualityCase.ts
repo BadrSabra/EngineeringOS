@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiEmpiricalQualityCaseAttemptErrorsItem } from './aiEmpiricalQualityCaseAttemptErrorsItem';
 import type { AiEmpiricalQualityCaseOutcome } from './aiEmpiricalQualityCaseOutcome';
 import type { AiEmpiricalQualityNormalizationCounters } from './aiEmpiricalQualityNormalizationCounters';
 
@@ -21,6 +22,9 @@ export interface AiEmpiricalQualityCase {
   qualityGateAccepted: boolean;
   falseAcceptance: boolean;
   falseRejection: boolean;
+  scored?: boolean;
+  /** @maxItems 2 */
+  attemptErrors?: AiEmpiricalQualityCaseAttemptErrorsItem[];
   normalization: AiEmpiricalQualityNormalizationCounters;
   latencyMs?: number;
   errorCode?: string;

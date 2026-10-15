@@ -81,6 +81,7 @@ export * from './aiDeliveryPolicyUpdate';
 export * from './aiDiagnosticsRetentionHealth';
 export * from './aiDiagnosticsRetentionHealthStatus';
 export * from './aiEmpiricalQualityCase';
+export * from './aiEmpiricalQualityCaseAttemptErrorsItem';
 export * from './aiEmpiricalQualityCaseOutcome';
 export * from './aiEmpiricalQualityMetrics';
 export * from './aiEmpiricalQualityMetricsLatencyMs';

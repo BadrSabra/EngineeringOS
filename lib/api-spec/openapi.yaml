@@ -5197,6 +5197,16 @@ components:
         qualityGateAccepted: { type: boolean }
         falseAcceptance: { type: boolean }
         falseRejection: { type: boolean }
+        scored: { type: boolean }
+        attemptErrors:
+          type: array
+          maxItems: 2
+          items:
+            type: string
+            enum:
+              [PROVIDER_UNAVAILABLE, RATE_LIMITED, TIMEOUT, EXECUTION_ERROR,
+               INCOMPLETE_EVIDENCE, EMPTY_MODEL_RESPONSE, MALFORMED_JSON,
+               SCHEMA_VALIDATION_FAILED, QUALITY_REVIEW_LOW]
         normalization:
           $ref: "#/components/schemas/AiEmpiricalQualityNormalizationCounters"
         latencyMs: { type: integer }

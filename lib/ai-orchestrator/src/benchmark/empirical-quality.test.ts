@@ -202,6 +202,8 @@ describe("empirical AI quality oracle", () => {
             errorCode: "PROVIDER_UNAVAILABLE",
           },
     });
+    const legacyPrior = structuredClone(prior);
+    for (const entry of legacyPrior.cases) Reflect.deleteProperty(entry, "scored");
     const attempted: string[] = [];
     const resumed = await runEmpiricalQualityCampaign({
       corpus,
@@ -209,7 +211,7 @@ describe("empirical AI quality oracle", () => {
       model: "fixture-model",
       structuredOutputMode: "prompt_only_json",
       resumeBinding: binding,
-      resumeFrom: prior,
+      resumeFrom: legacyPrior,
       executeCase: async (testCase) => {
         attempted.push(testCase.id);
         return {
@@ -229,6 +231,7 @@ describe("empirical AI quality oracle", () => {
     expect(resumed.empiricalQualityStatus).toBe("PROVEN");
     expect(resumed.resumeBinding).toEqual(binding);
     expect(resumed.cases.map((entry) => entry.caseId)).toEqual(["defect-001", "clean-001"]);
+    expect(resumed.cases[0]?.scored).toBe(true);
   });
 
   it("rejects resumes with a different binding or a failed completed case", async () => {
@@ -410,6 +413,8 @@ describe("empirical AI quality oracle", () => {
     });
     expect(scorecard.status).toBe("UNAVAILABLE");
     expect(scorecard.metrics.providerUnavailableCount).toBe(1);
+    expect(result.scored).toBe(false);
+    expect(result.falseNegatives).toBe(0);
     expect(scorecard.metrics.falseNegativeCount).toBe(0);
     expect(scorecard.blockers).toContain("provider unavailable");
   });

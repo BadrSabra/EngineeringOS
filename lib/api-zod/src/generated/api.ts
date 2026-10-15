@@ -5592,6 +5592,8 @@ export const getAiEmpiricalQualityScorecardResponseMetricsFalseAcceptanceRateMax
 export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMin = 0;
 export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMax = 1;
 
+export const getAiEmpiricalQualityScorecardResponseCasesItemAttemptErrorsMax = 2;
+
 export const getAiEmpiricalQualityScorecardResponseCasesMax = 128;
 
 
@@ -5653,6 +5655,8 @@ export const GetAiEmpiricalQualityScorecardResponse = zod.object({
   "qualityGateAccepted": zod.boolean(),
   "falseAcceptance": zod.boolean(),
   "falseRejection": zod.boolean(),
+  "scored": zod.boolean().optional(),
+  "attemptErrors": zod.array(zod.enum(['PROVIDER_UNAVAILABLE', 'RATE_LIMITED', 'TIMEOUT', 'EXECUTION_ERROR', 'INCOMPLETE_EVIDENCE', 'EMPTY_MODEL_RESPONSE', 'MALFORMED_JSON', 'SCHEMA_VALIDATION_FAILED', 'QUALITY_REVIEW_LOW'])).max(getAiEmpiricalQualityScorecardResponseCasesItemAttemptErrorsMax).optional(),
   "normalization": zod.object({
   "changedFindingType": zod.number().int(),
   "changedSeverity": zod.number().int(),
@@ -5730,6 +5734,8 @@ export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseAc
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMin = 0;
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRejectionRateMax = 1;
+
+export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesItemAttemptErrorsMax = 2;
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax = 128;
 
@@ -5967,6 +5973,8 @@ export const GetAiMissionControlResponse = zod.object({
   "qualityGateAccepted": zod.boolean(),
   "falseAcceptance": zod.boolean(),
   "falseRejection": zod.boolean(),
+  "scored": zod.boolean().optional(),
+  "attemptErrors": zod.array(zod.enum(['PROVIDER_UNAVAILABLE', 'RATE_LIMITED', 'TIMEOUT', 'EXECUTION_ERROR', 'INCOMPLETE_EVIDENCE', 'EMPTY_MODEL_RESPONSE', 'MALFORMED_JSON', 'SCHEMA_VALIDATION_FAILED', 'QUALITY_REVIEW_LOW'])).max(getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesItemAttemptErrorsMax).optional(),
   "normalization": zod.object({
   "changedFindingType": zod.number().int(),
   "changedSeverity": zod.number().int(),
