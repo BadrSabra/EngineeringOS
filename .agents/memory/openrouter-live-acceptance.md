@@ -116,3 +116,9 @@ Exact-model Code Agent evaluations must cap provider fallback and disable the to
 **Why:** Live campaign traces showed an empty model response replaying before a timeout, and a received invalid tool call being counted as provider unavailability. Those states have different implications for candidate quality and provider health.
 
 **How to apply:** Bind all tool-loop calls in explicit-model evaluations to one candidate, do not replay EMPTY_RESPONSE in that mode, and classify INVALID_TOOL_CALL/INVALID_PROVIDER_RESPONSE separately from true timeout, network, quota, and service failures. Keep ordinary chat retry behavior unchanged.
+
+For multi-model empirical quality evaluations, screen each exact candidate with a separately labeled balanced defect/control pair before running the canonical corpus. A pair is only a triage filter: require both cases to complete with exact model identity and no contract, citation, false-positive, or false-negative blockers before spending the full corpus. Stop a pinned card once a blocker makes `PROVEN` impossible; never report a pair result as full-corpus proof.
+
+**Why:** The full-corpus scorecard is fail-closed, so later cases cannot restore `PROVEN` after an accepted-case blocker, while free endpoints may be slow, throttled, malformed, or unavailable.
+
+**How to apply:** Give the pair its own corpus revision and scorecard for each candidate. Promote only a clean pair to the canonical corpus, keep model fallback disabled, and record skipped cases when a candidate fails early.
