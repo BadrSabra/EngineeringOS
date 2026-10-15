@@ -3,6 +3,7 @@ import {
   calculateRecoveryRetryAt,
   planChatRecovery,
   planTaskRecovery,
+  sanitizeChatRecoveryFailureCode,
   type ChatRecoveryCandidate,
   type TaskRecoveryCandidate,
 } from "./ai-recovery-coordinator.js";
@@ -60,6 +61,16 @@ function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatReco
 }
 
 describe("automatic task recovery admission", () => {
+  it("retains only explicitly recognized server recovery error codes", () => {
+    expect(sanitizeChatRecoveryFailureCode("EXECUTION_ACCEPTANCE_INCOMPLETE"))
+      .toBe("EXECUTION_ACCEPTANCE_INCOMPLETE");
+    expect(sanitizeChatRecoveryFailureCode("provider said: failed"))
+      .toBeUndefined();
+    expect(sanitizeChatRecoveryFailureCode("EXECUTION_UNKNOWN_PRIVATE_DETAIL"))
+      .toBeUndefined();
+    expect(sanitizeChatRecoveryFailureCode(42)).toBeUndefined();
+  });
+
   it("calculates a durable retry timestamp from a rate-limit delay", () => {
     expect(calculateRecoveryRetryAt(9, Date.parse("2026-09-19T16:00:00.000Z")))
       .toBe("2026-09-19T16:00:09.000Z");

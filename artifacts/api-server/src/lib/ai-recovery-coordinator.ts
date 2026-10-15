@@ -22,6 +22,31 @@ import {
   runChatExecutionRecovery,
 } from "./chat-recovery-runner.js";
 
+const SAFE_CHAT_RECOVERY_FAILURE_CODES = new Set([
+  "EXECUTION_ACCEPTANCE_INCOMPLETE",
+  "EXECUTION_ALREADY_RUNNING",
+  "EXECUTION_BINDING_MISMATCH",
+  "EXECUTION_CANCELLED",
+  "EXECUTION_CLAIM_CONFLICT",
+  "EXECUTION_LEASE_EXPIRED",
+  "EXECUTION_NODE_CHECKPOINT_MISMATCH",
+  "EXECUTION_NOT_FOUND",
+  "EXECUTION_NOT_RESUMABLE",
+  "EXECUTION_OWNERSHIP_LOST",
+  "EXECUTION_PROVENANCE_MISMATCH",
+  "EXECUTION_PROVIDER_FAILURE",
+  "EXECUTION_RESUME_TOKEN_REQUIRED",
+  "MODEL_OUTPUT_INVALID",
+  "TOOL_ANALYSIS_ROOT_UNAVAILABLE",
+  "TOOL_UNAVAILABLE",
+]);
+
+export function sanitizeChatRecoveryFailureCode(code: unknown): string | undefined {
+  return typeof code === "string" && SAFE_CHAT_RECOVERY_FAILURE_CODES.has(code)
+    ? code
+    : undefined;
+}
+
 const RECOVERY_ACTIONS = [
   "RESUME_ALLOWED",
   "RETRY_AFTER_TIMEOUT",
@@ -822,8 +847,14 @@ async function runChatRecovery(
         statusCode: result.statusCode,
       });
     }
+    const failureCode = sanitizeChatRecoveryFailureCode(result.failureCode);
     logger.warn(
-      { executionId: candidate.executionId, reason: result.reason, statusCode: result.statusCode },
+      {
+        executionId: candidate.executionId,
+        reason: result.reason,
+        statusCode: result.statusCode,
+        ...(failureCode ? { failureCode } : {}),
+      },
       "automatic chat recovery did not complete",
     );
   }

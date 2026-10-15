@@ -176,6 +176,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     // this table, so a stale telemetry schema must fail before the route does.
     ai_usage_events: [
       { name: "contract_failure_kind", dataType: "text", udtName: "text", nullable: true },
+      { name: "rate_limit_scope", dataType: "text", udtName: "text", nullable: true },
+      { name: "retry_after_ms", dataType: "bigint", udtName: "int8", nullable: true },
     ] as readonly ColumnContract[],
     ai_execution_evidence_snapshots: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },

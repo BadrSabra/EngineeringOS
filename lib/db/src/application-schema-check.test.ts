@@ -472,15 +472,16 @@ describe("application schema contract", () => {
     );
   });
 
-  it("reports a missing AI telemetry contract-failure column", () => {
+  it("reports missing AI telemetry contract and rate-limit columns", () => {
     const snapshot = completeSnapshot();
+    const missingColumns = ["contract_failure_kind", "rate_limit_scope", "retry_after_ms"];
     const issues = findApplicationSchemaIssues({
       ...snapshot,
       columns: snapshot.columns.filter(
         (column) =>
           !(
             column.table_name === "ai_usage_events" &&
-            column.column_name === "contract_failure_kind"
+            missingColumns.includes(column.column_name)
           ),
       ),
     });
@@ -488,7 +489,7 @@ describe("application schema contract", () => {
       issues
         .filter((item) => item.kind === "missing_column" && item.tableName === "ai_usage_events")
         .map((item) => item.objectName),
-      ["contract_failure_kind"],
+      missingColumns,
     );
   });
 
