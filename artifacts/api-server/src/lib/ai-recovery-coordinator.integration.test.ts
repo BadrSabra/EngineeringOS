@@ -28,6 +28,7 @@ const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async (): Promise<{
   statusCode?: number;
   reason?: string;
   retryAfterSec?: number;
+  failureCode?: string;
 }> => ({
   ok: true,
   statusCode: 200,
@@ -890,6 +891,43 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
+  it("blocks repeat automatic recovery after a 200-level execution binding rejection", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      runChatExecutionRecovery.mockResolvedValueOnce({
+        ok: false,
+        statusCode: 200,
+        reason: "chat_recovery_not_completed",
+        failureCode: "EXECUTION_BINDING_MISMATCH",
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      await queuedJobs[0]!.run();
+
+      const [acceptance] = await db.select({
+        disposition: aiExecutionAcceptancesTable.disposition,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptance?.nextActionCode).toBe("RESUME_ALLOWED");
+      expect(acceptance?.disposition).toMatchObject({
+        recoveryState: "REQUIRED",
+        automaticRecoveryBlocked: true,
+        automaticRecoveryBlockReason: "handler_binding_rejection",
+        automaticRecoveryBlockCode: "EXECUTION_BINDING_MISMATCH",
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
+      expect(queuedJobs).toHaveLength(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
   it("stores a durable handler-level 429 delay so recovery waits for the limiter", async () => {
     const fixture = await insertChatFixture();
     try {
@@ -1034,6 +1072,54 @@ describe("durable automatic conversational recovery", () => {
         `ai-recovery:chat:${fixture.executionId}:3:recovery-finalize`,
       );
 
+      await queuedJobs[0]!.run();
+
+      expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        expectedAttempt: 3,
+      });
+      expect(runChatExecutionRecovery).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("bounds incomplete-evidence recovery and finalizes after the attempt limit", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 2 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          attempt: 2,
+          reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs[0]?.id).toBe(
+        `ai-recovery:chat:${fixture.executionId}:2:resume`,
+      );
+      expect(runChatRecoveryExhaustionFinalization).not.toHaveBeenCalled();
+
+      queuedJobs.length = 0;
+      queuedIds.clear();
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs[0]?.id).toBe(
+        `ai-recovery:chat:${fixture.executionId}:3:recovery-finalize`,
+      );
       await queuedJobs[0]!.run();
 
       expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({

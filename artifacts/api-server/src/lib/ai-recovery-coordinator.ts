@@ -267,7 +267,8 @@ async function blockAutomaticChatRecovery(params: {
   executionId: string;
   executionAttempt: number;
   action: string;
-  statusCode: number;
+  statusCode?: number;
+  failureCode?: string;
 }): Promise<void> {
   try {
     await db.transaction(async (tx) => {
@@ -299,8 +300,15 @@ async function blockAutomaticChatRecovery(params: {
           disposition: {
             ...asRecord(acceptance.disposition),
             automaticRecoveryBlocked: true,
-            automaticRecoveryBlockReason: "handler_client_rejection",
-            automaticRecoveryBlockStatusCode: params.statusCode,
+            automaticRecoveryBlockReason: params.failureCode
+              ? "handler_binding_rejection"
+              : "handler_client_rejection",
+            ...(params.statusCode !== undefined
+              ? { automaticRecoveryBlockStatusCode: params.statusCode }
+              : {}),
+            ...(params.failureCode
+              ? { automaticRecoveryBlockCode: params.failureCode }
+              : {}),
             automaticRecoveryBlockedAt: new Date().toISOString(),
           },
         })
@@ -415,25 +423,30 @@ export function planChatRecovery(
     && (candidate.action === "RETRY_AFTER_TIMEOUT"
       || candidate.action === "RETRY_AFTER_RATE_LIMIT")
     && candidate.resumable === 0;
-  const evidenceProviderRecovery =
+  const boundedEvidenceRecovery =
     request?.turnIntent !== undefined
     && request.turnIntent !== "CHAT"
     && request.proofRequired === true
-    && candidate.reasonCode === "EXECUTION_PROVIDER_FAILURE"
-    && (candidate.action === "RESUME_ALLOWED"
-      || candidate.action === "RETRY_AFTER_TIMEOUT"
-      || candidate.action === "RETRY_AFTER_RATE_LIMIT");
+    && (
+      (candidate.action === "RESUME_ALLOWED" && candidate.resumable === 1)
+      || (
+        (candidate.action === "RETRY_AFTER_TIMEOUT"
+          || candidate.action === "RETRY_AFTER_RATE_LIMIT")
+        && candidate.resumable === 0
+      )
+    );
   // Ordinary CHAT gets small, explicit recovery budgets. Parser failures stop
   // sooner because repeating the same malformed response is unlikely to help;
-  // transient provider failures get one extra bounded attempt because the
-  // external outage/rate limit may clear without changing the user turn.
+  // provider retries get one extra bounded attempt because an external outage
+  // may clear without changing the user turn. Proof-backed analysis is bounded
+  // regardless of its terminal reason, including incomplete-evidence failures.
   const recoveryAttemptLimit = transientProviderRecovery
     ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
-    : evidenceProviderRecovery
+    : boundedEvidenceRecovery
       ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
       : MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS;
   const automaticRecoveryExhausted =
-    (parserFailureRecovery || transientProviderRecovery || evidenceProviderRecovery)
+    (parserFailureRecovery || transientProviderRecovery || boundedEvidenceRecovery)
     && candidate.executionAttempt >= recoveryAttemptLimit;
   const boundedChatRecovery =
     (parserFailureRecovery || transientProviderRecovery)
@@ -832,12 +845,23 @@ async function runChatRecovery(
     mode: plan.kind,
   });
   if (!result.ok) {
+    const failureCode = sanitizeChatRecoveryFailureCode(result.failureCode);
     if (result.statusCode === 429) {
       await deferRecoveryForRateLimit({
         executionId: candidate.executionId,
         executionAttempt: candidate.executionAttempt,
         action: candidate.action,
         retryAfterSec: result.retryAfterSec ?? 60,
+      });
+    } else if (
+      failureCode === "EXECUTION_BINDING_MISMATCH"
+      || failureCode === "EXECUTION_PROVENANCE_MISMATCH"
+    ) {
+      await blockAutomaticChatRecovery({
+        executionId: candidate.executionId,
+        executionAttempt: candidate.executionAttempt,
+        action: candidate.action,
+        failureCode,
       });
     } else if (
       result.statusCode !== undefined
@@ -853,7 +877,6 @@ async function runChatRecovery(
         statusCode: result.statusCode,
       });
     }
-    const failureCode = sanitizeChatRecoveryFailureCode(result.failureCode);
     logger.warn(
       {
         executionId: candidate.executionId,

@@ -11,6 +11,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import { db } from "@workspace/db";
 import {
@@ -9218,7 +9219,7 @@ export async function handleChatStream(req: Request, res: Response) {
         requested: boolean,
       ): boolean => !requested
         || storedValue === undefined
-        || JSON.stringify(storedValue ?? null) === JSON.stringify(requestedValue ?? null);
+        || isDeepStrictEqual(storedValue ?? null, requestedValue ?? null);
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
@@ -9254,7 +9255,7 @@ export async function handleChatStream(req: Request, res: Response) {
       const taskObjectiveBindingMatches =
         !executionRequest.taskObjective
         || storedRequest?.taskObjective === undefined
-        || JSON.stringify(storedRequest.taskObjective) === JSON.stringify(executionRequest.taskObjective);
+        || isDeepStrictEqual(storedRequest.taskObjective, executionRequest.taskObjective);
       if (!bindingMatches || !taskObjectiveBindingMatches || !factRequestBindingMatches) {
         sse({
           type: "error",

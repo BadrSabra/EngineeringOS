@@ -15,6 +15,7 @@
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
 - [Chat turn lifecycle contracts](chat-turn-lifecycle-index.md) — grouped pointers for persistence, cancellation, reconnect, provenance, and terminal response/acceptance boundaries.
 - [Recovery terminal success](chat-recovery-terminal-success.md) — internal SSE HTTP 200 does not prove recovery succeeded; reload the durable execution attempt and terminal status.
+- [Chat recovery binding equality](chat-recovery-binding-equality.md) — compare structured request contracts by value, not JSON key order, or resumed turns may be rejected before execution.
 - [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
@@ -103,9 +104,8 @@
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
-- [Project orientation contracts](orientation-proof-recovery-index.md) — responses, source manifests, evidence admission, acceptance, and recovery use one bounded role contract.
 - [Benchmark provider and scope isolation](benchmark-provider-scope-isolation.md) — exact-model caps must reach every tool-loop provider call; read-only forensic narrowing must not override an approved multi-file Build handoff.
-- [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
+- [Recovery coordinator boundary](recovery-coordinator-boundary.md) — separate task/chat adapters; cap proof-required retries regardless of failure code and block binding mismatches durably.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.

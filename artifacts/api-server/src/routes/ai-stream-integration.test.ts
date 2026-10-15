@@ -4194,11 +4194,17 @@ describe("Durable AI execution crash/reconnect", () => {
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     const workspaceRevision = project!.updatedAt.toISOString();
+    const { buildProjectQueryObjective, resolveProjectQueryTarget } =
+      await import("@workspace/ai-orchestrator");
+    const message = "Analyze my project architecture.";
+    const projectQueryTarget = resolveProjectQueryTarget(message);
+    expect(projectQueryTarget).toBeDefined();
     const requestEnvelope = {
       projectId,
       sessionId,
-      message: "Analyze my project architecture.",
-      modelMessage: "Analyze my project architecture.",
+      message,
+      modelMessage: message,
+      objective: buildProjectQueryObjective(projectQueryTarget!, message),
       turnIntent: "PROJECT_QUERY",
       workspaceRevision,
       workspaceRoot: rootPath,
@@ -4371,6 +4377,10 @@ describe("Durable AI execution crash/reconnect", () => {
       userId: "test-user",
       mode: "resume",
     });
+    expect(
+      recovered,
+      `Expected the stored PROJECT_QUERY contract to resume, got ${JSON.stringify(recovered)}`,
+    ).toMatchObject({ ok: true });
     expect(observedObjective).toMatchObject({
       objectiveType: "PROJECT_QUERY_GENERIC-PROJECT",
       requiredEvidencePaths: sources,
