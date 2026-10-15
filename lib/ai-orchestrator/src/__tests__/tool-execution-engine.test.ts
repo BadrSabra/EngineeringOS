@@ -6080,7 +6080,7 @@ describe("executeToolLoop", () => {
       kind: "failed",
       tool: "read_file",
       failureKind: "execution",
-      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      diagnosticCode: "TOOL_FILE_NOT_FOUND",
     });
     expect(fileStrategy.call).toHaveBeenCalledTimes(1);
 
@@ -6105,6 +6105,40 @@ describe("executeToolLoop", () => {
       diagnosticCode: "TOOL_EXECUTION_FAILED",
     });
     expect(gitStrategy.call).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies file-read access denial without persisting raw error details", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValueOnce(
+      'Error reading "src/private.ts": EACCES: permission denied',
+    );
+    const deniedReadSteps: AgentStep[] = [];
+    const deniedReadStrategy = makeStrategy([
+      makeResponse("", [makeToolCall("denied-file", "read_file", { path: "src/private.ts" })]),
+      makeResponse("The read was denied.", []),
+    ]);
+
+    const deniedReadResult = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: deniedReadStrategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      onStep: (step) => void deniedReadSteps.push(step),
+    });
+    expect(deniedReadResult).toMatchObject({
+      kind: "failed",
+      tool: "read_file",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_FILE_ACCESS_DENIED",
+    });
+    const deniedReadResultSteps = deniedReadSteps.filter((step) => step.kind === "tool_result");
+    expect(JSON.stringify(deniedReadResultSteps)).not.toContain("src/private.ts");
+    expect(JSON.stringify(deniedReadResultSteps)).not.toContain("EACCES");
+    expect(JSON.stringify(deniedReadResultSteps)).not.toContain("permission denied");
   });
 
   it("records returned read-tool diagnostics as failures without accepting their output hash", async () => {

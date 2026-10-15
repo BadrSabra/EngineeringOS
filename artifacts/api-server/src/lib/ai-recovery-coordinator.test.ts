@@ -66,6 +66,10 @@ describe("automatic task recovery admission", () => {
       .toBe("EXECUTION_ACCEPTANCE_INCOMPLETE");
     expect(sanitizeChatRecoveryFailureCode("TOOL_EXECUTION_FAILED"))
       .toBe("TOOL_EXECUTION_FAILED");
+    expect(sanitizeChatRecoveryFailureCode("TOOL_FILE_NOT_FOUND"))
+      .toBe("TOOL_FILE_NOT_FOUND");
+    expect(sanitizeChatRecoveryFailureCode("TOOL_FILE_ACCESS_DENIED"))
+      .toBe("TOOL_FILE_ACCESS_DENIED");
     expect(sanitizeChatRecoveryFailureCode("TOOL_ANALYSIS_TIMEOUT"))
       .toBe("TOOL_ANALYSIS_TIMEOUT");
     expect(sanitizeChatRecoveryFailureCode("provider said: failed"))

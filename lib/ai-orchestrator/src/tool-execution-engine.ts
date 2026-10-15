@@ -377,7 +377,11 @@ function parseToolOutputObject(output: string): Record<string, unknown> | undefi
 
 type ExecutorOutputFailure = {
   failureKind: "execution" | "unavailable";
-  diagnosticCode: "TOOL_EXECUTION_FAILED" | "TOOL_UNAVAILABLE";
+  diagnosticCode:
+    | "TOOL_EXECUTION_FAILED"
+    | "TOOL_FILE_NOT_FOUND"
+    | "TOOL_FILE_ACCESS_DENIED"
+    | "TOOL_UNAVAILABLE";
 };
 
 function classifyExecutorOutputFailure(
@@ -395,6 +399,17 @@ function classifyExecutorOutputFailure(
         && /^Error:/u.test(text)
       )
     ) {
+      if (
+        (name === "read_file" || name === "read_file_range")
+        && /^(?:Error reading\b)/u.test(text)
+      ) {
+        if (/\bENOENT\b|no such file or directory|file or directory does not exist/iu.test(text)) {
+          return { failureKind: "execution", diagnosticCode: "TOOL_FILE_NOT_FOUND" };
+        }
+        if (/\b(?:EACCES|EPERM)\b|permission denied|access denied/iu.test(text)) {
+          return { failureKind: "execution", diagnosticCode: "TOOL_FILE_ACCESS_DENIED" };
+        }
+      }
       return { failureKind: "execution", diagnosticCode: "TOOL_EXECUTION_FAILED" };
     }
     if (name === "project.list_tree") {
@@ -3143,6 +3158,8 @@ export type AgentDiagnosticCode =
   | "EXECUTION_PHASE_TOOL_REJECTED"
   | "EXECUTION_BEHAVIORAL_PROOF_FAILED"
   | "TOOL_EXECUTION_FAILED"
+  | "TOOL_FILE_NOT_FOUND"
+  | "TOOL_FILE_ACCESS_DENIED"
   | "TOOL_OUTPUT_LIMIT"
   | "TOOL_ARGUMENTS_TOO_LARGE"
   | "TOOL_UNAVAILABLE"
