@@ -15,6 +15,12 @@ The user considers the current frontend too complex: separate assistant, general
 
 **How to apply:** Audit real chat reachability against server-owned capability manifests and endpoints. Keep approval and evidence gates intact; make detailed operational pages optional, not a second required path for ordinary users.
 
+Use replit.com as a product-experience reference; adapt its prompt-first entry and unified project workspace to EngineeringOS rather than reproducing a code-editor interface.
+
+**Why:** The user stated that EngineeringOS should have a user experience inspired by replit.com.
+
+**How to apply:** Bring the request, progress, and verified result into one coherent workspace for Arabic-speaking nontechnical users, while keeping advanced operational tools optional.
+
 Localize direction at reviewed surfaces rather than globally flipping every
 technical page. The navigation shell can be RTL while legacy page content keeps
 its layout until its own direction and mixed code/path content are reviewed.
