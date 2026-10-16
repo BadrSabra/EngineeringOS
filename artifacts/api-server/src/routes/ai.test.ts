@@ -6700,6 +6700,8 @@ describe("delivery recovery routes", () => {
   it.each([
     { identity: "paired source revision", mutation: "source-revision" as const },
     { identity: "Canonical Proof attempt", mutation: "proof-attempt" as const },
+    { identity: "paired baseline run ID", mutation: "baseline-run-id" as const },
+    { identity: "paired candidate run ID", mutation: "candidate-run-id" as const },
   ])(
     "rechecks Gate 3 before writing if $identity changes during auto-promotion",
     async ({ mutation }) => {
@@ -7031,6 +7033,8 @@ describe("delivery recovery routes", () => {
     const triggerSuffix = randomUUID().replaceAll("-", "");
     const triggerName = `e3_gate3_receipt_${triggerSuffix}`;
     const functionName = `e3_gate3_receipt_fn_${triggerSuffix}`;
+    const pairedRunField = mutation === "baseline-run-id" ? "baselineRunId" : "candidateRunId";
+    const foreignRunId = `${replayId}:foreign-${mutation === "baseline-run-id" ? "baseline" : "candidate"}`;
     const triggerMutationSql = mutation === "source-revision"
       ? `UPDATE ai_shadow_replays
          SET receipt = jsonb_set(
@@ -7040,9 +7044,23 @@ describe("delivery recovery routes", () => {
            true
          )
          WHERE proposal_id = NEW.id;`
-      : `UPDATE ai_execution_acceptances
+      : mutation === "proof-attempt"
+        ? `UPDATE ai_execution_acceptances
          SET attempt = ${replayExecution.execution.attempt + 1}
-         WHERE id = '${replayProof.acceptanceId}';`;
+         WHERE id = '${replayProof.acceptanceId}';`
+        : `UPDATE ai_shadow_replays
+           SET receipt = jsonb_set(
+             jsonb_set(
+               receipt,
+               '{pairedBaseline,${pairedRunField}}',
+               to_jsonb('${foreignRunId}'),
+               true
+             ),
+             '{pairedBaseline,contract,${pairedRunField}}',
+             to_jsonb('${foreignRunId}'),
+             true
+           )
+           WHERE proposal_id = NEW.id;`;
     try {
       await db.execute(sql.raw(`
         CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -7094,7 +7112,7 @@ describe("delivery recovery routes", () => {
             },
           },
         });
-      } else {
+      } else if (mutation === "proof-attempt") {
         const [proofAcceptanceAfterRecheck] = await db.select({
           attempt: aiExecutionAcceptancesTable.attempt,
         }).from(aiExecutionAcceptancesTable)
@@ -7112,6 +7130,24 @@ describe("delivery recovery routes", () => {
               sourceRevision: proposal.baseRevision,
               baselineRunId,
               candidateRunId,
+            },
+          },
+        });
+      } else {
+        const [replayAfterRecheck] = await db.select({ receipt: aiShadowReplaysTable.receipt })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.id, replayId));
+        const expectedBaselineRunId = mutation === "baseline-run-id" ? foreignRunId : baselineRunId;
+        const expectedCandidateRunId = mutation === "candidate-run-id" ? foreignRunId : candidateRunId;
+        expect(replayAfterRecheck?.receipt).toMatchObject({
+          pairedBaseline: {
+            baselineRunId: expectedBaselineRunId,
+            candidateRunId: expectedCandidateRunId,
+            contract: {
+              pairId: `shadow-replay-pair:${replayId}`,
+              sourceRevision: proposal.baseRevision,
+              baselineRunId: expectedBaselineRunId,
+              candidateRunId: expectedCandidateRunId,
             },
           },
         });
