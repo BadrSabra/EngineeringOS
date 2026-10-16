@@ -11,7 +11,7 @@
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
 - [Scan evidence acceptance binding](scan-evidence-acceptance-binding.md) — bind both the loaded scan result and its exact model-facing summary to the analysis acceptance; this is provenance, not proof.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
-- [E1–E8 stage gates](e1-e8-gates.md) — keep E2 active; do not begin later stages or rerun Strategy Replay receipts before explicit E2 closure.
+- [E1–E8 stage gates](e1-e8-gates.md) — E2 was explicitly closed; E3 remains open, with E3.2, E4, and Strategy Replay separately gated.
 - [Conversation runtime boundaries](conversation-runtime-index.md) — grouped pointers for turn routing, project queries, tool loops, synthesis, recovery, redaction, budgets, and evidence.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.

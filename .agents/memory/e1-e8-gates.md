@@ -3,23 +3,17 @@ name: E1–E8 stage gates
 description: Required sequencing for the project's remaining agent-core gaps.
 ---
 
-Complete the remaining gap sequence in order: E1, then E2 through E8. Do not declare E2 closed or begin E3 until the E2 gate explicitly passes.
+Complete the remaining gap sequence in dependency order. The user explicitly closed E2 on 2026-10-11 for the scope defined in the project audit and authorized E3; E3 and E3.2 remain open.
 
-**Why:** The project work is intentionally staged, with E2 as a hard dependency for every later stage.
+**Why:** Later stages depend on explicit user gate decisions; the 2026-10-11 decision supersedes older audit snapshots that still said E2 was open.
 
-**How to apply:** Keep each stage's findings and validation scoped and recorded. If E2 remains partial, continue only E2 work and do not present E3–E8 as started.
+**How to apply:** Continue only within the E3 scope the user authorized. Do not treat focused proof-freshness tests as closure of E3.2; do not run Strategy Replay receipts or start E4 without separate authorization.
 
-While E2 remains open, do not propose follow-up project tasks.
+When investigating an E2 uncertainty again, resolve one bounded question at a time and distinguish source inspection, DB integration, process-kill/startup recovery, and live/production evidence.
 
-**Why:** The user explicitly asked to keep work focused on closing E2 rather than creating a follow-up queue.
+**Why:** The user clarified that the audit goal was to reduce `UNKNOWN`, not to treat missing evidence as proof that every path is broken.
 
-**How to apply:** Continue the current E2 request directly; do not invoke follow-up task proposals until E2 passes.
-
-The audit goal is to reduce `UNKNOWN` by resolving one bounded, testable E2 uncertainty at a time. Distinguish source inspection, DB-level integration, process-kill/startup recovery, and live/production evidence; do not let a narrower result stand in for a broader boundary.
-
-**Why:** The user clarified that the goal is to reduce `UNKNOWN`, not to treat missing evidence as proof that every path is broken.
-
-**How to apply:** Each E2 step should name the exact uncertainty, add the cheapest evidence that can resolve it, and record what remains untested without advancing to E3.
+**How to apply:** If E2 is explicitly reopened, reconcile the latest progress log and status report before adding new tests; record what each evidence type proves and leaves untested.
 
 Before reopening an E2 unknown, reconcile the main status report with the chronological progress log; a later entry may already have tested the boundary while summary matrices remain stale.
 
@@ -27,11 +21,11 @@ Before reopening an E2 unknown, reconcile the main status report with the chrono
 
 **How to apply:** Search the relevant test and latest progress entries before selecting the next target. If evidence already exists, verify it if useful and correct the stale report instead of duplicating the test as new coverage.
 
-As of 2026-10-06, the current project audit remains on E2; do not use earlier reported stage statuses or focused fixes as authorization to advance. The E4 Entry Audit passed. The E4.1 Read-Only Sample Source Inventory returned `UNQUALIFIED`: this is `PASS` for the inventory only, while E4.1 stays `OPEN / NOT PASS`. Source qualification, protocol completion, evaluation authorization, and promotion remain separate ordered gates.
+The E4 Entry Audit passed. The E4.1 Read-Only Sample Source Inventory returned `UNQUALIFIED`: this is `PASS` for the inventory only, while E4.1 stays `OPEN / NOT PASS`. Source qualification, protocol completion, evaluation authorization, and promotion remain separate ordered gates.
 
-**Why:** The user explicitly keeps E3.2 open despite earlier fixes, tests, or Publish. The previously recorded explanation no longer matches the current queued-dispatch code; localized reauthorization is not proof of end-to-end crash/replay safety across external side effects.
+**Why:** The user explicitly keeps E3.2 open despite focused fixes and tests; localized reauthorization is not proof of end-to-end crash/replay safety across external side effects.
 
-**How to apply:** Do not reopen E2 because a pending reservation row exists. Keep manual `/git/push` receipt-only. Do not begin E3 or Learning/Transfer/Generalization until E2 explicitly passes, and do not rerun Strategy Replay receipts. Distinguish queued recipe reauthorization from replaying an uncertain running side effect. Do not treat focused replay tests, the Chat-to-Mission handoff pass, or Publish as closure evidence. Do not treat the inventory result as source qualification or as authority for E4.2, implementation, runtime changes, collection/calibration, P7.5 activation, or promotion. Require separate explicit gates for source qualification, protocol completion, evaluation authorization, and promotion.
+**How to apply:** Keep manual `/git/push` receipt-only. Do not treat focused replay tests or a Publish as E3.2 closure evidence. Do not treat the E4.1 inventory result as source qualification or authority for E4.2 implementation, runtime changes, collection/calibration, P7.5 activation, or promotion. Require separate explicit gates for source qualification, protocol completion, evaluation authorization, and promotion.
 
 For Apply route crash tests, acceptance insertion and terminal execution update share one transaction. Killing the process while terminalization is blocked rolls back the inserted acceptance; do not describe a durable acceptance-before-terminal window. To isolate the terminal boundary, pause at acceptance insertion, acquire the execution-table lock from a second transaction, then release the acceptance pause so only the terminal update blocks. An earlier execution-table lock can block the request claim instead. Run the HTTP route in app-only child processes, stage the crash states, then use one full API startup to test recovery.
 

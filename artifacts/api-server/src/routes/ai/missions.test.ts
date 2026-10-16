@@ -2295,6 +2295,34 @@ describe("AI missions and goals", () => {
       originalReplayReceipt.pairedBaseline as Record<string, unknown>;
     const gate4PairedContract =
       gate4PairedBaseline.contract as Record<string, unknown>;
+    const foreignPairId = `shadow-replay-pair:gate4-foreign:${replay.body.replay.id}`;
+    await db.update(aiShadowReplaysTable)
+      .set({
+        receipt: {
+          ...originalReplayReceipt,
+          pairedBaseline: {
+            ...gate4PairedBaseline,
+            pairId: foreignPairId,
+            contract: {
+              ...gate4PairedContract,
+              pairId: foreignPairId,
+            },
+          },
+        },
+      })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const mismatchedPairIdRegistration = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+      .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+    expect(mismatchedPairIdRegistration.status).toBe(409);
+    expect(mismatchedPairIdRegistration.body.code).toBe("SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED");
+    expect(await db.select({ id: aiSkillRegistryTable.id })
+      .from(aiSkillRegistryTable)
+      .where(eq(aiSkillRegistryTable.projectId, projectId))).toHaveLength(0);
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: originalReplayReceipt })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+
     const foreignBaselineRunId = `${replay.body.replay.id}:gate4-foreign-baseline`;
     await db.update(aiShadowReplaysTable)
       .set({
@@ -2373,6 +2401,44 @@ describe("AI missions and goals", () => {
     }).from(aiSkillRegistryTable)
       .where(eq(aiSkillRegistryTable.id, registryId));
     expect(pendingAfterMismatch).toMatchObject({
+      promotionStatus: "pending",
+      approvedBy: null,
+      approvedAt: null,
+    });
+    expect(await db.select({ projectId: projectPluginBindingsTable.projectId })
+      .from(projectPluginBindingsTable)
+      .where(eq(projectPluginBindingsTable.projectId, projectId))).toHaveLength(0);
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: originalReplayReceipt })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+
+    const foreignSourceRevision = `gate4-foreign-source:${sourceRevision}`;
+    await db.update(aiShadowReplaysTable)
+      .set({
+        receipt: {
+          ...originalReplayReceipt,
+          pairedBaseline: {
+            ...gate4PairedBaseline,
+            contract: {
+              ...gate4PairedContract,
+              sourceRevision: foreignSourceRevision,
+            },
+          },
+        },
+      })
+      .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    const mismatchedSourceRevisionApproval = await request(app)
+      .post(`/api/ai/skill-registry/${registryId}/approve`)
+      .send({});
+    expect(mismatchedSourceRevisionApproval.status).toBe(409);
+    expect(mismatchedSourceRevisionApproval.body.code).toBe("SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED");
+    const [pendingAfterSourceRevisionMismatch] = await db.select({
+      promotionStatus: aiSkillRegistryTable.promotionStatus,
+      approvedBy: aiSkillRegistryTable.approvedBy,
+      approvedAt: aiSkillRegistryTable.approvedAt,
+    }).from(aiSkillRegistryTable)
+      .where(eq(aiSkillRegistryTable.id, registryId));
+    expect(pendingAfterSourceRevisionMismatch).toMatchObject({
       promotionStatus: "pending",
       approvedBy: null,
       approvedAt: null,
