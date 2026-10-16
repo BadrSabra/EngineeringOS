@@ -13,6 +13,12 @@ import AiChat, {
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 import { readGoalDrafts, storeGoalDraft, storeHomeGoalDraft } from '../lib/home-goal-handoff';
+import {
+  buildAssistantScopeHref,
+  readAssistantComposerDraft,
+  readAssistantScopeContext,
+  rememberAssistantScopeContext,
+} from '../lib/assistant-scope-continuity';
 import { classifyProjectError, useListProjects } from '@workspace/api-client-react';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
@@ -836,6 +842,82 @@ describe('workspace goal draft handoff', () => {
 });
 
 describe('AI conversation return links', () => {
+  it('keeps project drafts on their exact session while switching between sessions', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const unsentText = 'هذه مسودة للجلسة الحالية';
+    mocks.sessions = [
+      { id: 'session-1', title: 'الجلسة الحالية', updatedAt: '2026-10-15T10:00:00Z' },
+      { id: 'session-2', title: 'جلسة أخرى', updatedAt: '2026-10-14T10:00:00Z' },
+    ];
+    try {
+      window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+      renderAiChat();
+      const composer = await screen.findByTestId('input-ai-chat-composer');
+      await waitFor(() => expect(screen.getByTestId('button-chat-session-session-1')).toHaveAttribute('aria-current', 'true'));
+      fireEvent.change(composer, { target: { value: unsentText } });
+
+      fireEvent.click(screen.getByTestId('button-chat-session-session-2'));
+      await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue(''));
+      expect(readAssistantComposerDraft('user-1', 'project', 'project-1:session-1')).toEqual({
+        ok: true,
+        text: unsentText,
+      });
+
+      fireEvent.click(screen.getByTestId('button-chat-session-session-1'));
+      await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue(unsentText));
+      expect(screen.getByTestId('status-ai-scope-draft-restored')).toHaveTextContent('لن يُرسل تلقائيًا');
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('restores an unsent project draft only in its exact project session without sending it', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const unsentText = 'افحص هذه المشكلة دون إرسالها الآن';
+    rememberAssistantScopeContext('user-1', {
+      scope: 'general',
+      sessionId: 'general-session',
+    });
+    try {
+      window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+      const first = renderAiChat();
+      const composer = await screen.findByTestId('input-ai-chat-composer');
+      await waitFor(() => expect(screen.getByTestId('select-chat-project')).toHaveValue('project-1'));
+      fireEvent.change(composer, { target: { value: unsentText } });
+
+      expect(readAssistantComposerDraft('user-1', 'project', 'project-1:session-1')).toEqual({
+        ok: true,
+        text: unsentText,
+      });
+      const generalLink = screen.getByTestId('link-switch-to-general');
+      expect(generalLink).toHaveAttribute('href', '/general-chat?sessionId=general-session');
+      fireEvent.click(generalLink);
+
+      const projectContext = readAssistantScopeContext('user-1', 'project', 'project-1');
+      expect(projectContext).toEqual({
+        scope: 'project',
+        projectId: 'project-1',
+        sessionId: 'session-1',
+      });
+      expect(window.location.pathname).toBe('/general-chat');
+      expect(new URLSearchParams(window.location.search).get('sessionId')).toBe('general-session');
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+      first.unmount();
+
+      window.history.replaceState({}, '', buildAssistantScopeHref(projectContext!));
+      renderAiChat();
+      await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue(unsentText));
+      expect(screen.getByTestId('status-ai-scope-draft-restored')).toHaveTextContent('لن يُرسل تلقائيًا');
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
   it('opens the explicit project session after reload without showing a different saved execution', async () => {
     const originalPath = window.location.pathname + window.location.search;
     try {

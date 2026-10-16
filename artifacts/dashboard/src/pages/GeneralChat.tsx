@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
@@ -17,8 +17,10 @@ import {
   UserRound,
 } from 'lucide-react';
 import {
+  getListProjectsQueryKey,
   getListGeneralChatMessagesQueryKey,
   getListGeneralChatSessionsQueryKey,
+  useListProjects,
   useCreateGeneralChatSession,
   useDeleteGeneralChatSession,
   useListGeneralChatMessages,
@@ -26,6 +28,14 @@ import {
   useSendGeneralChatMessage,
 } from '@workspace/api-client-react';
 import { readGoalDrafts, updateGoalDraft, type GoalDraft } from '@/lib/home-goal-handoff';
+import {
+  buildAssistantScopeHref,
+  getAssistantComposerContextId,
+  readAssistantComposerDraft,
+  readAssistantScopeContext,
+  rememberAssistantScopeContext,
+  saveAssistantComposerDraft,
+} from '@/lib/assistant-scope-continuity';
 
 function createUuid(): string {
   return crypto.randomUUID();
@@ -41,6 +51,10 @@ export default function GeneralChat() {
   const sessionsQuery = useListGeneralChatSessions({
     query: { queryKey: getListGeneralChatSessionsQueryKey() },
   });
+  const projectsQuery = useListProjects(undefined, {
+    query: { queryKey: getListProjectsQueryKey(), enabled: isLoaded },
+  });
+  const projects = projectsQuery.data ?? [];
   const [activeSessionId, setActiveSessionId] = useState(() => new URLSearchParams(window.location.search).get('sessionId') ?? '');
   const [draft, setDraft] = useState('');
   const [actionError, setActionError] = useState('');
@@ -50,6 +64,9 @@ export default function GeneralChat() {
   const [goalDraftError, setGoalDraftError] = useState('');
   const [pendingGeneralDrafts, setPendingGeneralDrafts] = useState<GoalDraft[]>([]);
   const [pendingDraftStorageError, setPendingDraftStorageError] = useState('');
+  const [scopeDraftRestored, setScopeDraftRestored] = useState(false);
+  const [scopeDraftStorageError, setScopeDraftStorageError] = useState('');
+  const restoredScopeDraftKey = useRef('');
   const createSession = useCreateGeneralChatSession();
   const deleteSession = useDeleteGeneralChatSession();
   const sendMessage = useSendGeneralChatMessage();
@@ -116,6 +133,48 @@ export default function GeneralChat() {
   }, [isLoaded, user?.id, routeDraftId, goalDraftAttached?.id, incomingGoalDraft?.id]);
 
   useEffect(() => {
+    const contextSessionId = routeSessionId || activeSessionId;
+    if (
+      !user?.id
+      || routeDraftId
+      || !goalDraftResolved
+      || goalDraftAttached
+      || incomingGoalDraft
+      || sessionsQuery.isLoading
+      || sessionsQuery.isError
+      || !contextSessionId
+      || !orderedSessions.some((session) => session.id === contextSessionId)
+    ) return;
+    const contextId = getAssistantComposerContextId('general', null, contextSessionId);
+    if (!contextId) return;
+    const key = `${user.id}:general:${contextId}`;
+    if (restoredScopeDraftKey.current === key) return;
+    restoredScopeDraftKey.current = key;
+    const stored = readAssistantComposerDraft(user.id, 'general', contextId);
+    if (!stored.ok) {
+      setScopeDraftStorageError('تعذر استعادة النص غير المرسل لهذه المحادثة من هذا التبويب.');
+      return;
+    }
+    if (stored.text?.trim() && !draft.trim()) {
+      setDraft(stored.text);
+      setScopeDraftRestored(true);
+      setScopeDraftStorageError('');
+    }
+  }, [
+    user?.id,
+    routeSessionId,
+    activeSessionId,
+    routeDraftId,
+    goalDraftResolved,
+    goalDraftAttached,
+    incomingGoalDraft,
+    sessionsQuery.isLoading,
+    sessionsQuery.isError,
+    orderedSessions,
+    draft,
+  ]);
+
+  useEffect(() => {
     if (routeDraftId && !routeSessionId) return;
     if (routeSessionId) {
       if (sessionsQuery.isLoading || sessionsQuery.isError) return;
@@ -134,6 +193,15 @@ export default function GeneralChat() {
   }, [routeDraftId, routeSessionId, activeSessionId, orderedSessions, sessionsQuery.isLoading, sessionsQuery.isError]);
 
   const handleCreate = () => {
+    if (draft.trim() && !goalDraftAttached && !incomingGoalDraft) {
+      const contextId = getAssistantComposerContextId('general', null, activeSessionId);
+      const saved = Boolean(user?.id && contextId
+        && saveAssistantComposerDraft(user.id, 'general', contextId, draft));
+      if (!saved) {
+        setScopeDraftStorageError('تعذر حفظ النص لهذه المحادثة.');
+        if (!window.confirm('تعذر حفظ النص غير المرسل للمحادثة الحالية. هل تريد إنشاء محادثة جديدة على أي حال؟')) return;
+      }
+    }
     setActionError('');
     createSession.mutate(undefined, {
       onSuccess: (session) => {
@@ -174,7 +242,9 @@ export default function GeneralChat() {
 
   const handleDelete = (sessionId: string) => {
     const session = orderedSessions.find((item) => item.id === sessionId);
-    if (!session || !window.confirm(`حذف «${session.title}» ورسائلها نهائيًا؟ لا يمكن التراجع عن ذلك.`)) return;
+    const deletesCurrentDraft = sessionId === activeSessionId && Boolean(draft.trim()) && !goalDraftAttached;
+    const deleteMessage = `حذف «${session?.title ?? 'المحادثة'}» ورسائلها نهائيًا؟ لا يمكن التراجع عن ذلك.${deletesCurrentDraft ? ' يشمل ذلك النص غير المرسل المرتبط بهذه المحادثة.' : ''}`;
+    if (!session || !window.confirm(deleteMessage)) return;
     setActionError('');
     deleteSession.mutate({ sessionId }, {
       onSuccess: () => {
@@ -183,7 +253,19 @@ export default function GeneralChat() {
           getListGeneralChatSessionsQueryKey(),
           (old: typeof sessions | undefined) => (old ?? []).filter((item) => item.id !== sessionId),
         );
-        if (activeSessionId === sessionId) setActiveSessionId(remaining[0]?.id ?? '');
+        if (activeSessionId === sessionId) {
+          if (user?.id && !saveAssistantComposerDraft(user.id, 'general', sessionId, '')) {
+            setScopeDraftStorageError('تعذر مسح مسودة المحادثة المحذوفة من هذا التبويب.');
+          }
+          const nextSessionId = remaining[0]?.id ?? '';
+          setDraft('');
+          setScopeDraftRestored(false);
+          setActiveSessionId(nextSessionId);
+          setLocation(nextSessionId
+            ? `/general-chat?sessionId=${encodeURIComponent(nextSessionId)}`
+            : '/general-chat',
+          { replace: true });
+        }
         void queryClient.invalidateQueries({ queryKey: getListGeneralChatSessionsQueryKey() });
         void queryClient.removeQueries({ queryKey: getListGeneralChatMessagesQueryKey(sessionId) });
       },
@@ -203,8 +285,16 @@ export default function GeneralChat() {
       setGoalDraftAttached(null);
       setLocation(`/general-chat?sessionId=${encodeURIComponent(sessionId)}`, { replace: true });
     }
+    if (!goalDraftAttached && user?.id) {
+      const contextId = getAssistantComposerContextId('general', null, sessionId);
+      if (contextId && !saveAssistantComposerDraft(user.id, 'general', contextId, '')) {
+        setScopeDraftStorageError('تعذر مسح نسخة المسودة المحفوظة؛ أرسل النص فقط إذا كنت مستعدًا لاحتمال استعادتها لاحقًا.');
+        if (!window.confirm('تعذر مسح نسخة النص غير المرسل المحفوظة لهذا التبويب. هل تريد الإرسال على أي حال؟')) return;
+      }
+    }
     setActionError('');
     setDraft('');
+    setScopeDraftRestored(false);
     sendMessage.mutate(
       { sessionId, data: { turnId: createUuid(), message } },
       {
@@ -222,11 +312,51 @@ export default function GeneralChat() {
         },
         onError: () => {
           setDraft(message);
+          if (!goalDraftAttached && user?.id) {
+            const contextId = getAssistantComposerContextId('general', null, sessionId);
+            if (contextId && !saveAssistantComposerDraft(user.id, 'general', contextId, message)) {
+              setScopeDraftStorageError('تعذر حفظ النص بعد فشل الإرسال. بقي النص ظاهرًا في خانة الكتابة.');
+            }
+          }
           setActionError('تعذر تأكيد قبول الرسالة. أعدنا نصها إلى المسودة؛ راجع حالة المحادثة قبل إعادة الإرسال.'),
           void queryClient.invalidateQueries({ queryKey: getListGeneralChatMessagesQueryKey(sessionId) });
         },
       },
     );
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    if (!user?.id || !projects.some((project) => project.id === projectId)) return;
+    const isGoalDraft = Boolean(goalDraftAttached || incomingGoalDraft);
+    const contextId = getAssistantComposerContextId('general', null, activeSessionId);
+    const draftSaved = isGoalDraft || !draft.trim() || Boolean(
+      contextId && saveAssistantComposerDraft(user.id, 'general', contextId, draft),
+    );
+    const generalSessionId = incomingGoalDraft
+      ? undefined
+      : activeSessionId || routeSessionId || undefined;
+    const generalDraftId = goalDraftAttached?.id
+      ?? incomingGoalDraft?.id
+      ?? routeDraftId
+      ?? undefined;
+    const contextSaved = rememberAssistantScopeContext(user.id, {
+      scope: 'general',
+      ...(generalSessionId ? { sessionId: generalSessionId } : {}),
+      ...(generalDraftId ? { draftId: generalDraftId } : {}),
+    });
+    if ((!draftSaved || !contextSaved) && draft.trim()
+      && !window.confirm('تعذر حفظ استمرار المسودة لهذه المحادثة. هل تريد المتابعة إلى المشروع على أي حال؟')) {
+      return;
+    }
+    if (!draftSaved) {
+      setScopeDraftStorageError('تعذر حفظ النص غير المرسل لهذه المحادثة؛ لا يمكن استعادته تلقائيًا.');
+    }
+    const lastProjectContext = readAssistantScopeContext(user.id, 'project', projectId);
+    const projectContext = lastProjectContext?.scope === 'project'
+      && lastProjectContext.projectId === projectId
+      ? lastProjectContext
+      : { scope: 'project' as const, projectId };
+    setLocation(buildAssistantScopeHref(projectContext));
   };
 
   return (
@@ -245,7 +375,14 @@ export default function GeneralChat() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <AssistantScopeSwitch currentScope="general" hasUnsentMessage={Boolean(draft.trim())} />
+          <AssistantScopeSwitch
+            currentScope="general"
+            projects={projects}
+            projectsLoading={projectsQuery.isLoading}
+            projectsError={projectsQuery.isError}
+            onRetryProjects={() => void projectsQuery.refetch()}
+            onSelectProject={handleSelectProject}
+          />
           <button
             type="button"
             onClick={handleCreate}
@@ -288,6 +425,20 @@ export default function GeneralChat() {
                     <button
                       type="button"
                       onClick={() => {
+                        if (session.id !== activeSessionId && draft.trim() && !goalDraftAttached && !incomingGoalDraft) {
+                          const contextId = getAssistantComposerContextId('general', null, activeSessionId);
+                          const saved = Boolean(user?.id && contextId
+                            && saveAssistantComposerDraft(user.id, 'general', contextId, draft));
+                          if (!saved) {
+                            setScopeDraftStorageError('تعذر حفظ النص لهذه المحادثة.');
+                            if (!window.confirm('تعذر حفظ النص غير المرسل لهذه المحادثة. هل تريد التبديل على أي حال؟')) return;
+                          }
+                        }
+                        if (session.id !== activeSessionId) {
+                          setDraft('');
+                          setScopeDraftRestored(false);
+                          setScopeDraftStorageError('');
+                        }
                         setActiveSessionId(session.id);
                         setActionError('');
                         setLocation(`/general-chat?sessionId=${encodeURIComponent(session.id)}`, { replace: true });
@@ -418,6 +569,8 @@ export default function GeneralChat() {
               </div>
               <div className="border-t border-border bg-background/40 px-4 py-4 sm:px-8">
                 {actionError && <div role="alert" data-testid="status-general-chat-error" className="mx-auto mb-3 max-w-3xl rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-100">{actionError}</div>}
+                {scopeDraftRestored && <p role="status" data-testid="status-general-scope-draft-restored" className="mx-auto mb-2 max-w-3xl text-xs text-primary">استعدنا النص غير المرسل لهذه المحادثة؛ لن يُرسل تلقائيًا.</p>}
+                {scopeDraftStorageError && <p role="alert" data-testid="status-general-scope-draft-storage-error" className="mx-auto mb-2 max-w-3xl text-xs text-amber-200">{scopeDraftStorageError}</p>}
                 <div className="mx-auto max-w-3xl">
                   <div className="flex items-end gap-2 rounded-xl border border-border bg-card p-2 transition focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10">
                     <textarea
@@ -425,10 +578,17 @@ export default function GeneralChat() {
                       onChange={(event) => {
                         const nextDraft = event.target.value.slice(0, goalDraftAttached ? 2_000 : 12_000);
                         setDraft(nextDraft);
+                        setScopeDraftRestored(false);
+                        setScopeDraftStorageError('');
                         if (goalDraftAttached && user?.id) {
                           const updated = updateGoalDraft(user.id, goalDraftAttached.id, { text: nextDraft });
                           if (updated) setGoalDraftAttached(updated);
                           else setActionError('تعذر حفظ تعديل المسودة؛ بقي النص في خانة الكتابة.');
+                        } else if (user?.id && activeSessionId) {
+                          const contextId = getAssistantComposerContextId('general', null, activeSessionId);
+                          if (contextId && !saveAssistantComposerDraft(user.id, 'general', contextId, nextDraft)) {
+                            setScopeDraftStorageError('تعذر حفظ النص غير المرسل لهذا التبويب؛ انسخه قبل تغيير المساحة.');
+                          }
                         }
                       }}
                       onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); } }}

@@ -7,25 +7,48 @@ beforeEach(() => {
 });
 
 describe('assistant scope switch', () => {
-  it('returns from general chat to project selection without choosing a project silently', () => {
-    render(<AssistantScopeSwitch currentScope="general" />);
+  it('requires an explicit project choice from general chat', () => {
+    const onSelectProject = vi.fn();
+    render(<AssistantScopeSwitch
+      currentScope="general"
+      projects={[{ id: 'project-1', name: 'مشروع واحد' }]}
+      onSelectProject={onSelectProject}
+    />);
 
-    const link = screen.getByRole('link', { name: 'اختر مشروعًا' });
-    expect(link).toHaveAttribute('href', '/');
-    expect(link).toHaveAttribute('title', 'العودة لاختيار مشروع قبل بدء العمل داخله');
+    const selector = screen.getByRole('combobox', { name: 'اختر مشروعًا للعمل داخله' });
+    expect(selector).toHaveValue('');
+    fireEvent.change(selector, { target: { value: 'project-1' } });
+    expect(onSelectProject).toHaveBeenCalledWith('project-1');
   });
 
-  it('requires confirmation before leaving unsent text in the current scope', () => {
-    const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    render(<AssistantScopeSwitch currentScope="general" hasUnsentMessage />);
+  it('shows loading, retry, and create-project states from the real project list', () => {
+    const onRetryProjects = vi.fn();
+    const loadingView = render(<AssistantScopeSwitch currentScope="general" projectsLoading />);
+    expect(screen.getByRole('status')).toHaveTextContent('جارٍ تحميل المشاريع');
+    loadingView.unmount();
 
-    fireEvent.click(screen.getByRole('link', { name: 'اختر مشروعًا' }));
+    const errorView = render(<AssistantScopeSwitch currentScope="general" projectsError onRetryProjects={onRetryProjects} />);
+    fireEvent.click(screen.getByTestId('button-retry-scope-projects'));
+    expect(onRetryProjects).toHaveBeenCalledOnce();
+    errorView.unmount();
 
-    expect(confirmation).toHaveBeenCalledWith(
-      'تبديل مساحة المساعد سيغادر النص غير المرسل هذه الصفحة. هل تريد المتابعة؟',
-    );
+    render(<AssistantScopeSwitch currentScope="general" projects={[]} />);
+    expect(screen.getByRole('link', { name: 'أنشئ مشروعًا' })).toHaveAttribute('href', '/projects?create=1');
+  });
+
+  it('can block leaving project scope when the page cannot preserve its draft', () => {
+    const onSwitchToGeneral = vi.fn(() => false);
+    render(<AssistantScopeSwitch
+      currentScope="project"
+      generalHref="/general-chat?sessionId=general-1"
+      onSwitchToGeneral={onSwitchToGeneral}
+    />);
+
+    const link = screen.getByRole('link', { name: 'اسأل سؤالًا عامًا' });
+    fireEvent.click(link);
+    expect(onSwitchToGeneral).toHaveBeenCalledOnce();
+    expect(link).toHaveAttribute('href', '/general-chat?sessionId=general-1');
     expect(window.location.pathname).toBe('/general-chat');
-    confirmation.mockRestore();
   });
 
   it('opens a project-free general chat from project work', () => {

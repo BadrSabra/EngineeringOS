@@ -1,8 +1,14 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GeneralChat from './GeneralChat';
 import { readGoalDrafts, storeHomeGoalDraft } from '@/lib/home-goal-handoff';
+import {
+  readAssistantComposerDraft,
+  readAssistantScopeContext,
+  rememberAssistantScopeContext,
+  saveAssistantComposerDraft,
+} from '@/lib/assistant-scope-continuity';
 
 vi.mock('@clerk/react', () => ({ useUser: () => ({ user: { id: 'user-1' }, isLoaded: true }) }));
 const mocks = vi.hoisted(() => {
@@ -10,14 +16,17 @@ const mocks = vi.hoisted(() => {
   return {
     session,
     sessions: { data: [session], isLoading: false, isError: false, refetch: vi.fn() },
+    projects: { data: [{ id: 'project-1', name: 'مشروع واحد' }], isLoading: false, isError: false, refetch: vi.fn() },
     messages: { data: [] as { id: string; role: string; content: string; status: string; errorMessage?: string }[], isLoading: false, isError: false, refetch: vi.fn() },
     create: vi.fn(), remove: vi.fn(), send: vi.fn(),
   };
 });
 
 vi.mock('@workspace/api-client-react', () => ({
+  getListProjectsQueryKey: () => ['/api/projects'],
   getListGeneralChatSessionsQueryKey: () => ['/api/ai/general-chat/sessions'],
   getListGeneralChatMessagesQueryKey: (id: string) => ['/api/ai/general-chat/sessions', id, 'messages'],
+  useListProjects: () => mocks.projects,
   useListGeneralChatSessions: () => mocks.sessions,
   useListGeneralChatMessages: () => mocks.messages,
   useCreateGeneralChatSession: () => ({ mutate: mocks.create, isPending: false }),
@@ -37,18 +46,95 @@ beforeEach(() => {
   mocks.sessions.data = [mocks.session];
   mocks.sessions.isLoading = false;
   mocks.sessions.isError = false;
+  mocks.projects.data = [{ id: 'project-1', name: 'مشروع واحد' }];
+  mocks.projects.isLoading = false;
+  mocks.projects.isError = false;
   mocks.messages.data = [];
   mocks.messages.isLoading = false;
   mocks.messages.isError = false;
 });
 
 describe('Arabic conversation feedback boundaries', () => {
-  it('offers a safe project-selection route from general chat', () => {
+  it('requires choosing a project from the actual project list', () => {
     renderPage();
-    const switchLink = screen.getByTestId('link-switch-to-project');
+    expect(screen.getByTestId('select-scope-project')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'مشروع واحد' })).toHaveValue('project-1');
+  });
 
-    expect(switchLink).toHaveAttribute('href', '/');
-    expect(switchLink).toHaveAttribute('title', 'العودة لاختيار مشروع قبل بدء العمل داخله');
+  it('preserves an unsent general draft by account and session before opening the chosen project', () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId('input-general-chat-message'), {
+      target: { value: 'أريد شرح هذه الفكرة' },
+    });
+
+    fireEvent.change(screen.getByTestId('select-scope-project'), {
+      target: { value: 'project-1' },
+    });
+
+    expect(readAssistantComposerDraft('user-1', 'general', 'session-1')).toEqual({
+      ok: true,
+      text: 'أريد شرح هذه الفكرة',
+    });
+    expect(readAssistantScopeContext('user-1', 'general')).toEqual({
+      scope: 'general',
+      sessionId: 'session-1',
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(window.location.pathname).toBe('/ai');
+    expect(params.get('projectId')).toBe('project-1');
+    expect(params.get('sessionId')).toBeNull();
+    expect(params.get('goalDraftId')).toBeNull();
+    expect(window.location.search).not.toContain('أريد شرح هذه الفكرة');
+  });
+
+  it('restores only the exact general session draft and never sends it automatically', async () => {
+    const text = 'أكمل الشرح لاحقًا';
+    saveAssistantComposerDraft('user-1', 'general', 'session-1', text);
+    mocks.sessions.data = [
+      mocks.session,
+      { id: 'session-2', title: 'محادثة أخرى', updatedAt: '2026-10-15T10:00:00Z' },
+    ];
+    window.history.replaceState({}, '', '/general-chat?sessionId=session-1');
+
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('input-general-chat-message')).toHaveValue(text));
+    expect(screen.getByTestId('status-general-scope-draft-restored')).toHaveTextContent('لن يُرسل تلقائيًا');
+    expect(mocks.send).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('button-select-general-session-session-2'));
+    await waitFor(() => expect(screen.getByTestId('input-general-chat-message')).toHaveValue(''));
+    expect(screen.queryByTestId('status-general-scope-draft-restored')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-select-general-session-session-1'));
+    await waitFor(() => expect(screen.getByTestId('input-general-chat-message')).toHaveValue(text));
+    expect(screen.getByTestId('status-general-scope-draft-restored')).toBeInTheDocument();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('returns to the selected project’s own saved session rather than another project’s session', () => {
+    mocks.projects.data = [
+      { id: 'project-1', name: 'مشروع واحد' },
+      { id: 'project-2', name: 'مشروع اثنان' },
+    ];
+    rememberAssistantScopeContext('user-1', {
+      scope: 'project',
+      projectId: 'project-1',
+      sessionId: 'session-project-1',
+    });
+    rememberAssistantScopeContext('user-1', {
+      scope: 'project',
+      projectId: 'project-2',
+      sessionId: 'session-project-2',
+    });
+
+    renderPage();
+    fireEvent.change(screen.getByTestId('select-scope-project'), {
+      target: { value: 'project-2' },
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get('projectId')).toBe('project-2');
+    expect(params.get('sessionId')).toBe('session-project-2');
+    expect(window.location.search).not.toContain('session-project-1');
   });
 
   it('distinguishes a failed session read from an empty list and retries only the read', () => {

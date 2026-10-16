@@ -22,6 +22,14 @@ import { useToast } from '@/hooks/use-toast';
 import { HOME_GOAL_MAX_LENGTH, STARTER_GOAL_MAX_LENGTH } from '@/lib/home-goal-handoff';
 import { GoalDraftNotice, useGoalDraftHandoff } from '@/lib/use-goal-draft-handoff';
 import {
+  buildAssistantScopeHref,
+  getAssistantComposerContextId,
+  readAssistantComposerDraft,
+  readAssistantScopeContext,
+  rememberAssistantScopeContext,
+  saveAssistantComposerDraft,
+} from '@/lib/assistant-scope-continuity';
+import {
   useListProjects,
   getListProjectsQueryKey,
   classifyProjectError,
@@ -9732,6 +9740,13 @@ export default function AiChat() {
     routeDraftId: new URLSearchParams(window.location.search).get('goalDraftId'),
     selectedProjectId, input, setInput,
   });
+  const [scopeDraftRestored, setScopeDraftRestored] = useState(false);
+  const [scopeDraftStorageError, setScopeDraftStorageError] = useState('');
+  const restoredScopeDraftKey = useRef('');
+  const generalScopeContext = readAssistantScopeContext(user?.id, 'general');
+  const generalScopeHref = generalScopeContext
+    ? buildAssistantScopeHref(generalScopeContext)
+    : '/general-chat';
   const homeGoalNeedsProjectConfirmation = draftHandoff.needsProjectConfirmation;
   const [auditExportPending, setAuditExportPending] = useState(false);
   const [auditPreviewPending, setAuditPreviewPending] = useState(false);
@@ -10886,6 +10901,56 @@ export default function AiChat() {
     },
   );
 
+  useEffect(() => {
+    const routeProjectId = chatRouteTarget?.projectId;
+    const routeSessionId = chatRouteTarget?.sessionId;
+    if (
+      !user?.id
+      || !routeProjectId
+      || routeProjectId !== selectedProjectId
+      || !draftHandoff.isReady
+      || draftHandoff.activeDraft
+    ) return;
+    if (routeSessionId) {
+      if (
+        sessionId !== routeSessionId
+        || !sessionsFetched
+        || sessionsError
+        || !sessions.some((session) => session.id === routeSessionId)
+      ) return;
+    } else if (sessionId) {
+      // A stored session selection is a different context from a new-chat
+      // route. Do not place a new-chat draft into that session.
+      return;
+    }
+    const contextId = getAssistantComposerContextId('project', routeProjectId, routeSessionId);
+    if (!contextId) return;
+    const key = `${user.id}:project:${contextId}`;
+    if (restoredScopeDraftKey.current === key) return;
+    restoredScopeDraftKey.current = key;
+    const stored = readAssistantComposerDraft(user.id, 'project', contextId);
+    if (!stored.ok) {
+      setScopeDraftStorageError('تعذر استعادة النص غير المرسل لهذه المحادثة من هذا التبويب.');
+      return;
+    }
+    setScopeDraftStorageError('');
+    if (stored.text?.trim() && !input.trim()) {
+      setInput(stored.text);
+      setScopeDraftRestored(true);
+    }
+  }, [
+    user?.id,
+    chatRouteTarget,
+    selectedProjectId,
+    sessionId,
+    sessions,
+    sessionsFetched,
+    sessionsError,
+    draftHandoff.isReady,
+    draftHandoff.activeDraft,
+    input,
+  ]);
+
   // Browser selection state is only trusted after both project-owned lists
   // have loaded. The durable execution pointer is intentionally independent:
   // when it recovered a different session, leave that resumable execution
@@ -11770,6 +11835,32 @@ export default function AiChat() {
     );
   }
 
+  function preserveCurrentProjectComposerDraft(): boolean {
+    if (!input.trim() || draftHandoff.activeDraft) return true;
+    const contextId = getAssistantComposerContextId('project', selectedProjectId, sessionId);
+    const saved = Boolean(user?.id && contextId
+      && saveAssistantComposerDraft(user.id, 'project', contextId, input));
+    if (!saved) setScopeDraftStorageError('تعذر حفظ النص لهذه المحادثة.');
+    return saved;
+  }
+
+  function handleSwitchToGeneral(): boolean {
+    const draftSaved = preserveCurrentProjectComposerDraft();
+    const contextSaved = Boolean(user?.id && selectedProjectId && rememberAssistantScopeContext(user.id, {
+      scope: 'project',
+      projectId: selectedProjectId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(draftHandoff.activeDraft ? { draftId: draftHandoff.activeDraft.id } : {}),
+    }));
+    if (!draftSaved || !contextSaved) {
+      setScopeDraftStorageError('تعذر حفظ سياق المحادثة أو النص غير المرسل لهذا التبويب.');
+      if (input.trim() && !window.confirm('تعذر حفظ استمرار هذه المسودة. هل تريد فتح المحادثة العامة على أي حال؟')) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** Core send — accepts a pre-trimmed message string. Used by handleSend and
    *  handleQuickAction so both paths share the same streaming logic. */
   function sendMessage(
@@ -11813,6 +11904,13 @@ export default function AiChat() {
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
     const requestSessionId = options?.sessionId ?? sessionId;
+    if (!options?.executionId && msg.trim() === input.trim() && !draftHandoff.activeDraft && user?.id) {
+      const contextId = getAssistantComposerContextId('project', requestProjectId, requestSessionId);
+      if (contextId && !saveAssistantComposerDraft(user.id, 'project', contextId, '')) {
+        setScopeDraftStorageError('تعذر مسح نسخة المسودة المحفوظة؛ سيبقى النص ظاهرًا إذا ألغيت الإرسال.');
+        if (!window.confirm('تعذر مسح نسخة النص غير المرسل المحفوظة. هل تريد الإرسال على أي حال؟')) return;
+      }
+    }
     streamOwnerRef.current = {
       generation,
       projectId: requestProjectId,
@@ -11837,6 +11935,7 @@ export default function AiChat() {
       return true;
     };
     setInput('');
+    setScopeDraftRestored(false);
 
     const isResume = Boolean(options?.executionId);
     if (!isResume) {
@@ -12886,9 +12985,13 @@ export default function AiChat() {
     setLiveFixtureLocal(false);
     setLiveEvidenceIntegrity(null);
     setLiveVerdictScope(null);
+    setScopeDraftRestored(false);
+    restoredScopeDraftKey.current = '';
   }
 
   function newSession() {
+    if (!preserveCurrentProjectComposerDraft() && input.trim()
+      && !window.confirm('تعذر حفظ النص غير المرسل لهذه المحادثة. هل تريد فتح محادثة جديدة على أي حال؟')) return;
     resetConversationView({ forgetCurrentExecution: true });
     if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
   }
@@ -13245,6 +13348,13 @@ export default function AiChat() {
               value={selectedProjectId}
               onChange={(e) => {
                 const preservedGoal = draftHandoff.activeDraft ? input : null;
+                if (
+                  e.target.value !== selectedProjectId
+                  && preservedGoal === null
+                  && input.trim()
+                  && !preserveCurrentProjectComposerDraft()
+                  && !window.confirm('تعذر حفظ النص غير المرسل للمشروع الحالي. هل تريد تغيير المشروع على أي حال؟')
+                ) return;
                 resetConversationView({ forgetCurrentExecution: false });
                 if (preservedGoal !== null) setInput(preservedGoal);
                 setSelectedProjectId(e.target.value);
@@ -13307,6 +13417,11 @@ export default function AiChat() {
                     if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false);
                     return;
                   }
+                  if (!draftHandoff.activeDraft && input.trim()
+                    && !preserveCurrentProjectComposerDraft()
+                    && !window.confirm('تعذر حفظ النص غير المرسل للمحادثة الحالية. هل تريد فتح محادثة أخرى على أي حال؟')) {
+                    return;
+                  }
                   streamGenerationRef.current += 1;
                   cancelStream();
                   clearExecutionScopedState();
@@ -13320,6 +13435,24 @@ export default function AiChat() {
                   setAuditPreview(null);
                   setAuditPreviewError(null);
                   setSessionId(s.id);
+                  if (!draftHandoff.activeDraft) {
+                    setInput('');
+                    setScopeDraftRestored(false);
+                    const targetContextId = getAssistantComposerContextId('project', selectedProjectId, s.id);
+                    if (user?.id && targetContextId) {
+                      const storedDraft = readAssistantComposerDraft(user.id, 'project', targetContextId);
+                      restoredScopeDraftKey.current = `${user.id}:project:${targetContextId}`;
+                      if (!storedDraft.ok) {
+                        setScopeDraftStorageError('تعذر استعادة النص غير المرسل لهذه المحادثة من هذا التبويب.');
+                      } else if (storedDraft.text?.trim()) {
+                        setInput(storedDraft.text);
+                        setScopeDraftRestored(true);
+                        setScopeDraftStorageError('');
+                      } else {
+                        setScopeDraftStorageError('');
+                      }
+                    }
+                  }
                   setLocalMessages([]);
                   setPendingChanges([]);
                   setProposalId(undefined);
@@ -13581,7 +13714,12 @@ export default function AiChat() {
               <span data-testid="text-chat-current-session">{sessionName}</span>
             </div>
           </div>
-          <AssistantScopeSwitch currentScope="project" hasUnsentMessage={Boolean(input.trim())} compact />
+          <AssistantScopeSwitch
+            currentScope="project"
+            generalHref={generalScopeHref}
+            onSwitchToGeneral={handleSwitchToGeneral}
+            compact
+          />
           <Badge variant="outline" className="hidden max-w-[35%] truncate text-[10px] font-mono sm:inline-flex">
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
@@ -14304,6 +14442,8 @@ export default function AiChat() {
               metric={activeProviderMetric}
             />
             <GoalDraftNotice handoff={draftHandoff} />
+            {scopeDraftRestored && <p role="status" data-testid="status-ai-scope-draft-restored" className="mb-2 text-xs text-primary">استعدنا النص غير المرسل لهذه المحادثة؛ لن يُرسل تلقائيًا.</p>}
+            {scopeDraftStorageError && <p role="alert" data-testid="status-ai-scope-draft-storage-error" className="mb-2 text-xs text-amber-200">{scopeDraftStorageError}</p>}
             {homeGoalNeedsProjectConfirmation && (
               <div role="status" dir="rtl" data-testid="status-home-goal-project-confirmation" className="mb-2 rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm">
                 <p>{projectName ? `هل تقصد تنفيذ هذا الهدف في مشروع «${projectName}»؟` : 'اختر المشروع المقصود من قائمة المشاريع قبل إرسال هذا الهدف.'}</p>
@@ -14325,7 +14465,18 @@ export default function AiChat() {
               ref={textareaRef}
               data-testid="input-ai-chat-composer"
               value={input}
-              onChange={(e) => draftHandoff.edit(e.target.value)}
+              onChange={(e) => {
+                const nextInput = e.target.value;
+                draftHandoff.edit(nextInput);
+                setScopeDraftRestored(false);
+                setScopeDraftStorageError('');
+                if (!draftHandoff.activeDraft && user?.id && selectedProjectId) {
+                  const contextId = getAssistantComposerContextId('project', selectedProjectId, sessionId);
+                  if (contextId && !saveAssistantComposerDraft(user.id, 'project', contextId, nextInput)) {
+                    setScopeDraftStorageError('تعذر حفظ النص غير المرسل لهذا التبويب؛ انسخه قبل تغيير المساحة.');
+                  }
+                }
+              }}
               onKeyDown={handleKeyDown}
               maxLength={draftHandoff.activeDraft ? (draftHandoff.activeDraft.source === 'home' ? HOME_GOAL_MAX_LENGTH : STARTER_GOAL_MAX_LENGTH) : undefined}
               placeholder={applyMutation.isPending ? 'جارٍ تطبيق التغييرات… انتظر قليلًا' : isAgentBusy ? 'العمل جارٍ… يظهر التقدم أعلاه' : getPlaceholder()}

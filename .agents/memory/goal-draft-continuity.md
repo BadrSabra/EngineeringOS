@@ -23,6 +23,11 @@ attempted request or become proof, approval, or a Mission continuation.
 admitted the request. Deleting immediately can lose the goal; automatically
 replaying can duplicate effects.
 
+**Why:** General and project chats have separate histories; restoring text in a
+nearby but different session could lead the user to send it in the wrong scope.
+
 **How to apply:** Distinguish unsent drafts, attempted text, and durable request
-records. Server-owned identities and acceptance remain authoritative; client
-draft storage is only per-account, bounded UI continuity.
+records. Ordinary composer continuity is tab-local and keyed by account, scope,
+and exact conversation; preserve only that scope's return identifiers. Keep
+GoalDraft handoffs on their separate durable path. Client draft storage never
+implies server acceptance, proof, or permission.
