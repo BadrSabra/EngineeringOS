@@ -736,8 +736,10 @@ export default function Dashboard() {
 
           {/* Retention health is deliberately limited to content-free sweep metadata. */}
           <details
-            aria-label="AI diagnostics retention health"
+            aria-label="حالة الاحتفاظ بتشخيصات المساعد"
             data-testid="details-ai-diagnostics"
+            dir="rtl"
+            lang="ar"
             className="group rounded-xl border border-border bg-card"
           >
             <summary
@@ -761,24 +763,24 @@ export default function Dashboard() {
               )}
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">AI diagnostics</h2>
+              <h2 className="truncate text-sm font-semibold">الاحتفاظ بتشخيصات المساعد</h2>
               <p className={`mt-0.5 truncate text-xs ${
                 retention?.status === 'failed'
                   ? 'text-destructive/80'
                   : 'text-muted-foreground'
               }`}>
                 {retention?.status === 'failed'
-                  ? 'Retention sweep needs attention'
+                  ? 'تعذر إكمال آخر فحص للاحتفاظ'
                   : retention?.status === 'success'
-                    ? 'Retention health is normal'
-                    : 'Checking retention health'}
+                    ? 'اكتمل آخر فحص للاحتفاظ'
+                    : 'جارٍ التحقق من حالة الاحتفاظ'}
               </p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span
               data-testid="status-ai-diagnostics"
-              className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${
+              className={`rounded-full px-2 py-1 text-[10px] font-medium ${
                 retention?.status === 'failed'
                   ? 'bg-destructive/10 text-destructive'
                   : retention?.status === 'success'
@@ -787,10 +789,10 @@ export default function Dashboard() {
               }`}
             >
               {retention?.status === 'failed'
-                ? 'Needs attention'
+                ? 'تعذر الإكمال'
                 : retention?.status === 'success'
-                  ? 'Healthy'
-                  : 'Checking'}
+                  ? 'مكتمل'
+                  : 'جارٍ التحقق'}
             </span>
             <ChevronDown
               aria-hidden="true"
@@ -799,27 +801,33 @@ export default function Dashboard() {
           </div>
         </summary>
             <section
-              aria-label="AI diagnostics retention details"
+              aria-label="تفاصيل الاحتفاظ بتشخيصات المساعد"
+              dir="rtl"
+              lang="ar"
               className="border-t border-border px-4 py-3"
             >
               {retention?.status === 'failed' ? (
                 <p className="text-xs text-destructive/80">
-                  The sweep will be retried automatically on the next startup.
+                  ستُعاد محاولة فحص الاحتفاظ تلقائيًا عند بدء الخدمة التالية.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Last completed {formatHealthTimestamp(retention?.completedAt)}
+                  آخر اكتمال: {formatHealthTimestamp(retention?.completedAt)}
                 </p>
               )}
               {retention?.status === 'success' && (
                 <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:max-w-xl">
-                  <span className="text-muted-foreground">Chat rows</span>
-                  <span className="font-mono font-medium">
-                    {retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned
+                  <span className="text-muted-foreground">سجلات المحادثات (مفحوصة / محذوفة)</span>
+                  <span dir="ltr" className="font-mono font-medium">
+                    <bdi dir="ltr">{retention.chatRowsScanned.toLocaleString('ar-EG')}</bdi>
+                    {' / '}
+                    <bdi dir="ltr">{retention.chatRowsPruned.toLocaleString('ar-EG')}</bdi>
                   </span>
-                  <span className="text-muted-foreground">Execution rows</span>
-                  <span className="font-mono font-medium">
-                    {retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned
+                  <span className="text-muted-foreground">سجلات التنفيذ (مفحوصة / محذوفة)</span>
+                  <span dir="ltr" className="font-mono font-medium">
+                    <bdi dir="ltr">{retention.executionRowsScanned.toLocaleString('ar-EG')}</bdi>
+                    {' / '}
+                    <bdi dir="ltr">{retention.executionRowsPruned.toLocaleString('ar-EG')}</bdi>
                   </span>
                 </div>
               )}

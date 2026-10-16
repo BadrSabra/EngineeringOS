@@ -77,7 +77,16 @@ beforeEach(() => {
     dataUpdatedAt: Date.now(),
   } as ReturnType<typeof useGetDashboard>);
   vi.mocked(useGetHealth).mockReturnValue({
-    data: { aiDiagnosticsRetention: { status: "success", completedAt: new Date() } },
+    data: {
+      aiDiagnosticsRetention: {
+        status: "success",
+        completedAt: new Date(),
+        chatRowsScanned: 12,
+        chatRowsPruned: 2,
+        executionRowsScanned: 7,
+        executionRowsPruned: 1,
+      },
+    },
     refetch: vi.fn(),
   } as ReturnType<typeof useGetHealth>);
   vi.mocked(useListProjects).mockReturnValue({
@@ -361,13 +370,49 @@ describe("Dashboard operator alerts", () => {
 
     const diagnostics = screen.getByTestId("details-ai-diagnostics");
     expect(diagnostics).not.toHaveAttribute("open");
-    expect(screen.getByTestId("status-ai-diagnostics")).toHaveTextContent("Healthy");
-    expect(screen.getByText(/Last completed/)).not.toBeVisible();
+    expect(screen.getByTestId("status-ai-diagnostics")).toHaveTextContent("مكتمل");
+    expect(screen.getByText(/آخر اكتمال:/)).not.toBeVisible();
 
     fireEvent.click(screen.getByTestId("summary-ai-diagnostics"));
 
     expect(diagnostics).toHaveAttribute("open");
-    expect(screen.getByText(/Last completed/)).toBeVisible();
+    const details = screen.getByRole("region", { name: "تفاصيل الاحتفاظ بتشخيصات المساعد" });
+    expect(within(details).getByText(/آخر اكتمال:/)).toBeVisible();
+    expect(within(details).getByText("سجلات المحادثات (مفحوصة / محذوفة)")).toBeInTheDocument();
+    expect(within(details).getByText("سجلات التنفيذ (مفحوصة / محذوفة)")).toBeInTheDocument();
+    const countValues = Array.from(details.querySelectorAll("bdi"));
+    expect(countValues.map((value) => value.textContent)).toEqual(["١٢", "٢", "٧", "١"]);
+    countValues.forEach((value) => expect(value).toHaveAttribute("dir", "ltr"));
+  });
+
+  it("explains a failed retention sweep and its automatic retry in Arabic", () => {
+    vi.mocked(useGetHealth).mockReturnValue({
+      data: {
+        aiDiagnosticsRetention: {
+          status: "failed",
+          attemptedAt: new Date().toISOString(),
+          completedAt: null,
+          chatRowsScanned: 0,
+          chatRowsPruned: 0,
+          executionRowsScanned: 0,
+          executionRowsPruned: 0,
+        },
+      },
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetHealth>);
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
+
+    const diagnostics = screen.getByTestId("details-ai-diagnostics");
+    expect(diagnostics).toHaveAttribute("dir", "rtl");
+    expect(screen.getByTestId("status-ai-diagnostics")).toHaveTextContent("تعذر الإكمال");
+    fireEvent.click(screen.getByTestId("summary-ai-diagnostics"));
+
+    const details = screen.getByRole("region", { name: "تفاصيل الاحتفاظ بتشخيصات المساعد" });
+    expect(within(details).getByText(/ستُعاد محاولة فحص الاحتفاظ تلقائيًا/)).toBeInTheDocument();
+    expect(within(details).queryByText(/آخر اكتمال:/)).not.toBeInTheDocument();
+    expect(within(details).queryByText(/سجلات المحادثات/)).not.toBeInTheDocument();
   });
 
   it("distinguishes a temporary catalog outage from retired-model drift", () => {
