@@ -6697,7 +6697,7 @@ describe("delivery recovery routes", () => {
     await expect(fs.access(operation.change.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rechecks Gate 3 before writing if the paired receipt changes during auto-promotion", async () => {
+  it("rechecks Gate 3 before writing if paired source revision changes during auto-promotion", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const [project] = await db.select({ rootPath: projectsTable.rootPath })
@@ -7035,19 +7035,9 @@ describe("delivery recovery routes", () => {
             AND OLD.lifecycle IS DISTINCT FROM NEW.lifecycle THEN
             UPDATE ai_shadow_replays
             SET receipt = jsonb_set(
-              jsonb_set(
-                jsonb_set(
-                  receipt,
-                  '{pairedBaseline,candidateRunId}',
-                  to_jsonb((receipt->>'replayId') || ':foreign-candidate'),
-                  true
-                ),
-                '{pairedBaseline,contract,candidateRunId}',
-                to_jsonb((receipt->>'replayId') || ':foreign-candidate'),
-                true
-              ),
-              '{pairedBaseline,contract,pairId}',
-              to_jsonb('shadow-replay-pair:foreign:' || (receipt->>'replayId')),
+              receipt,
+              '{pairedBaseline,contract,sourceRevision}',
+              to_jsonb('foreign-source-revision:' || (receipt->>'replayId')),
               true
             )
             WHERE proposal_id = NEW.id;
@@ -7078,6 +7068,21 @@ describe("delivery recovery routes", () => {
         .toContain("Automatic delivery promotion was blocked");
       expect(recheckedApply.body.results[0].error).toContain("paired_baseline_missing");
       expect(validationSpy).toHaveBeenCalledTimes(2);
+      const [replayAfterRecheck] = await db.select({ receipt: aiShadowReplaysTable.receipt })
+        .from(aiShadowReplaysTable)
+        .where(eq(aiShadowReplaysTable.id, replayId));
+      expect(replayAfterRecheck?.receipt).toMatchObject({
+        pairedBaseline: {
+          baselineRunId,
+          candidateRunId,
+          contract: {
+            pairId: `shadow-replay-pair:${replayId}`,
+            sourceRevision: `foreign-source-revision:${replayId}`,
+            baselineRunId,
+            candidateRunId,
+          },
+        },
+      });
 
       const blockedJournals = await db.select().from(aiApplyJournalTable)
         .where(eq(aiApplyJournalTable.operationId, operation.operationId));
