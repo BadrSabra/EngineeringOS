@@ -144,6 +144,9 @@ describe('Workflows recovery rendering', () => {
 
   it('shows AI decisions as recommendations without advancing the workflow', () => {
     renderPage();
+    expect(screen.getByTestId('workflow-status-authority')).toHaveTextContent(
+      'حالة المسار ومراحله محفوظة في السجل',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'اطلب مقترحًا' }));
 
     expect(aiOrchestrationMutation.mutate).toHaveBeenCalledWith(

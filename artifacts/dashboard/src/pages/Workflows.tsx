@@ -359,7 +359,7 @@ function ExecutionHistory({
             <div className="flex items-center gap-2">
               <span className={`font-bold ${statusStyle(exec.status)}`}>
                 {exec.status === 'completed'
-                  ? 'انتهى التشغيل · أكّد الخادم النجاح'
+                  ? 'انتهى التشغيل بحسب السجل'
                   : exec.status === 'failed'
                     ? 'فشل التشغيل · لم يُسجل اكتماله بنجاح'
                     : exec.status === 'stopped'
@@ -374,7 +374,7 @@ function ExecutionHistory({
             </div>
             {exec.completedPhases && exec.completedPhases.length > 0 && (
               <div className="text-[10px] text-muted-foreground mt-1 truncate">
-                مراحل مكتملة: <bdi dir="ltr" className="font-mono">{exec.completedPhases.join(' → ')}</bdi>
+                مراحل مسجلة كمكتملة: <bdi dir="ltr" className="font-mono">{exec.completedPhases.join(' → ')}</bdi>
               </div>
             )}
             {exec.errorMessage && (
@@ -610,6 +610,12 @@ export default function Workflows() {
                     </span>
                   </div>
                   <p dir="auto" className="text-muted-foreground text-sm mt-1">{workflow.description}</p>
+                  <p
+                    data-testid="workflow-status-authority"
+                    className="mt-2 max-w-2xl text-[10px] leading-4 text-amber-200/80"
+                  >
+                    حالة المسار ومراحله محفوظة في السجل؛ لا تثبت قبول تغييرات المشروع أو تحقق Canonical Proof.
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {workflow.status === 'running' && (
