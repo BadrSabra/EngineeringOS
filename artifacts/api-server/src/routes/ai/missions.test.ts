@@ -60,6 +60,8 @@ import {
   runShadowReplayAttempt,
 } from "../../lib/shadow-replay.js";
 import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js";
+import { decideDeliveryPromotionWithPairedBaseline } from "../../lib/ai-promotion-decision.js";
+import { loadPairedBaselineComparisonForProposal } from "./chat.js";
 
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
@@ -3483,6 +3485,109 @@ describe("AI missions and goals", () => {
     );
     expect(currentAttemptAcceptances).toHaveLength(1);
     expect(currentAttemptAcceptances[0]?.id).toBe(recoveredCanonicalProof.acceptanceId);
+
+    const [completedReplayReceiptRow] = await db.select({
+      receipt: aiShadowReplaysTable.receipt,
+    }).from(aiShadowReplaysTable).where(eq(aiShadowReplaysTable.id, replayId));
+    const originalReceiptValue = completedReplayReceiptRow?.receipt;
+    const originalReceipt = (typeof originalReceiptValue === "string"
+      ? JSON.parse(originalReceiptValue)
+      : originalReceiptValue) as Record<string, unknown> | null;
+    const originalPair = originalReceipt?.pairedBaseline as Record<string, unknown> | undefined;
+    const originalPairContract = originalPair?.contract as Record<string, unknown> | undefined;
+    expect(originalPair).toBeTruthy();
+    expect(originalPairContract).toBeTruthy();
+    const unrelatedReplayId = randomUUID();
+    const matchingPair = {
+      ...originalPair!,
+      status: "passed",
+      promotionAllowed: true,
+      proof: {
+        verdict: "PROVEN",
+        receiptId: recoveredCanonicalProof.acceptanceId,
+      },
+      baselineRunId: `${replayId}:baseline`,
+      candidateRunId: `${replayId}:candidate`,
+      baselineWorkspaceHash: candidateTreeHash,
+      candidateWorkspaceHash: candidateTreeHash,
+      contract: {
+        ...originalPairContract!,
+        pairId: `shadow-replay-pair:${replayId}`,
+        sourceRevision,
+        baselineRunId: `${replayId}:baseline`,
+        candidateRunId: `${replayId}:candidate`,
+        baselineWorkspaceHash: candidateTreeHash,
+        candidateWorkspaceHash: candidateTreeHash,
+        candidateId: candidate.candidateId,
+      },
+    };
+    const matchingReceipt = {
+      ...originalReceipt!,
+      pairedBaseline: matchingPair,
+    };
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: matchingReceipt })
+      .where(eq(aiShadowReplaysTable.id, replayId));
+    const proposalForPromotion = {
+      id: proposalId,
+      projectId,
+      operationId,
+      baseRevision: sourceRevision,
+      baseTreeHash: candidateTreeHash,
+      candidateTreeHash,
+      changeSetHash,
+      workspaceRoot: replayWorkspace.rootPath,
+    };
+    const matchingPromotionBaseline = await loadPairedBaselineComparisonForProposal(proposalForPromotion);
+    const promotionInput = {
+      changes: [{ path: "docs/guide.md", newContent: "updated guide" }],
+      validationResults: [{
+        status: "passed",
+        evidence: {
+          candidateHash: candidateTreeHash,
+          changeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+      }],
+      expectedCandidateTreeHash: candidateTreeHash,
+      observedCandidateTreeHash: candidateTreeHash,
+      expectedChangeSetHash: changeSetHash,
+      observedChangeSetHash: changeSetHash,
+      expectedTreeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      observedTreeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      approvalRequired: false,
+    };
+    const matchingPromotionDecision = decideDeliveryPromotionWithPairedBaseline(
+      promotionInput,
+      matchingPromotionBaseline,
+    );
+    expect(matchingPromotionDecision).toMatchObject({
+      decision: "AUTO_PROMOTE_ELIGIBLE",
+    });
+
+    const mismatchedReceipt = {
+      ...matchingReceipt,
+      pairedBaseline: {
+        ...matchingPair,
+        candidateRunId: `${unrelatedReplayId}:candidate`,
+        contract: {
+          ...matchingPair.contract,
+          pairId: `shadow-replay-pair:${unrelatedReplayId}`,
+          candidateRunId: `${unrelatedReplayId}:candidate`,
+        },
+      },
+    };
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: mismatchedReceipt })
+      .where(eq(aiShadowReplaysTable.id, replayId));
+    const mismatchedPromotionBaseline = await loadPairedBaselineComparisonForProposal(proposalForPromotion);
+    const mismatchedPromotionDecision = decideDeliveryPromotionWithPairedBaseline(
+      promotionInput,
+      mismatchedPromotionBaseline,
+    );
+    expect(mismatchedPromotionDecision).toMatchObject({
+      decision: "BLOCKED",
+    });
 
     const crashWorkspace = await createValidationWorkspace(
       sourceRoot,

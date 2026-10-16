@@ -114,3 +114,16 @@ A attempts to commit authorization or release the successor
 The result must be a bounded block/replan or a decision based on freshly revalidated state. The test must exercise the production transaction/lock or compare-and-set boundary; a helper-only mock does not establish race safety. Dependency-release attempt rotation and Mission-aggregation acceptance rotation now have transaction-level fixtures. Keep missing-proof, prior-attempt, stale-revision, incomplete-evidence, and crash/replay receipt recovery as separate contracts.
 
 This is a proposed E3 acceptance contract only. Do not expand it into World Delta work, a new universal authorization service, or Learning/Transfer/Generalization.
+
+## 2026-10-16 — paired-baseline receipt decision consumers
+
+The production decision consumers found are the shared chat helper used by proposal recovery/resume and automatic delivery-promotion eligibility, plus Gate 4's `validateSkillRegistryAuthority` → `buildSkillShadowScore` path. Shadow Replay GET/idempotent POST checks current source and replay proof freshness but remains presentation-only. `proof-spine` only projects status and is not an authority-bearing consumer.
+
+Two identity gaps were reproduced before changing the guards:
+
+- For automatic delivery eligibility, a `passed` comparison with the current replay's Canonical Proof and matching candidate hashes, but foreign `pairId` and `candidateRunId`, produced `AUTO_PROMOTE_ELIGIBLE`. No apply handler or live file write was invoked.
+- For Gate 4, the score helper returned an eligible score with a foreign baseline run ID, foreign candidate run ID in the pair contract, or foreign contract source revision while `pairId` and tree hashes still matched. The test stopped at the helper; no Skill registration or approval mutation was invoked.
+
+The guards now bind both top-level and contract baseline/candidate run IDs, pair ID, source revision, candidate ID, and baseline/candidate tree hashes to the current replay and proposal. Gate 3 also validates the version-2 durable receipt against the current replay row, attempt, execution proof, operation, change set, and source workspace. Gate 4 rejects a missing base tree hash and reuses the same strict paired-baseline identity requirements.
+
+Verification: the isolated PostgreSQL recovery test includes a positive matching-pair control (`AUTO_PROMOTE_ELIGIBLE`) and then changes only pair/run identity and expects `BLOCKED`; it passed 1/1 and continued through its existing Shadow Replay SIGKILL recovery case. The skill-registry contract test passed 11/11; API TypeScript and `git diff --check` passed. These results establish decision/helper behavior, not an actual delivery apply or Skill registration write. E3 and E3.2 remain open; Strategy Replay receipts were not run, E4 was not started, and the managed API workflow was not restarted.

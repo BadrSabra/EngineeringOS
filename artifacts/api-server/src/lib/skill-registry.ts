@@ -154,8 +154,16 @@ function isPairedBaselineComparison(value: unknown): value is DeliveryPairedBase
     && typeof value.status === "string"
     && ["incomplete", "regressed", "passed"].includes(value.status)
     && typeof value.promotionAllowed === "boolean"
+    && typeof contract.kind === "string"
+    && contract.version === 1
     && typeof contract.pairId === "string"
+    && typeof contract.sourceRevision === "string"
+    && typeof contract.baselineRunId === "string"
+    && typeof contract.candidateRunId === "string"
+    && typeof contract.candidateId === "string"
     && typeof contract.suiteVersion === "string"
+    && typeof value.baselineRunId === "string"
+    && typeof value.candidateRunId === "string"
     && typeof value.baselineWorkspaceHash === "string"
     && typeof value.candidateWorkspaceHash === "string"
     && Number.isInteger(value.terminalMismatchCount)
@@ -169,25 +177,30 @@ export function buildSkillShadowScore(input: {
   replayId: string;
   candidateId: string;
   candidateTreeHash: string;
-  baselineTreeHash?: string | null;
+  baselineTreeHash: string;
+  sourceRevision: string;
 }): SkillShadowScore | null {
   if (!isPairedBaselineComparison(input.comparison)) return null;
   const comparison = input.comparison;
-  const contractCandidateId = (
-    comparison.contract as unknown as { candidateId?: unknown }
-  ).candidateId;
+  const expectedBaselineRunId = `${input.replayId}:baseline`;
+  const expectedCandidateRunId = `${input.replayId}:candidate`;
   if (
     comparison.kind !== "code-agent-benchmark-paired-comparison"
     || comparison.version !== 1
+    || comparison.contract.kind !== "code-agent-benchmark-paired-contract"
+    || comparison.contract.version !== 1
     || comparison.contract.pairId !== `shadow-replay-pair:${input.replayId}`
-    || contractCandidateId !== input.candidateId
+    || comparison.contract.sourceRevision !== input.sourceRevision
+    || comparison.baselineRunId !== expectedBaselineRunId
+    || comparison.contract.baselineRunId !== expectedBaselineRunId
+    || comparison.candidateRunId !== expectedCandidateRunId
+    || comparison.contract.candidateRunId !== expectedCandidateRunId
+    || comparison.contract.candidateId !== input.candidateId
     || !DigestSchema.safeParse(comparison.baselineWorkspaceHash).success
     || !DigestSchema.safeParse(comparison.candidateWorkspaceHash).success
+    || !DigestSchema.safeParse(input.baselineTreeHash).success
     || comparison.candidateWorkspaceHash !== input.candidateTreeHash
-    || (
-      input.baselineTreeHash
-      && comparison.baselineWorkspaceHash !== input.baselineTreeHash
-    )
+    || comparison.baselineWorkspaceHash !== input.baselineTreeHash
     || comparison.status !== "passed"
     || comparison.promotionAllowed !== true
   ) {

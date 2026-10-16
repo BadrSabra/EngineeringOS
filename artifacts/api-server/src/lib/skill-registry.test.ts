@@ -54,12 +54,14 @@ function comparison(overrides: Record<string, unknown> = {}) {
 
 function receipt(overrides: Record<string, unknown> = {}) {
   return {
-    contractVersion: 1,
+    contractVersion: 2,
     runId: replayId,
     candidateId,
     projectId: "project-1",
     sourceRevision: "revision-1",
     candidateTreeHash,
+    operationId: `shadow-replay-operation:${replayId}`,
+    changeSetHash: "d".repeat(64),
     proof: {
       receiptId: "replay-acceptance-1",
       trajectoryDigest: "f".repeat(64),
@@ -69,6 +71,7 @@ function receipt(overrides: Record<string, unknown> = {}) {
     replayId,
     replayExecutionId: "execution-1",
     status: "completed",
+    attempt: 0,
     preTreeHash: candidateTreeHash,
     postTreeHash: candidateTreeHash,
     workspaceIsolated: true,
@@ -86,6 +89,7 @@ describe("skill registry Gate 4 contract", () => {
       candidateId,
       candidateTreeHash,
       baselineTreeHash,
+      sourceRevision: "revision-1",
     });
 
     expect(score).toMatchObject({
@@ -113,6 +117,21 @@ describe("skill registry Gate 4 contract", () => {
         pairId: "shadow-replay-pair:other",
       },
     }],
+    ["foreign baseline run ID", {
+      baselineRunId: "other-replay:baseline",
+    }],
+    ["foreign candidate run ID in contract", {
+      contract: {
+        ...comparison().contract,
+        candidateRunId: "other-replay:candidate",
+      },
+    }],
+    ["foreign source revision in contract", {
+      contract: {
+        ...comparison().contract,
+        sourceRevision: "other-revision",
+      },
+    }],
   ])("rejects %s", (_label, overrides) => {
     expect(buildSkillShadowScore({
       comparison: comparison(overrides),
@@ -120,6 +139,7 @@ describe("skill registry Gate 4 contract", () => {
       candidateId,
       candidateTreeHash,
       baselineTreeHash,
+      sourceRevision: "revision-1",
     })).toBeNull();
   });
 

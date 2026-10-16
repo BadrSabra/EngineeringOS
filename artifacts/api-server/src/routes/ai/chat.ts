@@ -327,6 +327,8 @@ import {
   loadCanonicalProof,
   type CanonicalProof,
 } from "../../lib/proof-foundation.js";
+import { parseShadowReplayRegistryReceipt } from "../../lib/skill-registry.js";
+import { expectedShadowReplayOperationId } from "../../lib/shadow-replay.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
   getAiExecutionDiagnostics,
@@ -1772,8 +1774,11 @@ function getDeliveryPromotionDecision(params: {
 function parsePairedBaselineComparison(
   value: unknown,
   expected: {
-  candidateId: string;
-  candidateTreeHash: string | null;
+    replayId: string;
+    candidateId: string;
+    candidateTreeHash: string;
+    sourceRevision: string;
+    baselineTreeHash: string;
   },
   verifiedProof?: CanonicalProof,
 ): {
@@ -1791,27 +1796,46 @@ function parsePairedBaselineComparison(
   const paired = (receipt as Record<string, unknown>).pairedBaseline;
   if (!paired || typeof paired !== "object" || Array.isArray(paired)) return undefined;
   const record = paired as Record<string, unknown>;
+  const contractValue = record.contract;
+  if (!contractValue || typeof contractValue !== "object" || Array.isArray(contractValue)) {
+    return undefined;
+  }
+  const contract = contractValue as Record<string, unknown>;
+  const expectedBaselineRunId = `${expected.replayId}:baseline`;
+  const expectedCandidateRunId = `${expected.replayId}:candidate`;
   if (
-    (record.status !== "incomplete" && record.status !== "regressed" && record.status !== "passed")
+    record.kind !== "code-agent-benchmark-paired-comparison"
+    || record.version !== 1
+    || (record.status !== "incomplete" && record.status !== "regressed" && record.status !== "passed")
     || typeof record.promotionAllowed !== "boolean"
   ) return undefined;
   if (
-    typeof record.candidateRunId !== "string"
+    typeof record.baselineRunId !== "string"
+    || typeof record.baselineWorkspaceHash !== "string"
+    || typeof record.candidateRunId !== "string"
     || typeof record.candidateWorkspaceHash !== "string"
-    || typeof record.contract !== "object"
-    || record.contract === null
-    || Array.isArray(record.contract)
-  ) return undefined;
-  const contract = record.contract as Record<string, unknown>;
-  if (
-    typeof contract.candidateId !== "string"
+    || typeof contract.kind !== "string"
+    || typeof contract.version !== "number"
+    || typeof contract.pairId !== "string"
+    || typeof contract.sourceRevision !== "string"
+    || typeof contract.baselineRunId !== "string"
     || typeof contract.candidateRunId !== "string"
+    || typeof contract.baselineWorkspaceHash !== "string"
     || typeof contract.candidateWorkspaceHash !== "string"
-    || contract.candidateId !== expected?.candidateId
-    || contract.candidateRunId !== record.candidateRunId
+    || typeof contract.candidateId !== "string"
+    || contract.kind !== "code-agent-benchmark-paired-contract"
+    || contract.version !== 1
+    || contract.pairId !== `shadow-replay-pair:${expected.replayId}`
+    || contract.sourceRevision !== expected.sourceRevision
+    || record.baselineRunId !== expectedBaselineRunId
+    || contract.baselineRunId !== expectedBaselineRunId
+    || record.candidateRunId !== expectedCandidateRunId
+    || contract.candidateRunId !== expectedCandidateRunId
+    || record.baselineWorkspaceHash !== expected.baselineTreeHash
+    || contract.baselineWorkspaceHash !== expected.baselineTreeHash
+    || contract.candidateId !== expected.candidateId
     || record.candidateWorkspaceHash !== contract.candidateWorkspaceHash
-    || (expected?.candidateTreeHash !== null
-      && record.candidateWorkspaceHash !== expected?.candidateTreeHash)
+    || record.candidateWorkspaceHash !== expected.candidateTreeHash
     || record.promotionAllowed !== (record.status === "passed")
   ) return undefined;
   let canonicalProof: DeliveryPairedBaseline["canonicalProof"];
@@ -1869,6 +1893,8 @@ async function loadVerifiedShadowReplayProof(replay: {
     const [execution] = await tx
       .select({
         goalId: aiExecutionsTable.goalId,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
         operationId: aiExecutionsTable.operationId,
         baseRevision: aiExecutionsTable.baseRevision,
       })
@@ -1881,6 +1907,8 @@ async function loadVerifiedShadowReplayProof(replay: {
       .limit(1);
     if (
       !execution?.goalId
+      || execution.status !== "completed"
+      || execution.attempt !== replay.attempt
       || execution.operationId !== replay.operationId
       || execution.baseRevision !== replay.sourceRevision
     ) return undefined;
@@ -1951,24 +1979,42 @@ async function loadVerifiedShadowReplayProof(replay: {
   });
 }
 
-async function loadPairedBaselineComparisonForProposal(
+export async function loadPairedBaselineComparisonForProposal(
   proposal: Pick<
     typeof aiChangeProposalsTable.$inferSelect,
-    "id" | "projectId" | "baseRevision" | "candidateTreeHash"
+    | "id"
+    | "projectId"
+    | "operationId"
+    | "baseRevision"
+    | "baseTreeHash"
+    | "candidateTreeHash"
+    | "changeSetHash"
+    | "workspaceRoot"
   >,
 ): Promise<DeliveryPairedBaseline | undefined> {
-  if (!proposal.baseRevision || !proposal.candidateTreeHash) return undefined;
+  if (
+    !proposal.operationId
+    || !proposal.baseRevision
+    || !proposal.baseTreeHash
+    || !proposal.candidateTreeHash
+    || !proposal.changeSetHash
+    || !proposal.workspaceRoot
+  ) return undefined;
   const [replay] = await db
     .select({
+      id: aiShadowReplaysTable.id,
       receipt: aiShadowReplaysTable.receipt,
       candidateId: aiShadowReplaysTable.candidateId,
       candidateTreeHash: aiShadowReplaysTable.candidateTreeHash,
       executionId: aiShadowReplaysTable.executionId,
       projectId: aiShadowReplaysTable.projectId,
       operationId: aiShadowReplaysTable.operationId,
+      changeSetHash: aiShadowReplaysTable.changeSetHash,
       attempt: aiShadowReplaysTable.attempt,
       replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
       sourceRevision: aiShadowReplaysTable.sourceRevision,
+      sourceWorkspaceRoot: aiShadowReplaysTable.sourceWorkspaceRoot,
+      trajectoryDigest: aiShadowReplaysTable.trajectoryDigest,
       executionProfile: aiShadowReplaysTable.executionProfile,
     })
     .from(aiShadowReplaysTable)
@@ -1982,26 +2028,51 @@ async function loadPairedBaselineComparisonForProposal(
   if (
     !replay
     || replay.executionProfile !== "shadow-replay"
+    || replay.operationId !== expectedShadowReplayOperationId(proposal.id, replay.candidateId)
     || replay.sourceRevision !== proposal.baseRevision
     || replay.candidateTreeHash !== proposal.candidateTreeHash
+    || replay.changeSetHash !== proposal.changeSetHash
+    || replay.sourceWorkspaceRoot !== proposal.workspaceRoot
   ) return undefined;
 
-  let receipt: unknown;
+  let receiptValue: unknown;
   try {
-    receipt = parseStoredJson(replay.receipt);
+    receiptValue = parseStoredJson(replay.receipt);
   } catch {
     return undefined;
   }
-  const receiptRecord = asJsonRecord(receipt);
-  const pairedRecord = asJsonRecord(receiptRecord?.pairedBaseline);
+  const receipt = parseShadowReplayRegistryReceipt(receiptValue);
+  if (
+    !receipt
+    || receipt.runId !== replay.id
+    || receipt.replayId !== replay.id
+    || receipt.projectId !== replay.projectId
+    || receipt.candidateId !== replay.candidateId
+    || receipt.sourceRevision !== replay.sourceRevision
+    || receipt.candidateTreeHash !== replay.candidateTreeHash
+    || receipt.operationId !== replay.operationId
+    || receipt.changeSetHash !== replay.changeSetHash
+    || receipt.replayExecutionId !== replay.executionId
+    || receipt.attempt !== replay.attempt
+    || receipt.proof.receiptId !== replay.replayCanonicalAcceptanceId
+    || receipt.proof.trajectoryDigest !== replay.trajectoryDigest
+    || receipt.status !== "completed"
+    || receipt.productionExecution !== false
+    || !receipt.workspaceIsolated
+    || !receipt.workspaceCleaned
+  ) return undefined;
+  const pairedRecord = asJsonRecord(receipt.pairedBaseline);
   const verifiedProof = pairedRecord?.status === "passed"
     ? await loadVerifiedShadowReplayProof(replay)
     : undefined;
   return parsePairedBaselineComparison(
     receipt,
     {
+      replayId: replay.id,
       candidateId: replay.candidateId,
       candidateTreeHash: proposal.candidateTreeHash,
+      sourceRevision: proposal.baseRevision,
+      baselineTreeHash: proposal.baseTreeHash,
     },
     verifiedProof,
   );

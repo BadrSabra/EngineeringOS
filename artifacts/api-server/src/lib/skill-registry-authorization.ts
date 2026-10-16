@@ -165,6 +165,7 @@ export async function validateSkillRegistryAuthority(
     )
     || !proposal.operationId
     || !proposal.baseRevision
+    || !proposal.baseTreeHash
     || !proposal.candidateTreeHash
     || !proposal.workspaceRoot
     || proposal.changeSetHash === undefined
@@ -384,6 +385,7 @@ export async function validateSkillRegistryAuthority(
     candidateId,
     candidateTreeHash: proposal.candidateTreeHash,
     baselineTreeHash: proposal.baseTreeHash,
+    sourceRevision: proposal.baseRevision,
   });
   if (!shadowScore) return { ok: false, reason: "paired-baseline" };
 
