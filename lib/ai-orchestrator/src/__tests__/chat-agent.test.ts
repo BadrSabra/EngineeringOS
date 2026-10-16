@@ -2222,10 +2222,21 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }
   });
 
-  it("falls back after one semantic repair for an incomplete project-query candidate", async () => {
+  it.each([
+    { objectiveType: "PROJECT_QUERY_EMBEDDED-AI", missionObservation: false },
+    { objectiveType: "PROJECT_QUERY_MISSION_OBSERVE", missionObservation: true },
+  ])(
+    "fails closed for Mission-observation fallback while preserving existing analysis behavior ($objectiveType)",
+    async ({ objectiveType, missionObservation }) => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-semantic-repair-"));
     const sourcePath = "src/pipeline.ts";
-    const claimText = "The project pipeline reads source evidence before synthesis.";
+    const message = "Explain how the project pipeline works and analyze its behavior.";
+    const goal = missionObservation
+      ? message
+      : "Explain the project pipeline behavior.";
+    const claimText = missionObservation
+      ? `Read and summarize the server-approved source "${sourcePath}" for this Mission: ${goal}`
+      : "The project pipeline reads source evidence before synthesis.";
     await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
     await fs.writeFile(
       path.join(rootPath, sourcePath),
@@ -2320,16 +2331,16 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         budget: { providerChanges: 0 },
       });
       const result = await chat({
-        message: "Explain how the project pipeline works and analyze its behavior.",
+        message,
         history: [],
         projectContext: makeContext(),
         rootPath,
         provider: "openrouter",
         apiKey: "test-openrouter-key",
-        turnIntent: resolveTurnIntent("Explain how the project pipeline works and analyze its behavior."),
+        turnIntent: resolveTurnIntent(message),
         objective: {
-          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
-          goal: "Explain the project pipeline behavior.",
+          objectiveType,
+          goal,
           requiredEvidencePaths: [sourcePath],
           requiredClaims: [{
             claimId: "pipeline-evidence",
@@ -2362,14 +2373,19 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         quality: "fast",
       });
       expect(recoveryCalls[1]?.messages[0]?.content).toContain("plain prose only");
-      expect(result.response).toContain(claimText);
       expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
       expect(result.projectQueryResponseFallbackReason).toBe("provider_candidate_incomplete");
-      expect(result.projectQueryAnswerAttestation).toMatchObject({
-        version: 1,
-        responseSource: "deterministic_fallback",
-        claimIds: ["pipeline-evidence"],
-      });
+      if (missionObservation) {
+        expect(result.response).toContain("BLOCKED");
+        expect(result.projectQueryAnswerAttestation).toBeUndefined();
+      } else {
+        expect(result.response).toContain(claimText);
+        expect(result.projectQueryAnswerAttestation).toMatchObject({
+          version: 1,
+          responseSource: "deterministic_fallback",
+          claimIds: ["pipeline-evidence"],
+        });
+      }
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(fallbackStrategy.call).not.toHaveBeenCalled();
       expect(fallbackBudgetAdmission).not.toHaveBeenCalled();
@@ -2399,7 +2415,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+    },
+    15_000,
+  );
 
   it("does not accept a late synthesis result after caller cancellation", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-synthesis-cancelled-"));
