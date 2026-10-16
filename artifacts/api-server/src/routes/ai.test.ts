@@ -695,7 +695,8 @@ async function makeRecoverableProposal(
     await fs.mkdir(sourceRoot, { recursive: true });
     const sourceFiles = options.sourceFiles ?? [{ path: "package.json", content: "{}\n" }];
     for (const file of sourceFiles) {
-      const parentPath = file.path.slice(0, file.path.lastIndexOf("/"));
+      const separatorIndex = file.path.lastIndexOf("/");
+      const parentPath = separatorIndex < 0 ? "" : file.path.slice(0, separatorIndex);
       if (parentPath) await fs.mkdir(`${sourceRoot}/${parentPath}`, { recursive: true });
       await fs.writeFile(`${sourceRoot}/${file.path}`, file.content, "utf8");
     }
@@ -6777,7 +6778,14 @@ describe("delivery recovery routes", () => {
       throw new Error("Test proposal is missing its revision, trees, or managed workspace.");
     }
 
-    await fs.writeFile(`${project.rootPath}/package.json`, "{}\n", "utf8");
+    for (const file of validationFixtureFiles ?? []) {
+      if (file.path === "package.json") continue;
+      const separatorIndex = file.path.lastIndexOf("/");
+      const parentPath = separatorIndex < 0 ? "" : file.path.slice(0, separatorIndex);
+      if (parentPath) await fs.mkdir(`${project.rootPath}/${parentPath}`, { recursive: true });
+      await fs.writeFile(`${project.rootPath}/${file.path}`, file.content, "utf8");
+    }
+    await fs.writeFile(`${project.rootPath}/package.json`, sourceManifest, "utf8");
     const liveProjectTreeHashBefore = await hashDeliveryTree(project.rootPath);
     expect(liveProjectTreeHashBefore).toBe(proposal.baseTreeHash);
 
@@ -6985,8 +6993,9 @@ describe("delivery recovery routes", () => {
       mode: "manual",
       approvedBy: "test-user",
     });
-    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
-      .mockImplementation(async (_candidateRoot, profile) => ({
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation");
+    if (mutation !== "matching-write") {
+      validationSpy.mockImplementation(async (_candidateRoot, profile) => ({
         status: "passed",
         profile,
         exitCode: 0,
@@ -7003,6 +7012,7 @@ describe("delivery recovery routes", () => {
         },
         detail: "Validation passed.",
       }));
+    }
 
     const res = await request(app)
       .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
@@ -7015,6 +7025,21 @@ describe("delivery recovery routes", () => {
       promotionDecision: "AUTO_PROMOTE_ELIGIBLE",
       promotionReasons: ["eligible"],
     });
+    if (mutation === "matching-write") {
+      expect(res.body.validationEvidence).toEqual([
+        expect.objectContaining({
+          profile: "workspace-typecheck",
+          status: "passed",
+          scenario: "Run the workspace TypeScript typecheck.",
+          exitCode: 0,
+          evidence: expect.objectContaining({
+            evidenceId: expect.any(String),
+            observedAt: expect.any(String),
+            artifactRef: expect.any(String),
+          }),
+        }),
+      ]);
+    }
     expect(await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
 
