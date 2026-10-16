@@ -3484,26 +3484,136 @@ describe("AI missions and goals", () => {
     expect(currentAttemptAcceptances).toHaveLength(1);
     expect(currentAttemptAcceptances[0]?.id).toBe(recoveredCanonicalProof.acceptanceId);
 
-    // Model the durable cut after workspace cleanup but before the replay
-    // receipt and terminal projection are committed.
+    const crashWorkspace = await createValidationWorkspace(
+      sourceRoot,
+      [],
+      async () => undefined,
+    );
+    shadowWorkspaceRoots.push(crashWorkspace.rootPath);
+    expect(await hashDeliveryTree(crashWorkspace.rootPath)).toBe(candidateTreeHash);
+    await db.update(aiChangeProposalsTable)
+      .set({ workspaceRoot: crashWorkspace.rootPath })
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    const crashIdempotencyKey = `shadow-finalization-crash-${replayId}`;
+    const crashPrepared = prepareRecipeOperation({
+      projectId,
+      operationId,
+      rootPath: sourceRoot,
+      sourceRevision,
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+      approvedPaths: ["src/index.ts"],
+      candidateIdentity: candidateTreeHash,
+      candidateWorkspace: crashWorkspace.rootPath,
+      validationProfiles: ["workspace-typecheck"],
+    });
+    const crashExecution = await createAiExecution({
+      userId,
+      request: {
+        projectId,
+        executionProfile: "shadow-replay",
+        turnIntent: "TASK_EXECUTION",
+        operationId,
+        message: "Server-owned candidate shadow replay.",
+        modelMessage: "Server-owned candidate shadow replay.",
+        workspaceRevision: sourceRevision,
+        workspaceRoot: crashWorkspace.rootPath,
+        validationTargetPaths: ["src/index.ts"],
+        validationProfiles: ["workspace-typecheck"],
+        taskObjective,
+        proofRequired: true,
+        ...(crashPrepared.proofEvidenceMode === "artifact_only"
+          ? { proofEvidenceMode: "artifact_only" as const }
+          : {}),
+      },
+      idempotencyKey: crashIdempotencyKey,
+      correlationId: operationId,
+      projectId,
+      goalId,
+      recipeBinding: crashPrepared.binding,
+      workspaceRoot: crashWorkspace.rootPath,
+    });
+    expect(crashExecution.created).toBe(true);
     await db.update(aiShadowReplaysTable).set({
-      status: "running",
-      workerId: "crashed-before-shadow-receipt-commit",
-      leaseUntil: new Date(Date.now() - 1_000),
+      executionId: crashExecution.execution.id,
+      idempotencyKey: crashIdempotencyKey,
+      sourceWorkspaceRoot: crashWorkspace.rootPath,
+      replayWorkspaceRoot: crashWorkspace.rootPath,
+      status: "queued",
+      attempt: crashExecution.execution.attempt,
+      workerId: null,
+      leaseUntil: null,
+      replayWorkspaceCleaned: false,
+      preTreeHash: null,
+      postTreeHash: null,
+      validatorResult: null,
       receipt: null,
       replayCanonicalAcceptanceId: null,
-      replayWorkspaceRoot: null,
-      replayWorkspaceCleaned: true,
       completedAt: null,
       error: null,
     }).where(eq(aiShadowReplaysTable.id, replayId));
 
-    await expect(fs.access(replayWorkspace.rootPath))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    const gateSuffix = randomUUID().replaceAll("-", "");
+    const gateFunction = `e32_shadow_finalize_gate_${gateSuffix}`;
+    const gateTrigger = `e32_shadow_finalize_trigger_${gateSuffix}`;
+    const lockIdentity = `e32-shadow-finalize-${randomUUID()}`;
+    await db.execute(sql.raw(`
+      CREATE FUNCTION public."${gateFunction}"()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $body$
+      BEGIN
+        IF NEW.id = '${replayId}' THEN
+          PERFORM pg_advisory_xact_lock(hashtextextended('${lockIdentity}', 0));
+        END IF;
+        RETURN NEW;
+      END;
+      $body$
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER "${gateTrigger}"
+      BEFORE UPDATE OF status ON public.ai_shadow_replays
+      FOR EACH ROW
+      WHEN (OLD.status = 'running' AND NEW.status = 'completed')
+      EXECUTE FUNCTION public."${gateFunction}"()
+    `));
+
+    let releaseGateLock: (() => void) | undefined;
+    let signalGateLockReady: (() => void) | undefined;
+    const gateLockReady = new Promise<void>((resolve) => {
+      signalGateLockReady = resolve;
+    });
+    const holdGateLock = new Promise<void>((resolve) => {
+      releaseGateLock = resolve;
+    });
+    let gateLockTransaction: Promise<unknown> | undefined;
+    let gateReleased = false;
+    const releaseFinalizationGate = async () => {
+      if (gateReleased) return;
+      gateReleased = true;
+      releaseGateLock?.();
+      releaseGateLock = undefined;
+      await gateLockTransaction?.catch(() => undefined);
+      gateLockTransaction = undefined;
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${gateTrigger}" ON public.ai_shadow_replays`))
+        .catch(() => undefined);
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${gateFunction}"()`))
+        .catch(() => undefined);
+    };
+    gateLockTransaction = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockIdentity}, 0))`);
+      signalGateLockReady?.();
+      await holdGateLock;
+    });
+    await gateLockReady;
+
     const apiDatabaseUrl = process.env.DATABASE_URL;
     if (!apiDatabaseUrl) throw new Error("The Shadow Replay recovery test requires DATABASE_URL.");
-    const applicationName = `e32-shadow-missing-receipt-${randomUUID().slice(0, 8)}`;
-    const recoveryApi = await startShadowCrashApiProcess(apiDatabaseUrl, applicationName);
+    const crashApplicationName = `e32-shadow-finalize-crash-${randomUUID().slice(0, 8)}`;
+    const recoveryApplicationName = `e32-shadow-missing-receipt-${randomUUID().slice(0, 8)}`;
+    let crashApi: ShadowCrashApiProcess | undefined;
+    let recoveryApi: ShadowCrashApiProcess | undefined;
+    let reachedFinalizationGate = false;
     let failedReplay: {
       status: string;
       error: string | null;
@@ -3513,6 +3623,74 @@ describe("AI missions and goals", () => {
       replayWorkspaceCleaned: boolean;
     } | undefined;
     try {
+      crashApi = await startShadowCrashApiProcess(apiDatabaseUrl, crashApplicationName);
+      const crashDeadline = Date.now() + 90_000;
+      while (Date.now() < crashDeadline) {
+        const activity = await db.execute(sql`
+          SELECT DISTINCT activity.pid
+          FROM pg_stat_activity AS activity
+          JOIN pg_locks AS waiting_lock
+            ON waiting_lock.pid = activity.pid
+            AND waiting_lock.locktype = 'advisory'
+            AND waiting_lock.granted = false
+          WHERE activity.application_name = ${crashApplicationName}
+            AND activity.wait_event_type = 'Lock'
+            AND waiting_lock.objsubid = 1
+            AND waiting_lock.classid::bigint = (
+              (hashtextextended(${lockIdentity}, 0) >> 32) & 4294967295
+            )
+            AND waiting_lock.objid::bigint = (
+              hashtextextended(${lockIdentity}, 0) & 4294967295
+            )
+        `);
+        const blockedRows =
+          (activity as unknown as { rows?: Array<{ pid: number }> }).rows ?? [];
+        const [replayAtGate] = await db.select({
+          status: aiShadowReplaysTable.status,
+          receipt: aiShadowReplaysTable.receipt,
+          replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
+          replayWorkspaceRoot: aiShadowReplaysTable.replayWorkspaceRoot,
+          replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
+        }).from(aiShadowReplaysTable).where(eq(aiShadowReplaysTable.id, replayId));
+        const [executionAtGate] = await db.select({
+          status: aiExecutionsTable.status,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, crashExecution.execution.id));
+        const recipeReceipt = executionAtGate?.recipeReceipt as Record<string, unknown> | null;
+        reachedFinalizationGate =
+          blockedRows.length > 0
+          && replayAtGate?.status === "running"
+          && replayAtGate.receipt === null
+          && replayAtGate.replayCanonicalAcceptanceId === null
+          && replayAtGate.replayWorkspaceRoot === null
+          && replayAtGate.replayWorkspaceCleaned
+          && executionAtGate?.status === "completed"
+          && recipeReceipt?.status === "completed";
+        if (reachedFinalizationGate) break;
+        if (crashApi.child.exitCode !== null || crashApi.child.signalCode !== null) {
+          throw new Error(
+            `Shadow Replay API exited before the terminal receipt barrier; `
+            + `exit=${JSON.stringify(await crashApi.exit)}; `
+            + `stderr=${crashApi.diagnostics()}; stdout=${crashApi.output()}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(reachedFinalizationGate).toBe(true);
+      await expect(fs.access(crashWorkspace.rootPath))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      expect(await stopShadowCrashApiProcess(crashApi)).toMatchObject({
+        code: null,
+        signal: "SIGKILL",
+      });
+      crashApi = undefined;
+      await terminateShadowApiDatabaseSessions(crashApplicationName);
+      await releaseFinalizationGate();
+      await db.update(aiShadowReplaysTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiShadowReplaysTable.id, replayId));
+
+      recoveryApi = await startShadowCrashApiProcess(apiDatabaseUrl, recoveryApplicationName);
       const recoveryDeadline = Date.now() + 60_000;
       while (Date.now() < recoveryDeadline) {
         [failedReplay] = await db.select({
@@ -3534,8 +3712,15 @@ describe("AI missions and goals", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } finally {
-      await stopShadowCrashApiProcess(recoveryApi);
-      await terminateShadowApiDatabaseSessions(applicationName);
+      if (crashApi) {
+        await stopShadowCrashApiProcess(crashApi);
+        await terminateShadowApiDatabaseSessions(crashApplicationName).catch(() => undefined);
+      }
+      if (recoveryApi) {
+        await stopShadowCrashApiProcess(recoveryApi);
+        await terminateShadowApiDatabaseSessions(recoveryApplicationName).catch(() => undefined);
+      }
+      await releaseFinalizationGate();
     }
     expect(failedReplay).toMatchObject({
       status: "failed",
