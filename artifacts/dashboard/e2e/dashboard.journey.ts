@@ -6033,39 +6033,111 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         && entry.message.startsWith("AI task completed:"),
       );
       expect(finalSummaryLog).toBeTruthy();
-      const finalTaskId = typeof finalSummaryLog?.taskId === "string"
-        ? finalSummaryLog.taskId
-        : "";
-      expect(finalTaskId).not.toBe("");
-      const taskDetailResponse = await page.evaluate(async (taskId) => {
-        const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
-        return {
-          status: response.status,
-          body: await response.json().catch(() => null) as unknown,
+      const acceptedExecutionIds = new Set(
+        provenGoals
+          .map((entry) => entry.goal?.outcomeContract?.acceptance?.executionId)
+          .filter((executionId): executionId is string =>
+            typeof executionId === "string" && executionId.length > 0,
+          ),
+      );
+      expect(acceptedExecutionIds.size).toBeGreaterThan(0);
+      const completedTaskIds = [...new Set(
+        taskLogRecords.flatMap((entry) =>
+          typeof entry.message === "string"
+          && entry.message.startsWith("AI task completed:")
+          && typeof entry.taskId === "string"
+            ? [entry.taskId]
+            : [],
+        ),
+      )];
+      expect(completedTaskIds.length).toBeGreaterThan(0);
+      type TaskReceipt = {
+        kind?: unknown;
+        operationId?: unknown;
+        terminalStatus?: unknown;
+        summary?: unknown;
+        answerProof?: {
+          version?: unknown;
+          status?: unknown;
+          responseHash?: unknown;
+          responseSource?: unknown;
+          claimCount?: unknown;
+          claimIdsHash?: unknown;
+          evidenceBindingHash?: unknown;
+          summaryHash?: unknown;
+          summaryTruncated?: unknown;
         };
-      }, finalTaskId);
-      expect(taskDetailResponse.status).toBe(200);
-      const taskDetail = taskDetailResponse.body as {
-        id?: unknown;
-        agentResponse?: unknown;
-      } | null;
-      expect(taskDetail?.id).toBe(finalTaskId);
-      const taskReceipt = typeof taskDetail?.agentResponse === "string"
-        ? JSON.parse(taskDetail.agentResponse) as {
-            kind?: unknown;
-            operationId?: unknown;
-            terminalStatus?: unknown;
-            summary?: unknown;
-          }
-        : null;
+      };
+      const readAcceptedTaskReceipt = async () => {
+        const taskDetails = await Promise.all(
+          completedTaskIds.map(async (taskId) => {
+            const response = await page.evaluate(async (id) => {
+              const taskResponse = await fetch(`/api/tasks/${encodeURIComponent(id)}`);
+              return {
+                status: taskResponse.status,
+                body: await taskResponse.json().catch(() => null) as unknown,
+              };
+            }, taskId);
+            return { taskId, ...response };
+          }),
+        );
+        expect(taskDetails.every((detail) => detail.status === 200)).toBe(true);
+        return taskDetails
+          .map((detail) => {
+            const taskDetail = detail.body as {
+              id?: unknown;
+              agentResponse?: unknown;
+            } | null;
+            if (taskDetail?.id !== detail.taskId) return null;
+            let receipt: TaskReceipt | null = null;
+            if (typeof taskDetail.agentResponse === "string") {
+              try {
+                receipt = JSON.parse(taskDetail.agentResponse) as TaskReceipt;
+              } catch {
+                receipt = null;
+              }
+            }
+            return { taskId: detail.taskId, receipt };
+          })
+          .find(({ receipt }) =>
+            receipt?.kind === "AI_TASK_EXECUTION_RECEIPT"
+            && typeof receipt.operationId === "string"
+            && acceptedExecutionIds.has(receipt.operationId),
+          );
+      };
+      let taskReceiptMatch:
+        | { taskId: string; receipt: TaskReceipt | null }
+        | undefined;
+      await expect.poll(async () => {
+        taskReceiptMatch = await readAcceptedTaskReceipt();
+        return Boolean(taskReceiptMatch);
+      }, {
+        timeout: Math.min(liveTimeoutMs(), 10_000),
+        intervals: [250, 500, 1_000],
+      }).toBe(true);
+      if (!taskReceiptMatch) {
+        throw new Error("No task receipt matched the accepted Mission execution.");
+      }
+      const finalTaskId = taskReceiptMatch.taskId;
+      const taskReceipt = taskReceiptMatch.receipt;
       expect(taskReceipt).toMatchObject({
         kind: "AI_TASK_EXECUTION_RECEIPT",
         terminalStatus: "SUCCEEDED",
       });
-      const acceptedExecutionId = provenGoals.find((entry) =>
-        (entry.tasks ?? []).some((task) => task.id === finalTaskId),
-      )?.goal?.outcomeContract?.acceptance?.executionId;
-      expect(taskReceipt?.operationId).toBe(acceptedExecutionId);
+      expect(acceptedExecutionIds.has(String(taskReceipt.operationId))).toBe(true);
+      expect(taskReceipt?.answerProof).toMatchObject({
+        version: 1,
+        status: "PROVEN",
+        claimCount: 5,
+      });
+      expect(taskReceipt?.answerProof?.responseHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(taskReceipt?.answerProof?.claimIdsHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(taskReceipt?.answerProof?.evidenceBindingHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(taskReceipt?.answerProof?.summaryHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect([
+        "provider_synthesis",
+        "deterministic_fallback",
+      ]).toContain(taskReceipt?.answerProof?.responseSource);
       const answer = String(taskReceipt?.summary ?? "");
       expect(answer).toMatch(/reportStatus/u);
       expect(answer).toMatch(/src\/report\.mjs/u);

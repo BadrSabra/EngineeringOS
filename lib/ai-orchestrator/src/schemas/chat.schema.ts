@@ -333,6 +333,25 @@ export const ChatTaskResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type ChatTaskResult = z.infer<typeof ChatTaskResultSchema>;
 
+/**
+ * Server-owned binding between the final targeted project-query response and
+ * the claim evidence materialized for that response. This is never provider
+ * input; callers must verify the response hash and objective identity again.
+ */
+export const ProjectQueryAnswerAttestationSchema = z.object({
+  version: z.literal(1),
+  responseHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  responseSource: z.enum(["provider_synthesis", "deterministic_fallback"]),
+  claimIds: z.array(z.string().min(1).max(120)).min(1).max(64),
+  evidenceBindingHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  synthesisAttemptId: z.string().min(1).max(160).optional(),
+  synthesisProvider: z.string().min(1).max(80).optional(),
+  synthesisModel: z.string().min(1).max(240).optional(),
+}).strict();
+export type ProjectQueryAnswerAttestation = z.infer<
+  typeof ProjectQueryAnswerAttestationSchema
+>;
+
 // ── PR-011: file-level source plan vs actual coverage ─────────────────────────
 
 export const FileStatusEntrySchema = z.object({
@@ -454,6 +473,17 @@ export const ChatOutputSchema = ChatResponseSchema.extend({
     "synthesis_failed",
     "provider_candidate_incomplete",
   ]).optional(),
+  /** Server-owned attestation for a proof-gated targeted project-query answer. */
+  projectQueryAnswerAttestation: ProjectQueryAnswerAttestationSchema.optional(),
+});
+
+/**
+ * The shape tolerated when parsing provider output is intentionally missing
+ * server-owned answer attestations. Only chat-agent may append that proof.
+ */
+export const ProviderChatOutputSchema = ChatOutputSchema.omit({
+  projectQueryAnswerAttestation: true,
 });
 
 export type ChatOutput = z.infer<typeof ChatOutputSchema>;
+export type ProviderChatOutput = z.infer<typeof ProviderChatOutputSchema>;

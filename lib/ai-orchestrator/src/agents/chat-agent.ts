@@ -52,6 +52,12 @@ import {
   PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
   type ProjectQueryInvestigationContract,
 } from "../project-query-investigation.js";
+import {
+  projectQueryAnswerHasBehavioralFlow as validateProjectQueryAnswerHasBehavioralFlow,
+  projectQueryCandidateClaimsAreAsserted as validateProjectQueryCandidateClaimsAreAsserted,
+  type ProjectQueryAnswerCandidate,
+  type ProjectQueryAnswerObjective,
+} from "./project-query-answer-contract.js";
 import { getStrategy, recordProviderTelemetry, type ProviderId } from "../provider-registry.js";
 import { recordBehavioralFailure } from "../behavioral-scorecard.js";
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
@@ -117,6 +123,7 @@ import {
 import {
   ChatResponseSchema,
   ChatOutputSchema,
+  ProviderChatOutputSchema,
   PendingChangeSchema,
   ProjectQuerySynthesisSchema,
   type ChatOutput,
@@ -4178,8 +4185,10 @@ export function salvageChatOutput(params: {
     (pendingChange): pendingChange is PendingChange =>
       PendingChangeSchema.safeParse(pendingChange).success,
   );
+  const providerData = { ...params.parsedData };
+  delete providerData.projectQueryAnswerAttestation;
   return {
-    ...params.parsedData,
+    ...providerData,
     response: params.terminalResponse,
     sources: params.mergedSources,
     pendingChanges: validChanges,
@@ -5570,17 +5579,6 @@ function objectiveManifestIsComplete(
   });
 }
 
-function objectiveClaimsAreMentioned(
-  objective: ObjectiveContract | undefined,
-  response: string,
-): boolean {
-  if (!objective) return false;
-  const normalized = response.toLowerCase();
-  return objective.requiredClaims.every((claim) =>
-    normalized.includes(claim.text.trim().toLowerCase()),
-  );
-}
-
 type ProjectQuerySynthesisCandidate = {
   text: string;
   schemaValid?: boolean;
@@ -5606,40 +5604,14 @@ function parseProjectQuerySynthesisCandidate(raw: string): ProjectQuerySynthesis
   };
 }
 
-function projectQueryClaimRefsAreComplete(
-  objective: ObjectiveContract | undefined,
-  claimRefs: readonly string[] | undefined,
-): boolean {
-  if (!objective || claimRefs === undefined) return false;
-  const required = objective.requiredClaims.map((claim) => claim.claimId);
-  const refs = [...claimRefs];
-  return (
-    refs.length === required.length
-    && new Set(refs).size === refs.length
-    && refs.every((claimId) => required.includes(claimId))
-  );
-}
-
-function projectQueryFlowRefsAreValid(
-  objective: ObjectiveContract | undefined,
-  flowRefs: readonly string[] | undefined,
-): boolean {
-  if (!objective || flowRefs === undefined || flowRefs.length < 2) return false;
-  const required = new Set(objective.requiredClaims.map((claim) => claim.claimId));
-  const refs = [...flowRefs];
-  return (
-    new Set(refs).size >= 2
-    && refs.every((claimId) => required.has(claimId))
-  );
-}
-
 function projectQueryCandidateClaimsAreAsserted(
   objective: ObjectiveContract | undefined,
   candidate: ProjectQuerySynthesisCandidate,
 ): boolean {
-  return candidate.claimRefs !== undefined
-    ? projectQueryClaimRefsAreComplete(objective, candidate.claimRefs)
-    : objectiveClaimsAreMentioned(objective, candidate.text);
+  return validateProjectQueryCandidateClaimsAreAsserted(
+    objective as ProjectQueryAnswerObjective | undefined,
+    candidate as ProjectQueryAnswerCandidate,
+  );
 }
 
 /**
@@ -5653,38 +5625,12 @@ function projectQueryAnswerHasBehavioralFlow(
   response: string,
   flowRefs?: readonly string[],
 ): boolean {
-  const objectiveType = objective?.objectiveType;
-  if (
-    objectiveType !== "PROJECT_QUERY_EMBEDDED-AI"
-    && objectiveType !== "PROJECT_QUERY_GAP-ANALYSIS"
-  ) return true;
-  if (flowRefs !== undefined) {
-    return projectQueryFlowRefsAreValid(objective, flowRefs);
-  }
-  const normalized = response.trim();
-  if (normalized.length < 240 || !objectiveClaimsAreMentioned(objective, normalized)) {
-    return false;
-  }
-  const flowSignals = [
-    /\b(?:first|then|after|before|finally|through|because)\b/giu,
-    /(?:أولًا|أولا|ثم|بعد ذلك|أخيرًا|أخيرا|عبر|لأن)/gu,
-  ];
-  const flowSignalCount = flowSignals.reduce(
-    (count, pattern) => {
-      const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
-      return count + (normalized.match(new RegExp(pattern.source, flags))?.length ?? 0);
-    },
-    0,
+  return validateProjectQueryAnswerHasBehavioralFlow(
+    objective as ProjectQueryAnswerObjective | undefined,
+    response,
+    flowRefs,
+    isGapAnalysisObjective(objective),
   );
-  if (isGapAnalysisObjective(objective)) {
-    // A gap objective must describe the gap-analysis boundary, not merely
-    // repeat the required symbols. Keep this permissive for provider prose,
-    // while rejecting the embedded-agent orientation fallback.
-    const gapSignal =
-      /(?:فجوات?|نقاط\s+ضعف|ضعف|خلل|لا\s+يثبت|gap|weakness|defect)/iu.test(normalized);
-    return gapSignal && flowSignalCount >= 2;
-  }
-  return flowSignalCount >= 2;
 }
 
 /**
@@ -11747,7 +11693,7 @@ export async function chat(opts: {
       // "direct content" path. Emitting that raw would expose the wrapper to
       // the UI and store it verbatim in the DB.  Passing through
       // parseAgentResponse strips the envelope and gives us the inner prose.
-      // Use ChatOutputSchema (not the strict ChatResponseSchema) so that
+      // Use the provider-safe schema (not the strict ChatResponseSchema) so that
       // parsedDirect.data.pendingChanges is typed and defaults to [] via Zod.
       // The model never writes pendingChanges itself — they come from the tool
       // loop — but using the full output schema keeps the type consistent with
@@ -11764,7 +11710,7 @@ export async function chat(opts: {
          && !classification.implementationTaskMode
          && !directContent.trimStart().startsWith("{")
         ? { ok: true as const, data: fallbackChatOutput(directContent) }
-        : parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+        : parseAgentResponse(directContent, ProviderChatOutputSchema, fallbackChatOutput);
       if (
         !parsedDirect.ok
         && !structuredOutputMode
@@ -11805,7 +11751,7 @@ export async function chat(opts: {
           );
           const corrected = parseAgentResponse(
             correction.content ?? "",
-            ChatOutputSchema,
+            ProviderChatOutputSchema,
             fallbackChatOutput,
           );
           if (corrected.ok) {
@@ -16650,8 +16596,82 @@ export async function chat(opts: {
       }
     : undefined;
 
+  const projectQueryAnswerAttestation = (() => {
+    if (
+      !isTargetedProjectQueryObjective
+      || !projectQueryProjectionAuthoritative
+      || !objective
+      || !projectQueryResponseSource
+      || terminalResponse !== projectQueryEvidenceResponseOverride
+      || materializedProjectQueryEvidence.length !== objective.requiredClaims.length
+      || !projectQueryCandidateClaimsAreAsserted(objective, { text: terminalResponse })
+      || !projectQueryAnswerHasBehavioralFlow(
+        objective,
+        terminalResponse,
+        projectQueryFlowRefs,
+      )
+    ) {
+      return undefined;
+    }
+
+    const claimIds = objective.requiredClaims.map((claim) => claim.claimId);
+    const evidenceBindings = materializedProjectQueryEvidence
+      .map((item) => ({
+        claimId: item.claimId,
+        source: item.source,
+        startLine: item.sourceSpan.startLine,
+        endLine: item.sourceSpan.endLine,
+        excerptHash: sha256(item.excerpt),
+      }))
+      .sort((left, right) =>
+        left.claimId.localeCompare(right.claimId)
+        || left.source.localeCompare(right.source)
+        || left.startLine - right.startLine,
+      );
+    if (
+      new Set(evidenceBindings.map((binding) => binding.claimId)).size !== claimIds.length
+      || claimIds.some((claimId) =>
+        !evidenceBindings.some((binding) => binding.claimId === claimId),
+      )
+      || evidenceBindings.some((binding) =>
+        !Number.isInteger(binding.startLine)
+        || !Number.isInteger(binding.endLine)
+        || binding.startLine < 1
+        || binding.endLine < binding.startLine,
+      )
+    ) {
+      return undefined;
+    }
+
+    if (
+      projectQueryResponseSource === "provider_synthesis"
+      && (!projectQueryAcceptedSynthesisAttemptId || !projectQueryAcceptedSynthesisProvider)
+    ) {
+      return undefined;
+    }
+
+    return {
+      version: 1 as const,
+      responseHash: sha256(terminalResponse),
+      responseSource: projectQueryResponseSource,
+      claimIds,
+      evidenceBindingHash: sha256(JSON.stringify(evidenceBindings)),
+      ...(projectQueryResponseSource === "provider_synthesis"
+        ? {
+            synthesisAttemptId: projectQueryAcceptedSynthesisAttemptId,
+            synthesisProvider: projectQueryAcceptedSynthesisProvider,
+            ...(projectQueryAcceptedSynthesisModel
+              ? { synthesisModel: projectQueryAcceptedSynthesisModel }
+              : {}),
+          }
+        : {}),
+    };
+  })();
+
+  const providerOutputData = { ...parsed.data } as Partial<ChatOutput>;
+  delete providerOutputData.projectQueryAnswerAttestation;
   const output = {
-    ...parsed.data,
+    ...providerOutputData,
     response: terminalResponse,
     sources: mergedSources,
     ...(loopResult.binaryEvidence?.length
@@ -16677,6 +16697,9 @@ export async function chat(opts: {
     ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
     ...(projectQueryFallbackReason
       ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
+      : {}),
+    ...(projectQueryAnswerAttestation
+      ? { projectQueryAnswerAttestation }
       : {}),
     ...(serverConfidence ? { confidence: serverConfidence } : {}),
     evidenceGraph: sharedEvidenceGraph,

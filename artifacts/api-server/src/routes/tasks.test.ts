@@ -250,7 +250,7 @@ describe("Task lifecycle", () => {
     const currentExecutionId = randomUUID();
     const currentCorrelationId = randomUUID();
     const supersededExecutionId = randomUUID();
-    const supersededCorrelationId = randomUUID();
+    const supersededCorrelationId = currentCorrelationId;
     const currentReceipt = JSON.stringify({
       kind: "AI_TASK_EXECUTION_RECEIPT",
       operationId: currentExecutionId,
@@ -284,7 +284,7 @@ describe("Task lifecycle", () => {
         userId: "test-user",
         idempotencyKey: supersededExecutionId,
         correlationId: supersededCorrelationId,
-        attempt: 9,
+        attempt: 2,
         resumeTokenHash: "superseded-task-receipt-hash",
         request: "{}",
         checkpoint: "{}",
@@ -298,13 +298,30 @@ describe("Task lifecycle", () => {
     const currentDetail = await request(app).get(`/api/tasks/${taskId}`);
     expect(currentDetail.body.agentResponse).toBe(currentReceipt);
 
+    const ambiguousExecutionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: ambiguousExecutionId,
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: ambiguousExecutionId,
+      correlationId: currentCorrelationId,
+      attempt: 3,
+      resumeTokenHash: "ambiguous-task-receipt-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "running",
+    });
+    const ambiguousCurrentDetail = await request(app).get(`/api/tasks/${taskId}`);
+    expect(ambiguousCurrentDetail.body.agentResponse).toBeNull();
+
     await db.update(tasksTable)
       .set({
         agentResponse: JSON.stringify({
           kind: "AI_TASK_EXECUTION_RECEIPT",
           operationId: supersededExecutionId,
           correlationId: supersededCorrelationId,
-          attempt: 9,
+          attempt: 2,
           attempts: 1,
           terminalStatus: "FAILED",
         }),

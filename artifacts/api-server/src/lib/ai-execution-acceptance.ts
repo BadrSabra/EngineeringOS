@@ -1573,7 +1573,15 @@ export async function getPublicTaskExecutionReceipts(
 
   for (const candidate of receiptCandidates) {
     const matches = executionsByTask.get(candidate.taskId) ?? [];
-    const execution = matches.length === 1 ? matches[0] : undefined;
+    const currentAttempt = matches.reduce(
+      (highest, execution) => Math.max(highest, execution.attempt),
+      -1,
+    );
+    const currentAttemptMatches = matches.filter(
+      (execution) => execution.attempt === currentAttempt,
+    );
+    const execution =
+      currentAttemptMatches.length === 1 ? currentAttemptMatches[0] : undefined;
     const current = Boolean(
       execution
       && candidate.receipt.operationId === execution.executionId

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   buildAiTaskExecutionReceipt,
@@ -32,7 +33,7 @@ describe("AI task execution receipts", () => {
       result: result(),
     });
 
-    expect(JSON.stringify(receipt).length).toBeLessThanOrEqual(8_000);
+    expect(Buffer.byteLength(JSON.stringify(receipt), "utf8")).toBeLessThanOrEqual(8_000);
     expect(receipt.terminalStatus).toBe("SUCCEEDED");
     expect(receipt.attempts).toBe(2);
     expect(receipt.provider).toBe("openrouter");
@@ -41,6 +42,43 @@ describe("AI task execution receipts", () => {
     expect(receipt.summary).not.toContain("super-secret");
     expect(receipt.steps).toHaveLength(24);
     expect(JSON.stringify(receipt)).not.toContain("hunter2");
+  });
+
+  it("retains proof-bound answer text beyond the old two-thousand-character cap", () => {
+    const summary =
+      `${"The verified implementation flow is consistent. ".repeat(48)} ` +
+      "reportStatus=COMPLETED in src/report.mjs requires matching PROVEN acceptance.";
+    const receipt = buildAiTaskExecutionReceipt({
+      executionId: "execution-answer-proof",
+      correlationId: "correlation-answer-proof",
+      provider: "openrouter",
+      model: "openai/gpt-4.1-mini",
+      attempt: 1,
+      durationMs: 125,
+      stages: ["claim", "evidence", "synthesis", "finalize"],
+      result: result({ summary, steps: [] }),
+      answerProof: {
+        version: 1,
+        status: "PROVEN",
+        responseHash: "a".repeat(64),
+        responseSource: "provider_synthesis",
+        claimCount: 2,
+        claimIdsHash: "b".repeat(64),
+        evidenceBindingHash: "c".repeat(64),
+        synthesisAttemptId: "attempt-1",
+        synthesisProvider: "openrouter",
+        synthesisModel: "openai/gpt-4.1-mini",
+      },
+    });
+
+    expect(receipt.summary?.length).toBeGreaterThan(2_000);
+    expect(receipt.summary).toContain("reportStatus=COMPLETED");
+    expect(receipt.summary).toContain("src/report.mjs");
+    expect(receipt.answerProof?.summaryTruncated).toBe(false);
+    expect(receipt.answerProof?.summaryHash).toBe(
+      createHash("sha256").update(receipt.summary ?? "", "utf8").digest("hex"),
+    );
+    expect(Buffer.byteLength(JSON.stringify(receipt), "utf8")).toBeLessThanOrEqual(8_000);
   });
 
   it("represents blocked results without storing model payloads", () => {

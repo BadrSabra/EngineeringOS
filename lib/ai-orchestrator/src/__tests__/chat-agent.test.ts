@@ -1758,9 +1758,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     const sourcePath = "src/pipeline.ts";
     const claimText = "The project pipeline reads source evidence before synthesis.";
     const flowClaimText = "The pipeline passes retained evidence into the final answer.";
-    const validResponseText =
-      "First, the request enters the bounded project path and reads the declared source. " +
-      "Then, the retained evidence moves into synthesis before the answer is returned.";
+    const validResponseText = [
+      "First, the request enters the bounded project path and reads the declared source.",
+      claimText,
+      "Then, the retained evidence moves into synthesis before the final answer.",
+      flowClaimText,
+      "Finally, both statements explain how the project pipeline behaves across the request.",
+    ].join(" ");
     const validResponse = JSON.stringify({
       response: validResponseText,
       sources: [sourcePath],
@@ -1902,6 +1906,16 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).toBe(validResponseText);
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
+      expect(result.projectQueryAnswerAttestation).toMatchObject({
+        version: 1,
+        responseSource: "provider_synthesis",
+        claimIds: ["pipeline-evidence", "pipeline-flow"],
+        synthesisProvider: "openrouter",
+        synthesisAttemptId: expect.any(String),
+      });
+      expect(result.projectQueryAnswerAttestation?.responseHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(result.projectQueryAnswerAttestation?.evidenceBindingHash)
+        .toMatch(/^[a-f0-9]{64}$/u);
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
         expect.objectContaining({
@@ -2253,7 +2267,15 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           };
         }
         return {
-          content: "The provider still returned an incomplete project answer.",
+          content: JSON.stringify({
+            response: [
+              "First, the system accepts the request and then processes available information.",
+              "After that, it creates a response through several stages. Finally, the result is returned.",
+              "This generic description is intentionally long enough to look complete, but it does not state the required project-pipeline claim.",
+            ].join(" "),
+            sources: [sourcePath],
+            claimRefs: ["pipeline-evidence"],
+          }),
           toolCalls: [],
           model: "good-model",
           usage: {},
@@ -2343,6 +2365,11 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).toContain(claimText);
       expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
       expect(result.projectQueryResponseFallbackReason).toBe("provider_candidate_incomplete");
+      expect(result.projectQueryAnswerAttestation).toMatchObject({
+        version: 1,
+        responseSource: "deterministic_fallback",
+        claimIds: ["pipeline-evidence"],
+      });
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(fallbackStrategy.call).not.toHaveBeenCalled();
       expect(fallbackBudgetAdmission).not.toHaveBeenCalled();
@@ -2362,9 +2389,11 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(synthesisDiagnostics[1]?.details).toEqual(
         expect.arrayContaining([
           "contractOutcome=rejected",
-          "failureClass=CONTRACT",
+          "failureClass=SEMANTIC",
+          "claimsComplete=false",
+          "assertionMode=claim_refs",
           "recoveryAction=next_provider",
-          "failureChain=CONTRACT:provider_candidate_incomplete -> CONTRACT:provider_candidate_incomplete",
+          "failureChain=CONTRACT:provider_candidate_incomplete -> SEMANTIC:provider_candidate_incomplete",
         ]),
       );
     } finally {

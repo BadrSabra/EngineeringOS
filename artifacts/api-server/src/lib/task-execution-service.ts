@@ -24,7 +24,6 @@ import {
   buildProjectContext,
   executeTask,
   invalidateContextCache,
-  PROVIDER_REGISTRY,
   getDurableReplayBlockedToolNames,
   type AgentStep,
   type AgentLoopClaimState,
@@ -108,6 +107,20 @@ import {
 } from "./mission-read-scope.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+
+type MissionChatOutput =
+  Awaited<ReturnType<typeof chatWithFallback>>["result"] & {
+    projectQueryAnswerAttestation?: {
+      version: 1;
+      responseHash: string;
+      responseSource: "provider_synthesis" | "deterministic_fallback";
+      claimIds: string[];
+      evidenceBindingHash: string;
+      synthesisAttemptId?: string;
+      synthesisProvider?: string;
+      synthesisModel?: string;
+    };
+  };
 
 function pendingPlanVerificationSteps(plan: typeof tasksTable.$inferSelect["remediationPlan"]) {
   if (!plan) return [];
@@ -277,6 +290,7 @@ async function inspectMissionTaskAdmission(
 }
 
 const RECEIPT_MAX_BYTES = 8_000;
+const RECEIPT_MAX_SUMMARY = 6_000;
 const RECEIPT_MAX_STAGES = 12;
 const RECEIPT_MAX_STEPS = 24;
 const RECEIPT_MAX_TEXT = 480;
@@ -341,6 +355,20 @@ export type AiTaskExecutionReceipt = {
   revision: string | null;
   provider: ProviderId;
   model: string;
+  answerProof?: {
+    version: 1;
+    status: "PROVEN";
+    responseHash: string;
+    responseSource: "provider_synthesis" | "deterministic_fallback";
+    claimCount: number;
+    claimIdsHash: string;
+    evidenceBindingHash: string;
+    summaryHash?: string;
+    summaryTruncated?: boolean;
+    synthesisAttemptId?: string;
+    synthesisProvider?: string;
+    synthesisModel?: string;
+  };
   attempt: number;
   attempts: number;
   durationMs: number;
@@ -392,12 +420,44 @@ function safeText(value: unknown, max = RECEIPT_MAX_TEXT): string {
     .slice(0, max);
 }
 
+function truncateUtf8Text(value: string, maxBytes: number): string {
+  let bytes = 0;
+  let end = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, "utf8");
+    if (bytes + characterBytes > maxBytes) break;
+    bytes += characterBytes;
+    end += character.length;
+  }
+  return value.slice(0, end);
+}
+
 function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
   const bounded = {
     ...receiptValue,
+    operationId: safeText(receiptValue.operationId, 160),
+    correlationId: safeText(receiptValue.correlationId, 160),
+    revision: receiptValue.revision ? safeText(receiptValue.revision, 240) : null,
+    model: safeText(receiptValue.model, 240),
     stages: receiptValue.stages.slice(0, RECEIPT_MAX_STAGES).map((stage) => safeText(stage, 80)),
     evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
-    ...(receiptValue.summary ? { summary: safeText(receiptValue.summary, 2_000) } : {}),
+    ...(receiptValue.summary
+      ? { summary: safeText(receiptValue.summary, RECEIPT_MAX_SUMMARY) }
+      : {}),
+    ...(receiptValue.answerProof ? {
+      answerProof: {
+        ...receiptValue.answerProof,
+        ...(receiptValue.answerProof.synthesisAttemptId
+          ? { synthesisAttemptId: safeText(receiptValue.answerProof.synthesisAttemptId, 160) }
+          : {}),
+        ...(receiptValue.answerProof.synthesisProvider
+          ? { synthesisProvider: safeText(receiptValue.answerProof.synthesisProvider, 80) }
+          : {}),
+        ...(receiptValue.answerProof.synthesisModel
+          ? { synthesisModel: safeText(receiptValue.answerProof.synthesisModel, 240) }
+          : {}),
+      },
+    } : {}),
     ...(receiptValue.steps ? { steps: receiptValue.steps.slice(0, RECEIPT_MAX_STEPS).map((step) => safeText(step)) } : {}),
     ...(receiptValue.stateProjection ? {
       stateProjection: {
@@ -424,26 +484,44 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
   };
   // Keep this envelope bounded even if future fields are added to the contract.
   const serialized = JSON.stringify(bounded);
-  return serialized.length <= RECEIPT_MAX_BYTES
-    ? bounded
-    : {
-        ...bounded,
-        summary: bounded.summary?.slice(0, 240),
-        steps: bounded.steps?.slice(0, 8),
-        ...(bounded.stateProjection ? {
-          stateProjection: {
-            ...bounded.stateProjection,
-            knownFacts: bounded.stateProjection.knownFacts.slice(0, 8),
-            hypotheses: bounded.stateProjection.hypotheses.slice(0, 4),
-            unknowns: bounded.stateProjection.unknowns.slice(0, 8),
-            contradictions: bounded.stateProjection.contradictions.slice(0, 4),
-            observations: bounded.stateProjection.observations.slice(0, 4),
-            actions: bounded.stateProjection.actions.slice(0, 4),
-            effects: bounded.stateProjection.effects.slice(0, 8),
-            proofObligations: bounded.stateProjection.proofObligations.slice(0, 8),
-          },
-        } : {}),
-      };
+  if (Buffer.byteLength(serialized, "utf8") <= RECEIPT_MAX_BYTES) {
+    return bounded;
+  }
+
+  const compactStateProjection = bounded.stateProjection
+    ? {
+        ...bounded.stateProjection,
+        knownFacts: bounded.stateProjection.knownFacts.slice(0, 3),
+        hypotheses: bounded.stateProjection.hypotheses.slice(0, 1),
+        unknowns: bounded.stateProjection.unknowns.slice(0, 3),
+        contradictions: bounded.stateProjection.contradictions.slice(0, 1),
+        observations: bounded.stateProjection.observations.slice(0, 2),
+        actions: bounded.stateProjection.actions.slice(0, 2),
+        effects: bounded.stateProjection.effects.slice(0, 2),
+        proofObligations: bounded.stateProjection.proofObligations.slice(0, 3),
+      }
+    : undefined;
+  const compact: AiTaskExecutionReceipt = {
+    ...bounded,
+    evidenceRefs: bounded.evidenceRefs.slice(0, 4),
+    ...(bounded.steps ? { steps: bounded.steps.slice(0, 4) } : {}),
+    ...(compactStateProjection ? { stateProjection: compactStateProjection } : {}),
+  };
+  const compactWithoutSummary = { ...compact };
+  delete compactWithoutSummary.summary;
+  const summaryBudget = Math.max(
+    0,
+    RECEIPT_MAX_BYTES
+      - Buffer.byteLength(JSON.stringify(compactWithoutSummary), "utf8")
+      - 32,
+  );
+  const compactSummary = compact.summary
+    ? truncateUtf8Text(compact.summary, summaryBudget)
+    : undefined;
+  return {
+    ...compact,
+    ...(compactSummary ? { summary: compactSummary } : {}),
+  };
 }
 
 export function buildAiTaskExecutionReceipt(params: {
@@ -451,6 +529,7 @@ export function buildAiTaskExecutionReceipt(params: {
   correlationId: string;
   revision?: string;
   provider: ProviderId;
+  model?: string;
   attempt: number;
   durationMs: number;
   stages: string[];
@@ -459,14 +538,20 @@ export function buildAiTaskExecutionReceipt(params: {
   executionProfile?: MissionExecutionProfile;
   evidenceRefs?: string[];
   stateProjection?: MissionStateProjection;
+  answerProof?: AiTaskExecutionReceipt["answerProof"];
 }): AiTaskExecutionReceipt {
-  return boundedReceipt({
+  const receipt = boundedReceipt({
     kind: "AI_TASK_EXECUTION_RECEIPT",
     operationId: params.executionId,
     correlationId: params.correlationId,
     revision: params.revision ?? null,
     provider: params.provider,
-    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+    model: params.model
+      ? safeText(params.model, 240)
+      : (params.answerProof?.responseSource === "deterministic_fallback"
+        ? "server-deterministic"
+        : "unknown"),
+    ...(params.answerProof ? { answerProof: params.answerProof } : {}),
     attempt: params.attempt,
     attempts: Math.max(1, Math.min(params.attempts ?? 1, 8)),
     durationMs: Math.max(0, Math.min(Math.round(params.durationMs), 86_400_000)),
@@ -480,6 +565,32 @@ export function buildAiTaskExecutionReceipt(params: {
     ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
     ...(params.stateProjection ? { stateProjection: params.stateProjection } : {}),
   });
+  if (!params.answerProof) return receipt;
+  const sanitizedSummary = redactUserFacingText(String(params.result.summary ?? ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  const finalReceipt = boundedReceipt({
+    ...receipt,
+    answerProof: {
+      ...params.answerProof,
+      summaryHash: createHash("sha256")
+        .update(receipt.summary ?? "", "utf8")
+        .digest("hex"),
+      summaryTruncated: sanitizedSummary.length > (receipt.summary?.length ?? 0),
+    },
+  });
+  if (!finalReceipt.answerProof) return finalReceipt;
+  return {
+    ...finalReceipt,
+    answerProof: {
+      ...finalReceipt.answerProof,
+      summaryHash: createHash("sha256")
+        .update(finalReceipt.summary ?? "", "utf8")
+        .digest("hex"),
+      summaryTruncated:
+        sanitizedSummary.length > (finalReceipt.summary?.length ?? 0),
+    },
+  };
 }
 
 function failureReceipt(params: {
@@ -503,7 +614,7 @@ function failureReceipt(params: {
     correlationId: params.correlationId,
     revision: params.revision ?? null,
     provider: params.provider,
-    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+    model: "unknown",
     attempt: params.attempt,
     attempts: 1,
     durationMs: Math.max(0, Math.min(Math.round(params.durationMs), 86_400_000)),
@@ -771,6 +882,8 @@ type MissionToolLoopExecution = {
   proof: {
     taskObjective?: TaskObjectiveContract;
     status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+    answerProofStatus?: "PROVEN" | "INCOMPLETE";
+    answerProof?: AiTaskExecutionReceipt["answerProof"];
     validatorReceipts: TaskObjectiveValidatorReceipt[];
     episodeId?: string;
     validatorProcessObservations: Extract<
@@ -2014,7 +2127,7 @@ async function collectMissionObservationSourceSnapshot(params: {
 }
 
 function missionObservationGraphIsProven(params: {
-  output: Awaited<ReturnType<typeof chatWithFallback>>["result"];
+  output: MissionChatOutput;
   objective: ReturnType<typeof missionObjectiveContract>;
   targetPaths: readonly string[];
   projectContextRevision: string;
@@ -2063,6 +2176,59 @@ function missionObservationGraphIsProven(params: {
   return params.targetPaths.every((path) =>
     retainedPaths.has(path) && responseSources.has(path),
   );
+}
+
+function missionObservationAnswerAttestationIsValid(params: {
+  output: MissionChatOutput;
+  objective: ReturnType<typeof missionObjectiveContract>;
+}): boolean {
+  const isProjectQuery = params.output.objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
+  if (!isProjectQuery) return true;
+
+  const attestation = params.output.projectQueryAnswerAttestation;
+  const expectedClaimIds = params.objective.requiredClaims.map((claim) => claim.claimId);
+  if (
+    !attestation
+    || !params.output.response
+    || !params.output.projectQueryResponseSource
+    || attestation.responseSource !== params.output.projectQueryResponseSource
+    || attestation.responseHash !== createHash("sha256")
+      .update(params.output.response, "utf8")
+      .digest("hex")
+    || attestation.claimIds.length !== expectedClaimIds.length
+    || attestation.claimIds.some((claimId, index) => claimId !== expectedClaimIds[index])
+    || !/^[a-f0-9]{64}$/iu.test(attestation.evidenceBindingHash)
+  ) {
+    return false;
+  }
+
+  return attestation.responseSource !== "provider_synthesis"
+    || Boolean(attestation.synthesisAttemptId && attestation.synthesisProvider);
+}
+
+function toMissionAnswerProofReceipt(
+  attestation: NonNullable<MissionChatOutput["projectQueryAnswerAttestation"]>,
+): NonNullable<AiTaskExecutionReceipt["answerProof"]> {
+  return {
+    version: 1,
+    status: "PROVEN",
+    responseHash: attestation.responseHash,
+    responseSource: attestation.responseSource,
+    claimCount: attestation.claimIds.length,
+    claimIdsHash: createHash("sha256")
+      .update(JSON.stringify(attestation.claimIds), "utf8")
+      .digest("hex"),
+    evidenceBindingHash: attestation.evidenceBindingHash,
+    ...(attestation.synthesisAttemptId
+      ? { synthesisAttemptId: attestation.synthesisAttemptId }
+      : {}),
+    ...(attestation.synthesisProvider
+      ? { synthesisProvider: attestation.synthesisProvider }
+      : {}),
+    ...(attestation.synthesisModel
+      ? { synthesisModel: attestation.synthesisModel }
+      : {}),
+  };
 }
 
 async function executeMissionToolLoop(params: {
@@ -2702,7 +2868,7 @@ async function executeMissionToolLoop(params: {
       });
     },
   );
-  const output = chat.result;
+  const output = chat.result as MissionChatOutput;
   const rawOutputPendingChanges = output.pendingChanges ?? pendingChanges;
   const normalizedOutputChanges = params.profile === "mission_repair"
     ? canonicalizeMissionChanges(rawOutputPendingChanges, policy.targetPaths)
@@ -2730,6 +2896,8 @@ async function executeMissionToolLoop(params: {
     ? "UNAVAILABLE"
     : "INCOMPLETE";
   let evidence: EvidenceSnapshotInput | undefined;
+  let missionAnswerProofStatus: "PROVEN" | "INCOMPLETE" | undefined;
+  let missionAnswerProofReceipt: AiTaskExecutionReceipt["answerProof"] | undefined;
   let candidateEffectContext: MissionRepairCandidateEffectContext | undefined;
   let validationResult: Awaited<ReturnType<typeof runRepairValidation>> | undefined;
   let validationEpisode: Awaited<ReturnType<typeof getMissionRepairEpisode>> | undefined;
@@ -3154,12 +3322,25 @@ async function executeMissionToolLoop(params: {
   if (taskObjective && params.profile === "mission_observe") {
     const targetPaths = objective.requiredEvidencePaths ?? [];
     const projectContextRevision = params.projectContext.workspaceRevision ?? "";
-    const graphProven = missionObservationGraphIsProven({
+    const evidenceGraphProven = missionObservationGraphIsProven({
       output,
       objective,
       targetPaths,
       projectContextRevision,
     });
+    const answerAttestationValid = missionObservationAnswerAttestationIsValid({
+      output,
+      objective,
+    });
+    const graphProven = evidenceGraphProven && answerAttestationValid;
+    const isProjectQuery = output.objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
+    missionAnswerProofStatus = isProjectQuery
+      ? answerAttestationValid ? "PROVEN" : "INCOMPLETE"
+      : undefined;
+    missionAnswerProofReceipt =
+      isProjectQuery && answerAttestationValid && output.projectQueryAnswerAttestation
+        ? toMissionAnswerProofReceipt(output.projectQueryAnswerAttestation)
+        : undefined;
     const sourceSnapshot = await collectMissionObservationSourceSnapshot({
       rootPath: root.canonicalPath,
       projectId: params.task.projectId,
@@ -3192,6 +3373,7 @@ async function executeMissionToolLoop(params: {
             || left.startLine - right.startLine
             || left.endLine - right.endLine,
           ),
+        answerAttestation: output.projectQueryAnswerAttestation ?? null,
       }))
       .digest("hex");
     const artifactDigest = createHash("sha256")
@@ -3263,6 +3445,14 @@ async function executeMissionToolLoop(params: {
       targetPathsInResponseSources: targetPaths.filter((path) =>
         responseSourcePaths.has(path),
       ).length,
+      evidenceGraphProven,
+      answerAttestationValid,
+      answerResponseHashMatches: Boolean(
+        output.projectQueryAnswerAttestation
+        && output.projectQueryAnswerAttestation.responseHash === createHash("sha256")
+          .update(output.response ?? "", "utf8")
+          .digest("hex"),
+      ),
       hasParseError: Boolean(output._parseError),
       hasQualityError: Boolean(output._qualityError),
       pendingChangeCount: output.pendingChanges?.length ?? 0,
@@ -3358,6 +3548,12 @@ async function executeMissionToolLoop(params: {
     proof: {
       taskObjective,
       status: proofStatus,
+      ...(missionAnswerProofStatus
+        ? { answerProofStatus: missionAnswerProofStatus }
+        : {}),
+      ...(missionAnswerProofReceipt
+        ? { answerProof: missionAnswerProofReceipt }
+        : {}),
       validatorReceipts,
       ...(validationEpisode ? { episodeId: validationEpisode.episodeId } : {}),
       validatorProcessObservations,
@@ -4143,6 +4339,8 @@ export async function executeTaskLifecycle(params: {
       attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
       executionProfile,
       evidenceRefs: missionExecution?.proof.refs,
+      model: missionExecution?.proof.answerProof?.synthesisModel,
+      answerProof: missionExecution?.proof.answerProof,
     });
     const missionProofPending = Boolean(missionExecution && !missionProofProven);
     const terminalOutcome = missionProofPending ? "FAILED" as const : "SUCCEEDED" as const;
