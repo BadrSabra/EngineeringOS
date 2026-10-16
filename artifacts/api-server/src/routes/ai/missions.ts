@@ -744,6 +744,16 @@ function publicExecution(execution: typeof aiExecutionsTable.$inferSelect) {
   };
 }
 
+function withStoredStatusProjection<T extends { status: unknown }>(value: T) {
+  return {
+    ...value,
+    statusProjection: {
+      authority: "STORED_STATUS_ONLY" as const,
+      proofFreshness: "NOT_REVALIDATED" as const,
+    },
+  };
+}
+
 function publicEvent(event: typeof eventsTable.$inferSelect) {
   return {
     id: event.id,
@@ -1170,7 +1180,7 @@ async function buildMissionProjection(
   const goalIds = goals.map((goal) => goal.id);
   if (goalIds.length === 0) {
     return {
-      mission,
+      mission: withStoredStatusProjection(mission),
       agentControl,
       currentPlan,
       goals: [],
@@ -1343,14 +1353,14 @@ async function buildMissionProjection(
   }
 
   return {
-    mission,
+    mission: withStoredStatusProjection(mission),
     agentControl,
     currentPlan,
     goals: goals.map((goal) => ({
-      goal: {
+      goal: withStoredStatusProjection({
         ...goal,
         dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
-      },
+      }),
       currentAttempt: currentPlanGoalIds.has(goal.id)
         ? (() => {
             const execution = currentExecutionByGoalId.get(goal.id);
@@ -1386,7 +1396,7 @@ router.get("/ai/missions", async (req, res) => {
     .orderBy(desc(aiMissionsTable.updatedAt), desc(aiMissionsTable.id))
     .limit(pagination.pageSize)
     .offset(pagination.offset);
-  return res.json(missions);
+  return res.json(missions.map(withStoredStatusProjection));
 });
 
 /**
@@ -1995,7 +2005,7 @@ router.post("/ai/missions", async (req, res) => {
 router.get("/ai/missions/:missionId", async (req, res) => {
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
-  return res.json(owned.mission);
+  return res.json(withStoredStatusProjection(owned.mission));
 });
 
 router.patch("/ai/missions/:missionId", async (req, res) => {
@@ -2166,7 +2176,7 @@ router.get("/ai/missions/:missionId/goals", async (req, res) => {
         eq(aiGoalDependenciesTable.projectId, owned.project.id),
         inArray(aiGoalDependenciesTable.goalId, goals.map((goal) => goal.id)),
       ));
-  return res.json(goals.map((goal) => ({
+  return res.json(goals.map((goal) => withStoredStatusProjection({
     ...goal,
     dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
   })));
@@ -2187,7 +2197,7 @@ router.get("/ai/goals/:goalId", async (req, res) => {
     dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
     planRevision: aiGoalDependenciesTable.planRevision,
   }).from(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.goalId, goal.id));
-  return res.json({ ...goal, dependencies });
+  return res.json(withStoredStatusProjection({ ...goal, dependencies }));
 });
 
 /**

@@ -1134,14 +1134,40 @@ describe("AI missions and goals", () => {
     const fetchedGoal = await request(app).get(`/api/ai/goals/${createdGoal.body.id}`);
     expect(fetchedGoal.status).toBe(200);
     expect(fetchedGoal.body.id).toBe(createdGoal.body.id);
+    expect(fetchedGoal.body.statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
 
     const listed = await request(app).get(`/api/ai/missions?projectId=${projectId}`);
     expect(listed.status).toBe(200);
     expect(listed.body).toHaveLength(1);
+    expect(listed.body[0].statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
+
+    const fetchedMission = await request(app).get(`/api/ai/missions/${createdMission.body.id}`);
+    expect(fetchedMission.status).toBe(200);
+    expect(fetchedMission.body.statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
+
+    const listedGoals = await request(app).get(`/api/ai/missions/${createdMission.body.id}/goals`);
+    expect(listedGoals.status).toBe(200);
+    expect(listedGoals.body[0].statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
 
     const projection = await request(app).get(`/api/ai/missions/${createdMission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.mission.id).toBe(createdMission.body.id);
+    expect(projection.body.mission.statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
     expect(projection.body.currentPlan).toEqual({
       revision: null,
       binding: "legacy_unversioned",
@@ -1149,6 +1175,10 @@ describe("AI missions and goals", () => {
     });
     expect(projection.body.goals).toHaveLength(1);
     expect(projection.body.goals[0].goal.id).toBe(createdGoal.body.id);
+    expect(projection.body.goals[0].goal.statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
     expect(projection.body.goals[0].currentAttempt).toBeNull();
     expect(projection.body.counts).toEqual({
       goals: 1,

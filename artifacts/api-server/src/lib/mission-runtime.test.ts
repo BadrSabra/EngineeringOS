@@ -19,6 +19,7 @@ import {
   tasksTable,
 } from "@workspace/db";
 import {
+  deriveProofGatedMissionStatus,
   receiveMissionEvent,
   replayPendingMissionEvents,
   runMissionGoal,
@@ -825,6 +826,63 @@ describe("Mission goal runtime", () => {
     }));
     expect(missionEvaluation.allowed).toBe(false);
     expect(missionEvaluation.missingGoalIds).toContain(fixture.goalId);
+  });
+
+  it("serializes Mission completion against a concurrent Canonical Proof attempt rotation", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+    const [acceptance] = await db.select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+      .limit(1);
+    if (!acceptance) throw new Error("Prerequisite Canonical Proof acceptance was not persisted");
+
+    let releaseRotation!: () => void;
+    let acquiredAcceptanceLock!: () => void;
+    const acceptanceLocked = new Promise<void>((resolve) => {
+      acquiredAcceptanceLock = resolve;
+    });
+    const allowRotationCommit = new Promise<void>((resolve) => {
+      releaseRotation = resolve;
+    });
+    const rotation = db.transaction(async (tx) => {
+      await tx.update(aiExecutionAcceptancesTable)
+        .set({ attempt: 1 })
+        .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+      acquiredAcceptanceLock();
+      await allowRotationCommit;
+    });
+    await acceptanceLocked;
+
+    const aggregation = db.transaction(async (tx) => {
+      const [mission] = await tx.select()
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, fixture.missionId))
+        .for("update");
+      if (!mission) throw new Error("Mission fixture was not persisted");
+      const goals = await tx.select()
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.missionId, fixture.missionId))
+        .for("update");
+      return deriveProofGatedMissionStatus(tx, mission, goals);
+    });
+    let waitedForProofInvalidation = false;
+    try {
+      waitedForProofInvalidation = await Promise.race([
+        aggregation.then(() => false),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
+      ]);
+    } finally {
+      releaseRotation();
+      await rotation;
+    }
+
+    expect(waitedForProofInvalidation).toBe(true);
+    await expect(aggregation).resolves.toBe("needs_replan");
+    const [mission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    expect(mission?.status).toBe("active");
   });
 
   it("accepts an observation only when its exact Episode scope and revision are current", async () => {

@@ -1,7 +1,7 @@
 # E3 Forensic Entry Audit
 
 **Date:** 2026-10-05
-**Status:** E3 implementation started 2026-10-11; proof-freshness projections remain in progress. E3.2 replay safety remains OPEN.
+**Status:** E3 implementation started 2026-10-11; Mission/Goal status-only projections and Mission aggregation race guard updated 2026-10-16. Shadow Replay read freshness is already enforced by its GET/idempotent paths. E3 remains OPEN; E3.2 replay safety remains OPEN.
 **E2 boundary:** Closed for proof-bound World State materialization as defined in the current project decision.
 
 ## 2026-10-11 — explicit E2 closure and first E3 projection slice
@@ -12,7 +12,15 @@ The P0 dependency-release and Mission-completion boundaries described in the ent
 
 The first E3 implementation slice fixes Mission Control's terminal projection: `getMissionState` previously selected `Complete` or `Delivered` from execution/flight/timeline status without requiring `PROVEN` when the server marked proof as required. It now projects that mismatch as `Proof incomplete` / `NEEDS_ATTENTION`. The focused Dashboard test file passes 9/9, and Dashboard typecheck passes.
 
-E3 remains open. Next boundaries are Mission/Goal read projections and Shadow Replay receipt freshness. Do not rerun Strategy Replay receipts; no managed API workflow was restarted for this slice.
+E3 remains open. The next boundaries are Mission/Goal read projections and Shadow Replay receipt freshness. Do not rerun Strategy Replay receipts; no managed API workflow was restarted for this slice.
+
+## 2026-10-16 — status-only projections and Mission aggregation race
+
+Mission and Goal GET/list/projection responses now include `statusProjection: { authority: "STORED_STATUS_ONLY", proofFreshness: "NOT_REVALIDATED" }`. The dashboard identifies stored completion/acceptance values as historical and says current Canonical Proof is not reloaded in these views. The focused route test passed against a disposable loopback PostgreSQL cluster; Dashboard tests and both TypeScript checks passed. A new transaction-level race fixture holds a Canonical Proof acceptance row while another transaction attempts Mission aggregation, rotates the acceptance attempt, then releases the lock. Aggregation waits and returns `needs_replan`; the focused test passed against a separate disposable cluster.
+
+The current Shadow Replay GET and idempotent POST paths already call `getShadowReplayReceiptProofFreshness`. It revalidates the completed execution attempt, source/candidate binding, and Canonical Proof before returning `CURRENT`; stale proof remains displayable only with `STALE`. Existing integration tests cover stale attempt, candidate, acceptance/evidence, idempotent retry, and registration rejection. Those replay tests were not rerun in this update.
+
+The dependency-release source already locks dependency edges, Goal rows, and execution rows while checking current Canonical Proof; the existing `mission-runtime.test.ts` race fixture verifies that concurrent attempt rotation blocks release. The Mission aggregation race is now independently covered. These tests do not close E3.2 crash/replay recovery, and no Strategy Replay receipt or managed API workflow was run.
 
 ## E3 invariant
 
@@ -40,10 +48,10 @@ Every producer or decision consumer must either reload/derive the current Canoni
 
 | Priority | Surface | Failure fixture to require | Required result | Current finding |
 |---|---|---|---|---|
-| P0 | Goal dependency release | A dependency has `status=completed` but no accepted current-attempt proof, or its proof belongs to a prior plan revision/attempt. | Do not release or dispatch the dependent Goal as proven; return a bounded blocked/replan state. | `loadGoalDependencyState` selects dependency IDs and statuses only (`mission-runtime.ts:115-147`); `runMissionGoal` checks terminal Goal/Mission status and releases dependencies based on `status === "completed"` (`:1297-1347`). This is a decision-boundary gap requiring a proof-freshness contract and regression tests. |
-| P0 | Automatic Mission status aggregation | All selected Goal rows say `completed`, but one lacks current proof or is stale against the active plan. | Do not expose a proof-backed Mission completion; distinguish aggregate stored status from verified completion. | `deriveMissionStatusFromGoals` derives `completed` from Goal statuses only (`ai-execution-acceptance.ts:532-554`). Existing findings report automatic Mission aggregation does not reload proof for every Goal. Individual writers are guarded, so this is a freshness/aggregation gap rather than a demonstrated normal writer bypass. |
-| P1 | Mission/Goal API and dashboard projections | A historical `completed` status is returned after acceptance, attempt, or plan proof becomes unavailable/stale. | Keep the value explicitly status-only or return a proof freshness/verdict; never label it Canonical `PROVEN`. | Existing forensic audit finds several read projections expose stored statuses without reloading Canonical Proof. This is a presentation/consumer boundary, not itself an acceptance writer. |
-| P1 | Shadow Replay receipt reads and idempotent replay | Receipt refers to an old replay attempt or missing/stale acceptance/evidence. | A stored receipt may be displayed as historical metadata but must not authorize registration, approval, or promotion; decision gates reload source and replay proof. | Existing audit reports decision gates revalidate proof, while some GET/idempotent response paths can return stored receipt data without reloading the replay proof. Positive recovery and crash-boundary coverage is incomplete. |
+| P0 | Goal dependency release | A dependency has `status=completed` but no accepted current-attempt proof, or its proof belongs to a prior plan revision/attempt. | Do not release or dispatch the dependent Goal as proven; return a bounded blocked/replan state. | Current code locks dependency edges, prerequisite Goals, and executions, then reloads Canonical Proof against the active plan revision. `mission-runtime.test.ts` includes a concurrent attempt-rotation race and fails closed. |
+| P0 | Automatic Mission status aggregation | All selected Goal rows say `completed`, but one lacks current proof or is stale against the active plan. | Do not expose a proof-backed Mission completion; distinguish aggregate stored status from verified completion. | Aggregation uses `evaluateMissionCompletion`, which locks Mission/Goal rows and reloads proof per active Goal. The 2026-10-16 race fixture verifies a concurrent acceptance-attempt rotation results in `needs_replan`, not `completed`. |
+| P1 | Mission/Goal API and dashboard projections | A historical `completed` status is returned after acceptance, attempt, or plan proof becomes unavailable/stale. | Keep the value explicitly status-only or return a proof freshness/verdict; never label it Canonical `PROVEN`. | Mission/Goal GET, list, and projection responses mark stored status as `STORED_STATUS_ONLY` / `NOT_REVALIDATED`; dashboard wording treats saved `PROVEN` values as historical. Focused route/UI tests cover the contract. |
+| P1 | Shadow Replay receipt reads and idempotent replay | Receipt refers to an old replay attempt or missing/stale acceptance/evidence. | A stored receipt may be displayed as historical metadata but must not authorize registration, approval, or promotion; decision gates reload source and replay proof. | GET and idempotent POST responses call current freshness validation for execution attempt, candidate/source binding, and Canonical Proof; stale data is labeled `STALE`, while registration still rejects it. Existing tests cover these cases; not rerun on 2026-10-16. |
 | P1 | Workflow intermediate phase | `evidenceComplete` is true while required evidence/Canonical Proof is absent. | No `PROVEN` acceptance or terminal Goal/Mission completion. | Existing audit found a theoretical intermediate projection from `evidenceComplete`; the production caller currently fails closed at operation acceptance. Retain a regression guard; do not mistake a mocked helper test for production reachability. |
 | P2 | Delegated-child proof aggregation | Parent lineage exists but no server-owned required-child contract binds the required children to the parent acceptance. | Keep the helper unused; lineage alone must not establish parent proof. | Existing audit found the aggregation helper has no production caller and lacks a required-child contract. This is an unimplemented capability, not a current production bypass. |
 | P2 | Task status and Task verification | A Task is completed/verified while its linked Goal/Mission proof is incomplete. | Preserve Task-local semantics and labels; never promote Task status into Goal/Mission Canonical Proof. | Existing audits show Task API verification is task-scoped and does not accept the linked Goal or Mission. Verify UI wording remains distinct. |
@@ -56,7 +64,7 @@ Every producer or decision consumer must either reload/derive the current Canoni
 4. Before implementation, define how a historical proof can or cannot satisfy a dependency on a newer plan revision, then add fail-closed integration fixtures for prior attempt, missing acceptance, stale plan revision, and missing evidence.
 5. Do not combine this E3 work with E4 World Delta expansion or any Learning/Transfer/Generalization activation.
 
-This is an entry audit, not an E3 closure. The next implementation slice requires an explicit scope decision based on the failure matrix.
+This remains an entry audit, not an E3 closure. The user explicitly authorized E3 on 2026-10-11; dated addenda below record completed slices and the remaining E3 gates.
 
 ## 2026-10-05 four-agent follow-up
 
@@ -101,6 +109,6 @@ B changes the dependency, active revision, attempt, or cancellation state
 A attempts to commit authorization or release the successor
 ```
 
-The result must be a bounded block/replan or a decision based on freshly revalidated state. The test must exercise the production transaction/lock or compare-and-set boundary; a helper-only mock does not establish race safety. Add missing-proof, prior-attempt, stale-revision, and incomplete-evidence cases independently, and keep crash/replay receipt recovery as its own contract.
+The result must be a bounded block/replan or a decision based on freshly revalidated state. The test must exercise the production transaction/lock or compare-and-set boundary; a helper-only mock does not establish race safety. Dependency-release attempt rotation and Mission-aggregation acceptance rotation now have transaction-level fixtures. Keep missing-proof, prior-attempt, stale-revision, incomplete-evidence, and crash/replay receipt recovery as separate contracts.
 
 This is a proposed E3 acceptance contract only. Do not expand it into World Delta work, a new universal authorization service, or Learning/Transfer/Generalization.

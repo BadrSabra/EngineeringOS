@@ -428,23 +428,23 @@ function GoalAcceptanceNotice({ goal }: { goal: Goal }) {
   const proven = acceptance.verdict === 'PROVEN';
   const incomplete = acceptance.verdict === 'INCOMPLETE';
   const label = proven
-    ? 'تم إثبات النتيجة'
+    ? 'الإثبات المسجل: PROVEN (غير معاد التحقق)'
     : incomplete
-      ? 'الإثبات غير مكتمل'
+      ? 'الإثبات غير مكتمل (حالة مسجلة)'
       : acceptance.verdict === 'UNAVAILABLE'
-        ? 'حكم الإثبات غير متاح'
+        ? 'حكم الإثبات المسجل غير متاح'
         : acceptance.verdict === 'FAILED'
-          ? 'لم تستوف النتيجة شروط الإثبات'
+          ? 'الإثبات المسجل لم يستوف الشروط'
           : `حالة الإثبات: ${acceptance.verdict}`;
   const explanation = proven
-    ? 'الأدلة المقبولة تدعم نتيجة هذه الخطوة.'
+    ? 'هذه قيمة قبول محفوظة في سجل الهدف؛ لم يُعَد فحص Canonical Proof الحالي في هذا العرض.'
     : incomplete
-      ? 'الأدلة المطلوبة غير مكتملة؛ نجاح التنفيذ وحده لا يثبت النتيجة.'
+      ? 'الأدلة المطلوبة غير مكتملة؛ نجاح التنفيذ وحده لا يثبت النتيجة. هذه قيمة محفوظة وليست فحصاً حديثاً.'
       : acceptance.verdict === 'UNAVAILABLE'
-        ? 'لم يتوفر حكم موثوق على الأدلة لهذه المحاولة.'
+        ? 'لم يتوفر حكم موثوق محفوظ على الأدلة لهذه المحاولة؛ لا يُعاد تحميل الإثبات هنا.'
         : acceptance.verdict === 'FAILED'
-          ? 'لم تثبت الأدلة أن شروط هذه الخطوة تحققت.'
-          : 'راجع حكم الإثبات قبل اعتبار هذه الخطوة مكتملة.';
+          ? 'لم تثبت الأدلة المحفوظة أن شروط هذه الخطوة تحققت.'
+          : 'هذه قيمة محفوظة؛ راجع إثبات المحاولة الحالي قبل اعتبار الخطوة مكتملة.';
   const tone = proven
     ? 'border-emerald-300/20 bg-emerald-300/5 text-emerald-100'
     : incomplete
@@ -1110,6 +1110,14 @@ function GoalCard({
           </div>
           <p dir="auto" className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{goal.description || 'لا يوجد وصف مسجل.'}</p>
           <GoalAcceptanceNotice goal={goal} />
+          {goal.status === 'completed' ? (
+            <p
+              data-testid={`goal-status-freshness-${goal.id}`}
+              className="mt-1 text-[10px] text-amber-200/80"
+            >
+              حالة الهدف مكتملة بحسب السجل؛ هذا العرض لا يعيد التحقق من Canonical Proof الحالي.
+            </p>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] text-slate-600">
             <span>priority {goal.priority ?? '—'}</span>
             <span>{linkedCount} linked records</span>
@@ -1705,6 +1713,12 @@ export default function Missions() {
                     </div>
                   </div>
                 </div>
+                <p
+                  data-testid="mission-status-authority"
+                  className="border-b border-slate-800/70 px-4 py-2 text-[10px] leading-4 text-amber-200/80"
+                >
+                  حالات Mission المعروضة محفوظة في السجل؛ لا تعني تحققًا حديثًا من Canonical Proof.
+                </p>
                 {missionsLoading ? (
                   <div className="space-y-2 p-3">
                     {[1, 2, 3].map((item) => <Skeleton key={item} className="h-24" />)}

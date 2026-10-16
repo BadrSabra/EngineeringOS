@@ -231,10 +231,71 @@ describe('Missions management', () => {
 
     renderPage();
 
+    expect(await screen.findByTestId('mission-status-authority')).toHaveTextContent(
+      'حالات Mission المعروضة محفوظة في السجل',
+    );
     const notice = await screen.findByTestId(`goal-acceptance-notice-${goalId}`);
     expect(notice).toHaveTextContent('اكتمل التنفيذ');
     expect(notice).toHaveTextContent('الإثبات غير مكتمل');
     expect(notice).toHaveTextContent('نجاح التنفيذ وحده لا يثبت النتيجة');
+    expect(notice).toHaveTextContent('ليست فحصاً حديثاً');
+  });
+
+  it('labels a stored PROVEN Goal acceptance as historical rather than freshly verified', async () => {
+    const activeMission = { ...mission, status: 'active' as const };
+    const goalId = 'goal-stored-proven';
+    fetchMissionsMock.mockResolvedValue([activeMission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: activeMission,
+      agentControl: null,
+      currentPlan: { revision: 'revision-1', binding: 'active_revision', goalIds: [goalId] },
+      goals: [{
+        goal: {
+          id: goalId,
+          missionId: activeMission.id,
+          projectId: project.id,
+          parentGoalId: null,
+          title: 'Inspect the project',
+          description: 'Read-only evidence task.',
+          status: 'completed',
+          priority: 'p1',
+          successCriteria: {},
+          evidenceContract: {},
+          outcomeContract: {
+            acceptance: {
+              outcome: 'SUCCEEDED',
+              verdict: 'PROVEN',
+            },
+          },
+          statusProjection: {
+            authority: 'STORED_STATUS_ONLY',
+            proofFreshness: 'NOT_REVALIDATED',
+          },
+          nextAction: null,
+          blockedReason: null,
+          nextWakeAt: null,
+          createdAt: '2026-09-22T00:00:00.000Z',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: '2026-09-22T00:01:00.000Z',
+        },
+        currentAttempt: null,
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+
+    renderPage();
+
+    const notice = await screen.findByTestId(`goal-acceptance-notice-${goalId}`);
+    expect(notice).toHaveTextContent('الإثبات المسجل: PROVEN (غير معاد التحقق)');
+    expect(notice).toHaveTextContent('لم يُعَد فحص Canonical Proof الحالي');
+    expect(screen.getByTestId(`goal-status-freshness-${goalId}`)).toHaveTextContent(
+      'لا يعيد التحقق من Canonical Proof الحالي',
+    );
+    expect(notice).not.toHaveTextContent('تم إثبات النتيجة');
   });
 
   it('shows accepted finding provenance with links to its Chat message and Mission execution', async () => {

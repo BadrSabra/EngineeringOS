@@ -142,6 +142,12 @@ function MissionProjectionDetails({
                   </span>
                 )}
               </div>
+              <p
+                className="text-[10px] text-muted-foreground"
+                data-testid={`chat-mission-status-authority-${projection.mission.id}`}
+              >
+                Mission and Goal statuses are stored status only; current Canonical Proof is not reloaded in this view.
+              </p>
 
               {projection.currentPlan.binding === 'revision_mismatch' ? (
                 <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200" role="alert">

@@ -21,6 +21,11 @@ export type GoalStatus =
   | 'failed'
   | 'cancelled';
 
+export interface StoredStatusProjection {
+  authority: 'STORED_STATUS_ONLY';
+  proofFreshness: 'NOT_REVALIDATED';
+}
+
 export interface Mission {
   id: string;
   projectId: string;
@@ -35,6 +40,7 @@ export interface Mission {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  statusProjection?: StoredStatusProjection;
 }
 
 export interface Goal {
@@ -56,6 +62,7 @@ export interface Goal {
   updatedAt: string;
   completedAt: string | null;
   dependencies?: GoalDependency[];
+  statusProjection?: StoredStatusProjection;
 }
 
 export interface GoalDependency {
