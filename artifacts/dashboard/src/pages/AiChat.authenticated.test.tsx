@@ -742,6 +742,7 @@ describe('workspace goal draft handoff', () => {
       expect(screen.getByTestId('select-chat-project')).toHaveValue('project-2');
       expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
       expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+      expect(screen.getByTestId('link-switch-to-general')).toHaveAttribute('href', '/general-chat');
       expect(mocks.sentParams).toBeUndefined();
       expect(mocks.taskSentParams).toBeUndefined();
     } finally {

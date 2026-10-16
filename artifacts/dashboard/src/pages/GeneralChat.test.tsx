@@ -43,6 +43,14 @@ beforeEach(() => {
 });
 
 describe('Arabic conversation feedback boundaries', () => {
+  it('offers a safe project-selection route from general chat', () => {
+    renderPage();
+    const switchLink = screen.getByTestId('link-switch-to-project');
+
+    expect(switchLink).toHaveAttribute('href', '/');
+    expect(switchLink).toHaveAttribute('title', 'العودة لاختيار مشروع قبل بدء العمل داخله');
+  });
+
   it('distinguishes a failed session read from an empty list and retries only the read', () => {
     mocks.sessions.data = [];
     mocks.sessions.isError = true;

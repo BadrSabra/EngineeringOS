@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useUser } from '@clerk/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
+import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
 import {
   Activity,
   AlertTriangle,
@@ -243,16 +244,19 @@ export default function GeneralChat() {
             <p dir="rtl" lang="ar" className="mt-0.5 text-xs text-muted-foreground">محادثات محفوظة للأسئلة العامة، منفصلة عن العمل داخل مشاريعك.</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleCreate}
+        <div className="flex items-center gap-2">
+          <AssistantScopeSwitch currentScope="general" hasUnsentMessage={Boolean(draft.trim())} />
+          <button
+            type="button"
+            onClick={handleCreate}
             disabled={createSession.isPending || Boolean(incomingGoalDraft) || Boolean(goalDraftAttached)}
-          data-testid="button-create-general-chat"
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
-        >
-          {createSession.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CirclePlus className="h-4 w-4" />}
-          محادثة جديدة
-        </button>
+            data-testid="button-create-general-chat"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+          >
+            {createSession.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CirclePlus className="h-4 w-4" />}
+            محادثة جديدة
+          </button>
+        </div>
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)]">

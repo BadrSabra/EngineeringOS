@@ -5,6 +5,7 @@ import { useUser } from '@clerk/react';
 import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, Zap } from 'lucide-react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
+import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13580,6 +13581,7 @@ export default function AiChat() {
               <span data-testid="text-chat-current-session">{sessionName}</span>
             </div>
           </div>
+          <AssistantScopeSwitch currentScope="project" hasUnsentMessage={Boolean(input.trim())} compact />
           <Badge variant="outline" className="hidden max-w-[35%] truncate text-[10px] font-mono sm:inline-flex">
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
