@@ -9,7 +9,7 @@ import {
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
-import type { OperatorAlert } from '@workspace/api-zod';
+import type { OperatorAlert } from '@workspace/api-client-react';
 import {
   Activity,
   AlertTriangle,

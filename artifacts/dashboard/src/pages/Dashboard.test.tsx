@@ -402,7 +402,7 @@ describe("Dashboard operator alerts", () => {
     const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
     expect(within(alerts).getByText("انقطاع مؤقت")).toBeInTheDocument();
     expect(within(alerts).getByText(/لم نعتبر النماذج المضبوطة متوقفة/)).toBeInTheDocument();
-    expect(within(alerts).getByText(/النطاق: قائمة نماذج Groq/)).toBeInTheDocument();
+    expect(alerts).toHaveTextContent(/النطاق: قائمة نماذج Groq/);
     expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
   });
 
