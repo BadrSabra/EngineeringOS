@@ -15765,10 +15765,18 @@ export async function chat(opts: {
   }
   const projectQueryAnswerRejected =
     objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
-    && !projectQueryAnswerHasBehavioralFlow(
-      objective,
-      responseBeforeBehaviorEvidence,
-      projectQueryFlowRefs,
+    && (
+      !projectQueryCandidateClaimsAreAsserted(objective, {
+        text: responseBeforeBehaviorEvidence,
+        ...(projectQueryAssertedClaimIds
+          ? { claimRefs: projectQueryAssertedClaimIds }
+          : {}),
+      })
+      || !projectQueryAnswerHasBehavioralFlow(
+        objective,
+        responseBeforeBehaviorEvidence,
+        projectQueryFlowRefs,
+      )
     );
   const objectiveBlocksVerdict =
     (objective !== undefined && objectiveGate !== null ? objectiveGate.blocked : false)
@@ -15776,7 +15784,7 @@ export async function chat(opts: {
   const objectiveRejectionReason =
     objectiveBlocksVerdict && objective !== undefined
       ? projectQueryAnswerRejected
-        ? `objective:${objective.objectiveType}:ANSWER_INCOMPLETE:behavioral explanation required`
+        ? `objective:${objective.objectiveType}:ANSWER_INCOMPLETE:answer contract not met`
         : objectiveGate
           ? `objective:${objective.objectiveType}:${objectiveGate.status}:${(
               objectiveGate.missingEdges[0] ?? objectiveGate.missingClaims[0] ?? "INCOMPLETE"
@@ -16604,7 +16612,12 @@ export async function chat(opts: {
       || !projectQueryResponseSource
       || terminalResponse !== projectQueryEvidenceResponseOverride
       || materializedProjectQueryEvidence.length !== objective.requiredClaims.length
-      || !projectQueryCandidateClaimsAreAsserted(objective, { text: terminalResponse })
+      || !projectQueryCandidateClaimsAreAsserted(objective, {
+        text: terminalResponse,
+        ...(projectQueryAssertedClaimIds
+          ? { claimRefs: projectQueryAssertedClaimIds }
+          : {}),
+      })
       || !projectQueryAnswerHasBehavioralFlow(
         objective,
         terminalResponse,

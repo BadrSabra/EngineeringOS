@@ -32,3 +32,9 @@ Recipe validation receipts may satisfy only `registered-validation.v1`. The prof
 **Why:** A generic task artifact can copy a valid profile name without the registered validator ever running, or can be reused for an unrelated validator.
 
 **How to apply:** Preserve capability provenance when adding recipe evidence adapters. If the validator node and its evidence bindings do not match, leave the receipt incomplete.
+
+Mission-observation per-file claims are read obligations, not factual answer claims. Do not treat copied read-claim wording or complete claim references as answer relevance; require provider synthesis to include stable goal-specific anchors outside those obligations, and fail closed when no such anchors exist. Deterministic fallback cannot prove a Mission observation answer.
+
+**Why:** A generic fallback can repeat the full Mission goal embedded in each read obligation and appear complete without answering it, while a correct provider answer can be rejected for not repeating those instructions.
+
+**How to apply:** Keep source-read coverage separate from response acceptance. Bind the accepted response to its retained evidence and execution, check goal anchors only in the answer body, and require the server acceptance layer to reject deterministic fallback for `mission_observe`. The anchor check is a lexical relevance guard, not a general entailment proof.

@@ -1,5 +1,6 @@
 export type ProjectQueryAnswerObjective = {
   objectiveType: string;
+  goal?: string;
   requiredClaims: readonly {
     claimId: string;
     text: string;
@@ -14,6 +15,50 @@ export type ProjectQueryAnswerCandidate = {
 
 function normalizedText(value: string): string {
   return value.replace(/\s+/gu, " ").trim().toLocaleLowerCase();
+}
+
+function missionObservationGoalAnchors(goal: string): string[] {
+  const fileTokens = new Set<string>();
+  const sourceFiles =
+    goal.match(/\b(?:[\w.-]+\/)*[\w.-]+\.(?:md|json|mjs|cjs|ts|tsx|js|jsx|yaml|yml|toml)\b/giu) ?? [];
+  for (const sourceFile of sourceFiles) {
+    const basename = sourceFile.split("/").at(-1) ?? sourceFile;
+    fileTokens.add(sourceFile.toLocaleLowerCase());
+    fileTokens.add(basename.toLocaleLowerCase());
+    fileTokens.add(basename.replace(/\.[^.]+$/u, "").toLocaleLowerCase());
+  }
+
+  const candidates = [
+    ...(goal.match(/\b[A-Z][A-Z0-9_]{2,}\b/gu) ?? []),
+    ...(goal.match(/\b[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\b/gu) ?? []),
+    ...(goal.match(/\b(?:null|undefined|true|false)\b/giu) ?? []),
+  ];
+  return [...new Set(candidates.map((anchor) => anchor.toLocaleLowerCase()))]
+    .filter((anchor) => !fileTokens.has(anchor));
+}
+
+function missionObservationGoalAnchorsArePresent(
+  objective: ProjectQueryAnswerObjective,
+  response: string,
+): boolean {
+  const anchors = objective.goal
+    ? missionObservationGoalAnchors(objective.goal)
+    : [];
+  // This is a bounded lexical relevance check, not entailment. If the mission
+  // goal has no stable technical/value anchors, read obligations alone cannot
+  // establish a PROVEN answer.
+  if (anchors.length === 0) return false;
+
+  // Mission observation claims are read obligations, not statements of fact.
+  // Remove their copied wording before checking relevance: the deterministic
+  // fallback embeds the full goal in those obligations, which must not count as
+  // an answer to that goal.
+  let answerBody = normalizedText(response);
+  for (const claim of objective.requiredClaims) {
+    const claimText = normalizedText(claim.text);
+    if (claimText) answerBody = answerBody.split(claimText).join(" ");
+  }
+  return anchors.every((anchor) => answerBody.includes(anchor));
 }
 
 function claimTextIsAffirmed(response: string, claimText: string): boolean {
@@ -74,6 +119,12 @@ export function projectQueryCandidateClaimsAreAsserted(
   objective: ProjectQueryAnswerObjective | undefined,
   candidate: ProjectQueryAnswerCandidate,
 ): boolean {
+  if (objective?.objectiveType === "PROJECT_QUERY_MISSION_OBSERVE") {
+    return objective.requiredClaims.length > 0
+      && projectQueryClaimRefsAreComplete(objective, candidate.claimRefs)
+      && missionObservationGoalAnchorsArePresent(objective, candidate.text);
+  }
+
   if (
     !objective
     || !objective.requiredClaims.every((claim) =>

@@ -420,6 +420,27 @@ function safeText(value: unknown, max = RECEIPT_MAX_TEXT): string {
     .slice(0, max);
 }
 
+function safeMachineIdentity(value: string, max: number): string {
+  if (
+    value.length > max
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value)
+  ) {
+    throw new Error("Task receipt contains an invalid machine identity.");
+  }
+  return value;
+}
+
+function safeRevisionIdentity(value: string | null, max: number): string | null {
+  if (value === null) return null;
+  if (
+    value.length > max
+    || !/^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/u.test(value)
+  ) {
+    throw new Error("Task receipt contains an invalid revision identity.");
+  }
+  return value;
+}
+
 function truncateUtf8Text(value: string, maxBytes: number): string {
   let bytes = 0;
   let end = 0;
@@ -435,9 +456,9 @@ function truncateUtf8Text(value: string, maxBytes: number): string {
 function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
   const bounded = {
     ...receiptValue,
-    operationId: safeText(receiptValue.operationId, 160),
-    correlationId: safeText(receiptValue.correlationId, 160),
-    revision: receiptValue.revision ? safeText(receiptValue.revision, 240) : null,
+    operationId: safeMachineIdentity(receiptValue.operationId, 160),
+    correlationId: safeMachineIdentity(receiptValue.correlationId, 160),
+    revision: safeRevisionIdentity(receiptValue.revision, 240),
     model: safeText(receiptValue.model, 240),
     stages: receiptValue.stages.slice(0, RECEIPT_MAX_STAGES).map((stage) => safeText(stage, 80)),
     evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
@@ -448,7 +469,12 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
       answerProof: {
         ...receiptValue.answerProof,
         ...(receiptValue.answerProof.synthesisAttemptId
-          ? { synthesisAttemptId: safeText(receiptValue.answerProof.synthesisAttemptId, 160) }
+          ? {
+              synthesisAttemptId: safeMachineIdentity(
+                receiptValue.answerProof.synthesisAttemptId,
+                160,
+              ),
+            }
           : {}),
         ...(receiptValue.answerProof.synthesisProvider
           ? { synthesisProvider: safeText(receiptValue.answerProof.synthesisProvider, 80) }
@@ -2178,7 +2204,7 @@ function missionObservationGraphIsProven(params: {
   );
 }
 
-function missionObservationAnswerAttestationIsValid(params: {
+export function missionObservationAnswerAttestationIsValid(params: {
   output: MissionChatOutput;
   objective: ReturnType<typeof missionObjectiveContract>;
 }): boolean {
@@ -2191,6 +2217,10 @@ function missionObservationAnswerAttestationIsValid(params: {
     !attestation
     || !params.output.response
     || !params.output.projectQueryResponseSource
+    || (
+      params.objective.objectiveType === "PROJECT_QUERY_MISSION_OBSERVE"
+      && params.output.projectQueryResponseSource !== "provider_synthesis"
+    )
     || attestation.responseSource !== params.output.projectQueryResponseSource
     || attestation.responseHash !== createHash("sha256")
       .update(params.output.response, "utf8")

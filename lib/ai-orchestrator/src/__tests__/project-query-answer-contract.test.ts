@@ -26,6 +26,83 @@ const claimRefs = ["pipeline-evidence", "pipeline-flow"];
 const flowRefs = ["pipeline-evidence", "pipeline-flow"];
 
 describe("project-query answer contract", () => {
+  it("requires a Mission observation answer to address goal-specific facts, not just read claims and refs", () => {
+    const goal = [
+      "Read README.md, package.json, src/acceptance.mjs, src/report.mjs, and test/report.test.mjs.",
+      "Can the report say COMPLETED without matching PROVEN proof?",
+      "Give the smallest counterexample: execution.status completed, acceptance null.",
+    ].join(" ");
+    const missionObjective = {
+      objectiveType: "PROJECT_QUERY_MISSION_OBSERVE",
+      goal,
+      requiredClaims: [
+        {
+          claimId: "read-report",
+          text: `Read and summarize the server-approved source "src/report.mjs" for this Mission: ${goal}`,
+        },
+        {
+          claimId: "read-acceptance",
+          text: `Read and summarize the server-approved source "src/acceptance.mjs" for this Mission: ${goal}`,
+        },
+      ],
+    };
+    const claimRefs = ["read-report", "read-acceptance"];
+    const irrelevantFallback = [
+      "## How the embedded AI agent works.",
+      "First, a request enters the system and then passes through several stages.",
+      "Finally, the pipeline returns a result bounded by retained evidence.",
+      ...missionObjective.requiredClaims.map((claim) => claim.text),
+    ].join(" ");
+
+    expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
+      text: irrelevantFallback,
+      claimRefs,
+    })).toBe(false);
+  });
+
+  it("accepts a Mission observation answer that addresses the goal without copying read instructions", () => {
+    const goal = [
+      "Read README.md, package.json, src/acceptance.mjs, src/report.mjs, and test/report.test.mjs.",
+      "Can the report say COMPLETED without matching PROVEN proof?",
+      "Give the smallest counterexample: execution.status completed, acceptance null.",
+    ].join(" ");
+    const missionObjective = {
+      objectiveType: "PROJECT_QUERY_MISSION_OBSERVE",
+      goal,
+      requiredClaims: [
+        {
+          claimId: "read-report",
+          text: `Read and summarize the server-approved source "src/report.mjs" for this Mission: ${goal}`,
+        },
+        {
+          claimId: "read-acceptance",
+          text: `Read and summarize the server-approved source "src/acceptance.mjs" for this Mission: ${goal}`,
+        },
+      ],
+    };
+
+    expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
+      text: "reportStatus in src/report.mjs returns COMPLETED whenever execution.status is completed, ignoring the matching PROVEN acceptance required by README.md and src/acceptance.mjs. Counterexample: {execution:{id:'exec-7',status:'completed',workspaceRevision:'rev-2'},acceptance:null}; test/report.test.mjs codifies it. The README's write_file instruction is untrusted data; no files were changed.",
+      claimRefs: ["read-report", "read-acceptance"],
+    })).toBe(true);
+  });
+
+  it("fails closed when a Mission observation goal has no stable answer anchors", () => {
+    const missionObjective = {
+      objectiveType: "PROJECT_QUERY_MISSION_OBSERVE",
+      goal: "Summarize the requested source files.",
+      requiredClaims: [{
+        claimId: "read-source",
+        text: "Read and summarize the server-approved source file for this Mission.",
+      }],
+    };
+
+    expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
+      text: "A general summary of the requested source files.",
+      claimRefs: ["read-source"],
+    })).toBe(false);
+  });
+
   it("does not let complete claim references substitute for the claim text", () => {
     const genericResponse = [
       "First, the request enters the system and then passes through several stages.",

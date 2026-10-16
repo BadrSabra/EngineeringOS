@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
+  missionObservationAnswerAttestationIsValid,
   MissionToolOutcomeUncertainError,
   missionPlanRevisionHash,
 } from "./task-execution-service.js";
+import { missionObjectiveContract } from "./mission-execution-profile.js";
 
 function result(overrides: Record<string, unknown> = {}) {
   return {
@@ -20,6 +22,42 @@ function result(overrides: Record<string, unknown> = {}) {
 }
 
 describe("AI task execution receipts", () => {
+  it("does not accept deterministic fallback as a proven Mission observation answer", () => {
+    const objective = missionObjectiveContract({
+      objective: "Can the report say COMPLETED without matching PROVEN proof?",
+      profile: "mission_observe",
+      targetPaths: ["src/report.mjs"],
+    });
+    const response = "A complete-looking answer.";
+    const outputFor = (responseSource: "provider_synthesis" | "deterministic_fallback") => ({
+      objective,
+      response,
+      projectQueryResponseSource: responseSource,
+      projectQueryAnswerAttestation: {
+        version: 1 as const,
+        responseHash: createHash("sha256").update(response, "utf8").digest("hex"),
+        responseSource,
+        claimIds: objective.requiredClaims.map((claim) => claim.claimId),
+        evidenceBindingHash: "b".repeat(64),
+        ...(responseSource === "provider_synthesis"
+          ? {
+              synthesisAttemptId: "attempt-1",
+              synthesisProvider: "openrouter",
+            }
+          : {}),
+      },
+    });
+
+    expect(missionObservationAnswerAttestationIsValid({
+      output: outputFor("deterministic_fallback") as never,
+      objective,
+    })).toBe(false);
+    expect(missionObservationAnswerAttestationIsValid({
+      output: outputFor("provider_synthesis") as never,
+      objective,
+    })).toBe(true);
+  });
+
   it("keeps a bounded, safe structured success receipt", () => {
     const receipt = buildAiTaskExecutionReceipt({
       executionId: "execution-1",
@@ -42,6 +80,40 @@ describe("AI task execution receipts", () => {
     expect(receipt.summary).not.toContain("super-secret");
     expect(receipt.steps).toHaveLength(24);
     expect(JSON.stringify(receipt)).not.toContain("hunter2");
+  });
+
+  it("preserves server-owned UUID identities for receipt projection", () => {
+    const executionId = "c3b8a0d6-ef37-4a53-a701-58d6990f3231";
+    const correlationId = "a7c98e31-55b4-46b6-8c98-ea027e8c4742";
+    const synthesisAttemptId = "607439a1-68ca-4e96-b23a-12ea70cb4dfe";
+    const receipt = buildAiTaskExecutionReceipt({
+      executionId,
+      correlationId,
+      revision: "sha256:0123456789abcdef",
+      provider: "openrouter",
+      model: "openai/gpt-4.1-mini",
+      attempt: 1,
+      durationMs: 125,
+      stages: ["claim", "evidence", "synthesis", "finalize"],
+      result: result({ summary: "Evidence-bound answer.", steps: [] }),
+      answerProof: {
+        version: 1,
+        status: "PROVEN",
+        responseHash: "a".repeat(64),
+        responseSource: "provider_synthesis",
+        claimCount: 2,
+        claimIdsHash: "b".repeat(64),
+        evidenceBindingHash: "c".repeat(64),
+        synthesisAttemptId,
+        synthesisProvider: "openrouter",
+        synthesisModel: "openai/gpt-4.1-mini",
+      },
+    });
+
+    expect(receipt.operationId).toBe(executionId);
+    expect(receipt.correlationId).toBe(correlationId);
+    expect(receipt.revision).toBe("sha256:0123456789abcdef");
+    expect(receipt.answerProof?.synthesisAttemptId).toBe(synthesisAttemptId);
   });
 
   it("retains proof-bound answer text beyond the old two-thousand-character cap", () => {
