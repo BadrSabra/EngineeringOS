@@ -126,7 +126,7 @@ describe('Workflows recovery rendering', () => {
     expect(within(card).getByText(/مرجع الدعم:/)).toHaveTextContent('workflow-support-42');
     expect(screen.getByText('فشل التشغيل · لم يُسجل اكتماله بنجاح')).toBeInTheDocument();
     const completedPhase = screen.getAllByText('build').find(
-      (node) => node.tagName === 'BDI' && node.parentElement?.textContent === 'مراحل مكتملة: build',
+      (node) => node.tagName === 'BDI' && node.parentElement?.textContent === 'مراحل مسجلة كمكتملة: build',
     );
     expect(completedPhase).toBeDefined();
     expect(completedPhase).toHaveAttribute('dir', 'ltr');
@@ -140,6 +140,28 @@ describe('Workflows recovery rendering', () => {
     expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+  });
+
+  it('labels completed workflow runs as recorded status rather than proof', () => {
+    vi.mocked(useListWorkflowExecutions).mockReturnValue({
+      data: [{
+        id: 'completed-execution',
+        workflowId: 'workflow-1',
+        status: 'completed',
+        currentPhase: null,
+        startedAt: '2026-08-25T10:00:00.000Z',
+        completedPhases: ['build', 'test'],
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListWorkflowExecutions>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /سجل التشغيل/i }));
+
+    expect(screen.getByText('انتهى التشغيل بحسب السجل')).toBeInTheDocument();
   });
 
   it('shows AI decisions as recommendations without advancing the workflow', () => {

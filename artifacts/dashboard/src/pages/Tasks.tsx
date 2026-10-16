@@ -1649,7 +1649,7 @@ export default function Tasks() {
                         : 'text-muted-foreground'
                       }`}
                     >
-                      {task.status}
+                      {taskStatusLabel(task.status)}
                     </span>
                     <span>•</span>
                     <span>{new Date(task.createdAt).toLocaleString()}</span>

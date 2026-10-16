@@ -773,6 +773,7 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText(/context ready/)).toHaveAttribute('dir', 'auto');
     expect(screen.getByText(/task complete/)).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('الحالة')).toBeInTheDocument();
+    expect(screen.getByText('انتهت بحسب السجل', { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByText('انتهت بحسب السجل', { selector: 'div' })).toBeInTheDocument();
     expect(screen.getByText('نتيجة التنفيذ')).toBeInTheDocument();
   });

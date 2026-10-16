@@ -163,3 +163,15 @@ Mission and Goal APIs stamp `STORED_STATUS_ONLY` / `NOT_REVALIDATED` on stored l
 The separate execution capsule derives completion from terminal execution status plus passed verification and a `PROVEN` evidence verdict; `mission-state.test.ts` includes retained-phase cases and an unavailable-verification case. Dashboard `Missions.test.tsx` and `mission-state.test.ts` passed 28/28 together. The API route test contains assertions for the status-projection stamp across Goal/Mission detail, lists, and the combined projection, but that database-backed route test was not run in this slice.
 
 Conclusion: no unqualified Mission/Goal completion claim was found on the inspected UI paths. No code change was needed. E3 and E3.2 remain open; this does not certify other status surfaces or complete the broader audit.
+
+### 2026-10-17 — Workflow completion and phase-status projection
+
+The workflow advance route marks a run `completed` when the current phase is the last one, after its advance condition passes. The route refuses to advance phases with declared steps because no runner can execute them with accepted evidence; empty phases are no-op boundaries. Therefore, workflow and phase completion states are process-record statuses, not proof that project changes were accepted or that Canonical Proof was revalidated.
+
+The Dashboard now says these statuses are recorded state, changes the completed-run label to “انتهى التشغيل بحسب السجل”, and labels completed phases as recorded completions. The initial focused UI run passed 9/10 tests; the single failure was an existing assertion still expecting “مراحل مكتملة” after the intentional copy change. This was a presentation-text mismatch only: it did not exercise or establish a workflow transition, accepted execution, or proof behavior. After recording the boundary and updating the expectation, the combined Workflows, Tasks, and result-details suite passed 46/46; Dashboard TypeScript and `git diff --check` passed. Dashboard restarted and Vite became ready. The preview showed the public landing page, so authenticated Workflows and Tasks screens were not visually verified.
+
+E3 and E3.2 remain open. This correction does not certify other Task/Workflow projections, and no managed API workflow or shared database was used.
+
+### 2026-10-17 — Task list terminal-status wording, recorded before repair
+
+Added a focused assertion for a legacy Task with `status=completed` and no acceptance record. It failed because the list row rendered the raw English status `completed`, while the expanded detail already labels the same state “انتهت بحسب السجل”. The failure is limited to the Task list's wording and does not establish an acceptance, Canonical Proof, or backend lifecycle defect; no mutation or authorization path was exercised. The row now uses the existing record-status label helper, and the regression assertion passes in the combined 46/46 Dashboard test run.
