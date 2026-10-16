@@ -8123,6 +8123,27 @@ export const ListAiMissionsResponse = zod.unknown()
 /**
  * @summary Create an AI mission
  */
+export const createAiMissionBodyProjectIdMax = 200;
+
+export const createAiMissionBodyTitleMax = 200;
+
+export const createAiMissionBodyIntentMax = 500;
+
+export const createAiMissionBodyExpectedPlanHashMax = 200;
+
+
+
+export const CreateAiMissionBody = zod.object({
+  "projectId": zod.string().min(1).max(createAiMissionBodyProjectIdMax),
+  "title": zod.string().min(1).max(createAiMissionBodyTitleMax),
+  "intent": zod.string().min(1).max(createAiMissionBodyIntentMax),
+  "status": zod.enum(['draft', 'active']).optional(),
+  "autonomyPolicy": zod.record(zod.string(), zod.unknown()).optional(),
+  "budget": zod.record(zod.string(), zod.unknown()).optional(),
+  "deadline": zod.coerce.date().nullish(),
+  "expectedPlanHash": zod.string().min(1).max(createAiMissionBodyExpectedPlanHashMax).optional().describe('Exact plan-preview hash confirmed by the user before creating an active Mission.')
+})
+
 export const CreateAiMissionResponse = zod.void()
 
 

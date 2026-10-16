@@ -331,7 +331,12 @@ export function materializeObjectiveClaimEvidence(input: {
         const evidenceNeedles = claim.evidenceNeedlesByPath
           ? Object.entries(claim.evidenceNeedlesByPath)
               .find(([path]) => normalizePath(path) === entry.path)?.[1] ?? []
-          : claim.evidenceNeedles ?? [claimNeedle];
+          : claim.evidenceNeedles
+            ?? (input.objective.objectiveType === "PROJECT_QUERY_MISSION_OBSERVE"
+              ? [entry.lines.find((line) =>
+                  line.trim().length >= 3 && /[\p{L}\p{N}]/u.test(line),
+                )?.trim().slice(0, 240) ?? ""]
+              : [claimNeedle]);
         return evidenceNeedles.map((needle) => ({
           entry,
           needle: needle.trim(),
@@ -473,10 +478,18 @@ export function closeObjectiveClaimsFromEvidence(input: {
         );
     if (responseAssertsClaim && (explicitAssertions !== undefined || responseNeedle.length >= 3)) {
       for (const [file, body] of bodies) {
-        const sourceNeedles = claimSpec?.evidenceNeedlesByPath
-          ? Object.entries(claimSpec.evidenceNeedlesByPath)
-              .find(([candidatePath]) => normalize(candidatePath) === file)?.[1] ?? []
-          : claimSpec?.evidenceNeedles ?? [claim.text];
+        const sourceNeedles = objective.objectiveType === "PROJECT_QUERY_MISSION_OBSERVE"
+          ? evidence
+              .filter((item) =>
+                sourceOfEvidence(item) === file
+                && typeof item.excerpt === "string"
+                && item.excerpt.trim().length >= 3,
+              )
+              .map((item) => item.excerpt!)
+          : claimSpec?.evidenceNeedlesByPath
+            ? Object.entries(claimSpec.evidenceNeedlesByPath)
+                .find(([candidatePath]) => normalize(candidatePath) === file)?.[1] ?? []
+            : claimSpec?.evidenceNeedles ?? [claim.text];
         const normalizedSourceNeedles = sourceNeedles
           .map((needle: string) => normalize(needle))
           .filter(Boolean);

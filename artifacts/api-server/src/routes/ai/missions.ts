@@ -155,6 +155,7 @@ const CreateMissionBody = z.object({
   autonomyPolicy: JsonObjectSchema.optional(),
   budget: JsonObjectSchema.optional(),
   deadline: z.string().datetime().nullable().optional(),
+  expectedPlanHash: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 const MissionPlanPreviewBody = z.object({
@@ -959,6 +960,7 @@ export async function createMissionPlanGoal(
       executionProfile: executionProfileForMissionStep(
         step.kind,
         Boolean(step.recipe),
+        step.files.length > 0,
       ),
     },
     nextAction: step.id === "apply-changes"
@@ -1933,6 +1935,19 @@ router.post("/ai/missions", async (req, res) => {
   }
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  const activationPreview = buildMissionPlanPreview({
+    message: body.intent,
+    objective: body.intent,
+  });
+  if (
+    body.expectedPlanHash
+    && body.expectedPlanHash !== activationPreview.plan.planHash
+  ) {
+    return res.status(409).json({
+      error: "The Mission plan changed after preview. Review the plan again before starting.",
+      code: "MISSION_PLAN_PREVIEW_STALE",
+    });
+  }
   const now = new Date();
   const missionId = randomUUID();
   const correlationId = randomUUID();
@@ -1966,7 +1981,7 @@ router.post("/ai/missions", async (req, res) => {
         tx,
         created[0],
         now,
-        buildMissionPlanPreview({ message: created[0].intent, objective: created[0].intent }),
+        activationPreview,
       );
     }
     return { mission: created[0], activationPlan };

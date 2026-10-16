@@ -681,6 +681,34 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it("rejects Mission creation when its reviewed plan hash is stale", async () => {
+    const projectId = await insertProject();
+    const intent = "Inspect README.md and package.json, then summarize the verified project purpose.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, message: intent, objective: intent });
+    expect(preview.status).toBe(200);
+    expect(preview.body.plan.planHash).toEqual(expect.any(String));
+
+    const staleCreate = await request(app)
+      .post("/api/ai/missions")
+      .send({
+        projectId,
+        title: "Stale plan must not start",
+        intent: `${intent} Include a second unrelated report.`,
+        status: "active",
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(staleCreate.status).toBe(409);
+    expect(staleCreate.body.code).toBe("MISSION_PLAN_PREVIEW_STALE");
+
+    const missions = await request(app)
+      .get("/api/ai/missions")
+      .query({ projectId });
+    expect(missions.status).toBe(200);
+    expect(missions.body).toEqual([]);
+  });
+
   it("rejects a recovered assistant row that no longer matches the acceptance message", async () => {
     const projectId = await insertProject();
     const source = await insertAcceptedProjectQuery(projectId);

@@ -3597,9 +3597,17 @@ paths:
       summary: Create an AI mission
       tags: [AI]
       x-no-codegen: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionInput"
       responses:
         "201":
           description: Created mission
+        "409":
+          description: The confirmed plan hash is stale.
 
   /api/ai/missions/plan-preview:
     post:
@@ -4572,6 +4580,23 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    AiMissionInput:
+      type: object
+      additionalProperties: false
+      required: [projectId, title, intent]
+      properties:
+        projectId: { type: string, minLength: 1, maxLength: 200 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        intent: { type: string, minLength: 1, maxLength: 500 }
+        status: { type: string, enum: [draft, active] }
+        autonomyPolicy: { type: object, additionalProperties: true }
+        budget: { type: object, additionalProperties: true }
+        deadline: { type: [string, "null"], format: date-time }
+        expectedPlanHash:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Exact plan-preview hash confirmed by the user before creating an active Mission.
     MissionPlanPreviewInput:
       type: object
       additionalProperties: false

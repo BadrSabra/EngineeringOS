@@ -41,6 +41,7 @@ import type {
   AiFileContent,
   AiMissionControl,
   AiMissionControlProjection,
+  AiMissionInput,
   AiOrchestrateRequest,
   AiOrchestrationDecision,
   AiPendingProposal,
@@ -10023,14 +10024,20 @@ export const getCreateAiMissionUrl = () => {
 /**
  * @summary Create an AI mission
  */
-export const createAiMission = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const createAiMission = async (aiMissionInput: AiMissionInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getCreateAiMissionUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getCreateAiMissionUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionInput)
   }
 );}
 
@@ -10040,9 +10047,9 @@ export const createAiMission = async ( options?: Parameters<typeof customFetch>[
 
 export const getCreateAiMissionMutationKey = () => ['createAiMission'] as const;
 
-export const getCreateAiMissionMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext> => {
+export const getCreateAiMissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,CreateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,CreateAiMissionMutationVariables, TContext> => {
 
 const mutationKey = getCreateAiMissionMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -10054,10 +10061,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiMission>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiMission>>, CreateAiMissionMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  createAiMission(requestOptions)
+          return  createAiMission(data,requestOptions)
         }
 
 
@@ -10068,19 +10075,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CreateAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof createAiMission>>>
-
-    export type CreateAiMissionMutationError = ErrorType<unknown>
-
+    export type CreateAiMissionMutationBody = BodyType<AiMissionInput>
+    export type CreateAiMissionMutationError = ErrorType<void>
+    export type CreateAiMissionMutationVariables = {data: BodyType<AiMissionInput>}
 
     /**
  * @summary Create an AI mission
  */
-export const useCreateAiMission = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useCreateAiMission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,CreateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createAiMission>>,
         TError,
-        void,
+        CreateAiMissionMutationVariables,
         TContext
       > => {
       return useMutation(getCreateAiMissionMutationOptions(options));

@@ -5489,7 +5489,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     browserErrors.assertClean();
   });
 
-  test("executes a real Mission Goal and reloads its durable non-proof result", async ({
+  test("goal-first: executes a real Mission Goal and reloads its durable non-proof result", async ({
     page,
   }) => {
     test.setTimeout(180_000);
@@ -5554,6 +5554,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.getByTestId("mission-intent").fill(
         "Reply with a short confirmation that this goal-first run completed.",
       );
+      const planPreviewResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/missions/plan-preview")
+        && response.request().method() === "POST"
+      ));
+      await page.getByTestId("button-preview-mission-plan").click();
+      const planPreviewResponse = await planPreviewResponsePromise;
+      expect(planPreviewResponse.status()).toBe(200);
+      const planPreview = await planPreviewResponse.json() as {
+        plan?: { planHash?: string; steps?: Array<{ readOnly?: boolean }> };
+      };
+      expect(planPreview.plan?.planHash).toBeTruthy();
+      await expect(page.getByTestId("mission-plan-preview")).toBeVisible();
       const missionResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname.endsWith("/api/ai/missions")
         && response.request().method() === "POST"
@@ -5566,6 +5578,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         status: string;
       };
       expect(mission.status).toBe("active");
+      expect(missionResponse.request().postDataJSON()).toMatchObject({
+        expectedPlanHash: planPreview.plan?.planHash,
+      });
 
       const readProjection = async () => page.evaluate(async (missionId) => {
         const response = await fetch(
@@ -5663,6 +5678,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(
         page.getByTestId(`card-goal-${durableGoalId}`),
       ).toBeVisible();
+      await expect(
+        page.getByTestId(`goal-acceptance-notice-${durableGoalId}`),
+      ).toContainText("اكتمل التنفيذ");
+      await expect(
+        page.getByTestId(`goal-acceptance-verdict-${durableGoalId}`),
+      ).toContainText("الإثبات غير مكتمل");
       const reloadedProjection = await readProjection();
       expect(reloadedProjection.status).toBe(200);
       const reloadedGoal = (
@@ -5699,6 +5720,203 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       expect(
         reloadedGoal?.goal?.outcomeContract?.acceptance?.verdict,
       ).not.toBe("PROVEN");
+      browserErrors.assertClean();
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("goal-first: reviews a read-only Mission plan and reloads Canonical Proof from real file reads", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const browserErrors = installBrowserErrorMonitor(page);
+    const projectRoot = resolve(
+      process.cwd(),
+      "test-results",
+      "goal-first-e2e",
+      `proof-project-${randomUUID()}`,
+    );
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(
+      resolve(projectRoot, "package.json"),
+      JSON.stringify({
+        name: "goal-first-evidence-fixture",
+        private: true,
+        version: "1.0.0",
+      }, null, 2),
+      "utf8",
+    );
+    await writeFile(
+      resolve(projectRoot, "README.md"),
+      "# Goal-first evidence fixture\n\nThis disposable project demonstrates source-backed, read-only Mission execution.\n",
+      "utf8",
+    );
+
+    try {
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      const projectName = `Goal-first proof ${randomUUID().slice(0, 8)}`;
+      const projectResponse = await page.evaluate(async (input) => {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const body = await response.json().catch(() => null);
+        return { status: response.status, body };
+      }, {
+        name: projectName,
+        rootPath: projectRoot,
+        language: "TypeScript",
+      });
+      expect(
+        projectResponse.status,
+        `Real project registration failed: ${JSON.stringify(projectResponse.body)}`,
+      ).toBe(201);
+      const projectId = (projectResponse.body as { id?: unknown } | null)?.id;
+      expect(typeof projectId).toBe("string");
+
+      await page.goto(`${DASHBOARD_PATH}missions`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        page.getByRole("heading", { name: "الأهداف", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByTestId("select-mission-project")).toHaveValue(
+        projectId as string,
+      );
+
+      await page.getByTestId("button-create-mission").click();
+      await page.getByTestId("mission-title").fill("Goal-first evidence-backed review");
+      await page.getByTestId("mission-intent").fill(
+        "Inspect README.md and package.json and summarize only what the two files verify about this fixture.",
+      );
+      const planPreviewResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/missions/plan-preview")
+        && response.request().method() === "POST"
+      ));
+      await page.getByTestId("button-preview-mission-plan").click();
+      const planPreviewResponse = await planPreviewResponsePromise;
+      expect(planPreviewResponse.status()).toBe(200);
+      const planPreview = await planPreviewResponse.json() as {
+        admission?: string;
+        plan?: {
+          planHash?: string;
+          steps?: Array<{
+            kind?: string;
+            readOnly?: boolean;
+            approvalRequired?: boolean;
+            files?: string[];
+          }>;
+        };
+      };
+      expect(planPreview.admission).toBe("project_query");
+      expect(planPreview.plan?.planHash).toBeTruthy();
+      expect(planPreview.plan?.steps?.map((step) => step.kind)).toEqual([
+        "inspect",
+        "analyze",
+        "deliver",
+      ]);
+      expect(planPreview.plan?.steps?.every((step) => (
+        step.readOnly === true && step.approvalRequired === false
+      ))).toBe(true);
+      expect(planPreview.plan?.steps?.every((step) => (
+        step.files?.includes("README.md") && step.files.includes("package.json")
+      ))).toBe(true);
+      await expect(page.getByTestId("mission-plan-preview")).toContainText("قراءة فقط");
+
+      const missionResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/missions")
+        && response.request().method() === "POST"
+      ));
+      await page.getByTestId("button-save-editor").click();
+      const missionResponse = await missionResponsePromise;
+      expect(missionResponse.status()).toBe(201);
+      expect(missionResponse.request().postDataJSON()).toMatchObject({
+        expectedPlanHash: planPreview.plan?.planHash,
+      });
+      const mission = await missionResponse.json() as {
+        id: string;
+        status: string;
+      };
+      expect(mission.status).toBe("active");
+
+      const readProjection = async () => page.evaluate(async (missionId) => {
+        const response = await fetch(
+          `/api/ai/missions/${encodeURIComponent(missionId)}/projection`,
+        );
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, mission.id);
+
+      await expect.poll(async () => {
+        const projectionResponse = await readProjection();
+        if (projectionResponse.status !== 200 || !projectionResponse.body) return [];
+        const projection = projectionResponse.body as {
+          goals?: Array<{
+            goal?: { status?: string; outcomeContract?: { acceptance?: { verdict?: string } } };
+            currentAttempt?: { status?: string } | null;
+          }>;
+        };
+        return (projection.goals ?? []).map((entry) =>
+          `${entry.goal?.status ?? "missing"}/${entry.currentAttempt?.status ?? "missing"}/${entry.goal?.outcomeContract?.acceptance?.verdict ?? "missing"}`,
+        );
+      }, {
+        timeout: 120_000,
+        intervals: [500, 1_000, 2_000],
+      }).toContain("completed/completed/PROVEN");
+
+      const durableProjection = await readProjection();
+      expect(durableProjection.status).toBe(200);
+      const projection = durableProjection.body as {
+        mission?: { title?: string; status?: string };
+        currentPlan?: { binding?: string };
+        goals?: Array<{
+          goal?: {
+            id?: string;
+            status?: string;
+            outcomeContract?: {
+              acceptance?: {
+                executionId?: string;
+                outcome?: string;
+                verdict?: string;
+                acceptanceId?: string;
+                evidenceSnapshotId?: string;
+              };
+            };
+          };
+          currentAttempt?: { id?: string; status?: string; completedAt?: string | null } | null;
+        }>;
+      };
+      expect(projection.mission?.title).toBe("Goal-first evidence-backed review");
+      expect(projection.currentPlan?.binding).toBe("active_revision");
+      const provenGoals = projection.goals?.filter((entry) =>
+        entry.goal?.status === "completed"
+        && entry.currentAttempt?.status === "completed"
+        && entry.goal?.outcomeContract?.acceptance?.verdict === "PROVEN",
+      ) ?? [];
+      expect(provenGoals.length).toBeGreaterThan(0);
+      for (const entry of provenGoals) {
+        const acceptance = entry.goal?.outcomeContract?.acceptance;
+        expect(acceptance?.executionId).toBe(entry.currentAttempt?.id);
+        expect(acceptance?.outcome).toBe("SUCCEEDED");
+        expect(acceptance?.acceptanceId).toBeTruthy();
+        expect(acceptance?.evidenceSnapshotId).toBeTruthy();
+      }
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId(`text-mission-title-${mission.id}`)).toHaveText(
+        "Goal-first evidence-backed review",
+      );
+      const provenGoalId = provenGoals[0]?.goal?.id;
+      expect(provenGoalId).toBeTruthy();
+      if (!provenGoalId) throw new Error("The durable Canonical Proof has no Goal identifier.");
+      await expect(page.getByTestId(`card-goal-${provenGoalId}`)).toBeVisible();
+      await expect(
+        page.getByTestId(`goal-acceptance-verdict-${provenGoalId}`),
+      ).toContainText("تم إثبات النتيجة");
       browserErrors.assertClean();
     } finally {
       await rm(projectRoot, { recursive: true, force: true });

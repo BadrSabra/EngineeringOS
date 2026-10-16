@@ -6,6 +6,7 @@ import Missions from './Missions';
 
 const {
   createMissionMock,
+  previewMissionPlanMock,
   bindMissionDeliveryMock,
   fetchMissionsMock,
   fetchMissionProjectionMock,
@@ -14,6 +15,7 @@ const {
   replanMissionMutateMock,
 } = vi.hoisted(() => ({
   createMissionMock: vi.fn(),
+  previewMissionPlanMock: vi.fn(),
   bindMissionDeliveryMock: vi.fn(),
   fetchMissionsMock: vi.fn(),
   fetchMissionProjectionMock: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('@/lib/ai-missions', () => ({
   createGoal: vi.fn(),
   bindMissionDelivery: bindMissionDeliveryMock,
   createMission: createMissionMock,
+  previewMissionPlanFromChat: previewMissionPlanMock,
   fetchMissionProjection: fetchMissionProjectionMock,
   fetchMissions: fetchMissionsMock,
   updateGoal: vi.fn(),
@@ -94,6 +97,24 @@ beforeEach(() => {
     counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
   });
   createMissionMock.mockResolvedValue(mission);
+  previewMissionPlanMock.mockImplementation(async ({ message }: { message: string }) => ({
+    version: 1,
+    objective: message,
+    admission: 'project_query',
+    admissionReason: 'evidence_or_project_context',
+    plan: {
+      planHash: 'reviewed-plan-hash',
+      steps: [{
+        id: 'inspect',
+        title: 'Read the requested project files',
+        kind: 'inspect',
+        dependencies: [],
+        files: ['README.md'],
+        readOnly: true,
+        approvalRequired: false,
+      }],
+    },
+  }));
   approveMissionGoalMutateMock.mockReset();
   replanMissionMutateMock.mockReset();
 });
@@ -112,6 +133,8 @@ describe('Missions management', () => {
     fireEvent.click(screen.getByText('إعدادات متقدمة (اختيارية)'));
     fireEvent.change(screen.getByTestId('mission-autonomy-policy'), { target: { value: '{"unfinished":' } });
     expect(screen.getByTestId('mission-autonomy-policy')).toHaveAttribute('dir', 'ltr');
+    fireEvent.click(screen.getByTestId('button-preview-mission-plan'));
+    expect(await screen.findByTestId('mission-plan-preview')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-save-editor'));
     expect(screen.getByText('حقل «سياسة الاستقلالية» يحتوي على JSON غير صالح.')).toBeInTheDocument();
     expect(createMissionMock).not.toHaveBeenCalled();
@@ -133,6 +156,10 @@ describe('Missions management', () => {
     fireEvent.change(screen.getByTestId('mission-intent'), {
       target: { value: 'Coordinate a verified release candidate.' },
     });
+    fireEvent.click(screen.getByTestId('button-preview-mission-plan'));
+    expect(await screen.findByTestId('mission-plan-preview')).toHaveTextContent(
+      'Read the requested project files',
+    );
     fireEvent.click(screen.getByTestId('button-save-editor'));
 
     await waitFor(() => {
@@ -144,12 +171,70 @@ describe('Missions management', () => {
         autonomyPolicy: undefined,
         budget: undefined,
         deadline: null,
+        expectedPlanHash: 'reviewed-plan-hash',
       });
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
     expect(screen.getByRole('status')).toHaveTextContent('بدأ الهدف الرئيسي.');
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows successful execution separately from an incomplete proof verdict', async () => {
+    const activeMission = { ...mission, status: 'active' as const };
+    const goalId = 'goal-incomplete-proof';
+    fetchMissionsMock.mockResolvedValue([activeMission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: activeMission,
+      agentControl: null,
+      currentPlan: { revision: 'revision-1', binding: 'active_revision', goalIds: [goalId] },
+      goals: [{
+        goal: {
+          id: goalId,
+          missionId: activeMission.id,
+          projectId: project.id,
+          parentGoalId: null,
+          title: 'Inspect the project',
+          description: 'Read-only evidence task.',
+          status: 'verifying',
+          priority: 'p1',
+          successCriteria: {},
+          evidenceContract: {},
+          outcomeContract: {
+            acceptance: {
+              outcome: 'SUCCEEDED',
+              verdict: 'INCOMPLETE',
+            },
+          },
+          nextAction: null,
+          blockedReason: null,
+          nextWakeAt: null,
+          createdAt: '2026-09-22T00:00:00.000Z',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: null,
+        },
+        currentAttempt: {
+          id: 'execution-incomplete-proof',
+          status: 'completed',
+          attempt: 1,
+          operationId: 'operation-incomplete-proof',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: '2026-09-22T00:01:00.000Z',
+        },
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 1, events: 0 },
+    });
+
+    renderPage();
+
+    const notice = await screen.findByTestId(`goal-acceptance-notice-${goalId}`);
+    expect(notice).toHaveTextContent('اكتمل التنفيذ');
+    expect(notice).toHaveTextContent('الإثبات غير مكتمل');
+    expect(notice).toHaveTextContent('نجاح التنفيذ وحده لا يثبت النتيجة');
   });
 
   it('shows accepted finding provenance with links to its Chat message and Mission execution', async () => {

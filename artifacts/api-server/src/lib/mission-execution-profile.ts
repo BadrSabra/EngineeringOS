@@ -18,8 +18,10 @@ export type MissionExecutionProfile = (typeof MISSION_EXECUTION_PROFILES)[number
 export function executionProfileForMissionStep(
   kind: GeneralTaskPlanStepKind,
   hasRecipe = false,
+  hasScopedFiles = false,
 ): MissionExecutionProfile {
-  if (hasRecipe || kind === "deliver") return "delivery";
+  if (hasRecipe) return "delivery";
+  if (kind === "deliver") return hasScopedFiles ? "mission_observe" : "delivery";
   if (kind === "execute") return "mission_repair";
   if (kind === "validate") return "mission_validate";
   if (kind === "inspect" || kind === "analyze") return "mission_observe";
@@ -64,16 +66,29 @@ export function missionObjectiveContract(params: {
   targetPaths: readonly string[];
 }): ObjectiveContract {
   const targetPaths = [...new Set(params.targetPaths.filter(Boolean))].slice(0, 48);
+  const contractPaths = targetPaths.length <= 12 ? targetPaths : [];
+  const scopedObservation =
+    params.profile === "mission_observe"
+    && contractPaths.length > 0;
   const claim = {
     claimId: "mission-objective-proven",
     text: params.objective.trim().slice(0, 2_000),
-    ...(targetPaths.length > 0 ? { requiredEvidencePaths: targetPaths } : {}),
+    ...(contractPaths.length > 0 ? { requiredEvidencePaths: contractPaths } : {}),
   };
+  const requiredClaims = scopedObservation
+    ? contractPaths.map((path, index) => ({
+        claimId: `mission-observe-file-${index + 1}`,
+        text: `Read and summarize the server-approved source "${path}" for this Mission: ${params.objective.trim()}`.slice(0, 2_000),
+        requiredEvidencePaths: [path],
+      }))
+    : [claim];
   return {
-    objectiveType: `MISSION_${params.profile.toUpperCase()}`,
+    objectiveType: scopedObservation
+      ? "PROJECT_QUERY_MISSION_OBSERVE"
+      : `MISSION_${params.profile.toUpperCase()}`,
     goal: params.objective.trim().slice(0, 2_000),
-    ...(targetPaths.length > 0 ? { requiredEvidencePaths: targetPaths } : {}),
-    requiredClaims: [claim],
+    ...(contractPaths.length > 0 ? { requiredEvidencePaths: contractPaths } : {}),
+    requiredClaims,
     requiredEvidenceEdges: [],
   };
 }

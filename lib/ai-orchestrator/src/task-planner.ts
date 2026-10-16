@@ -123,6 +123,22 @@ function uniquePaths(paths: readonly string[] | undefined): string[] {
   )].slice(0, 48);
 }
 
+function explicitMessageFilePaths(message: string): string[] {
+  const pathPattern =
+    /(?<![\w/@.-])((?:[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html|xml|txt|csv))(?![\w/.-])/gi;
+  const normalizedMessage = message.replaceAll("\\", "/");
+  const paths = [...normalizedMessage.matchAll(pathPattern)]
+    .map((match) => match[1]?.replace(/^\.\/+/, ""))
+    .filter((path): path is string => Boolean(path))
+    .filter((path) => {
+      const segments = path.split("/");
+      return !path.startsWith("/")
+        && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+        && segments.every((segment) => /^[A-Za-z0-9_@.-]+$/.test(segment));
+    });
+  return uniquePaths(paths).slice(0, 16);
+}
+
 function step(
   id: string,
   title: string,
@@ -144,32 +160,37 @@ function step(
 
 function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
   const { turnIntent } = input;
+  const explicitFiles = explicitMessageFilePaths(input.message);
   if (input.projectOrientation && turnIntent.kind === "PROJECT_QUERY") {
     return [
-      step("discover-purpose", "Discover the project purpose", "inspect"),
+      step("discover-purpose", "Discover the project purpose", "inspect", [], { files: explicitFiles }),
       step(
         "map-components",
         "Map the main product components",
         "analyze",
         ["discover-purpose"],
+        { files: explicitFiles },
       ),
       step(
         "trace-primary-flow",
         "Trace the primary user flow",
         "analyze",
         ["map-components"],
+        { files: explicitFiles },
       ),
       step(
         "verify-orientation",
         "Verify the functional explanation",
         "validate",
         ["trace-primary-flow"],
+        { files: explicitFiles },
       ),
       step(
         "deliver",
         "Deliver the functional project overview",
         "deliver",
         ["verify-orientation"],
+        { files: explicitFiles },
       ),
     ];
   }
@@ -179,7 +200,7 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
   }
 
   const inspect = turnIntent.requiresTools || turnIntent.requiresEvidence
-    ? step("inspect", "Inspect the relevant project context", "inspect")
+    ? step("inspect", "Inspect the relevant project context", "inspect", [], { files: explicitFiles })
     : undefined;
   const analyze = turnIntent.kind === "PROJECT_QUERY" || turnIntent.kind === "FORENSIC_AUDIT"
     ? step(
@@ -187,6 +208,7 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
         "Analyze the retained project evidence",
         "analyze",
         inspect ? ["inspect"] : [],
+        { files: explicitFiles },
       )
     : undefined;
 
@@ -196,7 +218,7 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
       "Execute the approved change plan",
       "execute",
       inspect ? ["inspect"] : [],
-      { readOnly: false, approvalRequired: !turnIntent.allowsBuildHandoff },
+      { files: explicitFiles, readOnly: false, approvalRequired: !turnIntent.allowsBuildHandoff },
     );
     const validate = step(
       "validate",
@@ -209,7 +231,7 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
       ...(inspect ? [inspect] : []),
       execute,
       validate,
-      step("deliver", "Deliver the verified result", "deliver", ["validate"]),
+      step("deliver", "Deliver the verified result", "deliver", ["validate"], { files: explicitFiles }),
     ];
   }
 
@@ -221,6 +243,7 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
       turnIntent.requiresEvidence ? "Deliver the evidence-bound result" : "Deliver the result",
       "deliver",
       [analyze?.id ?? inspect?.id].filter((id): id is string => Boolean(id)),
+      { files: explicitFiles },
     ),
   ];
 }
@@ -267,6 +290,7 @@ function stepsForExistingExecutionPlan(
       "Deliver the existing plan result",
       "deliver",
       nodes.map((node) => node.id),
+      { files: uniquePaths(nodes.flatMap((node) => node.allowedFiles)) },
     ),
   ];
 }
@@ -285,7 +309,7 @@ function stepsForExistingProjectQuery(
       ["inspect"],
       { files },
     ),
-    step("deliver", "Deliver the existing project-query result", "deliver", ["analyze"]),
+    step("deliver", "Deliver the existing project-query result", "deliver", ["analyze"], { files }),
   ];
 }
 

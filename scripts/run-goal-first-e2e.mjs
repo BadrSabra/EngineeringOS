@@ -36,8 +36,22 @@ function run(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: workspaceRoot,
       env: options.env ?? process.env,
-      stdio: options.stdio ?? "inherit",
+      stdio: options.capture ? ["ignore", "pipe", "pipe"] : options.stdio ?? "inherit",
     });
+    let stdout = "";
+    let stderr = "";
+    if (options.capture) {
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+        process.stdout.write(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+        process.stderr.write(chunk);
+      });
+    }
     activeChild = child;
     child.once("error", rejectRun);
     child.once("exit", (code, signal) => {
@@ -45,7 +59,7 @@ function run(command, args, options = {}) {
       if (shutdownSignal) {
         rejectRun(new Error(`Interrupted by ${shutdownSignal}.`));
       } else if (code === 0) {
-        resolveRun();
+        resolveRun(options.capture ? { stdout, stderr } : undefined);
       } else {
         rejectRun(new Error(
           `${command} ${args.join(" ")} exited with ${signal ?? code}.`,
@@ -125,8 +139,7 @@ async function main() {
     env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
     env.DASHBOARD_E2E_TEST_MODE = "fixture";
     env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
-    env.DASHBOARD_E2E_GREP =
-      "executes a real Mission Goal and reloads its durable non-proof result";
+    env.DASHBOARD_E2E_GREP = "goal-first";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? "240000";
@@ -150,8 +163,25 @@ async function main() {
     await run("pnpm", ["--filter", "@workspace/db", "run", "schema:apply"], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    console.log("Verifying stale Mission plan confirmations against the isolated database.");
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/routes/ai/missions.test.ts",
+      "-t",
+      "rejects Mission creation when its reviewed plan hash is stale",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
     console.log("Running the goal-first browser journey against the real API and isolated database.");
-    await run("pnpm", ["run", "validate:dashboard-journey"], { env });
+    const journeyLogs = await run(
+      "pnpm",
+      ["run", "validate:dashboard-journey"],
+      { env, capture: true },
+    );
 
     const providerLog = await readFile(providerLogPath, "utf8").catch(() => "");
     const usedLocalChatFixture = providerLog
@@ -166,6 +196,47 @@ async function main() {
       });
     if (!usedLocalChatFixture) {
       throw new Error("The goal did not reach the local provider fixture; refusing to count the journey as executed.");
+    }
+    const usedMissionQueryPlanFixture = providerLog
+      .split("\n")
+      .filter(Boolean)
+      .some((line) => {
+        try {
+          return JSON.parse(line).kind === "mission-query-plan";
+        } catch {
+          return false;
+        }
+      });
+    if (!usedMissionQueryPlanFixture) {
+      throw new Error("The read-only Mission did not use the local query-planner fixture.");
+    }
+    const usedMissionEvidenceSynthesis = providerLog
+      .split("\n")
+      .filter(Boolean)
+      .some((line) => {
+        try {
+          return JSON.parse(line).kind === "mission-evidence-synthesis";
+        } catch {
+          return false;
+        }
+      });
+    if (!usedMissionEvidenceSynthesis) {
+      throw new Error("The read-only Mission did not use the local evidence-synthesis fixture.");
+    }
+    const serverLogs = `${journeyLogs.stdout}\n${journeyLogs.stderr}`;
+    const completedServerRead = serverLogs
+      .split(/\r?\n/u)
+      .some((line) =>
+        line.includes("SERVER_READ_TOOL_LIFECYCLE")
+        && /completed/iu.test(line),
+      );
+    const serverPrefetchCompleted = serverLogs.includes("PREFETCH_COMPLETE");
+    const serverReadScopeBound =
+      serverLogs.includes("README.md") && serverLogs.includes("package.json");
+    if (!completedServerRead || !serverPrefetchCompleted || !serverReadScopeBound) {
+      throw new Error(
+        "The proof journey did not log completed server-owned prefetch reads for both approved source paths.",
+      );
     }
   } finally {
     await stopPostgres();

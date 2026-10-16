@@ -40,8 +40,10 @@ import {
   CreateGoalInput,
   bindMissionDelivery,
   createApplyMissionFromProposal,
+  previewMissionPlanFromChat,
   CreateMissionInput,
   Mission,
+  MissionPlanPreviewResult,
   MissionStatus,
   MissionProjection,
   MissionRequestError,
@@ -405,6 +407,69 @@ const goalStatusLabels: Record<string, string> = {
   cancelled: 'ملغاة',
 };
 
+function goalAcceptanceSummary(outcomeContract: unknown) {
+  if (!outcomeContract || typeof outcomeContract !== 'object' || Array.isArray(outcomeContract)) {
+    return null;
+  }
+  const acceptance = (outcomeContract as Record<string, unknown>).acceptance;
+  if (!acceptance || typeof acceptance !== 'object' || Array.isArray(acceptance)) return null;
+  const value = acceptance as Record<string, unknown>;
+  return typeof value.verdict === 'string'
+    ? {
+        verdict: value.verdict,
+        outcome: typeof value.outcome === 'string' ? value.outcome : undefined,
+      }
+    : null;
+}
+
+function GoalAcceptanceNotice({ goal }: { goal: Goal }) {
+  const acceptance = goalAcceptanceSummary(goal.outcomeContract);
+  if (!acceptance) return null;
+  const proven = acceptance.verdict === 'PROVEN';
+  const incomplete = acceptance.verdict === 'INCOMPLETE';
+  const label = proven
+    ? 'تم إثبات النتيجة'
+    : incomplete
+      ? 'الإثبات غير مكتمل'
+      : acceptance.verdict === 'UNAVAILABLE'
+        ? 'حكم الإثبات غير متاح'
+        : acceptance.verdict === 'FAILED'
+          ? 'لم تستوف النتيجة شروط الإثبات'
+          : `حالة الإثبات: ${acceptance.verdict}`;
+  const explanation = proven
+    ? 'الأدلة المقبولة تدعم نتيجة هذه الخطوة.'
+    : incomplete
+      ? 'الأدلة المطلوبة غير مكتملة؛ نجاح التنفيذ وحده لا يثبت النتيجة.'
+      : acceptance.verdict === 'UNAVAILABLE'
+        ? 'لم يتوفر حكم موثوق على الأدلة لهذه المحاولة.'
+        : acceptance.verdict === 'FAILED'
+          ? 'لم تثبت الأدلة أن شروط هذه الخطوة تحققت.'
+          : 'راجع حكم الإثبات قبل اعتبار هذه الخطوة مكتملة.';
+  const tone = proven
+    ? 'border-emerald-300/20 bg-emerald-300/5 text-emerald-100'
+    : incomplete
+      ? 'border-amber-300/20 bg-amber-300/5 text-amber-100'
+      : 'border-rose-300/20 bg-rose-300/5 text-rose-100';
+
+  return (
+    <div
+      data-testid={`goal-acceptance-notice-${goal.id}`}
+      className={`mt-2 rounded-md border px-2.5 py-2 ${tone}`}
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+        <span className="font-semibold">حالة الإثبات</span>
+        <span data-testid={`goal-acceptance-verdict-${goal.id}`} className="font-semibold">
+          {label}
+        </span>
+        {acceptance.outcome === 'SUCCEEDED' ? (
+          <span className="text-slate-300">اكتمل التنفيذ</span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-[10px] leading-4 opacity-80">{explanation}</p>
+    </div>
+  );
+}
+
 function jsonText(value: unknown) {
   if (value === null || value === undefined || value === '') return '';
   try {
@@ -516,6 +581,7 @@ function EditorModal({
   onSubmit,
   children,
   submitLabel,
+  submitDisabled = false,
 }: {
   title: string;
   eyebrow: string;
@@ -525,6 +591,7 @@ function EditorModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   children: ReactNode;
   submitLabel: string;
+  submitDisabled?: boolean;
 }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -559,7 +626,7 @@ function EditorModal({
           </div>
           <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-800 bg-slate-950/25 px-5 py-4 sm:flex-row sm:justify-end" data-testid="editor-fixed-actions">
             <button type="button" onClick={onClose} disabled={saving} data-testid="button-cancel-editor" className="rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200 disabled:opacity-40">إلغاء</button>
-            <button type="submit" disabled={saving} data-testid="button-save-editor" className="inline-flex items-center justify-center gap-2 rounded-md border border-cyan-300/40 bg-cyan-300/15 px-4 py-2 text-xs font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/25 disabled:cursor-wait disabled:opacity-60">
+            <button type="submit" disabled={saving || submitDisabled} data-testid="button-save-editor" className="inline-flex items-center justify-center gap-2 rounded-md border border-cyan-300/40 bg-cyan-300/15 px-4 py-2 text-xs font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/25 disabled:cursor-wait disabled:opacity-60">
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               {saving ? 'جارٍ الحفظ…' : submitLabel}
             </button>
@@ -593,12 +660,41 @@ function MissionEditor({
   const [budget, setBudget] = useState(jsonText(mission?.budget));
   const [deadline, setDeadline] = useState(localDateValue(mission?.deadline));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [planPreview, setPlanPreview] = useState<MissionPlanPreviewResult | null>(null);
+  const [planPreviewError, setPlanPreviewError] = useState<string | null>(null);
+  const [planPreviewLoading, setPlanPreviewLoading] = useState(false);
+  const previewMatchesIntent = Boolean(
+    !editing && planPreview && planPreview.objective === intent.trim(),
+  );
+
+  const reviewPlan = async () => {
+    if (editing || !intent.trim() || planPreviewLoading) return;
+    setPlanPreviewLoading(true);
+    setPlanPreviewError(null);
+    try {
+      const preview = await previewMissionPlanFromChat({
+        projectId,
+        message: intent.trim(),
+        objective: intent.trim(),
+      });
+      setPlanPreview(preview);
+    } catch (error) {
+      setPlanPreviewError(
+        error instanceof Error ? error.message : 'تعذرت معاينة الخطة. حاول مرة أخرى.',
+      );
+    } finally {
+      setPlanPreviewLoading(false);
+    }
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
     if (!title.trim()) errors.title = 'العنوان مطلوب.';
     if (!intent.trim()) errors.intent = 'اكتب ما تريد تحقيقه.';
+    if (!editing && !previewMatchesIntent) {
+      errors.plan = 'راجع الخطة الحالية قبل بدء الهدف الرئيسي.';
+    }
     const policy = parseJsonObject(autonomyPolicy, 'سياسة الاستقلالية');
     const budgetValue = parseJsonObject(budget, 'الميزانية');
     if (policy.error) errors.autonomyPolicy = policy.error;
@@ -608,12 +704,30 @@ function MissionEditor({
     if (editing) {
       onSave({ title: title.trim(), intent: intent.trim(), status, autonomyPolicy: policy.value, budget: budgetValue.value, deadline: isoDateOrNull(deadline) });
     } else {
-      onSave({ projectId, title: title.trim(), intent: intent.trim(), status: 'active', autonomyPolicy: policy.value, budget: budgetValue.value, deadline: isoDateOrNull(deadline) });
+      onSave({
+        projectId,
+        title: title.trim(),
+        intent: intent.trim(),
+        status: 'active',
+        autonomyPolicy: policy.value,
+        budget: budgetValue.value,
+        deadline: isoDateOrNull(deadline),
+        expectedPlanHash: planPreview!.plan.planHash,
+      });
     }
   };
 
   return (
-      <EditorModal title={editing ? 'تعديل الهدف الرئيسي' : 'ابدأ هدفًا رئيسيًا'} eyebrow={editing ? 'الهدف الرئيسي / تعديل' : 'الهدف الرئيسي / جاهز للبدء'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'حفظ التفاصيل' : 'ابدأ الهدف الرئيسي'}>
+      <EditorModal
+        title={editing ? 'تعديل الهدف الرئيسي' : 'ابدأ هدفًا رئيسيًا'}
+        eyebrow={editing ? 'الهدف الرئيسي / تعديل' : 'الهدف الرئيسي / جاهز للبدء'}
+        error={error}
+        saving={saving}
+        onClose={onClose}
+        onSubmit={submit}
+        submitLabel={editing ? 'حفظ التفاصيل' : previewMatchesIntent ? 'تأكيد الخطة وبدء الهدف' : 'ابدأ بعد مراجعة الخطة'}
+        submitDisabled={!editing && !previewMatchesIntent}
+      >
       <div>
         <FieldLabel htmlFor="mission-title">العنوان</FieldLabel>
         <TextInput id="mission-title" value={title} onChange={setTitle} placeholder="هدف واضح له نهاية يمكن التحقق منها" />
@@ -621,9 +735,64 @@ function MissionEditor({
       </div>
       <div>
         <FieldLabel htmlFor="mission-intent">ما الذي تريد تحقيقه؟</FieldLabel>
-        <TextInput id="mission-intent" value={intent} onChange={setIntent} multiline rows={3} placeholder="صف النتيجة التي يجب أن تصبح حقيقة عند انتهاء هذا الهدف" />
+        <TextInput
+          id="mission-intent"
+          value={intent}
+          onChange={(value) => {
+            setIntent(value);
+            setPlanPreview(null);
+            setPlanPreviewError(null);
+          }}
+          multiline
+          rows={3}
+          placeholder="صف النتيجة التي يجب أن تصبح حقيقة عند انتهاء هذا الهدف"
+        />
         {fieldErrors.intent ? <p className="mt-1 text-xs text-rose-300">{fieldErrors.intent}</p> : null}
       </div>
+      {!editing ? (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => void reviewPlan()}
+            disabled={saving || planPreviewLoading || !intent.trim()}
+            data-testid="button-preview-mission-plan"
+            className="inline-flex items-center gap-2 rounded-md border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {planPreviewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListChecks className="h-3.5 w-3.5" />}
+            {planPreviewLoading ? 'جارٍ إعداد الخطة…' : 'راجع الخطة قبل البدء'}
+          </button>
+          {planPreviewError ? (
+            <p role="alert" className="text-xs text-rose-300">{planPreviewError}</p>
+          ) : null}
+          {fieldErrors.plan ? <p className="text-xs text-rose-300">{fieldErrors.plan}</p> : null}
+          {planPreview && previewMatchesIntent ? (
+            <div data-testid="mission-plan-preview" className="rounded-md border border-cyan-300/20 bg-cyan-300/5 p-3">
+              <p className="text-xs font-semibold text-cyan-100">الخطة التي ستبدأ بعد تأكيدك</p>
+              <ol className="mt-2 space-y-2">
+                {planPreview.plan.steps.map((planStep, index) => (
+                  <li key={planStep.id} className="flex items-start gap-2 text-xs">
+                    <span className="font-mono text-slate-500">{index + 1}.</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-slate-200">{planStep.title}</span>
+                      <span className="mt-0.5 block text-[10px] text-slate-500">
+                        {planStep.readOnly
+                          ? 'قراءة فقط'
+                          : planStep.approvalRequired
+                            ? 'تغيير يتطلب موافقتك'
+                            : 'خطوة تنفيذية'}
+                        {planStep.files.length > 0 ? ` · الملفات: ${planStep.files.join('، ')}` : ''}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-3 border-t border-cyan-300/10 pt-2 text-[10px] leading-4 text-slate-400">
+                لم يبدأ التنفيذ بعد. سيبدأ فقط بعد تأكيد الخطة.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {editing ? (
         <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
           يُدار تنفيذ الهدف الرئيسي تلقائيًا من مساحة العمل الخاصة به. تعديل التفاصيل هنا لا يغيّر حالته.
@@ -940,6 +1109,7 @@ function GoalCard({
             <StatusPill status={goal.status} />
           </div>
           <p dir="auto" className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{goal.description || 'لا يوجد وصف مسجل.'}</p>
+          <GoalAcceptanceNotice goal={goal} />
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] text-slate-600">
             <span>priority {goal.priority ?? '—'}</span>
             <span>{linkedCount} linked records</span>

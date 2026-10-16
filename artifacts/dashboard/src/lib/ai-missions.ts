@@ -231,6 +231,7 @@ export interface CreateMissionInput {
   autonomyPolicy?: Record<string, unknown>;
   budget?: Record<string, unknown>;
   deadline?: string | null;
+  expectedPlanHash?: string;
 }
 
 export interface UpdateMissionInput {

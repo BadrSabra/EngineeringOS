@@ -5,6 +5,47 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export type AiMissionInputStatus = typeof AiMissionInputStatus[keyof typeof AiMissionInputStatus];
+
+
+export const AiMissionInputStatus = {
+  draft: 'draft',
+  active: 'active',
+} as const;
+
+export type AiMissionInputAutonomyPolicy = { [key: string]: unknown };
+
+export type AiMissionInputBudget = { [key: string]: unknown };
+
+export interface AiMissionInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  projectId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  intent: string;
+  status?: AiMissionInputStatus;
+  autonomyPolicy?: AiMissionInputAutonomyPolicy;
+  budget?: AiMissionInputBudget;
+  /** @nullable */
+  deadline?: string | null;
+  /**
+     * Exact plan-preview hash confirmed by the user before creating an active Mission.
+     * @minLength 1
+     * @maxLength 200
+     */
+  expectedPlanHash?: string;
+}
+
 export type MissionPlanPreviewInput = (unknown & ({
   /**
      * @minLength 1

@@ -7,6 +7,32 @@ const fixtureText = JSON.stringify({
   confidence: "low",
   needsHumanReview: true,
 });
+const missionEvidenceSummary = JSON.stringify({
+  response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
+  sources: ["README.md", "package.json"],
+});
+const missionQueryPlan = JSON.stringify({
+  targetFiles: ["README.md", "package.json"],
+  targetEntities: [],
+  targetConfidence: 0.95,
+  scopeEstimate: "narrow",
+  suggestedIterations: 8,
+  requiresToolUse: true,
+  subQueries: [],
+  compoundParts: [],
+});
+const missionReadToolCalls = [
+  {
+    id: "call_goal_first_readme",
+    type: "function",
+    function: { name: "read_file", arguments: JSON.stringify({ path: "README.md" }) },
+  },
+  {
+    id: "call_goal_first_package",
+    type: "function",
+    function: { name: "read_file", arguments: JSON.stringify({ path: "package.json" }) },
+  },
+];
 const fixtureModelId = "liquid/lfm-2.5-2.6b:free";
 const providerHosts = new Set([
   "api.anthropic.com",
@@ -42,7 +68,7 @@ function fixtureJsonResponse(payload, status = 200) {
   });
 }
 
-function completionPayload(model) {
+function completionPayload(model, content = fixtureText) {
   return {
     id: "goal-first-local-fixture",
     object: "chat.completion",
@@ -52,7 +78,7 @@ function completionPayload(model) {
       index: 0,
       message: {
         role: "assistant",
-        content: fixtureText,
+        content,
       },
       finish_reason: "stop",
     }],
@@ -64,7 +90,30 @@ function completionPayload(model) {
   };
 }
 
-function streamResponse(model) {
+function toolCallPayload(model) {
+  return {
+    id: "goal-first-local-fixture",
+    object: "chat.completion",
+    created: 0,
+    model: typeof model === "string" ? model : "goal-first-local-fixture",
+    choices: [{
+      index: 0,
+      message: {
+        role: "assistant",
+        content: null,
+        tool_calls: missionReadToolCalls,
+      },
+      finish_reason: "tool_calls",
+    }],
+    usage: {
+      prompt_tokens: 8,
+      completion_tokens: 9,
+      total_tokens: 17,
+    },
+  };
+}
+
+function streamResponse(model, content = fixtureText) {
   const safeModel = typeof model === "string" ? model : "goal-first-local-fixture";
   const chunks = [
     {
@@ -79,7 +128,7 @@ function streamResponse(model) {
       object: "chat.completion.chunk",
       created: 0,
       model: safeModel,
-      choices: [{ index: 0, delta: { content: fixtureText }, finish_reason: null }],
+      choices: [{ index: 0, delta: { content }, finish_reason: null }],
     },
     {
       id: "goal-first-local-fixture",
@@ -87,6 +136,61 @@ function streamResponse(model) {
       created: 0,
       model: safeModel,
       choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    },
+  ];
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+      }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      "x-goal-first-provider-fixture": "1",
+    },
+  });
+}
+
+function streamToolCallResponse(model) {
+  const safeModel = typeof model === "string" ? model : "goal-first-local-fixture";
+  const chunks = [
+    {
+      id: "goal-first-local-fixture",
+      object: "chat.completion.chunk",
+      created: 0,
+      model: safeModel,
+      choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+    },
+    ...missionReadToolCalls.map((toolCall, index) => ({
+      id: "goal-first-local-fixture",
+      object: "chat.completion.chunk",
+      created: 0,
+      model: safeModel,
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index,
+            id: toolCall.id,
+            type: "function",
+            function: toolCall.function,
+          }],
+        },
+        finish_reason: null,
+      }],
+    })),
+    {
+      id: "goal-first-local-fixture",
+      object: "chat.completion.chunk",
+      created: 0,
+      model: safeModel,
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
     },
   ];
   const encoder = new TextEncoder();
@@ -120,6 +224,20 @@ function recordRequest(url, method, kind) {
   })}\n`, "utf8");
 }
 
+function missionEvidenceSynthesis(messages) {
+  const serializedMessages = JSON.stringify(messages);
+  const claimMatches = [...serializedMessages.matchAll(
+    /Claim ([A-Za-z0-9:_-]+) \(([^)]+)\):/gu,
+  )];
+  const claimRefs = [...new Set(claimMatches.map((match) => match[1]))];
+  const sources = [...new Set(claimMatches.map((match) => match[2]))];
+  return JSON.stringify({
+    response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
+    sources,
+    claimRefs,
+  });
+}
+
 const realFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
   const requestUrl = input instanceof Request ? input.url : String(input);
@@ -149,7 +267,6 @@ globalThis.fetch = async (input, init) => {
     }, 503);
   }
 
-  recordRequest(url, method, "chat-completion");
   let requestBody = {};
   try {
     const rawBody = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
@@ -160,6 +277,60 @@ globalThis.fetch = async (input, init) => {
     }, 400);
   }
 
+  const messages = Array.isArray(requestBody.messages) ? requestBody.messages : [];
+  const serializedMessages = JSON.stringify(messages);
+  const isMissionExecution = serializedMessages.includes("Server-owned Mission execution.");
+  const isQueryPlannerRequest = messages.some((message) =>
+    message?.role === "system"
+      && typeof message.content === "string"
+      && message.content.includes("You are a planning agent for a code intelligence system."),
+  );
+  const hasReadFileTool = Array.isArray(requestBody.tools)
+    && requestBody.tools.some((tool) =>
+      tool?.function?.name === "read_file" || tool?.name === "read_file",
+    );
+  const hasToolResult = messages.some((message) =>
+    message?.role === "tool" || message?.role === "function",
+  );
+  const isProjectQuerySynthesis = messages.some((message) =>
+    message?.role === "system"
+      && typeof message.content === "string"
+      && message.content.includes("Synthesize a scoped project answer from the retained evidence below."),
+  );
+
+  if (isQueryPlannerRequest) {
+    recordRequest(url, method, "mission-query-plan");
+    return requestBody.stream === true
+      ? streamResponse(requestBody.model, missionQueryPlan)
+      : fixtureJsonResponse(completionPayload(requestBody.model, missionQueryPlan));
+  }
+  if (isProjectQuerySynthesis) {
+    recordRequest(url, method, "mission-evidence-synthesis");
+    const synthesis = missionEvidenceSynthesis(messages);
+    const parsed = JSON.parse(synthesis);
+    if (parsed.claimRefs.length === 0 || parsed.sources.length === 0) {
+      return fixtureJsonResponse({
+        error: { message: "The local fixture could not bind synthesis to the supplied server-owned claims." },
+      }, 500);
+    }
+    return requestBody.stream === true
+      ? streamResponse(requestBody.model, synthesis)
+      : fixtureJsonResponse(completionPayload(requestBody.model, synthesis));
+  }
+  if (hasToolResult && (isMissionExecution || hasReadFileTool)) {
+    recordRequest(url, method, "mission-evidence-summary");
+    return requestBody.stream === true
+      ? streamResponse(requestBody.model, missionEvidenceSummary)
+      : fixtureJsonResponse(completionPayload(requestBody.model, missionEvidenceSummary));
+  }
+  if (hasReadFileTool && !hasToolResult) {
+    recordRequest(url, method, "mission-read-tool-call");
+    return requestBody.stream === true
+      ? streamToolCallResponse(requestBody.model)
+      : fixtureJsonResponse(toolCallPayload(requestBody.model));
+  }
+
+  recordRequest(url, method, "chat-completion");
   return requestBody.stream === true
     ? streamResponse(requestBody.model)
     : fixtureJsonResponse(completionPayload(requestBody.model));

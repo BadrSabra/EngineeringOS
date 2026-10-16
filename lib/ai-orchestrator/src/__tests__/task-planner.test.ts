@@ -26,6 +26,20 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.steps[1]?.dependencies).toEqual(["inspect"]);
   });
 
+  it("binds explicit safe file paths to every read-only step and rejects traversal paths", () => {
+    const plan = buildGeneralTaskPlan({
+      message: "Inspect README.md and src/overview.ts, then summarize ../private.md and src/../secrets.json.",
+      turnIntent: intent(),
+    });
+
+    expect(plan.steps.map((step) => step.files)).toEqual([
+      ["README.md", "src/overview.ts"],
+      ["README.md", "src/overview.ts"],
+      ["README.md", "src/overview.ts"],
+    ]);
+    expect(plan.steps.every((step) => step.readOnly)).toBe(true);
+  });
+
   it("creates a functional orientation plan for broad explain-project requests", () => {
     const plan = buildGeneralTaskPlan({
       message: "Explain the project",

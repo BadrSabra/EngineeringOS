@@ -68,6 +68,75 @@ test("local catalog and completion fixtures support the real provider contract w
         },
       );
       const stream = await streamResponse.text();
+      const tools = [{
+        type: "function",
+        function: {
+          name: "read_file",
+          parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        },
+      }];
+      const missionMessages = [{
+        role: "user",
+        content: "Server-owned Mission execution. Read README.md and package.json.",
+      }];
+      const queryPlanResponse = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "liquid/lfm-2.5-2.6b:free",
+            messages: [
+              {
+                role: "system",
+                content: "You are a planning agent for a code intelligence system. Return the query plan as JSON.",
+              },
+              ...missionMessages,
+            ],
+          }),
+        },
+      );
+      const queryPlanPayload = await queryPlanResponse.json();
+      const queryPlan = JSON.parse(queryPlanPayload.choices?.[0]?.message?.content);
+      const missionToolResponse = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "liquid/lfm-2.5-2.6b:free",
+            messages: missionMessages,
+            tools,
+          }),
+        },
+      );
+      const missionToolPayload = await missionToolResponse.json();
+      const calls = missionToolPayload.choices?.[0]?.message?.tool_calls ?? [];
+      const missionSummaryResponse = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "liquid/lfm-2.5-2.6b:free",
+            messages: [
+              ...missionMessages,
+              { role: "assistant", tool_calls: calls },
+              ...calls.map((call) => ({
+                role: "tool",
+                name: call.function.name,
+                tool_call_id: call.id,
+                content: call.function.arguments,
+              })),
+            ],
+            tools,
+          }),
+        },
+      );
+      const missionSummary = await missionSummaryResponse.json();
+      const parsedMissionSummary = JSON.parse(
+        missionSummary.choices?.[0]?.message?.content,
+      );
       console.log(JSON.stringify({
         catalogStatus: catalogResponse.status,
         modelId: catalog.data?.[0]?.id,
@@ -76,6 +145,12 @@ test("local catalog and completion fixtures support the real provider contract w
         completion: parsedContent,
         streamStatus: streamResponse.status,
         streamHasDone: stream.includes("data: [DONE]"),
+        missionToolStatus: missionToolResponse.status,
+        missionToolNames: calls.map((call) => call.function?.name),
+        queryPlanStatus: queryPlanResponse.status,
+        queryPlan,
+        missionSummaryStatus: missionSummaryResponse.status,
+        missionSummary: parsedMissionSummary,
       }));
     `;
     const result = await runFixture(script, {
@@ -103,6 +178,24 @@ test("local catalog and completion fixtures support the real provider contract w
       },
       streamStatus: 200,
       streamHasDone: true,
+      missionToolStatus: 200,
+      missionToolNames: ["read_file", "read_file"],
+      queryPlanStatus: 200,
+      queryPlan: {
+        targetFiles: ["README.md", "package.json"],
+        targetEntities: [],
+        targetConfidence: 0.95,
+        scopeEstimate: "narrow",
+        suggestedIterations: 8,
+        requiresToolUse: true,
+        subQueries: [],
+        compoundParts: [],
+      },
+      missionSummaryStatus: 200,
+      missionSummary: {
+        response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
+        sources: ["README.md", "package.json"],
+      },
     });
 
     const requests = (await readFile(logPath, "utf8"))
@@ -113,6 +206,9 @@ test("local catalog and completion fixtures support the real provider contract w
       "model-catalog",
       "chat-completion",
       "chat-completion",
+      "mission-query-plan",
+      "mission-read-tool-call",
+      "mission-evidence-summary",
     ]);
     assert.ok(requests.every((request) => request.host === "openrouter.ai"));
     assert.ok(

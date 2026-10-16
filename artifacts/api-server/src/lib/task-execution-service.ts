@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { posix as posixPath } from "node:path";
+import { readFile, realpath, stat } from "node:fs/promises";
+import {
+  isAbsolute,
+  posix as posixPath,
+  relative as relativePath,
+  resolve as resolvePath,
+  sep as pathSeparator,
+} from "node:path";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
@@ -1726,20 +1733,26 @@ function buildMissionTaskObjective(params: {
   profile: Exclude<MissionExecutionProfile, "analysis" | "delivery">;
   workspaceRevision: string;
 }): TaskObjectiveContract | undefined {
-  if (params.profile === "mission_observe") return undefined;
   const policy = missionTaskPolicy({
     task: params.task,
     goal: params.goal,
     profile: params.profile,
   });
+  if (
+    params.profile === "mission_observe"
+    && (policy.targetPaths.length === 0 || policy.targetPaths.length > 12)
+  ) {
+    return undefined;
+  }
   return buildTaskObjectiveContract({
     message: policy.objective,
     projectId: params.task.projectId,
     workspaceRevision: params.workspaceRevision,
     targetPaths: policy.targetPaths,
     proofRequired: true,
-    operationMode: "BUILD",
-    implementationTaskMode: true,
+    ...(params.profile === "mission_observe"
+      ? { turnIntent: "PROJECT_QUERY", operationMode: "ANALYSIS" }
+      : { operationMode: "BUILD", implementationTaskMode: true }),
   });
 }
 
@@ -1882,6 +1895,174 @@ const MISSION_WORKSPACE_REVISION_PREFIX = "workspace-tree-v1:";
 
 async function missionWorkspaceRevision(rootPath: string): Promise<string> {
   return `${MISSION_WORKSPACE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
+}
+
+const MISSION_OBSERVATION_FILE_MAX_BYTES = 256 * 1024;
+const MISSION_OBSERVATION_TOTAL_MAX_BYTES = 1024 * 1024;
+
+async function collectMissionObservationSourceSnapshot(params: {
+  rootPath: string;
+  projectId: string;
+  expectedProjectUpdatedAt: string;
+  workspaceRevision: string;
+  targetPaths: readonly string[];
+}): Promise<{
+  complete: boolean;
+  reads: Array<{
+    path: string;
+    readType: string;
+    lineStart: number;
+    lineEnd: number;
+    body: string;
+    complete: boolean;
+    truncated: boolean;
+  }>;
+}> {
+  const targetPaths = [...new Set(params.targetPaths)];
+  if (targetPaths.length === 0 || targetPaths.length > 12) {
+    return { complete: false, reads: [] };
+  }
+
+  const startingRevision = await missionWorkspaceRevision(params.rootPath).catch(() => null);
+  if (startingRevision !== params.workspaceRevision) {
+    return { complete: false, reads: [] };
+  }
+  const [projectAtStart] = await db
+    .select({ updatedAt: projectsTable.updatedAt })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, params.projectId))
+    .limit(1);
+  if (projectAtStart?.updatedAt?.toISOString() !== params.expectedProjectUpdatedAt) {
+    return { complete: false, reads: [] };
+  }
+
+  const reads: Array<{
+    path: string;
+    readType: string;
+    lineStart: number;
+    lineEnd: number;
+    body: string;
+    complete: boolean;
+    truncated: boolean;
+  }> = [];
+  let totalBytes = 0;
+  for (const requestedPath of targetPaths) {
+    const normalizedPath = normalizeMissionRelativePath(requestedPath);
+    if (!normalizedPath || normalizedPath !== requestedPath) {
+      return { complete: false, reads };
+    }
+    try {
+      const candidatePath = resolvePath(params.rootPath, ...normalizedPath.split("/"));
+      const canonicalPath = await realpath(candidatePath);
+      const fromRoot = relativePath(params.rootPath, canonicalPath);
+      if (
+        !fromRoot
+        || fromRoot === ".."
+        || fromRoot.startsWith(`..${pathSeparator}`)
+        || isAbsolute(fromRoot)
+      ) {
+        return { complete: false, reads };
+      }
+      const fileStat = await stat(canonicalPath);
+      if (
+        !fileStat.isFile()
+        || fileStat.size === 0
+        || fileStat.size > MISSION_OBSERVATION_FILE_MAX_BYTES
+        || totalBytes + fileStat.size > MISSION_OBSERVATION_TOTAL_MAX_BYTES
+      ) {
+        return { complete: false, reads };
+      }
+      const bytes = await readFile(canonicalPath);
+      if (bytes.length !== fileStat.size || bytes.includes(0)) {
+        return { complete: false, reads };
+      }
+      const body = bytes.toString("utf8");
+      if (!Buffer.from(body, "utf8").equals(bytes)) {
+        return { complete: false, reads };
+      }
+      totalBytes += bytes.length;
+      reads.push({
+        path: normalizedPath,
+        readType: "mission_observation",
+        lineStart: 1,
+        lineEnd: body.split(/\r?\n/u).length,
+        body,
+        complete: true,
+        truncated: false,
+      });
+    } catch {
+      return { complete: false, reads };
+    }
+  }
+
+  const endingRevision = await missionWorkspaceRevision(params.rootPath).catch(() => null);
+  const [projectAtEnd] = await db
+    .select({ updatedAt: projectsTable.updatedAt })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, params.projectId))
+    .limit(1);
+  const revisionStillBound =
+    endingRevision === params.workspaceRevision
+    && projectAtEnd?.updatedAt?.toISOString() === params.expectedProjectUpdatedAt;
+  if (!revisionStillBound) {
+    return { complete: false, reads: [] };
+  }
+  return {
+    complete: reads.length === targetPaths.length,
+    reads,
+  };
+}
+
+function missionObservationGraphIsProven(params: {
+  output: Awaited<ReturnType<typeof chatWithFallback>>["result"];
+  objective: ReturnType<typeof missionObjectiveContract>;
+  targetPaths: readonly string[];
+  projectContextRevision: string;
+}): boolean {
+  const graph = params.output.evidenceGraph;
+  const outputObjective = params.output.objective;
+  if (
+    !graph
+    || graph.sourceRevision !== params.projectContextRevision
+    || outputObjective?.objectiveType !== params.objective.objectiveType
+    || outputObjective.goal !== params.objective.goal
+    || params.output._parseError
+    || params.output._qualityError
+    || (params.output.pendingChanges?.length ?? 0) > 0
+  ) {
+    return false;
+  }
+  const expectedClaimIds = params.objective.requiredClaims.map((claim) => claim.claimId);
+  const outputClaimIds = outputObjective.requiredClaims.map((claim) => claim.claimId);
+  if (
+    expectedClaimIds.length === 0
+    || expectedClaimIds.length !== outputClaimIds.length
+    || expectedClaimIds.some((claimId) => !outputClaimIds.includes(claimId))
+  ) {
+    return false;
+  }
+  const provenClaimIds = new Set(
+    graph.nodes
+      .filter((node) => node.kind === "CLAIM" && node.status === "PROVEN")
+      .map((node) => node.id.replace(/^claim:/u, "")),
+  );
+  if (expectedClaimIds.some((claimId) => !provenClaimIds.has(claimId))) {
+    return false;
+  }
+  const retainedPaths = new Set(
+    graph.reads
+      .filter((read) => !read.truncated)
+      .map((read) => normalizeMissionRelativePath(read.path))
+      .filter((path): path is string => Boolean(path)),
+  );
+  const responseSources = new Set(
+    (params.output.sources ?? [])
+      .map((path) => normalizeMissionRelativePath(path))
+      .filter((path): path is string => Boolean(path)),
+  );
+  return params.targetPaths.every((path) =>
+    retainedPaths.has(path) && responseSources.has(path),
+  );
 }
 
 async function executeMissionToolLoop(params: {
@@ -2366,9 +2547,11 @@ async function executeMissionToolLoop(params: {
       // a read-only project query. Approval and file scope still gate writes.
       turnIntent: resolveTurnIntent(policy.objective, {
         authoritativeKind:
-          params.profile === "mission_repair" && approvalState === "APPROVED"
-            ? "DELIVERY"
-            : undefined,
+          params.profile === "mission_observe"
+            ? "PROJECT_QUERY"
+            : params.profile === "mission_repair" && approvalState === "APPROVED"
+              ? "DELIVERY"
+              : undefined,
       }),
       rootPath: root.canonicalPath,
       projectId: params.task.projectId,
@@ -2966,6 +3149,140 @@ async function executeMissionToolLoop(params: {
     if (candidateEffectContext) {
       await candidateEffectContext.workspace.cleanup();
     }
+  }
+
+  if (taskObjective && params.profile === "mission_observe") {
+    const targetPaths = objective.requiredEvidencePaths ?? [];
+    const projectContextRevision = params.projectContext.workspaceRevision ?? "";
+    const graphProven = missionObservationGraphIsProven({
+      output,
+      objective,
+      targetPaths,
+      projectContextRevision,
+    });
+    const sourceSnapshot = await collectMissionObservationSourceSnapshot({
+      rootPath: root.canonicalPath,
+      projectId: params.task.projectId,
+      expectedProjectUpdatedAt: params.expectedProjectUpdatedAt,
+      workspaceRevision: params.workspaceRevision,
+      targetPaths,
+    });
+    const receiptStatus =
+      graphProven && sourceSnapshot.complete ? "PROVEN" as const : "INCOMPLETE" as const;
+    const sourceReadHashes = sourceSnapshot.reads.map((read) => ({
+      path: read.path,
+      contentHash: createHash("sha256").update(read.body, "utf8").digest("hex"),
+    }));
+    const graphIdentityHash = createHash("sha256")
+      .update(JSON.stringify({
+        sourceRevision: output.evidenceGraph?.sourceRevision ?? null,
+        claims: (output.evidenceGraph?.nodes ?? [])
+          .filter((node) => node.kind === "CLAIM")
+          .map((node) => ({ id: node.id, status: node.status ?? null }))
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        reads: (output.evidenceGraph?.reads ?? [])
+          .map((read) => ({
+            path: read.path,
+            startLine: read.startLine,
+            endLine: read.endLine,
+            truncated: read.truncated,
+          }))
+          .sort((left, right) =>
+            left.path.localeCompare(right.path)
+            || left.startLine - right.startLine
+            || left.endLine - right.endLine,
+          ),
+      }))
+      .digest("hex");
+    const artifactDigest = createHash("sha256")
+      .update(JSON.stringify({
+        taskObjectiveHash: taskObjective.hash,
+        executionId: params.executionId,
+        projectId: params.task.projectId,
+        workspaceRevision: params.workspaceRevision,
+        projectContextRevision,
+        graphIdentityHash,
+        sourceReadHashes,
+      }))
+      .digest("hex");
+    validatorReceipts.push({
+      validatorId: "project-query-evidence.v1",
+      status: receiptStatus,
+      operationId: params.executionId,
+      projectId: params.task.projectId,
+      workspaceRevision: params.workspaceRevision,
+      artifactRef: `mission-observation-evidence:${params.executionId}:${artifactDigest}`,
+    });
+    const objectiveValidation = validateTaskObjectiveContract({
+      contract: taskObjective,
+      workspaceRevision: params.workspaceRevision,
+      projectId: params.task.projectId,
+      operationId: params.executionId,
+      objectiveValidated: graphProven,
+      evidenceVerdict: receiptStatus,
+      evidenceComplete: graphProven && sourceSnapshot.complete,
+      targetPaths: policy.targetPaths,
+      validatorReceipts,
+    });
+    const graph = output.evidenceGraph;
+    const outputObjective = output.objective;
+    const expectedClaimIds = objective.requiredClaims.map((claim) => claim.claimId);
+    const outputClaimIds = outputObjective?.requiredClaims.map((claim) => claim.claimId) ?? [];
+    const provenGraphClaimIds = new Set(
+      (graph?.nodes ?? [])
+        .filter((node) => node.kind === "CLAIM" && node.status === "PROVEN")
+        .map((node) => node.id.replace(/^claim:/u, "")),
+    );
+    const graphReadPaths = new Set(
+      (graph?.reads ?? [])
+        .filter((read) => !read.truncated)
+        .map((read) => normalizeMissionRelativePath(read.path))
+        .filter((path): path is string => Boolean(path)),
+    );
+    const responseSourcePaths = new Set(
+      (output.sources ?? [])
+        .map((path) => normalizeMissionRelativePath(path))
+        .filter((path): path is string => Boolean(path)),
+    );
+    console.info(JSON.stringify({
+      scope: "mission-observation-proof",
+      executionId: params.executionId,
+      profile: params.profile,
+      graphPresent: Boolean(graph),
+      graphRevisionMatchesContext: graph?.sourceRevision === projectContextRevision,
+      objectiveMatches: outputObjective?.objectiveType === objective.objectiveType
+        && outputObjective.goal === objective.goal,
+      claimIdsMatch: expectedClaimIds.length > 0
+        && expectedClaimIds.length === outputClaimIds.length
+        && expectedClaimIds.every((claimId) => outputClaimIds.includes(claimId)),
+      provenClaimCount: expectedClaimIds.filter((claimId) =>
+        provenGraphClaimIds.has(claimId),
+      ).length,
+      requiredClaimCount: expectedClaimIds.length,
+      targetPathsInGraphReads: targetPaths.filter((path) => graphReadPaths.has(path)).length,
+      targetPathsInResponseSources: targetPaths.filter((path) =>
+        responseSourcePaths.has(path),
+      ).length,
+      hasParseError: Boolean(output._parseError),
+      hasQualityError: Boolean(output._qualityError),
+      pendingChangeCount: output.pendingChanges?.length ?? 0,
+      sourceSnapshotComplete: sourceSnapshot.complete,
+      validatorAllowed: objectiveValidation.allowed,
+    }));
+    proofStatus = objectiveValidation.allowed
+      ? "PROVEN"
+      : "INCOMPLETE";
+    evidence = {
+      operationId: params.executionId,
+      workspaceRoot: root.canonicalPath,
+      sourceRevision: params.workspaceRevision,
+      candidateIdentity,
+      verdict: proofStatus,
+      required: true,
+      sourceEvidenceRequired: true,
+      reads: sourceSnapshot.reads,
+      artifacts: [],
+    };
   }
 
   const binaryEvidence = (output.binaryEvidence ?? []).flatMap((packet) => {
