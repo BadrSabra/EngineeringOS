@@ -16718,9 +16718,12 @@ async function applyChangesHandler(req: Request, res: Response) {
         .from(aiDeliveryPoliciesTable)
         .where(eq(aiDeliveryPoliciesTable.projectId, projectId))
         .limit(1);
-      const currentValidationEvidence = [...verificationByProfile.values()]
-        .map((validation) => ({
+      const currentValidationEvidence = [...verificationByProfile.entries()]
+        .map(([profile, validation]) => ({
+          profile,
           status: validation.status,
+          scenario: validation.scenario ?? "Registered validation did not return canonical evidence.",
+          exitCode: validation.exitCode ?? null,
           evidence: "evidence" in validation ? validation.evidence : undefined,
         }));
       const pairedBaseline = await loadPairedBaselineComparisonForProposal(proposal);

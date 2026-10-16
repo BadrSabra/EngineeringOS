@@ -6995,7 +6995,7 @@ describe("delivery recovery routes", () => {
 
       const promoted = await request(app)
         .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
-      expect(promoted.status).toBe(200);
+      expect(promoted.status, JSON.stringify(promoted.body)).toBe(200);
       expect(promoted.body).toMatchObject({
         automaticPromotion: true,
         applyStatus: "APPLIED",
