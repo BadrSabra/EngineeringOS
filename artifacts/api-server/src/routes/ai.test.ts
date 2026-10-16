@@ -7053,11 +7053,11 @@ describe("delivery recovery routes", () => {
              jsonb_set(
                receipt,
                '{pairedBaseline,${pairedRunField}}',
-               to_jsonb('${foreignRunId}'),
+               to_jsonb('${foreignRunId}'::text),
                true
              ),
              '{pairedBaseline,contract,${pairedRunField}}',
-             to_jsonb('${foreignRunId}'),
+             to_jsonb('${foreignRunId}'::text),
              true
            )
            WHERE proposal_id = NEW.id;`;
