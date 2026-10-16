@@ -132,6 +132,12 @@ type MissionAnswerEvidenceBinding = {
   excerptHash: string;
 };
 
+type MissionAnswerProofEvidenceBinding = MissionAnswerEvidenceBinding & {
+  excerpt?: string;
+  excerptRedacted?: boolean;
+  excerptUnavailableReason?: "excerpt_too_large" | "receipt_size_limit";
+};
+
 function pendingPlanVerificationSteps(plan: typeof tasksTable.$inferSelect["remediationPlan"]) {
   if (!plan) return [];
   const checks = plan.verificationChecks?.length
@@ -301,6 +307,7 @@ async function inspectMissionTaskAdmission(
 
 const RECEIPT_MAX_BYTES = 8_000;
 const RECEIPT_MAX_SUMMARY = 6_000;
+const RECEIPT_MAX_EVIDENCE_EXCERPT_BYTES = 1_024;
 const RECEIPT_MAX_STAGES = 12;
 const RECEIPT_MAX_STEPS = 24;
 const RECEIPT_MAX_TEXT = 480;
@@ -366,7 +373,7 @@ export type AiTaskExecutionReceipt = {
   provider: ProviderId;
   model: string;
   answerProof?: {
-    version: 2;
+    version: 3;
     status: "PROVEN";
     executionId: string;
     attempt: number;
@@ -377,7 +384,7 @@ export type AiTaskExecutionReceipt = {
     responseSource: "provider_synthesis" | "deterministic_fallback";
     claimCount: number;
     claimIdsHash: string;
-    evidenceBindings: MissionAnswerEvidenceBinding[];
+    evidenceBindings: MissionAnswerProofEvidenceBinding[];
     evidenceBindingHash: string;
     summaryHash?: string;
     summaryTruncated?: boolean;
@@ -504,13 +511,32 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
         )!,
         evidenceBindings: receiptValue.answerProof.evidenceBindings
           .slice(0, 12)
-          .map((binding) => ({
-            claimId: safeMachineIdentity(binding.claimId, 120),
-            source: binding.source.slice(0, 500),
-            startLine: binding.startLine,
-            endLine: binding.endLine,
-            excerptHash: safeMachineIdentity(binding.excerptHash, 64),
-          })),
+          .map((binding) => {
+            const redactedExcerpt = binding.excerpt === undefined
+              ? undefined
+              : redactUserFacingText(binding.excerpt);
+            const excerptFits = redactedExcerpt !== undefined
+              && Buffer.byteLength(redactedExcerpt, "utf8")
+                <= RECEIPT_MAX_EVIDENCE_EXCERPT_BYTES;
+            return {
+              claimId: safeMachineIdentity(binding.claimId, 120),
+              source: binding.source.slice(0, 500),
+              startLine: binding.startLine,
+              endLine: binding.endLine,
+              excerptHash: safeMachineIdentity(binding.excerptHash, 64),
+              ...(excerptFits
+                ? {
+                    excerpt: redactedExcerpt,
+                    ...(redactedExcerpt !== binding.excerpt ? { excerptRedacted: true } : {}),
+                  }
+                : {}),
+              ...(!excerptFits && binding.excerpt !== undefined
+                ? { excerptUnavailableReason: "excerpt_too_large" as const }
+                : binding.excerptUnavailableReason
+                  ? { excerptUnavailableReason: binding.excerptUnavailableReason }
+                  : {}),
+            };
+          }),
         ...(receiptValue.answerProof.synthesisAttemptId
           ? {
               synthesisAttemptId: safeMachineIdentity(
@@ -570,14 +596,36 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
         proofObligations: bounded.stateProjection.proofObligations.slice(0, 3),
       }
     : undefined;
-  const compact: AiTaskExecutionReceipt = {
+  let compact: AiTaskExecutionReceipt = {
     ...bounded,
     evidenceRefs: bounded.evidenceRefs.slice(0, 4),
     ...(bounded.steps ? { steps: bounded.steps.slice(0, 4) } : {}),
     ...(compactStateProjection ? { stateProjection: compactStateProjection } : {}),
   };
-  const compactWithoutSummary = { ...compact };
+  let compactWithoutSummary = { ...compact };
   delete compactWithoutSummary.summary;
+  if (
+    Buffer.byteLength(JSON.stringify(compactWithoutSummary), "utf8") > RECEIPT_MAX_BYTES
+    && compact.answerProof
+  ) {
+    compact = {
+      ...compact,
+      answerProof: {
+        ...compact.answerProof,
+        evidenceBindings: compact.answerProof.evidenceBindings.map((binding) => {
+          const { excerpt, ...bindingWithoutExcerpt } = binding;
+          return {
+            ...bindingWithoutExcerpt,
+            ...(excerpt !== undefined
+              ? { excerptUnavailableReason: "receipt_size_limit" as const }
+              : {}),
+          };
+        }),
+      },
+    };
+    compactWithoutSummary = { ...compact };
+    delete compactWithoutSummary.summary;
+  }
   const summaryBudget = Math.max(
     0,
     RECEIPT_MAX_BYTES
@@ -587,10 +635,14 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
   const compactSummary = compact.summary
     ? truncateUtf8Text(compact.summary, summaryBudget)
     : undefined;
-  return {
+  const compactedReceipt = {
     ...compact,
     ...(compactSummary ? { summary: compactSummary } : {}),
   };
+  if (Buffer.byteLength(JSON.stringify(compactedReceipt), "utf8") > RECEIPT_MAX_BYTES) {
+    throw new Error("Task receipt proof exceeds the bounded receipt contract.");
+  }
+  return compactedReceipt;
 }
 
 export function buildAiTaskExecutionReceipt(params: {
@@ -2322,7 +2374,7 @@ export function missionObservationAnswerAttestationIsValid(params: {
     );
 }
 
-export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
+export function missionObservationEvidenceBindingsFromSourceSnapshot(params: {
   attestation: NonNullable<MissionChatOutput["projectQueryAnswerAttestation"]> | undefined;
   objective: ReturnType<typeof missionObjectiveContract>;
   targetPaths: readonly string[];
@@ -2333,7 +2385,7 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
     complete: boolean;
     truncated: boolean;
   }>;
-}): boolean {
+}): Array<MissionAnswerEvidenceBinding & { excerpt: string }> | undefined {
   const { attestation } = params;
   if (
     !attestation
@@ -2342,7 +2394,7 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
     || attestation.evidenceBindings.length !== params.objective.requiredClaims.length
     || attestation.claimIds.length !== params.objective.requiredClaims.length
   ) {
-    return false;
+    return undefined;
   }
 
   const targetPaths = new Set(
@@ -2360,12 +2412,13 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
     bindingsByClaimId.size !== params.objective.requiredClaims.length
     || attestation.claimIds.some((claimId) => !bindingsByClaimId.has(claimId))
   ) {
-    return false;
+    return undefined;
   }
 
+  const verifiedBindings: Array<MissionAnswerEvidenceBinding & { excerpt: string }> = [];
   for (const claim of params.objective.requiredClaims) {
     const binding = bindingsByClaimId.get(claim.claimId);
-    if (!binding) return false;
+    if (!binding) return undefined;
     const source = normalizeMissionRelativePath(binding.source);
     const allowedPaths = claim.requiredEvidencePaths
       ?? params.objective.requiredEvidencePaths
@@ -2381,11 +2434,11 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
       || !read.complete
       || read.truncated
     ) {
-      return false;
+      return undefined;
     }
 
     const lines = read.body.split("\n");
-    if (binding.endLine > lines.length) return false;
+    if (binding.endLine > lines.length) return undefined;
     const excerpt = lines
       .slice(binding.startLine - 1, binding.endLine)
       .join("\n")
@@ -2393,7 +2446,8 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
     const excerptHash = createHash("sha256")
       .update(excerpt, "utf8")
       .digest("hex");
-    if (!excerpt || excerptHash !== binding.excerptHash) return false;
+    if (!excerpt || excerptHash !== binding.excerptHash) return undefined;
+    verifiedBindings.push({ ...binding, excerpt });
   }
 
   const canonicalEvidenceBindings = [...attestation.evidenceBindings].sort((left, right) =>
@@ -2402,9 +2456,27 @@ export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
     || left.startLine - right.startLine
     || left.endLine - right.endLine,
   );
-  return createHash("sha256")
+  const calculatedBindingHash = createHash("sha256")
     .update(JSON.stringify(canonicalEvidenceBindings), "utf8")
-    .digest("hex") === attestation.evidenceBindingHash;
+    .digest("hex");
+  return calculatedBindingHash === attestation.evidenceBindingHash
+    ? verifiedBindings
+    : undefined;
+}
+
+export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
+  attestation: NonNullable<MissionChatOutput["projectQueryAnswerAttestation"]> | undefined;
+  objective: ReturnType<typeof missionObjectiveContract>;
+  targetPaths: readonly string[];
+  sourceRevision: string;
+  reads: Array<{
+    path: string;
+    body: string;
+    complete: boolean;
+    truncated: boolean;
+  }>;
+}): boolean {
+  return missionObservationEvidenceBindingsFromSourceSnapshot(params) !== undefined;
 }
 
 function toMissionAnswerProofReceipt(
@@ -2415,9 +2487,10 @@ function toMissionAnswerProofReceipt(
     projectId: string;
     workspaceRevision: string;
   },
+  verifiedBindings: Array<MissionAnswerEvidenceBinding & { excerpt: string }>,
 ): NonNullable<AiTaskExecutionReceipt["answerProof"]> {
   return {
-    version: 2,
+    version: 3,
     status: "PROVEN",
     executionId: identity.executionId,
     attempt: identity.attempt,
@@ -2430,7 +2503,7 @@ function toMissionAnswerProofReceipt(
     claimIdsHash: createHash("sha256")
       .update(JSON.stringify(attestation.claimIds), "utf8")
       .digest("hex"),
-    evidenceBindings: attestation.evidenceBindings,
+    evidenceBindings: verifiedBindings,
     evidenceBindingHash: attestation.evidenceBindingHash,
     ...(attestation.synthesisAttemptId
       ? { synthesisAttemptId: attestation.synthesisAttemptId }
