@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import app from "../app.js";
@@ -663,20 +663,26 @@ async function insertChangeProposal(
 async function makeRecoverableProposal(
   projectId: string,
   lifecycle: "isolated" | "abandoned" | "blocked" | "conflicted" = "blocked",
-  options: { withWorkspace?: boolean; conflictReason?: string; changePath?: string } = {},
+  options: {
+    withWorkspace?: boolean;
+    conflictReason?: string;
+    changePath?: string;
+    absolutePathRoot?: string;
+    validationProfile?: "api-ai-tests" | "workspace-typecheck";
+  } = {},
 ): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
   path: string;
   absolutePath: string;
   newContent: string;
-  validationProfile: "api-ai-tests";
+  validationProfile: "api-ai-tests" | "workspace-typecheck";
 } }> {
   const operationId = randomUUID();
   const fileName = options.changePath ?? `recovery-${operationId.slice(0, 8)}.ts`;
   const change = {
     path: fileName,
-    absolutePath: `/tmp/${fileName}`,
+    absolutePath: `${options.absolutePathRoot ?? "/tmp"}/${fileName}`,
     newContent: "export const recovered = true;\n",
-    validationProfile: "api-ai-tests" as const,
+    validationProfile: options.validationProfile ?? "api-ai-tests",
   };
   const proposalId = await insertChangeProposal(projectId, [change]);
   let workspaceRoot: string | null = null;
@@ -6691,11 +6697,19 @@ describe("delivery recovery routes", () => {
     await expect(fs.access(operation.change.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("blocks auto-promotion before writes when the current replay's paired run identity differs", async () => {
+  it("rechecks Gate 3 before writing if the paired receipt changes during auto-promotion", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
+    const [project] = await db.select({ rootPath: projectsTable.rootPath })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    if (!project?.rootPath) throw new Error("Test project root is missing.");
+    const changedPath = "README.md";
     const operation = await makeRecoverableProposal(projectId, "isolated", {
-      changePath: "README.md",
+      changePath: changedPath,
+      absolutePathRoot: project.rootPath,
+      validationProfile: "workspace-typecheck",
     });
     if (!operation.workspaceRoot) {
       throw new Error("Test proposal is missing its managed workspace root.");
@@ -6721,11 +6735,6 @@ describe("delivery recovery routes", () => {
       throw new Error("Test proposal is missing its revision, trees, or managed workspace.");
     }
 
-    const [project] = await db.select({ rootPath: projectsTable.rootPath })
-      .from(projectsTable)
-      .where(eq(projectsTable.id, projectId))
-      .limit(1);
-    if (!project?.rootPath) throw new Error("Test project root is missing.");
     await fs.writeFile(`${project.rootPath}/package.json`, "{}\n", "utf8");
     const liveProjectTreeHashBefore = await hashDeliveryTree(project.rootPath);
     expect(liveProjectTreeHashBefore).toBe(proposal.baseTreeHash);
@@ -6934,23 +6943,24 @@ describe("delivery recovery routes", () => {
       mode: "manual",
       approvedBy: "test-user",
     });
-    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation").mockResolvedValue({
-      status: "passed",
-      profile: "api-ai-tests",
-      exitCode: 0,
-      scenario: "Run API tests for Gate 3 recovery.",
-      command: "pnpm test",
-      stdout: "",
-      stderr: "",
-      failedTests: [],
-      changedFiles: [],
-      evidence: {
-        evidenceId: randomUUID(),
-        observedAt: new Date().toISOString(),
-        artifactRef: "gate3-recovery-validation",
-      },
-      detail: "Validation passed.",
-    });
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockImplementation(async (_candidateRoot, profile) => ({
+        status: "passed",
+        profile,
+        exitCode: 0,
+        scenario: "Validate the Gate 3 recovery fixture.",
+        command: "pnpm run typecheck",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "gate3-recovery-validation",
+        },
+        detail: "Validation passed.",
+      }));
 
     const res = await request(app)
       .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
@@ -7002,9 +7012,85 @@ describe("delivery recovery routes", () => {
     expect(validationSpy).toHaveBeenCalledTimes(1);
     expect(await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
-    await expect(fs.access(`${project.rootPath}/README.md`))
+    await expect(fs.access(`${project.rootPath}/${changedPath}`))
       .rejects.toMatchObject({ code: "ENOENT" });
     expect(await hashDeliveryTree(project.rootPath)).toBe(liveProjectTreeHashBefore);
+
+    await db.update(aiShadowReplaysTable)
+      .set({ receipt: matchingReceipt })
+      .where(eq(aiShadowReplaysTable.id, replayId));
+    await db.update(aiChangeProposalsTable)
+      .set({ lifecycle: "isolated" })
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const triggerSuffix = randomUUID().replaceAll("-", "");
+    const triggerName = `e3_gate3_receipt_${triggerSuffix}`;
+    const functionName = `e3_gate3_receipt_fn_${triggerSuffix}`;
+    try {
+      await db.execute(sql.raw(`
+        CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.id = '${operation.proposalId}'
+            AND NEW.lifecycle = 'validated'
+            AND OLD.lifecycle IS DISTINCT FROM NEW.lifecycle THEN
+            UPDATE ai_shadow_replays
+            SET receipt = jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  receipt,
+                  '{pairedBaseline,candidateRunId}',
+                  to_jsonb((receipt->>'replayId') || ':foreign-candidate'),
+                  true
+                ),
+                '{pairedBaseline,contract,candidateRunId}',
+                to_jsonb((receipt->>'replayId') || ':foreign-candidate'),
+                true
+              ),
+              '{pairedBaseline,contract,pairId}',
+              to_jsonb('shadow-replay-pair:foreign:' || (receipt->>'replayId')),
+              true
+            )
+            WHERE proposal_id = NEW.id;
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+      `));
+      await db.execute(sql.raw(`
+        CREATE TRIGGER ${triggerName}
+        AFTER UPDATE OF lifecycle ON ai_change_proposals
+        FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+      `));
+
+      validationSpy.mockClear();
+      const recheckedApply = await request(app)
+        .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+      expect(recheckedApply.status).toBe(207);
+      expect(recheckedApply.body).toMatchObject({
+        automaticPromotion: true,
+        results: [{
+          ok: false,
+          writeStatus: "not_written",
+          persistenceVerified: false,
+        }],
+      });
+      expect(recheckedApply.body.results[0].error)
+        .toContain("Automatic delivery promotion was blocked");
+      expect(recheckedApply.body.results[0].error).toContain("paired_baseline_missing");
+      expect(validationSpy).toHaveBeenCalledTimes(2);
+
+      const blockedJournals = await db.select().from(aiApplyJournalTable)
+        .where(eq(aiApplyJournalTable.operationId, operation.operationId));
+      expect(blockedJournals.some((entry) => entry.stage === "BLOCKED")).toBe(true);
+      expect(blockedJournals.find((entry) => entry.stage === "BLOCKED")?.payload)
+        .toMatchObject({ reason: "automatic_promotion_policy" });
+      await expect(fs.access(`${project.rootPath}/${changedPath}`))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      expect(await hashDeliveryTree(project.rootPath)).toBe(liveProjectTreeHashBefore);
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_change_proposals`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+    }
   });
 
   it("does not report validated recovery when its workspace is gone", async () => {
