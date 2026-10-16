@@ -669,6 +669,7 @@ async function makeRecoverableProposal(
     changePath?: string;
     absolutePathRoot?: string;
     validationProfile?: "api-ai-tests" | "workspace-typecheck";
+    sourceFiles?: Array<{ path: string; content: string }>;
   } = {},
 ): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
   path: string;
@@ -692,7 +693,12 @@ async function makeRecoverableProposal(
   if (options.withWorkspace !== false) {
     const sourceRoot = `/tmp/recovery-source-${operationId}`;
     await fs.mkdir(sourceRoot, { recursive: true });
-    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    const sourceFiles = options.sourceFiles ?? [{ path: "package.json", content: "{}\n" }];
+    for (const file of sourceFiles) {
+      const parentPath = file.path.slice(0, file.path.lastIndexOf("/"));
+      if (parentPath) await fs.mkdir(`${sourceRoot}/${parentPath}`, { recursive: true });
+      await fs.writeFile(`${sourceRoot}/${file.path}`, file.content, "utf8");
+    }
     const workspace = await createDeliveryWorkspace({
       rootPath: sourceRoot,
       operationId,
@@ -6714,10 +6720,38 @@ describe("delivery recovery routes", () => {
       .limit(1);
     if (!project?.rootPath) throw new Error("Test project root is missing.");
     const changedPath = "README.md";
+    const validationPackageJson = `${JSON.stringify({
+      name: "e3-paired-baseline-validation",
+      private: true,
+      scripts: { typecheck: "tsc --noEmit" },
+    }, null, 2)}\n`;
+    const validationFixtureFiles = mutation === "matching-write"
+      ? [
+        { path: "package.json", content: validationPackageJson },
+        {
+          path: "tsconfig.json",
+          content: `${JSON.stringify({
+            compilerOptions: {
+              strict: true,
+              noEmit: true,
+              target: "ES2020",
+              module: "commonjs",
+              moduleResolution: "node",
+            },
+            include: ["src/**/*.ts"],
+          }, null, 2)}\n`,
+        },
+        {
+          path: "src/fixture.ts",
+          content: "export const candidateIsValid: { valid: boolean } = { valid: true };\n",
+        },
+      ]
+      : undefined;
     const operation = await makeRecoverableProposal(projectId, "isolated", {
       changePath: changedPath,
       absolutePathRoot: project.rootPath,
       validationProfile: "workspace-typecheck",
+      sourceFiles: validationFixtureFiles,
     });
     if (!operation.workspaceRoot) {
       throw new Error("Test proposal is missing its managed workspace root.");
