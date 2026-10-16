@@ -775,6 +775,17 @@ describe('Tasks recovery rendering', () => {
       error: null,
       refetch: vi.fn(),
     } as ReturnType<typeof useGetTaskLogs>);
+    vi.mocked(useGetAiExecution).mockReturnValue({
+      data: {
+        id: 'execution-current',
+        correlationId: 'correlation-current',
+        linkedTaskId: 'task-progress',
+        attempt: 2,
+      } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetAiExecution>);
 
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Replay progress timeline' }));
@@ -800,12 +811,12 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('نتيجة التنفيذ')).toBeInTheDocument();
   });
 
-  it('does not present a prior correlation progress percentage as current task progress', () => {
+  it('does not present a prior attempt percentage while a resumed attempt has no progress events', () => {
     const staleProgressLog = {
       id: 'progress-previous',
       taskId: 'task-current',
       level: 'info' as const,
-      message: 'Previous attempt nearly complete.',
+      message: 'Previous correlation nearly complete.',
       timestamp: '2026-08-25T10:02:00.000Z',
       eventType: 'progress' as const,
       executionId: 'execution-previous',
@@ -814,15 +825,26 @@ describe('Tasks recovery rendering', () => {
       sequence: 12,
       progressStage: 'finalization' as const,
       progressStatus: 'active' as const,
+      progressPercent: 88,
+      progressMessage: 'Previous correlation nearing completion.',
+    };
+    const staleSameCorrelationLog = {
+      ...staleProgressLog,
+      id: 'progress-resumed-previous-attempt',
+      message: 'Previous resumed attempt nearly complete.',
+      executionId: 'execution-current',
+      correlationId: 'correlation-current',
+      attempt: 1,
+      sequence: 13,
       progressPercent: 96,
-      progressMessage: 'Previous attempt nearing completion.',
+      progressMessage: 'Previous resumed attempt nearing completion.',
     };
     vi.mocked(useListTasks).mockReturnValue({
       data: [{
         id: 'task-current',
         projectId: 'project-1',
         title: 'Retry before progress starts',
-        status: 'queued',
+        status: 'running',
         correlationId: 'correlation-current',
         priority: 'p1',
         phase: 'execute',
@@ -837,20 +859,42 @@ describe('Tasks recovery rendering', () => {
       dataUpdatedAt: 0,
     } as ReturnType<typeof useListTasks>);
     vi.mocked(useGetTaskLogs).mockReturnValue({
-      data: [staleProgressLog],
+      data: [staleProgressLog, staleSameCorrelationLog],
       isLoading: false,
       isError: false,
       error: null,
       refetch: vi.fn(),
     } as ReturnType<typeof useGetTaskLogs>);
+    vi.mocked(useGetAiExecution).mockReturnValue({
+      data: {
+        id: 'execution-current',
+        correlationId: 'correlation-current',
+        linkedTaskId: 'task-current',
+        attempt: 1,
+      } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
+      isLoading: false,
+      isFetching: true,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetAiExecution>);
+    class MockEventSource {
+      onerror: ((event: Event) => void) | null = null;
+      addEventListener = vi.fn();
+      close = vi.fn();
+    }
+    vi.stubGlobal('EventSource', MockEventSource);
 
-    renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Retry before progress starts' }));
-    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+    try {
+      renderPage();
+      fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Retry before progress starts' }));
+      fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
-    const progressMetric = screen.getByText('التقدم').parentElement;
-    expect(progressMetric).not.toHaveTextContent('96%');
-    expect(progressMetric).toHaveTextContent('خطوات');
+      const progressMetric = screen.getByText('التقدم').parentElement;
+      expect(progressMetric).not.toHaveTextContent('96%');
+      expect(progressMetric).not.toHaveTextContent('88%');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('keeps long activity timelines bounded while preserving the first and latest events', () => {

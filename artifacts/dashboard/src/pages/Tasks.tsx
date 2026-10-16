@@ -572,25 +572,32 @@ const TIMELINE_STAGES: Array<{ stage: string; title: string }> = [
   { stage: 'result', title: 'النتيجة النهائية' },
 ];
 
-function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
+function currentTaskProgressLogs(
+  task: TaskView,
+  logs: TaskLog[],
+  currentAttempt: number | null | undefined,
+): TaskLog[] {
   const currentCorrelationId = typeof task.correlationId === 'string' && task.correlationId.trim()
     ? task.correlationId.trim()
     : null;
-  const scopedStructured = currentCorrelationId
-    ? logs.filter((log) =>
-      (log.eventType === 'progress' || log.eventType === 'terminal')
-      && log.correlationId === currentCorrelationId
-      && typeof log.attempt === 'number'
-      && Number.isSafeInteger(log.attempt)
-      && log.attempt >= 0)
-    : [];
-  const latestAttempt = scopedStructured.reduce(
-    (latest, log) => Math.max(latest, log.attempt as number),
-    -1,
-  );
-  const structured = latestAttempt >= 0
-    ? scopedStructured.filter((log) => log.attempt === latestAttempt)
-    : [];
+  if (
+    !currentCorrelationId
+    || typeof currentAttempt !== 'number'
+    || !Number.isSafeInteger(currentAttempt)
+    || currentAttempt < 0
+  ) return [];
+  return logs.filter((log) =>
+    (log.eventType === 'progress' || log.eventType === 'terminal')
+    && log.correlationId === currentCorrelationId
+    && log.attempt === currentAttempt);
+}
+
+function taskPlan(
+  task: TaskView,
+  logs: TaskLog[],
+  currentAttempt: number | null | undefined,
+): TimelineStep[] {
+  const structured = currentTaskProgressLogs(task, logs, currentAttempt);
   if (structured.length > 0) {
     const latestByStage = new Map<string, TaskLog>();
     for (const log of [...structured].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))) {
@@ -740,14 +747,40 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     for (const log of liveLogs) allLogs.set(log.id, log);
     return [...allLogs.values()].sort((a, b) => logOrder(a, b));
   }, [liveLogs, polledLogs]);
+  const currentCorrelationId = typeof task.correlationId === 'string' && task.correlationId.trim()
+    ? task.correlationId.trim()
+    : null;
+  const currentExecutionId = currentCorrelationId
+    ? [...logs].reverse().find((log) =>
+      log.correlationId === currentCorrelationId
+      && typeof log.executionId === 'string'
+      && log.executionId.trim())?.executionId ?? ''
+    : '';
+  const { data: currentExecution, isFetching: currentExecutionFetching } = useGetAiExecution(currentExecutionId, {
+    query: {
+      queryKey: ['task-execution-projection', taskId, currentExecutionId],
+      enabled: Boolean(currentExecutionId),
+      refetchInterval: currentExecutionId ? 5_000 : false,
+    },
+  });
+  const currentExecutionAttempt = task.status === 'running' && currentExecutionFetching
+    ? null
+    : currentExecution?.id === currentExecutionId
+      && currentExecution.correlationId === currentCorrelationId
+      && currentExecution.linkedTaskId === taskId
+      ? currentExecution.attempt
+      : null;
   const operationId = logs
     .map((log) => log.metadata?.operationId)
     .find((value): value is string => typeof value === 'string');
   const groupedActivity = useMemo(() => groupActivity(logs), [logs]);
   const activityItems = useMemo(() => visibleActivityItems(groupedActivity), [groupedActivity]);
-  const plan = useMemo(() => taskPlan(task, logs), [logs, task]);
+  const plan = useMemo(
+    () => taskPlan(task, logs, currentExecutionAttempt),
+    [currentExecutionAttempt, logs, task],
+  );
   const completedSteps = plan.filter((step) => step.status === 'done').length;
-  const serverPercent = logs
+  const serverPercent = currentTaskProgressLogs(task, logs, currentExecutionAttempt)
     .filter((log) => log.progressPercent !== null && log.progressPercent !== undefined)
     .sort(logOrder)
     .at(-1)?.progressPercent;
