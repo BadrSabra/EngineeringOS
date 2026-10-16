@@ -50,3 +50,9 @@ Durable Mission tool fixtures must assert the provider-visible tool list after r
 **Why:** Natural-language routing can narrow an otherwise authorized request to forensic tools, while a fake provider can emit a tool absent from its manifest; missing profile approval correctly blocks dispatch.
 
 **How to apply:** Exercise the production chat helper, assert the requested tool appears in provider options, and keep the validation runner server-owned and limited to the Mission policy profile.
+
+End-to-end provider fixtures must match the executor and structured-output contract selected by the production route, not the UI-level framing. For Mission completion, a durable execution-acceptance ID or receipt can exist while the Goal remains `verifying`; assert the persisted verdict (`INCOMPLETE` versus `PROVEN`) after reload.
+
+**Why:** A chat-envelope fixture failed the real TaskAgent schema, and an acceptance ID identifies a durable execution record but does not establish Canonical Proof.
+
+**How to apply:** Trace the route to its actual executor before shaping fixture output; verify both Goal status and projected acceptance verdict without manufacturing proof.

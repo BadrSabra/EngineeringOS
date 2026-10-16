@@ -5,8 +5,9 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   isClerkHandoffNavigationAbort,
   parseClerkSignInTokenResponse,
@@ -5486,6 +5487,222 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       action: "approve",
     });
     browserErrors.assertClean();
+  });
+
+  test("executes a real Mission Goal and reloads its durable non-proof result", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const browserErrors = installBrowserErrorMonitor(page);
+    const projectRoot = resolve(
+      process.cwd(),
+      "test-results",
+      "goal-first-e2e",
+      `project-${randomUUID()}`,
+    );
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(
+      resolve(projectRoot, "package.json"),
+      JSON.stringify({
+        name: "goal-first-e2e-fixture",
+        private: true,
+        version: "1.0.0",
+      }, null, 2),
+      "utf8",
+    );
+    await writeFile(
+      resolve(projectRoot, "README.md"),
+      "# Goal-first E2E fixture\n\nThis disposable project is used only by the isolated browser journey.\n",
+      "utf8",
+    );
+
+    try {
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      const projectName = `Goal-first E2E ${randomUUID().slice(0, 8)}`;
+      const projectResponse = await page.evaluate(async (input) => {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const body = await response.json().catch(() => null);
+        return { status: response.status, body };
+      }, {
+        name: projectName,
+        rootPath: projectRoot,
+        language: "TypeScript",
+      });
+      expect(
+        projectResponse.status,
+        `Real project registration failed: ${JSON.stringify(projectResponse.body)}`,
+      ).toBe(201);
+      const projectId = (projectResponse.body as { id?: unknown } | null)?.id;
+      expect(typeof projectId).toBe("string");
+
+      await page.goto(`${DASHBOARD_PATH}missions`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        page.getByRole("heading", { name: "الأهداف", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByTestId("select-mission-project")).toHaveValue(
+        projectId as string,
+      );
+
+      await page.getByTestId("button-create-mission").click();
+      await page.getByTestId("mission-title").fill("Goal-first durable run");
+      await page.getByTestId("mission-intent").fill(
+        "Reply with a short confirmation that this goal-first run completed.",
+      );
+      const missionResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/missions")
+        && response.request().method() === "POST"
+      ));
+      await page.getByTestId("button-save-editor").click();
+      const missionResponse = await missionResponsePromise;
+      expect(missionResponse.status()).toBe(201);
+      const mission = await missionResponse.json() as {
+        id: string;
+        status: string;
+      };
+      expect(mission.status).toBe("active");
+
+      const readProjection = async () => page.evaluate(async (missionId) => {
+        const response = await fetch(
+          `/api/ai/missions/${encodeURIComponent(missionId)}/projection`,
+        );
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, mission.id);
+
+      await expect.poll(async () => {
+        const projectionResponse = await readProjection();
+        if (projectionResponse.status !== 200 || !projectionResponse.body) {
+          return [];
+        }
+        const projection = projectionResponse.body as {
+          goals?: Array<{
+            goal?: { status?: string };
+            currentAttempt?: { status?: string } | null;
+          }>;
+        };
+        return (projection.goals ?? []).map(
+          (entry) =>
+            `${entry.goal?.status ?? "missing"}/${entry.currentAttempt?.status ?? "missing"}`,
+        );
+      }, {
+        timeout: 120_000,
+        intervals: [500, 1_000, 2_000],
+      }).toContain("verifying/completed");
+
+      const durableProjection = await readProjection();
+      expect(durableProjection.status).toBe(200);
+      const projection = durableProjection.body as {
+        mission?: { title?: string };
+        currentPlan?: { binding?: string; goalIds?: string[] };
+        goals?: Array<{
+          goal?: {
+            id?: string;
+            status?: string;
+            outcomeContract?: {
+              acceptance?: {
+                executionId?: string;
+                outcome?: string;
+                verdict?: string;
+                acceptanceId?: string;
+                receipt?: {
+                  kind?: string;
+                  executionId?: string;
+                  status?: string;
+                };
+              };
+            };
+          };
+          currentAttempt?: {
+            id?: string;
+            status?: string;
+            completedAt?: string | null;
+          } | null;
+        }>;
+      };
+      const durableGoal = projection.goals?.find(
+        (entry) =>
+          entry.goal?.status === "verifying"
+          && entry.currentAttempt?.status === "completed",
+      );
+      const durableGoalId = durableGoal?.goal?.id;
+      expect(durableGoalId).toBeTruthy();
+      expect(durableGoal?.currentAttempt?.completedAt).toBeTruthy();
+      expect(projection.currentPlan?.binding).toBe("active_revision");
+      expect(projection.mission?.title).toBe("Goal-first durable run");
+
+      // A reply-only task may finish durably, but it is not Canonical Proof.
+      // Keep that boundary explicit instead of promoting fixture output.
+      const acceptance = durableGoal?.goal?.outcomeContract?.acceptance;
+      expect(acceptance).toMatchObject({
+        executionId: durableGoal?.currentAttempt?.id,
+        outcome: "SUCCEEDED",
+        verdict: "INCOMPLETE",
+        receipt: {
+          kind: "execution_acceptance",
+          executionId: durableGoal?.currentAttempt?.id,
+          status: "completed",
+        },
+      });
+      expect(acceptance?.verdict).not.toBe("PROVEN");
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page.getByTestId(`text-mission-title-${mission.id}`),
+      ).toHaveText("Goal-first durable run");
+      if (!durableGoalId) {
+        throw new Error("The durable Goal has no identifier.");
+      }
+      await expect(
+        page.getByTestId(`card-goal-${durableGoalId}`),
+      ).toBeVisible();
+      const reloadedProjection = await readProjection();
+      expect(reloadedProjection.status).toBe(200);
+      const reloadedGoal = (
+        reloadedProjection.body as {
+          goals?: Array<{
+            goal?: {
+              id?: string;
+              status?: string;
+              outcomeContract?: {
+                acceptance?: {
+                  executionId?: string;
+                  outcome?: string;
+                  verdict?: string;
+                  acceptanceId?: string;
+                };
+              };
+            };
+            currentAttempt?: {
+              id?: string;
+              status?: string;
+              completedAt?: string | null;
+            } | null;
+          }>;
+        }
+      ).goals?.find((entry) => entry.goal?.id === durableGoalId);
+      expect(reloadedGoal?.goal?.status).toBe("verifying");
+      expect(reloadedGoal?.currentAttempt?.status).toBe("completed");
+      expect(reloadedGoal?.currentAttempt?.completedAt).toBeTruthy();
+      expect(reloadedGoal?.goal?.outcomeContract?.acceptance).toMatchObject({
+        executionId: reloadedGoal?.currentAttempt?.id,
+        outcome: "SUCCEEDED",
+        verdict: "INCOMPLETE",
+      });
+      expect(
+        reloadedGoal?.goal?.outcomeContract?.acceptance?.verdict,
+      ).not.toBe("PROVEN");
+      browserErrors.assertClean();
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
   });
 
   test("proves the protected dashboard requires and accepts Clerk authentication", async ({

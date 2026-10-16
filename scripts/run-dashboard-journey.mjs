@@ -4,6 +4,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   acquireReleaseLock,
   acquireReleaseRunnerLock,
@@ -59,6 +60,11 @@ const dashboardTestMode =
 let groqCatalogFixtureMode =
   process.env.DASHBOARD_E2E_GROQ_CATALOG_FIXTURE_MODE ?? "healthy";
 const groqCatalogFixtureEnabled = dashboardTestMode === "fixture";
+const missionProviderFixtureEnabled =
+  process.env.DASHBOARD_E2E_PROVIDER_FIXTURE === "1";
+if (missionProviderFixtureEnabled && !groqCatalogFixtureEnabled) {
+  throw new Error("The local Mission provider fixture is available only in fixture mode.");
+}
 const dashboardFixtureProjectId =
   process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ?? "e2e-project";
 const liveTimeoutMs = Number(
@@ -112,18 +118,36 @@ let apiService;
 let campaignControlServer;
 
 function groqCatalogFixtureEnvironment() {
-  return groqCatalogFixtureEnabled
-    ? {
-        // The controlled in-memory catalog fixture does not need a provider
-        // credential; every external provider call remains disabled.
-        GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
-        AI_PROVIDER_EGRESS_DISABLED: "1",
-        DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
-      }
-    : {
-        AI_PROVIDER_EGRESS_DISABLED: undefined,
-        DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
-      };
+  if (!groqCatalogFixtureEnabled) {
+    return {
+      AI_PROVIDER_EGRESS_DISABLED: undefined,
+      DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+    };
+  }
+  if (missionProviderFixtureEnabled) {
+    const fixtureModule = pathToFileURL(
+      resolve(workspaceRoot, "scripts/goal-first-provider-fixture.mjs"),
+    ).href;
+    return {
+      GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
+      AI_PROVIDER_EGRESS_DISABLED: undefined,
+      DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+      MISSION_E2E_PROVIDER_FIXTURE: "1",
+      // A non-secret dummy value ensures model selection can reach the local
+      // fixture without ever using a configured provider credential.
+      OPENROUTER_API_KEY: "goal-first-local-provider-fixture",
+      NODE_OPTIONS: [
+        process.env.NODE_OPTIONS,
+        `--import=${fixtureModule}`,
+      ].filter(Boolean).join(" "),
+    };
+  }
+  return {
+    // Ordinary fixture journeys remain fully provider-egress disabled.
+    GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
+    AI_PROVIDER_EGRESS_DISABLED: "1",
+    DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+  };
 }
 
 function redact(value) {
