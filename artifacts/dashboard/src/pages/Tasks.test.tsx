@@ -705,6 +705,7 @@ describe('Tasks recovery rendering', () => {
         projectId: 'project-1',
         title: 'Replay progress timeline',
         status: 'completed',
+        correlationId: 'correlation-current',
         priority: 'p1',
         phase: 'execute',
         createdAt: '2026-08-25T10:00:00.000Z',
@@ -726,13 +727,25 @@ describe('Tasks recovery rendering', () => {
       timestamp: '2026-08-25T10:01:00.000Z',
       eventType: 'progress' as const,
       executionId: 'execution-1',
+      correlationId: 'correlation-previous',
       attempt: 1,
       sequence: 2,
       progressStage: 'context' as const,
       progressStatus: 'completed' as const,
-      progressMessage: 'Project context is ready.',
+      progressMessage: 'Previous attempt context was ready.',
       startedAt: '2026-08-25T10:00:30.000Z',
       finishedAt: '2026-08-25T10:01:00.000Z',
+    };
+    const previousAttemptModelLog = {
+      ...contextLog,
+      id: 'progress-1',
+      message: 'model completed on a prior attempt',
+      correlationId: 'correlation-current',
+      executionId: 'execution-current',
+      attempt: 1,
+      sequence: 1,
+      progressStage: 'model' as const,
+      progressMessage: 'Prior attempt model completed.',
     };
     vi.mocked(useGetTaskLogs).mockReturnValue({
       data: [
@@ -743,8 +756,9 @@ describe('Tasks recovery rendering', () => {
           message: 'task complete',
           timestamp: '2026-08-25T10:03:00.000Z',
           eventType: 'terminal',
-          executionId: 'execution-1',
-          attempt: 1,
+          executionId: 'execution-current',
+          correlationId: 'correlation-current',
+          attempt: 2,
           sequence: 3,
           progressStage: 'result',
           progressStatus: 'completed',
@@ -752,6 +766,7 @@ describe('Tasks recovery rendering', () => {
           progressMessage: 'Task completed successfully.',
           terminalOutcome: 'SUCCEEDED',
         },
+        previousAttemptModelLog,
         contextLog,
         contextLog,
       ],
@@ -766,10 +781,17 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
 
     expect(screen.getByText('إعداد سياق المشروع')).toBeInTheDocument();
+    const plan = screen.getByRole('region', { name: 'خطة التنفيذ' });
+    const contextStep = within(plan).getByText('إعداد سياق المشروع').parentElement?.parentElement;
+    expect(contextStep).toHaveTextContent('بانتظار البدء');
+    expect(contextStep).not.toHaveTextContent('Previous attempt context was ready.');
+    const modelStep = within(plan).getByText('طلب المساعدة من النموذج').parentElement?.parentElement;
+    expect(modelStep).toHaveTextContent('بانتظار البدء');
+    expect(modelStep).not.toHaveTextContent('Prior attempt model completed.');
+    expect(within(plan).getByText('هذه الحالات تصف تقدمًا مسجلًا، ولا تمنح قبولًا للنتيجة أو إثباتًا حديثًا.')).toBeInTheDocument();
     expect(screen.getByText('النتيجة النهائية')).toBeInTheDocument();
     expect(screen.getByText('100% تقدم بحسب الخادم')).toBeInTheDocument();
-    expect(screen.getAllByText('Project context is ready.')).toHaveLength(1);
-    expect(screen.getByText('تقدم التنفيذ')).toBeInTheDocument();
+    expect(screen.getAllByText('تقدم التنفيذ')).toHaveLength(2);
     expect(screen.getByText(/context ready/)).toHaveAttribute('dir', 'auto');
     expect(screen.getByText(/task complete/)).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('الحالة')).toBeInTheDocument();

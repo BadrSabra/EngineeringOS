@@ -71,6 +71,7 @@ function stepIcon(message: string, level: TaskLog['level']): string {
 type TaskView = {
   id: string;
   projectId: string;
+  correlationId?: string | null;
   title: string;
   description?: string;
   status: string;
@@ -572,7 +573,24 @@ const TIMELINE_STAGES: Array<{ stage: string; title: string }> = [
 ];
 
 function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
-  const structured = logs.filter((log) => log.eventType === 'progress' || log.eventType === 'terminal');
+  const currentCorrelationId = typeof task.correlationId === 'string' && task.correlationId.trim()
+    ? task.correlationId.trim()
+    : null;
+  const scopedStructured = currentCorrelationId
+    ? logs.filter((log) =>
+      (log.eventType === 'progress' || log.eventType === 'terminal')
+      && log.correlationId === currentCorrelationId
+      && typeof log.attempt === 'number'
+      && Number.isSafeInteger(log.attempt)
+      && log.attempt >= 0)
+    : [];
+  const latestAttempt = scopedStructured.reduce(
+    (latest, log) => Math.max(latest, log.attempt as number),
+    -1,
+  );
+  const structured = latestAttempt >= 0
+    ? scopedStructured.filter((log) => log.attempt === latestAttempt)
+    : [];
   if (structured.length > 0) {
     const latestByStage = new Map<string, TaskLog>();
     for (const log of [...structured].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))) {
@@ -831,6 +849,9 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       )}
       <section aria-labelledby={`plan-${taskId}`} className="mb-5">
         <h4 id={`plan-${taskId}`} className="text-xs font-semibold tracking-wider text-muted-foreground mb-2">خطة التنفيذ</h4>
+        <p className="mb-2 text-[10px] text-muted-foreground">
+          هذه الحالات تصف تقدمًا مسجلًا، ولا تمنح قبولًا للنتيجة أو إثباتًا حديثًا.
+        </p>
         <div className="border border-border rounded-lg divide-y divide-border bg-background">
           {plan.map((step, index) => (
             <div key={step.stage} className="flex items-start gap-3 p-3">
