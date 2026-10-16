@@ -9,6 +9,7 @@ import {
   useGetDashboard,
   useGetHealth,
 } from '@workspace/api-client-react';
+import type { OperatorAlert } from '@workspace/api-zod';
 import {
   Activity,
   AlertTriangle,
@@ -32,9 +33,67 @@ import { HOME_GOAL_MAX_LENGTH, storeHomeGoalDraft } from '@/lib/home-goal-handof
 import { matchGoalToProject } from '@/lib/goal-project-routing';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
-  if (!value) return 'Not recorded';
+  if (!value) return 'غير مسجل';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? 'غير مسجل' : date.toLocaleString('ar-EG');
+}
+
+type OperatorAlertCopy = {
+  title: string;
+  message: string;
+  remediation: string;
+  badge?: string;
+  destination: 'provider-settings' | 'projects';
+};
+
+function getOperatorAlertCopy(alert: OperatorAlert): OperatorAlertCopy {
+  switch (alert.kind) {
+    case 'groq_model_catalog_drift': {
+      const role = alert.modelRole === 'fast' ? 'السريع' : 'المتقدم';
+      return {
+        title: `نموذج Groq ${role} غير متاح`,
+        message: `النموذج ${role} المضبوط لدى Groq غير موجود في قائمة النماذج الحالية.`,
+        remediation: 'اختر نموذجًا متاحًا من إعدادات مزود المساعد، ثم أعد تشغيل خدمة API.',
+        destination: 'provider-settings',
+      };
+    }
+    case 'groq_model_catalog_unavailable':
+      return {
+        title: 'تعذر التحقق من قائمة نماذج Groq',
+        message: 'تعذر فحص قائمة نماذج Groq الحالية مؤقتًا. لم نعتبر النماذج المضبوطة متوقفة.',
+        remediation: 'أعد الفحص بعد عودة الخدمة. لا تغيّر معرّفات النماذج بسبب هذا الانقطاع المؤقت.',
+        badge: 'انقطاع مؤقت',
+        destination: 'provider-settings',
+      };
+    case 'ai_budget_warning':
+      return {
+        title: 'يقترب استخدام المساعد من الحد اليومي',
+        message: 'استخدام المساعد في هذا المشروع يقترب من الحد اليومي المقرر.',
+        remediation: 'راجع استخدام المساعد أو عدّل الحد اليومي للمشروع قبل بلوغه.',
+        destination: 'projects',
+      };
+    case 'ai_budget_exhausted':
+      return {
+        title: 'بلغ المشروع الحد اليومي لاستخدام المساعد',
+        message: 'وصل استخدام المساعد لهذا المشروع إلى الحد اليومي، وقد تتوقف الطلبات حتى موعد إعادة الضبط.',
+        remediation: 'انتظر إعادة الضبط اليومية (UTC) أو عدّل الحد اليومي للمشروع.',
+        destination: 'projects',
+      };
+    case 'ai_budget_recovered':
+      return {
+        title: 'عاد استخدام المساعد متاحًا للمشروع',
+        message: 'أصبح الحد اليومي متاحًا من جديد بعد إعادة الضبط أو انخفاض الاستخدام.',
+        remediation: 'لا يلزم اتخاذ إجراء.',
+        destination: 'projects',
+      };
+    default:
+      return {
+        title: 'تنبيه في خدمات المساعد',
+        message: alert.message,
+        remediation: alert.remediation,
+        destination: 'provider-settings',
+      };
+  }
 }
 
 function OperatorAlertsCard() {
@@ -53,7 +112,9 @@ function OperatorAlertsCard() {
   if (!error && alerts.length === 0) {
     return (
       <section
-        aria-label="Operator alerts"
+        aria-label="حالة تنبيهات المساعد"
+        dir="rtl"
+        lang="ar"
         className="flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90"
       >
         {isLoading ? (
@@ -61,9 +122,9 @@ function OperatorAlertsCard() {
         ) : (
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
         )}
-        <span>{isLoading ? 'Checking provider health…' : 'No active provider alerts.'}</span>
+        <span>{isLoading ? 'جارٍ التحقق من جاهزية خدمات المساعد…' : 'لا توجد تنبيهات نشطة لخدمات المساعد.'}</span>
         {isFetching && !isLoading && (
-          <span className="ml-auto text-[10px] text-muted-foreground">Updating…</span>
+          <span className="mr-auto text-[10px] text-muted-foreground">جارٍ التحديث…</span>
         )}
       </section>
     );
@@ -71,7 +132,9 @@ function OperatorAlertsCard() {
 
   return (
     <section
-      aria-label="Operator alerts"
+      aria-label="تنبيهات خدمات المساعد"
+      dir="rtl"
+      lang="ar"
       className={`rounded-xl border p-4 shadow-sm ${
         alerts.length > 0
           ? 'border-amber-500/30 bg-amber-500/5'
@@ -94,33 +157,34 @@ function OperatorAlertsCard() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">Operator alerts</h2>
+            <h2 className="text-sm font-semibold">تنبيهات خدمات المساعد</h2>
             {alerts.length > 0 && (
-              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
-                {alerts.length} open
+              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                عدد التنبيهات النشطة: {alerts.length.toLocaleString('ar-EG')}
               </span>
             )}
           </div>
           {isLoading ? (
-            <p className="mt-1 text-xs text-muted-foreground">Checking provider health…</p>
+            <p className="mt-1 text-xs text-muted-foreground">جارٍ التحقق من حالة خدمات المساعد…</p>
           ) : error ? (
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive/80">
-              <span>Could not load operator alerts.</span>
+              <span>تعذر تحميل تنبيهات المساعد.</span>
               <button
                 type="button"
                 className="font-medium text-primary hover:underline"
                 onClick={() => void refetch()}
               >
-                Retry
+                أعد المحاولة
               </button>
             </div>
           ) : alerts.length === 0 ? (
             <p className="mt-1 text-xs text-emerald-200/80">
-              No active provider alerts. Groq defaults are either healthy or not configured.
+              لا توجد تنبيهات نشطة. إعدادات Groq الافتراضية سليمة أو لم تُضبط بعد.
             </p>
           ) : (
             <div className="mt-3 space-y-3">
               {alerts.map((alert) => {
+                const copy = getOperatorAlertCopy(alert);
                 const isCatalogUnavailable = alert.kind === 'groq_model_catalog_unavailable';
                 return (
                   <div
@@ -137,36 +201,43 @@ function OperatorAlertsCard() {
                         <h3 className={`text-sm font-medium ${
                           isCatalogUnavailable ? 'text-blue-100' : 'text-amber-100'
                         }`}>
-                          {alert.title}
+                          {copy.title}
                         </h3>
-                        {isCatalogUnavailable && (
-                          <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-300">
-                            Temporary outage
+                        {copy.badge && (
+                          <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                            {copy.badge}
                           </span>
                         )}
                       </div>
                       <span className="text-[10px] text-muted-foreground">
-                        Seen {formatHealthTimestamp(alert.lastSeenAt)}
+                        آخر رصد: {formatHealthTimestamp(alert.lastSeenAt)}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{alert.message}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.message}</p>
                     <p className={`mt-2 text-xs leading-5 ${
                       isCatalogUnavailable ? 'text-blue-200/90' : 'text-amber-200/90'
                     }`}>
-                      <span className="font-medium">Remediation:</span> {alert.remediation}
+                      <span className="font-medium">الخطوة المقترحة:</span> {copy.remediation}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-                      {isCatalogUnavailable ? (
-                        <span>Scope: Groq model catalog</span>
-                      ) : (
+                      {alert.kind === 'groq_model_catalog_drift' ? (
                         <>
-                          <span>Role: {alert.modelRole === 'fast' ? 'Fast' : 'Powerful'}</span>
-                          <span className="font-mono break-all">{alert.modelId}</span>
+                          <span>نوع النموذج: {alert.modelRole === 'fast' ? 'سريع' : 'متقدم'}</span>
+                          <bdi dir="ltr" className="font-mono break-all">{alert.modelId}</bdi>
                         </>
+                      ) : isCatalogUnavailable ? (
+                        <span>النطاق: قائمة نماذج <bdi dir="ltr">Groq</bdi></span>
+                      ) : (
+                        <span>النطاق: استخدام المساعد للمشروع</span>
                       )}
-                      {alert.occurrenceCount > 1 && <span>Observed {alert.occurrenceCount} times</span>}
-                      <Link href="/ai" className="text-primary hover:underline">
-                        Open provider settings
+                      {alert.occurrenceCount > 1 && (
+                        <span>عدد مرات الرصد: {alert.occurrenceCount.toLocaleString('ar-EG')}</span>
+                      )}
+                      <Link
+                        href={copy.destination === 'projects' ? '/projects' : '/ai'}
+                        className="text-primary hover:underline"
+                      >
+                        {copy.destination === 'projects' ? 'إدارة المشاريع' : 'إعدادات مزود المساعد'}
                       </Link>
                     </div>
                   </div>
@@ -176,8 +247,8 @@ function OperatorAlertsCard() {
           )}
         </div>
         {isFetching && !isLoading && (
-          <span className="text-[10px] text-muted-foreground" aria-label="Refreshing operator alerts">
-            Updating…
+          <span className="text-[10px] text-muted-foreground" aria-label="جارٍ تحديث التنبيهات">
+            جارٍ التحديث…
           </span>
         )}
       </div>

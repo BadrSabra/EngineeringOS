@@ -320,11 +320,13 @@ describe("Dashboard operator alerts", () => {
     render(<Dashboard />);
     fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
-    const alerts = screen.getByRole("region", { name: "Operator alerts" });
-    expect(within(alerts).getByText("Groq Fast model is unavailable")).toBeInTheDocument();
-    expect(within(alerts).getAllByText(/openai\/retired-fast/).length).toBeGreaterThanOrEqual(2);
-    expect(within(alerts).getByText(/Update the affected Groq model ID.*restart the API/i)).toBeInTheDocument();
-    expect(within(alerts).getByRole("link", { name: "Open provider settings" })).toHaveAttribute("href", "/ai");
+    const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
+    expect(within(alerts).getByText("نموذج Groq السريع غير متاح")).toBeInTheDocument();
+    expect(within(alerts).getByText("openai/retired-fast")).toBeInTheDocument();
+    expect(within(alerts).getByText("النموذج السريع المضبوط لدى Groq غير موجود في قائمة النماذج الحالية.")).toBeInTheDocument();
+    expect(within(alerts).getByText(/اختر نموذجًا متاحًا.*أعد تشغيل خدمة API/)).toBeInTheDocument();
+    expect(within(alerts).getByRole("link", { name: "إعدادات مزود المساعد" })).toHaveAttribute("href", "/ai");
+    expect(within(alerts).queryByText("Groq Fast model is unavailable")).not.toBeInTheDocument();
   });
 
   it("keeps the alert card quiet when there are no active alerts", () => {
@@ -339,8 +341,8 @@ describe("Dashboard operator alerts", () => {
     render(<Dashboard />);
     fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
-    expect(screen.getByRole("region", { name: "Operator alerts" })).toHaveTextContent(
-      "No active provider alerts",
+    expect(screen.getByRole("region", { name: "حالة تنبيهات المساعد" })).toHaveTextContent(
+      "لا توجد تنبيهات نشطة لخدمات المساعد",
     );
     expect(screen.queryByText("Groq Fast model is unavailable")).not.toBeInTheDocument();
   });
@@ -397,10 +399,70 @@ describe("Dashboard operator alerts", () => {
     render(<Dashboard />);
     fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
 
-    const alerts = screen.getByRole("region", { name: "Operator alerts" });
-    expect(within(alerts).getByText("Temporary outage")).toBeInTheDocument();
-    expect(within(alerts).getByText(/have not been marked as retired/i)).toBeInTheDocument();
-    expect(within(alerts).getByText("Scope: Groq model catalog")).toBeInTheDocument();
-    expect(within(alerts).queryByText("Role: Powerful")).not.toBeInTheDocument();
+    const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
+    expect(within(alerts).getByText("انقطاع مؤقت")).toBeInTheDocument();
+    expect(within(alerts).getByText(/لم نعتبر النماذج المضبوطة متوقفة/)).toBeInTheDocument();
+    expect(within(alerts).getByText(/النطاق: قائمة نماذج Groq/)).toBeInTheDocument();
+    expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
+  });
+
+  it("explains exhausted project usage limits in Arabic and links to projects", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: {
+        alerts: [{
+          id: "alert-budget",
+          fingerprint: "ai_budget:project-1:ai_budget_exhausted",
+          kind: "ai_budget_exhausted",
+          status: "open",
+          provider: "system",
+          modelRole: "usage",
+          modelId: "redacted",
+          title: "AI project budget exhausted",
+          message: "This project's daily AI attempt budget has been exhausted.",
+          remediation: "Wait for the next UTC reset or adjust this project's daily budget.",
+          occurrenceCount: 1,
+          firstSeenAt: "2026-08-30T12:00:00.000Z",
+          lastSeenAt: "2026-08-30T12:05:00.000Z",
+          resolvedAt: null,
+          ownerId: "user-1",
+          projectId: "project-1",
+          severity: "critical",
+        }],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
+
+    const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
+    expect(within(alerts).getByText("بلغ المشروع الحد اليومي لاستخدام المساعد")).toBeInTheDocument();
+    expect(within(alerts).getByText(/وصل استخدام المساعد لهذا المشروع إلى الحد اليومي/)).toBeInTheDocument();
+    expect(within(alerts).getByText(/انتظر إعادة الضبط اليومية/)).toBeInTheDocument();
+    expect(within(alerts).getByText("النطاق: استخدام المساعد للمشروع")).toBeInTheDocument();
+    expect(within(alerts).queryByText(/نوع النموذج:/)).not.toBeInTheDocument();
+    expect(within(alerts).getByRole("link", { name: "إدارة المشاريع" })).toHaveAttribute("href", "/projects");
+  });
+
+  it("shows an Arabic retry action when alert status cannot be loaded", () => {
+    const refetch = vi.fn();
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("Unavailable"),
+      isFetching: false,
+      refetch,
+    } as unknown as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+    fireEvent.click(screen.getByTestId("summary-advanced-dashboard"));
+
+    const alerts = screen.getByRole("region", { name: "تنبيهات خدمات المساعد" });
+    expect(within(alerts).getByText("تعذر تحميل تنبيهات المساعد.")).toBeInTheDocument();
+    fireEvent.click(within(alerts).getByRole("button", { name: "أعد المحاولة" }));
+    expect(refetch).toHaveBeenCalledOnce();
   });
 });
