@@ -5987,3 +5987,11 @@ G9 Revocation Safety
 - **behavior evidence:** الخطة تحفظ `PROVEN` على مطالبة `finding:<id>` فقط، بينما مطالبات الهدف تبدأ `PENDING`. يظل نطاق `FIXTURE_LOCAL` محفوظًا وتُعاد الخطة فقط عند تطابق مراجعة مساحة العمل. خطة fixture قد تحمل `readiness=READY` كجاهزية خطة، لكنها لا تمنح التنفيذ وحدها: اختبار handoff يتطلب capability خادمية ذات نطاق دقيق، واختبار استعادة النطاق يحجب `FIXTURE_PROVEN` قبل أي أداة.
 - **validation:** أُضيف تأكيد في `task-session-state.test.ts` أن Finding مثبتًا لا يغلق مطالبة الهدف، ونجح الاختبار المركّز 1/1. اختبار حجب fixture نجح 1/1 مع مهلة 15 ثانية. التشغيل الأول انتهى بمهلة Vitest الافتراضية 5 ثوانٍ بعد تسجيل قرار الحجب؛ لم يكن فشل assertion، ولم تُكتب ملفات. بطاقة `REPAIR_RESULT` تعرض الآن تنبيهًا بأن `READY` تخص جاهزية الخطة لا قبول التنفيذ أو اكتماله؛ اختبار البطاقة نجح 1/1، وفحص Dashboard TypeScript نجح، وأُعيد تشغيل workflow بنجاح. لقطة المعاينة أظهرت الصفحة العامة فقط، لا البطاقة المحمية.
 - **boundary:** لا Canonical Proof أو current execution acceptance في الإسقاط الداخلي، ولا تغيير في السلطة أو الجاهزية. E3 وE3.2 مفتوحتان؛ لم يُعَد تشغيل API workflow أو استخدام DB مشتركة، ولا Strategy Replay receipts أو E4.
+
+### 2026-10-17 — تدقيق حالات Mission وGoal المعروضة
+
+- **phase/step:** E3 — تتبع حالات Mission/Goal من API إلى Dashboard والتمييز عن قبول التنفيذ.
+- **status:** `stored Mission/Goal states are labeled non-revalidated; execution capsule requires accepted verification; dashboard checks PASS; E3 OPEN; E3.2 OPEN`
+- **behavior evidence:** API يضيف `STORED_STATUS_ONLY` / `NOT_REVALIDATED` للحالات المسجلة. صفحة Missions تنبه أن الحالة محفوظة ولا تعني فحص Canonical Proof الحالي؛ بطاقة Goal المكتمل وملخص قبول Goal يوضحان freshness، كما يفعل chat handoff. ملخص التنفيذ المنفصل لا يعرض COMPLETE لمجرد بقاء phase قديمة؛ يعتمد على حالة التنفيذ والتحقق المقبول.
+- **validation:** اختبارات `Missions.test.tsx` و`mission-state.test.ts` نجحت 28/28. اختبار API يتضمن تأكيدات الوسم في مسارات التفاصيل والقوائم والإسقاط المركب، لكنه لم يُشغّل في هذه الجولة لتجنب قاعدة مشتركة.
+- **boundary:** لم يظهر نقص عرض يحتاج تعديلًا في هذه الأسطح؛ لا يعني ذلك فحص كل حالات التطبيق. E3 وE3.2 مفتوحتان؛ Strategy Replay receipts وE4 خارج النطاق.
