@@ -5973,8 +5973,17 @@ G9 Revocation Safety
 
 ### 2026-10-17 — فصل حالة Evidence Graph المسجلة عن إثبات التنفيذ
 
-- **phase/step:** E3 — إسقاط واجهة خريطة الأدلة.
-- **status:** `EvidenceGraph PROVEN presentation explicitly historical/non-authoritative; component tests 7/7; Dashboard typecheck PASS; E3 OPEN; E3.2 OPEN`
-- **behavior evidence:** تعرض اللوحة حالة `PROVEN` باسم «مثبت في الخريطة فقط» وبأسلوب محايد. يوضح التنبيه أن الخريطة لا تعيد فحص قبول التنفيذ الحالي ولا تثبت اكتماله؛ لم تتغير حالة العقدة أو بيانات الرسم.
-- **validation:** `EvidenceGraphPanel.test.tsx` نجح 7/7، وفحص TypeScript للـDashboard نجح. أُعيد تشغيل workflow `artifacts/dashboard: web` وبدأ Vite بنجاح. لقطة المعاينة أظهرت صفحة الدخول العامة، لذا لم تُعاين اللوحة المحمية بصريًا؛ لا يوجد تجاوز للمصادقة. فحص `git diff --check` سيُجرى بعد هذا التحديث.
-- **boundary:** هذا تعديل عرض فقط؛ استجابة API ما زالت تحمل حالة الرسم المسجلة كما هي ولا تضيف freshness metadata. إسقاطات Phase/status الأخرى تبقى بحاجة إلى مراجعة منفصلة. E3 وE3.2 مفتوحتان؛ لا Strategy Replay receipts ولا E4.
+- **phase/step:** E3 — إسقاط واجهة خريطة الأدلة وعقد freshness للـAPI.
+- **status:** `EvidenceGraph PROVEN remains non-authoritative; API JSON/SSE/history status projection PASS; fixture-local Finding distinction PASS; E3 OPEN; E3.2 OPEN`
+- **behavior evidence:** تعرض اللوحة حالة `PROVEN` باسم «مثبت في الخريطة فقط» وبأسلوب محايد، وتوضح أنها لا تعيد فحص قبول التنفيذ الحالي ولا تثبت اكتماله. تستجيب API بوسم server-owned `EVIDENCE_GRAPH_ONLY` / `NOT_REVALIDATED` مع الحفاظ على حالة العقدة `PROVEN`. اختبار Finding مستقل يبقي `FINDING PROVEN` لعيب fixture-local بينما `productionReachability=NOT_PROVEN` و`repairReadiness=BLOCKED`؛ لا يساوي ذلك Canonical Proof أو إذن إصلاح.
+- **validation:** API contract codegen وAPI typecheck وDashboard typecheck نجحت؛ `chat-sse.test.ts` نجح 50/50، و`EvidenceGraphPanel.test.tsx` 7/7، واختبار Finding المركّز 1/1. اختبار API يتحقق من وسم الخادم في JSON/SSE/history ويتأكد أن الوسم المزيف القادم من النموذج يُستبدل، مع بقاء قيمة العقدة كما هي. أُعيد تشغيل workflow `artifacts/dashboard: web` وبدأ Vite؛ لقطة المعاينة العامة ظهرت، لكن شاشة Evidence Graph المحمية لم تُعاين بصريًا. `git diff --check` نجح.
+- **failure/repair:** فشل أول اختبار للعقد لأن JSON route لم يمرر `result.evidenceGraph` إلى `serializeToolTrace`؛ سُجل الفشل وحدوده قبل الإصلاح. بعد تمرير الرسم إلى serializer المشترك اجتاز الاختبار عبر JSON وSSE وhistory. فشل أمر تشغيل اختبار اللوحة أولًا بسبب البحث عن مسار نسبي من جذر workspace؛ صُحح المسار وأُعيد الاختبار بنجاح، ولم يكن ذلك فشلًا في التطبيق.
+- **boundary:** لم يُعَد تشغيل workflow API المُدار، ولم تُستخدم قاعدة مشتركة. إسقاطات Phase/status الأخرى تبقى بحاجة إلى مراجعة منفصلة. E3 وE3.2 مفتوحتان؛ لا Strategy Replay receipts ولا E4.
+
+### 2026-10-17 — فحص حالة Finding داخل خطة التنفيذ المحفوظة
+
+- **phase/step:** E3 — تتبع `scopedFindingStatus` إلى مطالبات الخطة وسلوك handoff.
+- **status:** `Finding PROVEN is not objective acceptance; fixture scope gate PASS; E3 OPEN; E3.2 OPEN`
+- **behavior evidence:** الخطة تحفظ `PROVEN` على مطالبة `finding:<id>` فقط، بينما مطالبات الهدف تبدأ `PENDING`. يظل نطاق `FIXTURE_LOCAL` محفوظًا وتُعاد الخطة فقط عند تطابق مراجعة مساحة العمل. خطة fixture قد تحمل `readiness=READY` كجاهزية خطة، لكنها لا تمنح التنفيذ وحدها: اختبار handoff يتطلب capability خادمية ذات نطاق دقيق، واختبار استعادة النطاق يحجب `FIXTURE_PROVEN` قبل أي أداة.
+- **validation:** أُضيف تأكيد في `task-session-state.test.ts` أن Finding مثبتًا لا يغلق مطالبة الهدف، ونجح الاختبار المركّز 1/1. اختبار حجب fixture نجح 1/1 مع مهلة 15 ثانية. التشغيل الأول انتهى بمهلة Vitest الافتراضية 5 ثوانٍ بعد تسجيل قرار الحجب؛ لم يكن فشل assertion، ولم تُكتب ملفات. بطاقة `REPAIR_RESULT` تعرض الآن تنبيهًا بأن `READY` تخص جاهزية الخطة لا قبول التنفيذ أو اكتماله؛ اختبار البطاقة نجح 1/1، وفحص Dashboard TypeScript نجح، وأُعيد تشغيل workflow بنجاح. لقطة المعاينة أظهرت الصفحة العامة فقط، لا البطاقة المحمية.
+- **boundary:** لا Canonical Proof أو current execution acceptance في الإسقاط الداخلي، ولا تغيير في السلطة أو الجاهزية. E3 وE3.2 مفتوحتان؛ لم يُعَد تشغيل API workflow أو استخدام DB مشتركة، ولا Strategy Replay receipts أو E4.

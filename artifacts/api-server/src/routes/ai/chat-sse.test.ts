@@ -1569,6 +1569,34 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       .mockImplementationOnce(async () => ({
         contextProvenance: CONTEXT_PROVENANCE_FIXTURE,
       } as never));
+    const graphStatusProjection = {
+      authority: "EVIDENCE_GRAPH_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    };
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockResolvedValue({
+      ...MOCK_CHAT_RESULT,
+      result: {
+        ...MOCK_CHAT_RESULT.result,
+        evidenceGraph: {
+          version: 1,
+          sourceRevision: "fixture-revision",
+          nodes: [{
+            id: "claim:fixture",
+            kind: "CLAIM",
+            label: "Fixture claim",
+            status: "PROVEN",
+          }],
+          edges: [],
+          reads: [],
+          contradictionClaimIds: [],
+          // A provider-supplied authority claim must be replaced at serialization.
+          statusProjection: {
+            authority: "CANONICAL_PROOF",
+            proofFreshness: "CURRENT",
+          },
+        },
+      },
+    } as never);
 
     const json = await request(app)
       .post("/api/ai/chat")
@@ -1583,6 +1611,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       kind: "context_provenance",
       ...CONTEXT_PROVENANCE_FIXTURE,
     });
+    const jsonGraph = jsonTrace.find((entry) => entry.kind === "evidence_graph");
+    expect(jsonGraph?.statusProjection).toEqual(graphStatusProjection);
+    expect((jsonGraph?.nodes as Array<Record<string, unknown>>)?.[0]?.status).toBe("PROVEN");
     const sessionId = json.body.sessionId as string;
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
 
@@ -1607,6 +1638,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       kind: "context_provenance",
       ...CONTEXT_PROVENANCE_FIXTURE,
     });
+    const streamGraph = doneTrace.find((entry) => entry.kind === "evidence_graph");
+    expect(streamGraph?.statusProjection).toEqual(graphStatusProjection);
+    expect((streamGraph?.nodes as Array<Record<string, unknown>>)?.[0]?.status).toBe("PROVEN");
 
     const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
     expect(history.status, JSON.stringify(history.body)).toBe(200);
@@ -1620,6 +1654,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         kind: "context_provenance",
         ...CONTEXT_PROVENANCE_FIXTURE,
       });
+      const historyGraph = message.evidenceGraph as Record<string, unknown>;
+      expect(historyGraph.statusProjection).toEqual(graphStatusProjection);
+      expect((historyGraph.nodes as Array<Record<string, unknown>>)?.[0]?.status).toBe("PROVEN");
     }
 
     const exported = JSON.stringify({

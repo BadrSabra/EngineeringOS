@@ -4156,7 +4156,11 @@ export const AiChatResponse = zod.object({
   "truncated": zod.boolean(),
   "taskIndexes": zod.array(zod.number().int().min(aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesItemMin)).max(aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesMax)
 })).max(aiChatResponseMessageEvidenceGraphOneReadsMax),
-  "contradictionClaimIds": zod.array(zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsItemMax)).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsMax)
+  "contradictionClaimIds": zod.array(zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsItemMax)).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsMax),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['EVIDENCE_GRAPH_ONLY']).describe('Graph node statuses do not establish Canonical Proof or completion.'),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED']).describe('The current execution acceptance is not reloaded by this projection.')
+}).optional().describe('Server-owned freshness and authority boundary for graph node statuses.')
 }),zod.null()]).optional().describe('Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
@@ -7628,7 +7632,11 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "truncated": zod.boolean(),
   "taskIndexes": zod.array(zod.number().int().min(listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesItemMin)).max(listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesMax)
 })).max(listAiChatMessagesResponseEvidenceGraphOneReadsMax),
-  "contradictionClaimIds": zod.array(zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsItemMax)).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsMax)
+  "contradictionClaimIds": zod.array(zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsItemMax)).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsMax),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['EVIDENCE_GRAPH_ONLY']).describe('Graph node statuses do not establish Canonical Proof or completion.'),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED']).describe('The current execution acceptance is not reloaded by this projection.')
+}).optional().describe('Server-owned freshness and authority boundary for graph node statuses.')
 }),zod.null()]).optional().describe('Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),

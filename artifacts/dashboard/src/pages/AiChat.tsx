@@ -2096,6 +2096,10 @@ function parseEvidenceGraph(raw: string | undefined | null): EvidenceGraph | und
     edges: graph.edges,
     reads: graph.reads,
     contradictionClaimIds: graph.contradictionClaimIds,
+    ...(graph.statusProjection?.authority === 'EVIDENCE_GRAPH_ONLY'
+      && graph.statusProjection.proofFreshness === 'NOT_REVALIDATED'
+      ? { statusProjection: graph.statusProjection }
+      : {}),
   };
 }
 
@@ -5617,6 +5621,9 @@ function TaskResultPanel({
             <span className="text-[11px] font-medium text-foreground">Repair plan</span>
             <span className={`ml-auto rounded border px-1.5 py-0.5 text-[10px] ${readinessStyle}`}>{readiness}</span>
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            Plan readiness only; current execution acceptance and completion are not established here.
+          </p>
           {phases.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">No repair phases were warranted.</p>
           ) : (

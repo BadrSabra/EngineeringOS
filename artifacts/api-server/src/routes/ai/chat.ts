@@ -155,6 +155,7 @@ import {
 import {
   ListAiChatMessagesResponseItem,
   ListAiChatSessionMissionsResponse,
+  type EvidenceGraph as ApiEvidenceGraph,
 } from "@workspace/api-zod";
 import { loadEpisodeEvidenceBraid } from "../../lib/agent-state/episode-evidence-braid";
 import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
@@ -2552,16 +2553,32 @@ function historicalEvidenceRevision(toolTrace: string | null | undefined): strin
   return undefined;
 }
 
-function historicalEvidenceGraph(toolTrace: string | null | undefined): EvidenceGraph | undefined {
+const EVIDENCE_GRAPH_STATUS_PROJECTION: NonNullable<ApiEvidenceGraph["statusProjection"]> = {
+  authority: "EVIDENCE_GRAPH_ONLY",
+  proofFreshness: "NOT_REVALIDATED",
+};
+
+function projectEvidenceGraphStatus(graph: EvidenceGraph): ApiEvidenceGraph {
+  return {
+    ...graph,
+    statusProjection: EVIDENCE_GRAPH_STATUS_PROJECTION,
+  };
+}
+
+function historicalEvidenceGraph(toolTrace: string | null | undefined): ApiEvidenceGraph | undefined {
   const parsed = parseStoredJson(toolTrace);
   if (!Array.isArray(parsed)) return undefined;
   for (const entry of [...parsed].reverse()) {
     if (!entry || typeof entry !== "object") continue;
     const candidate = entry as Record<string, unknown>;
     if (candidate.kind !== "evidence_graph") continue;
-    const { kind: _kind, ...graph } = candidate;
+    const graph = { ...candidate };
+    delete graph.kind;
+    // Historical payloads are untrusted status data. Always derive this
+    // projection boundary on the server rather than preserving stored values.
+    delete graph.statusProjection;
     const result = EvidenceGraphSchema.safeParse(graph);
-    if (result.success) return result.data;
+    if (result.success) return projectEvidenceGraphStatus(result.data);
   }
   return undefined;
 }
@@ -4604,6 +4621,7 @@ function serializeToolTrace(
       edges: evidenceGraph.edges,
       reads: evidenceGraph.reads,
       contradictionClaimIds: evidenceGraph.contradictionClaimIds,
+      statusProjection: EVIDENCE_GRAPH_STATUS_PROJECTION,
     } as PersistedToolTraceEntry);
   }
   if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
@@ -7523,7 +7541,7 @@ router.post("/ai/chat", async (req, res) => {
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
               appendProjectQueryResponseProvenanceTrace(
-                serializeToolTrace(traceSteps),
+                serializeToolTrace(traceSteps, true, undefined, undefined, false, result.evidenceGraph),
                 result.projectQueryResponseSource,
                 result.projectQueryResponseFallbackReason,
               ),

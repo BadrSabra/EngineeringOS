@@ -8,6 +8,7 @@
 import type { EvidenceGraphEdge } from './evidenceGraphEdge';
 import type { EvidenceGraphNode } from './evidenceGraphNode';
 import type { EvidenceGraphRead } from './evidenceGraphRead';
+import type { EvidenceGraphStatusProjection } from './evidenceGraphStatusProjection';
 import type { EvidenceGraphVersion } from './evidenceGraphVersion';
 
 export interface EvidenceGraph {
@@ -29,4 +30,6 @@ export interface EvidenceGraph {
      * @items.maxLength 240
      */
   contradictionClaimIds: string[];
+  /** Server-owned freshness and authority boundary for graph node statuses. */
+  statusProjection?: EvidenceGraphStatusProjection;
 }

@@ -3411,6 +3411,33 @@ export interface EvidenceGraphRead {
   taskIndexes: number[];
 }
 
+/**
+ * Graph node statuses do not establish Canonical Proof or completion.
+ */
+export type EvidenceGraphStatusProjectionAuthority = typeof EvidenceGraphStatusProjectionAuthority[keyof typeof EvidenceGraphStatusProjectionAuthority];
+
+
+export const EvidenceGraphStatusProjectionAuthority = {
+  EVIDENCE_GRAPH_ONLY: 'EVIDENCE_GRAPH_ONLY',
+} as const;
+
+/**
+ * The current execution acceptance is not reloaded by this projection.
+ */
+export type EvidenceGraphStatusProjectionProofFreshness = typeof EvidenceGraphStatusProjectionProofFreshness[keyof typeof EvidenceGraphStatusProjectionProofFreshness];
+
+
+export const EvidenceGraphStatusProjectionProofFreshness = {
+  NOT_REVALIDATED: 'NOT_REVALIDATED',
+} as const;
+
+export interface EvidenceGraphStatusProjection {
+  /** Graph node statuses do not establish Canonical Proof or completion. */
+  authority: EvidenceGraphStatusProjectionAuthority;
+  /** The current execution acceptance is not reloaded by this projection. */
+  proofFreshness: EvidenceGraphStatusProjectionProofFreshness;
+}
+
 export interface EvidenceGraph {
   version: EvidenceGraphVersion;
   /**
@@ -3430,6 +3457,8 @@ export interface EvidenceGraph {
      * @items.maxLength 240
      */
   contradictionClaimIds: string[];
+  /** Server-owned freshness and authority boundary for graph node statuses. */
+  statusProjection?: EvidenceGraphStatusProjection;
 }
 
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];

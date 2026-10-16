@@ -5572,6 +5572,9 @@ it.each([
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
     expect(await screen.findByText('Repair plan')).toBeInTheDocument();
     expect(screen.getByText('READY')).toBeInTheDocument();
+    expect(screen.getByText(
+      'Plan readiness only; current execution acceptance and completion are not established here.',
+    )).toBeInTheDocument();
     expect(screen.getByText('F-1')).toBeInTheDocument();
     expect(screen.getByText('Add an early return when the cap is reached.')).toBeInTheDocument();
   });

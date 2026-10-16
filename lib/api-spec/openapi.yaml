@@ -7332,6 +7332,23 @@ components:
             type: string
             minLength: 1
             maxLength: 240
+        statusProjection:
+          description: Server-owned freshness and authority boundary for graph node statuses.
+          $ref: "#/components/schemas/EvidenceGraphStatusProjection"
+
+    EvidenceGraphStatusProjection:
+      type: object
+      additionalProperties: false
+      required: [authority, proofFreshness]
+      properties:
+        authority:
+          type: string
+          enum: [EVIDENCE_GRAPH_ONLY]
+          description: Graph node statuses do not establish Canonical Proof or completion.
+        proofFreshness:
+          type: string
+          enum: [NOT_REVALIDATED]
+          description: The current execution acceptance is not reloaded by this projection.
 
     EvidenceGraphNode:
       type: object

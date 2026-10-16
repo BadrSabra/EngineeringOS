@@ -512,8 +512,13 @@ describe("active task session state", () => {
         verdictScopes: ["PRODUCTION"],
       },
     });
+    // A proven Finding does not satisfy the separate objective claim.
     expect(plan?.claims).toEqual(expect.arrayContaining([
-      expect.objectContaining({ claimId: "objective:unsafe-path", text: "The unsafe path is reachable in production." }),
+      expect.objectContaining({
+        claimId: "objective:unsafe-path",
+        text: "The unsafe path is reachable in production.",
+        status: "PENDING",
+      }),
       expect.objectContaining({ claimId: "finding:F-1", findingId: "F-1", status: "PROVEN" }),
     ]));
 
