@@ -12,24 +12,10 @@
 - [Scan evidence acceptance binding](scan-evidence-acceptance-binding.md) — bind both the loaded scan result and its exact model-facing summary to the analysis acceptance; this is provenance, not proof.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
 - [E1–E8 stage gates](e1-e8-gates.md) — keep E2 active; do not begin later stages or rerun Strategy Replay receipts before explicit E2 closure.
-- [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
-- [Chat turn lifecycle contracts](chat-turn-lifecycle-index.md) — grouped pointers for persistence, cancellation, reconnect, provenance, and terminal response/acceptance boundaries.
-- [Recovery terminal success](chat-recovery-terminal-success.md) — internal SSE HTTP 200 does not prove recovery succeeded; reload the durable execution attempt and terminal status.
-- [Chat recovery binding equality](chat-recovery-binding-equality.md) — compare structured request contracts by value, not JSON key order, or resumed turns may be rejected before execution.
-- [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.
+- [Conversation runtime boundaries](conversation-runtime-index.md) — grouped pointers for turn routing, project queries, tool loops, synthesis, recovery, redaction, budgets, and evidence.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
-- [Chat rate-limit retry](chat-rate-limit-retry.md) — same-execution 429 retry requires a server-owned project scope and positive Retry-After; the durable gate enforces the deadline.
-- [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
-- [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
-- [AI fixture determinism](ai-fixture-determinism.md) — injected AI tests fail closed; chat history tests isolate ledger persistence without weakening lease checks.
-- [Tool failure terminality](tool-failure-terminality.md) — execution failures remain terminal; server-rejected read paths are retryable diagnostics, not evidence or permission.
-- [Analysis deadline race](analysis-deadline-race.md) — timeout-triggered abort can win as cancellation; classify expiry from a timer-owned flag.
-- [Reliable Tool Agent scope](reliable-tool-agent-scope.md) — preserve delegation/approval boundaries; durably terminalize bound attempts denied before start, not just console-log them.
-- [Tool I/O resource bounds](tool-input-resource-bounds.md) — preserve grep semantics, cap provider inputs, and fail closed on oversized serialized outputs before proof.
-- [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
-- [Forensic resume contract](forensic-resume-contract.md) — persist task intent, scope, revision, and identities before provider work; legacy recovery must remain proof- and revision-bound.
-- [Recovery candidate binding](recovery-candidate-binding.md) — bind acceptances to the execution attempt; never compare workspace hashes to project timestamps; partial orientation checkpoints can resume.
+- [Task answer receipt verification](task-answer-receipt.md) — task logs are clipped summaries; assert answer content from the current execution receipt bound to Canonical Proof.
 - [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Engineering Agent control-plane scope](engineering-agent-control-plane.md) — unify product continuity over the existing Mission Runtime; preserve scoped approval and delivery gates.

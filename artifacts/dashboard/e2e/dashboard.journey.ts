@@ -6025,7 +6025,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       expect(taskLogResponses.every((response) => response.status === 200)).toBe(true);
       const taskLogRecords = taskLogResponses.flatMap((response) =>
         Array.isArray(response.body)
-          ? response.body as Array<{ message?: unknown }>
+          ? response.body as Array<{ message?: unknown; taskId?: unknown }>
           : [],
       );
       const finalSummaryLog = taskLogRecords.find((entry) =>
@@ -6033,8 +6033,40 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         && entry.message.startsWith("AI task completed:"),
       );
       expect(finalSummaryLog).toBeTruthy();
-      const answer = String(finalSummaryLog?.message ?? "")
-        .replace(/^AI task completed:\s*/u, "");
+      const finalTaskId = typeof finalSummaryLog?.taskId === "string"
+        ? finalSummaryLog.taskId
+        : "";
+      expect(finalTaskId).not.toBe("");
+      const taskDetailResponse = await page.evaluate(async (taskId) => {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null) as unknown,
+        };
+      }, finalTaskId);
+      expect(taskDetailResponse.status).toBe(200);
+      const taskDetail = taskDetailResponse.body as {
+        id?: unknown;
+        agentResponse?: unknown;
+      } | null;
+      expect(taskDetail?.id).toBe(finalTaskId);
+      const taskReceipt = typeof taskDetail?.agentResponse === "string"
+        ? JSON.parse(taskDetail.agentResponse) as {
+            kind?: unknown;
+            operationId?: unknown;
+            terminalStatus?: unknown;
+            summary?: unknown;
+          }
+        : null;
+      expect(taskReceipt).toMatchObject({
+        kind: "AI_TASK_EXECUTION_RECEIPT",
+        terminalStatus: "SUCCEEDED",
+      });
+      const acceptedExecutionId = provenGoals.find((entry) =>
+        (entry.tasks ?? []).some((task) => task.id === finalTaskId),
+      )?.goal?.outcomeContract?.acceptance?.executionId;
+      expect(taskReceipt?.operationId).toBe(acceptedExecutionId);
+      const answer = String(taskReceipt?.summary ?? "");
       expect(answer).toMatch(/reportStatus/u);
       expect(answer).toMatch(/src\/report\.mjs/u);
       expect(answer).toMatch(/COMPLETED/u);

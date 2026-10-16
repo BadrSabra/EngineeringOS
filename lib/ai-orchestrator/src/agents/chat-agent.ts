@@ -10655,11 +10655,28 @@ export async function chat(opts: {
               ...promptMetrics,
             }));
 
+            // A successful tool-loop response came from a model already
+            // validated for tool calling and chat. Reuse that actual model for
+            // no-tools synthesis instead of restarting at the fast-chain head.
+            // If the loop has no successful model identity, leave resolution
+            // to the normal chat-capable catalog chain.
             const synthesisModel = recoveryProvider.provider === "openrouter"
-              ? undefined
+              ? recoveryProvider.provider === providerId
+                ? loopResult.lastSuccessfulModel
+                : undefined
               : recoveryProvider.provider === providerId
                 ? (modelDecision.model || model)
                 : resolveExecutionModel(recoveryProvider.provider, executionPlan).model;
+            if (recoveryProvider.provider === "openrouter") {
+              console.info(JSON.stringify({
+                scope: "project-query-synthesis",
+                action: "model_selection",
+                loopResultKind: loopResult.kind,
+                loopModel: safeSynthesisIdentifier(loopResult.lastSuccessfulModel),
+                decisionModel: safeSynthesisIdentifier(modelDecision.model),
+                selectedModel: safeSynthesisIdentifier(synthesisModel),
+              }));
+            }
             let recovery: Awaited<ReturnType<typeof recoveryProvider.strategy.call>>;
             try {
               recovery = await recoveryProvider.strategy.call(

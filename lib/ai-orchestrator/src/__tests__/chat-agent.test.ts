@@ -1777,6 +1777,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     const calls: Array<{
       messages: Array<{ role: string; content: string }>;
       options: {
+        model?: string;
         excludeModels?: string[];
         operation?: string;
         toolChoice?: string;
@@ -1793,6 +1794,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       call: vi.fn(async (
         messages: Array<{ role: string; content: string }>,
         options: {
+          model?: string;
           excludeModels?: string[];
           operation?: string;
           toolChoice?: string;
@@ -1887,6 +1889,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       );
       expect(recoveryCalls).toHaveLength(2);
       expect(recoveryCalls[0]?.options).toMatchObject({
+        model: "bad-model",
         operation: "project_query_no_tools_synthesis",
         toolChoice: "none",
       });

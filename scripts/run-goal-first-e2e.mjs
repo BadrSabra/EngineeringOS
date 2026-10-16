@@ -305,6 +305,28 @@ async function main() {
         "The goal-first run did not prove that all five requested source paths were read and returned as evidence.",
       );
     }
+    const synthesisModelSelections = serverLogs
+      .split("\n")
+      .flatMap((line) => {
+        try {
+          const record = JSON.parse(line);
+          return record.scope === "project-query-synthesis"
+            && record.action === "model_selection"
+            ? [record]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+    if (!synthesisModelSelections.some((selection) =>
+      typeof selection.loopModel === "string"
+      && selection.loopModel !== "unknown"
+      && selection.selectedModel === selection.loopModel
+    )) {
+      throw new Error(
+        "Project-query synthesis did not reuse the model that successfully returned the tool-loop response.",
+      );
+    }
   } finally {
     await stopPostgres();
     if (temporaryRoot) {

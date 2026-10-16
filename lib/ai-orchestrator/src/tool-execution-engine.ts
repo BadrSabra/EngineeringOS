@@ -2988,7 +2988,7 @@ function migrateLegacyToolCache(
   }
 }
 
-export type ToolLoopResult =
+export type ToolLoopResult = (
   | {
       kind: "response";
       /** Raw model response — contains content but no tool_calls. */
@@ -3100,7 +3100,11 @@ export type ToolLoopResult =
       sourceRetrieval?: SourceRetrievalTelemetry;
        binaryEvidence?: BinaryEvidencePacket[];
       objectiveState?: AgentLoopState;
-    };
+   }
+) & {
+  /** Last model that returned successfully during the loop; absent after a terminal provider failure. */
+  lastSuccessfulModel?: string;
+};
 
 // ── Agent step events ──────────────────
 
@@ -4720,6 +4724,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       toolSources,
       fileContents,
       sourceRetrieval,
+      ...(lastModelUsed ? { lastSuccessfulModel: lastModelUsed } : {}),
     };
   };
   const emitReadEvidenceLinked = (
@@ -5245,6 +5250,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       binaryEvidence: binaryEvidencePackets,
+      ...((result?.model || lastModelUsed)
+        ? { lastSuccessfulModel: result?.model || lastModelUsed }
+        : {}),
       ...(state ? { objectiveState: state } : {}),
     };
   };
@@ -5319,6 +5327,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       binaryEvidence: binaryEvidencePackets,
+      ...(lastModelUsed ? { lastSuccessfulModel: lastModelUsed } : {}),
       tool,
       failureKind,
       diagnosticCode,
@@ -6426,6 +6435,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
         binaryEvidence: binaryEvidencePackets,
+        lastSuccessfulModel: result.model || lastModelUsed,
         ...(buildObjectiveState(objective ? "goal_met" : undefined)
           ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
           : {}),
@@ -6494,6 +6504,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
         binaryEvidence: binaryEvidencePackets,
+          lastSuccessfulModel: result.model || lastModelUsed,
         reason: "empty_response",
       };
     }
@@ -8470,6 +8481,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       binaryEvidence: binaryEvidencePackets,
+      lastSuccessfulModel: lastModelUsed,
       reason: "soft_limit",
     };
   }
@@ -8502,6 +8514,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     evidenceWindows: sourceEvidenceWindows,
     sourceRetrieval,
     binaryEvidence: binaryEvidencePackets,
+    lastSuccessfulModel: lastModelUsed,
     reason: "iteration_budget",
   };
 }

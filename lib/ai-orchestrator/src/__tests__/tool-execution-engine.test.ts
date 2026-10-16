@@ -7029,7 +7029,10 @@ describe("executeToolLoop", () => {
       onStep: (step) => steps.push(step),
     });
 
-    expect(result.kind).toBe("failed");
+    expect(result).toMatchObject({
+      kind: "failed",
+      lastSuccessfulModel: "test-model",
+    });
     expect(JSON.stringify(messages)).not.toContain("private.txt");
     expect(steps).toContainEqual(expect.objectContaining({
       kind: "diagnostic",
