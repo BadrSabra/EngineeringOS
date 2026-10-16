@@ -61,6 +61,31 @@ function missionObservationGoalAnchorsArePresent(
   return anchors.every((anchor) => answerBody.includes(anchor));
 }
 
+function missionObservationWithoutRelationIsAffirmed(
+  objective: ProjectQueryAnswerObjective,
+  response: string,
+): boolean {
+  const goal = objective.goal ?? "";
+  const asksWhetherWithout = /\b(?:can|could|may)\b[^?.!]{0,220}\bwithout\b/iu.test(goal)
+    || /(?:هل|أيمكن|يمكن)[^؟?.!]{0,220}(?:بدون|دون)/u.test(goal);
+  if (!asksWhetherWithout) return true;
+
+  const answer = normalizedText(response);
+  const explicitlyRequiresPrerequisite =
+    /\bcompleted\b[^.!?؟;\n]{0,120}\b(?:only\s+if|only\s+when|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b/iu.test(answer)
+    || /\b(?:only\s+if|only\s+when|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b[^.!?؟;\n]{0,120}\bcompleted\b/iu.test(answer)
+    || /\b(?:cannot|can't|doesn't|does\s+not|never)\s+(?:return|say|report)\b[^.!?؟;\n]{0,100}\bcompleted\b/iu.test(answer)
+    || /(?:لا\s+يمكن|لا\s+يستطيع|لا\s+يعيد|لا\s+يقول|لا\s+يعرض)[^.!?؟;\n]{0,100}(?:completed|مكتمل)/u.test(answer);
+  if (explicitlyRequiresPrerequisite) return false;
+
+  // A binary "without" question is only accepted when the answer explicitly
+  // states that the outcome is independent of the named prerequisite. This is
+  // deliberately conservative: unsupported phrasing stays incomplete rather
+  // than letting goal keywords alone close a Mission.
+  return /\b(?:without|regardless\s+of|independent\s+of|ignoring|doesn't\s+(?:check|require|consult|enforce)|does\s+not\s+(?:check|require|consult|enforce)|not\s+(?:required|needed|enforced)|no\s+(?:proof|acceptance)\s+(?:is\s+)?(?:required|needed))\b/iu.test(answer)
+    || /(?:بدون|دون|بغض\s+النظر\s+عن|لا\s+يتحقق\s+من|لا\s+يتطلب|غير\s+مطلوب)/u.test(answer);
+}
+
 function claimTextIsAffirmed(response: string, claimText: string): boolean {
   const normalizedResponse = normalizedText(response);
   const normalizedClaim = normalizedText(claimText);
@@ -122,7 +147,8 @@ export function projectQueryCandidateClaimsAreAsserted(
   if (objective?.objectiveType === "PROJECT_QUERY_MISSION_OBSERVE") {
     return objective.requiredClaims.length > 0
       && projectQueryClaimRefsAreComplete(objective, candidate.claimRefs)
-      && missionObservationGoalAnchorsArePresent(objective, candidate.text);
+      && missionObservationGoalAnchorsArePresent(objective, candidate.text)
+      && missionObservationWithoutRelationIsAffirmed(objective, candidate.text);
   }
 
   if (

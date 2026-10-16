@@ -111,16 +111,26 @@ const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationshi
 type MissionChatOutput =
   Awaited<ReturnType<typeof chatWithFallback>>["result"] & {
     projectQueryAnswerAttestation?: {
-      version: 1;
+      version: 2;
+      sourceRevision: string;
       responseHash: string;
       responseSource: "provider_synthesis" | "deterministic_fallback";
       claimIds: string[];
+      evidenceBindings: MissionAnswerEvidenceBinding[];
       evidenceBindingHash: string;
       synthesisAttemptId?: string;
       synthesisProvider?: string;
       synthesisModel?: string;
     };
   };
+
+type MissionAnswerEvidenceBinding = {
+  claimId: string;
+  source: string;
+  startLine: number;
+  endLine: number;
+  excerptHash: string;
+};
 
 function pendingPlanVerificationSteps(plan: typeof tasksTable.$inferSelect["remediationPlan"]) {
   if (!plan) return [];
@@ -356,12 +366,18 @@ export type AiTaskExecutionReceipt = {
   provider: ProviderId;
   model: string;
   answerProof?: {
-    version: 1;
+    version: 2;
     status: "PROVEN";
+    executionId: string;
+    attempt: number;
+    projectId: string;
+    sourceRevision: string;
+    workspaceRevision: string;
     responseHash: string;
     responseSource: "provider_synthesis" | "deterministic_fallback";
     claimCount: number;
     claimIdsHash: string;
+    evidenceBindings: MissionAnswerEvidenceBinding[];
     evidenceBindingHash: string;
     summaryHash?: string;
     summaryTruncated?: boolean;
@@ -441,6 +457,13 @@ function safeRevisionIdentity(value: string | null, max: number): string | null 
   return value;
 }
 
+function safeAttemptIdentity(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 1_000_000) {
+    throw new Error("Task receipt contains an invalid attempt identity.");
+  }
+  return value;
+}
+
 function truncateUtf8Text(value: string, maxBytes: number): string {
   let bytes = 0;
   let end = 0;
@@ -468,6 +491,26 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
     ...(receiptValue.answerProof ? {
       answerProof: {
         ...receiptValue.answerProof,
+        executionId: safeMachineIdentity(receiptValue.answerProof.executionId, 160),
+        attempt: safeAttemptIdentity(receiptValue.answerProof.attempt),
+        projectId: safeMachineIdentity(receiptValue.answerProof.projectId, 160),
+        sourceRevision: safeRevisionIdentity(
+          receiptValue.answerProof.sourceRevision,
+          240,
+        )!,
+        workspaceRevision: safeRevisionIdentity(
+          receiptValue.answerProof.workspaceRevision,
+          240,
+        )!,
+        evidenceBindings: receiptValue.answerProof.evidenceBindings
+          .slice(0, 12)
+          .map((binding) => ({
+            claimId: safeMachineIdentity(binding.claimId, 120),
+            source: binding.source.slice(0, 500),
+            startLine: binding.startLine,
+            endLine: binding.endLine,
+            excerptHash: safeMachineIdentity(binding.excerptHash, 64),
+          })),
         ...(receiptValue.answerProof.synthesisAttemptId
           ? {
               synthesisAttemptId: safeMachineIdentity(
@@ -2207,14 +2250,28 @@ function missionObservationGraphIsProven(params: {
 export function missionObservationAnswerAttestationIsValid(params: {
   output: MissionChatOutput;
   objective: ReturnType<typeof missionObjectiveContract>;
+  sourceRevision: string;
 }): boolean {
   const isProjectQuery = params.output.objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
   if (!isProjectQuery) return true;
 
   const attestation = params.output.projectQueryAnswerAttestation;
   const expectedClaimIds = params.objective.requiredClaims.map((claim) => claim.claimId);
+  const evidenceBindings = attestation?.evidenceBindings ?? [];
+  const canonicalEvidenceBindings = [...evidenceBindings].sort((left, right) =>
+    left.claimId.localeCompare(right.claimId)
+    || left.source.localeCompare(right.source)
+    || left.startLine - right.startLine
+    || left.endLine - right.endLine,
+  );
+  const evidenceBindingsHash = createHash("sha256")
+    .update(JSON.stringify(canonicalEvidenceBindings), "utf8")
+    .digest("hex");
   if (
     !attestation
+    || attestation.version !== 2
+    || attestation.sourceRevision !== params.sourceRevision
+    || attestation.sourceRevision !== params.output.evidenceGraph?.sourceRevision
     || !params.output.response
     || !params.output.projectQueryResponseSource
     || (
@@ -2227,27 +2284,153 @@ export function missionObservationAnswerAttestationIsValid(params: {
       .digest("hex")
     || attestation.claimIds.length !== expectedClaimIds.length
     || attestation.claimIds.some((claimId, index) => claimId !== expectedClaimIds[index])
+    || evidenceBindings.length !== expectedClaimIds.length
+    || new Set(evidenceBindings.map((binding) => binding.claimId)).size !== expectedClaimIds.length
+    || expectedClaimIds.some((claimId) =>
+      evidenceBindings.filter((binding) => binding.claimId === claimId).length !== 1,
+    )
+    || evidenceBindings.some((binding) => {
+      const normalizedSource = normalizeMissionRelativePath(binding.source);
+      const claim = params.objective.requiredClaims.find(
+        (candidate) => candidate.claimId === binding.claimId,
+      );
+      const allowedPaths = claim?.requiredEvidencePaths
+        ?? params.objective.requiredEvidencePaths
+        ?? [];
+      return !normalizedSource
+        || normalizedSource !== binding.source
+        || !allowedPaths.some((path) =>
+          normalizeMissionRelativePath(path) === normalizedSource,
+        )
+        || !Number.isSafeInteger(binding.startLine)
+        || !Number.isSafeInteger(binding.endLine)
+        || binding.startLine < 1
+        || binding.endLine < binding.startLine
+        || !/^[a-f0-9]{64}$/iu.test(binding.excerptHash);
+    })
     || !/^[a-f0-9]{64}$/iu.test(attestation.evidenceBindingHash)
+    || attestation.evidenceBindingHash !== evidenceBindingsHash
   ) {
     return false;
   }
 
   return attestation.responseSource !== "provider_synthesis"
-    || Boolean(attestation.synthesisAttemptId && attestation.synthesisProvider);
+    || Boolean(
+      attestation.synthesisAttemptId
+      && attestation.synthesisProvider
+      && attestation.synthesisModel,
+    );
+}
+
+export function missionObservationEvidenceBindingsMatchSourceSnapshot(params: {
+  attestation: NonNullable<MissionChatOutput["projectQueryAnswerAttestation"]> | undefined;
+  objective: ReturnType<typeof missionObjectiveContract>;
+  targetPaths: readonly string[];
+  sourceRevision: string;
+  reads: Array<{
+    path: string;
+    body: string;
+    complete: boolean;
+    truncated: boolean;
+  }>;
+}): boolean {
+  const { attestation } = params;
+  if (
+    !attestation
+    || attestation.version !== 2
+    || attestation.sourceRevision !== params.sourceRevision
+    || attestation.evidenceBindings.length !== params.objective.requiredClaims.length
+    || attestation.claimIds.length !== params.objective.requiredClaims.length
+  ) {
+    return false;
+  }
+
+  const targetPaths = new Set(
+    params.targetPaths
+      .map((path) => normalizeMissionRelativePath(path))
+      .filter((path): path is string => Boolean(path)),
+  );
+  const readsByPath = new Map(
+    params.reads.map((read) => [normalizeMissionRelativePath(read.path), read] as const),
+  );
+  const bindingsByClaimId = new Map(
+    attestation.evidenceBindings.map((binding) => [binding.claimId, binding] as const),
+  );
+  if (
+    bindingsByClaimId.size !== params.objective.requiredClaims.length
+    || attestation.claimIds.some((claimId) => !bindingsByClaimId.has(claimId))
+  ) {
+    return false;
+  }
+
+  for (const claim of params.objective.requiredClaims) {
+    const binding = bindingsByClaimId.get(claim.claimId);
+    if (!binding) return false;
+    const source = normalizeMissionRelativePath(binding.source);
+    const allowedPaths = claim.requiredEvidencePaths
+      ?? params.objective.requiredEvidencePaths
+      ?? [];
+    const read = source ? readsByPath.get(source) : undefined;
+    if (
+      !source
+      || !targetPaths.has(source)
+      || !allowedPaths.some((path) =>
+        normalizeMissionRelativePath(path) === source,
+      )
+      || !read
+      || !read.complete
+      || read.truncated
+    ) {
+      return false;
+    }
+
+    const lines = read.body.split("\n");
+    if (binding.endLine > lines.length) return false;
+    const excerpt = lines
+      .slice(binding.startLine - 1, binding.endLine)
+      .join("\n")
+      .trim();
+    const excerptHash = createHash("sha256")
+      .update(excerpt, "utf8")
+      .digest("hex");
+    if (!excerpt || excerptHash !== binding.excerptHash) return false;
+  }
+
+  const canonicalEvidenceBindings = [...attestation.evidenceBindings].sort((left, right) =>
+    left.claimId.localeCompare(right.claimId)
+    || left.source.localeCompare(right.source)
+    || left.startLine - right.startLine
+    || left.endLine - right.endLine,
+  );
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalEvidenceBindings), "utf8")
+    .digest("hex") === attestation.evidenceBindingHash;
 }
 
 function toMissionAnswerProofReceipt(
   attestation: NonNullable<MissionChatOutput["projectQueryAnswerAttestation"]>,
+  identity: {
+    executionId: string;
+    attempt: number;
+    projectId: string;
+    workspaceRevision: string;
+  },
 ): NonNullable<AiTaskExecutionReceipt["answerProof"]> {
   return {
-    version: 1,
+    version: 2,
     status: "PROVEN",
+    executionId: identity.executionId,
+    attempt: identity.attempt,
+    projectId: identity.projectId,
+    sourceRevision: attestation.sourceRevision,
+    workspaceRevision: identity.workspaceRevision,
     responseHash: attestation.responseHash,
     responseSource: attestation.responseSource,
     claimCount: attestation.claimIds.length,
     claimIdsHash: createHash("sha256")
       .update(JSON.stringify(attestation.claimIds), "utf8")
       .digest("hex"),
+    evidenceBindings: attestation.evidenceBindings,
     evidenceBindingHash: attestation.evidenceBindingHash,
     ...(attestation.synthesisAttemptId
       ? { synthesisAttemptId: attestation.synthesisAttemptId }
@@ -3361,16 +3544,9 @@ async function executeMissionToolLoop(params: {
     const answerAttestationValid = missionObservationAnswerAttestationIsValid({
       output,
       objective,
+      sourceRevision: projectContextRevision,
     });
-    const graphProven = evidenceGraphProven && answerAttestationValid;
     const isProjectQuery = output.objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
-    missionAnswerProofStatus = isProjectQuery
-      ? answerAttestationValid ? "PROVEN" : "INCOMPLETE"
-      : undefined;
-    missionAnswerProofReceipt =
-      isProjectQuery && answerAttestationValid && output.projectQueryAnswerAttestation
-        ? toMissionAnswerProofReceipt(output.projectQueryAnswerAttestation)
-        : undefined;
     const sourceSnapshot = await collectMissionObservationSourceSnapshot({
       rootPath: root.canonicalPath,
       projectId: params.task.projectId,
@@ -3378,6 +3554,33 @@ async function executeMissionToolLoop(params: {
       workspaceRevision: params.workspaceRevision,
       targetPaths,
     });
+    const answerBindingsMatchSourceSnapshot = !isProjectQuery
+      || missionObservationEvidenceBindingsMatchSourceSnapshot({
+        attestation: output.projectQueryAnswerAttestation,
+        objective,
+        targetPaths,
+        sourceRevision: projectContextRevision,
+        reads: sourceSnapshot.reads,
+      });
+    const graphProven =
+      evidenceGraphProven
+      && answerAttestationValid
+      && answerBindingsMatchSourceSnapshot;
+    missionAnswerProofStatus = isProjectQuery
+      ? graphProven && sourceSnapshot.complete ? "PROVEN" : "INCOMPLETE"
+      : undefined;
+    missionAnswerProofReceipt =
+      isProjectQuery
+      && graphProven
+      && sourceSnapshot.complete
+      && output.projectQueryAnswerAttestation
+        ? toMissionAnswerProofReceipt(output.projectQueryAnswerAttestation, {
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            projectId: params.task.projectId,
+            workspaceRevision: params.workspaceRevision,
+          })
+        : undefined;
     const receiptStatus =
       graphProven && sourceSnapshot.complete ? "PROVEN" as const : "INCOMPLETE" as const;
     const sourceReadHashes = sourceSnapshot.reads.map((read) => ({
@@ -3477,6 +3680,7 @@ async function executeMissionToolLoop(params: {
       ).length,
       evidenceGraphProven,
       answerAttestationValid,
+      answerBindingsMatchSourceSnapshot,
       answerResponseHashMatches: Boolean(
         output.projectQueryAnswerAttestation
         && output.projectQueryAnswerAttestation.responseHash === createHash("sha256")

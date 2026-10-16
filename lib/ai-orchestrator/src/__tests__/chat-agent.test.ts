@@ -1862,7 +1862,10 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       const result = await chat({
         message: "Explain how the project pipeline works and analyze its behavior.",
         history: [],
-        projectContext: makeContext(),
+        projectContext: {
+          ...makeContext(),
+          workspaceRevision: "workspace-tree-v1:0123456789abcdef",
+        },
         rootPath,
         provider: "openrouter",
         apiKey: "test-openrouter-key",
@@ -1907,9 +1910,23 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
       expect(result.projectQueryAnswerAttestation).toMatchObject({
-        version: 1,
+        version: 2,
         responseSource: "provider_synthesis",
         claimIds: ["pipeline-evidence", "pipeline-flow"],
+        sourceRevision: expect.any(String),
+        evidenceBindings: expect.arrayContaining([
+          expect.objectContaining({
+            claimId: "pipeline-evidence",
+            source: sourcePath,
+            startLine: expect.any(Number),
+            endLine: expect.any(Number),
+            excerptHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          }),
+          expect.objectContaining({
+            claimId: "pipeline-flow",
+            source: sourcePath,
+          }),
+        ]),
         synthesisProvider: "openrouter",
         synthesisAttemptId: expect.any(String),
       });
@@ -2333,7 +2350,10 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       const result = await chat({
         message,
         history: [],
-        projectContext: makeContext(),
+        projectContext: {
+          ...makeContext(),
+          workspaceRevision: "workspace-tree-v1:0123456789abcdef",
+        },
         rootPath,
         provider: "openrouter",
         apiKey: "test-openrouter-key",
@@ -2381,9 +2401,10 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       } else {
         expect(result.response).toContain(claimText);
         expect(result.projectQueryAnswerAttestation).toMatchObject({
-          version: 1,
+          version: 2,
           responseSource: "deterministic_fallback",
           claimIds: ["pipeline-evidence"],
+          sourceRevision: expect.any(String),
         });
       }
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);

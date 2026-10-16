@@ -6059,10 +6059,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         answerProof?: {
           version?: unknown;
           status?: unknown;
+          executionId?: unknown;
+          attempt?: unknown;
+          projectId?: unknown;
+          sourceRevision?: unknown;
+          workspaceRevision?: unknown;
           responseHash?: unknown;
           responseSource?: unknown;
           claimCount?: unknown;
           claimIdsHash?: unknown;
+          evidenceBindings?: Array<{
+            claimId?: unknown;
+            source?: unknown;
+            startLine?: unknown;
+            endLine?: unknown;
+            excerptHash?: unknown;
+          }>;
           evidenceBindingHash?: unknown;
           summaryHash?: unknown;
           summaryTruncated?: unknown;
@@ -6126,18 +6138,33 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       });
       expect(acceptedExecutionIds.has(String(taskReceipt.operationId))).toBe(true);
       expect(taskReceipt?.answerProof).toMatchObject({
-        version: 1,
+        version: 2,
         status: "PROVEN",
         claimCount: 5,
       });
+      expect(taskReceipt?.answerProof?.executionId).toBe(taskReceipt.operationId);
+      expect(taskReceipt?.answerProof?.attempt).toEqual(expect.any(Number));
+      expect(taskReceipt?.answerProof?.projectId).toEqual(expect.any(String));
+      expect(taskReceipt?.answerProof?.sourceRevision).toEqual(expect.any(String));
+      expect(taskReceipt?.answerProof?.workspaceRevision).toEqual(expect.any(String));
       expect(taskReceipt?.answerProof?.responseHash).toMatch(/^[a-f0-9]{64}$/u);
       expect(taskReceipt?.answerProof?.claimIdsHash).toMatch(/^[a-f0-9]{64}$/u);
       expect(taskReceipt?.answerProof?.evidenceBindingHash).toMatch(/^[a-f0-9]{64}$/u);
       expect(taskReceipt?.answerProof?.summaryHash).toMatch(/^[a-f0-9]{64}$/u);
-      expect([
-        "provider_synthesis",
-        "deterministic_fallback",
-      ]).toContain(taskReceipt?.answerProof?.responseSource);
+      expect(taskReceipt?.answerProof?.responseSource).toBe("provider_synthesis");
+      const answerEvidenceBindings = taskReceipt?.answerProof?.evidenceBindings ?? [];
+      expect(answerEvidenceBindings).toHaveLength(5);
+      expect(answerEvidenceBindings.map((binding) => binding.source).sort()).toEqual(
+        sourceSnapshotBefore.map((source) => source.relativePath).sort(),
+      );
+      for (const binding of answerEvidenceBindings) {
+        expect(binding.claimId).toEqual(expect.any(String));
+        expect(binding.startLine).toEqual(expect.any(Number));
+        expect(binding.endLine).toEqual(expect.any(Number));
+        expect(Number(binding.startLine)).toBeGreaterThan(0);
+        expect(Number(binding.endLine)).toBeGreaterThanOrEqual(Number(binding.startLine));
+        expect(binding.excerptHash).toMatch(/^[a-f0-9]{64}$/u);
+      }
       const answer = String(taskReceipt?.summary ?? "");
       expect(answer).toMatch(/reportStatus/u);
       expect(answer).toMatch(/src\/report\.mjs/u);

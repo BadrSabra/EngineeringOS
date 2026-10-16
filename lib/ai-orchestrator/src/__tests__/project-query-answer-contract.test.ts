@@ -87,6 +87,39 @@ describe("project-query answer contract", () => {
     })).toBe(true);
   });
 
+  it("rejects a contradictory Mission observation answer even with complete claim refs and every goal anchor", () => {
+    const goal = [
+      "Read README.md, package.json, src/acceptance.mjs, src/report.mjs, and test/report.test.mjs.",
+      "Can the report say COMPLETED without matching PROVEN proof?",
+      "Give the smallest counterexample: execution.status completed, acceptance null.",
+    ].join(" ");
+    const missionObjective = {
+      objectiveType: "PROJECT_QUERY_MISSION_OBSERVE",
+      goal,
+      requiredClaims: [
+        {
+          claimId: "read-report",
+          text: `Read and summarize the server-approved source "src/report.mjs" for this Mission: ${goal}`,
+        },
+        {
+          claimId: "read-acceptance",
+          text: `Read and summarize the server-approved source "src/acceptance.mjs" for this Mission: ${goal}`,
+        },
+      ],
+    };
+    const contradictoryAnswer = [
+      "No. reportStatus in src/report.mjs returns COMPLETED only when matching PROVEN acceptance exists.",
+      "It does not return COMPLETED when execution.status is completed and acceptance is null.",
+      "README.md and test/report.test.mjs describe the same proof requirement.",
+      "src/acceptance.mjs validates the acceptance.",
+    ].join(" ");
+
+    expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
+      text: contradictoryAnswer,
+      claimRefs: ["read-report", "read-acceptance"],
+    })).toBe(false);
+  });
+
   it("fails closed when a Mission observation goal has no stable answer anchors", () => {
     const missionObjective = {
       objectiveType: "PROJECT_QUERY_MISSION_OBSERVE",
@@ -159,10 +192,18 @@ describe("project-query answer contract", () => {
 
   it("reserves answer attestations for server output, not provider JSON", () => {
     const attestation = {
-      version: 1,
+      version: 2,
+      sourceRevision: "workspace-tree-v1:0123456789abcdef",
       responseHash: "a".repeat(64),
       responseSource: "deterministic_fallback",
       claimIds: ["pipeline-evidence", "pipeline-flow"],
+      evidenceBindings: [{
+        claimId: "pipeline-evidence",
+        source: "src/pipeline.ts",
+        startLine: 1,
+        endLine: 1,
+        excerptHash: "c".repeat(64),
+      }],
       evidenceBindingHash: "b".repeat(64),
     };
     const providerPayload = {

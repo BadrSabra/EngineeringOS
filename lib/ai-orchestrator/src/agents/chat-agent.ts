@@ -16605,10 +16605,13 @@ export async function chat(opts: {
     : undefined;
 
   const projectQueryAnswerAttestation = (() => {
+    const sourceRevision =
+      sharedEvidenceGraph?.sourceRevision ?? projectContext.workspaceRevision;
     if (
       !isTargetedProjectQueryObjective
       || !projectQueryProjectionAuthoritative
       || !objective
+      || !sourceRevision
       || !projectQueryResponseSource
       || terminalResponse !== projectQueryEvidenceResponseOverride
       || materializedProjectQueryEvidence.length !== objective.requiredClaims.length
@@ -16664,10 +16667,12 @@ export async function chat(opts: {
     }
 
     return {
-      version: 1 as const,
+      version: 2 as const,
+      sourceRevision,
       responseHash: sha256(terminalResponse),
       responseSource: projectQueryResponseSource,
       claimIds,
+      evidenceBindings,
       evidenceBindingHash: sha256(JSON.stringify(evidenceBindings)),
       ...(projectQueryResponseSource === "provider_synthesis"
         ? {

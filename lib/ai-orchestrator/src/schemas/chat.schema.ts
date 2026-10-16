@@ -338,11 +338,24 @@ export type ChatTaskResult = z.infer<typeof ChatTaskResultSchema>;
  * the claim evidence materialized for that response. This is never provider
  * input; callers must verify the response hash and objective identity again.
  */
+export const ProjectQueryEvidenceBindingSchema = z.object({
+  claimId: z.string().min(1).max(120),
+  source: z.string().min(1).max(500),
+  startLine: z.number().int().min(1),
+  endLine: z.number().int().min(1),
+  excerptHash: z.string().regex(/^[a-f0-9]{64}$/i),
+}).strict();
+export type ProjectQueryEvidenceBinding = z.infer<
+  typeof ProjectQueryEvidenceBindingSchema
+>;
+
 export const ProjectQueryAnswerAttestationSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
+  sourceRevision: z.string().min(1).max(240),
   responseHash: z.string().regex(/^[a-f0-9]{64}$/i),
   responseSource: z.enum(["provider_synthesis", "deterministic_fallback"]),
   claimIds: z.array(z.string().min(1).max(120)).min(1).max(64),
+  evidenceBindings: z.array(ProjectQueryEvidenceBindingSchema).min(1).max(12),
   evidenceBindingHash: z.string().regex(/^[a-f0-9]{64}$/i),
   synthesisAttemptId: z.string().min(1).max(160).optional(),
   synthesisProvider: z.string().min(1).max(80).optional(),
