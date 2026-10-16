@@ -6697,7 +6697,12 @@ describe("delivery recovery routes", () => {
     await expect(fs.access(operation.change.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rechecks Gate 3 before writing if paired source revision changes during auto-promotion", async () => {
+  it.each([
+    { identity: "paired source revision", mutation: "source-revision" as const },
+    { identity: "Canonical Proof attempt", mutation: "proof-attempt" as const },
+  ])(
+    "rechecks Gate 3 before writing if $identity changes during auto-promotion",
+    async ({ mutation }) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const [project] = await db.select({ rootPath: projectsTable.rootPath })
@@ -7026,6 +7031,18 @@ describe("delivery recovery routes", () => {
     const triggerSuffix = randomUUID().replaceAll("-", "");
     const triggerName = `e3_gate3_receipt_${triggerSuffix}`;
     const functionName = `e3_gate3_receipt_fn_${triggerSuffix}`;
+    const triggerMutationSql = mutation === "source-revision"
+      ? `UPDATE ai_shadow_replays
+         SET receipt = jsonb_set(
+           receipt,
+           '{pairedBaseline,contract,sourceRevision}',
+           to_jsonb('foreign-source-revision:' || (receipt->>'replayId')),
+           true
+         )
+         WHERE proposal_id = NEW.id;`
+      : `UPDATE ai_execution_acceptances
+         SET attempt = ${replayExecution.execution.attempt + 1}
+         WHERE id = '${replayProof.acceptanceId}';`;
     try {
       await db.execute(sql.raw(`
         CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -7033,14 +7050,7 @@ describe("delivery recovery routes", () => {
           IF NEW.id = '${operation.proposalId}'
             AND NEW.lifecycle = 'validated'
             AND OLD.lifecycle IS DISTINCT FROM NEW.lifecycle THEN
-            UPDATE ai_shadow_replays
-            SET receipt = jsonb_set(
-              receipt,
-              '{pairedBaseline,contract,sourceRevision}',
-              to_jsonb('foreign-source-revision:' || (receipt->>'replayId')),
-              true
-            )
-            WHERE proposal_id = NEW.id;
+            ${triggerMutationSql}
           END IF;
           RETURN NEW;
         END;
@@ -7068,21 +7078,44 @@ describe("delivery recovery routes", () => {
         .toContain("Automatic delivery promotion was blocked");
       expect(recheckedApply.body.results[0].error).toContain("paired_baseline_missing");
       expect(validationSpy).toHaveBeenCalledTimes(2);
-      const [replayAfterRecheck] = await db.select({ receipt: aiShadowReplaysTable.receipt })
-        .from(aiShadowReplaysTable)
-        .where(eq(aiShadowReplaysTable.id, replayId));
-      expect(replayAfterRecheck?.receipt).toMatchObject({
-        pairedBaseline: {
-          baselineRunId,
-          candidateRunId,
-          contract: {
-            pairId: `shadow-replay-pair:${replayId}`,
-            sourceRevision: `foreign-source-revision:${replayId}`,
+      if (mutation === "source-revision") {
+        const [replayAfterRecheck] = await db.select({ receipt: aiShadowReplaysTable.receipt })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.id, replayId));
+        expect(replayAfterRecheck?.receipt).toMatchObject({
+          pairedBaseline: {
             baselineRunId,
             candidateRunId,
+            contract: {
+              pairId: `shadow-replay-pair:${replayId}`,
+              sourceRevision: `foreign-source-revision:${replayId}`,
+              baselineRunId,
+              candidateRunId,
+            },
           },
-        },
-      });
+        });
+      } else {
+        const [proofAcceptanceAfterRecheck] = await db.select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+        }).from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.id, replayProof.acceptanceId));
+        expect(proofAcceptanceAfterRecheck?.attempt).toBe(replayExecution.execution.attempt + 1);
+        const [replayAfterRecheck] = await db.select({ receipt: aiShadowReplaysTable.receipt })
+          .from(aiShadowReplaysTable)
+          .where(eq(aiShadowReplaysTable.id, replayId));
+        expect(replayAfterRecheck?.receipt).toMatchObject({
+          pairedBaseline: {
+            baselineRunId,
+            candidateRunId,
+            contract: {
+              pairId: `shadow-replay-pair:${replayId}`,
+              sourceRevision: proposal.baseRevision,
+              baselineRunId,
+              candidateRunId,
+            },
+          },
+        });
+      }
 
       const blockedJournals = await db.select().from(aiApplyJournalTable)
         .where(eq(aiApplyJournalTable.operationId, operation.operationId));
@@ -7095,8 +7128,14 @@ describe("delivery recovery routes", () => {
     } finally {
       await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_change_proposals`));
       await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+      if (mutation === "proof-attempt") {
+        await db.update(aiExecutionAcceptancesTable)
+          .set({ attempt: replayExecution.execution.attempt })
+          .where(eq(aiExecutionAcceptancesTable.id, replayProof.acceptanceId));
+      }
     }
-  });
+    },
+  );
 
   it("does not report validated recovery when its workspace is gone", async () => {
     const projectId = await insertProject();
