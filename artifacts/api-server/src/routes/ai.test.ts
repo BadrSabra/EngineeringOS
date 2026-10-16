@@ -6698,12 +6698,13 @@ describe("delivery recovery routes", () => {
   });
 
   it.each([
-    { identity: "paired source revision", mutation: "source-revision" as const },
-    { identity: "Canonical Proof attempt", mutation: "proof-attempt" as const },
-    { identity: "paired baseline run ID", mutation: "baseline-run-id" as const },
-    { identity: "paired candidate run ID", mutation: "candidate-run-id" as const },
+    { identity: "source-revision mutation", mutation: "source-revision" as const },
+    { identity: "Canonical Proof attempt rotation", mutation: "proof-attempt" as const },
+    { identity: "baseline run-ID mutation", mutation: "baseline-run-id" as const },
+    { identity: "candidate run-ID mutation", mutation: "candidate-run-id" as const },
+    { identity: "a matching paired-baseline", mutation: "matching-write" as const },
   ])(
-    "rechecks Gate 3 before writing if $identity changes during auto-promotion",
+    "checks Gate 3 auto-promotion for $identity",
     async ({ mutation }) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -6982,6 +6983,39 @@ describe("delivery recovery routes", () => {
     });
     expect(await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+
+    if (mutation === "matching-write") {
+      await db.update(aiChangeProposalsTable)
+        .set({ lifecycle: "isolated" })
+        .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+      await db.update(aiDeliveryPoliciesTable)
+        .set({ mode: "eligible_auto_promote" })
+        .where(eq(aiDeliveryPoliciesTable.projectId, projectId));
+      validationSpy.mockClear();
+
+      const promoted = await request(app)
+        .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+      expect(promoted.status).toBe(200);
+      expect(promoted.body).toMatchObject({
+        automaticPromotion: true,
+        applyStatus: "APPLIED",
+        integrityOutcome: "verified",
+        results: [{
+          path: changedPath,
+          ok: true,
+          writeStatus: "written",
+          persistenceVerified: true,
+        }],
+      });
+      expect(validationSpy).toHaveBeenCalledTimes(2);
+      await expect(fs.readFile(`${project.rootPath}/${changedPath}`, "utf8"))
+        .resolves.toBe(operation.change.newContent);
+      expect(await hashDeliveryTree(project.rootPath)).toBe(proposal.candidateTreeHash);
+      const appliedJournals = await db.select().from(aiApplyJournalTable)
+        .where(eq(aiApplyJournalTable.operationId, operation.operationId));
+      expect(appliedJournals.some((entry) => entry.stage === "APPLIED")).toBe(true);
+      return;
+    }
 
     const foreignCandidateRunId = `${replayId}:foreign-candidate`;
     await db.update(aiShadowReplaysTable).set({
