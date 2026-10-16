@@ -3,7 +3,7 @@ import { ChevronDown, FileCode2, GitMerge, Search, ShieldAlert, ShieldCheck } fr
 import type { EvidenceGraph } from '@workspace/api-client-react';
 
 const statusClass: Record<string, string> = {
-  PROVEN: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  PROVEN: 'border-slate-500/30 bg-slate-500/10 text-slate-200',
   CONTRADICTED: 'border-red-500/30 bg-red-500/10 text-red-200',
   INCOMPLETE: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
   NOT_PROVEN: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
@@ -18,7 +18,7 @@ const nodeClass: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
-  PROVEN: 'مثبت بحسب السجل',
+  PROVEN: 'مثبت في الخريطة فقط',
   CONTRADICTED: 'توجد أدلة مناقضة',
   INCOMPLETE: 'الأدلة غير مكتملة',
   NOT_PROVEN: 'غير مثبت',
@@ -55,7 +55,10 @@ export function EvidenceGraphPanel({ graph }: { graph: EvidenceGraph }) {
       </button>
 
       <div className="border-t border-cyan-500/15 px-3 py-2.5">
-        <p className="mb-2 text-[10px] text-muted-foreground">هذه خريطة للأدلة المسجلة؛ لا تمنح إذن تعديل ولا تثبت اكتمال التنفيذ. غياب أدلة مناقضة لا يثبت صحة كل ادعاء.</p>
+        <p data-testid="evidence-graph-proof-disclaimer" className="mb-2 text-[10px] text-muted-foreground">
+          خريطة الأدلة تلخص ما سُجل فقط؛ حالة «مثبت» فيها لا تعيد فحص قبول التنفيذ الحالي ولا تثبت اكتماله.
+          لا تمنح الخريطة إذن تعديل، وغياب أدلة مناقضة لا يثبت صحة كل ادعاء.
+        </p>
         <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
           <span className="rounded-full border border-border/60 bg-background/30 px-2 py-0.5 text-muted-foreground">
             ملف ← عنصر برمجي ← ادعاء ← سؤال فرعي ← نتيجة التحقق
@@ -110,7 +113,10 @@ export function EvidenceGraphPanel({ graph }: { graph: EvidenceGraph }) {
                   <span className={`shrink-0 font-semibold ${nodeClass[node.kind] ?? 'text-foreground'}`}>{nodeLabels[node.kind] ?? <bdi dir="ltr">{node.kind}</bdi>}</span>
                   <bdi dir="auto" className="min-w-0 flex-1 truncate text-foreground" title={node.label}>{node.label}</bdi>
                   {node.status && (
-                    <span className={`shrink-0 rounded-full border px-1.5 py-0.5 ${statusClass[node.status] ?? statusClass.NOT_PROVEN}`}>
+                    <span
+                      data-testid={`evidence-graph-node-status-${node.id}`}
+                      className={`shrink-0 rounded-full border px-1.5 py-0.5 ${statusClass[node.status] ?? statusClass.NOT_PROVEN}`}
+                    >
                       {statusLabels[node.status] ?? <>حالة غير معروفة: <bdi dir="ltr">{node.status}</bdi></>}
                     </span>
                   )}

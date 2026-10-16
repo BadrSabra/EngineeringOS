@@ -22,7 +22,7 @@ describe('Arabic evidence graph presentation', () => {
   });
 
   it.each([
-    ['PROVEN', 'مثبت بحسب السجل'],
+    ['PROVEN', 'مثبت في الخريطة فقط'],
     ['CONTRADICTED', 'توجد أدلة مناقضة'],
     ['INCOMPLETE', 'الأدلة غير مكتملة'],
     ['NOT_PROVEN', 'غير مثبت'],
@@ -37,7 +37,13 @@ describe('Arabic evidence graph presentation', () => {
     expect(screen.getByText(label, { exact: true })).toBeInTheDocument();
     expect(screen.getByText('Server-provided claim')).toHaveAttribute('dir', 'auto');
     expect(screen.getByText('revision/fixture-42')).toHaveAttribute('dir', 'ltr');
-    expect(screen.getByText(/لا تمنح إذن تعديل ولا تثبت اكتمال التنفيذ/)).toBeInTheDocument();
+    expect(screen.getByTestId('evidence-graph-proof-disclaimer')).toHaveTextContent(
+      'لا تعيد فحص قبول التنفيذ الحالي ولا تثبت اكتماله',
+    );
+    expect(screen.getByTestId(`evidence-graph-node-status-claim:one`)).toHaveTextContent(label);
+    if (status === 'PROVEN') {
+      expect(screen.getByTestId('evidence-graph-node-status-claim:one')).toHaveClass('text-slate-200');
+    }
     expect(graph.nodes[0].status).toBe(status);
     if (status === 'CONTRADICTED') {
       expect(screen.getByText('ادعاءات لها أدلة مناقضة: 1')).toBeInTheDocument();
