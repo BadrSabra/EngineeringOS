@@ -800,6 +800,59 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('نتيجة التنفيذ')).toBeInTheDocument();
   });
 
+  it('does not present a prior correlation progress percentage as current task progress', () => {
+    const staleProgressLog = {
+      id: 'progress-previous',
+      taskId: 'task-current',
+      level: 'info' as const,
+      message: 'Previous attempt nearly complete.',
+      timestamp: '2026-08-25T10:02:00.000Z',
+      eventType: 'progress' as const,
+      executionId: 'execution-previous',
+      correlationId: 'correlation-previous',
+      attempt: 1,
+      sequence: 12,
+      progressStage: 'finalization' as const,
+      progressStatus: 'active' as const,
+      progressPercent: 96,
+      progressMessage: 'Previous attempt nearing completion.',
+    };
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-current',
+        projectId: 'project-1',
+        title: 'Retry before progress starts',
+        status: 'queued',
+        correlationId: 'correlation-current',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:03:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: [staleProgressLog],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetTaskLogs>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Retry before progress starts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'السجل' }));
+
+    const progressMetric = screen.getByText('التقدم').parentElement;
+    expect(progressMetric).not.toHaveTextContent('96%');
+    expect(progressMetric).toHaveTextContent('خطوات');
+  });
+
   it('keeps long activity timelines bounded while preserving the first and latest events', () => {
     const activityLogs = Array.from({ length: 120 }, (_, index) => ({
       id: `activity-${index}`,
