@@ -191,6 +191,7 @@ export default function Dashboard() {
   const [goalDraft, setGoalDraft] = useState('');
   const [goalHandoffError, setGoalHandoffError] = useState('');
   const [showGoalDestinationPrompt, setShowGoalDestinationPrompt] = useState(false);
+  const [selectedGoalProjectId, setSelectedGoalProjectId] = useState('');
   const projectsQuery = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });
@@ -221,6 +222,27 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
 
+    if (destination === 'project') {
+      if (projectsQuery.isLoading || projectsQuery.isError) {
+        setShowGoalDestinationPrompt(true);
+        setGoalHandoffError('تحقق من قائمة المشاريع قبل فتح مساعد المشروع.');
+        return;
+      }
+      if (
+        projects.length > 0
+        && (!projectId || !projects.some((project) => project.id === projectId))
+      ) {
+        setShowGoalDestinationPrompt(true);
+        setGoalHandoffError('اختر مشروعًا محددًا قبل المتابعة.');
+        return;
+      }
+      if (projects.length === 0 && projectId) {
+        setShowGoalDestinationPrompt(true);
+        setGoalHandoffError('لم يعد المشروع المحدد متاحًا. حدّث قائمة المشاريع ثم اختر وجهة جديدة.');
+        return;
+      }
+    }
+
     const savedDraft = user?.id
       ? storeHomeGoalDraft(normalizedGoal, user.id, destination === 'project' ? projectId : null)
       : null;
@@ -246,15 +268,15 @@ export default function Dashboard() {
     const normalizedGoal = goalDraft.trim();
     if (!normalizedGoal) return;
     setGoalHandoffError('');
-
-    if (goalProjectMatch?.kind === 'unique') {
-      handoffGoal('project', goalProjectMatch.project.id);
-      return;
-    }
+    setSelectedGoalProjectId('');
     setShowGoalDestinationPrompt(true);
   }
 
-  function continueToProject() {
+  function continueToProject(projectId: string) {
+    handoffGoal('project', projectId);
+  }
+
+  function createProjectForGoal() {
     handoffGoal('project');
   }
 
@@ -339,6 +361,7 @@ export default function Dashboard() {
           value={goalDraft}
           onChange={(event) => {
             setGoalDraft(event.target.value);
+            setSelectedGoalProjectId('');
             setShowGoalDestinationPrompt(false);
             if (goalHandoffError) setGoalHandoffError('');
           }}
@@ -359,16 +382,16 @@ export default function Dashboard() {
           >
             <h3 id="goal-destination-heading" className="text-sm font-medium">
               {projectsQuery.isLoading
-                ? 'قائمة المشاريع ما زالت تُحمّل.'
+                ? 'نحمّل قائمة المشاريع.'
                 : projectsQuery.isError
-                  ? 'تعذر التحقق من أسماء مشاريعك.'
+                  ? 'تعذر تحميل قائمة المشاريع.'
                   : goalProjectMatch?.kind === 'unique'
-                    ? 'وجدنا مشروعًا واحدًا قد تقصده.'
+                    ? 'قد يكون هذا الهدف متعلقًا بهذا المشروع.'
                     : goalProjectMatch?.kind === 'ambiguous'
-                      ? 'ظهر أكثر من مشروع محتمل لهذا الهدف.'
+                      ? 'اختر المشروع المقصود؛ ظهر أكثر من احتمال.'
                       : projects.length === 0
                         ? 'لا توجد مشاريع مرتبطة بهذا الحساب بعد.'
-                        : 'لم يظهر اسم مشروع واحد بوضوح في الهدف.'}
+                        : 'حدد المشروع الذي تريد العمل ضمنه.'}
             </h3>
             {goalProjectMatch?.kind === 'unique' && (
               <p data-testid="text-goal-project-suggestion" className="mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm font-medium">
@@ -377,16 +400,16 @@ export default function Dashboard() {
             )}
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {projectsQuery.isError
-                ? 'لن نختار المحادثة العامة بدل المشروع تلقائيًا. يمكنك إعادة المحاولة أو اختيار وجهة بنفسك.'
+                ? 'لن نفتح مشروعًا غير معروف. أعد تحميل القائمة أو اختر محادثة عامة بلا وصول إلى ملفات المشاريع.'
                 : goalProjectMatch?.kind === 'unique'
-                  ? 'هذا اقتراح فقط؛ سيطلب مساعد المشروع تأكيد النطاق قبل إتاحة الإرسال.'
+                  ? 'اختر الاقتراح أو مشروعًا آخر. سيطلب مساعد المشروع تأكيد النطاق قبل إرسال الهدف.'
                   : goalProjectMatch?.kind === 'ambiguous'
-                    ? 'اختر المحادثة العامة، أو افتح مساعد المشروع لاختيار مشروع واحد وتأكيده قبل الإرسال.'
+                    ? 'حدد مشروعًا واحدًا، أو اختر محادثة عامة بلا سياق ملفات المشروع.'
                 : projects.length === 0 && !projectsQuery.isLoading
-                  ? 'اختر محادثة عامة، أو أنشئ مشروعًا ثم أكمل الهدف داخله.'
+                  ? 'أنشئ مشروعًا لإتاحة العمل على ملفاته، أو اختر محادثة عامة.'
                   : projectsQuery.isLoading
-                    ? 'لن نختار مشروعًا أثناء التحميل. يمكنك المتابعة يدويًا، أو انتظار اكتمال القائمة.'
-                    : 'اختر المحادثة العامة، أو تابع إلى مساعد المشروع لاختيار المشروع وتأكيده قبل الإرسال.'}
+                    ? 'لن نفتح مساعد المشروع حتى تكتمل القائمة. يمكنك الانتظار أو اختيار محادثة عامة.'
+                    : 'حدد مشروعًا بعينه قبل فتح مساعد المشروع، أو اختر محادثة عامة بلا سياق ملفات المشروع.'}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {projectsQuery.isError && (
@@ -399,28 +422,51 @@ export default function Dashboard() {
                   إعادة تحميل المشاريع
                 </Button>
               )}
-              {goalProjectMatch?.kind === 'unique' && (
+              {!projectsQuery.isLoading && !projectsQuery.isError && projects.length > 0 && (
+                <div className="w-full space-y-2">
+                  <label htmlFor="goal-project-select" className="block text-xs font-medium">
+                    المشروع
+                  </label>
+                  <select
+                    id="goal-project-select"
+                    data-testid="select-goal-project"
+                    value={selectedGoalProjectId}
+                    onChange={(event) => {
+                      setSelectedGoalProjectId(event.target.value);
+                      if (goalHandoffError) setGoalHandoffError('');
+                    }}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                  >
+                    <option value="">اختر المشروع المقصود</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.name}</option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    disabled={!selectedGoalProjectId}
+                    onClick={() => continueToProject(selectedGoalProjectId)}
+                    data-testid="button-route-goal-project"
+                  >
+                    تابع مع المشروع المحدد
+                  </Button>
+                </div>
+              )}
+              {goalProjectMatch?.kind === 'unique' && !projectsQuery.isLoading && !projectsQuery.isError && (
                 <Button
                   type="button"
-                  onClick={() => handoffGoal('project', goalProjectMatch.project.id)}
+                  onClick={() => continueToProject(goalProjectMatch.project.id)}
                   data-testid="button-route-goal-suggested-project"
                 >
                   تابع مع هذا المشروع
                 </Button>
               )}
               <Button type="button" variant="outline" onClick={continueToGeneral} data-testid="button-route-goal-general">
-                محادثة عامة
+                سؤال عام بلا مشروع
               </Button>
-              {goalProjectMatch?.kind !== 'unique' && (
-                <Button type="button" onClick={continueToProject} data-testid="button-route-goal-project">
-                  {projects.length === 0 && !projectsQuery.isLoading && !projectsQuery.isError
-                    ? 'أنشئ مشروعًا جديدًا'
-                    : 'داخل مشروع'}
-                </Button>
-              )}
-              {goalProjectMatch?.kind === 'unique' && (
-                <Button type="button" variant="outline" onClick={continueToProject} data-testid="button-route-goal-other-project">
-                  اختيار مشروع آخر
+              {!projectsQuery.isLoading && !projectsQuery.isError && projects.length === 0 && (
+                <Button type="button" onClick={createProjectForGoal} data-testid="button-route-goal-project">
+                  أنشئ مشروعًا جديدًا
                 </Button>
               )}
             </div>
