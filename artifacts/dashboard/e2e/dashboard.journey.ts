@@ -5038,6 +5038,131 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(deliveryProof).toContainText("GitPushed");
   });
 
+  test("shows localized Arabic operator alerts and retention health", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await installApiFixtures(page);
+    await programmaticSignIn(page);
+
+    let retentionState: Record<string, unknown> = {
+      status: "success",
+      attemptedAt: "2026-10-16T08:00:00.000Z",
+      completedAt: "2026-10-16T08:00:00.000Z",
+      chatRowsScanned: 12,
+      chatRowsPruned: 2,
+      executionRowsScanned: 7,
+      executionRowsPruned: 1,
+    };
+    await page.route("**/api/healthz", async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ aiDiagnosticsRetention: retentionState }),
+      }),
+    );
+    await page.route("**/api/ai/operator-alerts**", async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          alerts: [
+            {
+              id: "e2e-groq-alert",
+              fingerprint: "groq_model_catalog_drift:groq:fast:openai/retired-fast",
+              kind: "groq_model_catalog_drift",
+              status: "open",
+              provider: "groq",
+              modelRole: "fast",
+              modelId: "openai/retired-fast",
+              title: "Groq Fast model is unavailable",
+              message: "The configured model is missing from the live catalog.",
+              remediation: "Choose a current Groq model.",
+              occurrenceCount: 2,
+              firstSeenAt: "2026-10-16T07:00:00.000Z",
+              lastSeenAt: "2026-10-16T08:00:00.000Z",
+              resolvedAt: null,
+            },
+            {
+              id: "e2e-budget-alert",
+              fingerprint: "ai_budget:e2e-project:ai_budget_exhausted",
+              kind: "ai_budget_exhausted",
+              status: "open",
+              provider: "system",
+              modelRole: "usage",
+              modelId: "redacted",
+              title: "AI project budget exhausted",
+              message: "This project's daily AI attempt budget has been exhausted.",
+              remediation: "Wait for the next UTC reset.",
+              occurrenceCount: 1,
+              firstSeenAt: "2026-10-16T07:00:00.000Z",
+              lastSeenAt: "2026-10-16T08:00:00.000Z",
+              resolvedAt: null,
+              projectId: "e2e-project",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectDashboardReady(page);
+    await page.getByTestId("summary-advanced-dashboard").click();
+
+    const alerts = page.getByRole("region", {
+      name: "تنبيهات خدمات المساعد",
+    });
+    await expect(alerts.getByText("نموذج Groq السريع غير متاح")).toBeVisible();
+    const modelId = alerts.getByText("openai/retired-fast", { exact: true });
+    await expect(modelId).toBeVisible();
+    await expect(modelId).toHaveAttribute("dir", "ltr");
+    await expect(alerts.getByRole("link", { name: "إعدادات مزود المساعد" }))
+      .toHaveAttribute("href", `${DASHBOARD_PATH}ai`);
+    await expect(alerts.getByText("بلغ المشروع الحد اليومي لاستخدام المساعد"))
+      .toBeVisible();
+    await expect(alerts.getByRole("link", { name: "إدارة المشاريع" }))
+      .toHaveAttribute("href", `${DASHBOARD_PATH}projects`);
+
+    const diagnostics = page.getByTestId("details-ai-diagnostics");
+    await expect(page.getByTestId("status-ai-diagnostics")).toHaveText("مكتمل");
+    await page.getByTestId("summary-ai-diagnostics").click();
+    const retentionDetails = page.getByRole("region", {
+      name: "تفاصيل الاحتفاظ بتشخيصات المساعد",
+    });
+    await expect(retentionDetails.getByText(/آخر اكتمال:/)).toBeVisible();
+    await expect(
+      retentionDetails.getByText("سجلات المحادثات (مفحوصة / محذوفة)"),
+    ).toBeVisible();
+    await expect(diagnostics.locator('bdi[dir="ltr"]')).toHaveText([
+      "١٢",
+      "٢",
+      "٧",
+      "١",
+    ]);
+
+    retentionState = {
+      status: "failed",
+      attemptedAt: "2026-10-16T09:00:00.000Z",
+      completedAt: null,
+      chatRowsScanned: 0,
+      chatRowsPruned: 0,
+      executionRowsScanned: 0,
+      executionRowsPruned: 0,
+    };
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expectDashboardReady(page);
+    await page.getByTestId("summary-advanced-dashboard").click();
+    await expect(page.getByTestId("status-ai-diagnostics")).toHaveText(
+      "تعذر الإكمال",
+    );
+    await page.getByTestId("summary-ai-diagnostics").click();
+    await expect(
+      page.getByRole("region", {
+        name: "تفاصيل الاحتفاظ بتشخيصات المساعد",
+      }),
+    ).toContainText("ستُعاد محاولة فحص الاحتفاظ تلقائيًا");
+  });
+
   test("keeps a mismatched push receipt blocked after Flight Deck reload", async ({
     page,
   }) => {
