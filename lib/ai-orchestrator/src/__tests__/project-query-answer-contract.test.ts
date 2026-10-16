@@ -114,10 +114,19 @@ describe("project-query answer contract", () => {
       "src/acceptance.mjs validates the acceptance.",
     ].join(" ");
 
-    expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
-      text: contradictoryAnswer,
-      claimRefs: ["read-report", "read-acceptance"],
-    })).toBe(false);
+    const contradictoryAnswers = [
+      contradictoryAnswer,
+      "The report cannot output COMPLETED unless matching PROVEN acceptance exists.",
+      "The report is unable to emit COMPLETED until matching proof is PROVEN.",
+      "Only when proof is PROVEN does reportStatus return COMPLETED.",
+      "لا يمكن للتقرير أن يعرض مكتمل إلا عندما يكون القبول مثبتاً.",
+    ];
+    for (const answer of contradictoryAnswers) {
+      expect(projectQueryCandidateClaimsAreAsserted(missionObjective, {
+        text: answer,
+        claimRefs: ["read-report", "read-acceptance"],
+      })).toBe(false);
+    }
   });
 
   it("fails closed when a Mission observation goal has no stable answer anchors", () => {

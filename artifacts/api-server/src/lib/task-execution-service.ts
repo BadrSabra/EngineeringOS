@@ -3627,14 +3627,17 @@ async function executeMissionToolLoop(params: {
       workspaceRevision: params.workspaceRevision,
       targetPaths,
     });
-    const answerBindingsMatchSourceSnapshot = !isProjectQuery
-      || missionObservationEvidenceBindingsMatchSourceSnapshot({
+    const verifiedAnswerBindings = isProjectQuery
+      ? missionObservationEvidenceBindingsFromSourceSnapshot({
         attestation: output.projectQueryAnswerAttestation,
         objective,
         targetPaths,
         sourceRevision: projectContextRevision,
         reads: sourceSnapshot.reads,
-      });
+      })
+      : undefined;
+    const answerBindingsMatchSourceSnapshot = !isProjectQuery
+      || verifiedAnswerBindings !== undefined;
     const graphProven =
       evidenceGraphProven
       && answerAttestationValid
@@ -3652,7 +3655,7 @@ async function executeMissionToolLoop(params: {
             attempt: params.expectedAttempt,
             projectId: params.task.projectId,
             workspaceRevision: params.workspaceRevision,
-          })
+          }, verifiedAnswerBindings ?? [])
         : undefined;
     const receiptStatus =
       graphProven && sourceSnapshot.complete ? "PROVEN" as const : "INCOMPLETE" as const;

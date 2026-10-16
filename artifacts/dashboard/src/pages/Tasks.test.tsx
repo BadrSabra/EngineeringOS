@@ -642,6 +642,62 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText(/لا تُعرض التعليمات الداخلية أو تفاصيل تشخيص المزوّد/)).toBeInTheDocument();
   });
 
+  it('shows saved Mission answer excerpts and source spans while rejecting unsafe receipt paths', () => {
+    const binding = {
+      claimId: 'claim-report-status',
+      source: 'src/report.mjs',
+      startLine: 12,
+      endLine: 14,
+      excerptHash: 'a'.repeat(64),
+      excerpt: 'export function reportStatus() {\n  return "COMPLETED";\n}',
+      excerptRedacted: false,
+    };
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        ...recoveryCases[0]!,
+        id: 'task-answer-evidence',
+        title: 'Review proof evidence',
+        projectId: 'project-1',
+        description: 'Review the durable evidence binding.',
+        status: 'completed',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+        retryCount: 0,
+        maxRetries: 3,
+        agentResponse: JSON.stringify({
+          kind: 'AI_TASK_EXECUTION_RECEIPT',
+          terminalStatus: 'SUCCEEDED',
+          answerProof: {
+            version: 3,
+            status: 'PROVEN',
+            evidenceBindings: [
+              binding,
+              { ...binding, claimId: 'claim-unsafe-path', source: '../secrets.env' },
+            ],
+          },
+        }),
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Review proof evidence' }));
+    fireEvent.click(screen.getByText('مصادر الإجابة من الملفات (1)'));
+
+    const evidencePanel = screen.getByTestId('task-answer-evidence');
+    expect(evidencePanel).toHaveTextContent('src/report.mjs:12-14');
+    expect(evidencePanel).toHaveTextContent('return "COMPLETED";');
+    expect(evidencePanel).toHaveTextContent('a'.repeat(64));
+    expect(evidencePanel).not.toHaveTextContent('../secrets.env');
+  });
+
   it('renders the durable progress timeline from out-of-order logs without duplicates', () => {
     vi.mocked(useListTasks).mockReturnValue({
       data: [{

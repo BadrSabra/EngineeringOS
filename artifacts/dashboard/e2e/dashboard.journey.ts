@@ -6074,6 +6074,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             startLine?: unknown;
             endLine?: unknown;
             excerptHash?: unknown;
+            excerpt?: unknown;
+            excerptRedacted?: unknown;
+            excerptUnavailableReason?: unknown;
           }>;
           evidenceBindingHash?: unknown;
           summaryHash?: unknown;
@@ -6138,7 +6141,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       });
       expect(acceptedExecutionIds.has(String(taskReceipt.operationId))).toBe(true);
       expect(taskReceipt?.answerProof).toMatchObject({
-        version: 2,
+        version: 3,
         status: "PROVEN",
         claimCount: 5,
       });
@@ -6164,6 +6167,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         expect(Number(binding.startLine)).toBeGreaterThan(0);
         expect(Number(binding.endLine)).toBeGreaterThanOrEqual(Number(binding.startLine));
         expect(binding.excerptHash).toMatch(/^[a-f0-9]{64}$/u);
+        expect(binding.excerpt).toEqual(expect.any(String));
+        expect(String(binding.excerpt).length).toBeGreaterThan(0);
+        expect(binding.excerptUnavailableReason).toBeUndefined();
       }
       const answer = String(taskReceipt?.summary ?? "");
       expect(answer).toMatch(/reportStatus/u);

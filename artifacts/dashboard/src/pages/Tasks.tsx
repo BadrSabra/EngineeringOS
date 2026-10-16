@@ -145,6 +145,22 @@ type TaskExecutionReceipt = {
   summary?: string;
   availabilityState?: string;
   operatorAction?: string | null;
+  answerProof?: {
+    version?: number;
+    status?: string;
+    evidenceBindings?: unknown;
+  };
+};
+
+type TaskAnswerEvidenceBinding = {
+  claimId: string;
+  source: string;
+  startLine: number;
+  endLine: number;
+  excerptHash: string;
+  excerpt?: string;
+  excerptRedacted?: boolean;
+  excerptUnavailableReason?: 'excerpt_too_large' | 'receipt_size_limit';
 };
 
 type TaskAcceptance = {
@@ -174,6 +190,113 @@ function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | 
   } catch {
     return null;
   }
+}
+
+function isTaskAnswerEvidenceBinding(value: unknown): value is TaskAnswerEvidenceBinding {
+  if (!value || typeof value !== 'object') return false;
+  const binding = value as Record<string, unknown>;
+  const source = binding.source;
+  const safePath = typeof source === 'string'
+    && source.length > 0
+    && source.length <= 500
+    && !source.startsWith('/')
+    && !source.includes('\\')
+    && source.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..');
+  const safeExcerpt = binding.excerpt === undefined
+    || (
+      typeof binding.excerpt === 'string'
+      && binding.excerpt.length <= 2_048
+      && !binding.excerpt.includes('\0')
+    );
+  return typeof binding.claimId === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/u.test(binding.claimId)
+    && safePath
+    && Number.isSafeInteger(binding.startLine)
+    && Number(binding.startLine) >= 1
+    && Number.isSafeInteger(binding.endLine)
+    && Number(binding.endLine) >= Number(binding.startLine)
+    && typeof binding.excerptHash === 'string'
+    && /^[a-f0-9]{64}$/iu.test(binding.excerptHash)
+    && safeExcerpt
+    && (
+      binding.excerptRedacted === undefined
+      || typeof binding.excerptRedacted === 'boolean'
+    )
+    && (
+      binding.excerptUnavailableReason === undefined
+      || binding.excerptUnavailableReason === 'excerpt_too_large'
+      || binding.excerptUnavailableReason === 'receipt_size_limit'
+    );
+}
+
+function getTaskAnswerEvidenceBindings(
+  receipt: TaskExecutionReceipt,
+): TaskAnswerEvidenceBinding[] {
+  const proof = receipt.answerProof;
+  if (proof?.version !== 3 || proof.status !== 'PROVEN' || !Array.isArray(proof.evidenceBindings)) {
+    return [];
+  }
+  return proof.evidenceBindings.filter(isTaskAnswerEvidenceBinding);
+}
+
+function TaskAnswerEvidencePanel({ receipt }: { receipt: TaskExecutionReceipt }) {
+  const bindings = getTaskAnswerEvidenceBindings(receipt);
+  if (bindings.length === 0) return null;
+
+  return (
+    <details
+      className="mt-3 rounded-md border border-border bg-background p-3"
+      data-testid="task-answer-evidence"
+    >
+      <summary className="cursor-pointer font-semibold">
+        مصادر الإجابة من الملفات ({bindings.length})
+      </summary>
+      <div className="mt-3 space-y-3">
+        <p className="text-muted-foreground">
+          هذه المقتطفات حُفظت من لقطة المصدر التي جرى التحقق منها؛ لا تُقرأ من ملفات متغيرة حالياً.
+        </p>
+        {bindings.map((binding) => (
+          <section
+            key={`${binding.claimId}:${binding.source}:${binding.startLine}:${binding.endLine}`}
+            className="rounded border border-border p-2"
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-muted-foreground">مرجع المطالبة</span>
+              <bdi dir="ltr" className="font-mono">{binding.claimId}</bdi>
+            </div>
+            <bdi dir="ltr" className="mt-1 block break-all font-mono text-foreground">
+              {binding.source}:{binding.startLine}-{binding.endLine}
+            </bdi>
+            {binding.excerpt ? (
+              <pre
+                dir="auto"
+                className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-xs"
+              >
+                {binding.excerpt}
+              </pre>
+            ) : (
+              <p className="mt-2 text-muted-foreground">
+                {binding.excerptUnavailableReason === 'excerpt_too_large'
+                  ? 'المقتطف أطول من حد العرض؛ المدى والبصمة محفوظان.'
+                  : 'لم يُضمّن نص المقتطف بسبب حد حجم الإيصال؛ المدى والبصمة محفوظان.'}
+              </p>
+            )}
+            {binding.excerptRedacted && (
+              <p className="mt-1 text-muted-foreground">
+                حُجبت أنماط حساسة من النص المعروض؛ البصمة تخص المقتطف الأصلي.
+              </p>
+            )}
+            <div className="mt-2 text-muted-foreground">
+              بصمة المقتطف الأصلي:{' '}
+              <bdi dir="ltr" className="break-all font-mono text-foreground">
+                {binding.excerptHash}
+              </bdi>
+            </div>
+          </section>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function acceptanceStatus(acceptance: TaskAcceptance): {
@@ -1794,6 +1917,7 @@ export default function Tasks() {
                                   recovery={receipt}
                                   className="mt-3"
                                 />
+                                <TaskAnswerEvidencePanel receipt={receipt} />
                               </div>
                             );
                           })()}

@@ -4,6 +4,7 @@ import {
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
   missionObservationAnswerAttestationIsValid,
+  missionObservationEvidenceBindingsFromSourceSnapshot,
   missionObservationEvidenceBindingsMatchSourceSnapshot,
   MissionToolOutcomeUncertainError,
   missionPlanRevisionHash,
@@ -121,6 +122,13 @@ describe("AI task execution receipts", () => {
     };
 
     expect(missionObservationEvidenceBindingsMatchSourceSnapshot(params)).toBe(true);
+    expect(missionObservationEvidenceBindingsFromSourceSnapshot(params)?.map((binding) => ({
+      claimId: binding.claimId,
+      excerpt: binding.excerpt,
+    }))).toEqual(objective.requiredClaims.map((claim) => ({
+      claimId: claim.claimId,
+      excerpt,
+    })));
     expect(missionObservationEvidenceBindingsMatchSourceSnapshot({
       ...params,
       reads: [{ ...params.reads[0]!, body: "export function reportStatus() { return false; }\n" }],
@@ -170,7 +178,7 @@ describe("AI task execution receipts", () => {
       stages: ["claim", "evidence", "synthesis", "finalize"],
       result: result({ summary: "Evidence-bound answer.", steps: [] }),
       answerProof: {
-        version: 2,
+        version: 3,
         status: "PROVEN",
         executionId,
         attempt: 1,
@@ -187,12 +195,14 @@ describe("AI task execution receipts", () => {
           startLine: 1,
           endLine: 1,
           excerptHash: "d".repeat(64),
+          excerpt: "return safeValue;\napiKey=sk-provider-secret-123456789;",
         }, {
           claimId: "claim-2",
           source: "src/acceptance.mjs",
           startLine: 2,
           endLine: 4,
           excerptHash: "e".repeat(64),
+          excerpt: "acceptance is validated",
         }],
         evidenceBindingHash: "c".repeat(64),
         synthesisAttemptId,
@@ -208,6 +218,10 @@ describe("AI task execution receipts", () => {
     expect(receipt.answerProof?.attempt).toBe(1);
     expect(receipt.answerProof?.workspaceRevision).toBe("workspace-tree-v1:0123456789abcdef");
     expect(receipt.answerProof?.synthesisAttemptId).toBe(synthesisAttemptId);
+    expect(receipt.answerProof?.evidenceBindings[0]?.excerpt).not.toContain("sk-provider-secret");
+    expect(receipt.answerProof?.evidenceBindings[0]?.excerptRedacted).toBe(true);
+    expect(receipt.answerProof?.evidenceBindings[0]?.excerpt).toContain("return safeValue;");
+    expect(receipt.answerProof?.evidenceBindings[1]?.excerpt).toBe("acceptance is validated");
   });
 
   it("retains proof-bound answer text beyond the old two-thousand-character cap", () => {
@@ -224,7 +238,7 @@ describe("AI task execution receipts", () => {
       stages: ["claim", "evidence", "synthesis", "finalize"],
       result: result({ summary, steps: [] }),
       answerProof: {
-        version: 2,
+        version: 3,
         status: "PROVEN",
         executionId: "execution-answer-proof",
         attempt: 1,
@@ -263,6 +277,50 @@ describe("AI task execution receipts", () => {
       createHash("sha256").update(receipt.summary ?? "", "utf8").digest("hex"),
     );
     expect(Buffer.byteLength(JSON.stringify(receipt), "utf8")).toBeLessThanOrEqual(8_000);
+  });
+
+  it("omits display excerpts rather than exceeding the bounded receipt size", () => {
+    const executionId = "execution-large-proof";
+    const receipt = buildAiTaskExecutionReceipt({
+      executionId,
+      correlationId: "correlation-large-proof",
+      provider: "openrouter",
+      model: "openai/gpt-4.1-mini",
+      attempt: 1,
+      durationMs: 125,
+      stages: ["claim", "evidence", "synthesis", "finalize"],
+      result: result({ summary: "Evidence-bound answer.", steps: [] }),
+      answerProof: {
+        version: 3,
+        status: "PROVEN",
+        executionId,
+        attempt: 1,
+        projectId: "e60be3b7-134b-49ab-b938-13870fb46a62",
+        sourceRevision: "workspace-tree-v1:0123456789abcdef",
+        workspaceRevision: "workspace-tree-v1:0123456789abcdef",
+        responseHash: "a".repeat(64),
+        responseSource: "provider_synthesis",
+        claimCount: 12,
+        claimIdsHash: "b".repeat(64),
+        evidenceBindings: Array.from({ length: 12 }, (_, index) => ({
+          claimId: `claim-${index}`,
+          source: `src/module-${index}.mjs`,
+          startLine: 1,
+          endLine: 4,
+          excerptHash: "d".repeat(64),
+          excerpt: `export function reportStatus() {\n${"  return 'COMPLETED';\n".repeat(30)}`,
+        })),
+        evidenceBindingHash: "c".repeat(64),
+        synthesisAttemptId: "attempt-large-proof",
+        synthesisProvider: "openrouter",
+        synthesisModel: "openai/gpt-4.1-mini",
+      },
+    });
+
+    expect(Buffer.byteLength(JSON.stringify(receipt), "utf8")).toBeLessThanOrEqual(8_000);
+    expect(receipt.answerProof?.evidenceBindings.every((binding) =>
+      binding.excerpt === undefined && binding.excerptUnavailableReason === "receipt_size_limit",
+    )).toBe(true);
   });
 
   it("represents blocked results without storing model payloads", () => {

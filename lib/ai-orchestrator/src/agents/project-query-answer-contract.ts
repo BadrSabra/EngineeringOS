@@ -72,10 +72,10 @@ function missionObservationWithoutRelationIsAffirmed(
 
   const answer = normalizedText(response);
   const explicitlyRequiresPrerequisite =
-    /\bcompleted\b[^.!?؟;\n]{0,120}\b(?:only\s+if|only\s+when|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b/iu.test(answer)
-    || /\b(?:only\s+if|only\s+when|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b[^.!?؟;\n]{0,120}\bcompleted\b/iu.test(answer)
-    || /\b(?:cannot|can't|doesn't|does\s+not|never)\s+(?:return|say|report)\b[^.!?؟;\n]{0,100}\bcompleted\b/iu.test(answer)
-    || /(?:لا\s+يمكن|لا\s+يستطيع|لا\s+يعيد|لا\s+يقول|لا\s+يعرض)[^.!?؟;\n]{0,100}(?:completed|مكتمل)/u.test(answer);
+    /\bcompleted\b[^.!?؟;\n]{0,120}\b(?:only\s+if|only\s+when|unless|until|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b/iu.test(answer)
+    || /\b(?:only\s+if|only\s+when|unless|until|requires?|depends\s+on|must\s+(?:have|match|satisfy))\b[^.!?؟;\n]{0,120}\b(?:proven|proof|acceptance)\b[^.!?؟;\n]{0,120}\bcompleted\b/iu.test(answer)
+    || /\b(?:cannot|can't|doesn't|does\s+not|never|is\s+unable\s+to|isn't\s+able\s+to|is\s+not\s+able\s+to)\s+(?:return|say|report|output|emit|produce|set|mark|show|display)\b[^.!?؟;\n]{0,100}\bcompleted\b/iu.test(answer)
+    || /(?:لا\s+يمكن|لا\s+يستطيع|لا\s+يعيد|لا\s+يقول|لا\s+يعرض|لا\s+ينتج|لا\s+يصدر)[^.!?؟;\n]{0,100}(?:completed|مكتمل)/u.test(answer);
   if (explicitlyRequiresPrerequisite) return false;
 
   // A binary "without" question is only accepted when the answer explicitly
