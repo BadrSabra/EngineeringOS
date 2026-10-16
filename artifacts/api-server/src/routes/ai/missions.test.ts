@@ -3102,7 +3102,7 @@ describe("AI missions and goals", () => {
       .not.toContain("skillCandidate");
   });
 
-  it("resumes a shadow replay whose recipe execution was interrupted by a crash", {
+  it("recovers an interrupted Shadow Replay and fails closed without its durable receipt", {
     timeout: 180_000,
   }, async () => {
     const projectId = await insertProject();
@@ -3483,6 +3483,73 @@ describe("AI missions and goals", () => {
     );
     expect(currentAttemptAcceptances).toHaveLength(1);
     expect(currentAttemptAcceptances[0]?.id).toBe(recoveredCanonicalProof.acceptanceId);
+
+    // Model the durable cut after workspace cleanup but before the replay
+    // receipt and terminal projection are committed.
+    await db.update(aiShadowReplaysTable).set({
+      status: "running",
+      workerId: "crashed-before-shadow-receipt-commit",
+      leaseUntil: new Date(Date.now() - 1_000),
+      receipt: null,
+      replayCanonicalAcceptanceId: null,
+      replayWorkspaceRoot: null,
+      replayWorkspaceCleaned: true,
+      completedAt: null,
+      error: null,
+    }).where(eq(aiShadowReplaysTable.id, replayId));
+
+    await expect(fs.access(replayWorkspace.rootPath))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    const apiDatabaseUrl = process.env.DATABASE_URL;
+    if (!apiDatabaseUrl) throw new Error("The Shadow Replay recovery test requires DATABASE_URL.");
+    const applicationName = `e32-shadow-missing-receipt-${randomUUID().slice(0, 8)}`;
+    const recoveryApi = await startShadowCrashApiProcess(apiDatabaseUrl, applicationName);
+    let failedReplay: {
+      status: string;
+      error: string | null;
+      receipt: unknown;
+      replayCanonicalAcceptanceId: string | null;
+      replayWorkspaceRoot: string | null;
+      replayWorkspaceCleaned: boolean;
+    } | undefined;
+    try {
+      const recoveryDeadline = Date.now() + 60_000;
+      while (Date.now() < recoveryDeadline) {
+        [failedReplay] = await db.select({
+          status: aiShadowReplaysTable.status,
+          error: aiShadowReplaysTable.error,
+          receipt: aiShadowReplaysTable.receipt,
+          replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
+          replayWorkspaceRoot: aiShadowReplaysTable.replayWorkspaceRoot,
+          replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
+        }).from(aiShadowReplaysTable).where(eq(aiShadowReplaysTable.id, replayId));
+        if (failedReplay?.status === "failed") break;
+        if (recoveryApi.child.exitCode !== null || recoveryApi.child.signalCode !== null) {
+          throw new Error(
+            `Shadow Replay recovery API exited before receipt rejection; `
+            + `exit=${JSON.stringify(await recoveryApi.exit)}; `
+            + `stderr=${recoveryApi.diagnostics()}; stdout=${recoveryApi.output()}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } finally {
+      await stopShadowCrashApiProcess(recoveryApi);
+      await terminateShadowApiDatabaseSessions(applicationName);
+    }
+    expect(failedReplay).toMatchObject({
+      status: "failed",
+      error: "SHADOW_REPLAY_RECEIPT_MISSING",
+      receipt: null,
+      replayCanonicalAcceptanceId: null,
+      replayWorkspaceRoot: null,
+      replayWorkspaceCleaned: true,
+    });
+    const failedRegistration = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+      .send({ skillId: "candidate-review", skillVersion: "missing-receipt" });
+    expect(failedRegistration.status).toBe(409);
+    expect(failedRegistration.body.code).toBe("SKILL_REGISTRY_SHADOW_REPLAY_REQUIRED");
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {
