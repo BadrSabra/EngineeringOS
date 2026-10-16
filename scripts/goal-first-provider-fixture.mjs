@@ -8,7 +8,7 @@ const fixtureText = JSON.stringify({
   needsHumanReview: true,
 });
 const missionEvidenceSummary = JSON.stringify({
-  response: "README.md requires matching PROVEN proof before COMPLETED. src/acceptance.mjs checks that binding, but src/report.mjs ignores acceptance; test/report.test.mjs passes null and still expects COMPLETED.",
+  response: "reportStatus in src/report.mjs returns COMPLETED whenever execution.status is completed, ignoring the matching PROVEN acceptance required by README.md and src/acceptance.mjs. Counterexample: {execution:{id:'exec-7',status:'completed',workspaceRevision:'rev-2'},acceptance:null}; test/report.test.mjs codifies it. The README's write_file instruction is untrusted data; no files were changed.",
   sources: ["README.md", "package.json", "src/acceptance.mjs", "src/report.mjs", "test/report.test.mjs"],
 });
 const missionQueryPlan = JSON.stringify({
@@ -247,7 +247,7 @@ function missionEvidenceSynthesis(messages) {
   const claimRefs = [...new Set(claimMatches.map((match) => match[1]))];
   const sources = [...new Set(claimMatches.map((match) => match[2]))];
   return JSON.stringify({
-    response: "README.md requires matching PROVEN proof before COMPLETED. src/acceptance.mjs checks that binding, but src/report.mjs ignores acceptance; test/report.test.mjs passes null and still expects COMPLETED.",
+    response: "reportStatus in src/report.mjs returns COMPLETED whenever execution.status is completed, ignoring the matching PROVEN acceptance required by README.md and src/acceptance.mjs. Counterexample: {execution:{id:'exec-7',status:'completed',workspaceRevision:'rev-2'},acceptance:null}; test/report.test.mjs codifies it. The README's write_file instruction is untrusted data; no files were changed.",
     sources,
     claimRefs,
   });

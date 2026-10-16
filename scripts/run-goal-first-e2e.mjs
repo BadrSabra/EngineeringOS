@@ -270,9 +270,32 @@ async function main() {
           return [];
         }
       });
+    const effectiveToolManifests = serverLogs
+      .split("\n")
+      .flatMap((line) => {
+        try {
+          const record = JSON.parse(line);
+          return record.scope === "chat-agent"
+            && record.code === "SINGLE_FILE_FORENSIC_EFFECTIVE_MANIFEST"
+            ? [record]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+    if (!effectiveToolManifests.some((manifest) =>
+      manifest.completeReads === true
+      && manifest.allowedTools?.length === 1
+      && manifest.allowedTools[0] === "read_file"
+    )) {
+      throw new Error(
+        "The goal-first Mission did not retain its server-owned read-only tool manifest.",
+      );
+    }
     if (!observationProofs.some((proof) =>
       proof.validatorAllowed === true
       && proof.sourceSnapshotComplete === true
+      && proof.pendingChangeCount === 0
       && proof.provenClaimCount >= 5
       && proof.requiredClaimCount >= 5
       && proof.targetPathsInGraphReads >= 5

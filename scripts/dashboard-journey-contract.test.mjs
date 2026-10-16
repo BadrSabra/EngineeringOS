@@ -399,11 +399,24 @@ test("live journey timeout has Playwright headroom", () => {
     "LIVE_TEST_TIMEOUT_MARGIN_MS",
   );
   const runnerTimeout = runnerDefaultTimeout(runnerSource);
+  const goalFirstTestStart = journeySource.indexOf(
+    '  test("goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"',
+  );
+  const nextTestStart = journeySource.indexOf("\n  test(", goalFirstTestStart + 1);
+  const goalFirstTestSource = journeySource.slice(
+    goalFirstTestStart,
+    nextTestStart === -1 ? undefined : nextTestStart,
+  );
 
   assert.equal(
     runnerTimeout,
     providerTimeout,
     "The release runner and browser journey must use the same live timeout default.",
+  );
+  assert.notEqual(
+    goalFirstTestStart,
+    -1,
+    "The goal-first browser journey must remain registered.",
   );
   assert.ok(
     testTimeoutMargin > 0,
@@ -418,6 +431,11 @@ test("live journey timeout has Playwright headroom", () => {
     journeySource,
     /timeout: liveTimeoutMs\(\)/,
     "The live provider request must use the configured provider timeout.",
+  );
+  assert.match(
+    goalFirstTestSource,
+    /expect\.poll\([\s\S]*?timeout: liveTimeoutMs\(\)/,
+    "Goal-first terminal polling must honor the configured live timeout.",
   );
 });
 
