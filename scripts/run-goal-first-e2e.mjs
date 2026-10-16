@@ -107,6 +107,7 @@ async function stopPostgres() {
 }
 
 async function main() {
+  const liveProviderRun = process.env.GOAL_FIRST_LIVE_PROVIDER === "1";
   if (os.userInfo().uid === 0) {
     throw new Error("Refusing to initialize the temporary PostgreSQL cluster as root.");
   }
@@ -137,13 +138,30 @@ async function main() {
 
     const env = isolatedDatabaseEnvironment(databaseUrl);
     env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
-    env.DASHBOARD_E2E_TEST_MODE = "fixture";
-    env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
-    env.DASHBOARD_E2E_GREP = "goal-first";
+    env.DASHBOARD_E2E_TEST_MODE = liveProviderRun ? "live-provider" : "fixture";
+    env.DASHBOARD_E2E_GREP = liveProviderRun
+      ? "goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"
+      : "goal-first";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? "240000";
-    env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG = providerLogPath;
+    if (liveProviderRun) {
+      env.DASHBOARD_E2E_LIVE_PROVIDER = "1";
+      env.DASHBOARD_E2E_LIVE_DISPOSABLE = "1";
+      env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE = "1";
+      env.DASHBOARD_E2E_LIVE_GOAL_FIRST = "1";
+      delete env.DASHBOARD_E2E_LIVE_PROJECT_ID;
+      delete env.DASHBOARD_E2E_PROVIDER_FIXTURE;
+      delete env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG;
+      delete env.MISSION_E2E_PROVIDER_FIXTURE;
+    } else {
+      env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
+      env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG = providerLogPath;
+      delete env.DASHBOARD_E2E_LIVE_PROVIDER;
+      delete env.DASHBOARD_E2E_LIVE_DISPOSABLE;
+      delete env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE;
+      delete env.DASHBOARD_E2E_LIVE_GOAL_FIRST;
+    }
     delete env.AI_PROVIDER_EGRESS_DISABLED;
 
     const origins = new Set(
@@ -176,7 +194,11 @@ async function main() {
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
-    console.log("Running the goal-first browser journey against the real API and isolated database.");
+    console.log(
+      liveProviderRun
+        ? "Running the live-provider goal-first journey against the real API and isolated loopback database."
+        : "Running the goal-first browser journey against the real API and isolated database.",
+    );
     const journeyLogs = await run(
       "pnpm",
       ["run", "validate:dashboard-journey"],
@@ -184,6 +206,11 @@ async function main() {
     );
 
     const providerLog = await readFile(providerLogPath, "utf8").catch(() => "");
+    if (liveProviderRun) {
+      if (providerLog.includes('"kind":"chat-completion"')) {
+        throw new Error("The live-provider journey unexpectedly used the local chat fixture.");
+      }
+    } else {
     const usedLocalChatFixture = providerLog
       .split("\n")
       .filter(Boolean)
@@ -197,18 +224,18 @@ async function main() {
     if (!usedLocalChatFixture) {
       throw new Error("The goal did not reach the local provider fixture; refusing to count the journey as executed.");
     }
-    const usedMissionQueryPlanFixture = providerLog
+    const usedMissionReadToolCallFixture = providerLog
       .split("\n")
       .filter(Boolean)
       .some((line) => {
         try {
-          return JSON.parse(line).kind === "mission-query-plan";
+          return JSON.parse(line).kind === "mission-read-tool-call";
         } catch {
           return false;
         }
       });
-    if (!usedMissionQueryPlanFixture) {
-      throw new Error("The read-only Mission did not use the local query-planner fixture.");
+    if (!usedMissionReadToolCallFixture) {
+      throw new Error("The read-only Mission did not use the local read-tool fixture.");
     }
     const usedMissionEvidenceSynthesis = providerLog
       .split("\n")
@@ -223,19 +250,36 @@ async function main() {
     if (!usedMissionEvidenceSynthesis) {
       throw new Error("The read-only Mission did not use the local evidence-synthesis fixture.");
     }
+    }
     const serverLogs = `${journeyLogs.stdout}\n${journeyLogs.stderr}`;
-    const completedServerRead = serverLogs
-      .split(/\r?\n/u)
-      .some((line) =>
-        line.includes("SERVER_READ_TOOL_LIFECYCLE")
-        && /completed/iu.test(line),
-      );
-    const serverPrefetchCompleted = serverLogs.includes("PREFETCH_COMPLETE");
-    const serverReadScopeBound =
-      serverLogs.includes("README.md") && serverLogs.includes("package.json");
-    if (!completedServerRead || !serverPrefetchCompleted || !serverReadScopeBound) {
+    if (
+      liveProviderRun &&
+      !serverLogs.includes('"scope":"openai-compatible-client","action":"pre_fetch"')
+    ) {
       throw new Error(
-        "The proof journey did not log completed server-owned prefetch reads for both approved source paths.",
+        "The live goal-first journey completed without an observed OpenRouter request attempt.",
+      );
+    }
+    const observationProofs = serverLogs
+      .split("\n")
+      .flatMap((line) => {
+        try {
+          const record = JSON.parse(line);
+          return record.scope === "mission-observation-proof" ? [record] : [];
+        } catch {
+          return [];
+        }
+      });
+    if (!observationProofs.some((proof) =>
+      proof.validatorAllowed === true
+      && proof.sourceSnapshotComplete === true
+      && proof.provenClaimCount >= 5
+      && proof.requiredClaimCount >= 5
+      && proof.targetPathsInGraphReads >= 5
+      && proof.targetPathsInResponseSources >= 5
+    )) {
+      throw new Error(
+        "The goal-first run did not prove that all five requested source paths were read and returned as evidence.",
       );
     }
   } finally {

@@ -125,7 +125,7 @@ function uniquePaths(paths: readonly string[] | undefined): string[] {
 
 function explicitMessageFilePaths(message: string): string[] {
   const pathPattern =
-    /(?<![\w/@.-])((?:[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html|xml|txt|csv))(?![\w/.-])/gi;
+    /(?<![\w/@.-])((?:[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html|xml|txt|csv))(?![\w/-]|\.(?=[\w/-]))/gi;
   const normalizedMessage = message.replaceAll("\\", "/");
   const paths = [...normalizedMessage.matchAll(pathPattern)]
     .map((match) => match[1]?.replace(/^\.\/+/, ""))

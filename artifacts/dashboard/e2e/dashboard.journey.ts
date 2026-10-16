@@ -3906,6 +3906,10 @@ async function completeReadinessHandshake(
           mode === "live-provider"
             ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
             : undefined;
+        const browserCreatesDisposableProject =
+          mode === "live-provider" &&
+          process.env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE === "1" &&
+          !expectedProject;
         const projectListValid =
           Array.isArray(projects) &&
           projects.every((project) => Boolean(project.id));
@@ -3913,14 +3917,21 @@ async function completeReadinessHandshake(
           mode === "fixture"
             ? (options.allowEmptyProjectList || projects.length > 0) &&
               projectListValid
-            : projects.some((project) => project.id === expectedProject);
+            : browserCreatesDisposableProject
+              ? options.allowEmptyProjectList === true &&
+                projects.length === 0 &&
+                projectListValid
+              : projects.some((project) => project.id === expectedProject);
         if (
           projectsResult.ok &&
           Array.isArray(projects) &&
           fixtureProjectReady
         ) {
           checks.auth = { status: "ready" };
-          if (options.allowEmptyProjectList && mode === "fixture") {
+          if (
+            options.allowEmptyProjectList &&
+            (mode === "fixture" || browserCreatesDisposableProject)
+          ) {
             checks.projectAccess = {
               status: "ready",
               projectCount: projects.length,
@@ -5726,10 +5737,21 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     }
   });
 
-  test("goal-first: reviews a read-only Mission plan and reloads Canonical Proof from real file reads", async ({
+  test("goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof", async ({
     page,
   }) => {
     test.setTimeout(180_000);
+    if (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
+      if (
+        process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1" ||
+        process.env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE !== "1" ||
+        process.env.DASHBOARD_E2E_LIVE_GOAL_FIRST !== "1"
+      ) {
+        throw new Error(
+          "Live goal-first execution requires the opt-in runner and its disposable database/project boundary.",
+        );
+      }
+    }
     const browserErrors = installBrowserErrorMonitor(page);
     const projectRoot = resolve(
       process.cwd(),
@@ -5738,18 +5760,72 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       `proof-project-${randomUUID()}`,
     );
     await mkdir(projectRoot, { recursive: true });
+    await Promise.all([
+      mkdir(resolve(projectRoot, "src"), { recursive: true }),
+      mkdir(resolve(projectRoot, "test"), { recursive: true }),
+    ]);
     await writeFile(
       resolve(projectRoot, "package.json"),
       JSON.stringify({
         name: "goal-first-evidence-fixture",
         private: true,
         version: "1.0.0",
+        type: "module",
+        scripts: { test: "node --test" },
       }, null, 2),
       "utf8",
     );
     await writeFile(
       resolve(projectRoot, "README.md"),
-      "# Goal-first evidence fixture\n\nThis disposable project demonstrates source-backed, read-only Mission execution.\n",
+      [
+        "# Goal-first evidence fixture",
+        "",
+        "A report may say COMPLETED only when execution.status is completed and Canonical Proof is PROVEN.",
+        "The proof must match executionId and workspaceRevision and include a non-empty evidenceSnapshotId.",
+        "If proof is missing or mismatched, the report must say NEEDS_REVIEW.",
+        "",
+        "This disposable project is for source-backed, read-only Mission execution.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      resolve(projectRoot, "src/acceptance.mjs"),
+      [
+        "export function hasCanonicalProof(execution, acceptance) {",
+        '  return acceptance?.verdict === "PROVEN"',
+        "    && acceptance.executionId === execution.id",
+        "    && acceptance.workspaceRevision === execution.workspaceRevision",
+        '    && typeof acceptance.evidenceSnapshotId === "string"',
+        "    && acceptance.evidenceSnapshotId.length > 0;",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      resolve(projectRoot, "src/report.mjs"),
+      [
+        "export function reportStatus(execution, acceptance) {",
+        '  if (execution.status === "completed") return "COMPLETED";',
+        '  return "IN_PROGRESS";',
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      resolve(projectRoot, "test/report.test.mjs"),
+      [
+        'import assert from "node:assert/strict";',
+        'import test from "node:test";',
+        'import { reportStatus } from "../src/report.mjs";',
+        "",
+        'test("reports completed execution without proof as completed", () => {',
+        '  assert.equal(reportStatus({ id: "exec-7", status: "completed", workspaceRevision: "rev-2" }, null), "COMPLETED");',
+        "});",
+        "",
+      ].join("\n"),
       "utf8",
     );
 
@@ -5789,7 +5865,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.getByTestId("button-create-mission").click();
       await page.getByTestId("mission-title").fill("Goal-first evidence-backed review");
       await page.getByTestId("mission-intent").fill(
-        "Inspect README.md and package.json and summarize only what the two files verify about this fixture.",
+        "Read README.md, package.json, src/acceptance.mjs, src/report.mjs, and test/report.test.mjs. Cross-check the written completion contract, proof validator, report logic, and test. Determine whether the report can say COMPLETED without matching PROVEN proof, and give the smallest concrete counterexample. Read only; do not change files.",
       );
       const planPreviewResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname.endsWith("/api/ai/missions/plan-preview")
@@ -5821,7 +5897,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         step.readOnly === true && step.approvalRequired === false
       ))).toBe(true);
       expect(planPreview.plan?.steps?.every((step) => (
-        step.files?.includes("README.md") && step.files.includes("package.json")
+        [
+          "README.md",
+          "package.json",
+          "src/acceptance.mjs",
+          "src/report.mjs",
+          "test/report.test.mjs",
+        ].every((path) => step.files?.includes(path))
       ))).toBe(true);
       await expect(page.getByTestId("mission-plan-preview")).toContainText("قراءة فقط");
 

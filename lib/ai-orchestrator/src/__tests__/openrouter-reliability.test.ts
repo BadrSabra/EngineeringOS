@@ -30,6 +30,7 @@ import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldow
 import {
   resolveFallbackChain,
   buildFallbackChainFromId,
+  isCatalogFreeModelForCapability,
   resolvePaidFallbackChain,
 } from "../openrouter/model-resolver.js";
 import {
@@ -213,6 +214,48 @@ describe("model-resolver — empty catalog fallback", () => {
     // First entry must be a powerful-tier model from FREE_MODELS
     const first = FREE_MODELS.find((m) => m.id === chain[0]!.id);
     expect(first?.quality).toBe("powerful");
+  });
+
+  it("requires chat-completions and tool capability together for tool-loop candidates", () => {
+    _resetDynamicCatalog();
+    const chatlessToolModels = FREE_MODELS.filter(
+      (model) =>
+        model.capabilities.includes("tool_calling") &&
+        !model.capabilities.includes("chat") &&
+        model.supportsTools,
+    );
+    expect(chatlessToolModels.length).toBeGreaterThan(0);
+
+    const chain = resolveFallbackChain({
+      capability: "tool_calling",
+      requireTools: true,
+    });
+    expect(
+      chain.every((candidate) => {
+        const model = FREE_MODELS.find((entry) => entry.id === candidate.id);
+        return (
+          model?.capabilities.includes("chat") === true &&
+          model.capabilities.includes("tool_calling") &&
+          model.supportsTools
+        );
+      }),
+    ).toBe(true);
+
+    for (const model of chatlessToolModels) {
+      expect(chain.map((candidate) => candidate.id)).not.toContain(model.id);
+      expect(
+        isCatalogFreeModelForCapability(model.id, {
+          capability: "tool_calling",
+          requireTools: true,
+        }),
+      ).toBe(false);
+      expect(
+        buildFallbackChainFromId(model.id, undefined, {
+          capability: "tool_calling",
+          requireTools: true,
+        }),
+      ).toEqual([]);
+    }
   });
 
   it("buildFallbackChainFromId always includes the initial model first", () => {

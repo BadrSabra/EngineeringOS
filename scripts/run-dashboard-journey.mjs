@@ -66,7 +66,10 @@ if (missionProviderFixtureEnabled && !groqCatalogFixtureEnabled) {
   throw new Error("The local Mission provider fixture is available only in fixture mode.");
 }
 const dashboardFixtureProjectId =
-  process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ?? "e2e-project";
+  process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ??
+  (process.env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE === "1"
+    ? ""
+    : "e2e-project");
 const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
@@ -208,6 +211,10 @@ async function performReleaseReadinessHandshake() {
     ...(modeReady ? {} : { reason: "unsupported_test_mode" }),
   };
   if (dashboardTestMode === "live-provider") {
+    const disposableProjectReady =
+      process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
+      (Boolean(process.env.DASHBOARD_E2E_LIVE_PROJECT_ID) ||
+        process.env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE === "1");
     checks.provider = {
       status:
         process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1" ? "ready" : "blocked",
@@ -216,15 +223,12 @@ async function performReleaseReadinessHandshake() {
         : { reason: "live_provider_not_enabled" }),
     };
     checks.disposableProject = {
-      status:
-        process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
-        Boolean(process.env.DASHBOARD_E2E_LIVE_PROJECT_ID)
-          ? "ready"
-          : "blocked",
-      ...(process.env.DASHBOARD_E2E_LIVE_DISPOSABLE === "1" &&
-      process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
+      status: disposableProjectReady ? "ready" : "blocked",
+      ...(disposableProjectReady
         ? {}
-        : { reason: "disposable_project_required" }),
+        : {
+            reason: "disposable_project_or_browser_created_disposable_required",
+          }),
     };
   } else {
     checks.provider = { status: "ready", reason: "provider_free_fixture" };
@@ -1140,7 +1144,8 @@ try {
     if (result !== 0) process.exitCode = result;
     if (
       result === 0 &&
-      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1" &&
+      process.env.DASHBOARD_E2E_LIVE_GOAL_FIRST !== "1"
     ) {
       await runLiveCorrelationReportCheck();
     }

@@ -77,7 +77,7 @@ test("local catalog and completion fixtures support the real provider contract w
       }];
       const missionMessages = [{
         role: "user",
-        content: "Server-owned Mission execution. Read README.md and package.json.",
+        content: "Server-owned Mission execution. Read README.md, package.json, src/acceptance.mjs, src/report.mjs, and test/report.test.mjs.",
       }];
       const queryPlanResponse = await fetch(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -179,10 +179,10 @@ test("local catalog and completion fixtures support the real provider contract w
       streamStatus: 200,
       streamHasDone: true,
       missionToolStatus: 200,
-      missionToolNames: ["read_file", "read_file"],
+        missionToolNames: ["read_file", "read_file", "read_file", "read_file", "read_file"],
       queryPlanStatus: 200,
       queryPlan: {
-        targetFiles: ["README.md", "package.json"],
+        targetFiles: ["README.md", "package.json", "src/acceptance.mjs", "src/report.mjs", "test/report.test.mjs"],
         targetEntities: [],
         targetConfidence: 0.95,
         scopeEstimate: "narrow",
@@ -193,8 +193,8 @@ test("local catalog and completion fixtures support the real provider contract w
       },
       missionSummaryStatus: 200,
       missionSummary: {
-        response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
-        sources: ["README.md", "package.json"],
+        response: "README.md requires matching PROVEN proof before COMPLETED. src/acceptance.mjs checks that binding, but src/report.mjs ignores acceptance; test/report.test.mjs passes null and still expects COMPLETED.",
+        sources: ["README.md", "package.json", "src/acceptance.mjs", "src/report.mjs", "test/report.test.mjs"],
       },
     });
 

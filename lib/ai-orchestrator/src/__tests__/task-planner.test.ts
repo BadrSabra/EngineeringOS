@@ -28,14 +28,14 @@ describe("buildGeneralTaskPlan", () => {
 
   it("binds explicit safe file paths to every read-only step and rejects traversal paths", () => {
     const plan = buildGeneralTaskPlan({
-      message: "Inspect README.md and src/overview.ts, then summarize ../private.md and src/../secrets.json.",
+      message: "Inspect README.md and src/overview.ts, then summarize ../private.md and src/../secrets.json. Also verify test/report.test.mjs. Do not mistake src/report.mjs.backup for a source path.",
       turnIntent: intent(),
     });
 
     expect(plan.steps.map((step) => step.files)).toEqual([
-      ["README.md", "src/overview.ts"],
-      ["README.md", "src/overview.ts"],
-      ["README.md", "src/overview.ts"],
+      ["README.md", "src/overview.ts", "test/report.test.mjs"],
+      ["README.md", "src/overview.ts", "test/report.test.mjs"],
+      ["README.md", "src/overview.ts", "test/report.test.mjs"],
     ]);
     expect(plan.steps.every((step) => step.readOnly)).toBe(true);
   });

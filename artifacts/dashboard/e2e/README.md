@@ -166,6 +166,17 @@ SSE events, execution checkpoints, evidence, proposals, validation, and
 Mission Control state. `COMPLETED`-class states are success; provider
 failover, unavailable, failed, and cancelled terminals are retained as
 explicit non-success outcomes rather than being treated as passing runs.
+
+The goal-first Mission path also has an opt-in live-provider runner:
+
+```sh
+pnpm run validate:live-goal-first-e2e
+```
+
+It uses a temporary loopback PostgreSQL cluster, creates and removes its own
+workspace-contained project during the browser journey, disables the local
+provider fixture, and runs only the read-only Mission proof scenario. It does
+not run the delivery/apply/commit/push campaign.
 The live objective is an explicit, bounded forensic review of
 `scripts/mission-correlation-report.mjs`, requiring at least one accepted
 evidence item and one validation checkpoint. A successful `COMPLETED` report

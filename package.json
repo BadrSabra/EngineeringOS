@@ -25,6 +25,7 @@
     "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
     "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
     "validate:goal-first-e2e": "node scripts/run-goal-first-e2e.mjs",
+    "validate:live-goal-first-e2e": "GOAL_FIRST_LIVE_PROVIDER=1 node scripts/run-goal-first-e2e.mjs",
     "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
     "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
     "deployment:post-build": "pnpm run db:schema:apply && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs && pnpm store prune",

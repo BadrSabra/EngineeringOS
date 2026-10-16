@@ -49,6 +49,16 @@ export type FreeModelCapabilityOptions = {
   requireStreaming?: boolean;
 };
 
+function satisfiesChatCompletionCapability(
+  capabilities: readonly ModelCapability[],
+  requested?: ModelCapability,
+): boolean {
+  return (
+    (!requested || capabilities.includes(requested)) &&
+    (!requested || requested === "chat" || capabilities.includes("chat"))
+  );
+}
+
 export function isCatalogFreeModelForCapability(
   modelId: string,
   options: FreeModelCapabilityOptions = {},
@@ -56,7 +66,7 @@ export function isCatalogFreeModelForCapability(
   if (!isCatalogFreeModel(modelId)) return false;
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   return !!model &&
-    (!options.capability || model.capabilities.includes(options.capability)) &&
+    satisfiesChatCompletionCapability(model.capabilities, options.capability) &&
     (!options.requireTools || model.supportsTools) &&
     (!options.requireJson || model.supportsJson) &&
     (!options.requireStreaming || model.supportsStreaming !== false);
@@ -73,7 +83,7 @@ export function isCatalogPaidModelForCapability(
   ) return false;
   const model = getUsablePaidModelCandidates().find((candidate) => candidate.id === normalized);
   return !!model &&
-    (!options.capability || model.capabilities.includes(options.capability)) &&
+    satisfiesChatCompletionCapability(model.capabilities, options.capability) &&
     (!options.requireTools || model.supportsTools) &&
     (!options.requireJson || model.supportsJson) &&
     (!options.requireStreaming || model.supportsStreaming);
@@ -158,10 +168,11 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   } = opts;
   // Emit resolution trace so stale catalog entries and empty chains are visible.
 
-  // Filter: must support the capability; if tools required, must support them.
+  // OpenRouter execution uses chat completions for every selected capability.
+  // Tool/coding metadata alone is insufficient if the model lacks chat support.
   const capable = FREE_MODELS.filter(
     (m) =>
-      (m.capabilities as readonly string[]).includes(capability) &&
+      satisfiesChatCompletionCapability(m.capabilities, capability) &&
       (!requireTools || m.supportsTools) &&
       (!requireJson || m.supportsJson) &&
       (!requireStreaming || m.supportsStreaming !== false),
@@ -274,7 +285,7 @@ export function resolveModel(opts: ResolveModelOpts): ResolvedModel {
   // Compute stale list for trace (before filtering).
   const rawCapable = FREE_MODELS.filter(
     (m) =>
-      (m.capabilities as readonly string[]).includes(capability) &&
+      satisfiesChatCompletionCapability(m.capabilities, capability) &&
       (!requireTools || m.supportsTools),
   );
   const rawPool = rawCapable.length > 0
@@ -329,7 +340,7 @@ export function buildFallbackChainFromId(
   // live catalog. A model that disappeared from the live catalog should still
   // be attempted once so the chain can advance to compatible live peers.
   const initiallyCapable =
-    (!capabilityOptions.capability || initial.capabilities.includes(capabilityOptions.capability)) &&
+    satisfiesChatCompletionCapability(initial.capabilities, capabilityOptions.capability) &&
     (!capabilityOptions.requireTools || initial.supportsTools) &&
     (!capabilityOptions.requireJson || initial.supportsJson) &&
     (!capabilityOptions.requireStreaming || initial.supportsStreaming !== false);
@@ -338,7 +349,7 @@ export function buildFallbackChainFromId(
   const quality = initial.quality;
 
   const isCapable = (m: OpenRouterFreeModel) =>
-    (!capabilityOptions.capability || m.capabilities.includes(capabilityOptions.capability)) &&
+    satisfiesChatCompletionCapability(m.capabilities, capabilityOptions.capability) &&
     (!capabilityOptions.requireTools || m.supportsTools) &&
     (!capabilityOptions.requireJson || m.supportsJson) &&
     (!capabilityOptions.requireStreaming || m.supportsStreaming !== false);

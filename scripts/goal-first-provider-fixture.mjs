@@ -8,11 +8,11 @@ const fixtureText = JSON.stringify({
   needsHumanReview: true,
 });
 const missionEvidenceSummary = JSON.stringify({
-  response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
-  sources: ["README.md", "package.json"],
+  response: "README.md requires matching PROVEN proof before COMPLETED. src/acceptance.mjs checks that binding, but src/report.mjs ignores acceptance; test/report.test.mjs passes null and still expects COMPLETED.",
+  sources: ["README.md", "package.json", "src/acceptance.mjs", "src/report.mjs", "test/report.test.mjs"],
 });
 const missionQueryPlan = JSON.stringify({
-  targetFiles: ["README.md", "package.json"],
+  targetFiles: ["README.md", "package.json", "src/acceptance.mjs", "src/report.mjs", "test/report.test.mjs"],
   targetEntities: [],
   targetConfidence: 0.95,
   scopeEstimate: "narrow",
@@ -31,6 +31,21 @@ const missionReadToolCalls = [
     id: "call_goal_first_package",
     type: "function",
     function: { name: "read_file", arguments: JSON.stringify({ path: "package.json" }) },
+  },
+  {
+    id: "call_goal_first_acceptance",
+    type: "function",
+    function: { name: "read_file", arguments: JSON.stringify({ path: "src/acceptance.mjs" }) },
+  },
+  {
+    id: "call_goal_first_report",
+    type: "function",
+    function: { name: "read_file", arguments: JSON.stringify({ path: "src/report.mjs" }) },
+  },
+  {
+    id: "call_goal_first_test",
+    type: "function",
+    function: { name: "read_file", arguments: JSON.stringify({ path: "test/report.test.mjs" }) },
   },
 ];
 const fixtureModelId = "liquid/lfm-2.5-2.6b:free";
@@ -232,7 +247,7 @@ function missionEvidenceSynthesis(messages) {
   const claimRefs = [...new Set(claimMatches.map((match) => match[1]))];
   const sources = [...new Set(claimMatches.map((match) => match[2]))];
   return JSON.stringify({
-    response: "README.md describes the project as a disposable evidence fixture, and package.json names it goal-first-evidence-fixture.",
+    response: "README.md requires matching PROVEN proof before COMPLETED. src/acceptance.mjs checks that binding, but src/report.mjs ignores acceptance; test/report.test.mjs passes null and still expects COMPLETED.",
     sources,
     claimRefs,
   });
