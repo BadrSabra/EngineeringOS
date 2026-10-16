@@ -677,35 +677,76 @@ describe('AiChat route target parsing', () => {
 describe('workspace goal draft handoff', () => {
   it('persists the composer, waits for an explicit send, and retains a non-replayed attempted copy', async () => {
     const goal = 'ساعدني أفهم سبب بطء صفحة تسجيل الدخول';
-    storeHomeGoalDraft(goal, 'user-1');
+    const draft = storeHomeGoalDraft(goal, 'user-1');
+    const originalPath = window.location.pathname + window.location.search;
+    window.history.replaceState({}, '', `/ai?goalDraftId=${encodeURIComponent(draft!.id)}`);
+    try {
+      renderAiChat();
+      const composer = screen.getByTestId('input-ai-chat-composer');
+      await waitFor(() => expect(composer).toHaveValue(goal));
 
-    renderAiChat();
+      expect(screen.getByTestId('select-chat-project')).toHaveValue('');
+      expect(screen.getByTestId('status-home-goal-project-confirmation')).toHaveTextContent('اختر المشروع المقصود');
+      expect(screen.getByTestId('button-confirm-home-goal-project')).toBeDisabled();
+      expect(readGoalDrafts('user-1').drafts[0]).toMatchObject({ text: goal, projectId: null });
+      expect(screen.getByTestId('status-project-planning-handoff')).toHaveTextContent(
+        'مسودة محفوظة لهذا الحساب',
+      );
+      expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
 
-    const composer = screen.getByTestId('input-ai-chat-composer');
-    await waitFor(() => expect(composer).toHaveValue(goal));
+      expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+      fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+      fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
+      expect(readGoalDrafts('user-1').drafts[0].projectId).toBeNull();
 
-    expect(readGoalDrafts('user-1').drafts[0].text).toBe(goal);
-    expect(screen.getByTestId('status-project-planning-handoff')).toHaveTextContent(
-      'مسودة محفوظة لهذا الحساب',
+      fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-1' } });
+      expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
+      fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
+      expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('project-1');
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+      fireEvent.click(screen.getByTestId('button-send-ai-message'));
+
+      await waitFor(() => {
+        expect(mocks.sentParams?.message ?? mocks.taskSentParams?.task).toBe(goal);
+      });
+      expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
+      expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).not.toBeNull();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('preserves an explicit project target from a saved draft and route', async () => {
+    const goal = 'راجع المشروع المحدد';
+    const draft = storeHomeGoalDraft(goal, 'user-1', 'project-2');
+    const originalPath = window.location.pathname + window.location.search;
+    mocks.projects = [
+      { id: 'project-1', name: 'First', language: 'TypeScript' },
+      { id: 'project-2', name: 'Second', language: 'TypeScript' },
+    ];
+    window.history.replaceState(
+      {},
+      '',
+      `/ai?projectId=project-2&goalDraftId=${encodeURIComponent(draft!.id)}`,
     );
-    expect(screen.queryByRole('group', { name: 'Your message' })).not.toBeInTheDocument();
-    expect(mocks.sentParams).toBeUndefined();
-    expect(mocks.taskSentParams).toBeUndefined();
 
-    expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
-    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
-    expect(mocks.sentParams).toBeUndefined();
-    expect(mocks.taskSentParams).toBeUndefined();
-    fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
-    expect(mocks.sentParams).toBeUndefined();
-    expect(mocks.taskSentParams).toBeUndefined();
-    fireEvent.click(screen.getByTestId('button-send-ai-message'));
+    try {
+      renderAiChat();
+      await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue(goal));
 
-    await waitFor(() => {
-      expect(mocks.sentParams?.message ?? mocks.taskSentParams?.task).toBe(goal);
-    });
-    expect(screen.queryByTestId('status-project-planning-handoff')).not.toBeInTheDocument();
-    expect(readGoalDrafts('user-1').drafts[0].sendAttemptedAt).not.toBeNull();
+      expect(screen.getByTestId('select-chat-project')).toHaveValue('project-2');
+      expect(screen.getByTestId('button-confirm-home-goal-project')).toBeEnabled();
+      expect(screen.getByTestId('button-send-ai-message')).toBeDisabled();
+      expect(mocks.sentParams).toBeUndefined();
+      expect(mocks.taskSentParams).toBeUndefined();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
   });
 
   it('restores an unsent edited goal when the assistant is reopened without auto-sending', async () => {
@@ -780,6 +821,8 @@ describe('workspace goal draft handoff', () => {
     } as ReturnType<typeof useListProjects>);
     renderAiChat();
     await waitFor(() => expect(screen.getByTestId('input-ai-chat-composer')).toHaveValue('افحص المشكلة دون تعديل'));
+    expect(screen.getByTestId('select-chat-project')).toHaveValue('');
+    fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-1' } });
     fireEvent.click(screen.getByTestId('button-confirm-home-goal-project'));
     expect(readGoalDrafts('user-1').drafts[0].projectId).toBe('project-1');
     fireEvent.change(screen.getByTestId('select-chat-project'), { target: { value: 'project-2' } });

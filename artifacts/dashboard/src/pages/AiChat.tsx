@@ -11371,7 +11371,12 @@ export default function AiChat() {
 
   useEffect(() => {
     if (!draftHandoff.isReady) return;
-    if (projects.length > 0 && !selectedProjectId) {
+    const draftNeedsExplicitProject = Boolean(
+      draftHandoff.activeDraft
+      && !draftHandoff.activeDraft.projectId
+      && !chatRouteTarget?.projectId
+    );
+    if (!draftNeedsExplicitProject && projects.length > 0 && !selectedProjectId) {
       // Explicit route/draft targets must never silently become the first project.
       setSelectedProjectId(chatRouteTarget?.projectId ?? draftHandoff.activeDraft?.projectId ?? projects[0].id);
     }
@@ -13246,7 +13251,9 @@ export default function AiChat() {
               }}
               className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
             >
-              {projects.length === 0 && <option value="">لا توجد مشاريع متاحة</option>}
+              {projects.length === 0
+                ? <option value="">لا توجد مشاريع متاحة</option>
+                : <option value="" disabled>اختر مشروعًا للمحادثة</option>}
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
