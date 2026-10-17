@@ -115,6 +115,98 @@ export async function validateSkillRegistryAuthority(
     expectedProofReceiptId?: string;
   },
 ): Promise<SkillRegistryAuthorityGate> {
+  const [proposalIdentity] = await tx
+    .select({ validationEvidence: aiChangeProposalsTable.validationEvidence })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, input.proposalId),
+      eq(aiChangeProposalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!proposalIdentity) return { ok: false, reason: "identity" };
+
+  const preflightCandidate = parseStoredProposalEvidence(
+    (() => {
+      try {
+        return proposalIdentity.validationEvidence
+          ? JSON.parse(proposalIdentity.validationEvidence)
+          : null;
+      } catch {
+        return null;
+      }
+    })(),
+  ).skillCandidate;
+  if (!preflightCandidate) return { ok: false, reason: "identity" };
+
+  const [replayIdentity] = await tx
+    .select({ executionId: aiShadowReplaysTable.executionId })
+    .from(aiShadowReplaysTable)
+    .where(and(
+      eq(aiShadowReplaysTable.id, input.replayId),
+      eq(aiShadowReplaysTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!replayIdentity) return { ok: false, reason: "identity" };
+
+  const [candidateGoalIdentity] = await tx
+    .select({ goalId: aiExecutionsTable.goalId })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+    .where(and(
+      eq(aiExecutionAcceptancesTable.id, preflightCandidate.proof.receiptId),
+      eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!candidateGoalIdentity?.goalId) return { ok: false, reason: "proof" };
+
+  const [replayGoalIdentity] = await tx
+    .select({ goalId: aiExecutionsTable.goalId })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, replayIdentity.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (replayGoalIdentity?.goalId !== candidateGoalIdentity.goalId) {
+    return { ok: false, reason: "identity" };
+  }
+
+  const [goalIdentity] = await tx
+    .select({ missionId: aiGoalsTable.missionId })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, candidateGoalIdentity.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (!goalIdentity) return { ok: false, reason: "proof" };
+
+  // Mission is the root lock for Gate 4 and D2. Identity reads above are
+  // intentionally unlocked so no proposal, execution, or acceptance lock is
+  // held before this Mission -> Goal pair.
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goalIdentity.missionId),
+      eq(aiMissionsTable.projectId, input.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!mission) return { ok: false, reason: "proof" };
+
+  const [goal] = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, candidateGoalIdentity.goalId),
+      eq(aiGoalsTable.missionId, mission.id),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!goal) return { ok: false, reason: "proof" };
+
   const [proposal] = await tx
     .select()
     .from(aiChangeProposalsTable)
@@ -146,6 +238,12 @@ export async function validateSkillRegistryAuthority(
   ).skillCandidate;
   const receipt = parseShadowReplayRegistryReceipt(replay.receipt);
   if (!skillCandidate || !receipt) return { ok: false, reason: "identity" };
+  if (
+    skillCandidate.proof.receiptId !== preflightCandidate.proof.receiptId
+    || replay.executionId !== replayIdentity.executionId
+  ) {
+    return { ok: false, reason: "identity" };
+  }
 
   const candidateId = skillCandidate.candidateId;
   if (
@@ -241,6 +339,7 @@ export async function validateSkillRegistryAuthority(
     || candidateAcceptance.attempt !== candidateAcceptance.executionAttempt
     || candidateAcceptance.operationId !== proposal.operationId
     || !candidateAcceptance.goalId
+    || candidateAcceptance.goalId !== goal.id
     || candidateAcceptance.goalId !== replayExecution.goalId
     || replayExecution.operationId !== replay.operationId
     || replayExecution.idempotencyKey !== replay.idempotencyKey
@@ -276,26 +375,6 @@ export async function validateSkillRegistryAuthority(
     return { ok: false, reason: "proof" };
   }
 
-  const [goal] = await tx
-    .select()
-    .from(aiGoalsTable)
-    .where(and(
-      eq(aiGoalsTable.id, candidateAcceptance.goalId),
-      eq(aiGoalsTable.projectId, input.projectId),
-    ))
-    .for("update")
-    .limit(1);
-  const [mission] = goal
-    ? await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, goal.missionId),
-        eq(aiMissionsTable.projectId, input.projectId),
-      ))
-      .for("update")
-      .limit(1)
-    : [];
   const planRevision = goal ? readPlanRevision(goal.outcomeContract) : undefined;
   const activePlanRevision = mission ? readActivePlanRevision(mission.autonomyPolicy) : undefined;
   if (

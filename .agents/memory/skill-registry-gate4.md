@@ -20,3 +20,9 @@ GET and idempotent replay POST may expose the stored receipt as historical metad
 For an already-completed Goal, Missions in `active`, `waiting`, or `completed` remain eligible if the active plan revision still matches. `draft`, `blocked`, `needs_replan`, `failed`, and `cancelled` Missions are not authorized; every dependency must remain completed with current proof. Newly produced registry receipts use contract version 2 and bind replay operation ID, change-set hash, and execution attempt; older receipt shapes fail closed.
 
 **How to apply:** Keep GET and idempotent replay POST freshness projections aligned, but never use their `CURRENT` marker as proof authority. At registration and every approval, independently reload and validate source-candidate and replay Canonical Proof, match their identities and attempts to the durable receipt, recheck current Mission/Goal/dependency state, and recompute the paired-baseline score including its run IDs and revision before inserting or promoting. Test stale receipt display separately from rejection at both decision boundaries.
+
+Gate 4 registration and approval must establish the Mission → Goal locks before locking proposal, replay, execution, acceptance, or evidence rows. Use unlocked identity reads to find the candidate Mission, then revalidate those identities after acquiring the root locks.
+
+**Why:** The validator previously locked the proposal and proof rows before discovering its Mission, reversing the Mission → Goal → proposal order used by D2. A controlled PostgreSQL race reproduced the resulting `40P01` deadlock.
+
+**How to apply:** Keep identity preflight reads non-locking; lock Mission and Goal first, then lock and revalidate the current proposal, replay, and proof rows. Never let changed preflight identities redirect later locks to another Mission.
