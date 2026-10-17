@@ -357,14 +357,20 @@ describe('project-scoped task list contracts', () => {
   });
 });
 
-function mockTaskExecutionProjection(taskCorrelationId: string, executionCorrelationId: string) {
+function mockTaskExecutionProjection(
+  taskCorrelationId: string,
+  executionCorrelationId: string,
+  options: { taskStatus?: string; executionIsFetching?: boolean } = {},
+) {
   vi.mocked(useGetTask).mockReturnValue({
     data: {
       id: 'task-auth',
       projectId: 'project-1',
       correlationId: taskCorrelationId,
+      status: options.taskStatus ?? 'verifying',
     } as NonNullable<ReturnType<typeof useGetTask>['data']>,
     isLoading: false,
+    isFetching: false,
     isError: false,
     error: null,
   } as ReturnType<typeof useGetTask>);
@@ -399,6 +405,7 @@ function mockTaskExecutionProjection(taskCorrelationId: string, executionCorrela
       projection: executionProjectionFixture,
     } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
     isLoading: false,
+    isFetching: options.executionIsFetching ?? false,
     isError: false,
     error: null,
   } as ReturnType<typeof useGetAiExecution>);
@@ -486,6 +493,33 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
+  });
+
+  it('hides a cached execution projection while the running attempt refreshes', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current', {
+      taskStatus: 'running',
+      executionIsFetching: true,
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+  });
+
+  it('hides the execution projection while a resume request is pending', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current', {
+      taskStatus: 'verifying',
+    });
+    vi.mocked(useAiResumeTask).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    } as ReturnType<typeof useAiResumeTask>);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
   });
 
   it('renders the server acceptance outcome and safe recovery action', () => {
@@ -653,6 +687,41 @@ describe('Tasks recovery rendering', () => {
     expect(screen.queryByText('إيصال التنفيذ')).not.toBeInTheDocument();
   });
 
+  it('withholds a prior verification result while resume is pending', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        ...recoveryCases[0]!,
+        id: 'task-prior-verification',
+        title: 'Task with prior verification',
+        projectId: 'project-1',
+        status: 'failed',
+        priority: 'p1',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+        verificationResult: {
+          passed: true,
+          decision: 'verified',
+          steps: [{ name: 'Typecheck', passed: true }],
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useAiResumeTask).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    } as ReturnType<typeof useAiResumeTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Task with prior verification' }));
+
+    expect(screen.queryByText('خطوات التحقق:')).not.toBeInTheDocument();
+  });
+
   it('does not offer resume when the Task status blocks it despite a resumable execution acceptance', () => {
     vi.mocked(useGetTask).mockReturnValue({
       data: {
@@ -696,8 +765,16 @@ describe('Tasks recovery rendering', () => {
         title: 'Refresh accepted task',
         status: 'verifying',
         priority: 'p1',
+        correlationId: 'correlation-current',
         createdAt: '2026-08-25T10:00:00.000Z',
         updatedAt: '2026-08-25T10:01:00.000Z',
+        agentResponse: JSON.stringify({
+          kind: 'AI_TASK_EXECUTION_RECEIPT',
+          terminalStatus: 'SUCCEEDED',
+          attempt: 1,
+          operationId: 'execution-current',
+          correlationId: 'correlation-current',
+        }),
         acceptance: {
           attempt: 1,
           terminalStatus: 'completed',
@@ -720,6 +797,8 @@ describe('Tasks recovery rendering', () => {
     renderPage();
 
     expect(screen.queryByLabelText('القبول: مقبول')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Refresh accepted task' }));
+    expect(screen.queryByText('إيصال التنفيذ')).not.toBeInTheDocument();
   });
 
   it('shows public acceptance badges and filters task rows by acceptance outcome', () => {

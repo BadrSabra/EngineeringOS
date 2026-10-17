@@ -982,6 +982,55 @@ describe("Mission goal runtime", () => {
     });
   });
 
+  it("blocks dependency release when the active plan revision rotates before authorization", async () => {
+    const fixture = await createDependencyProofFixture();
+    let releaseRevision!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowRevisionCommit = new Promise<void>((resolve) => {
+      releaseRevision = resolve;
+    });
+    const revisionRotation = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({
+          autonomyPolicy: { activePlanRevision: "plan-e3.2" },
+          updatedAt: new Date(),
+        })
+        .where(eq(aiMissionsTable.id, fixture.missionId));
+      acquiredMissionLock();
+      await allowRevisionCommit;
+    });
+    await missionLocked;
+
+    const runPromise = runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    const waitedForRevision = await Promise.race([
+      runPromise.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
+    ]);
+    releaseRevision();
+    await revisionRotation;
+
+    expect(waitedForRevision).toBe(true);
+    await expect(runPromise).resolves.toMatchObject({
+      status: "conflict",
+      reason: "stale_plan_revision",
+    });
+    const [mission] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.goalId));
+    expect(mission?.autonomyPolicy).toMatchObject({ activePlanRevision: "plan-e3.2" });
+    expect(goal?.status).toBe("queued");
+  });
+
   it("dispatches the transition-bound successor despite unrelated project World State changes", async () => {
     const fixture = await createRuntimeTransitionFixture("materialized", true);
     await db.insert(aiWorldFactsTable).values({

@@ -460,8 +460,8 @@ function TaskAcceptancePanel({
   );
 }
 
-function TaskExecutionProjection({ taskId }: { taskId: string }) {
-  const { data: task } = useGetTask(taskId, {
+function TaskExecutionProjection({ taskId, isResuming }: { taskId: string; isResuming: boolean }) {
+  const { data: task, isFetching: taskIsFetching } = useGetTask(taskId, {
     query: {
       queryKey: getGetTaskQueryKey(taskId),
       staleTime: 0,
@@ -478,7 +478,7 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
   const executionId = [...(logs ?? [])]
     .reverse()
     .find((log) => typeof log.executionId === 'string' && log.executionId.trim())?.executionId ?? '';
-  const { data: execution } = useGetAiExecution(executionId, {
+  const { data: execution, isFetching: executionIsFetching } = useGetAiExecution(executionId, {
     query: {
       queryKey: ['task-execution-projection', taskId, executionId],
       enabled: Boolean(executionId),
@@ -492,6 +492,11 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
     && execution?.correlationId === taskCorrelationId
     && execution.linkedTaskId === taskId,
   );
+  const activeExecutionIsRefreshing = Boolean(
+    (task?.status === 'running' || execution?.status === 'running')
+    && (taskIsFetching || executionIsFetching),
+  );
+  if (isResuming || activeExecutionIsRefreshing) return null;
   if (!executionId || !execution?.projection || !executionMatchesCurrentTask) return null;
   return (
     <MissionCapsule
@@ -1387,14 +1392,14 @@ export default function Tasks() {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
 
-  const taskAcceptanceIsCurrent = (task: (typeof tasks)[number]) =>
+  const taskResultProjectionIsCurrent = (task: (typeof tasks)[number]) =>
     !isRefetching && !resumeTask.isPending && task.status !== 'running';
   const visibleTasks = tasks?.filter((t) =>
     (!searchTerm ||
       t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())) &&
     (!filterAcceptance ||
-      (taskAcceptanceIsCurrent(t)
+      (taskResultProjectionIsCurrent(t)
         && t.acceptance
         && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
@@ -1709,7 +1714,7 @@ export default function Tasks() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm truncate">{task.title}</span>
                     <PriorityBadge priority={task.priority} />
-                    {taskAcceptanceIsCurrent(task) && task.acceptance && (() => {
+                    {taskResultProjectionIsCurrent(task) && task.acceptance && (() => {
                       const acceptance = acceptanceStatus(task.acceptance);
                       return (
                         <span
@@ -1969,14 +1974,14 @@ export default function Tasks() {
                             <div className="text-xs text-muted-foreground mb-1">حدود ما يظهر هنا</div>
                             <div className="text-sm">يعرض هذا القسم النشاط ونتائج التحقق المسجلة. لا تُعرض التعليمات الداخلية أو تفاصيل تشخيص المزوّد.</div>
                           </div>
-                          <TaskExecutionProjection taskId={task.id} />
+                          <TaskExecutionProjection taskId={task.id} isResuming={resumeTask.isPending} />
                           <TaskAcceptancePanel
                             taskId={task.id}
                             taskStatus={task.status}
                             onResume={() => handleAction('resume', task.id)}
                             isResuming={resumeTask.isPending}
                           />
-                          {(() => {
+                          {taskResultProjectionIsCurrent(task) && (() => {
                             const receipt = parseExecutionReceipt(task.agentResponse);
                             if (!receipt) return null;
                             return (
@@ -2003,7 +2008,7 @@ export default function Tasks() {
                               </div>
                             );
                           })()}
-                          {task.verificationResult && (
+                          {taskResultProjectionIsCurrent(task) && task.verificationResult && (
                             <div>
                               <div className="text-xs text-muted-foreground mb-2">
                                 خطوات التحقق:
