@@ -27,6 +27,7 @@ import {
   buildApplyChangeEffectProofExpectation,
 } from "./agent-state/apply-change-effect.js";
 import * as applyChangesMissionGate from "./agent-state/apply-changes-mission-gate.js";
+import { finalizeApplyChangesTransition } from "./agent-state/runtime-start-transition.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 
@@ -519,7 +520,7 @@ async function createApplyChangesFixture() {
       })}`,
     ],
     status: "materialized",
-    idempotencyKey: `apply.changes:${applyGoalId}:${planRevision}`,
+    idempotencyKey: `apply.changes:${executionId}:0:${episodeId}:${applyActionId}:${proposalId}:${planRevision}`,
     retryCount: 0,
     createdAt: now,
     updatedAt: now,
@@ -799,10 +800,6 @@ describe("Apply Changes Mission D2 dispatch", () => {
     const acceptanceLockRelease = new Promise<void>((resolve) => {
       releaseAcceptanceLock = resolve;
     });
-    let announceTransitionLocked!: () => void;
-    const transitionLocked = new Promise<void>((resolve) => {
-      announceTransitionLocked = resolve;
-    });
     const pending: Promise<unknown>[] = [];
 
     const acceptanceBlocker = db.transaction(async (tx) => {
@@ -833,43 +830,25 @@ describe("Apply Changes Mission D2 dispatch", () => {
       pending.push(dependencyProof);
       await waitForTableLockWaiters("ai_execution_acceptances");
 
-      const transitionClaim = db.transaction(async (tx) => {
-        const [lockedTransition] = await tx.select({ id: aiWorldTransitionsTable.id })
-          .from(aiWorldTransitionsTable)
-          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId))
-          .for("update");
-        if (!lockedTransition) throw new Error("Transition claim fixture disappeared.");
-        announceTransitionLocked();
-
-        // Match the claim transaction's non-locking identity reads before it
-        // takes the Episode lock.
-        await tx.select({ id: aiExecutionsTable.id })
-          .from(aiExecutionsTable)
-          .where(eq(aiExecutionsTable.id, fixture.executionId));
-        await tx.select({ id: aiExecutionAcceptancesTable.id })
-          .from(aiExecutionAcceptancesTable)
-          .where(and(
-            eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
-            eq(aiExecutionAcceptancesTable.attempt, 0),
-          ));
-        const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
-          .from(aiAgentEpisodesTable)
-          .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
-          .for("update");
-        if (!episode) throw new Error("Transition claim Episode fixture disappeared.");
+      const transitionWorker = finalizeApplyChangesTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.applyActionId,
+        effectBundleId: fixture.effectBundleId,
       });
-      pending.push(transitionClaim);
-      await transitionLocked;
+      pending.push(transitionWorker);
 
       const transitionProgress = await waitForTableWaiterOrSettled(
         "ai_agent_episodes",
-        transitionClaim,
+        transitionWorker,
       );
       releaseAcceptanceLock();
       const outcomes = await Promise.allSettled([
         acceptanceBlocker,
         dependencyProof,
-        transitionClaim,
+        transitionWorker,
       ] as const);
       const deadlocks = outcomes.filter((outcome) =>
         outcome.status === "rejected"
@@ -890,6 +869,26 @@ describe("Apply Changes Mission D2 dispatch", () => {
         "fulfilled",
         "fulfilled",
       ]);
+      expect(outcomes[2]).toMatchObject({
+        status: "fulfilled",
+        value: {
+          status: "terminal_failed",
+          failureCode: "apply_transition_goal_or_proposal_mismatch",
+        },
+      });
+      const [finalTransition] = await db.select({
+        status: aiWorldTransitionsTable.status,
+        failureCode: aiWorldTransitionsTable.failureCode,
+        retryCount: aiWorldTransitionsTable.retryCount,
+        nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+      expect(finalTransition).toEqual({
+        status: "terminal_failed",
+        failureCode: "apply_transition_goal_or_proposal_mismatch",
+        retryCount: 0,
+        nextRetryAt: null,
+      });
     } finally {
       releaseAcceptanceLock();
       await Promise.allSettled(pending);
