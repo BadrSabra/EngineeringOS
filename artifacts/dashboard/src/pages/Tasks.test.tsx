@@ -641,6 +641,18 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('جارٍ استئناف التنفيذ؛ لا تُعرض نتيجة القبول السابقة كحالية.')).toBeInTheDocument();
   });
 
+  it('withholds a cached execution receipt while resume is pending', () => {
+    vi.mocked(useAiResumeTask).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    } as ReturnType<typeof useAiResumeTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    expect(screen.queryByText('إيصال التنفيذ')).not.toBeInTheDocument();
+  });
+
   it('does not offer resume when the Task status blocks it despite a resumable execution acceptance', () => {
     vi.mocked(useGetTask).mockReturnValue({
       data: {
