@@ -4109,6 +4109,25 @@ export async function executeTaskLifecycle(params: {
         if (!admission.allowed) return { kind: "conflict" as const, errorCode: admission.errorCode };
       }
 
+      // Lock Task under its original CAS before any linked execution or
+      // acceptance lock; resume-token recovery otherwise creates the inverse
+      // order against a concurrent manual Task claim.
+      const [lockedTask] = await tx
+        .select({ id: tasksTable.id })
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, before.id),
+          eq(tasksTable.projectId, before.projectId),
+          inArray(tasksTable.status, allowed),
+          eq(tasksTable.retryCount, retryCountAtRead),
+          correlationFence,
+        ))
+        .for("update")
+        .limit(1);
+      if (!lockedTask) {
+        return { kind: "conflict" as const, errorCode: "task_state_changed" };
+      }
+
       let durable: Awaited<ReturnType<typeof createAiExecution>>;
       if (params.resumeExecutionId) {
         if (!correlationIdAtRead) {

@@ -45,6 +45,12 @@ Mission-linked Task admission must lock and revalidate the Mission, Goal, active
 
 **How to apply:** Keep `inspectMissionTaskAdmission` inside the claim transaction, and preserve this boundary when changing Task resume or retry flows.
 
+Task lifecycle claims must lock and revalidate the Task under its status, retry-count, and correlation snapshot before locking or recovering its linked execution and acceptance. Keep Mission/Goal admission locks ahead of the Task lock. Execution-first finalization and heartbeat paths remain separate only while their Task predicates require a live `running` owner, disjoint from lifecycle claimable statuses.
+
+**Why:** A real concurrent Task resume and manual execution reproduced PostgreSQL `40P01` when resume-token recovery locked execution before Task while the manual path held Task before execution.
+
+**How to apply:** Preserve Mission/Goal → Task → execution → acceptance for lifecycle claims; if finalizer or heartbeat Task predicates expand, re-audit the cross-path lock graph rather than assuming disjointness.
+
 Startup reconciliation must not terminalize a `running` execution while its lease is live; only expired running leases are recovery candidates. `cancelling` executions remain a separate terminalization case.
 
 **Why:** Multiple API instances can overlap during startup, so an instance starting now cannot infer that another worker's unexpired lease is abandoned.

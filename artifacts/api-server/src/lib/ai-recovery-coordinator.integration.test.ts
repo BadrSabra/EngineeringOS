@@ -2,15 +2,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
+  aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  auditLogsTable,
   db,
+  eventsTable,
   projectsTable,
+  taskLogsTable,
   tasksTable,
 } from "@workspace/db";
 import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
+import * as aiExecutionState from "./ai-execution-state.js";
 import {
   reconcileAiExecutions,
   recoverAiExecutionResumeToken,
@@ -22,6 +28,15 @@ const executeTaskLifecycle = vi.hoisted(() => vi.fn(async () => ({
   ok: true,
   status: "completed" as const,
   executionId: "replacement-execution",
+})));
+const runAgentWithFallback = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
+  result: {
+    summary: "Fixture task completed.",
+    confidence: "high",
+    needsHumanReview: false,
+    steps: ["Task lifecycle fixture output."],
+  },
+  effectiveProvider: "groq" as const,
 })));
 const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async (): Promise<{
   ok: boolean;
@@ -62,6 +77,15 @@ vi.mock("./ai-route-helpers.js", async () => {
       apiKey: "test-provider-key",
       source: "server" as const,
     })),
+    runAgentWithFallback,
+  };
+});
+
+vi.mock("@workspace/ai-orchestrator", async () => {
+  const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>("@workspace/ai-orchestrator");
+  return {
+    ...actual,
+    buildProjectContext: vi.fn(async () => ({ fixture: true })),
   };
 });
 
@@ -442,6 +466,291 @@ describe("durable automatic task recovery", () => {
       expect(task?.retryCount).toBe(1);
     } finally {
       allowExecutionLock();
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("keeps the real task lifecycle claim ahead of automatic retry recovery", async () => {
+    const fixture = await insertFixture();
+    let signalTaskClaimed!: () => void;
+    const taskClaimed = new Promise<void>((resolve) => {
+      signalTaskClaimed = resolve;
+    });
+    let allowExecutionClaim!: () => void;
+    const executionClaimAllowed = new Promise<void>((resolve) => {
+      allowExecutionClaim = resolve;
+    });
+    const originalClaimAiExecution = aiExecutionState.claimAiExecution;
+    const claimSpy = vi.spyOn(aiExecutionState, "claimAiExecution")
+      .mockImplementation(async (params) => {
+        signalTaskClaimed();
+        await executionClaimAllowed;
+        return originalClaimAiExecution(params);
+      });
+    let manualRun: Promise<unknown> | undefined;
+
+    try {
+      await db.update(aiExecutionsTable)
+        .set({
+          request: JSON.stringify({
+            projectId: fixture.projectId,
+            message: "Run the bounded recovery",
+            modelMessage: "Run the bounded recovery",
+            linkedTaskId: fixture.taskId,
+            correlationId: fixture.executionId,
+            attempt: 0,
+            validationTargetPaths: [],
+          }),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          terminalStatus: "paused",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const taskService = await vi.importActual<typeof import("./task-execution-service.js")>(
+        "./task-execution-service.js",
+      );
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      const recoveryJob = queuedJobs.find((job) => job.id.startsWith(`ai-recovery:${fixture.taskId}:`));
+      expect(recoveryJob).toBeDefined();
+
+      manualRun = taskService.executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "recovery-test-user",
+        provider: { provider: "groq", apiKey: "test-provider-key" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: fixture.executionId,
+      });
+      await taskClaimed;
+
+      const recoveryRun = recoveryJob!.run();
+      let taskLockWaitObserved = false;
+      const deadline = Date.now() + 4_000;
+      try {
+        while (Date.now() < deadline) {
+          const result = await db.execute(sql`
+            SELECT count(*)::int AS count
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%"tasks"%'
+          `);
+          if (Number(result.rows[0]?.count ?? 0) > 0) {
+            taskLockWaitObserved = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      } finally {
+        allowExecutionClaim();
+      }
+
+      const [manualOutcome, recoveryOutcome] = await Promise.allSettled([manualRun, recoveryRun]);
+      expect(taskLockWaitObserved).toBe(true);
+      expect(manualOutcome.status).toBe("fulfilled");
+      expect(recoveryOutcome.status).toBe("fulfilled");
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+        correlationId: tasksTable.correlationId,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toMatchObject({
+        status: "completed",
+        retryCount: 0,
+        correlationId: fixture.executionId,
+      });
+    } finally {
+      allowExecutionClaim();
+      claimSpy.mockRestore();
+      await manualRun?.catch(() => undefined);
+      await db.delete(aiAgentEpisodeEventsTable).where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, fixture.projectId));
+      await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, fixture.projectId));
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("does not deadlock a Task resume against a concurrent manual execution", async () => {
+    const fixture = await insertFixture();
+    let signalManualTaskLocked!: () => void;
+    const manualTaskLocked = new Promise<void>((resolve) => {
+      signalManualTaskLocked = resolve;
+    });
+    let allowManualExecutionLock!: () => void;
+    const manualExecutionLockAllowed = new Promise<void>((resolve) => {
+      allowManualExecutionLock = resolve;
+    });
+    let signalResumeExecutionLocked!: () => void;
+    const resumeExecutionLocked = new Promise<void>((resolve) => {
+      signalResumeExecutionLocked = resolve;
+    });
+    let allowResumeTaskLock!: () => void;
+    const resumeTaskLockAllowed = new Promise<void>((resolve) => {
+      allowResumeTaskLock = resolve;
+    });
+    const originalClaimAiExecution = aiExecutionState.claimAiExecution;
+    const originalRecoverResumeToken = aiExecutionState.recoverAiExecutionResumeToken;
+    const claimSpy = vi.spyOn(aiExecutionState, "claimAiExecution")
+      .mockImplementation(async (params) => {
+        if (!params.resumeToken) {
+          signalManualTaskLocked();
+          await manualExecutionLockAllowed;
+        }
+        return originalClaimAiExecution(params);
+      });
+    const resumeSpy = vi.spyOn(aiExecutionState, "recoverAiExecutionResumeToken")
+      .mockImplementation(async (params) => {
+        const recovered = await originalRecoverResumeToken(params);
+        signalResumeExecutionLocked();
+        await resumeTaskLockAllowed;
+        return recovered;
+      });
+    let manualRun: Promise<unknown> | undefined;
+    let resumeRun: Promise<unknown> | undefined;
+
+    try {
+      await db.update(aiExecutionsTable)
+        .set({
+          request: JSON.stringify({
+            projectId: fixture.projectId,
+            message: "Run the bounded recovery",
+            modelMessage: "Run the bounded recovery",
+            linkedTaskId: fixture.taskId,
+            correlationId: fixture.executionId,
+            attempt: 0,
+            validationTargetPaths: [],
+            proofRequired: true,
+          }),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          terminalStatus: "paused",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          nextActionCode: "RESUME_ALLOWED",
+          disposition: {
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+          },
+          resumable: 1,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const taskService = await vi.importActual<typeof import("./task-execution-service.js")>(
+        "./task-execution-service.js",
+      );
+      manualRun = taskService.executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "recovery-test-user",
+        provider: { provider: "groq", apiKey: "test-provider-key" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: fixture.executionId,
+      });
+      await manualTaskLocked;
+
+      resumeRun = taskService.executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "recovery-test-user",
+        provider: { provider: "groq", apiKey: "test-provider-key" },
+        trigger: "manual",
+        expectedStatuses: ["verifying"],
+        expectedRetryCount: 0,
+        expectedCorrelationId: fixture.executionId,
+        expectedResumeAttempt: 0,
+        resumeExecutionId: fixture.executionId,
+      });
+
+      let observedOrder: "execution-first" | "task-first" | undefined;
+      const observationDeadline = Date.now() + 3_000;
+      while (Date.now() < observationDeadline && !observedOrder) {
+        const executionWasLocked = await Promise.race([
+          resumeExecutionLocked.then(() => true),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10)),
+        ]);
+        if (executionWasLocked) {
+          observedOrder = "execution-first";
+          break;
+        }
+        const result = await db.execute(sql`
+          SELECT count(*)::int AS count
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query ILIKE '%"tasks"%'
+        `);
+        if (Number(result.rows[0]?.count ?? 0) > 0) observedOrder = "task-first";
+        else await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(observedOrder).toBe("task-first");
+
+      allowManualExecutionLock();
+      if (observedOrder === "execution-first") {
+        let manualWaitObserved = false;
+        const waitDeadline = Date.now() + 3_000;
+        while (Date.now() < waitDeadline) {
+          const result = await db.execute(sql`
+            SELECT count(*)::int AS count
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%"ai_executions"%'
+          `);
+          if (Number(result.rows[0]?.count ?? 0) > 0) {
+            manualWaitObserved = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(manualWaitObserved).toBe(true);
+      }
+      allowResumeTaskLock();
+
+      const outcomes = await Promise.allSettled([manualRun, resumeRun]);
+      expect(outcomes.map((outcome) => outcome.status === "fulfilled"
+        ? "fulfilled"
+        : `rejected:${postgresErrorCode(outcome.reason) ?? "unknown"}`))
+        .toEqual(["fulfilled", "fulfilled"]);
+
+      const [task] = await db.select({
+        status: tasksTable.status,
+        retryCount: tasksTable.retryCount,
+      }).from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      expect(task).toBeDefined();
+      expect(task?.retryCount).toBe(0);
+      expect(task?.status).not.toBe("running");
+    } finally {
+      allowManualExecutionLock();
+      allowResumeTaskLock();
+      claimSpy.mockRestore();
+      resumeSpy.mockRestore();
+      await Promise.allSettled([manualRun, resumeRun].filter(
+        (run): run is Promise<unknown> => Boolean(run),
+      ));
+      await db.delete(aiAgentEpisodeEventsTable).where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, fixture.projectId));
+      await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, fixture.taskId));
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+      await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, fixture.projectId));
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
