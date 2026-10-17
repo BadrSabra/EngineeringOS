@@ -411,13 +411,18 @@ Two deterministic PostgreSQL interleavings exercised the actual `wakeDueMissionG
 
 Resolution: both wake transactions now lock Mission before Goal and revalidate the same wait/event conditions before updating either row. The two deterministic interleavings pass 2/2, the complete `mission-runtime.test.ts` suite passes 53/53, and API typecheck passes. The tests used a fresh disposable loopback PostgreSQL cluster with provider egress disabled. Only lock order changed; no proof or completion authority was added.
 
-### Adjacent lock-order candidates — not reproduced or changed
+### Remaining adjacent lock-order candidate — not reproduced or changed
 
-The source inventory found two additional order differences that need separate validation before any repair:
+The source inventory found one additional order difference that needs separate validation before any repair:
 
-- `POST /ai/missions/apply-from-proposal` locks a proposal before locking project Missions, while proposal-backed Goal approval locks Mission, Goal, execution, then proposal. A cycle is possible only if both transactions contend on the same proposal and Mission; no concurrent reproduction was run.
 - `loadVerifiedShadowReplayProof` locks execution, Goal, then Mission while validating a Shadow Replay paired-baseline record. This is a Replay-related proof read and was left untouched; no Replay or Strategy Replay was executed.
 
-These are unverified candidates, not demonstrated deadlocks or proof bypasses. They remain outside the lock-order fixes recorded above.
+This remains an unverified candidate, not a demonstrated deadlock or proof bypass. It remains outside the lock-order fixes recorded above.
 
 This audit slice still does not qualify Replay or registry behavior and does not close E3 or E3.2.
+
+### 2026-10-17 — proposal handoff vs Goal approval lock-order failure, recorded before repair
+
+A deterministic PostgreSQL interleaving used the actual `POST /api/ai/missions/apply-from-proposal` route with a pending proposal and an existing active Mission/Goal. A competing transaction acquired Mission, Goal, and execution locks in the same order as proposal-backed approval, then paused before requesting the shared proposal row. The route was observed waiting on the Mission row before the competing transaction was allowed to request the proposal. The focused test failed with HTTP 500 from the route while the competing transaction completed. This reproduces a failure under the opposite lock ordering; the response did not expose PostgreSQL's SQLSTATE, so the exact server error is unconfirmed. The competing operation is a test-owned transaction modeling the approval row-lock sequence, not `approveMissionGoal` or a second approval HTTP request. One test failed and 46 unrelated tests were skipped on a disposable loopback PostgreSQL cluster with provider egress disabled. No production code or shared database was changed before recording this failure. This does not establish an authorization, Canonical Proof, or completion-authority bypass.
+
+Resolution: the handoff now performs a non-locking proposal-existence read, locks project Missions before locking and revalidating the proposal, then re-reads Mission rows after the proposal lock to preserve duplicate detection when another handoff committed while this request waited. The same-proposal concurrency control returned exactly one 201 and one 409. The post-repair race test calls the actual `approveMissionGoal` helper while the actual HTTP route runs, using an execution-row lock barrier to establish the overlap; approval returned `approved` and the handoff returned 201. The pre-repair failure remains the earlier modeled transaction, so its SQLSTATE is still unconfirmed. The focused route run passed 2/2 with 45 unrelated tests skipped on a fresh disposable loopback PostgreSQL cluster; provider egress was disabled. API typecheck and `git diff --check` passed. The API workflow restarted to `Server listening`, and `/api/healthz` returned `ok`. This establishes availability for the tested lock-order interleaving and preserves one Apply Mission per pending proposal; it adds no proof or approval authority. E3 and E3.2 remain open; no Replay, Strategy Replay, E4 work, or shared database was involved.

@@ -33,6 +33,7 @@ import {
   runMissionGoal,
   wakeReadyMissionGoals,
 } from "../../lib/mission-runtime.js";
+import { approveMissionGoal } from "../../lib/mission-approval.js";
 import { dispatchPendingMissionChatHandoffs } from "../../lib/mission-chat-handoffs.js";
 import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
@@ -254,6 +255,28 @@ async function waitForMissionRowLock(
   }
   throw new Error(
     `Mission write did not reach the locked Mission row; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
+  );
+}
+
+async function waitForPostgresLockWait(queryPattern: RegExp, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  let blockedQueries: string[] = [];
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    blockedQueries = rows.map((row) => row.query ?? "");
+    if (blockedQueries.some((query) => queryPattern.test(query))) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `No PostgreSQL lock wait matched ${queryPattern}; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
   );
 }
 
@@ -4415,9 +4438,13 @@ describe("AI missions and goals", () => {
       createdAt: now,
     });
 
-    const created = await request(app)
-      .post("/api/ai/missions/apply-from-proposal")
-      .send({ projectId, proposalId });
+    const concurrentHandoffs = await Promise.all([
+      request(app).post("/api/ai/missions/apply-from-proposal").send({ projectId, proposalId }),
+      request(app).post("/api/ai/missions/apply-from-proposal").send({ projectId, proposalId }),
+    ]);
+    expect(concurrentHandoffs.map((response) => response.status).sort()).toEqual([201, 409]);
+    const created = concurrentHandoffs.find((response) => response.status === 201)!;
+    const duplicate = concurrentHandoffs.find((response) => response.status === 409)!;
     expect(created.status).toBe(201);
     expect(created.body.applyGoal).toMatchObject({
       stepId: "apply-changes",
@@ -4472,10 +4499,14 @@ describe("AI missions and goals", () => {
     expect(prematureCompletion.body.code).toBe("MISSION_COMPLETION_REQUIRES_PROOF");
     expect(prematureCompletion.body.missingGoalIds).toContain(created.body.applyGoal.goalId);
 
-    const duplicate = await request(app)
+    const subsequentDuplicate = await request(app)
       .post("/api/ai/missions/apply-from-proposal")
       .send({ projectId, proposalId });
-    expect(duplicate.status).toBe(409);
+    expect(subsequentDuplicate.status).toBe(409);
+    expect(subsequentDuplicate.body).toMatchObject({
+      code: "APPLY_MISSION_ALREADY_EXISTS",
+      missionId: created.body.mission.id,
+    });
     expect(duplicate.body).toMatchObject({
       code: "APPLY_MISSION_ALREADY_EXISTS",
       missionId: created.body.mission.id,
@@ -4566,68 +4597,60 @@ describe("AI missions and goals", () => {
       createdAt: now,
     });
 
-    let allowProposalLock!: () => void;
-    let announceApprovalLocks!: () => void;
-    const approvalLocksReady = new Promise<void>((resolve) => {
-      announceApprovalLocks = resolve;
+    let releaseExecutionLock!: () => void;
+    let announceExecutionLock!: () => void;
+    const executionLockReady = new Promise<void>((resolve) => {
+      announceExecutionLock = resolve;
     });
-    const proposalLockAllowed = new Promise<void>((resolve) => {
-      allowProposalLock = resolve;
+    const executionLockRelease = new Promise<void>((resolve) => {
+      releaseExecutionLock = resolve;
     });
-    const missionGoalApprovalOrder = db.transaction(async (tx) => {
-      await tx.select({ id: aiMissionsTable.id })
-        .from(aiMissionsTable)
-        .where(eq(aiMissionsTable.id, missionId))
-        .for("update");
-      await tx.select({ id: aiGoalsTable.id })
-        .from(aiGoalsTable)
-        .where(eq(aiGoalsTable.id, goalId))
-        .for("update");
+    const executionLockHolder = db.transaction(async (tx) => {
       await tx.select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, created.execution.id))
         .for("update");
-      announceApprovalLocks();
-      await proposalLockAllowed;
-      await tx.select({ id: aiChangeProposalsTable.id })
-        .from(aiChangeProposalsTable)
-        .where(eq(aiChangeProposalsTable.id, proposalId))
-        .for("update");
+      announceExecutionLock();
+      await executionLockRelease;
     });
-    await approvalLocksReady;
+    await executionLockReady;
 
-    const handoff = request(app)
-      .post("/api/ai/missions/apply-from-proposal")
-      .send({ projectId, proposalId })
-      .then((response) => response);
+    const approval = approveMissionGoal({ missionId, goalId, userId: "test-user" });
+    void approval.catch(() => undefined);
+    let handoff: Promise<{
+      status: number;
+      body: unknown;
+    }> | undefined;
+    let synchronizationError: unknown;
     try {
+      await waitForPostgresLockWait(/ai_executions/i);
+      handoff = request(app)
+        .post("/api/ai/missions/apply-from-proposal")
+        .send({ projectId, proposalId })
+        .then((response) => response);
       await waitForMissionRowLock(handoff);
     } catch (error) {
-      allowProposalLock();
-      await Promise.allSettled([missionGoalApprovalOrder, handoff]);
-      throw error;
+      synchronizationError = error;
+    } finally {
+      releaseExecutionLock();
     }
-    allowProposalLock();
 
-    const [approvalOutcome, handoffOutcome] = await Promise.allSettled([
-      missionGoalApprovalOrder,
-      handoff,
+    const [holderOutcome, approvalOutcome, handoffOutcome] = await Promise.allSettled([
+      executionLockHolder,
+      approval,
+      handoff ?? Promise.resolve(undefined),
     ]);
-    const approvalCode = approvalOutcome.status === "rejected"
-      ? (() => {
-          let current: unknown = approvalOutcome.reason;
-          for (let depth = 0; depth < 4; depth++) {
-            if (!current || typeof current !== "object") return "unknown";
-            if ("code" in current && typeof current.code === "string") return current.code;
-            current = "cause" in current ? current.cause : undefined;
-          }
-          return "unknown";
-        })()
-      : "fulfilled";
+    if (synchronizationError) throw synchronizationError;
+
     const handoffStatus = handoffOutcome.status === "fulfilled"
-      ? handoffOutcome.value.status
+      ? handoffOutcome.value?.status ?? "not_started"
       : "rejected";
-    expect([approvalCode, handoffStatus]).toEqual(["fulfilled", 201]);
+    expect(holderOutcome.status).toBe("fulfilled");
+    expect(approvalOutcome.status).toBe("fulfilled");
+    if (approvalOutcome.status === "fulfilled") {
+      expect(approvalOutcome.value.status).toBe("approved");
+    }
+    expect(handoffStatus).toBe(201);
   });
 
   it("keeps the server-owned active plan revision unchanged through Mission PATCH", async () => {

@@ -1701,7 +1701,27 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
   const result = await db.transaction(async (tx) => {
+    // This non-locking lookup avoids taking Mission locks for a missing
+    // proposal. The row is locked and fully revalidated after Mission locks
+    // so this handoff follows Mission-before-proposal approval ordering.
     const [proposal] = await tx.select()
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, body.proposalId),
+        eq(aiChangeProposalsTable.projectId, project.id),
+      ))
+      .limit(1);
+    if (!proposal) return { kind: "not_found" as const };
+
+    await tx.select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.projectId, project.id),
+        eq(aiMissionsTable.userId, req.userId),
+      ))
+      .for("update");
+
+    const [lockedProposal] = await tx.select()
       .from(aiChangeProposalsTable)
       .where(and(
         eq(aiChangeProposalsTable.id, body.proposalId),
@@ -1709,18 +1729,20 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       ))
       .for("update")
       .limit(1);
-    if (!proposal) return { kind: "not_found" as const };
-    if (proposal.status !== "pending" || !proposal.baseRevision
-        || !proposal.candidateTreeHash || !proposal.changeSetHash) {
+    if (!lockedProposal) return { kind: "not_found" as const };
+    if (lockedProposal.status !== "pending" || !lockedProposal.baseRevision
+        || !lockedProposal.candidateTreeHash || !lockedProposal.changeSetHash) {
       return { kind: "not_prepared" as const };
     }
+
+    // Re-read after acquiring the proposal lock. Another handoff may have
+    // inserted its Apply Mission while this request waited on that proposal.
     const existingMissions = await tx.select()
       .from(aiMissionsTable)
       .where(and(
         eq(aiMissionsTable.projectId, project.id),
         eq(aiMissionsTable.userId, req.userId),
-      ))
-      .for("update");
+      ));
     const duplicate = existingMissions.find((candidate) => {
       const policy = candidate.autonomyPolicy && typeof candidate.autonomyPolicy === "object"
         ? candidate.autonomyPolicy as Record<string, unknown>
@@ -1728,7 +1750,7 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       const applyMission = policy.applyMission && typeof policy.applyMission === "object"
         ? policy.applyMission as Record<string, unknown>
         : {};
-      return applyMission.proposalId === proposal.id
+      return applyMission.proposalId === lockedProposal.id
         && candidate.status !== "completed"
         && candidate.status !== "cancelled";
     });
@@ -1738,10 +1760,10 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       kind: "apply.changes" as const,
       version: 1 as const,
       sourceStepId: "apply-changes" as const,
-      proposalId: proposal.id,
-      baseRevision: proposal.baseRevision,
-      candidateTreeHash: proposal.candidateTreeHash,
-      changeSetHash: proposal.changeSetHash,
+      proposalId: lockedProposal.id,
+      baseRevision: lockedProposal.baseRevision,
+      candidateTreeHash: lockedProposal.candidateTreeHash,
+      changeSetHash: lockedProposal.changeSetHash,
       from: "candidate" as const,
       to: "applied" as const,
     };
