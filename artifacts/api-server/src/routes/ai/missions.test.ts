@@ -221,6 +221,42 @@ async function insertProject(ownerId = "test-user") {
   return id;
 }
 
+async function waitForMissionReplanLock(
+  replanPromise: Promise<{ status: number; body: unknown }>,
+  timeoutMs = 10_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let blockedQueries: string[] = [];
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    blockedQueries = rows.map((row) => row.query ?? "");
+    if (blockedQueries.some((query) => /ai_missions/i.test(query))) {
+      return;
+    }
+    const completedEarly = await Promise.race([
+      replanPromise.then((response) => ({ response })),
+      new Promise<{ response?: undefined }>((resolve) => setTimeout(() => resolve({}), 25)),
+    ]);
+    if (completedEarly.response) {
+      throw new Error(
+        `Mission replan returned before row lock: HTTP ${completedEarly.response.status} ${JSON.stringify(completedEarly.response.body)}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `Mission replan did not reach the locked Mission row; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
+  );
+}
+
 async function insertAcceptedProjectQuery(projectId: string) {
   const userId = "test-user";
   const sessionId = randomUUID();
@@ -1131,6 +1167,133 @@ describe("AI missions and goals", () => {
     expect(goals.every((goal) =>
       (goal.successCriteria as Record<string, unknown>).kind === "mission_replan_step",
     )).toBe(true);
+  });
+
+  it("rejects a replan preview when the active plan revision rotates before the Mission lock", async () => {
+    const projectId = await insertProject();
+    const created = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Replan revision race",
+      intent: "Inspect the source, then fix the blocking issue.",
+    });
+    const missionId = created.body.id as string;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: "plan-before-replan" },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    let releaseRotation!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowRotationCommit = new Promise<void>((resolve) => {
+      releaseRotation = resolve;
+    });
+    const revisionRotation = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({ autonomyPolicy: { activePlanRevision: "plan-rotated-under-lock" } })
+        .where(eq(aiMissionsTable.id, missionId));
+      acquiredMissionLock();
+      await allowRotationCommit;
+    });
+    await missionLocked;
+
+    const replanPromise = request(app)
+      .post(`/api/ai/missions/${missionId}/replan`)
+      .send({
+        message: "Inspect the source, then fix the blocking issue.",
+        expectedPlanHash: "plan-before-replan",
+      })
+      .then((response) => response);
+    let lockWaitError: unknown;
+    try {
+      await waitForMissionReplanLock(replanPromise);
+    } catch (error) {
+      lockWaitError = error;
+    } finally {
+      releaseRotation();
+    }
+    await revisionRotation;
+    const response = await replanPromise;
+    const [persisted] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    const goals = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    if (lockWaitError) throw lockWaitError;
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("MISSION_PLAN_STALE");
+    expect(persisted?.autonomyPolicy).toMatchObject({
+      activePlanRevision: "plan-rotated-under-lock",
+    });
+    expect(goals).toHaveLength(0);
+  });
+
+  it("does not reactivate a Mission completed while replan waits for the row lock", async () => {
+    const projectId = await insertProject();
+    const created = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Replan terminal race",
+      intent: "Inspect the source, then fix the blocking issue.",
+    });
+    const missionId = created.body.id as string;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: "plan-before-terminal" },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    let releaseCompletion!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowCompletionCommit = new Promise<void>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    const completion = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({
+          status: "completed",
+          autonomyPolicy: { activePlanRevision: "plan-at-terminal" },
+        })
+        .where(eq(aiMissionsTable.id, missionId));
+      acquiredMissionLock();
+      await allowCompletionCommit;
+    });
+    await missionLocked;
+
+    const replanPromise = request(app)
+      .post(`/api/ai/missions/${missionId}/replan`)
+      .send({ message: "Inspect the source, then fix the blocking issue." })
+      .then((response) => response);
+    let lockWaitError: unknown;
+    try {
+      await waitForMissionReplanLock(replanPromise);
+    } catch (error) {
+      lockWaitError = error;
+    } finally {
+      releaseCompletion();
+    }
+    await completion;
+    const response = await replanPromise;
+    const [persisted] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    const goals = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    if (lockWaitError) throw lockWaitError;
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("MISSION_TERMINAL");
+    expect(persisted?.status).toBe("completed");
+    expect(persisted?.autonomyPolicy).toMatchObject({
+      activePlanRevision: "plan-at-terminal",
+    });
+    expect(goals).toHaveLength(0);
   });
 
   it("creates project-owned missions and goals, then returns their read-only projection", async () => {

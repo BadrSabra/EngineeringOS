@@ -1828,6 +1828,7 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
       code: "MISSION_TERMINAL",
     });
   }
+  const expectedActivePlanRevision = readActivePlanRevision(owned.mission.autonomyPolicy);
   const message = body.message ?? body.objective ?? owned.mission.intent;
   const runtimeStartTargetStepId = body.runtimeStartTargetStepId === undefined
     ? await readRuntimeStartTargetForPlan(
@@ -1866,9 +1867,15 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
         eq(aiMissionsTable.userId, req.userId),
       ))
       .for("update");
-    if (!mission) return undefined;
-     const plan = await createMissionPlanGoal(tx, mission, now, preview, "execution");
-     if (!plan) return undefined;
+    if (!mission) return { kind: "missing" as const };
+    if (["completed", "cancelled"].includes(mission.status)) {
+      return { kind: "terminal" as const };
+    }
+    if (readActivePlanRevision(mission.autonomyPolicy) !== expectedActivePlanRevision) {
+      return { kind: "stale_plan_revision" as const };
+    }
+    const plan = await createMissionPlanGoal(tx, mission, now, preview, "execution");
+    if (!plan) return { kind: "missing" as const };
     await tx.update(aiMissionsTable)
       .set({
         status: "active",
@@ -1890,9 +1897,21 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
         reason: body.reason ?? null,
       },
     });
-    return { mission, plan };
+    return { kind: "created" as const, mission, plan };
   });
-  if (!result || !result.plan) return res.status(404).json({ error: "Mission not found" });
+  if (result.kind === "terminal") {
+    return res.status(409).json({
+      error: "A terminal Mission cannot be replanned",
+      code: "MISSION_TERMINAL",
+    });
+  }
+  if (result.kind === "stale_plan_revision") {
+    return res.status(409).json({
+      error: "The active Mission plan changed while this replan was being prepared. Refresh the Mission before retrying.",
+      code: "MISSION_PLAN_STALE",
+    });
+  }
+  if (result.kind !== "created") return res.status(404).json({ error: "Mission not found" });
   const runs = await dispatchMissionPlan(result.plan, req.userId, "replan");
   return res.status(201).json({
     mission: { ...result.mission, status: "active", intent: preview.objective },
