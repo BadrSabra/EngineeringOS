@@ -98,6 +98,7 @@
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
+- [Mission finalization lock order](mission-finalization-lock-order.md) — linked terminal projections acquire Mission/Goal before execution so proof reloads cannot deadlock.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
 - [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — provider success is not acceptance; exact-model probes verify resolver and actual response identity.

@@ -2,12 +2,15 @@ import { afterEach, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import {
+  aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
+import { buildExecutionProofProjection } from "./execution-proof.js";
 import { loadVerifiedShadowReplayProof } from "../routes/ai/chat.js";
 import { wakeRuntimeTransitionMissionGoals } from "./mission-runtime.js";
 
@@ -117,6 +120,56 @@ async function createLockFixture() {
     sourceRevision,
     candidateTreeHash,
   };
+}
+
+async function addCurrentCanonicalAcceptance(fixture: Awaited<ReturnType<typeof createLockFixture>>) {
+  const evidenceSnapshotId = randomUUID();
+  const acceptanceId = randomUUID();
+  const now = new Date();
+  const proof = buildExecutionProofProjection({
+    outcome: "SUCCEEDED",
+    evidenceRequired: true,
+    evidenceComplete: true,
+    evidenceSnapshotId,
+    sourceRevision: fixture.sourceRevision,
+    candidateIdentity: fixture.candidateTreeHash,
+  });
+
+  await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+    id: evidenceSnapshotId,
+    executionId: fixture.replayExecutionId,
+    projectId: fixture.projectId,
+    attempt: 0,
+    operationId: fixture.operationId,
+    sourceRevision: fixture.sourceRevision,
+    candidateIdentity: fixture.candidateTreeHash,
+    verdict: "PROVEN",
+    complete: 1,
+    readCount: 1,
+    totalBytes: 64,
+    createdAt: now,
+  });
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: acceptanceId,
+    executionId: fixture.replayExecutionId,
+    projectId: fixture.projectId,
+    attempt: 0,
+    finalizationKey: `final:${fixture.replayExecutionId}:${acceptanceId}`,
+    operationId: fixture.operationId,
+    terminalStatus: "completed",
+    outcome: "SUCCEEDED",
+    reasonCode: "CANONICAL_PROOF_PROVEN",
+    nextActionCode: "NONE",
+    disposition: { proof },
+    evidenceSnapshotId,
+    evidenceRequired: 1,
+    evidenceComplete: 1,
+    resumable: 0,
+    sourceRevision: fixture.sourceRevision,
+    candidateIdentity: fixture.candidateTreeHash,
+    createdAt: now,
+  });
+  return { acceptanceId, evidenceSnapshotId };
 }
 
 async function waitForGoalLockWaiters(count: number): Promise<Array<{
@@ -244,3 +297,55 @@ it("serializes runtime transition proof reads before the replay execution lock w
     "fulfilled",
   ]);
 });
+
+it("reloads the matching current Canonical Proof after taking locks in Mission/Goal/execution order", async () => {
+  const fixture = await createLockFixture();
+  const acceptance = await addCurrentCanonicalAcceptance(fixture);
+
+  const proof = await loadVerifiedShadowReplayProof({
+    executionId: fixture.replayExecutionId,
+    projectId: fixture.projectId,
+    operationId: fixture.operationId,
+    attempt: 0,
+    replayCanonicalAcceptanceId: acceptance.acceptanceId,
+    sourceRevision: fixture.sourceRevision,
+    candidateTreeHash: fixture.candidateTreeHash,
+  });
+
+  expect(proof).toMatchObject({
+    accepted: true,
+    verdict: "PROVEN",
+    executionId: fixture.replayExecutionId,
+    acceptanceId: acceptance.acceptanceId,
+    evidenceSnapshotId: acceptance.evidenceSnapshotId,
+    attempt: 0,
+    operationId: fixture.operationId,
+    sourceRevision: fixture.sourceRevision,
+    candidateIdentity: fixture.candidateTreeHash,
+  });
+  expect(proof?.trajectoryDigest?.digest).toMatch(/^[a-f0-9]{64}$/i);
+});
+
+it.each(["acceptance ID", "attempt", "source revision", "candidate identity"])(
+  "rejects a stale %s after acquiring the ordered locks",
+  async (staleBinding) => {
+    const fixture = await createLockFixture();
+    const acceptance = await addCurrentCanonicalAcceptance(fixture);
+    const replay = {
+      executionId: fixture.replayExecutionId,
+      projectId: fixture.projectId,
+      operationId: fixture.operationId,
+      attempt: 0,
+      replayCanonicalAcceptanceId: acceptance.acceptanceId,
+      sourceRevision: fixture.sourceRevision,
+      candidateTreeHash: fixture.candidateTreeHash,
+    };
+
+    if (staleBinding === "acceptance ID") replay.replayCanonicalAcceptanceId = randomUUID();
+    if (staleBinding === "attempt") replay.attempt = 1;
+    if (staleBinding === "source revision") replay.sourceRevision = "c".repeat(40);
+    if (staleBinding === "candidate identity") replay.candidateTreeHash = "d".repeat(64);
+
+    await expect(loadVerifiedShadowReplayProof(replay)).resolves.toBeUndefined();
+  },
+);

@@ -1995,16 +1995,106 @@ function parseStoredExecutionRequest(value: string): Record<string, unknown> | u
   }
 }
 
+async function lockFinalizationMissionRows(
+  tx: AcceptanceTransaction,
+  params: Pick<FinalizeExecutionAcceptanceParams, "executionId" | "taskFinalization" | "goalProjection">,
+): Promise<void> {
+  if (!params.taskFinalization && !params.goalProjection) return;
+  const [executionIdentity] = await tx
+    .select({
+      projectId: aiExecutionsTable.projectId,
+      linkedTaskId: aiExecutionsTable.linkedTaskId,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, params.executionId))
+    .limit(1);
+  if (!executionIdentity) return;
+
+  const goalIds = new Set<string>();
+  if (
+    params.taskFinalization
+    && params.taskFinalization.taskId === executionIdentity.linkedTaskId
+  ) {
+    const [taskIdentity] = await tx
+      .select({ goalId: tasksTable.goalId })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.id, params.taskFinalization.taskId),
+        eq(tasksTable.projectId, executionIdentity.projectId),
+      ))
+      .limit(1);
+    if (taskIdentity?.goalId) goalIds.add(taskIdentity.goalId);
+  }
+  if (params.goalProjection) goalIds.add(params.goalProjection.goalId);
+
+  const goalScopes: Array<{ id: string; missionId: string; projectId: string }> = [];
+  for (const goalId of [...goalIds].sort()) {
+    const [goal] = await tx
+      .select({
+        id: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+        projectId: aiGoalsTable.projectId,
+      })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, goalId),
+        eq(aiGoalsTable.projectId, executionIdentity.projectId),
+      ))
+      .limit(1);
+    if (goal) goalScopes.push(goal);
+  }
+
+  const missionScopes = new Map<string, { id: string; projectId: string }>();
+  for (const goal of goalScopes) {
+    missionScopes.set(`${goal.projectId}:${goal.missionId}`, {
+      id: goal.missionId,
+      projectId: goal.projectId,
+    });
+  }
+  const lockedMissionIds = new Set<string>();
+  for (const mission of [...missionScopes.values()].sort((left, right) =>
+    `${left.projectId}:${left.id}`.localeCompare(`${right.projectId}:${right.id}`),
+  )) {
+    const [locked] = await tx
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.projectId, mission.projectId),
+      ))
+      .for("update");
+    if (locked) lockedMissionIds.add(`${mission.projectId}:${locked.id}`);
+  }
+
+  for (const goal of goalScopes.sort((left, right) =>
+    `${left.projectId}:${left.missionId}:${left.id}`
+      .localeCompare(`${right.projectId}:${right.missionId}:${right.id}`),
+  )) {
+    if (!lockedMissionIds.has(`${goal.projectId}:${goal.missionId}`)) continue;
+    await tx
+      .select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, goal.id),
+        eq(aiGoalsTable.missionId, goal.missionId),
+        eq(aiGoalsTable.projectId, goal.projectId),
+      ))
+      .for("update")
+      .limit(1);
+  }
+}
+
 /**
- * One server-owned terminal seam. The execution row is locked first, then
- * the message and acceptance rows are written in that same transaction.
- * Provider calls, filesystem reads, and long validators must happen before
- * entering this function.
+ * One server-owned terminal seam. Linked Mission/Goal rows are locked before
+ * the execution, matching proof gates; message and acceptance rows are then
+ * written in that same transaction. Provider calls, filesystem reads, and
+ * long validators must happen before entering this function.
  */
 export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
   return db.transaction(async (tx) => {
+    await lockFinalizationMissionRows(tx, params);
     const [execution] = await tx
       .select()
       .from(aiExecutionsTable)

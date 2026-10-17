@@ -437,6 +437,34 @@ This demonstrates the database lock cycle for the two production lock sequences 
 
 Resolution: `loadVerifiedShadowReplayProof` now uses a non-locking execution/Goal identity read, then locks and revalidates Mission → Goal → execution before loading Canonical Proof. The focused concurrency test passed 1/1 after the change, and the existing `runtime.start` pending-transition control passed 1/1 on a fresh disposable loopback PostgreSQL cluster. API typecheck passed. The synthetic replay execution still has no acceptance, so this verifies lock ordering and fail-closed return behavior, not a valid replay proof. No managed API workflow was restarted, and no Replay or Strategy Replay worker ran.
 
+### 2026-10-17 — API typecheck timeout, recorded before retry
+
+The expanded Shadow Replay lock-order test, now including one valid current Canonical Proof and four stale-identity cases, passed 6/6 on a disposable loopback PostgreSQL cluster. In the same parallel run, API typecheck timed out during the dependency-build phase before emitting a TypeScript diagnostic or completion result. This is an inconclusive verification timeout, not evidence of a type error. The test database was isolated, no shared database was touched, and no Replay worker ran.
+
+### 2026-10-17 — execution-finalization/proof-gate lock-order candidate, source review only
+
+Static review found a second possible order inversion: `finalizeExecutionAcceptance` locks an execution and, when finalizing a linked Task, calls `syncLinkedObjectiveState`, which then locks Mission and Goal. The proof-gated Mission completion path locks Mission and Goals before `loadCanonicalProof` locks the execution. This source order alone does not establish a deadlock; lifecycle state and row predicates may prevent both paths from contending on the same rows. No production code changed. A deterministic interleaving test is needed before considering a repair.
+
+### 2026-10-17 — execution-finalization/Mission-completion deadlock, recorded before repair
+
+A deterministic PostgreSQL test invoked the real `finalizeExecutionAcceptance` and `evaluateMissionCompletion` functions. The fixture paused finalization after it had locked the running execution but before it could lock the linked Task. The completion gate then locked Mission and Goal and waited for that same execution through `loadCanonicalProof`. Releasing the Task barrier let finalization proceed to its Mission lock; PostgreSQL reported one `40P01`, and the test observed both blocking edges. The focused reproduction assertion passed 1/1.
+
+Boundary: the test used a synthetic completed Goal alongside a running linked Task/execution to force the shared-row interleaving. It demonstrates the lock cycle in the production functions for that state, not how often that state occurs in live workloads, and it establishes no proof or completion-authority bypass. The test used only a disposable loopback PostgreSQL cluster; no Replay worker, Strategy Replay, E4, shared database, or production change was involved.
+
+### 2026-10-17 — post-repair typecheck failure, recorded before correction
+
+After changing finalization to acquire linked Mission/Goal locks before the execution lock, the focused disposable-PostgreSQL test passed 1/1 with the completion gate blocked behind the finalizer and both transactions completing without `40P01`. The subsequent API typecheck found two TypeScript `unknown` errors in the new test's `Promise.allSettled` result handling. No production-source diagnostic was reported; this is a test typing issue, not a failed runtime assertion or evidence about the lock behavior.
+
+### 2026-10-17 — execution-finalizer lock order repaired and verified
+
+Terminal finalization now performs non-locking identity reads only when a linked Task or workflow Goal projection needs Mission synchronization, then locks the affected Mission rows and Goal rows before locking the execution. This matches proof-gated completion's Mission/Goal-before-execution order; the existing execution/Task and acceptance ownership checks remain in place.
+
+Final verification: API typecheck passed. The finalizer/proof-gate test and the Shadow Replay proof-lock tests passed 7/7 together against a disposable loopback PostgreSQL cluster. The lock test confirms the proof gate waits behind the finalizer, both transactions complete, and a failed acceptance remains unproven; no `40P01` recurs. The earlier test-only TypeScript issue was resolved by preserving the `Promise.allSettled` tuple types. No API workflow restart, Replay, Strategy Replay, E4 work, or shared database use occurred.
+
+### 2026-10-17 — API workflow port conflict observed; listener left untouched
+
+Read-only workflow inspection showed the API build completed, then startup failed with `EADDRINUSE` on `0.0.0.0:8080`. A process inspection found a listener in the API artifact directory that matches the cleanup script's process predicate. Why it remained or whether a concurrent start was involved is unconfirmed. The listener was not stopped and no HTTP request was sent because it may be serving against a shared database. This does not invalidate the typecheck or disposable-database tests above, but live API readiness remains unverified.
+
 ### 2026-10-17 — proposal handoff vs Goal approval lock-order failure, recorded before repair
 
 A deterministic PostgreSQL interleaving used the actual `POST /api/ai/missions/apply-from-proposal` route with a pending proposal and an existing active Mission/Goal. A competing transaction acquired Mission, Goal, and execution locks in the same order as proposal-backed approval, then paused before requesting the shared proposal row. The route was observed waiting on the Mission row before the competing transaction was allowed to request the proposal. The focused test failed with HTTP 500 from the route while the competing transaction completed. This reproduces a failure under the opposite lock ordering; the response did not expose PostgreSQL's SQLSTATE, so the exact server error is unconfirmed. The competing operation is a test-owned transaction modeling the approval row-lock sequence, not `approveMissionGoal` or a second approval HTTP request. One test failed and 46 unrelated tests were skipped on a disposable loopback PostgreSQL cluster with provider egress disabled. No production code or shared database was changed before recording this failure. This does not establish an authorization, Canonical Proof, or completion-authority bypass.
