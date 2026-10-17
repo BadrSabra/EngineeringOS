@@ -4681,6 +4681,66 @@ describe("AI missions and goals", () => {
     expect(persistedGoal?.successCriteria).toEqual(originalSuccessCriteria);
   });
 
+  it("requires Mission reactivation before adding a Goal to a completed Mission", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Completed Mission Goal creation guard",
+      intent: "Do not add unproven work to a completed Mission",
+    });
+    const planRevision = `completed-mission-add-goal-${randomUUID()}`;
+    await db.update(aiMissionsTable)
+      .set({
+        autonomyPolicy: { activePlanRevision: planRevision },
+      })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    const acceptedGoal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Previously accepted Goal",
+        planRevision,
+        successCriteria: { objective: "The accepted objective", planRevision: { hash: planRevision } },
+        evidenceContract: { requiredEvidence: ["the-accepted-artifact"] },
+      });
+    expect(acceptedGoal.status).toBe(201);
+    await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId: mission.body.id,
+      goalId: acceptedGoal.body.id,
+      planRevision,
+    });
+    await db.update(aiMissionsTable)
+      .set({ status: "completed" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+
+    const created = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Unproven Goal added after completion",
+        planRevision,
+        successCriteria: { objective: "A new objective", planRevision: { hash: planRevision } },
+        evidenceContract: { requiredEvidence: ["another-artifact"] },
+      });
+    const persistedGoals = await db.select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, mission.body.id));
+    const [persistedMission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, mission.body.id));
+
+    expect({
+      responseStatus: created.status,
+      responseCode: created.body.code,
+      goalCount: persistedGoals.length,
+      missionStatus: persistedMission?.status,
+    }).toEqual({
+      responseStatus: 409,
+      responseCode: "MISSION_REACTIVATION_REQUIRED",
+      goalCount: 1,
+      missionStatus: "completed",
+    });
+  });
+
   it("rejects invalid goal parent updates and empty patches", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({
