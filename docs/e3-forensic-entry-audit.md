@@ -374,4 +374,19 @@ Two focused Goal PATCH route tests passed on a fresh loopback-only temporary Pos
 
 The focused Mission runtime race case `blocks dependency release when the active plan revision rotates before authorization` also passed 1/1 on a separate loopback-only temporary PostgreSQL cluster. It verifies the continuation returns `stale_plan_revision` and leaves the Goal queued after the Mission's active revision changes under lock; 50 other cases were skipped.
 
-This sweep established no new E3/E3.2 failure. It is source inventory only, does not qualify Replay or registry behavior, and does not close E3 or E3.2.
+### 2026-10-17 — replan race fixture synchronization failure, recorded before correction
+
+Two temporary route-race cases attempted to hold the Mission row while changing either `activePlanRevision` or Mission status, then wait for the replan route's `SELECT ... FOR UPDATE`. Both failed because the `pg_stat_activity` probe did not observe the expected blocked query within 10 seconds. The first request logged HTTP 409 only after the test released its blocker; that response cannot be attributed to an in-lock revision check. Neither case established whether the request reached the target lock before release, so this is a fixture synchronization failure, not evidence of application behavior. No production code changed.
+
+A broadened probe still found no waiting query. Inspection of the fixture showed it retained Supertest's lazy `Test` object without starting it; the request began only when awaited after the blocker was released. The later 409 therefore came from a post-release request, not the tested race. After changing the fixture to start requests eagerly, both returned HTTP 409 within 15–22 ms without a blocked query. That run did not capture `body.code`, so the early rejection's cause is unknown and no in-lock behavior can be inferred. Use a request already known to pass Mission admission before retrying the race.
+
+### 2026-10-17 — locked replan revision and terminal-state races, recorded before repair
+
+With the request started before lock polling and an objective already accepted by the existing replan route test, both deterministic PostgreSQL interleavings reached the Mission-row lock. The assertions expecting rejection failed:
+
+- A request loaded `activePlanRevision=plan-before-replan`; while it waited, another transaction changed the locked row to `plan-rotated-under-lock`. The request still returned 201 and replaced that revision with the newly generated plan hash. Sending the old revision in `expectedPlanHash` did not prevent the overwrite; the route compares that value only with the newly generated preview hash before the transaction.
+- A request passed the initial nonterminal check while Mission was active; while it waited, another transaction committed `status=completed`. The replan still returned 201 and changed the stored status back to `active`.
+
+These cases demonstrate a route-level stale-read race: the locked Mission row is used for materialization, but its current active revision and terminal status are not revalidated before the replan write. This establishes a lifecycle/plan-revision guard gap, not a Canonical Proof acceptance, promotion, or Replay bypass. The focused run had two failed expected-guard assertions and 43 skipped cases on a disposable loopback PostgreSQL cluster; schema was applied only there and provider egress was disabled. No development/production database or Replay was used, and no production code was changed.
+
+This audit slice still does not qualify Replay or registry behavior and does not close E3 or E3.2.
