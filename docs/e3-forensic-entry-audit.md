@@ -334,8 +334,30 @@ The source inventory also found a `loadCanonicalProof` call in `routes/ai/chat.t
 
 ### 2026-10-17 — accepted Project Query source handoff
 
-Three focused `ai/missions.test.ts` cases passed across disposable loopback-only PostgreSQL clusters: preview accepts only the server-resolved `PROJECT_QUERY` source without creating durable work; handoff rejects a stale reviewed plan hash and persists provenance resolved from the accepted message, execution, acceptance, evidence snapshot, source revision, and claim refs; and a recovered assistant message that differs from the acceptance message is rejected. The source resolver also requires the acceptance and Canonical Proof to match the execution's current attempt.
+Four focused `ai/missions.test.ts` cases passed across disposable loopback-only PostgreSQL clusters: preview accepts only the server-resolved `PROJECT_QUERY` source without creating durable work; a previously accepted source is rejected after the execution advances to a new attempt; handoff rejects a stale reviewed plan hash and persists provenance resolved from the accepted message, execution, acceptance, evidence snapshot, source revision, and claim refs; and a recovered assistant message that differs from the acceptance message is rejected.
+
+Identity review confirmed one durable acceptance row per `(executionId, attempt)` through the database unique index. `loadCanonicalProof` locks the execution and exact-attempt acceptance, and `composeCanonicalProof` rejects an acceptance whose attempt differs from the locked execution. The route-level prior-attempt case passed 1/1; no additional acceptance-ID guard was justified by the inspected invariants.
 
 The matching handoff fixture created only test Mission/Goal rows. Its auto-trigger selected a provider but skipped the execution claim because the test project root was unavailable; no worker or provider call ran. No replay, registration/approval action, production data, E4, or production code change was made. This covers the Project Query-to-Mission provenance boundary only; E3 and E3.2 remain open.
 
 The remaining Mission projection callsite that loads proof for a stored skill candidate is read-only. Source inspection shows it includes the candidate only when the current Canonical Proof matches its acceptance ID, trajectory digest, source revision, and candidate-tree hash. It was not invoked; the available candidate unit tests construct Shadow Replay receipts, and candidate creation, replay, and registry routes remain outside this slice.
+
+### 2026-10-17 — acceptance-attempt index validation failure, recorded before repair
+
+A new `application-schema-check.test.ts` case modeled `uq_ai_execution_acceptances_execution_attempt` as a non-unique index with the expected name and columns. It failed because `findApplicationSchemaIssues` accepted that snapshot. The other 15 tests in that file passed. This establishes a schema-contract blind spot: the checker validated index identity/columns but not uniqueness, even though the Drizzle schema defines one acceptance per execution attempt.
+
+The failure used only an in-memory schema snapshot; it did not inspect or mutate a live database and does not establish that any deployed index is non-unique or that duplicate acceptance rows exist. No production execution, provider, Replay, registration/approval, E4, or production data was involved.
+
+Resolution: the application schema contract now marks the evidence-attempt, acceptance-attempt, and acceptance-finalization-key indexes as unique. Startup validation rejects missing `UNIQUE` or partial definitions for these indexes. The regression case now passes for both ordinary and partial unique indexes; the complete DB schema-check package passed 20/20. API typecheck passed, and the four Project Query handoff cases passed 4/4 again on a disposable loopback-only PostgreSQL cluster. The managed API workflow restarted and reached `Server listening` without a schema error, so its development database passed the strengthened schema check; no schema was applied to that database.
+
+The managed API's normal startup refreshed the OpenRouter model catalog and reported three stale catalog entries; it made no model-generation request. No production database or Strategy Replay was used. This closes only the checked-index contract gap; E3 and E3.2 remain open.
+
+### 2026-10-17 — stale execution snapshot proof projection failure, recorded before repair
+
+A new `operation-evidence.integration.test.ts` case captured an execution at attempt 0, advanced its durable row to attempt 1, inserted a proven attempt-1 acceptance/evidence snapshot, then called `loadOperationEvidence` with the captured attempt-0 object. The assertion that the projection reject the newer proof failed: it returned `proof.accepted=true`. The other two integration cases were skipped in this focused run.
+
+This establishes a stale-read identity mismatch in the Operation Evidence projection: the proof can refer to a newer durable attempt than the execution snapshot used for the rest of the projection. It does not establish a write, completion, or promotion bypass; the projection marks `verified: false` and this case invokes no decision handler. The test used only a disposable loopback PostgreSQL database; no provider, Replay, registry action, production data, or live project mutation was involved.
+
+Resolution: `loadOperationEvidence` now supplies the captured execution attempt to `loadCanonicalProof`; a newer durable attempt therefore fails with `acceptance_attempt_mismatch` instead of appearing accepted inside the older operation snapshot. The unit and integration tests passed 7/7, API typecheck passed, and the managed API restarted to `Server listening` without a schema error. This corrects the Operation Evidence projection identity only; it does not establish a write-authority bypass or close E3/E3.2.
+
+Source review found Operation Evidence is returned through chat, audit-export, and benchmark read projections; no server-side consumer uses its `releaseRecommendation` to authorize work. The projection keeps `verified: false`, and its current readiness call does not supply `terminalVerdict`, so it cannot report `releaseRecommendation: ready`.

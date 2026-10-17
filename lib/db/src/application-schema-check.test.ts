@@ -180,7 +180,7 @@ function completeSnapshot() {
   const indexes = APPLICATION_SCHEMA_CONTRACT.indexes.map((definition) => ({
     tablename: definition.tableName,
     indexname: definition.name,
-    indexdef: `CREATE INDEX ${definition.name} ON public.${definition.tableName} USING btree (${definition.columns.join(", ")})`,
+    indexdef: `CREATE ${definition.unique ? "UNIQUE " : ""}INDEX ${definition.name} ON public.${definition.tableName} USING btree (${definition.columns.join(", ")})`,
   }));
   return {
     tables: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).map((table_name) => ({
@@ -551,6 +551,32 @@ describe("application schema contract", () => {
         "missing_foreign_key:ai_session_memory_outbox.session_id",
       ],
     );
+  });
+
+  it("rejects non-unique and partial acceptance-attempt indexes", () => {
+    const snapshot = completeSnapshot();
+    const indexName = "uq_ai_execution_acceptances_execution_attempt";
+    const expectedIndex = snapshot.indexes.find((index) => index.indexname === indexName);
+    assert.ok(expectedIndex);
+    const invalidIndexDefinitions = [
+      expectedIndex.indexdef.replace("CREATE UNIQUE INDEX", "CREATE INDEX"),
+      `${expectedIndex.indexdef} WHERE attempt >= 0`,
+    ];
+
+    for (const indexdef of invalidIndexDefinitions) {
+      const issues = findApplicationSchemaIssues({
+        ...snapshot,
+        indexes: snapshot.indexes.map((index) =>
+          index.indexname === indexName ? { ...index, indexdef } : index,
+        ),
+      });
+      assert.ok(
+        issues.some(
+          (item) => item.kind === "incompatible_index" && item.objectName === indexName,
+        ),
+        "schema validation must reject an acceptance-attempt index without full UNIQUE coverage",
+      );
+    }
   });
 
   it("detects a missing primary key instead of treating an id column as sufficient", () => {

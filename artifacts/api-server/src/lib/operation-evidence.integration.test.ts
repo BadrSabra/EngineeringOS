@@ -173,6 +173,62 @@ describe("operation evidence canonical proof integration", () => {
     });
   });
 
+  it("does not attach a later attempt's proof to a captured execution snapshot", async () => {
+    const fixture = await createCanonicalProofFixture();
+    const nextAttempt = fixture.execution.attempt + 1;
+    const evidenceSnapshotId = randomUUID();
+    const acceptanceId = randomUUID();
+    const now = new Date();
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId,
+      sourceRevision: fixture.sourceRevision,
+    });
+
+    await db.update(aiExecutionsTable)
+      .set({ attempt: nextAttempt })
+      .where(eq(aiExecutionsTable.id, fixture.execution.id));
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: evidenceSnapshotId,
+      executionId: fixture.execution.id,
+      projectId: fixture.execution.projectId,
+      attempt: nextAttempt,
+      operationId: fixture.operationId,
+      sourceRevision: fixture.sourceRevision,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: acceptanceId,
+      executionId: fixture.execution.id,
+      projectId: fixture.execution.projectId,
+      attempt: nextAttempt,
+      finalizationKey: `final:${fixture.execution.id}:${nextAttempt}`,
+      operationId: fixture.operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "CANONICAL_PROOF_PROVEN",
+      nextActionCode: "NONE",
+      disposition: { proof },
+      evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision: fixture.sourceRevision,
+      createdAt: now,
+    });
+
+    const projection = await loadOperationEvidence(fixture.execution);
+
+    expect(projection.proof.accepted).toBe(false);
+    expect(projection.proof.failureReasons).toContain("acceptance_attempt_mismatch");
+  });
+
   it("does not return proof for a captured plan after the Mission plan rotates", async () => {
     const fixture = await createCanonicalProofFixture();
     const originalTransaction = db.transaction.bind(db);

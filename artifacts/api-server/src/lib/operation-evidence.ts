@@ -398,6 +398,7 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
   const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
     tx,
     executionId: execution.id,
+    attempt: execution.attempt,
     scope: {
       projectId: execution.projectId,
       missionId: mission?.id ?? goal?.missionId ?? null,

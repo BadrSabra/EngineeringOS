@@ -461,6 +461,27 @@ describe("AI missions and goals", () => {
       .where(eq(aiExecutionsTable.projectId, projectId))).toEqual(before.executions);
   });
 
+  it("rejects a PROJECT_QUERY source accepted for a prior execution attempt", async () => {
+    const projectId = await insertProject();
+    const source = await insertAcceptedProjectQuery(projectId);
+    await db.update(aiExecutionsTable)
+      .set({ attempt: source.attempt + 1 })
+      .where(eq(aiExecutionsTable.id, source.executionId));
+
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective: "Investigate and fix the accepted project finding.",
+      });
+
+    expect(preview.status).toBe(409);
+    expect(preview.body.code).toBe("MISSION_SOURCE_NOT_ACCEPTED");
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+  });
+
   it("requires the reviewed plan hash and stores only server-resolved accepted provenance", async () => {
     const projectId = await insertProject();
     const source = await insertAcceptedProjectQuery(projectId);

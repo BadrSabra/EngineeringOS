@@ -38,6 +38,7 @@ type IndexContract = {
   name: string;
   tableName: string;
   columns: readonly string[];
+  unique?: boolean;
 };
 
 type ForeignKeyContract = {
@@ -978,6 +979,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_execution_evidence_snapshots_attempt",
       tableName: "ai_execution_evidence_snapshots",
       columns: ["execution_id", "attempt"],
+      unique: true,
     },
     {
       name: "idx_ai_execution_evidence_snapshots_operation",
@@ -993,11 +995,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_execution_acceptances_execution_attempt",
       tableName: "ai_execution_acceptances",
       columns: ["execution_id", "attempt"],
+      unique: true,
     },
     {
       name: "uq_ai_execution_acceptances_finalization_key",
       tableName: "ai_execution_acceptances",
       columns: ["finalization_key"],
+      unique: true,
     },
     {
       name: "idx_ai_execution_acceptances_project_created",
@@ -1873,13 +1877,18 @@ export function findApplicationSchemaIssues(
     // normalized identifier text rather than requiring one exact formatter.
     const definition = normalized(actual.indexdef).replace(/"/g, "");
     const expectedColumns = `(${expected.columns.join(", ")})`;
-    if (!definition.includes(normalized(expectedColumns))) {
+    const uniquenessMismatch = expected.unique
+      && (
+        !/^CREATE UNIQUE INDEX\b/i.test(actual.indexdef.trim())
+        || /\bWHERE\b/i.test(actual.indexdef)
+      );
+    if (!definition.includes(normalized(expectedColumns)) || uniquenessMismatch) {
       issues.push(
         issue(
           "incompatible_index",
           actual.tablename,
           expected.name,
-          `index on ${expectedColumns}`,
+          `${expected.unique ? "unique non-partial " : ""}index on ${expectedColumns}`,
           actual.indexdef,
         ),
       );
