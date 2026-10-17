@@ -411,15 +411,31 @@ Two deterministic PostgreSQL interleavings exercised the actual `wakeDueMissionG
 
 Resolution: both wake transactions now lock Mission before Goal and revalidate the same wait/event conditions before updating either row. The two deterministic interleavings pass 2/2, the complete `mission-runtime.test.ts` suite passes 53/53, and API typecheck passes. The tests used a fresh disposable loopback PostgreSQL cluster with provider egress disabled. Only lock order changed; no proof or completion authority was added.
 
-### Remaining adjacent lock-order candidate — not reproduced or changed
+### 2026-10-17 — initial source-only lock-order candidate
 
-The source inventory found one additional order difference that needs separate validation before any repair:
+The source inventory found one additional order difference that needed separate validation before repair:
 
 - `loadVerifiedShadowReplayProof` locks execution, Goal, then Mission while validating a Shadow Replay paired-baseline record. This is a Replay-related proof read and was left untouched; no Replay or Strategy Replay was executed.
 
-This remains an unverified candidate, not a demonstrated deadlock or proof bypass. It remains outside the lock-order fixes recorded above.
+At this point it was an unverified candidate, not a demonstrated deadlock or proof bypass. The later isolated reproduction and lock-order correction are recorded below.
 
 This audit slice still does not qualify Replay or registry behavior and does not close E3 or E3.2.
+
+### 2026-10-17 — initial Shadow Replay lock-interleaving test failure, recorded before repair
+
+A focused test used a completed, replay-like execution attached to the completed `runtime.start` source Goal. It held that Goal row, observed the real `wakeRuntimeTransitionMissionGoals` path waiting on Goal rows, then started `loadVerifiedShadowReplayProof` and observed a second Goal-row waiter. After releasing the fixture lock, the test expected one PostgreSQL `40P01` deadlock but observed zero. The focused test therefore failed its expected-deadlock assertion; it did not establish a production deadlock, and the test did not yet report non-`40P01` outcomes. API typecheck passed. Current schema setup and this test used only a disposable loopback PostgreSQL cluster; no Shadow Replay or Strategy Replay worker ran, and no shared database or production code was used.
+
+Boundary: the fixture did not prove that the two production transactions were waiting on the same specific Goal row in the intended queue order, nor did it capture transaction outcomes beyond the deadlock count. Treat the source lock-order difference as a candidate only; no repair is justified by this run.
+
+Diagnostic rerun: `pg_stat_activity` showed the real runtime-gate query waiting on `ai_goals` behind the fixture lock, then the proof reload's Goal query waiting behind the runtime-gate query. After release, `wakeRuntimeTransitionMissionGoals` fulfilled while `loadVerifiedShadowReplayProof` rejected at its Goal query. The rejection was wrapped by Drizzle and the test only inspected a top-level `code`, so no SQLSTATE was captured; this interleaving still does not establish `40P01`. The fixture's wait snapshots are stronger ordering evidence, but it did not capture whether the runtime gate waited on the replay execution row or why the proof transaction aborted. No production code changed.
+
+### 2026-10-17 — Shadow Replay proof/runtime gate deadlock, recorded before repair
+
+The isolated fixture was tightened to capture Drizzle's nested cause chain and to wait for the runtime gate's execution-row lock. On a fresh disposable loopback PostgreSQL cluster, the test used the real `loadVerifiedShadowReplayProof` and `wakeRuntimeTransitionMissionGoals` functions with a synthetic completed execution attached to the completed `runtime.start` source Goal. It held that Goal, observed the runtime gate queued first and the proof reload queued behind it, then released the fixture lock. The runtime gate proceeded to wait on the execution row held by the proof reload; PostgreSQL aborted one transaction with SQLSTATE `40P01`. The focused reproduction assertion passed 1/1 and API typecheck passed.
+
+This demonstrates the database lock cycle for the two production lock sequences under the synthetic state. The execution had no valid Canonical Proof acceptance, so proof composition was not tested; the test does not establish a proof, promotion, or receipt bypass and does not run the Shadow Replay worker. No Strategy Replay, shared database, or production change was involved.
+
+Resolution: `loadVerifiedShadowReplayProof` now uses a non-locking execution/Goal identity read, then locks and revalidates Mission → Goal → execution before loading Canonical Proof. The focused concurrency test passed 1/1 after the change, and the existing `runtime.start` pending-transition control passed 1/1 on a fresh disposable loopback PostgreSQL cluster. API typecheck passed. The synthetic replay execution still has no acceptance, so this verifies lock ordering and fail-closed return behavior, not a valid replay proof. No managed API workflow was restarted, and no Replay or Strategy Replay worker ran.
 
 ### 2026-10-17 — proposal handoff vs Goal approval lock-order failure, recorded before repair
 

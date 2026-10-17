@@ -1880,7 +1880,7 @@ function readPlanRevisionHash(value: unknown): string | null {
     : null;
 }
 
-async function loadVerifiedShadowReplayProof(replay: {
+export async function loadVerifiedShadowReplayProof(replay: {
   executionId: string;
   projectId: string;
   operationId: string;
@@ -1891,6 +1891,54 @@ async function loadVerifiedShadowReplayProof(replay: {
 }): Promise<CanonicalProof | undefined> {
   if (!replay.replayCanonicalAcceptanceId) return undefined;
   return db.transaction(async (tx) => {
+    const [executionIdentity] = await tx
+      .select({
+        goalId: aiExecutionsTable.goalId,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, replay.executionId),
+        eq(aiExecutionsTable.projectId, replay.projectId),
+      ))
+      .limit(1);
+    if (!executionIdentity?.goalId) return undefined;
+
+    const [goalIdentity] = await tx
+      .select({
+        id: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+      })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, executionIdentity.goalId),
+        eq(aiGoalsTable.projectId, replay.projectId),
+      ))
+      .limit(1);
+    if (!goalIdentity?.missionId) return undefined;
+
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, goalIdentity.missionId),
+        eq(aiMissionsTable.projectId, replay.projectId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!mission) return undefined;
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, goalIdentity.id),
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, replay.projectId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!goal?.missionId || goal.status !== "completed") return undefined;
+
     const [execution] = await tx
       .select({
         goalId: aiExecutionsTable.goalId,
@@ -1903,38 +1951,18 @@ async function loadVerifiedShadowReplayProof(replay: {
       .where(and(
         eq(aiExecutionsTable.id, replay.executionId),
         eq(aiExecutionsTable.projectId, replay.projectId),
+        eq(aiExecutionsTable.goalId, goal.id),
       ))
       .for("update")
       .limit(1);
     if (
-      !execution?.goalId
+      !execution
+      || execution.goalId !== goal.id
       || execution.status !== "completed"
       || execution.attempt !== replay.attempt
       || execution.operationId !== replay.operationId
       || execution.baseRevision !== replay.sourceRevision
     ) return undefined;
-
-    const [goal] = await tx
-      .select()
-      .from(aiGoalsTable)
-      .where(and(
-        eq(aiGoalsTable.id, execution.goalId),
-        eq(aiGoalsTable.projectId, replay.projectId),
-      ))
-      .for("update")
-      .limit(1);
-    if (!goal?.missionId || goal.status !== "completed") return undefined;
-
-    const [mission] = await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, goal.missionId),
-        eq(aiMissionsTable.projectId, replay.projectId),
-      ))
-      .for("update")
-      .limit(1);
-    if (!mission) return undefined;
 
     const outcomeContract = asJsonRecord(goal.outcomeContract);
     const successCriteria = asJsonRecord(goal.successCriteria);
