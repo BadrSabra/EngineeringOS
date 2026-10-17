@@ -405,4 +405,19 @@ A deterministic PostgreSQL interleaving held the Mission row, started the real `
 
 Resolution: `approveMissionGoal` now locks and validates the owned Mission before locking the Goal, matching direct completion and status-mutation transactions. It still rechecks Goal membership under lock, verifies the current execution and proposal revision, and resumes the runtime only after commit. The deterministic lock-order test and existing approval test pass 2/2 on a fresh disposable loopback PostgreSQL cluster; API typecheck passed. The managed API restarted to `Server listening`, and `/api/healthz` returned `ok`. This repairs transaction availability only; it adds no completion or Canonical Proof authority.
 
+### 2026-10-17 — Mission Goal wake lock-order failures, recorded before repair
+
+Two deterministic PostgreSQL interleavings exercised the actual `wakeDueMissionGoals` and `wakeMissionGoalsForEvent` functions. In each case, the wake transaction was observed waiting on the Mission row after the competing transaction held Mission and then requested the Goal row. The competing transaction completed, but the wake operation was rejected in both cases. The captured error did not expose a direct SQLSTATE, so the exact database error code remains unconfirmed. These are function-level transaction tests, not two-HTTP-request or scheduler tests; they demonstrate a lock-order failure, not a Canonical Proof or completion-authority bypass. The focused run failed 2 tests and skipped 51 on a disposable loopback PostgreSQL cluster with provider egress disabled. No production code or shared database was changed before recording this result.
+
+Resolution: both wake transactions now lock Mission before Goal and revalidate the same wait/event conditions before updating either row. The two deterministic interleavings pass 2/2, the complete `mission-runtime.test.ts` suite passes 53/53, and API typecheck passes. The tests used a fresh disposable loopback PostgreSQL cluster with provider egress disabled. Only lock order changed; no proof or completion authority was added.
+
+### Adjacent lock-order candidates — not reproduced or changed
+
+The source inventory found two additional order differences that need separate validation before any repair:
+
+- `POST /ai/missions/apply-from-proposal` locks a proposal before locking project Missions, while proposal-backed Goal approval locks Mission, Goal, execution, then proposal. A cycle is possible only if both transactions contend on the same proposal and Mission; no concurrent reproduction was run.
+- `loadVerifiedShadowReplayProof` locks execution, Goal, then Mission while validating a Shadow Replay paired-baseline record. This is a Replay-related proof read and was left untouched; no Replay or Strategy Replay was executed.
+
+These are unverified candidates, not demonstrated deadlocks or proof bypasses. They remain outside the lock-order fixes recorded above.
+
 This audit slice still does not qualify Replay or registry behavior and does not close E3 or E3.2.

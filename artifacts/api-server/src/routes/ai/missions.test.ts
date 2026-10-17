@@ -4484,6 +4484,152 @@ describe("AI missions and goals", () => {
       .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
   });
 
+  it("does not deadlock proposal handoff against Mission Goal approval locks", async () => {
+    const projectId = await insertProject();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const now = new Date();
+    const baseRevision = "a".repeat(40);
+    const candidateTreeHash = "c".repeat(64);
+    const changeSetHash = "d".repeat(64);
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Existing approval Mission",
+      intent: "Resume the approved Goal.",
+      status: "active",
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Goal awaiting approval",
+      status: "waiting_for_approval",
+      nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Proposal lock-order test",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "A prepared change proposal.",
+      createdAt: now,
+    });
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        message: "Resume the approved Goal.",
+        modelMessage: "Resume the approved Goal.",
+        validationTargetPaths: [],
+      },
+      idempotencyKey: `proposal-lock-order:${goalId}`,
+      projectId,
+      goalId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        proposalId,
+        status: "paused",
+        updatedAt: now,
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      status: "pending",
+      revision: 1,
+      approvalRequired: true,
+      lifecycle: "proposed",
+      baseRevision,
+      baseTreeHash: "b".repeat(64),
+      candidateTreeHash,
+      changeSetHash,
+      createdAt: now,
+    });
+
+    let allowProposalLock!: () => void;
+    let announceApprovalLocks!: () => void;
+    const approvalLocksReady = new Promise<void>((resolve) => {
+      announceApprovalLocks = resolve;
+    });
+    const proposalLockAllowed = new Promise<void>((resolve) => {
+      allowProposalLock = resolve;
+    });
+    const missionGoalApprovalOrder = db.transaction(async (tx) => {
+      await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId))
+        .for("update");
+      await tx.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId))
+        .for("update");
+      await tx.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, created.execution.id))
+        .for("update");
+      announceApprovalLocks();
+      await proposalLockAllowed;
+      await tx.select({ id: aiChangeProposalsTable.id })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId))
+        .for("update");
+    });
+    await approvalLocksReady;
+
+    const handoff = request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId })
+      .then((response) => response);
+    try {
+      await waitForMissionRowLock(handoff);
+    } catch (error) {
+      allowProposalLock();
+      await Promise.allSettled([missionGoalApprovalOrder, handoff]);
+      throw error;
+    }
+    allowProposalLock();
+
+    const [approvalOutcome, handoffOutcome] = await Promise.allSettled([
+      missionGoalApprovalOrder,
+      handoff,
+    ]);
+    const approvalCode = approvalOutcome.status === "rejected"
+      ? (() => {
+          let current: unknown = approvalOutcome.reason;
+          for (let depth = 0; depth < 4; depth++) {
+            if (!current || typeof current !== "object") return "unknown";
+            if ("code" in current && typeof current.code === "string") return current.code;
+            current = "cause" in current ? current.cause : undefined;
+          }
+          return "unknown";
+        })()
+      : "fulfilled";
+    const handoffStatus = handoffOutcome.status === "fulfilled"
+      ? handoffOutcome.value.status
+      : "rejected";
+    expect([approvalCode, handoffStatus]).toEqual(["fulfilled", 201]);
+  });
+
   it("keeps the server-owned active plan revision unchanged through Mission PATCH", async () => {
     const projectId = await insertProject();
     const created = await request(app).post("/api/ai/missions").send({

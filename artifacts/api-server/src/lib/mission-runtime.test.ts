@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiWorldFactsTable,
   aiExecutionsTable,
@@ -649,6 +649,72 @@ afterEach(async () => {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
+
+async function contendWithMissionThenGoalLock(params: {
+  missionId: string;
+  goalId: string;
+  operation: () => Promise<unknown>;
+}): Promise<PromiseSettledResult<unknown>[]> {
+  let releaseMissionLock!: () => void;
+  let allowGoalLockAttempt!: () => void;
+  let announceMissionLocked!: () => void;
+  const missionLocked = new Promise<void>((resolve) => {
+    announceMissionLocked = resolve;
+  });
+  const goalLockAttemptAllowed = new Promise<void>((resolve) => {
+    allowGoalLockAttempt = resolve;
+  });
+  const lockTransaction = db.transaction(async (tx) => {
+    await tx.select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, params.missionId))
+      .for("update");
+    announceMissionLocked();
+    await new Promise<void>((resolve) => {
+      releaseMissionLock = resolve;
+    });
+    await goalLockAttemptAllowed;
+    await tx.select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, params.goalId))
+      .for("update");
+  });
+  await missionLocked;
+
+  const operation = params.operation();
+  const deadline = Date.now() + 10_000;
+  let operationWaitingForMission = false;
+  while (Date.now() < deadline && !operationWaitingForMission) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    operationWaitingForMission = rows.some((row) => /ai_missions/i.test(row.query ?? ""));
+    if (!operationWaitingForMission) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  releaseMissionLock();
+  allowGoalLockAttempt();
+  const outcomes = await Promise.allSettled([lockTransaction, operation]);
+  if (!operationWaitingForMission) {
+    const labels = outcomes.map((outcome) => {
+      if (outcome.status === "fulfilled") return "fulfilled";
+      const code = outcome.reason && typeof outcome.reason === "object" && "code" in outcome.reason
+        ? String(outcome.reason.code)
+        : "unknown";
+      return `rejected:${code}`;
+    });
+    throw new Error(`Operation did not wait on the held Mission row: ${labels.join(", ")}`);
+  }
+  return outcomes;
+}
 
 describe("Mission goal runtime", () => {
   it("releases a dependent Goal only from the matching current-attempt Canonical Proof", async () => {
@@ -1669,5 +1735,68 @@ describe("Mission goal runtime", () => {
       persisted: true,
       duplicate: true,
     });
+  });
+
+  it("does not deadlock when due-wake reconciliation overlaps Mission-before-Goal locks", async () => {
+    const due = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: "2020-01-01T00:00:00.000Z",
+    });
+    await runMissionGoal({
+      goalId: due.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+
+    const outcomes = await contendWithMissionThenGoalLock({
+      missionId: due.missionId,
+      goalId: due.goalId,
+      operation: () => wakeDueMissionGoals(),
+    });
+    const labels = outcomes.map((outcome) => {
+      if (outcome.status === "fulfilled") return "fulfilled";
+      const code = outcome.reason && typeof outcome.reason === "object" && "code" in outcome.reason
+        ? String(outcome.reason.code)
+        : "unknown";
+      return `rejected:${code}`;
+    });
+    expect(labels).toEqual(["fulfilled", "fulfilled"]);
+    expect(outcomes[1]).toMatchObject({ status: "fulfilled", value: 1 });
+  });
+
+  it("does not deadlock when event-wake reconciliation overlaps Mission-before-Goal locks", async () => {
+    const waiting = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    await runMissionGoal({
+      goalId: waiting.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "WorkflowPhaseAccepted",
+      projectId: waiting.projectId,
+      goalId: waiting.goalId,
+      payload: { phase: "lock-order" },
+    });
+
+    const outcomes = await contendWithMissionThenGoalLock({
+      missionId: waiting.missionId,
+      goalId: waiting.goalId,
+      operation: () => wakeMissionGoalsForEvent(event),
+    });
+    const labels = outcomes.map((outcome) => {
+      if (outcome.status === "fulfilled") return "fulfilled";
+      const code = outcome.reason && typeof outcome.reason === "object" && "code" in outcome.reason
+        ? String(outcome.reason.code)
+        : "unknown";
+      return `rejected:${code}`;
+    });
+    expect(labels).toEqual(["fulfilled", "fulfilled"]);
+    expect(outcomes[1]).toMatchObject({ status: "fulfilled", value: 1 });
   });
 });

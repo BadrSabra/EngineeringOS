@@ -3278,6 +3278,15 @@ export async function wakeDueMissionGoals(limit = 32): Promise<number> {
   let woken = 0;
   for (const candidate of dueGoals) {
     const changed = await db.transaction(async (tx) => {
+      // Keep the shared Mission-before-Goal order used by direct Goal updates.
+      const [mission] = await tx
+        .select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, candidate.missionId),
+          eq(aiMissionsTable.projectId, candidate.projectId),
+        ))
+        .for("update");
       const [goal] = await tx
         .select()
         .from(aiGoalsTable)
@@ -3306,14 +3315,6 @@ export async function wakeDueMissionGoals(limit = 32): Promise<number> {
           updatedAt: now,
         })
         .where(eq(aiGoalsTable.id, goal.id));
-      const [mission] = await tx
-        .select()
-        .from(aiMissionsTable)
-        .where(and(
-          eq(aiMissionsTable.id, goal.missionId),
-          eq(aiMissionsTable.projectId, goal.projectId),
-        ))
-        .for("update");
       if (mission && mission.status !== "blocked" && mission.status !== "cancelled" && mission.status !== "completed") {
         await tx.update(aiMissionsTable)
           .set({ status: "needs_replan", updatedAt: now })
@@ -3362,6 +3363,16 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
   if (!candidate) return 0;
 
   const changed = await db.transaction(async (tx) => {
+    // Reconciliation shares the Mission-before-Goal order used by status
+    // changes; lock both rows before revalidating the wait and event revision.
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, candidate.missionId),
+        eq(aiMissionsTable.projectId, candidate.projectId),
+      ))
+      .for("update");
     const [goal] = await tx
       .select()
       .from(aiGoalsTable)
@@ -3381,14 +3392,6 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
     const revision = goalPlanRevision(goal);
     if (event.planRevision && revision && event.planRevision !== revision) return false;
 
-    const [mission] = await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, goal.missionId),
-        eq(aiMissionsTable.projectId, goal.projectId),
-      ))
-      .for("update");
     if (!mission || ["blocked", "cancelled", "completed", "failed"].includes(mission.status)) return false;
 
     const now = new Date();
