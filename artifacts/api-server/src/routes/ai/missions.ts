@@ -6,6 +6,7 @@
  */
 import { Router } from "express";
 import { createHash, randomUUID } from "crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
@@ -92,6 +93,8 @@ class GoalCompletionProofRejected extends Error {
     super("Goal completion requires Canonical Proof.");
   }
 }
+
+class GoalProofContractLocked extends Error {}
 
 class GoalDependenciesLockedDuringExecution extends Error {}
 
@@ -3143,12 +3146,55 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         ))
         .for("update");
       if (!currentGoal) return { updated: undefined };
+      const proofContractChanged = (
+        body.successCriteria !== undefined
+        && !isDeepStrictEqual(body.successCriteria, currentGoal.successCriteria)
+      ) || (
+        body.evidenceContract !== undefined
+        && !isDeepStrictEqual(body.evidenceContract, currentGoal.evidenceContract)
+      );
       if (
         lockedMission.status === "completed"
-        && body.status !== undefined
-        && body.status !== currentGoal.status
+        && (
+          (body.status !== undefined && body.status !== currentGoal.status)
+          || proofContractChanged
+        )
       ) {
         throw new MissionReactivationRequired();
+      }
+      if (proofContractChanged) {
+        // Execution acceptance is not hashed against these mutable Goal JSON
+        // fields. Once work is queued or a successful evidence-complete
+        // acceptance exists, require a new Goal/plan rather than reusing proof.
+        const [activeExecution] = await tx
+          .select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.projectId, owned.project.id),
+            eq(aiExecutionsTable.goalId, currentGoal.id),
+            inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+          ))
+          .limit(1);
+        const [acceptedExecution] = await tx
+          .select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .innerJoin(
+            aiExecutionsTable,
+            eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId),
+          )
+          .where(and(
+            eq(aiExecutionAcceptancesTable.projectId, owned.project.id),
+            eq(aiExecutionAcceptancesTable.terminalStatus, "completed"),
+            eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+            eq(aiExecutionAcceptancesTable.evidenceRequired, 1),
+            eq(aiExecutionAcceptancesTable.evidenceComplete, 1),
+            eq(aiExecutionsTable.projectId, owned.project.id),
+            eq(aiExecutionsTable.goalId, currentGoal.id),
+          ))
+          .limit(1);
+        if (activeExecution || acceptedExecution) {
+          throw new GoalProofContractLocked();
+        }
       }
 
       let dependenciesChanged = false;
@@ -3315,6 +3361,12 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
         code: "GOAL_COMPLETION_REQUIRES_PROOF",
       });
     }
+    if (error instanceof GoalProofContractLocked) {
+      return res.status(409).json({
+        error: "Goal proof contract cannot change after execution has started; create a new Goal or replan.",
+        code: "GOAL_PROOF_CONTRACT_LOCKED",
+      });
+    }
     if (error instanceof GoalDependenciesLockedDuringExecution) {
       return res.status(409).json({
         error: "Goal dependencies cannot change while Mission work is active.",
@@ -3323,7 +3375,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
     }
     if (error instanceof MissionReactivationRequired) {
       return res.status(409).json({
-        error: "Reactivate the Mission before changing a completed Goal's status.",
+        error: "Reactivate the Mission before changing a completed Goal's status or proof contract.",
         code: "MISSION_REACTIVATION_REQUIRED",
       });
     }

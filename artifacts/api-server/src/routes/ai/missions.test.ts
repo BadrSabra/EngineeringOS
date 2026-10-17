@@ -4511,6 +4511,176 @@ describe("AI missions and goals", () => {
     expect(persisted?.status).toBe("draft");
   });
 
+  it.each([
+    ["success criteria", (planRevision: string) => ({
+      successCriteria: {
+        objective: "A different objective than the one accepted",
+        planRevision: { hash: planRevision },
+      },
+    })],
+    ["evidence contract", () => ({
+      evidenceContract: { requiredEvidence: ["a-new-required-artifact"] },
+    })],
+  ])(
+    "does not retain completed Goal status after changing its %s",
+    async (_field, changedContract) => {
+      const projectId = await insertProject();
+      const mission = await request(app).post("/api/ai/missions").send({
+        projectId,
+        title: "Completed Goal contract guard",
+        intent: "Keep completion bound to its accepted objective",
+      });
+      const planRevision = `goal-contract-${randomUUID()}`;
+      await db.update(aiMissionsTable)
+        .set({ autonomyPolicy: { activePlanRevision: planRevision } })
+        .where(eq(aiMissionsTable.id, mission.body.id));
+      const originalSuccessCriteria = {
+        objective: "The accepted objective",
+        planRevision: { hash: planRevision },
+      };
+      const originalEvidenceContract = { requiredEvidence: ["the-accepted-artifact"] };
+      const goal = await request(app)
+        .post(`/api/ai/missions/${mission.body.id}/goals`)
+        .send({
+          title: "Accepted Goal",
+          planRevision,
+          successCriteria: originalSuccessCriteria,
+          evidenceContract: originalEvidenceContract,
+        });
+      expect(goal.status).toBe(201);
+      await seedCanonicalMissionGoalCompletion({
+        projectId,
+        missionId: mission.body.id,
+        goalId: goal.body.id,
+        planRevision,
+      });
+      await db.update(aiMissionsTable)
+        .set({ status: "completed" })
+        .where(eq(aiMissionsTable.id, mission.body.id));
+
+      const patched = await request(app)
+        .patch(`/api/ai/goals/${goal.body.id}`)
+        .send(changedContract(planRevision));
+
+      expect(patched.status).toBe(409);
+      expect(patched.body.code).toBe("MISSION_REACTIVATION_REQUIRED");
+      const [persistedGoal] = await db.select().from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goal.body.id));
+      const [persistedMission] = await db.select({ status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, mission.body.id));
+      expect(persistedGoal?.status).toBe("completed");
+      expect(persistedGoal?.successCriteria).toEqual(originalSuccessCriteria);
+      expect(persistedGoal?.evidenceContract).toEqual(originalEvidenceContract);
+      expect(persistedMission?.status).toBe("completed");
+    },
+  );
+
+  it("does not allow proof-contract edits after reopening a Goal with accepted execution history", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Reopened Goal contract guard",
+      intent: "Keep prior execution proof bound to its original contract",
+    });
+    const planRevision = `goal-reopen-contract-${randomUUID()}`;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: planRevision },
+      })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    const originalSuccessCriteria = {
+      objective: "The accepted objective",
+      planRevision: { hash: planRevision },
+    };
+    const originalEvidenceContract = { requiredEvidence: ["the-accepted-artifact"] };
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Accepted Goal",
+        planRevision,
+        successCriteria: originalSuccessCriteria,
+        evidenceContract: originalEvidenceContract,
+      });
+    expect(goal.status).toBe(201);
+    await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId: mission.body.id,
+      goalId: goal.body.id,
+      planRevision,
+    });
+
+    const reopened = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({ status: "needs_replan" });
+    expect(reopened.status).toBe(200);
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({
+        successCriteria: {
+          objective: "A different objective than the one accepted",
+          planRevision: { hash: planRevision },
+        },
+      });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("GOAL_PROOF_CONTRACT_LOCKED");
+    const [persistedGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persistedGoal?.status).toBe("needs_replan");
+    expect(persistedGoal?.successCriteria).toEqual(originalSuccessCriteria);
+  });
+
+  it("does not allow proof-contract edits while a Goal execution is queued", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Queued Goal contract guard",
+      intent: "Keep queued execution bound to its current contract",
+    });
+    const originalSuccessCriteria = { objective: "The queued objective" };
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Queued Goal",
+        successCriteria: originalSuccessCriteria,
+        evidenceContract: { requiredEvidence: ["the-planned-artifact"] },
+      });
+    expect(goal.status).toBe(201);
+    const operationId = randomUUID();
+    await createAiExecution({
+      userId: "test-user",
+      projectId,
+      goalId: goal.body.id,
+      attempt: 0,
+      correlationId: operationId,
+      idempotencyKey: `goal-contract-queued-${randomUUID()}`,
+      request: {
+        projectId,
+        operationId,
+        message: "Run the planned Goal",
+        modelMessage: "Run the planned Goal",
+        workspaceRevision: "queued-goal-contract-revision",
+        validationTargetPaths: [],
+        proofRequired: true,
+      },
+    });
+
+    const patched = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({
+        successCriteria: { objective: "A different objective" },
+      });
+
+    expect(patched.status).toBe(409);
+    expect(patched.body.code).toBe("GOAL_PROOF_CONTRACT_LOCKED");
+    const [persistedGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persistedGoal?.status).toBe("queued");
+    expect(persistedGoal?.successCriteria).toEqual(originalSuccessCriteria);
+  });
+
   it("rejects invalid goal parent updates and empty patches", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({

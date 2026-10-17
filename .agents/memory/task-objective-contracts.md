@@ -38,3 +38,9 @@ Mission-observation per-file claims are read obligations, not factual answer cla
 **Why:** A generic fallback can repeat the full Mission goal embedded in each read obligation and appear complete without answering it, while a correct provider answer can be rejected for not repeating those instructions.
 
 **How to apply:** Keep source-read coverage separate from response acceptance. Bind the accepted response to its retained evidence and execution, check goal anchors only in the answer body, and require the server acceptance layer to reject deterministic fallback for `mission_observe`. The anchor check is a lexical relevance guard, not a general entailment proof.
+
+Mission Goal `successCriteria` and `evidenceContract` are proof-scope inputs. Direct edits are allowed only before execution starts; after work is queued or a successful evidence-complete acceptance exists, use a new Goal/replan rather than mutating the old contract. A completed Mission must be reactivated before attempting a proof-contract change.
+
+**Why:** Canonical Proof binds execution, revision, and required evidence, but does not hash mutable Goal JSON criteria. Reusing an old acceptance after changing those fields could make it appear to prove a different objective.
+
+**How to apply:** Compare JSON contract values structurally, preserve harmless no-op PATCH requests, and fail closed when active work or proof-bearing history exists. Treat the lock as a conservative boundary until acceptance directly carries a verifiable Goal-contract identity.
