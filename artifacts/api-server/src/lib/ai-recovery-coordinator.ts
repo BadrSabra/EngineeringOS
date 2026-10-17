@@ -638,9 +638,25 @@ async function claimTaskRetry(
   plan: Extract<TaskRecoveryPlan, { kind: "retry" }>,
 ): Promise<{ retryCount: number } | undefined> {
   return db.transaction(async (tx) => {
-    // Finalization locks these rows in the same execution → acceptance order.
-    // Holding both locks through the Task budget CAS makes the queued decision
-    // current at the point it is consumed, not only when it was discovered.
+    // Take the Task lock before execution/acceptance, matching the task
+    // lifecycle claim order. This keeps a manual execute from holding Task
+    // while waiting for an execution that retry recovery already holds.
+    const [task] = await tx
+      .select({ id: tasksTable.id })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.id, candidate.taskId),
+        eq(tasksTable.projectId, candidate.taskProjectId),
+        eq(tasksTable.status, candidate.taskStatus as "pending" | "queued" | "verifying"),
+        eq(tasksTable.retryCount, plan.expectedRetryCount),
+        eq(tasksTable.maxRetries, candidate.maxRetries),
+        eq(tasksTable.correlationId, candidate.executionCorrelationId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!task) return undefined;
+
+    // Keep the accepted retry decision current through the Task budget CAS.
     const [execution] = await tx
       .select({
         projectId: aiExecutionsTable.projectId,

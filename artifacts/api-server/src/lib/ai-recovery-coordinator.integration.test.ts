@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiChatMessagesTable,
@@ -368,6 +368,80 @@ describe("durable automatic task recovery", () => {
         expectedRetryCount: 1,
       }));
     } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("does not deadlock a retry claim against a Task-first manual execution claim", async () => {
+    const fixture = await insertFixture();
+    let signalTaskLocked!: () => void;
+    const taskLocked = new Promise<void>((resolve) => {
+      signalTaskLocked = resolve;
+    });
+    let allowExecutionLock!: () => void;
+    const executionLockAllowed = new Promise<void>((resolve) => {
+      allowExecutionLock = resolve;
+    });
+    try {
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      const manualClaim = db.transaction(async (tx) => {
+        await tx.update(tasksTable)
+          .set({ correlationId: fixture.executionId })
+          .where(and(
+            eq(tasksTable.id, fixture.taskId),
+            eq(tasksTable.projectId, fixture.projectId),
+            eq(tasksTable.status, "verifying"),
+            eq(tasksTable.retryCount, 0),
+            eq(tasksTable.correlationId, fixture.executionId),
+          ));
+        signalTaskLocked();
+        await executionLockAllowed;
+        await tx.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId))
+          .for("update");
+      });
+      await taskLocked;
+
+      const recovery = queuedJobs[0]!.run();
+      let lockWaitObserved = false;
+      const deadline = Date.now() + 4_000;
+      try {
+        while (Date.now() < deadline) {
+          const result = await db.execute(sql`
+            SELECT count(*)::int AS count
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND wait_event_type = 'Lock'
+              AND query ILIKE '%"tasks"%'
+          `);
+          if (Number(result.rows[0]?.count ?? 0) > 0) {
+            lockWaitObserved = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      } finally {
+        allowExecutionLock();
+      }
+
+      const outcomes = await Promise.allSettled([manualClaim, recovery]);
+      expect(lockWaitObserved).toBe(true);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "fulfilled"]);
+
+      const [task] = await db
+        .select({ retryCount: tasksTable.retryCount })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId));
+      expect(task?.retryCount).toBe(1);
+    } finally {
+      allowExecutionLock();
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
