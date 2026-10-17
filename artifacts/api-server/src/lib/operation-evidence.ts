@@ -15,6 +15,7 @@ import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from
 import {
   loadCanonicalProof,
   projectCanonicalProof,
+  type CanonicalProofFailureReason,
   type PublicCanonicalProofProjection,
 } from "./proof-foundation.js";
 import {
@@ -429,6 +430,63 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
         }
       : null,
   }));
+  let proofForProjection = canonicalProof;
+  if (goal) {
+    const [currentGoal] = await db
+      .select({
+        missionId: aiGoalsTable.missionId,
+        status: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        successCriteria: aiGoalsTable.successCriteria,
+      })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, goal.id),
+        eq(aiGoalsTable.projectId, execution.projectId),
+      ))
+      .limit(1);
+    const [currentMission] = currentGoal
+      ? await db
+        .select({
+          id: aiMissionsTable.id,
+          autonomyPolicy: aiMissionsTable.autonomyPolicy,
+        })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, currentGoal.missionId),
+          eq(aiMissionsTable.projectId, execution.projectId),
+        ))
+        .limit(1)
+      : [];
+    const currentPlanRevision = currentGoal
+      ? goalPlanRevision(currentGoal.outcomeContract) ?? goalPlanRevision(currentGoal.successCriteria)
+      : undefined;
+    const currentMissionPolicy = record(currentMission?.autonomyPolicy);
+    const currentActivePlanRevision = typeof currentMissionPolicy.activePlanRevision === "string"
+      ? currentMissionPolicy.activePlanRevision
+      : undefined;
+    const capturedActivePlanRevision = typeof missionPolicy.activePlanRevision === "string"
+      ? missionPolicy.activePlanRevision
+      : undefined;
+    const planScopeIsCurrent = Boolean(currentGoal && currentMission)
+      && Boolean(mission) === Boolean(currentMission)
+      && currentGoal?.missionId === goal.missionId
+      && (!mission || currentMission?.id === mission.id)
+      && currentGoal?.status === "completed"
+      && currentPlanRevision === planRevision
+      && currentActivePlanRevision === capturedActivePlanRevision;
+    if (!planScopeIsCurrent) {
+      const reason: CanonicalProofFailureReason = currentGoal && currentGoal.status !== "completed"
+        ? "goal_not_completed"
+        : "plan_revision_mismatch";
+      proofForProjection = {
+        ...canonicalProof,
+        accepted: false,
+        verdict: "INCOMPLETE",
+        failureReasons: [...new Set([...canonicalProof.failureReasons, reason])],
+      };
+    }
+  }
   return buildOperationEvidenceProjection({
     execution,
     events,
@@ -436,8 +494,8 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
     taskLogs,
     journal,
     proposal,
-    proof: projectCanonicalProof(canonicalProof),
-    proofSpine: projectProofSpine(canonicalProof),
+    proof: projectCanonicalProof(proofForProjection),
+    proofSpine: projectProofSpine(proofForProjection),
   });
 }
 

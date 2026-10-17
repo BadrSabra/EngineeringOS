@@ -47,3 +47,9 @@ An audit/export response may include a checkpoint-derived `execution.proof` and 
 **Why:** A checkpoint can retain `PROVEN` while its only durable acceptance and snapshot belong to an earlier attempt. Neither the nested operation-evidence proof nor its spine may inherit that status.
 
 **How to apply:** In public export tests, assert the checkpoint projection and both nested canonical projections separately: checkpoint-derived status may remain visible as history, while proof and spine stay nonaccepted unless the current attempt has matching acceptance and evidence rows. Respect public redaction when asserting identities.
+
+OperationEvidence must re-read its Goal and Mission plan scope after loading Canonical Proof, then fail closed in both proof projections if the plan/status changed during the request.
+
+**Why:** Its initial Goal/Mission reads can precede a concurrent replan while the later proof transaction locks the execution; that interleaving can otherwise display an old-plan acceptance as current. Acquiring Mission/Goal locks before the execution lock risks conflicting with lifecycle lock order.
+
+**How to apply:** Compare the post-load Goal/Mission relation, completion status, Goal plan revision, and active Mission plan revision to the captured scope; downgrade proof and proof-spine together when they differ. Keep the projection non-authoritative.

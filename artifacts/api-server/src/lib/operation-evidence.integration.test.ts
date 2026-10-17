@@ -128,7 +128,7 @@ async function createCanonicalProofFixture() {
     .where(eq(aiExecutionsTable.id, executionId));
   if (!execution) throw new Error("The operation evidence execution fixture was not persisted.");
 
-  return { execution, missionId, acceptanceId, planRevision, operationId, sourceRevision };
+  return { execution, missionId, acceptanceId, operationId, sourceRevision };
 }
 
 beforeAll(() => {
@@ -205,6 +205,8 @@ describe("operation evidence canonical proof integration", () => {
       const projection = await projectionPromise;
       expect(projection.proof.accepted).toBe(false);
       expect(projection.proof.failureReasons).toContain("plan_revision_mismatch");
+      expect(projection.proofSpine.accepted).toBe(false);
+      expect(projection.proofSpine.failureReasons).toContain("plan_revision_mismatch");
     } finally {
       releaseTransaction();
       transactionSpy.mockRestore();
