@@ -13,13 +13,12 @@ import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentEpisodeEventsTable,
-  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
-  aiExecutionsTable,
   aiStrategyCandidatesTable,
   db,
 } from "@workspace/db";
+import { lockEpisodeExecutionPair } from "./episode-execution-lock.js";
 import { loadCanonicalProof } from "../proof-foundation.js";
 
 type StrategyExtractionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -390,15 +389,14 @@ export async function extractAcceptedEpisodeStrategy(input: {
   episodeId: string;
 }): Promise<StrategyExtractionResult> {
   return db.transaction(async (tx) => {
-    const [episode] = await tx
-      .select()
-      .from(aiAgentEpisodesTable)
-      .where(and(
-        eq(aiAgentEpisodesTable.id, input.episodeId),
-        eq(aiAgentEpisodesTable.projectId, input.projectId),
-      ))
-      .for("update");
-    if (!episode) return { status: "not_eligible", reason: "episode_not_found" };
+    const lockedPair = await lockEpisodeExecutionPair(tx, input);
+    if (lockedPair.kind === "episode_not_found") {
+      return { status: "not_eligible", reason: "episode_not_found" };
+    }
+    if (lockedPair.kind !== "locked") {
+      return { status: "not_eligible", reason: "execution_identity_mismatch" };
+    }
+    const { episode, execution } = lockedPair;
     if (
       episode.state !== "completed"
       || episode.verdict !== "achieved"
@@ -407,17 +405,8 @@ export async function extractAcceptedEpisodeStrategy(input: {
       return { status: "not_eligible", reason: "episode_not_accepted" };
     }
 
-    const [execution] = await tx
-      .select()
-      .from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.id, episode.executionId),
-        eq(aiExecutionsTable.projectId, episode.projectId),
-      ))
-      .for("update");
     if (
-      !execution
-      || execution.status !== "completed"
+      execution.status !== "completed"
       || execution.attempt !== episode.attempt
       || execution.baseRevision !== episode.projectRevision
       || !execution.operationId
