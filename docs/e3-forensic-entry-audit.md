@@ -315,3 +315,19 @@ The focused Task API route case `returns an AI Task receipt only for the pointer
 Three selected `task-execution-lifecycle.integration.test.ts` cases passed 3/3 on another disposable loopback-only PostgreSQL cluster: completed Task plus terminal acceptance persistence; rejection of a stale retry generation or execution pointer before creating an execution; and rollback of Task success projections when finalization fails after acceptance insertion. The lifecycle fixture uses mocked provider behavior. Together with the route case, this verifies the selected durable write/read boundaries for Task acceptance and attempt identity; it does not prove the complete producer/consumer inventory.
 
 No production provider, shared or production database, Strategy Replay, E4, or managed app workflow was used. E3 and E3.2 remain open.
+
+### 2026-10-17 — stale-attempt recovery and structured terminal projection
+
+Two recovery-coordinator cases passed 2/2 on a disposable loopback-only PostgreSQL cluster: stale Task acceptance and stale Chat acceptance from a prior attempt both produce no queued recovery work. A concurrent JSON-turn case passed 1/1 on a separate disposable cluster; the newer resumable plan remains persisted after the older turn finishes later. A mocked structured-analysis fallback case passed 1/1 and confirmed the same terminal identity is projected across SSE, execution detail, and chat messages.
+
+Source review of the structured terminal projection found that it selects acceptance by the execution's exact current attempt and returns that attempt explicitly. The UI labels it as terminal status/resumability, not Canonical Proof; the accepted-Mission action separately requires the proof/evidence verdict from the execution projection. `taskObjective.status` is a server-owned validator summary persisted separately from the Canonical Proof projection and is not used by the UI as proof authority. No additional decision-authority gap was demonstrated in this path.
+
+The tests used mocked model behavior and isolated databases. No production provider, production/shared database, Replay, registration/approval action, E4, or managed app workflow was used. This closes only this terminal-projection/recovery slice; E3 and E3.2 remain open.
+
+### 2026-10-17 — Canonical Proof foundation and acceptance contract checks
+
+`proof-foundation.test.ts` passed 11/11, including the historical-acceptance/current-attempt rejection, stale plan/candidate bindings, and incomplete-evidence cases. Four selected `ai-execution-acceptance.test.ts` cases passed 4/4: current-attempt acceptance allowlisting, validator state kept separate from proof metadata, bounded proof/trajectory projection, and optional-evidence success remaining non-proven. These are unit/fake-transaction tests; no database server or provider was started.
+
+The Apply recovery integration file was inspected but not run because it also contains replay cases. No replay, registration/approval, production data, or production code change was made. This reinforces only the reviewed proof/acceptance contracts; the broader consumer inventory remains open, and E3/E3.2 remain open.
+
+The source inventory also found a `loadCanonicalProof` call in `routes/ai/chat.ts` bound to a replay record, replay attempt, and candidate tree identity. It was inspected but not invoked; replay execution remains excluded.
