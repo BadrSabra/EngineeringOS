@@ -1248,8 +1248,11 @@ async function authorizeMissionRecipeDispatch(
     sourceRevision?: string;
     candidateWorkspace?: string | null;
   },
+  transaction?: MissionTransaction,
 ): Promise<{ allowed: true } | { allowed: false; reason: string }> {
-  return db.transaction(async (tx) => {
+  const authorize = async (
+    tx: MissionTransaction,
+  ): Promise<{ allowed: true } | { allowed: false; reason: string }> => {
     const [mission] = await tx
       .select()
       .from(aiMissionsTable)
@@ -1403,7 +1406,8 @@ async function authorizeMissionRecipeDispatch(
       return { allowed: false, reason: "execution_revision_changed" };
     }
     return { allowed: true };
-  });
+  };
+  return transaction ? authorize(transaction) : db.transaction(authorize);
 }
 
 async function loadGitHubDeliveryContext(
@@ -1883,13 +1887,16 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       ...(dispatch.expectedExecutionId
         ? { expectedExecutionId: dispatch.expectedExecutionId }
         : {}),
-      beforeClaim: async ({ executionId, attempt }: { executionId: string; attempt: number }) => {
+      beforeClaim: async (
+        { executionId, attempt }: { executionId: string; attempt: number },
+        transaction,
+      ) => {
         const authorization = await authorizeMissionRecipeDispatch(dispatch, {
           id: executionId,
           attempt,
           sourceRevision,
           candidateWorkspace: candidate?.candidateWorkspace ?? null,
-        });
+        }, transaction);
         return authorization.allowed;
       },
       ...(delivery && project.gitRemoteUrl

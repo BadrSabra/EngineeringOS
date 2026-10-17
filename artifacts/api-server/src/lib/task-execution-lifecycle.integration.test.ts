@@ -1154,7 +1154,12 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("rolls back resume token and execution claims when the Task pointer changes concurrently", async () => {
+  it.each([
+    { changedState: "Task pointer", changeCorrelation: true, errorCode: "task_state_changed" },
+    { changedState: "execution attempt", changeCorrelation: false, errorCode: "execution_identity_changed" },
+  ] as const)(
+    "rolls back resume token and execution claims when the $changedState changes concurrently",
+    async ({ changeCorrelation, errorCode }) => {
     const projectId = randomUUID();
     const taskId = randomUUID();
     const userId = "lifecycle-test-user";
@@ -1234,53 +1239,82 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiExecutionsTable.id, created.execution.id))
         .limit(1);
 
-      let releaseBlocker!: () => void;
-      let signalBlockerReady!: () => void;
-      const blockerReady = new Promise<void>((resolveReady) => {
-        signalBlockerReady = resolveReady;
-      });
-      const waitForRelease = new Promise<void>((resolveRelease) => {
-        releaseBlocker = resolveRelease;
-      });
-      const blocker = db.transaction(async (tx) => {
-        await tx.update(tasksTable)
-          .set({ correlationId: replacementCorrelationId, updatedAt: new Date() })
-          .where(eq(tasksTable.id, taskId));
-        signalBlockerReady();
-        await waitForRelease;
-      });
-      await blockerReady;
+      let outcome: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+      if (changeCorrelation) {
+        let releaseBlocker!: () => void;
+        let signalBlockerReady!: () => void;
+        const blockerReady = new Promise<void>((resolveReady) => {
+          signalBlockerReady = resolveReady;
+        });
+        const waitForRelease = new Promise<void>((resolveRelease) => {
+          releaseBlocker = resolveRelease;
+        });
+        const blocker = db.transaction(async (tx) => {
+          await tx.update(tasksTable)
+            .set({ correlationId: replacementCorrelationId, updatedAt: new Date() })
+            .where(eq(tasksTable.id, taskId));
+          signalBlockerReady();
+          await waitForRelease;
+        });
+        await blockerReady;
 
-      const lifecyclePromise = executeTaskLifecycle({
-        taskId,
-        userId,
-        provider: { provider: "groq", apiKey: "fixture-provider" },
-        trigger: "manual",
-        expectedStatuses: ["verifying"],
-        expectedRetryCount: 0,
-        expectedCorrelationId: currentCorrelationId,
-        expectedResumeAttempt: created.execution.attempt,
-        resumeExecutionId: created.execution.id,
-      });
-      let lockWaitError: unknown;
-      try {
-        await waitForTaskUpdateLock();
-      } catch (error) {
-        lockWaitError = error;
-      } finally {
-        releaseBlocker();
-        await blocker;
+        const lifecyclePromise = executeTaskLifecycle({
+          taskId,
+          userId,
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "manual",
+          expectedStatuses: ["verifying"],
+          expectedRetryCount: 0,
+          expectedCorrelationId: currentCorrelationId,
+          expectedResumeAttempt: created.execution.attempt,
+          resumeExecutionId: created.execution.id,
+        });
+        let lockWaitError: unknown;
+        try {
+          await waitForTaskUpdateLock();
+        } catch (error) {
+          lockWaitError = error;
+        } finally {
+          releaseBlocker();
+          await blocker;
+        }
+        if (lockWaitError) {
+          await lifecyclePromise.catch(() => undefined);
+          throw lockWaitError;
+        }
+        outcome = await lifecyclePromise;
+      } else {
+        const actualRecoverAiExecutionResumeToken =
+          aiExecutionState.recoverAiExecutionResumeToken;
+        const recoverySpy = vi.spyOn(aiExecutionState, "recoverAiExecutionResumeToken")
+          .mockImplementation(async (params) => {
+            if (params.executionId === created.execution.id) {
+              await db.update(aiExecutionsTable)
+                .set({ attempt: created.execution.attempt + 1, updatedAt: new Date() })
+                .where(eq(aiExecutionsTable.id, created.execution.id));
+            }
+            return actualRecoverAiExecutionResumeToken(params);
+          });
+        try {
+          outcome = await executeTaskLifecycle({
+            taskId,
+            userId,
+            provider: { provider: "groq", apiKey: "fixture-provider" },
+            trigger: "manual",
+            expectedStatuses: ["verifying"],
+            expectedRetryCount: 0,
+            expectedCorrelationId: currentCorrelationId,
+            expectedResumeAttempt: created.execution.attempt,
+            resumeExecutionId: created.execution.id,
+          });
+        } finally {
+          recoverySpy.mockRestore();
+        }
       }
-      if (lockWaitError) {
-        await lifecyclePromise.catch(() => undefined);
-        throw lockWaitError;
-      }
-
-      const outcome = await lifecyclePromise;
       expect(outcome).toMatchObject({
         ok: false,
         status: "conflict",
-        errorCode: "task_state_changed",
+        errorCode,
       });
       const [task] = await db
         .select({
@@ -1293,7 +1327,7 @@ describe("real durable task execution lifecycle", () => {
         .limit(1);
       expect(task).toEqual({
         status: "verifying",
-        correlationId: replacementCorrelationId,
+        correlationId: changeCorrelation ? replacementCorrelationId : currentCorrelationId,
         workerId: null,
       });
       const [afterExecution] = await db
@@ -1306,7 +1340,19 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, created.execution.id))
         .limit(1);
-      expect(afterExecution).toEqual(beforeExecution);
+      if (changeCorrelation) {
+        expect(afterExecution).toEqual(beforeExecution);
+      } else {
+        expect(afterExecution).toEqual({
+          ...beforeExecution,
+          attempt: created.execution.attempt + 1,
+        });
+        const acceptanceAttempts = await db
+          .select({ attempt: aiExecutionAcceptancesTable.attempt })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+        expect(acceptanceAttempts).toEqual([{ attempt: created.execution.attempt }]);
+      }
       const episodes = await db
         .select({ id: aiAgentEpisodesTable.id })
         .from(aiAgentEpisodesTable)
@@ -1318,7 +1364,8 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
-  });
+    },
+  );
 
   it("rolls back task success projections when finalization fails after acceptance insert", async () => {
     const projectId = randomUUID();
@@ -7950,6 +7997,95 @@ describe("real durable task execution lifecycle", () => {
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
       await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Mission plan admission locked through a linked Task execution claim", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const planRevision = `mission-plan-${fixture.goalId}`;
+    const nextPlanRevision = `${planRevision}-next`;
+    const runCountBefore = runAgentWithFallback.mock.calls.length;
+    let claimTransaction:
+      | Parameters<Parameters<typeof db.transaction>[0]>[0]
+      | undefined;
+    let planRevisionAtClaim: string | undefined;
+    let planChangeCommittedAtClaim: boolean | undefined;
+    let planChangeCommitted = false;
+    let planChange: Promise<unknown> | undefined;
+    const actualClaimAiExecution = aiExecutionState.claimAiExecution;
+    const claimSpy = vi.spyOn(aiExecutionState, "claimAiExecution")
+      .mockImplementation(async (params) => {
+        const transaction = params.transaction;
+        if (!transaction) throw new Error("Mission Task claim did not receive its transaction.");
+        claimTransaction = transaction;
+        const [mission] = await transaction
+          .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+          .from(aiMissionsTable)
+          .where(eq(aiMissionsTable.id, fixture.missionId))
+          .limit(1);
+        planRevisionAtClaim = typeof mission?.autonomyPolicy.activePlanRevision === "string"
+          ? mission.autonomyPolicy.activePlanRevision
+          : undefined;
+        planChange = db.update(aiMissionsTable)
+          .set({ autonomyPolicy: { activePlanRevision: nextPlanRevision } })
+          .where(eq(aiMissionsTable.id, fixture.missionId))
+          .then(() => {
+            planChangeCommitted = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        planChangeCommittedAtClaim = planChangeCommitted;
+        await actualClaimAiExecution(params);
+        return undefined;
+      });
+
+    try {
+      await db.update(aiMissionsTable)
+        .set({ autonomyPolicy: { activePlanRevision: planRevision } })
+        .where(eq(aiMissionsTable.id, fixture.missionId));
+
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+      await planChange;
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        status: "conflict",
+        errorCode: "execution_already_claimed",
+      });
+      expect(claimTransaction).toBeDefined();
+      expect(planRevisionAtClaim).toBe(planRevision);
+      expect(planChangeCommittedAtClaim).toBe(false);
+      expect(planChangeCommitted).toBe(true);
+      expect(runAgentWithFallback).toHaveBeenCalledTimes(runCountBefore);
+
+      const executions = await db
+        .select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.linkedTaskId, fixture.taskId));
+      expect(executions).toEqual([]);
+      const [task] = await db
+        .select({
+          status: tasksTable.status,
+          workerId: tasksTable.workerId,
+          correlationId: tasksTable.correlationId,
+        })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, fixture.taskId))
+        .limit(1);
+      expect(task).toMatchObject({ status: "verifying", workerId: null });
+    } finally {
+      claimSpy.mockRestore();
+      await planChange?.catch(() => undefined);
+      await fixture.cleanup();
     }
   });
 });

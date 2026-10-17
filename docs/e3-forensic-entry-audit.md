@@ -265,3 +265,35 @@ A deterministic integration test paused `loadOperationEvidence` after it had rea
 The test used a disposable loopback-only PostgreSQL cluster and changed only a generated fixture. It establishes a stale read in this non-authoritative projection, not an acceptance write, lifecycle transition, or authorization bypass. No production data was touched.
 
 Resolution: after loading Canonical Proof, OperationEvidence now re-reads the Goal and Mission plan scope. If the Goal/Mission relation, completion status, Goal plan revision, or active Mission plan revision changed during the request, both the proof and proof-spine projections are downgraded to `INCOMPLETE` with a bounded failure reason. The deterministic concurrency case and the OperationEvidence/Canonical Proof unit suites passed 17/17 on a disposable loopback-only PostgreSQL cluster; API TypeScript passed. This closes the reproduced stale-plan window without adding cross-path row locks. E3 and E3.2 remain open; E4 and Strategy Replay were not started.
+
+### 2026-10-17 — Mission recipe pre-claim race test: initial fixture failure
+
+The first focused run of the new recipe-claim race case stopped with `CAPABILITY_UNKNOWN_ID` during recipe preparation, before `beforeClaim` or `claimAiExecution` ran. The fixture had not supplied the server-owned `runtime.start` runner. This establishes only a test-fixture setup failure; it does not exercise the Mission plan race and is not evidence of an application failure or a safe boundary.
+
+The run used a disposable loopback-only PostgreSQL cluster and touched only its generated fixture. No production code was changed in response to this result. Correct the fixture before drawing a conclusion about the claim boundary.
+
+### 2026-10-17 — queued Task resume attempt-race fixture timeout, recorded before redesign
+
+The existing Task-pointer race case passed after being paired with a new case that advanced the linked execution attempt after Task preflight. The new attempt case timed out at the test's 20-second limit while waiting to complete its synchronization path. No behavioral assertion completed, so this does not establish either an attempt-fence bypass or a production defect.
+
+The test used a disposable loopback-only PostgreSQL cluster, which was stopped and removed by its shell cleanup. The fixture tried to change the execution attempt at a synchronization point that may already be behind the execution-row claim lock. Redesign the interleaving so the attempt changes before the transactional resume check acquires that row; do not interpret the timeout as an application result.
+
+### 2026-10-17 — Mission recipe claim and Task resume attempt fences: resolution
+
+Mission recipe dispatch now passes the existing transaction from `runRecipeOperation` into `authorizeMissionRecipeDispatch`; the Mission/Goal locks, paused-resume token recovery when applicable, and `claimAiExecution` remain in that same transaction. The race fixture now passes 1/1: a plan update cannot commit before claim, and is visible after the claim transaction releases its locks. On fresh disposable loopback-only PostgreSQL clusters, `mission-runtime-recipe.test.ts` passed 23/23, and the focused claim plus Mission runtime/D2 cases passed 2/2. API TypeScript and `git diff --check` passed after explicitly typing the authorization closure's discriminated return.
+
+The Task resume race now has two focused cases: a changed Task pointer and a changed linked execution attempt. Both passed 1/1 each on a disposable loopback-only PostgreSQL cluster. In the attempt case, the test commits an attempt advance after the lifecycle's initial read and immediately before calling the real `recoverAiExecutionResumeToken`; the old expected attempt is rejected as `execution_identity_changed`, the attempt-1 execution remains failed with its existing token hash, and its only acceptance remains attempt 0. The first lock-based attempt fixture timed out because it tried to mutate the execution at a point that could already be protected by the claim transaction; the replacement synchronization tests the actual resume guard without waiting behind that claim lock.
+
+These tests do not run Strategy Replay, E4, a production provider, or a production-data mutation. The recipe claim test intercepts before any recipe node/effect; the Task attempt test does not invoke the provider or create an Episode. The managed API workflow restarted and `/api/healthz` returned `ok`; Dashboard was not restarted. E3 and E3.2 remain open.
+
+### 2026-10-17 — Mission recipe stale-plan claim race, recorded before repair
+
+After adding the missing server-owned runtime runner to the fixture, the focused test reached the real recipe claim path. Its admission callback read and locked plan v1, then committed a Mission update to plan v2 before returning. `runRecipeOperation` still called `claimAiExecution`; the claim observed plan v2, while neither admission nor claim received a shared transaction. The regression test failed its same-transaction and current-revision assertions on a disposable loopback-only PostgreSQL cluster.
+
+The test invokes the real `claimAiExecution` but intercepts its result before any recipe node runs. It therefore establishes that a queued Mission recipe can cross the execution-claim boundary after the active plan changes; it does not show a recipe effect, Canonical Proof acceptance, Task/chat recovery bypass, or production-data mutation. The production Mission callback performs its authorization in `authorizeMissionRecipeDispatch`, whose transaction currently ends before the runner's separate claim. Fix and re-test this narrow queued-Mission-recipe boundary before extending the finding to other paths.
+
+### 2026-10-17 — transactional admission typecheck failure, recorded before correction
+
+After the claim transaction change, the Mission recipe integration tests passed 23/23 and the focused claim/D2 tests passed 2/2 on a fresh disposable loopback-only PostgreSQL cluster. API TypeScript then failed with TS2322 at the new transaction-aware authorization wrapper: TypeScript widened the closure's `{ allowed: true }` result to `boolean`, which did not fit the declared discriminated union.
+
+This is a compile-time return-type inference failure only. It does not negate the passing database tests or indicate a runtime/data failure. The fix is limited to explicitly typing the authorization closure's return contract; no production data was involved.

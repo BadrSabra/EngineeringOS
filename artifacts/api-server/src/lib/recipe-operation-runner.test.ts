@@ -3564,6 +3564,148 @@ describe("recipe operation preparation", () => {
     }
   });
 
+  it("keeps Mission plan admission locked through the recipe execution claim", async () => {
+    const fixture = await createGateCRecipeFixture("runtime.start");
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const planRevision = "mission-recipe-claim-plan-v1";
+    const now = new Date();
+    let executionId: string | undefined;
+    let authorizationTransaction:
+      | Parameters<Parameters<typeof db.transaction>[0]>[0]
+      | undefined;
+    let claimTransaction:
+      | Parameters<Parameters<typeof db.transaction>[0]>[0]
+      | undefined;
+    let planRevisionAtClaim: string | undefined;
+    let planChangeCommittedAtClaim: boolean | undefined;
+    let planChangeCommitted = false;
+    let planChange: Promise<unknown> | undefined;
+    const actualClaimAiExecution = aiExecutionState.claimAiExecution;
+    const claimSpy = vi.spyOn(aiExecutionState, "claimAiExecution")
+      .mockImplementation(async (params) => {
+        claimTransaction = params.transaction;
+        const [mission] = await db
+          .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+          .from(aiMissionsTable)
+          .where(eq(aiMissionsTable.id, missionId))
+          .limit(1);
+        planRevisionAtClaim = typeof mission?.autonomyPolicy.activePlanRevision === "string"
+          ? mission.autonomyPolicy.activePlanRevision
+          : undefined;
+        planChangeCommittedAtClaim = planChangeCommitted;
+        await actualClaimAiExecution(params);
+        return undefined;
+      });
+
+    try {
+      await db.insert(aiMissionsTable).values({
+        id: missionId,
+        projectId: fixture.params.projectId,
+        userId: fixture.params.userId,
+        title: "Recipe claim plan gate",
+        intent: "Keep Mission approval current through the claim boundary",
+        status: "active",
+        scope: { kind: "project", projectId: fixture.params.projectId },
+        autonomyPolicy: { activePlanRevision: planRevision },
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiGoalsTable).values({
+        id: goalId,
+        missionId,
+        projectId: fixture.params.projectId,
+        title: "Runtime recipe",
+        status: "running",
+        outcomeContract: {
+          deliveryRequired: false,
+          planRevision: { hash: planRevision },
+        },
+        nextAction: {
+          kind: "recipe",
+          recipeId: "runtime.start",
+          recipeVersion: 1,
+          approvedPaths: [],
+          candidateIdentity: null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(runRecipeOperation({
+        ...fixture.params,
+        missionId,
+        goalId,
+        runtimeStartRunner: createRuntimeStartRunner(),
+        beforeClaim: async (_claim, transaction) => {
+          executionId = _claim.executionId;
+          authorizationTransaction = transaction;
+          const checkMission = async (
+            tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+          ) => {
+            const [mission] = await tx
+              .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+              .from(aiMissionsTable)
+              .where(eq(aiMissionsTable.id, missionId))
+              .for("update");
+            const [goal] = await tx
+              .select({ outcomeContract: aiGoalsTable.outcomeContract })
+              .from(aiGoalsTable)
+              .where(and(
+                eq(aiGoalsTable.id, goalId),
+                eq(aiGoalsTable.missionId, missionId),
+              ))
+              .for("update");
+            const currentPlanRevision = typeof mission?.autonomyPolicy.activePlanRevision === "string"
+              ? mission.autonomyPolicy.activePlanRevision
+              : undefined;
+            const contract = goal?.outcomeContract as {
+              planRevision?: { hash?: unknown };
+            } | undefined;
+            return currentPlanRevision === planRevision
+              && contract?.planRevision?.hash === planRevision;
+          };
+          const allowed = transaction
+            ? await checkMission(transaction)
+            : await db.transaction(checkMission);
+          if (!allowed) return false;
+
+          const updatePlan = () => db.update(aiMissionsTable)
+            .set({ autonomyPolicy: { activePlanRevision: "mission-recipe-claim-plan-v2" } })
+            .where(eq(aiMissionsTable.id, missionId))
+            .then(() => {
+              planChangeCommitted = true;
+            });
+          if (transaction) {
+            planChange = updatePlan();
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          } else {
+            await updatePlan();
+          }
+          return true;
+        },
+      })).rejects.toThrow("Recipe operation could not acquire its durable lease.");
+
+      await planChange;
+      expect.soft(authorizationTransaction).toBeDefined();
+      expect.soft(claimTransaction).toBe(authorizationTransaction);
+      expect.soft(planRevisionAtClaim).toBe(planRevision);
+      expect.soft(planChangeCommittedAtClaim).toBe(false);
+      expect.soft(planChangeCommitted).toBe(true);
+    } finally {
+      claimSpy.mockRestore();
+      if (executionId) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        await db.delete(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId));
+      }
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await fixture.cleanup();
+    }
+  });
+
   it("replays browser verification without losing its accepted effect bundle", async () => {
     const fixture = await createGateCRecipeFixture("browser.verify", ["package.json"]);
     let executionId: string | undefined;

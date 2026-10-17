@@ -1122,6 +1122,10 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
   return { plan: compiled.plan, binding, proofEvidenceMode: definition.proofEvidenceMode };
 }
 
+type RecipeClaimTransaction = NonNullable<
+  Parameters<typeof claimAiExecution>[0]["transaction"]
+>;
+
 export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   userId: string;
   missionId?: string;
@@ -1133,7 +1137,7 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
     executionId: string;
     attempt: number;
     status: string;
-  }) => Promise<boolean>;
+  }, transaction: RecipeClaimTransaction) => Promise<boolean>;
   executionProfile?: string;
   planRevision?: string;
   /** Test seam for the bounded, read-only P7.5 resume continuation. */
@@ -1835,39 +1839,65 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   ) {
     throw new Error("Recipe execution identity does not match its queued Mission execution.");
   }
+  const workerId = `recipe:${params.operationId}:${randomUUID()}`;
+  const claimWithTransaction = async (transaction?: RecipeClaimTransaction) => {
+    const recovery = created.execution.status === "paused"
+      ? await recoverAiExecutionResumeToken({
+          executionId: created.execution.id,
+          userId: params.userId,
+          expectedAttempt: created.execution.attempt,
+          ...(transaction ? { transaction } : {}),
+        })
+      : undefined;
+    if (created.execution.status === "paused" && !recovery) {
+      return { recovery, claimed: undefined };
+    }
+    const claimed = await claimAiExecution({
+      executionId: created.execution.id,
+      userId: params.userId,
+      workerId,
+      ...(recovery?.resumeToken ? { resumeToken: recovery.resumeToken } : {}),
+      recipeBinding: prepared.binding,
+      ...(transaction ? { transaction } : {}),
+    });
+    return { recovery, claimed };
+  };
+
+  let recovery: Awaited<ReturnType<typeof recoverAiExecutionResumeToken>> | undefined;
+  let claimed: Awaited<ReturnType<typeof claimAiExecution>> | undefined;
   if (
     params.beforeClaim
     && (created.execution.status === "queued" || created.execution.status === "paused")
-    && !await params.beforeClaim({
-      executionId: created.execution.id,
-      attempt: created.execution.attempt,
-      status: created.execution.status,
-    })
   ) {
-    await requestAiExecutionCancel({
-      executionId: created.execution.id,
-      userId: params.userId,
-    }).catch(() => undefined);
-    throw new Error("Recipe continuation authorization was denied before execution claim.");
-  }
-  const workerId = `recipe:${params.operationId}:${randomUUID()}`;
-  const recovery = created.execution.status === "paused"
-    ? await recoverAiExecutionResumeToken({
+    const admission = await db.transaction(async (transaction) => {
+      const allowed = await params.beforeClaim!({
+        executionId: created.execution.id,
+        attempt: created.execution.attempt,
+        status: created.execution.status,
+      }, transaction);
+      if (!allowed) return { authorized: false as const };
+      return {
+        authorized: true as const,
+        ...await claimWithTransaction(transaction),
+      };
+    });
+    if (!admission.authorized) {
+      await requestAiExecutionCancel({
         executionId: created.execution.id,
         userId: params.userId,
-        expectedAttempt: created.execution.attempt,
-      })
-    : undefined;
+      }).catch(() => undefined);
+      throw new Error("Recipe continuation authorization was denied before execution claim.");
+    }
+    recovery = admission.recovery;
+    claimed = admission.claimed;
+  } else {
+    const result = await claimWithTransaction();
+    recovery = result.recovery;
+    claimed = result.claimed;
+  }
   if (created.execution.status === "paused" && !recovery) {
     throw new Error("Paused recipe execution is not eligible for durable recovery.");
   }
-  const claimed = await claimAiExecution({
-    executionId: created.execution.id,
-    userId: params.userId,
-    workerId,
-    ...(recovery?.resumeToken ? { resumeToken: recovery.resumeToken } : {}),
-    recipeBinding: prepared.binding,
-  });
   if (!claimed) {
     const existingReceipt = created.execution.recipeReceipt
       ? RecipeReceiptSchema.safeParse(created.execution.recipeReceipt).data

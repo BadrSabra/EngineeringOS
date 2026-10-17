@@ -1367,7 +1367,55 @@ describe("Mission recipe dispatch", () => {
 
   it("re-dispatches a queued Mission recipe after a process restart without duplicating its execution", async () => {
     const rootPath = await createTestRoot("recipe-recovery");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const queuedExecutionId = randomUUID();
+    const now = new Date();
+    type AdmissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    let admissionTransaction: AdmissionTransaction | undefined;
+    let callbackAllowed: boolean | undefined;
+    let callbackHeldMissionLock = false;
+    let missionIntentUpdateCommitted = false;
+    let missionIntentUpdate: Promise<unknown> | undefined;
+
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      if (typeof params.beforeClaim !== "function") {
+        throw new Error("Mission recipe pre-claim authorization callback was not provided.");
+      }
+      const beforeClaim = params.beforeClaim as (
+        input: { executionId: string; attempt: number; status: string },
+        transaction: AdmissionTransaction,
+      ) => Promise<boolean>;
+      const admission = await db.transaction(async (transaction) => {
+        admissionTransaction = transaction;
+        const [execution] = await transaction
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, queuedExecutionId))
+          .limit(1);
+        if (!execution) throw new Error("Queued Mission execution fixture is missing.");
+        const allowed = await beforeClaim({
+          executionId: queuedExecutionId,
+          attempt: execution.attempt,
+          status: execution.status,
+        }, transaction);
+        missionIntentUpdate = db.update(aiMissionsTable)
+          .set({ intent: "Metadata update after recipe admission." })
+          .where(eq(aiMissionsTable.id, missionId))
+          .then(() => {
+            missionIntentUpdateCommitted = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return { allowed, lockHeld: !missionIntentUpdateCommitted };
+      });
+      callbackAllowed = admission.allowed;
+      callbackHeldMissionLock = admission.lockHeld;
+      await missionIntentUpdate;
+
       const executionId = await seedSuccessfulRecipeProof(params, "recipe-execution-recovered");
       return {
       executionId,
@@ -1396,11 +1444,6 @@ describe("Mission recipe dispatch", () => {
       };
     });
 
-    const projectId = randomUUID();
-    const missionId = randomUUID();
-    const goalId = randomUUID();
-    const executionId = randomUUID();
-    const now = new Date();
     const action = {
       kind: "recipe" as const,
       recipeId: "validation.recover",
@@ -1472,7 +1515,7 @@ describe("Mission recipe dispatch", () => {
       updatedAt: now,
     });
     await db.insert(aiExecutionsTable).values({
-      id: executionId,
+      id: queuedExecutionId,
       projectId,
       goalId,
       userId: "test-user",
@@ -1506,6 +1549,16 @@ describe("Mission recipe dispatch", () => {
         .where(eq(aiGoalsTable.id, goalId));
       expect(goal?.status).toBe("completed");
     });
+    expect(callbackAllowed).toBe(true);
+    expect(callbackHeldMissionLock).toBe(true);
+    expect(admissionTransaction).toBeDefined();
+    expect(missionIntentUpdateCommitted).toBe(true);
+    const [missionAfterAdmission] = await db
+      .select({ intent: aiMissionsTable.intent })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId))
+      .limit(1);
+    expect(missionAfterAdmission?.intent).toBe("Metadata update after recipe admission.");
 
     const executions = await db
       .select({ id: aiExecutionsTable.id })
