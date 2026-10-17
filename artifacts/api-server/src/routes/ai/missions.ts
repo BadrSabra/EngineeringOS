@@ -3375,7 +3375,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
     }
     if (error instanceof MissionReactivationRequired) {
       return res.status(409).json({
-        error: "Reactivate the Mission before changing a completed Goal's status or proof contract.",
+        error: "Reactivate the Mission before adding a Goal or changing a completed Goal's status or proof contract.",
         code: "MISSION_REACTIVATION_REQUIRED",
       });
     }
@@ -3410,20 +3410,32 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
   };
   try {
     const [goal] = await db.transaction(async (tx) => {
+      const [lockedMission] = await tx
+        .select({ id: aiMissionsTable.id, status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, owned.mission.id),
+          eq(aiMissionsTable.projectId, owned.project.id),
+        ))
+        .for("update");
+      if (!lockedMission) return [];
+      if (lockedMission.status === "completed") {
+        throw new MissionReactivationRequired();
+      }
       const created = await tx.insert(aiGoalsTable).values({
-      id: goalId,
-      missionId: owned.mission.id,
-      projectId: owned.project.id,
-      parentGoalId: body.parentGoalId ?? null,
-      title: body.title,
-      description: body.description ?? null,
-      priority: body.priority,
-      successCriteria: body.successCriteria ?? {},
-      evidenceContract: body.evidenceContract ?? {},
-      outcomeContract: nextOutcomeContract,
-      nextAction: body.nextAction ?? {},
-      createdAt: now,
-      updatedAt: now,
+        id: goalId,
+        missionId: owned.mission.id,
+        projectId: owned.project.id,
+        parentGoalId: body.parentGoalId ?? null,
+        title: body.title,
+        description: body.description ?? null,
+        priority: body.priority,
+        successCriteria: body.successCriteria ?? {},
+        evidenceContract: body.evidenceContract ?? {},
+        outcomeContract: nextOutcomeContract,
+        nextAction: body.nextAction ?? {},
+        createdAt: now,
+        updatedAt: now,
       }).returning();
       await setGoalDependencies(tx, {
         missionId: owned.mission.id,
@@ -3433,12 +3445,12 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
         planRevision: body.planRevision,
       });
       await tx.insert(eventsTable).values({
-      id: randomUUID(),
-      type: "AiGoalCreated",
-      projectId: owned.project.id,
-      goalId,
-      severity: "info",
-      message: `AI goal "${body.title}" created`,
+        id: randomUUID(),
+        type: "AiGoalCreated",
+        projectId: owned.project.id,
+        goalId,
+        severity: "info",
+        message: `AI goal "${body.title}" created`,
         payload: {
           missionId: owned.mission.id,
           dependencyRevision: body.planRevision ?? null,
@@ -3446,8 +3458,15 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
       });
       return created;
     });
+    if (!goal) return res.status(404).json({ error: "Mission not found" });
     return res.status(201).json(goal);
   } catch (error) {
+    if (error instanceof MissionReactivationRequired) {
+      return res.status(409).json({
+        error: "Reactivate the Mission before adding a Goal.",
+        code: "MISSION_REACTIVATION_REQUIRED",
+      });
+    }
     if (error instanceof GoalDependencyValidationError) {
       return res.status(400).json({ error: error.message, code: "INVALID_GOAL_DEPENDENCIES" });
     }
