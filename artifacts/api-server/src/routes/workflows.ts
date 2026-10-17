@@ -365,23 +365,12 @@ router.post("/workflows/:workflowId/stop", async (req, res) => {
   const now = new Date();
   const correlationId = randomUUID();
 
-  // Same rationale as start: the workflow status flip, its running
-  // execution's terminal state, and the stop event are one transition.
-  // Atomically claim the workflow (guard against a concurrent stop) inside
-  // the transaction so a race can't leave the workflow "stopped" while its
-  // execution row is still "running", or vice versa.
+  // Lock the active execution before the workflow, matching phase advance,
+  // failure, retry, and rollback. Reversing this order can deadlock when a
+  // phase transition holds the execution while waiting to update the workflow.
   let updatedExecution: typeof workflowExecutionsTable.$inferSelect;
   try {
     updatedExecution = await db.transaction(async (tx) => {
-      const [claimedWorkflow] = await tx
-        .update(workflowsTable)
-        .set({ status: "stopped", updatedAt: now })
-        .where(and(eq(workflowsTable.id, workflowId), eq(workflowsTable.status, workflow[0].status)))
-        .returning();
-      if (!claimedWorkflow) {
-        throw new WorkflowStateConflictError("Workflow state changed before it could be stopped");
-      }
-
       const executions = await tx
         .select()
         .from(workflowExecutionsTable)
@@ -392,7 +381,17 @@ router.post("/workflows/:workflowId/stop", async (req, res) => {
           ),
         )
         .orderBy(desc(workflowExecutionsTable.startedAt))
-        .limit(1);
+        .limit(1)
+        .for("update");
+
+      const [claimedWorkflow] = await tx
+        .update(workflowsTable)
+        .set({ status: "stopped", updatedAt: now })
+        .where(and(eq(workflowsTable.id, workflowId), eq(workflowsTable.status, workflow[0].status)))
+        .returning();
+      if (!claimedWorkflow) {
+        throw new WorkflowStateConflictError("Workflow state changed before it could be stopped");
+      }
 
       let execution: typeof workflowExecutionsTable.$inferSelect;
       if (executions[0]) {

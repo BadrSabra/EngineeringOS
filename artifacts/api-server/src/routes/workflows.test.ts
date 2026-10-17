@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import app from "../app.js";
 import {
   db,
@@ -67,6 +67,29 @@ describe("Workflow phase orchestration", () => {
     expect(started.status).toBe(202);
 
     return { projectId, workflowId };
+  }
+
+  async function waitForBlockedWorkflowWrites(minCount: number) {
+    const deadline = Date.now() + 10_000;
+    let lastQueries: string[] = [];
+    while (Date.now() < deadline) {
+      const result = await db.execute(sql`
+        SELECT waiting.query
+        FROM pg_stat_activity AS waiting
+        WHERE waiting.pid <> pg_backend_pid()
+          AND waiting.datname = current_database()
+          AND waiting.wait_event_type = 'Lock'
+          AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+          AND waiting.query ~* 'update.*(workflows|workflow_executions)'
+      `);
+      const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+      lastQueries = rows.map((row) => row.query ?? "");
+      if (lastQueries.length >= minCount) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(
+      `Timed out waiting for ${minCount} blocked workflow writes; observed ${lastQueries.length}: ${lastQueries.join(" | ")}`,
+    );
   }
 
   it("rejects a non-empty first phase without starting or completing a workflow", async () => {
@@ -550,5 +573,69 @@ describe("Workflow phase orchestration", () => {
     expect(advanceAudits[0].correlationId).toBe(transitions[0].correlationId);
     expect(advanceAudits[0].stateBefore).toEqual({ currentPhase: "build" });
     expect(advanceAudits[0].stateAfter).toEqual({ currentPhase: "test" });
+  });
+
+  it("stops a running workflow without deadlocking against a concurrent phase advance", async () => {
+    const { workflowId } = await createStartedWorkflow();
+    let releaseWorkflowLock!: () => void;
+    let announceWorkflowLocked!: () => void;
+    const workflowLocked = new Promise<void>((resolve) => {
+      announceWorkflowLocked = resolve;
+    });
+    const keepWorkflowLocked = new Promise<void>((resolve) => {
+      releaseWorkflowLock = resolve;
+    });
+    const lockTransaction = db.transaction(async (tx) => {
+      await tx.select({ id: workflowsTable.id })
+        .from(workflowsTable)
+        .where(eq(workflowsTable.id, workflowId))
+        .for("update");
+      announceWorkflowLocked();
+      await keepWorkflowLocked;
+    });
+    await workflowLocked;
+
+    let stopRequest: Promise<{ status: number; body: unknown } | { error: unknown }> | undefined;
+    let advanceRequest: Promise<{ status: number; body: unknown } | { error: unknown }> | undefined;
+    try {
+      stopRequest = request(app)
+        .post(`/api/workflows/${workflowId}/stop`)
+        .then(
+          (response) => ({ status: response.status, body: response.body }),
+          (error) => ({ error }),
+        );
+      await waitForBlockedWorkflowWrites(1);
+
+      advanceRequest = request(app)
+        .post(`/api/workflows/${workflowId}/advance`)
+        .then(
+          (response) => ({ status: response.status, body: response.body }),
+          (error) => ({ error }),
+        );
+      await waitForBlockedWorkflowWrites(2);
+    } finally {
+      releaseWorkflowLock();
+      await lockTransaction;
+      await Promise.allSettled(
+        [stopRequest, advanceRequest].filter(
+          (requestPromise): requestPromise is NonNullable<typeof requestPromise> => Boolean(requestPromise),
+        ),
+      );
+    }
+
+    const [stopped, advanced] = await Promise.all([stopRequest!, advanceRequest!]);
+    if (!("status" in stopped)) throw stopped.error;
+    if (!("status" in advanced)) throw advanced.error;
+    expect(stopped.status).toBe(200);
+    expect(advanced.status).toBe(409);
+
+    const [workflow] = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(workflow.status).toBe("stopped");
+    expect(executions).toHaveLength(1);
+    expect(executions[0].status).toBe("stopped");
   });
 });

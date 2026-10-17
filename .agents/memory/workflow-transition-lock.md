@@ -9,8 +9,8 @@ Workflow phase transitions use a workflow-scoped advisory lock around the full r
 
 **How to apply:** Keep the lock non-blocking and return a stable conflict response; release it in a `finally` block on every exit path.
 
-Workflow deletion must also serialize with active and retryable executions. Lock running/failed execution rows before locking the parent workflow row, matching retry's execution-then-workflow order; then recheck active state before cascading history deletion.
+Transitions that mutate both an existing execution and its parent workflow must lock the execution first. In particular, stop must lock the latest running execution before updating the workflow; reversing the order can deadlock against phase advance, failure, retry, or rollback.
 
-**Why:** A stale dashboard state is not a safety boundary, and taking the workflow lock before a retry-held execution row can deadlock or delete history while retry is claiming it.
+**Why:** Stop and phase transitions can reach the same running execution concurrently. If stop holds the workflow while the transition holds the execution, each can wait on the other's row lock.
 
-**How to apply:** Keep the deletion guard transactional and server-side. New starts are serialized by the parent workflow row; retryable executions are serialized by their row locks.
+**How to apply:** For paired updates to an existing execution and workflow, acquire Execution before Workflow and retain the status compare-and-set. Workflow deletion also locks running/failed executions before the workflow row, then rechecks active state before cascading history deletion. New starts remain serialized by the parent workflow row.
