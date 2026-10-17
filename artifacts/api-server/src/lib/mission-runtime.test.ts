@@ -264,6 +264,7 @@ type DependencyProofFixtureOptions = {
   executionStatus?: "completed" | "running";
   proofExecutionId?: string;
   proofContractVersion?: number;
+  evidenceSnapshot?: "complete" | "incomplete";
   episode?: "missing" | "wrong_goal" | "wrong_project_revision" | "wrong_plan_revision" | "running";
   observation?:
     | "valid"
@@ -392,8 +393,8 @@ async function createDependencyProofFixture(
       attempt,
       operationId,
       sourceRevision,
-      verdict: "PROVEN",
-      complete: 1,
+      verdict: options.evidenceSnapshot === "incomplete" ? "PARTIAL" : "PROVEN",
+      complete: options.evidenceSnapshot === "incomplete" ? 0 : 1,
       readCount: 1,
       totalBytes: 64,
       createdAt: now,
@@ -673,6 +674,7 @@ describe("Mission goal runtime", () => {
     ["a stored PROVEN projection without durable acceptance", { proof: false }],
     ["an unknown execution pointer", { proofExecutionId: "missing-execution" }],
     ["a rotated execution attempt", { rotateToAttempt: 1 }],
+    ["a stored PROVEN acceptance with an incomplete evidence snapshot", { evidenceSnapshot: "incomplete" }],
     ["a missing Episode", { episode: "missing" }],
     ["an Episode for another Goal", { episode: "wrong_goal" }],
     ["an Episode from another workspace revision", { episode: "wrong_project_revision" }],
@@ -828,6 +830,24 @@ describe("Mission goal runtime", () => {
     expect(missionEvaluation.missingGoalIds).toContain(fixture.goalId);
   });
 
+  it.each([
+    ["missing durable acceptance", { proof: false }],
+    ["incomplete evidence snapshot", { evidenceSnapshot: "incomplete" }],
+  ] as Array<[string, DependencyProofFixtureOptions]>)(
+    "does not aggregate Mission completion when a completed Goal has %s",
+    async (_description, options) => {
+      const fixture = await createDependencyProofFixture(options);
+
+      const missionEvaluation = await db.transaction((tx) => evaluateMissionCompletion(tx, {
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+      }));
+
+      expect(missionEvaluation.allowed).toBe(false);
+      expect(missionEvaluation.missingGoalIds).toContain(fixture.sourceGoalId);
+    },
+  );
+
   it("serializes Mission completion against a concurrent Canonical Proof attempt rotation", async () => {
     const fixture = await createDependencyProofFixture();
     await insertCanonicalGoalProof(fixture, fixture.goalId);
@@ -883,6 +903,47 @@ describe("Mission goal runtime", () => {
       .from(aiMissionsTable)
       .where(eq(aiMissionsTable.id, fixture.missionId));
     expect(mission?.status).toBe("active");
+  });
+
+  it("revalidates the active plan revision before Mission completion aggregation", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+    let releaseRevision!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowRevisionCommit = new Promise<void>((resolve) => {
+      releaseRevision = resolve;
+    });
+    const revisionRotation = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({
+          autonomyPolicy: { activePlanRevision: "plan-e3.2" },
+          updatedAt: new Date(),
+        })
+        .where(eq(aiMissionsTable.id, fixture.missionId));
+      acquiredMissionLock();
+      await allowRevisionCommit;
+    });
+    await missionLocked;
+
+    const aggregation = db.transaction((tx) => evaluateMissionCompletion(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+    const waitedForRevision = await Promise.race([
+      aggregation.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 100)),
+    ]);
+    releaseRevision();
+    await revisionRotation;
+
+    expect(waitedForRevision).toBe(true);
+    await expect(aggregation).resolves.toMatchObject({
+      allowed: false,
+      activePlanRevision: "plan-e3.2",
+    });
   });
 
   it("accepts an observation only when its exact Episode scope and revision are current", async () => {
