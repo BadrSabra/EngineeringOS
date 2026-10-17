@@ -140,6 +140,14 @@ function text(value: unknown, limit = 500): string | undefined {
   return typeof value === "string" && value.trim() ? redactUserFacingText(value).slice(0, limit) : undefined;
 }
 
+function goalPlanRevision(value: unknown): string | undefined {
+  const revision = record(value).planRevision;
+  const hash = typeof revision === "string"
+    ? revision
+    : record(revision).hash;
+  return typeof hash === "string" && hash.length > 0 ? hash : undefined;
+}
+
 function status(value: unknown): OperationReceipt["status"] {
   const normalized = String(value ?? "").toLowerCase();
   if (normalized.includes("cancel")) return "cancelled";
@@ -375,6 +383,9 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
   const acceptance = record(outcomeContract.acceptance);
   const acceptanceScope = record(acceptance.scope);
   const missionPolicy = record(mission?.autonomyPolicy);
+  const planRevision = goal
+    ? goalPlanRevision(outcomeContract) ?? goalPlanRevision(goal.successCriteria)
+    : undefined;
   const sourceRevision = text(execution.baseRevision, 200)
     ?? text(request.workspaceRevision, 200)
     ?? text(acceptance.sourceRevision, 200)
@@ -394,6 +405,7 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
       operationId: typeof acceptanceScope.operationId === "string"
         ? acceptanceScope.operationId
         : execution.operationId,
+      planRevision: planRevision ?? null,
       sourceRevisionBinding: sourceRevision == null ? "execution" : "scope",
       candidateIdentityBinding: candidateIdentity == null ? "not_applicable" : "required",
       sourceRevision,
