@@ -1415,6 +1415,9 @@ describe("Mission recipe dispatch", () => {
       callbackAllowed = admission.allowed;
       callbackHeldMissionLock = admission.lockHeld;
       await missionIntentUpdate;
+      if (!callbackAllowed) {
+        throw new Error("Production Mission pre-claim authorization denied the recovery fixture.");
+      }
 
       const executionId = await seedSuccessfulRecipeProof(params, "recipe-execution-recovered");
       return {
@@ -1459,10 +1462,12 @@ describe("Mission recipe dispatch", () => {
       candidateIdentity: null,
     })).digest("hex");
     const operationId = `mission-goal-${goalId}-${digest.slice(0, 16)}`;
+    const sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"]))
+      .stdout.trim();
     const binding = {
       projectId,
       operationId,
-      sourceRevision: "source-revision-recovered",
+      sourceRevision,
       candidateIdentity: null,
       candidateWorkspace: null,
       approvedPaths: action.approvedPaths,

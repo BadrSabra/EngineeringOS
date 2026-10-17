@@ -39,6 +39,12 @@ Proof-bearing Mission Tool Loop attempts bind `workspaceRevision` and `baseRevis
 
 **How to apply:** For Mission Tool Loop work, hash the established root, pass metadata freshness independently, and reject legacy timestamp-bound resumes before claim. Keep generic Task receipts non-proof unless their execution profile explicitly adds a server-owned objective and evidence contract.
 
+Mission-linked Task admission must lock and revalidate the Mission, Goal, active plan, and dependency proof in the same transaction that creates and claims the execution.
+
+**Why:** A plan or prerequisite can change after an earlier read; a separate preflight would let Task work start under stale Mission authority.
+
+**How to apply:** Keep `inspectMissionTaskAdmission` inside the claim transaction, and preserve this boundary when changing Task resume or retry flows.
+
 Startup reconciliation must not terminalize a `running` execution while its lease is live; only expired running leases are recovery candidates. `cancelling` executions remain a separate terminalization case.
 
 **Why:** Multiple API instances can overlap during startup, so an instance starting now cannot infer that another worker's unexpired lease is abandoned.
