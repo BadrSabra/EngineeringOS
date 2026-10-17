@@ -307,3 +307,11 @@ The test invokes the real `claimAiExecution` but intercepts its result before an
 After the claim transaction change, the Mission recipe integration tests passed 23/23 and the focused claim/D2 tests passed 2/2 on a fresh disposable loopback-only PostgreSQL cluster. API TypeScript then failed with TS2322 at the new transaction-aware authorization wrapper: TypeScript widened the closure's `{ allowed: true }` result to `boolean`, which did not fit the declared discriminated union.
 
 This is a compile-time return-type inference failure only. It does not negate the passing database tests or indicate a runtime/data failure. The fix is limited to explicitly typing the authorization closure's return contract; no production data was involved.
+
+### 2026-10-17 — Task receipt and durable lifecycle identity verification
+
+The focused Task API route case `returns an AI Task receipt only for the pointer-bound execution and exact attempt` passed 1/1 on a disposable loopback-only PostgreSQL cluster. It verifies the read projection does not return a receipt for a different Task execution pointer or attempt.
+
+Three selected `task-execution-lifecycle.integration.test.ts` cases passed 3/3 on another disposable loopback-only PostgreSQL cluster: completed Task plus terminal acceptance persistence; rejection of a stale retry generation or execution pointer before creating an execution; and rollback of Task success projections when finalization fails after acceptance insertion. The lifecycle fixture uses mocked provider behavior. Together with the route case, this verifies the selected durable write/read boundaries for Task acceptance and attempt identity; it does not prove the complete producer/consumer inventory.
+
+No production provider, shared or production database, Strategy Replay, E4, or managed app workflow was used. E3 and E3.2 remain open.
