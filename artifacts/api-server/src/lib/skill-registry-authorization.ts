@@ -25,6 +25,7 @@ import {
   assertCandidateWorkspaceIdentity,
   expectedShadowReplayOperationId,
 } from "./shadow-replay.js";
+import { lockSkillRegistryExecutionsThenProposal } from "./skill-registry-lock-order.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -149,7 +150,10 @@ export async function validateSkillRegistryAuthority(
   if (!replayIdentity) return { ok: false, reason: "identity" };
 
   const [candidateGoalIdentity] = await tx
-    .select({ goalId: aiExecutionsTable.goalId })
+    .select({
+      executionId: aiExecutionAcceptancesTable.executionId,
+      goalId: aiExecutionsTable.goalId,
+    })
     .from(aiExecutionAcceptancesTable)
     .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
     .where(and(
@@ -207,15 +211,23 @@ export async function validateSkillRegistryAuthority(
     .limit(1);
   if (!goal) return { ok: false, reason: "proof" };
 
-  const [proposal] = await tx
-    .select()
-    .from(aiChangeProposalsTable)
-    .where(and(
-      eq(aiChangeProposalsTable.id, input.proposalId),
-      eq(aiChangeProposalsTable.projectId, input.projectId),
-    ))
-    .for("update")
-    .limit(1);
+  // Apply finalization locks Execution before its Proposal. Acquire both proof
+  // executions in stable order before locking the Proposal to match that order.
+  const orderedLocks = await lockSkillRegistryExecutionsThenProposal(tx, {
+    projectId: input.projectId,
+    executionIds: [candidateGoalIdentity.executionId, replayIdentity.executionId],
+    proposalId: input.proposalId,
+  });
+  if (
+    orderedLocks.kind !== "locked"
+    || orderedLocks.executions.get(candidateGoalIdentity.executionId)?.goalId
+      !== candidateGoalIdentity.goalId
+    || orderedLocks.executions.get(replayIdentity.executionId)?.goalId
+      !== candidateGoalIdentity.goalId
+  ) {
+    return { ok: false, reason: "identity" };
+  }
+  const { proposal } = orderedLocks;
   const [replay] = await tx
     .select()
     .from(aiShadowReplaysTable)
@@ -336,6 +348,8 @@ export async function validateSkillRegistryAuthority(
     !candidateAcceptance
     || !replayExecution
     || candidateAcceptance.executionId === replay.executionId
+      || candidateAcceptance.executionId !== candidateGoalIdentity.executionId
+      || replayExecution.id !== replayIdentity.executionId
     || candidateAcceptance.attempt !== candidateAcceptance.executionAttempt
     || candidateAcceptance.operationId !== proposal.operationId
     || !candidateAcceptance.goalId
