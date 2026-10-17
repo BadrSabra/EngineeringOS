@@ -265,30 +265,6 @@ async function hasCurrentGoalDependencyProof(
     && acceptanceScope.operationId !== execution.operationId
   ) return false;
 
-  const [episode] = await tx
-    .select()
-    .from(aiAgentEpisodesTable)
-    .where(and(
-      eq(aiAgentEpisodesTable.projectId, dependencyGoal.projectId),
-      eq(aiAgentEpisodesTable.executionId, execution.id),
-      eq(aiAgentEpisodesTable.attempt, execution.attempt),
-    ))
-    .for("update");
-  if (
-    !episode
-    || episode.projectId !== dependencyGoal.projectId
-    || episode.missionId !== mission.id
-    || episode.goalId !== dependencyGoal.id
-    || episode.executionId !== execution.id
-    || episode.attempt !== execution.attempt
-    || episode.state !== "completed"
-    || episode.verdict !== "achieved"
-    || !episode.closedAt
-    || episode.planRevision !== dependencyPlanRevision
-    || episode.projectRevision !== execution.baseRevision
-    || !episode.worldRevision
-  ) return false;
-
   const candidateIdentity = goalCandidateIdentity(dependencyGoal);
   const canonicalProof = await loadCanonicalProof({
     tx,
@@ -316,7 +292,7 @@ async function hasCurrentGoalDependencyProof(
     || canonicalProof.executionId !== execution.id
     || canonicalProof.attempt !== execution.attempt
     || canonicalProof.operationId !== execution.operationId
-    || canonicalProof.sourceRevision !== episode.projectRevision
+    || canonicalProof.sourceRevision !== execution.baseRevision
     || canonicalProof.projection?.contractVersion !== EXECUTION_PROOF_CONTRACT_VERSION
   ) return false;
 
@@ -339,6 +315,61 @@ async function hasCurrentGoalDependencyProof(
       && stateProjection.worldRevision === applyProof.resultingWorldRevision
       && stateProjection.environmentRevision === applyProof.environmentRevision;
   }
+
+  // Transition claimers lock Transition before Episode; only probe Episode identity here.
+  const [episodeIdentity] = await tx
+    .select({ id: aiAgentEpisodesTable.id })
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.projectId, dependencyGoal.projectId),
+      eq(aiAgentEpisodesTable.executionId, execution.id),
+      eq(aiAgentEpisodesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+  if (!episodeIdentity) return false;
+
+  const [transition] = await tx
+    .select({
+      status: aiWorldTransitionsTable.status,
+      parentWorldRevision: aiWorldTransitionsTable.parentWorldRevision,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+    })
+    .from(aiWorldTransitionsTable)
+    .where(and(
+      eq(aiWorldTransitionsTable.projectId, dependencyGoal.projectId),
+      eq(aiWorldTransitionsTable.executionId, execution.id),
+      eq(aiWorldTransitionsTable.attempt, execution.attempt),
+      eq(aiWorldTransitionsTable.episodeId, episodeIdentity.id),
+    ))
+    .orderBy(desc(aiWorldTransitionsTable.createdAt), desc(aiWorldTransitionsTable.id))
+    .limit(1)
+    .for("update");
+
+  const [episode] = await tx
+    .select()
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.id, episodeIdentity.id),
+      eq(aiAgentEpisodesTable.projectId, dependencyGoal.projectId),
+      eq(aiAgentEpisodesTable.executionId, execution.id),
+      eq(aiAgentEpisodesTable.attempt, execution.attempt),
+    ))
+    .for("update")
+    .limit(1);
+  if (
+    !episode
+    || episode.projectId !== dependencyGoal.projectId
+    || episode.missionId !== mission.id
+    || episode.goalId !== dependencyGoal.id
+    || episode.executionId !== execution.id
+    || episode.attempt !== execution.attempt
+    || episode.state !== "completed"
+    || episode.verdict !== "achieved"
+    || !episode.closedAt
+    || episode.planRevision !== dependencyPlanRevision
+    || episode.projectRevision !== execution.baseRevision
+    || !episode.worldRevision
+  ) return false;
 
   const taskScope = taskScopeIdentity(episode);
   if (taskScope.startsWith("unscoped:")) return false;
@@ -379,22 +410,6 @@ async function hasCurrentGoalDependencyProof(
     ) return false;
   }
 
-  const [transition] = await tx
-    .select({
-      status: aiWorldTransitionsTable.status,
-      parentWorldRevision: aiWorldTransitionsTable.parentWorldRevision,
-      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
-    })
-    .from(aiWorldTransitionsTable)
-    .where(and(
-      eq(aiWorldTransitionsTable.projectId, episode.projectId),
-      eq(aiWorldTransitionsTable.executionId, episode.executionId),
-      eq(aiWorldTransitionsTable.attempt, episode.attempt),
-      eq(aiWorldTransitionsTable.episodeId, episode.id),
-    ))
-    .orderBy(desc(aiWorldTransitionsTable.createdAt), desc(aiWorldTransitionsTable.id))
-    .limit(1)
-    .for("update");
   if (
     transition
     && (

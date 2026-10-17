@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -41,9 +41,78 @@ vi.mock("../routes/ai/tasks.js", async () => {
   return { ...actual, scheduleAiTaskExecution: scheduleTaskExecution };
 });
 
-import { runMissionGoal, wakeApplyChangesMissionGoals } from "./mission-runtime.js";
+import {
+  authorizeMissionGoalContinuation,
+  runMissionGoal,
+  wakeApplyChangesMissionGoals,
+} from "./mission-runtime.js";
 
 const projectIds: string[] = [];
+
+async function waitForTableLockWaiters(table: string) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.pid, waiting.query, pg_blocking_pids(waiting.pid) AS blockers
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ pid: number; query: string | null; blockers: number[] }>;
+    }).rows ?? [];
+    const matching = rows.filter((row) => new RegExp(table, "i").test(row.query ?? ""));
+    if (matching.length > 0) return matching;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for a lock waiter on ${table}.`);
+}
+
+async function waitForTableWaiterOrSettled(
+  table: string,
+  operation: Promise<unknown>,
+): Promise<{ kind: "waiting" } | { kind: "settled" }> {
+  let settled = false;
+  void operation.then(
+    () => { settled = true; },
+    () => { settled = true; },
+  );
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (settled) return { kind: "settled" };
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ query: string | null }>;
+    }).rows ?? [];
+    if (rows.some((row) => new RegExp(table, "i").test(row.query ?? ""))) {
+      return { kind: "waiting" };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${table} lock progress.`);
+}
+
+function postgresErrorCodes(value: unknown): string[] {
+  const codes: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = value;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const error = current as { code?: unknown; cause?: unknown };
+    if (typeof error.code === "string") codes.push(error.code);
+    current = error.cause;
+  }
+  return codes;
+}
 
 async function createApplyChangesFixture() {
   const projectId = randomUUID();
@@ -670,6 +739,163 @@ afterEach(async () => {
 });
 
 describe("Apply Changes Mission D2 dispatch", () => {
+  it("does not deadlock dependency proof against an Apply Changes transition claim", async () => {
+    const fixture = await createApplyChangesFixture();
+    const [applyGoal] = await db.select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    const [transition] = await db.select()
+      .from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    if (!applyGoal || !transition?.resultingWorldRevision) {
+      throw new Error("Apply Changes lock-order fixture is incomplete.");
+    }
+
+    const candidateIdentity = `${fixture.proposalId}:${"c".repeat(64)}`;
+    const operationId = `operation:${fixture.executionId}`;
+    const environmentRevision = `env-v1:${"f".repeat(64)}`;
+    await db.update(aiGoalsTable)
+      .set({
+        status: "completed",
+        completedAt: new Date(),
+        outcomeContract: {
+          ...(applyGoal.outcomeContract as Record<string, unknown>),
+          acceptance: {
+            executionId: fixture.executionId,
+            operationId,
+            outcome: "SUCCEEDED",
+            verdict: "PROVEN",
+            reasonCode: "APPLY_CHANGES_D2_PROVEN",
+            scope: {
+              projectId: fixture.projectId,
+              missionId: fixture.missionId,
+              goalId: fixture.applyGoalId,
+              planRevision: fixture.planRevision,
+              candidateIdentity,
+              operationId,
+            },
+            stateProjection: {
+              transitionId: fixture.transitionId,
+              worldRevision: transition.resultingWorldRevision,
+              environmentRevision,
+            },
+          },
+        },
+      })
+      .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    await db.update(aiWorldTransitionsTable)
+      .set({
+        status: "pending",
+        resultingWorldRevision: null,
+        nextRetryAt: null,
+      })
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    let announceAcceptanceLocked!: () => void;
+    let releaseAcceptanceLock!: () => void;
+    const acceptanceLocked = new Promise<void>((resolve) => {
+      announceAcceptanceLocked = resolve;
+    });
+    const acceptanceLockRelease = new Promise<void>((resolve) => {
+      releaseAcceptanceLock = resolve;
+    });
+    let announceTransitionLocked!: () => void;
+    const transitionLocked = new Promise<void>((resolve) => {
+      announceTransitionLocked = resolve;
+    });
+    const pending: Promise<unknown>[] = [];
+
+    const acceptanceBlocker = db.transaction(async (tx) => {
+      await tx.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, 0),
+        ))
+        .for("update");
+      announceAcceptanceLocked();
+      await acceptanceLockRelease;
+    });
+    pending.push(acceptanceBlocker);
+    try {
+      await acceptanceLocked;
+
+      const dependencyProof = db.transaction(async (tx) => {
+        const [mission] = await tx.select()
+          .from(aiMissionsTable)
+          .where(eq(aiMissionsTable.id, fixture.missionId));
+        const [goal] = await tx.select()
+          .from(aiGoalsTable)
+          .where(eq(aiGoalsTable.id, fixture.reportGoalId));
+        if (!mission || !goal) throw new Error("Mission dependency fixture disappeared.");
+        return authorizeMissionGoalContinuation(tx, mission, goal);
+      });
+      pending.push(dependencyProof);
+      await waitForTableLockWaiters("ai_execution_acceptances");
+
+      const transitionClaim = db.transaction(async (tx) => {
+        const [lockedTransition] = await tx.select({ id: aiWorldTransitionsTable.id })
+          .from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId))
+          .for("update");
+        if (!lockedTransition) throw new Error("Transition claim fixture disappeared.");
+        announceTransitionLocked();
+
+        // Match the claim transaction's non-locking identity reads before it
+        // takes the Episode lock.
+        await tx.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId));
+        await tx.select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ));
+        const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
+          .from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
+          .for("update");
+        if (!episode) throw new Error("Transition claim Episode fixture disappeared.");
+      });
+      pending.push(transitionClaim);
+      await transitionLocked;
+
+      const transitionProgress = await waitForTableWaiterOrSettled(
+        "ai_agent_episodes",
+        transitionClaim,
+      );
+      releaseAcceptanceLock();
+      const outcomes = await Promise.allSettled([
+        acceptanceBlocker,
+        dependencyProof,
+        transitionClaim,
+      ] as const);
+      const deadlocks = outcomes.filter((outcome) =>
+        outcome.status === "rejected"
+        && postgresErrorCodes(outcome.reason).includes("40P01"),
+      );
+      expect(
+        deadlocks,
+        JSON.stringify({
+          transitionProgress,
+          outcomes: outcomes.map((outcome) =>
+            outcome.status === "fulfilled" ? "fulfilled" : postgresErrorCodes(outcome.reason),
+          ),
+        }),
+      ).toHaveLength(0);
+      expect(transitionProgress.kind).toBe("settled");
+      expect(outcomes.map((outcome) => outcome.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+        "fulfilled",
+      ]);
+    } finally {
+      releaseAcceptanceLock();
+      await Promise.allSettled(pending);
+    }
+  });
+
   it("rechecks the current Goal state before projecting live proof", async () => {
     const fixture = await createApplyChangesFixture();
 
