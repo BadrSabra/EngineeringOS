@@ -16,6 +16,7 @@
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
 - [Task answer receipt verification](task-answer-receipt.md) — logs are clipped; bind claim spans, graph source revision, live workspace revision, and answer text through the accepted receipt.
+- [Task acceptance UI freshness](task-acceptance-ui-freshness.md) — server-bound attempt identity does not make cached UI data fresh; withhold old acceptance during refetch, resume, or active execution.
 - [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Engineering Agent control-plane scope](engineering-agent-control-plane.md) — unify product continuity over the existing Mission Runtime; preserve scoped approval and delivery gates.

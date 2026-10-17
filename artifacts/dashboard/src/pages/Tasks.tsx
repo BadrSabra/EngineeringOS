@@ -355,14 +355,16 @@ function acceptanceNextAction(acceptance: TaskAcceptance): string {
 
 function TaskAcceptancePanel({
   taskId,
+  taskStatus,
   onResume,
   isResuming,
 }: {
   taskId: string;
+  taskStatus: string;
   onResume: () => void;
   isResuming: boolean;
 }) {
-  const { data, isLoading, isError } = useGetTask(taskId, {
+  const { data, isLoading, isFetching, isError } = useGetTask(taskId, {
     query: {
       queryKey: getGetTaskQueryKey(taskId),
       staleTime: 0,
@@ -387,6 +389,27 @@ function TaskAcceptancePanel({
     );
   }
   if (!acceptance) return null;
+  if (isResuming) {
+    return (
+      <div role="status" className="mb-4 rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
+        جارٍ استئناف التنفيذ؛ لا تُعرض نتيجة القبول السابقة كحالية.
+      </div>
+    );
+  }
+  if (isFetching) {
+    return (
+      <div role="status" className="mb-4 rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
+        جارٍ تحديث قبول المحاولة الحالية…
+      </div>
+    );
+  }
+  if (taskStatus === 'running') {
+    return (
+      <div role="status" className="mb-4 rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
+        قبول المحاولة السابقة غير معروض أثناء التنفيذ الجاري.
+      </div>
+    );
+  }
 
   const status = acceptanceStatus(acceptance);
   const acceptanceOffersResume =
@@ -1364,12 +1387,16 @@ export default function Tasks() {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
 
+  const taskAcceptanceIsCurrent = (task: (typeof tasks)[number]) =>
+    !isRefetching && !resumeTask.isPending && task.status !== 'running';
   const visibleTasks = tasks?.filter((t) =>
     (!searchTerm ||
       t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())) &&
     (!filterAcceptance ||
-      (t.acceptance && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
+      (taskAcceptanceIsCurrent(t)
+        && t.acceptance
+        && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
@@ -1682,7 +1709,7 @@ export default function Tasks() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm truncate">{task.title}</span>
                     <PriorityBadge priority={task.priority} />
-                    {task.acceptance && (() => {
+                    {taskAcceptanceIsCurrent(task) && task.acceptance && (() => {
                       const acceptance = acceptanceStatus(task.acceptance);
                       return (
                         <span
@@ -1945,6 +1972,7 @@ export default function Tasks() {
                           <TaskExecutionProjection taskId={task.id} />
                           <TaskAcceptancePanel
                             taskId={task.id}
+                            taskStatus={task.status}
                             onResume={() => handleAction('resume', task.id)}
                             isResuming={resumeTask.isPending}
                           />

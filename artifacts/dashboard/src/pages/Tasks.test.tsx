@@ -584,6 +584,63 @@ describe('Tasks recovery rendering', () => {
     expect(screen.queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
   });
 
+  it('does not present the prior acceptance while a resume request is pending', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-resume-pending',
+        projectId: 'project-1',
+        title: 'Resume in progress',
+        status: 'verifying',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTask).mockReturnValue({
+      data: {
+        status: 'verifying',
+        acceptance: {
+          attempt: 1,
+          terminalStatus: 'paused',
+          outcome: 'FAILED',
+          reasonCode: 'EXECUTION_LEASE_EXPIRED',
+          nextActionCode: 'RESUME_ALLOWED',
+          evidenceComplete: false,
+          evidenceRequired: false,
+          resumable: true,
+          disposition: {
+            reasonCodes: ['EXECUTION_LEASE_EXPIRED'],
+            outcome: 'FAILED',
+            recoveryState: 'REQUIRED',
+            nextActionCode: 'RESUME_ALLOWED',
+            operatorAction: 'Resume the saved task checkpoint.',
+          },
+        },
+      },
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetTask>);
+    vi.mocked(useAiResumeTask).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    } as ReturnType<typeof useAiResumeTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Resume in progress' }));
+
+    expect(screen.queryByRole('region', { name: 'نتيجة قبول الخادم' })).not.toBeInTheDocument();
+    expect(screen.getByText('جارٍ استئناف التنفيذ؛ لا تُعرض نتيجة القبول السابقة كحالية.')).toBeInTheDocument();
+  });
+
   it('does not offer resume when the Task status blocks it despite a resumable execution acceptance', () => {
     vi.mocked(useGetTask).mockReturnValue({
       data: {
@@ -617,6 +674,40 @@ describe('Tasks recovery rendering', () => {
     const acceptance = screen.getByRole('region', { name: 'نتيجة قبول الخادم' });
     expect(within(acceptance).getByText(/حالة المهمة لا تسمح بالاستئناف/)).toBeInTheDocument();
     expect(within(acceptance).queryByRole('button', { name: 'استئناف تنفيذ المهمة' })).not.toBeInTheDocument();
+  });
+
+  it('withholds cached acceptance badges while the Task list refreshes', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-stale-acceptance',
+        projectId: 'project-1',
+        title: 'Refresh accepted task',
+        status: 'verifying',
+        priority: 'p1',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:01:00.000Z',
+        acceptance: {
+          attempt: 1,
+          terminalStatus: 'completed',
+          outcome: 'SUCCEEDED',
+          reasonCode: 'ACCEPTED',
+          nextActionCode: 'NONE',
+          evidenceComplete: true,
+          evidenceRequired: true,
+          resumable: false,
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: true,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+
+    expect(screen.queryByLabelText('القبول: مقبول')).not.toBeInTheDocument();
   });
 
   it('shows public acceptance badges and filters task rows by acceptance outcome', () => {
