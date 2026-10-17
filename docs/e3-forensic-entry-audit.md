@@ -331,3 +331,9 @@ The tests used mocked model behavior and isolated databases. No production provi
 The Apply recovery integration file was inspected but not run because it also contains replay cases. No replay, registration/approval, production data, or production code change was made. This reinforces only the reviewed proof/acceptance contracts; the broader consumer inventory remains open, and E3/E3.2 remain open.
 
 The source inventory also found a `loadCanonicalProof` call in `routes/ai/chat.ts` bound to a replay record, replay attempt, and candidate tree identity. It was inspected but not invoked; replay execution remains excluded.
+
+### 2026-10-17 — accepted Project Query source handoff
+
+Three focused `ai/missions.test.ts` cases passed across disposable loopback-only PostgreSQL clusters: preview accepts only the server-resolved `PROJECT_QUERY` source without creating durable work; handoff rejects a stale reviewed plan hash and persists provenance resolved from the accepted message, execution, acceptance, evidence snapshot, source revision, and claim refs; and a recovered assistant message that differs from the acceptance message is rejected. The source resolver also requires the acceptance and Canonical Proof to match the execution's current attempt.
+
+The matching handoff fixture created only test Mission/Goal rows. Its auto-trigger selected a provider but skipped the execution claim because the test project root was unavailable; no worker or provider call ran. No replay, registration/approval action, production data, E4, or production code change was made. This covers the Project Query-to-Mission provenance boundary only; E3 and E3.2 remain open.
