@@ -39,29 +39,14 @@ export async function approveMissionGoal(params: {
   userId: string;
 }): Promise<ApproveMissionGoalResult> {
   const prepared = await db.transaction(async (tx) => {
-    const [goal] = await tx
-      .select()
-      .from(aiGoalsTable)
-      .where(and(
-        eq(aiGoalsTable.id, params.goalId),
-        eq(aiGoalsTable.missionId, params.missionId),
-      ))
-      .for("update");
-    if (!goal) {
-      return {
-        status: "not_found" as const,
-        missionId: params.missionId,
-        goalId: params.goalId,
-        reason: "goal_not_found",
-      };
-    }
-
+    // Keep the global Mission-before-Goal order used by status/completion
+    // mutations. Reversing it can deadlock with a completion that holds the
+    // Mission row while waiting for this Goal.
     const [mission] = await tx
       .select()
       .from(aiMissionsTable)
       .where(and(
         eq(aiMissionsTable.id, params.missionId),
-        eq(aiMissionsTable.projectId, goal.projectId),
         eq(aiMissionsTable.userId, params.userId),
       ))
       .for("update");
@@ -71,6 +56,24 @@ export async function approveMissionGoal(params: {
         missionId: params.missionId,
         goalId: params.goalId,
         reason: "mission_not_found",
+      };
+    }
+
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, params.goalId),
+        eq(aiGoalsTable.missionId, mission.id),
+        eq(aiGoalsTable.projectId, mission.projectId),
+      ))
+      .for("update");
+    if (!goal) {
+      return {
+        status: "not_found" as const,
+        missionId: params.missionId,
+        goalId: params.goalId,
+        reason: "goal_not_found",
       };
     }
     if (mission.status === "completed" || mission.status === "cancelled" || mission.status === "blocked") {

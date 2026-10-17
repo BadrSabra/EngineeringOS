@@ -393,4 +393,16 @@ Resolution: the replan route now compares the locked Mission's active plan revis
 
 Adjacent route check: the `MISSION_PLAN_PREVIEW_STALE` check on `POST /ai/missions` protects creation of a new Mission row, so it has no pre-existing active revision to race. `PATCH /ai/missions/:missionId` locks and reads the current row before applying status changes; completion proof is re-evaluated in that transaction, and activation-plan materialization uses the locked row. Existing tests cover server-owned plan revision binding and idempotent activation. No second stale-preview write path for an existing Mission was identified in this route inventory.
 
+### 2026-10-17 — direct Goal completion revision race
+
+The direct Goal PATCH gate already locks Mission before Goal and reloads Canonical Proof through the current active plan revision. A route-level interleaving was added to verify that boundary: a positive control completes the Goal while its proof revision is current; then a transaction rotates the Mission revision and holds the row while a second completion request waits. After release, the request returns `GOAL_COMPLETION_REQUIRES_PROOF`; the Goal remains queued with its original proof revision, while the Mission retains the rotated revision. No production route change was needed.
+
+Verification: the focused route run passed 4 cases (42 unrelated tests skipped) on a fresh disposable loopback PostgreSQL cluster with provider egress disabled. It included this positive-control race, both replan races, and the atomic rollback case for missing Goal proof. API typecheck passed. This closes only the direct Goal completion race-test gap; E3 and E3.2 remain open.
+
+### 2026-10-17 — Mission approval lock-order failure, recorded before repair
+
+A deterministic PostgreSQL interleaving held the Mission row, started the real `approveMissionGoal` helper until it waited on that row, then let a competing transaction follow the direct completion order (Mission before Goal). The competing transaction completed, but the approval promise was rejected. The test observed the approval's blocked Mission query and the opposite lock order; it did not capture PostgreSQL's SQLSTATE, and the competing path models the direct-completion transaction order rather than issuing a second HTTP request. This demonstrates a real lock-order failure in the helper interleaving, not a Canonical Proof or completion-authority bypass. One focused test failed and one unrelated test was skipped on a disposable loopback PostgreSQL cluster; provider egress was disabled, and no shared database or production code was involved.
+
+Resolution: `approveMissionGoal` now locks and validates the owned Mission before locking the Goal, matching direct completion and status-mutation transactions. It still rechecks Goal membership under lock, verifies the current execution and proposal revision, and resumes the runtime only after commit. The deterministic lock-order test and existing approval test pass 2/2 on a fresh disposable loopback PostgreSQL cluster; API typecheck passed. The managed API restarted to `Server listening`, and `/api/healthz` returned `ok`. This repairs transaction availability only; it adds no completion or Canonical Proof authority.
+
 This audit slice still does not qualify Replay or registry behavior and does not close E3 or E3.2.

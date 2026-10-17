@@ -221,7 +221,7 @@ async function insertProject(ownerId = "test-user") {
   return id;
 }
 
-async function waitForMissionReplanLock(
+async function waitForMissionRowLock(
   replanPromise: Promise<{ status: number; body: unknown }>,
   timeoutMs = 10_000,
 ) {
@@ -247,13 +247,13 @@ async function waitForMissionReplanLock(
     ]);
     if (completedEarly.response) {
       throw new Error(
-        `Mission replan returned before row lock: HTTP ${completedEarly.response.status} ${JSON.stringify(completedEarly.response.body)}`,
+        `Mission write returned before row lock: HTTP ${completedEarly.response.status} ${JSON.stringify(completedEarly.response.body)}`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(
-    `Mission replan did not reach the locked Mission row; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
+    `Mission write did not reach the locked Mission row; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
   );
 }
 
@@ -1210,7 +1210,7 @@ describe("AI missions and goals", () => {
       .then((response) => response);
     let lockWaitError: unknown;
     try {
-      await waitForMissionReplanLock(replanPromise);
+      await waitForMissionRowLock(replanPromise);
     } catch (error) {
       lockWaitError = error;
     } finally {
@@ -1273,7 +1273,7 @@ describe("AI missions and goals", () => {
       .then((response) => response);
     let lockWaitError: unknown;
     try {
-      await waitForMissionReplanLock(replanPromise);
+      await waitForMissionRowLock(replanPromise);
     } catch (error) {
       lockWaitError = error;
     } finally {
@@ -4541,6 +4541,112 @@ describe("AI missions and goals", () => {
     expect(persisted?.status).not.toBe("completed");
     expect(persisted?.outcomeContract).not.toMatchObject({
       planRevision: { hash: "unproven-revision" },
+    });
+  });
+
+  it("rejects Goal completion when its active plan revision rotates before the Mission lock", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Goal completion revision race",
+      intent: "Keep Goal completion bound to the active plan",
+    });
+    const missionId = mission.body.id as string;
+    const originalRevision = `goal-completion-before-${randomUUID()}`;
+    const rotatedRevision = `goal-completion-after-${randomUUID()}`;
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        autonomyPolicy: { activePlanRevision: originalRevision },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+    const goal = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({
+        title: "Plan-bound Goal",
+        planRevision: originalRevision,
+        successCriteria: {
+          objective: "Complete only under the accepted plan",
+          planRevision: { hash: originalRevision },
+        },
+        evidenceContract: { requiredEvidence: ["the-accepted-artifact"] },
+      });
+    expect(goal.status).toBe(201);
+    await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId,
+      goalId: goal.body.id,
+      planRevision: originalRevision,
+    });
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", completedAt: null })
+      .where(eq(aiGoalsTable.id, goal.body.id));
+
+    const validCompletion = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({ status: "completed" });
+    expect(validCompletion.status).toBe(200);
+    expect(validCompletion.body.status).toBe("completed");
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", completedAt: null })
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    await db.update(aiMissionsTable)
+      .set({
+        status: "active",
+        completedAt: null,
+        autonomyPolicy: { activePlanRevision: originalRevision },
+      })
+      .where(eq(aiMissionsTable.id, missionId));
+
+    let releaseRevisionRotation!: () => void;
+    let acquiredMissionLock!: () => void;
+    const missionLocked = new Promise<void>((resolve) => {
+      acquiredMissionLock = resolve;
+    });
+    const allowRotationCommit = new Promise<void>((resolve) => {
+      releaseRevisionRotation = resolve;
+    });
+    const revisionRotation = db.transaction(async (tx) => {
+      await tx.update(aiMissionsTable)
+        .set({
+          status: "active",
+          autonomyPolicy: { activePlanRevision: rotatedRevision },
+        })
+        .where(eq(aiMissionsTable.id, missionId));
+      acquiredMissionLock();
+      await allowRotationCommit;
+    });
+    await missionLocked;
+
+    const completionPromise = request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({ title: "Must remain uncompleted", status: "completed" })
+      .then((response) => response);
+    let lockWaitError: unknown;
+    try {
+      await waitForMissionRowLock(completionPromise);
+    } catch (error) {
+      lockWaitError = error;
+    } finally {
+      releaseRevisionRotation();
+    }
+    await revisionRotation;
+    const response = await completionPromise;
+    const [persistedGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    const [persistedMission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    if (lockWaitError) throw lockWaitError;
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("GOAL_COMPLETION_REQUIRES_PROOF");
+    expect(persistedGoal?.title).toBe("Plan-bound Goal");
+    expect(persistedGoal?.status).toBe("queued");
+    expect(persistedGoal?.outcomeContract).toMatchObject({
+      planRevision: { hash: originalRevision },
+    });
+    expect(persistedMission?.autonomyPolicy).toMatchObject({
+      activePlanRevision: rotatedRevision,
     });
   });
 
