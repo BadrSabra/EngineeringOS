@@ -29,7 +29,8 @@ import {
   createAiExecution,
   recoverAiExecutionResumeToken,
 } from "../ai-execution-state.js";
-import { startEpisode } from "./agent-episode-ledger.js";
+import { finalizeExecutionAcceptance } from "../ai-execution-acceptance.js";
+import { appendEpisodeEvent, startEpisode } from "./agent-episode-ledger.js";
 import {
   bindGitHubDeliveryTransitionEffect,
   createPendingGitHubDeliveryTransition,
@@ -50,12 +51,14 @@ import {
 } from "./world-state.js";
 import * as worldStateModule from "./world-state.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
-import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
+import { canonicalJsonHash, GoalNextActionSchema } from "@workspace/ai-orchestrator";
 import { taskScopeIdentity } from "./observation-materializer.js";
 import {
   APPLY_CHANGE_CAPABILITY_ID,
+  buildApplyChangeAction,
   buildApplyChangeEffectProofExpectation,
 } from "./apply-change-effect.js";
+import { APPLY_CHANGES_PROOF_MODE } from "./apply-changes-proof.js";
 
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
@@ -735,7 +738,7 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
-  it("requires a Mission Goal, serializes proof replay with apply materialization, and fences idempotency", async () => {
+  it("requires a Mission Goal, serializes real Apply acceptance replay with materialization, and fences idempotency", async () => {
     const fixture = await transitionFixture({ accepted: false });
     const now = new Date();
     const messageId = crypto.randomUUID();
@@ -758,6 +761,18 @@ describe("runtime.start transition retry scheduling", () => {
     const candidateTreeHash = await hashDeliveryTree(rootPath);
     createdWorkspaceRoots.push(rootPath);
     const changeSetHash = "d".repeat(64);
+    const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
+    await db.update(aiExecutionsTable)
+      .set({ correlationId: fixture.operationId })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const [executionIdentity] = await db.select({
+      operationId: aiExecutionsTable.operationId,
+      correlationId: aiExecutionsTable.correlationId,
+    }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    if (!executionIdentity?.operationId || !executionIdentity.correlationId) {
+      throw new Error("Apply proof fixture requires execution and proposal operation identities.");
+    }
     const beforeObservationId = crypto.randomUUID();
     const afterObservationId = crypto.randomUUID();
     const requirement = {
@@ -792,6 +807,7 @@ describe("runtime.start transition retry scheduling", () => {
       changes: "[]",
       status: "applied",
       lifecycle: "applied",
+      operationId: executionIdentity.correlationId,
       baseRevision,
       baseTreeHash,
       candidateTreeHash,
@@ -848,9 +864,34 @@ describe("runtime.start transition retry scheduling", () => {
       planRevision,
       createdAt: now,
     });
-    await db.update(aiExecutionsTable).set({ goalId, proposalId })
+    const applyRequest = {
+      operationId: executionIdentity.operationId,
+      workspaceRoot: rootPath,
+      workspaceRevision: baseRevision,
+      validationTargetPaths: ["src/target.ts"],
+      applyChangesProofMode: APPLY_CHANGES_PROOF_MODE,
+      proofRequired: true,
+      effectRequired: true,
+      turnIntent: "APPLY_CHANGES",
+    };
+    await db.update(aiExecutionsTable).set({
+      goalId,
+      proposalId,
+      workspaceRoot: rootPath,
+      request: JSON.stringify(applyRequest),
+    })
       .where(eq(aiExecutionsTable.id, fixture.executionId));
-    await db.update(aiAgentEpisodesTable).set({ missionId, goalId, planRevision })
+    await db.update(aiAgentEpisodesTable).set({
+      missionId,
+      goalId,
+      planRevision,
+      intentKind: "APPLY_CHANGES",
+      state: "verifying",
+      projectRevision: baseRevision,
+      verdict: null,
+      reasonCode: null,
+      closedAt: null,
+    })
       .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
     await db.insert(aiAgentObservationsTable).values({
         id: beforeObservationId,
@@ -908,9 +949,20 @@ describe("runtime.start transition retry scheduling", () => {
         evidenceRefs: ["apply-proof"],
         createdAt: now,
       });
+    const applyActionId = `action:${fixture.executionId}:0:apply`;
+    const beforeEvidenceRef = `apply:${fixture.executionId}:0:before`;
+    const afterEvidenceRef = `apply:${fixture.executionId}:0:after`;
+    const proofBeforeObservationId = crypto.randomUUID();
+    const proofAfterObservationId = crypto.randomUUID();
+    const applyEffect = buildApplyChangeEffectProofExpectation({
+      executionId: fixture.executionId,
+      attempt: 0,
+      proposalId,
+      candidateTreeHash,
+    });
     const input = {
       projectId: fixture.projectId, executionId: fixture.executionId, attempt: 0,
-      episodeId: fixture.episodeId, actionId: `apply:${fixture.transitionInput.actionId}`,
+      episodeId: fixture.episodeId, actionId: applyActionId,
       effectBundleId: fixture.effectBundleId, proposalId, goalId, planRevision,
       workerId: fixture.workerId, parentWorldRevision: fixture.transitionInput.parentWorldRevision,
       parentFactRefs: [], beforeObservationIds: [beforeObservationId], afterObservationIds: [afterObservationId],
@@ -925,11 +977,88 @@ describe("runtime.start transition retry scheduling", () => {
     await expect(createPendingApplyChangesTransition({ ...input, goalId: "" }))
       .rejects.toThrow("apply_transition_goal_required");
 
-    const applyEffect = buildApplyChangeEffectProofExpectation({
+    const proofObservationBase = {
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      kind: "direct_observation" as const,
+      observationRole: "workspace.tree_hash",
+      sourceType: "direct_observation",
+      subject: `project:${candidateIdentity}`,
+      predicate: "workspace.tree_hash",
+      taskScope: "project",
+      environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+      provenance: "DIRECT_OBSERVATION" as const,
+      sourceVersion: baseRevision,
+      sourceRefs: [],
+      observedAt: now,
+      projectRevision: baseRevision,
+      environmentRevision: fixture.environmentRevision,
+      completeness: "complete" as const,
+      freshness: "fresh" as const,
+      environmentFreshness: "fresh" as const,
+      createdAt: now,
+    };
+    await db.insert(aiAgentObservationsTable).values([
+      {
+        ...proofObservationBase,
+        id: proofBeforeObservationId,
+        sourceId: `${beforeEvidenceRef}:tree`,
+        value: baseTreeHash,
+        valueHash: canonicalJsonHash(baseTreeHash),
+        sequence: 2,
+        evidenceRefs: [beforeEvidenceRef],
+      },
+      {
+        ...proofObservationBase,
+        id: proofAfterObservationId,
+        sourceId: `${afterEvidenceRef}:tree`,
+        value: candidateTreeHash,
+        valueHash: canonicalJsonHash(candidateTreeHash),
+        sequence: 3,
+        evidenceRefs: [afterEvidenceRef],
+      },
+    ]);
+    const applyAction = buildApplyChangeAction({
+      actionId: applyActionId,
+      episodeId: fixture.episodeId,
+      projectId: fixture.projectId,
+      operationId: executionIdentity.correlationId,
+      proposalId,
+      attemptId: executionIdentity.operationId,
+      sourceRevision: baseRevision,
+      baseTreeHash,
+      candidateTreeHash,
+      changeSetHash,
+      approvedPaths: ["src/target.ts"],
+    });
+    await appendEpisodeEvent({
+      projectId: fixture.projectId,
       executionId: fixture.executionId,
       attempt: 0,
-      proposalId,
-      candidateTreeHash,
+      episodeId: fixture.episodeId,
+      workerId: fixture.workerId,
+      eventType: "ACTION_REQUESTED",
+      payload: {
+        action: applyAction,
+        actionId: applyActionId,
+        capabilityId: APPLY_CHANGE_CAPABILITY_ID,
+        expectedEffects: applyAction.expectedEffects,
+        effectContract: applyEffect.contract,
+      },
+    });
+    await appendEpisodeEvent({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      workerId: fixture.workerId,
+      eventType: "ACTION_COMMITTED",
+      payload: {
+        actionId: applyActionId,
+        status: "promoted",
+        afterTreeHash: candidateTreeHash,
+      },
     });
     const applyEffectId = crypto.randomUUID();
     await db.insert(aiAgentEffectsTable).values({
@@ -941,13 +1070,13 @@ describe("runtime.start transition retry scheduling", () => {
       actionId: input.actionId,
       capabilityId: APPLY_CHANGE_CAPABILITY_ID,
       effectContractHash: applyEffect.effectContractHash,
-      beforeObservationIds: input.beforeObservationIds,
-      afterObservationIds: input.afterObservationIds,
+      beforeObservationIds: [proofBeforeObservationId],
+      afterObservationIds: [proofAfterObservationId],
       expectedEffects: applyEffect.contract.expectedStateChanges,
       status: "observed",
       missingEffects: [],
       contradictionRefs: [],
-      evidenceRefs: ["apply-effect-proof"],
+      evidenceRefs: [beforeEvidenceRef, afterEvidenceRef],
       createdAt: new Date(),
     });
     await db.update(aiAgentEffectBundlesTable).set({
@@ -956,12 +1085,24 @@ describe("runtime.start transition retry scheduling", () => {
       verdict: "OBSERVED",
     }).where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId));
 
-    await acceptTransitionFixture({
-      projectId: fixture.projectId,
+    const acceptanceInput = {
       executionId: fixture.executionId,
-      operationId: fixture.operationId,
+      expectedAttempt: 0,
+      workerId: fixture.workerId,
+      finalizationKey: `final:${fixture.executionId}`,
+      outcome: "SUCCEEDED" as const,
+      terminalStatus: "completed" as const,
+      reasonCode: "CANONICAL_PROOF_PROVEN",
+      recoveryState: "NONE" as const,
+      effectRequired: true,
       effectBundleId: fixture.effectBundleId,
-    });
+      workspaceRoot: rootPath,
+      sourceRevision: baseRevision,
+      candidateIdentity,
+      proposalId,
+    };
+    const initialAcceptance = await finalizeExecutionAcceptance(acceptanceInput);
+    expect(initialAcceptance).toMatchObject({ accepted: true, duplicate: false });
     const finalizeInput = {
       projectId: fixture.projectId,
       executionId: fixture.executionId,
@@ -978,13 +1119,13 @@ describe("runtime.start transition retry scheduling", () => {
     const materializerRelease = new Promise<void>((resolve) => {
       releaseMaterializer = resolve;
     });
-    let announceEpisodeLocked!: () => void;
-    const episodeLocked = new Promise<void>((resolve) => {
-      announceEpisodeLocked = resolve;
+    let announceBundleLocked!: () => void;
+    const bundleLocked = new Promise<void>((resolve) => {
+      announceBundleLocked = resolve;
     });
-    let releaseProofToBundle!: () => void;
-    const proofToBundle = new Promise<void>((resolve) => {
-      releaseProofToBundle = resolve;
+    let releaseBundleBlocker!: () => void;
+    const bundleBlockerRelease = new Promise<void>((resolve) => {
+      releaseBundleBlocker = resolve;
     });
     const materializationErrors: unknown[] = [];
     const originalMaterializer = worldStateModule.materializeWorldStateForProject;
@@ -1002,50 +1143,35 @@ describe("runtime.start transition retry scheduling", () => {
         }
       });
 
-    // This controlled database overlap reproduced 40P01 before the Execution
-    // lock fence; it is not evidence that this schedule occurred in production.
-    const transitionWorker = finalizeApplyChangesTransition(finalizeInput);
-    const pending: Promise<unknown>[] = [transitionWorker];
-    let proofReader: Promise<unknown> | undefined;
+    const pending: Promise<unknown>[] = [];
+    let transitionWorker: ReturnType<typeof finalizeApplyChangesTransition> | undefined;
+    let duplicateAcceptance: ReturnType<typeof finalizeExecutionAcceptance> | undefined;
     try {
-      await materializerReady;
-      proofReader = db.transaction(async (tx) => {
-        // Mirror finalizeExecutionAcceptance → deriveApplyChangesProof:
-        // Execution → Acceptance → Proposal → Episode → effect bundle.
-        await tx.select({ id: aiExecutionsTable.id })
-          .from(aiExecutionsTable)
-          .where(eq(aiExecutionsTable.id, fixture.executionId))
-          .for("update");
-        await tx.select({ id: aiExecutionAcceptancesTable.id })
-          .from(aiExecutionAcceptancesTable)
-          .where(and(
-            eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
-            eq(aiExecutionAcceptancesTable.attempt, 0),
-          ))
-          .for("update");
-        await tx.select({ id: aiChangeProposalsTable.id })
-          .from(aiChangeProposalsTable)
-          .where(eq(aiChangeProposalsTable.id, proposalId))
-          .for("update");
-        await tx.select({ id: aiAgentEpisodesTable.id })
-          .from(aiAgentEpisodesTable)
-          .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
-          .for("update");
-        announceEpisodeLocked();
-        await proofToBundle;
+      const bundleBlocker = db.transaction(async (tx) => {
         await tx.select({ id: aiAgentEffectBundlesTable.id })
           .from(aiAgentEffectBundlesTable)
           .where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId))
           .for("update");
+        announceBundleLocked();
+        await bundleBlockerRelease;
       });
-      pending.push(proofReader);
-      await episodeLocked;
+      pending.push(bundleBlocker);
+      await bundleLocked;
+
+      transitionWorker = finalizeApplyChangesTransition(finalizeInput);
+      pending.push(transitionWorker);
+      await materializerReady;
+      duplicateAcceptance = finalizeExecutionAcceptance(acceptanceInput);
+      pending.push(duplicateAcceptance);
+      const acceptanceWaitedOn = await waitForLockWaiter(["ai_agent_effect_bundles"]);
+      expect(acceptanceWaitedOn).toBe("ai_agent_effect_bundles");
+
       releaseMaterializer();
       const workerWaitedOn = await waitForLockWaiter([
-        "ai_agent_episodes",
         "ai_executions",
+        "ai_agent_episodes",
       ]);
-      releaseProofToBundle();
+      releaseBundleBlocker();
       const outcomes = await Promise.allSettled(pending);
       const deadlockCodes = [
         ...outcomes.flatMap((outcome) =>
@@ -1055,15 +1181,36 @@ describe("runtime.start transition retry scheduling", () => {
       ].filter((code) => code === "40P01");
       expect(workerWaitedOn).toBe("ai_executions");
       expect(deadlockCodes).toEqual([]);
-      expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "fulfilled"]);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+        "fulfilled",
+      ]);
     } finally {
       releaseMaterializer();
-      releaseProofToBundle();
+      releaseBundleBlocker();
       await Promise.allSettled(pending);
     }
 
+    if (!transitionWorker || !duplicateAcceptance) {
+      throw new Error("Apply acceptance/materializer overlap did not start.");
+    }
     const finalized = await transitionWorker;
     expect(finalized.status).toBe("materialized");
+    expect(await duplicateAcceptance).toMatchObject({
+      accepted: true,
+      duplicate: true,
+    });
+    const acceptances = await db.select({
+      id: aiExecutionAcceptancesTable.id,
+      finalizationKey: aiExecutionAcceptancesTable.finalizationKey,
+    }).from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, 0),
+      ));
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]?.id).toBe(initialAcceptance.acceptance?.id);
     const concurrentReplays = await Promise.all([
       finalizeApplyChangesTransition(finalizeInput),
       finalizeApplyChangesTransition(finalizeInput),
