@@ -1,7 +1,7 @@
 # E3 Forensic Entry Audit
 
 **Date:** 2026-10-05
-**Status:** E3 implementation started 2026-10-11; Mission/Goal status-only projections, Mission aggregation race guard, and focused Shadow Replay final-receipt crash recovery updated 2026-10-16. E3 remains OPEN; E3.2 replay safety remains OPEN.
+**Status (updated 2026-10-17):** E3 implementation started 2026-10-11; latest addenda cover Mission/Goal status-only projections, paired-baseline identity checks, Evidence Graph/Finding boundaries, and Workflow/Task status projections. E3 remains OPEN; E3.2 replay safety remains OPEN.
 **E2 boundary:** Closed for proof-bound World State materialization as defined in the current project decision.
 
 ## 2026-10-11 — explicit E2 closure and first E3 projection slice
