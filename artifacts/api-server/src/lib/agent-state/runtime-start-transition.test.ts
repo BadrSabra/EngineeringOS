@@ -348,6 +348,43 @@ async function acceptTransitionFixture(fixture: {
   });
 }
 
+async function waitForLockWaiter(tables: readonly string[]): Promise<string> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ query: string | null }>;
+    }).rows ?? [];
+    for (const table of tables) {
+      if (rows.some((row) => (row.query ?? "").toLowerCase().includes(table.toLowerCase()))) {
+        return table;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting on any of: ${tables.join(", ")}.`);
+}
+
+function postgresErrorCodes(value: unknown): string[] {
+  const codes: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = value;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const error = current as { code?: unknown; cause?: unknown };
+    if (typeof error.code === "string") codes.push(error.code);
+    current = error.cause;
+  }
+  return codes;
+}
+
 function createRuntimeStartMissionHandoffFixture(projectId: string) {
   const missionId = crypto.randomUUID();
   const sourceGoalId = crypto.randomUUID();
@@ -698,7 +735,7 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
-  it("requires a Mission Goal and fences apply transition idempotency", async () => {
+  it("requires a Mission Goal, serializes proof replay with apply materialization, and fences idempotency", async () => {
     const fixture = await transitionFixture({ accepted: false });
     const now = new Date();
     const messageId = crypto.randomUUID();
@@ -933,16 +970,109 @@ describe("runtime.start transition retry scheduling", () => {
       actionId: input.actionId,
       effectBundleId: fixture.effectBundleId,
     };
-    const concurrentFinalizations = await Promise.all([
+    let announceMaterializerReady!: () => void;
+    const materializerReady = new Promise<void>((resolve) => {
+      announceMaterializerReady = resolve;
+    });
+    let releaseMaterializer!: () => void;
+    const materializerRelease = new Promise<void>((resolve) => {
+      releaseMaterializer = resolve;
+    });
+    let announceEpisodeLocked!: () => void;
+    const episodeLocked = new Promise<void>((resolve) => {
+      announceEpisodeLocked = resolve;
+    });
+    let releaseProofToBundle!: () => void;
+    const proofToBundle = new Promise<void>((resolve) => {
+      releaseProofToBundle = resolve;
+    });
+    const materializationErrors: unknown[] = [];
+    const originalMaterializer = worldStateModule.materializeWorldStateForProject;
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject")
+      .mockImplementation(async (projectId, options, beforeCommit) => {
+        try {
+          return await originalMaterializer(projectId, options, async (tx, result) => {
+            announceMaterializerReady();
+            await materializerRelease;
+            await beforeCommit?.(tx, result);
+          });
+        } catch (error) {
+          materializationErrors.push(error);
+          throw error;
+        }
+      });
+
+    // This controlled database overlap reproduced 40P01 before the Execution
+    // lock fence; it is not evidence that this schedule occurred in production.
+    const transitionWorker = finalizeApplyChangesTransition(finalizeInput);
+    const pending: Promise<unknown>[] = [transitionWorker];
+    let proofReader: Promise<unknown> | undefined;
+    try {
+      await materializerReady;
+      proofReader = db.transaction(async (tx) => {
+        // Mirror finalizeExecutionAcceptance → deriveApplyChangesProof:
+        // Execution → Acceptance → Proposal → Episode → effect bundle.
+        await tx.select({ id: aiExecutionsTable.id })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId))
+          .for("update");
+        await tx.select({ id: aiExecutionAcceptancesTable.id })
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+            eq(aiExecutionAcceptancesTable.attempt, 0),
+          ))
+          .for("update");
+        await tx.select({ id: aiChangeProposalsTable.id })
+          .from(aiChangeProposalsTable)
+          .where(eq(aiChangeProposalsTable.id, proposalId))
+          .for("update");
+        await tx.select({ id: aiAgentEpisodesTable.id })
+          .from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
+          .for("update");
+        announceEpisodeLocked();
+        await proofToBundle;
+        await tx.select({ id: aiAgentEffectBundlesTable.id })
+          .from(aiAgentEffectBundlesTable)
+          .where(eq(aiAgentEffectBundlesTable.id, fixture.effectBundleId))
+          .for("update");
+      });
+      pending.push(proofReader);
+      await episodeLocked;
+      releaseMaterializer();
+      const workerWaitedOn = await waitForLockWaiter([
+        "ai_agent_episodes",
+        "ai_executions",
+      ]);
+      releaseProofToBundle();
+      const outcomes = await Promise.allSettled(pending);
+      const deadlockCodes = [
+        ...outcomes.flatMap((outcome) =>
+          outcome.status === "rejected" ? postgresErrorCodes(outcome.reason) : [],
+        ),
+        ...materializationErrors.flatMap(postgresErrorCodes),
+      ].filter((code) => code === "40P01");
+      expect(workerWaitedOn).toBe("ai_executions");
+      expect(deadlockCodes).toEqual([]);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "fulfilled"]);
+    } finally {
+      releaseMaterializer();
+      releaseProofToBundle();
+      await Promise.allSettled(pending);
+    }
+
+    const finalized = await transitionWorker;
+    expect(finalized.status).toBe("materialized");
+    const concurrentReplays = await Promise.all([
       finalizeApplyChangesTransition(finalizeInput),
       finalizeApplyChangesTransition(finalizeInput),
     ]);
-    expect(concurrentFinalizations.every((result) =>
+    expect(concurrentReplays.every((result) =>
       result.status === "materialized" || result.status === "pending",
     )).toBe(true);
-    const finalized = concurrentFinalizations.find((result) => result.status === "materialized");
-    if (!finalized) throw new Error("apply transition was not materialized by either concurrent owner");
-    expect(finalized.status).toBe("materialized");
+    expect(concurrentReplays.some((result) => result.status === "materialized")).toBe(true);
+    expect(materializer).toHaveBeenCalledTimes(1);
     const [materializedTransition] = await db.select({
       changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
     }).from(aiWorldTransitionsTable)
@@ -960,9 +1090,10 @@ describe("runtime.start transition retry scheduling", () => {
         )))
       .map((fact) => fact.id)
       .sort((left, right) => left.localeCompare(right));
-    const actualChangedFactRefs = Array.isArray(materializedTransition?.changedFactRefs)
-      ? materializedTransition.changedFactRefs
-        .filter((factRef): factRef is string => typeof factRef === "string")
+    const changedFactRefs = materializedTransition?.changedFactRefs;
+    const actualChangedFactRefs = Array.isArray(changedFactRefs)
+      ? changedFactRefs
+        .filter((factRef: unknown): factRef is string => typeof factRef === "string")
         .sort((left, right) => left.localeCompare(right))
       : [];
     expect(expectedChangedFactRefs.length).toBeGreaterThan(0);

@@ -44,3 +44,9 @@ Before materializing or recovering an Apply Changes World Transition, re-establi
 **Why:** A later workspace edit can coexist with an accepted effect bundle; trusting retained observations alone could materialize unrelated bytes as part of the approved change.
 
 **How to apply:** Recheck the live candidate tree on every finalization attempt before the World State transaction. Retry transient database transaction failures while preserving acceptance/effect evidence and rolling back facts; keep binding, attempt, Episode, observation, and live-tree mismatches fail-closed.
+
+Serialize Apply proof replay and World Transition materialization on the current Execution row before acquiring the effect bundle. Keep proof replay's Execution→Acceptance→Proposal→Episode→Bundle order; materialization takes Execution before Bundle, then may update Transition and Episode.
+
+**Why:** A controlled PostgreSQL overlap reproduced `40P01` when materialization held Bundle and waited to update Episode while proof replay held Episode and waited for Bundle. This establishes a possible deadlock under that test schedule, not an observed production incident.
+
+**How to apply:** When changing either path's row locks, keep materialization's current-attempt Execution lock ahead of Bundle and retain transition ownership and canonical proof checks. Verify with an isolated PostgreSQL overlap test.

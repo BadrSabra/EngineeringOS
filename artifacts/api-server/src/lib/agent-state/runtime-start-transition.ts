@@ -1602,6 +1602,30 @@ export async function finalizeApplyChangesTransition(input: {
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: [input.episodeId],
     }, async (tx, result) => {
+      // Acceptance proof replay locks Execution before Acceptance, Episode, and
+      // the effect bundle. Match that order so replay cannot deadlock against
+      // this transaction's later Episode update.
+      const [execution] = await tx.select({
+        id: aiExecutionsTable.id,
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        goalId: aiExecutionsTable.goalId,
+        proposalId: aiExecutionsTable.proposalId,
+      }).from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, input.executionId),
+          eq(aiExecutionsTable.projectId, input.projectId),
+          eq(aiExecutionsTable.attempt, input.attempt),
+        ))
+        .for("update")
+        .limit(1);
+      if (
+        !execution
+        || execution.status !== "completed"
+        || execution.goalId !== binding.goalId
+        || execution.proposalId !== binding.proposalId
+      ) throw new Error("apply_transition_execution_binding_mismatch");
+
       const [bundle] = await tx.select()
         .from(aiAgentEffectBundlesTable)
         .where(and(
