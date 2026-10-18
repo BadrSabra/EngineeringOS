@@ -24,6 +24,8 @@ import {
   aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  workflowsTable,
+  workflowExecutionsTable,
   aiAgentEpisodesTable,
   aiAgentEffectBundlesTable,
   aiAgentObservationsTable,
@@ -77,6 +79,8 @@ import {
   buildActiveTaskExecutionPlan,
   isResumableTaskType,
   isSessionQualityAuditRequest,
+  isWorkflowStatusRequest,
+  normalizeIntentText,
   parseActiveTaskState,
   resumeActiveTaskClassification,
   serializeActiveTaskState,
@@ -964,6 +968,258 @@ function publicQualityFailure(value: QualityFailure): QualityFailure {
       .filter(Boolean)
       .slice(0, 8),
   };
+}
+
+function isPreviousFailureQuestion(message: string): boolean {
+  const normalized = normalizeIntentText(message).toLowerCase();
+  return (
+    /\b(?:previous|last|prior|earlier)\b[\s\S]{0,80}\b(?:failure|failed|error|request|run|attempt)\b/u.test(normalized)
+    || /\b(?:why|what caused|cause of|reason for)\b[\s\S]{0,100}\b(?:previous|last|prior|earlier)\b[\s\S]{0,60}\b(?:failure|failed|error|request|run|attempt)\b/u.test(normalized)
+    || /\bwhy\b[\s\S]{0,100}\b(?:fail(?:ed|ure)?|error|request|run|attempt)\b[\s\S]{0,60}\b(?:previous|last|prior|earlier)\b/u.test(normalized)
+    || /(?:ما\s+)?(?:سبب|اسباب)\s+(?:الفشل|فشل|الاخفاق)[\s\S]{0,40}(?:السابق|السابقة|الاخير|الاخيرة)/u.test(normalized)
+    || /(?:لماذا|ليش|ليه)[\s\S]{0,50}(?:فشل|الفشل|تعثر|الخطا)[\s\S]{0,50}(?:السابق|السابقة|الاخير|الاخيرة)/u.test(normalized)
+  );
+}
+
+function buildWorkflowStatusResponse(
+  message: string,
+  workflows: Array<typeof workflowsTable.$inferSelect>,
+  latestExecutions: Array<typeof workflowExecutionsTable.$inferSelect>,
+): string {
+  const isArabic = /[\u0600-\u06FF]/u.test(message);
+  if (workflows.length === 0) {
+    return isArabic
+      ? "لا توجد workflows مسجلة لهذا المشروع في EngineeringOS، لذلك لا توجد عمليات تشغيل أو عوائق مسجلة لعرضها. هذا الملخص لا يشمل workflows التي تديرها Replit."
+      : "No EngineeringOS workflows are registered for this project, so there are no workflow runs or recorded blockers to report. This does not include Replit-managed workflows.";
+  }
+
+  const latestByWorkflow = new Map(
+    latestExecutions.map((execution) => [execution.workflowId, execution]),
+  );
+  const statusLabels: Record<string, string> = isArabic
+    ? {
+        idle: "خامد",
+        running: "قيد التشغيل",
+        completed: "مكتمل",
+        failed: "فاشل",
+        stopped: "متوقف",
+      }
+    : {};
+  const lines = workflows.map((workflow) => {
+    const execution = latestByWorkflow.get(workflow.id);
+    const phaseCount = Array.isArray(workflow.phases) ? workflow.phases.length : 0;
+    const completedCount = execution && Array.isArray(execution.completedPhases)
+      ? execution.completedPhases.length
+      : 0;
+    const phase = execution?.currentPhase ?? workflow.currentPhase;
+    const error = execution?.errorMessage
+      ? redactUserFacingText(execution.errorMessage).replace(/\s+/gu, " ").slice(0, 240)
+      : undefined;
+    if (isArabic) {
+      const status = statusLabels[workflow.status] ?? workflow.status;
+      return [
+        `• ${redactUserFacingText(workflow.name).slice(0, 100)}: ${status}`,
+        phase ? `المرحلة الحالية: ${redactUserFacingText(phase).slice(0, 100)}` : undefined,
+        execution
+          ? `آخر تشغيل: ${statusLabels[execution.status] ?? execution.status}${phaseCount > 0 ? `؛ اكتملت ${completedCount} من ${phaseCount} مراحل` : ""}`
+          : "لا يوجد تشغيل مسجل",
+        error ? `العائق المسجل: ${error}` : undefined,
+      ].filter(Boolean).join(" — ");
+    }
+    return [
+      `• ${redactUserFacingText(workflow.name).slice(0, 100)}: ${workflow.status}`,
+      phase ? `current phase: ${redactUserFacingText(phase).slice(0, 100)}` : undefined,
+      execution
+        ? `latest run: ${execution.status}${phaseCount > 0 ? `; ${completedCount}/${phaseCount} phases complete` : ""}`
+        : "no execution recorded",
+      error ? `recorded blocker: ${error}` : undefined,
+    ].filter(Boolean).join(" — ");
+  });
+
+  const failedCount = workflows.filter((workflow) => {
+    const latest = latestByWorkflow.get(workflow.id);
+    return workflow.status === "failed" || latest?.status === "failed";
+  }).length;
+  const runningCount = workflows.filter((workflow) => {
+    const latest = latestByWorkflow.get(workflow.id);
+    return workflow.status === "running" || latest?.status === "running";
+  }).length;
+  const summary = isArabic
+    ? `حالة workflows المسجلة (${workflows.length}): ${runningCount} قيد التشغيل، ${failedCount} فاشلة. العوائق أدناه من رسائل الخطأ المسجلة فقط.`
+    : `Registered workflow status (${workflows.length}): ${runningCount} running, ${failedCount} failed. Blockers below come only from recorded execution errors.`;
+  return `${summary}\n\n${lines.join("\n")}`;
+}
+
+function buildPreviousFailureResponse(
+  message: string,
+  failure: {
+    executionId: string | null;
+    errorCode: string | null;
+    errorMessage?: string | null;
+    toolTrace: string | null;
+  } | undefined,
+): string {
+  const isArabic = /[\u0600-\u06FF]/u.test(message);
+  if (!failure) {
+    return isArabic
+      ? "لا أجد تنفيذًا فاشلًا مسجلًا في جلسة المحادثة المحددة، لذلك لا أستطيع تحديد سبب سابق دون تخمين."
+      : "I can’t find a failed execution recorded in the selected chat session, so I can’t identify a prior cause without guessing.";
+  }
+  const metadata = terminalMetadataFromTrace(failure.toolTrace);
+  const parts: string[] = [];
+  if (metadata.providerFailureCategory === "RATE_LIMITED" || failure.errorCode === "RATE_LIMITED") {
+    if (isArabic) {
+      parts.push(metadata.rateLimitScope === "upstream_shared_pool"
+        ? "رفض المزوّد الطلب بسبب حدّ الحصة المشتركة لديه."
+        : "رفض المزوّد الطلب بسبب حدّ استخدام.");
+      parts.push(metadata.retryAfterMs
+        ? `حدد المزوّد انتظارًا لا يقل عن ${Math.ceil(metadata.retryAfterMs / 1000)} ثانية.`
+        : "لم يرد وقت محدد لإعادة المحاولة؛ هذا الرد لا يبدأ إعادة تلقائية.");
+    } else {
+      parts.push(metadata.rateLimitScope === "upstream_shared_pool"
+        ? "The provider rejected the request because its shared upstream pool was rate-limited."
+        : "The provider rejected the request because of a rate limit.");
+      parts.push(metadata.retryAfterMs
+        ? `The provider requested a wait of at least ${Math.ceil(metadata.retryAfterMs / 1000)} seconds.`
+        : "No retry-after time was recorded; this reply does not start an automatic retry.");
+    }
+  } else {
+    const code = failure.errorCode ?? "unknown failure";
+    parts.push(isArabic
+      ? `رمز الفشل المسجل هو ${code}.`
+      : `The recorded failure code is ${code}.`);
+  }
+  if (failure.errorMessage?.trim()) {
+    const safeError = redactUserFacingText(failure.errorMessage).replace(/\s+/gu, " ").slice(0, 300);
+    parts.push(isArabic ? `نص الخطأ المسجل: ${safeError}` : `Recorded error: ${safeError}`);
+  }
+  if (
+    failure.errorCode === "EXECUTION_ACCEPTANCE_INCOMPLETE"
+    || metadata.acceptanceDisposition?.nextActionCode === "REVIEW_INCOMPLETE_EVIDENCE"
+  ) {
+    parts.push(isArabic
+      ? "وبقيت الأدلة المطلوبة غير مكتملة، لذلك لم تُقبل إجابة تحليلية نهائية."
+      : "Required evidence also remained incomplete, so no final analysis answer was accepted.");
+  }
+  if (failure.executionId) {
+    parts.push(isArabic
+      ? `التنفيذ المعني: ${failure.executionId.slice(0, 8)}.`
+      : `Relevant execution: ${failure.executionId.slice(0, 8)}.`);
+  }
+  return parts.join(" ");
+}
+
+async function streamDeterministicChatReply(params: {
+  res: Response;
+  projectId: string;
+  message: string;
+  existingSession?: typeof aiChatSessionsTable.$inferSelect;
+  content: string;
+  operation: "workflow_status" | "execution_failure_diagnostic";
+  operationMetadata: Record<string, unknown>;
+}): Promise<void> {
+  const startedAt = Date.now();
+  const now = new Date();
+  const sessionId = params.existingSession?.id ?? randomUUID();
+  const title = params.existingSession?.title
+    ?? (params.message.trim().length > 10
+      ? params.message.trim().slice(0, 60)
+      : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`);
+  const userMessageId = randomUUID();
+  const assistantMessageId = randomUUID();
+  const assistantCreatedAt = new Date(now.getTime() + 1);
+  const sources: string[] = [];
+  const toolTrace = JSON.stringify([{
+    kind: "deterministic_operational_reply",
+    operation: params.operation,
+    ...params.operationMetadata,
+  }]);
+  await db.transaction(async (tx) => {
+    if (!params.existingSession) {
+      await tx.insert(aiChatSessionsTable).values({
+        id: sessionId,
+        projectId: params.projectId,
+        title,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    await tx.insert(aiChatMessagesTable).values([
+      {
+        id: userMessageId,
+        sessionId,
+        role: "user",
+        content: params.message,
+        turnIntent: "CHAT",
+        executionId: null,
+        outcome: null,
+        createdAt: now,
+      },
+      {
+        id: assistantMessageId,
+        sessionId,
+        role: "assistant",
+        content: params.content,
+        turnIntent: "CHAT",
+        executionId: null,
+        outcome: "SUCCEEDED",
+        sources: JSON.stringify(sources),
+        toolTrace,
+        createdAt: assistantCreatedAt,
+      },
+    ]);
+    await tx.update(aiChatSessionsTable)
+      .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${assistantCreatedAt})` })
+      .where(eq(aiChatSessionsTable.id, sessionId));
+  });
+
+  const assistantMessage = {
+    id: assistantMessageId,
+    sessionId,
+    role: "assistant",
+    content: params.content,
+    turnIntent: "CHAT",
+    executionId: null,
+    outcome: "SUCCEEDED",
+    errorCode: null,
+    errorMessage: null,
+    sources: JSON.stringify(sources),
+    toolTrace,
+    createdAt: assistantCreatedAt.toISOString(),
+  };
+  params.res.status(200);
+  params.res.setHeader("Content-Type", "text/event-stream");
+  params.res.setHeader("Cache-Control", "no-cache, no-transform");
+  params.res.setHeader("Connection", "keep-alive");
+  params.res.setHeader("X-Accel-Buffering", "no");
+  params.res.flushHeaders();
+  if (!params.existingSession) {
+    params.res.write(serializeAiSseEvent({
+      type: "session_started",
+      sessionId,
+      title,
+      updatedAt: assistantCreatedAt.toISOString(),
+    }));
+  }
+  params.res.write(serializeAiSseEvent({
+    type: "intent",
+    intent: "CHAT",
+    operationMode: "CHAT",
+    requiresEvidence: false,
+  }));
+  params.res.write(serializeAiSseEvent({ type: "delta", content: params.content }));
+  params.res.write(serializeAiSseEvent({
+    type: "done",
+    sessionId,
+    message: assistantMessage,
+    turnIntent: "CHAT",
+    sources,
+    toolTrace,
+    pendingChanges: [],
+    operationMode: "CHAT",
+    telemetry: { latencyMs: Date.now() - startedAt },
+  }));
+  params.res.end();
 }
 
 function terminalMetadataFromTrace(value: string | null | undefined): {
@@ -8028,6 +8284,109 @@ export async function handleChatStream(req: Request, res: Response) {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  const operationalReplyEligible =
+    !effectiveExecutionId
+    && !resumeToken
+    && !buildPlanMessageId
+    && !objective
+    && !linkedTaskId
+    && (isWorkflowStatusRequest(message) || isPreviousFailureQuestion(message));
+  if (operationalReplyEligible) {
+    let existingOperationalSession: typeof aiChatSessionsTable.$inferSelect | undefined;
+    if (requestedSessionId) {
+      const [authorizedSession] = await db
+        .select()
+        .from(aiChatSessionsTable)
+        .where(and(
+          eq(aiChatSessionsTable.id, requestedSessionId),
+          eq(aiChatSessionsTable.projectId, projectId),
+        ))
+        .limit(1);
+      if (authorizedSession) {
+        existingOperationalSession = authorizedSession;
+      } else {
+        // Read only the session ID to distinguish a missing session from a
+        // foreign one. Do not load its title, active task, or other contents.
+        const [foreignSession] = await db
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, requestedSessionId))
+          .limit(1);
+        if (foreignSession) {
+          res.status(403).json({ error: "Session does not belong to this project" });
+          return;
+        }
+        res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+        return;
+      }
+    }
+
+    if (isWorkflowStatusRequest(message)) {
+      const workflows = await db
+        .select()
+        .from(workflowsTable)
+        .where(eq(workflowsTable.projectId, projectId))
+        .orderBy(desc(workflowsTable.updatedAt), desc(workflowsTable.id))
+        .limit(50);
+      const latestExecutions = workflows.length > 0
+        ? await db
+            .selectDistinctOn([workflowExecutionsTable.workflowId])
+            .from(workflowExecutionsTable)
+            .where(inArray(
+              workflowExecutionsTable.workflowId,
+              workflows.map((workflow) => workflow.id),
+            ))
+            .orderBy(
+              workflowExecutionsTable.workflowId,
+              desc(workflowExecutionsTable.startedAt),
+              desc(workflowExecutionsTable.id),
+            )
+        : [];
+      await streamDeterministicChatReply({
+        res,
+        projectId,
+        message,
+        existingSession: existingOperationalSession,
+        content: buildWorkflowStatusResponse(message, workflows, latestExecutions),
+        operation: "workflow_status",
+        operationMetadata: { workflowCount: workflows.length },
+      });
+      return;
+    }
+
+    const latestFailure = existingOperationalSession
+      ? await db
+          .select({
+            executionId: aiChatMessagesTable.executionId,
+            errorCode: aiChatMessagesTable.errorCode,
+            errorMessage: aiChatMessagesTable.errorMessage,
+            toolTrace: aiChatMessagesTable.toolTrace,
+          })
+          .from(aiChatMessagesTable)
+          .where(and(
+            eq(aiChatMessagesTable.sessionId, existingOperationalSession.id),
+            eq(aiChatMessagesTable.role, "assistant"),
+            inArray(aiChatMessagesTable.outcome, ["FAILED", "INTERRUPTED"]),
+          ))
+          .orderBy(desc(aiChatMessagesTable.createdAt))
+          .limit(1)
+      : [];
+    const failure = latestFailure[0];
+    await streamDeterministicChatReply({
+      res,
+      projectId,
+      message,
+      existingSession: existingOperationalSession,
+      content: buildPreviousFailureResponse(message, failure),
+      operation: "execution_failure_diagnostic",
+      operationMetadata: {
+        executionId: failure?.executionId ?? null,
+        failureCode: failure?.errorCode ?? null,
+      },
+    });
+    return;
+  }
 
   let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>> | undefined;
   let storedExecutionRequest: AiExecutionRequestEnvelope | undefined;

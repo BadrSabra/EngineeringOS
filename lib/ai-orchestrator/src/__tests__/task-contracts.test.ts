@@ -13,6 +13,7 @@ import {
   extractQuestionCoverage,
   isCapabilityGapAuditRequest,
   isGapAnalysisRequest,
+  isWorkflowStatusRequest,
   SemanticBehaviorAnswerSchema,
   validateBehaviorEvidence,
   validateTaskResponse,
@@ -37,6 +38,19 @@ describe("task-aware contracts", () => {
     }
     expect(isGapAnalysisRequest("ما اسم المشروع؟")).toBe(false);
     expect(isGapAnalysisRequest("What is the current project state?")).toBe(false);
+    const workflowStatusQuestion =
+      "How are my workflows progressing? Any blockers or risks?";
+    expect(isWorkflowStatusRequest(workflowStatusQuestion)).toBe(true);
+    expect(isGapAnalysisRequest(workflowStatusQuestion)).toBe(false);
+    expect(isWorkflowStatusRequest("كيف تتقدم workflows؟")).toBe(true);
+    expect(isGapAnalysisRequest("كيف تتقدم workflows؟")).toBe(false);
+    expect(isWorkflowStatusRequest("Analyze risks in the workflow implementation")).toBe(false);
+    expect(isWorkflowStatusRequest("Analyze workflow failure handling")).toBe(false);
+  });
+
+  it("does not classify a bare retry as a new broad forensic audit", () => {
+    expect(classifyForensicTask("أعد المحاولة")).toBe("BEHAVIOR_QUERY");
+    expect(classifyForensicTask("retry")).toBe("BEHAVIOR_QUERY");
   });
 
   it("recognizes parity comparison as a capability-gap audit without broadening ordinary chat", () => {

@@ -546,9 +546,7 @@ const FULL_AUDIT_PATTERNS = [
   /(?:الفجوات|فجوات)\s+(?:في|بطبقة|بمنظومة|داخل)(?:\s|$)/u,
   /(?:اكتشف|ابحث|حدد|حلل|استكشف|افحص|راجع)\s+(?:عن\s+)?(?:المشاكل|المشكلة|المشكلات|الأخطاء|العيوب)(?:\s|$)/u,
   /\b(?:regenerate|rerun|retry|try\s+again)\b[\s\S]{0,60}\b(?:report|audit|repair\s+plan|plan)\b/i,
-  /^(?:retry|try\s+again)$/i,
   /(?:أعد|اعد)\s+(?:المحاولة|توليد|إنتاج|انشاء|إنشاء|صياغة|بناء|إعادة\s+توليد)[\s\S]{0,60}(?:التقرير|الخطة|التدقيق|المراجعة|التحقيق)/u,
-  /^(?:أعد|اعد)\s+المحاولة$/u,
   /\b(?:continue|resume)\s+(?:the\s+)?(?:investigation|analysis|audit)\b/i,
   /(?:أكمل|اكمل|استكمل|تابع)\s+(?:التحقيق|التحليل|التدقيق)/u,
   /\b(?:why|how)\b[\s\S]{0,160}\b(?:model|agent|assistant)\b[\s\S]{0,160}\b(?:follow|obey|comply|ignore|refuse|fail)\w*[\s\S]{0,80}\b(?:instruction|directive|prompt)\w*\b/i,
@@ -676,6 +674,25 @@ export function normalizeIntentText(message: string): string {
     .trim();
 }
 
+const WORKFLOW_STATUS_ENTITY_RE =
+  /\b(?:workflow(?:s)?|workflow\s+runs?)\b|(?:سير\s+العمل|مسارات?\s+العمل)/iu;
+const WORKFLOW_STATUS_SIGNAL_RE =
+  /\b(?:status|progress(?:ing|ed)?|running|active|completed|failed|blocked|stalled)\b|(?:حالة|تقدم|التقدم|يتقدم|تتقدم|جاري|نشط|مكتمل|فشل|متعثر|متوقف)/iu;
+const WORKFLOW_STATUS_QUESTION_RE =
+  /\b(?:how|what|where|which|are|is|show|list|check|report|summari[sz]e|give|any)\b|(?:كيف|ما|ماذا|أين|اعرض|أظهر|لخص|هل|اعطني)/iu;
+
+/**
+ * Operational workflow questions should be answered from persisted workflow
+ * state, not interpreted as source-code gap analysis because they also mention
+ * "risks" or "blockers".
+ */
+export function isWorkflowStatusRequest(message: string): boolean {
+  const normalized = normalizeIntentText(message);
+  return WORKFLOW_STATUS_ENTITY_RE.test(normalized)
+    && WORKFLOW_STATUS_SIGNAL_RE.test(normalized)
+    && WORKFLOW_STATUS_QUESTION_RE.test(normalized);
+}
+
 export type IntentMatch = {
   index: number;
   length: number;
@@ -727,6 +744,7 @@ export function findGapAnalysisMatch(message: string): IntentMatch | null {
  * ordinary-looking project questions.
  */
 export function isGapAnalysisRequest(message: string): boolean {
+  if (isWorkflowStatusRequest(message)) return false;
   return findGapAnalysisMatch(message) !== null;
 }
 

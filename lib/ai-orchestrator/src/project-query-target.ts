@@ -2,6 +2,7 @@ import type { ObjectiveContract } from "./schemas/chat.schema.js";
 import {
   isCapabilityGapAuditRequest,
   isGapAnalysisRequest,
+  isWorkflowStatusRequest,
   type EvidenceReference,
 } from "./task-contracts.js";
 import {
@@ -891,6 +892,7 @@ function materializeTarget(
 }
 
 export function resolveProjectQueryTarget(message: string): ProjectQueryTarget | undefined {
+  if (isWorkflowStatusRequest(message)) return undefined;
   if (isAcceptanceCoverageRequest(message)) return undefined;
   // Broad architecture explanations use the source-backed orientation
   // contract. Do not let a mention such as "AI execution" select only the

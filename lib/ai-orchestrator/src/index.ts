@@ -930,6 +930,8 @@ export {
   buildTaskValidationFallback,
   getTaskOutputContract,
   isCapabilityGapAuditRequest,
+  isWorkflowStatusRequest,
+  normalizeIntentText,
   routeTask,
   scoreEvidenceRelevance,
   SemanticBehaviorAnswerSchema,

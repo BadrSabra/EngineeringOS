@@ -91,6 +91,11 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it("does not assign source-code gap targets to workflow progress questions", () => {
+    const message = "How are my workflows progressing? Any blockers or risks?";
+    expect(resolveProjectQueryTarget(message)).toBeUndefined();
+  });
+
   it("does not select delivery from incidental mentions in a broad embedded-AI audit", () => {
     const message = [
       "Perform a read-only forensic audit of the embedded AI layer.",

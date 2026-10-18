@@ -6877,6 +6877,234 @@ describe("Concurrent chat ordering and ownership", () => {
 
 // ─── INT-005: SSE success path ────────────────────────────────────────────────
 
+describe("deterministic operational chat replies", () => {
+  it("answers workflow progress from project-owned workflow and execution rows without a provider", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const workflowId = randomUUID();
+    const now = new Date();
+    await db.insert(workflowsTable).values({
+      id: workflowId,
+      projectId,
+      name: "Nightly build",
+      status: "failed",
+      phases: [
+        { name: "Prepare", steps: ["checkout"] },
+        { name: "Build", steps: ["compile"] },
+      ],
+      currentPhase: "Build",
+      executionCount: 1,
+      updatedAt: now,
+    });
+    await db.insert(workflowExecutionsTable).values({
+      id: `execution-${randomUUID()}`,
+      workflowId,
+      status: "failed",
+      currentPhase: "Build",
+      completedPhases: ["Prepare"],
+      startedAt: now,
+      errorMessage: "Provider returned a shared-pool rate limit",
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: "How are my workflows progressing? Any blockers or risks?",
+      });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    const done = events.find((event) => event.type === "done");
+    const sessionStarted = events.find((event) => event.type === "session_started");
+    const content = String((done?.message as Record<string, unknown> | undefined)?.content);
+    expect(content).toContain("1 failed");
+    expect(content).toContain("Nightly build");
+    expect(content).toContain("1/2 phases complete");
+    expect(content).toContain("recorded blocker: Provider returned a shared-pool rate limit");
+    expect(sessionStarted?.sessionId).toEqual(expect.any(String));
+    expect(vi.mocked(requireProvider)).not.toHaveBeenCalled();
+    expect(vi.mocked(chatWithFallback)).not.toHaveBeenCalled();
+
+    const arabicResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: String(sessionStarted?.sessionId),
+        message: "كيف تتقدم workflows؟",
+      });
+    expect(arabicResponse.status).toBe(200);
+    const arabicDone = parseSseEvents(arabicResponse.text)
+      .find((event) => event.type === "done");
+    const arabicContent = String(
+      (arabicDone?.message as Record<string, unknown> | undefined)?.content,
+    );
+    expect(arabicContent).toContain("حالة workflows المسجلة");
+    expect(arabicContent).toContain("Nightly build");
+    expect(arabicContent).toContain("اكتملت 1 من 2 مراحل");
+
+    const savedMessages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, String(sessionStarted?.sessionId)))
+      .orderBy(aiChatMessagesTable.createdAt);
+    expect(savedMessages.map((entry) => entry.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(savedMessages[1]?.content).toBe(content);
+    expect(savedMessages[1]?.outcome).toBe("SUCCEEDED");
+    expect(savedMessages[3]?.content).toBe(arabicContent);
+  });
+
+  it("explains a previous rate-limit failure from the selected session's stored execution metadata", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Failure diagnosis");
+    const now = new Date(Date.now() - 1_000);
+    const executionId = `execution-${randomUUID()}`;
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: "Run the analysis",
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: "The analysis request failed.",
+        executionId,
+        outcome: "FAILED",
+        errorCode: "RATE_LIMITED",
+        errorMessage: "Provider quota limit",
+        toolTrace: JSON.stringify([{
+          kind: "terminal_outcome",
+          providerFailureCategory: "RATE_LIMITED",
+          rateLimitScope: "upstream_shared_pool",
+        }]),
+        createdAt: now,
+      },
+    ]);
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "Why did the previous request fail?",
+      });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    const done = events.find((event) => event.type === "done");
+    const content = String((done?.message as Record<string, unknown> | undefined)?.content);
+    expect(content).toContain("shared upstream pool");
+    expect(content).toContain("does not start an automatic retry");
+    expect(content).toContain(executionId.slice(0, 8));
+    expect(vi.mocked(requireProvider)).not.toHaveBeenCalled();
+    expect(vi.mocked(chatWithFallback)).not.toHaveBeenCalled();
+
+    const arabicResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "لماذا فشل التنفيذ السابق؟",
+      });
+    expect(arabicResponse.status).toBe(200);
+    const arabicDone = parseSseEvents(arabicResponse.text)
+      .find((event) => event.type === "done");
+    const arabicContent = String(
+      (arabicDone?.message as Record<string, unknown> | undefined)?.content,
+    );
+    expect(arabicContent).toContain("حدّ الحصة المشتركة");
+    expect(arabicContent).toContain("هذا الرد لا يبدأ إعادة تلقائية");
+
+    const savedMessages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId))
+      .orderBy(aiChatMessagesTable.createdAt);
+    expect(savedMessages.at(-4)?.content).toBe("Why did the previous request fail?");
+    expect(savedMessages.at(-3)?.content).toBe(content);
+    expect(savedMessages.at(-2)?.content).toBe("لماذا فشل التنفيذ السابق؟");
+    expect(savedMessages.at(-1)?.content).toBe(arabicContent);
+  });
+
+  it("does not expose workflow or failure details through a session owned by another project", async () => {
+    const requestingProjectId = await insertProject();
+    const owningProjectId = await insertProject();
+    projectIds.push(requestingProjectId, owningProjectId);
+    const foreignSessionId = await insertChatSession(owningProjectId, "Private session");
+    const workflowId = randomUUID();
+    const executionId = `execution-${randomUUID()}`;
+    await db.insert(workflowsTable).values({
+      id: workflowId,
+      projectId: owningProjectId,
+      name: "PRIVATE_WORKFLOW_MARKER",
+      status: "failed",
+      phases: [],
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: foreignSessionId,
+      role: "assistant",
+      content: "Private failed attempt",
+      executionId,
+      outcome: "FAILED",
+      errorCode: "RATE_LIMITED",
+      errorMessage: "PRIVATE_FAILURE_MARKER",
+      toolTrace: JSON.stringify([{
+        kind: "terminal_outcome",
+        providerFailureCategory: "RATE_LIMITED",
+        rateLimitScope: "upstream_shared_pool",
+      }]),
+    });
+
+    const statusResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId: requestingProjectId,
+        sessionId: foreignSessionId,
+        message: "How are my workflows progressing?",
+      });
+    expect(statusResponse.status).toBe(403);
+    expect(statusResponse.text).not.toContain("PRIVATE_WORKFLOW_MARKER");
+    expect(statusResponse.text).not.toContain("PRIVATE_FAILURE_MARKER");
+
+    const failureResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId: requestingProjectId,
+        sessionId: foreignSessionId,
+        message: "Why did the previous request fail?",
+      });
+    expect(failureResponse.status).toBe(403);
+    expect(failureResponse.text).not.toContain("PRIVATE_FAILURE_MARKER");
+    expect(failureResponse.text).not.toContain(executionId);
+    expect(vi.mocked(requireProvider)).not.toHaveBeenCalled();
+    expect(vi.mocked(chatWithFallback)).not.toHaveBeenCalled();
+
+    const savedMessages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, foreignSessionId));
+    expect(savedMessages).toHaveLength(1);
+    expect(savedMessages[0]?.content).toBe("Private failed attempt");
+  });
+});
+
 describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
   it("release-smoke-success: should stream successful OpenRouter completion over SSE", async () => {
     const projectId = await insertProject();
