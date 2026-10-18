@@ -45,6 +45,16 @@ function baseExecution(state: string, nodeStatus: string = state === 'BLOCKED' ?
     flightState: state,
     proofRequired: true,
     evidenceVerdict: state === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL',
+    operationEvidence: {
+      completeness: state === 'BLOCKED' ? 'blocked' : 'partial',
+      proof: {
+        verdict: state === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL',
+        accepted: false,
+        failureReasons: state === 'BLOCKED' ? ['execution_failed'] : ['evidence_incomplete'],
+      },
+      receipts: [],
+      gaps: [],
+    },
     evidenceReason: 'The current evidence verdict is retained by the execution checkpoint.',
     objective: { objective: 'Repair the authentication scope check' },
     checkpoint: {
@@ -178,6 +188,67 @@ describe('Flight Deck mission control', () => {
     renderDeck();
 
     expect(screen.getAllByText('READY FOR REVIEW').length).toBeGreaterThan(0);
+  });
+
+  it('does not show a completed delivery state when current Canonical Proof is unproven', () => {
+    mocks.execution = {
+      ...baseExecution('COMPLETED', 'passed'),
+      status: 'completed',
+      flightState: 'COMPLETED',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: {
+        completeness: 'complete',
+        proof: {
+          verdict: 'INCOMPLETE',
+          accepted: false,
+          failureReasons: ['acceptance_missing'],
+        },
+        receipts: [],
+        gaps: [],
+      },
+    };
+    renderDeck();
+
+    expect(screen.queryByText('COMPLETED')).not.toBeInTheDocument();
+    expect(screen.getAllByText('BLOCKED').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Proof: BLOCKED/)).toBeInTheDocument();
+  });
+
+  it('does not use a checkpoint PROVEN verdict when the current proof projection is missing', () => {
+    mocks.execution = {
+      ...baseExecution('COMPLETED', 'passed'),
+      status: 'completed',
+      flightState: 'COMPLETED',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: undefined,
+    };
+    renderDeck();
+
+    expect(screen.queryByText('COMPLETED')).not.toBeInTheDocument();
+    expect(screen.getByText('BLOCKED')).toBeInTheDocument();
+    expect(screen.getByText(/Proof: UNAVAILABLE/)).toBeInTheDocument();
+  });
+
+  it('retains the completed state when the current proof is accepted', () => {
+    mocks.execution = {
+      ...baseExecution('COMPLETED', 'passed'),
+      status: 'completed',
+      flightState: 'COMPLETED',
+      proofRequired: true,
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: {
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+        completeness: 'complete',
+        receipts: [],
+        gaps: [],
+      },
+    };
+    renderDeck();
+
+    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
+    expect(screen.getByText(/Proof: PROVEN/)).toBeInTheDocument();
   });
 
   it('renders the correlated redacted proof chain and delivered-byte hashes', () => {

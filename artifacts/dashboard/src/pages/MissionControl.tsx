@@ -31,6 +31,7 @@ import {
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { executionChatHref } from '@/lib/execution-chat-link';
+import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import WorldTransitionTimeline from '@/components/WorldTransitionTimeline';
 
 type JsonRecord = Record<string, unknown>;
@@ -525,16 +526,38 @@ function ComparisonRunColumn({
   }
 
   const evidence = asRecord(execution.evidence);
-  const proofVerdict = textValue(asRecord(asRecord(execution.evidenceProjection)?.proof)?.verdict);
-  const evidenceStatus = proofVerdict
-    ?? textValue(asRecord(execution.evidenceProjection)?.completeness)
-    ?? recoveryDetail(execution, 'evidenceStatus')
-    ?? textValue(evidence?.verdict);
+  const evidenceProjection = asRecord(execution.evidenceProjection);
+  const proof = asRecord(evidenceProjection?.proof);
+  const proofPresentation = resolveExecutionProofPresentation({
+    proofRequired: execution.proofRequired === true,
+    operationEvidence: proof
+      ? {
+          proof: {
+            verdict: textValue(proof.verdict),
+            accepted: proof.accepted === true,
+          },
+        }
+      : null,
+  });
+  const evidenceStatus = proof || execution.proofRequired === true
+    ? proofPresentation.evidenceVerdict
+    : textValue(evidenceProjection?.completeness)
+      ?? recoveryDetail(execution, 'evidenceStatus')
+      ?? textValue(evidence?.verdict);
+  const evidenceStatusTone = evidenceStatus
+    ? evidenceTone({ verdict: evidenceStatus })
+    : evidenceTone(execution.evidence);
   const failureCategory = recoveryDetail(execution, 'failureCategory');
   const recoveryAction = recoveryDetail(execution, 'recoveryAction');
   const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
   const eventCount = numberValue(execution.eventCount) ?? events.length;
-  const evidenceRowsForRun = evidenceRows(execution.evidence);
+  const evidenceRowsForRun = evidenceRows(execution.evidence).map((row) => (
+    row.label === 'Verdict'
+      ? { ...row, label: 'Recorded verdict' }
+      : row.label === 'Proof'
+        ? { ...row, label: 'Recorded proof metadata' }
+        : row
+  ));
   const details = [
     ['State', stateText(execution.state)],
     ['Attempts', formatValue(execution.attempts ?? 0)],
@@ -542,7 +565,7 @@ function ComparisonRunColumn({
     ['Event count', String(eventCount)],
     ['Failure category', failureCategory ?? 'Not categorized'],
     ['Recovery action', recoveryAction ?? 'No recovery action'],
-    ['Evidence completeness', evidenceStatus ?? 'Not recorded'],
+    ['Evidence status', evidenceStatus ?? 'Not recorded'],
   ];
 
   return (
@@ -568,9 +591,17 @@ function ComparisonRunColumn({
 
       <div className="mt-3 rounded-md border border-border/45 px-2.5 py-2.5">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Evidence
-          <span className={`ml-auto ${evidenceTone(execution.evidence)}`}>{evidenceStatus ?? (evidence ? 'Recorded' : 'Not recorded')}</span>
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Recorded evidence
+          <span
+            className={`ml-auto ${evidenceStatusTone}`}
+            data-testid={`comparison-evidence-status-${label.toLowerCase().replace(/\s+/g, '-')}`}
+          >
+            {evidenceStatus ?? (evidence ? 'Recorded' : 'Not recorded')}
+          </span>
         </div>
+        <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+          Recorded evidence metadata is not Canonical Proof and does not establish acceptance.
+        </p>
         {evidenceRowsForRun.length > 0 ? (
           <div className="mt-2 space-y-1.5">
             {evidenceRowsForRun.slice(0, 4).map((row) => (
@@ -1297,6 +1328,9 @@ export default function MissionControl() {
   const selectedExecutionDetailIsBound = Boolean(
     selectedExecution && selectedExecutionDetail?.id === selectedExecution.id,
   );
+  const selectedExecutionProofPresentation = selectedExecutionDetailIsBound
+    ? resolveExecutionProofPresentation(selectedExecutionDetail)
+    : null;
   const [recoveryPendingId, setRecoveryPendingId] = useState<string | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
 
@@ -1676,7 +1710,7 @@ export default function MissionControl() {
             </div>
           </section>
 
-          {selectedExecutionDetail?.projection && (
+          {selectedExecutionDetailIsBound && selectedExecutionDetail?.projection && selectedExecutionProofPresentation && (
             <MissionCapsule
               projection={selectedExecutionDetail.projection}
               executionId={selectedExecution?.id}
@@ -1684,8 +1718,8 @@ export default function MissionControl() {
               proposalId={selectedExecutionDetail.proposalId}
               taskId={selectedExecutionDetail.linkedTaskId}
               executionStatus={selectedExecutionDetail.status}
-              flightState={selectedExecutionDetail.flightState}
-              evidenceVerdict={selectedExecutionDetail.operationEvidence?.proof.verdict ?? 'UNAVAILABLE'}
+              flightState={selectedExecutionProofPresentation.flightState}
+              evidenceVerdict={selectedExecutionProofPresentation.evidenceVerdict}
               resumable={selectedExecutionDetail.resumable}
               nextAction={selectedExecutionDetail.evidenceReason ?? selectedExecutionDetail.acceptance?.disposition?.operatorAction}
             />
@@ -1740,7 +1774,7 @@ export default function MissionControl() {
             </section>
           )}
 
-          {selectedExecutionDetail && (
+          {selectedExecutionDetailIsBound && selectedExecutionDetail && (
             <section className="overflow-hidden rounded-xl border border-border bg-card" aria-label="Evidence Braid">
               <div className="border-b border-border/70 px-4 py-3.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1874,15 +1908,17 @@ export default function MissionControl() {
             </section>
           )}
 
-          <WorldTransitionTimeline
-            recipeId={selectedExecutionDetail?.recipeReceipt?.recipeId}
-            executionId={selectedExecutionDetail?.id}
-            attempt={selectedExecutionDetail?.attempt}
-            transitions={selectedExecutionDetail?.worldTransitions}
-            acceptance={selectedExecutionDetail?.acceptance}
-            proofVerdict={selectedExecutionDetail?.operationEvidence?.proof?.verdict}
-            applyMission={selectedExecutionDetail?.applyMission}
-          />
+          {selectedExecutionDetailIsBound && selectedExecutionDetail && selectedExecutionProofPresentation && (
+            <WorldTransitionTimeline
+              recipeId={selectedExecutionDetail.recipeReceipt?.recipeId}
+              executionId={selectedExecutionDetail.id}
+              attempt={selectedExecutionDetail.attempt}
+              transitions={selectedExecutionDetail.worldTransitions}
+              acceptance={selectedExecutionDetail.acceptance}
+              proofVerdict={selectedExecutionProofPresentation.evidenceVerdict}
+              applyMission={selectedExecutionDetail.applyMission}
+            />
+          )}
 
            {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (
              <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="Uncertain execution recovery">

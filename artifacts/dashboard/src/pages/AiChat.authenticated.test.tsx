@@ -1652,6 +1652,9 @@ describe('AiChat authenticated generated mutations', () => {
       status: 'completed',
       proofRequired: true,
       evidenceVerdict: 'BLOCKED',
+      operationEvidence: {
+        proof: { verdict: 'BLOCKED', accepted: false, failureReasons: ['acceptance_missing'] },
+      },
       evidenceReason: 'The execution has no recorded acceptance.',
     } as never;
     mocks.proposalMessages[0] = {
@@ -2930,6 +2933,9 @@ describe('AiChat authenticated generated mutations', () => {
       status: 'completed',
       proofRequired: true,
       evidenceVerdict: 'BLOCKED',
+      operationEvidence: {
+        proof: { verdict: 'BLOCKED', accepted: false, failureReasons: ['acceptance_missing'] },
+      },
       evidenceReason: 'Required source evidence is missing.',
     } as never;
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
@@ -2965,12 +2971,48 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByTestId('details-execution-proof-technical')).not.toHaveAttribute('open');
   });
 
+  it('uses current OperationEvidence instead of a persisted PROVEN checkpoint for restored status', async () => {
+    mocks.activeExecutionStatus = {
+      id: 'execution-stale-proof',
+      status: 'completed',
+      proofRequired: true,
+      flightState: 'COMPLETED',
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: {
+        proof: {
+          verdict: 'INCOMPLETE',
+          accepted: false,
+          failureReasons: ['acceptance_missing'],
+        },
+      },
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-stale-proof',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      proofRequired: true,
+      message: 'Review current proof',
+    }));
+
+    renderAiChat();
+
+    const summary = await screen.findByTestId('current-work-summary');
+    expect(summary).toHaveTextContent('انتهى التنفيذ — الإثبات غير مقبول');
+    const proofPanel = screen.getByLabelText('إثبات التنفيذ وحالته');
+    expect(proofPanel).toHaveTextContent('متعذّر');
+    expect(proofPanel).toHaveTextContent('حالة الأدلة: لم يثبت اكتمال الأدلة');
+  });
+
   it('opens the server delivery stages in chat for delivery executions', async () => {
     mocks.activeExecutionStatus = {
       status: 'completed',
       proofRequired: true,
       evidenceVerdict: 'PROVEN',
       flightState: 'APPLIED',
+      operationEvidence: {
+        proof: { verdict: 'PROVEN', accepted: true, failureReasons: [] },
+      },
       projection: {
         schemaVersion: 2,
         kind: 'DELIVERY',

@@ -128,6 +128,19 @@ describe('getMissionState', () => {
     })).toMatchObject({ key: 'NEEDS_ATTENTION', label: 'الإثبات المطلوب غير مكتمل' });
   });
 
+  it('keeps the proof-specific terminal explanation ahead of a blocked display state', () => {
+    expect(getMissionState({
+      projection: baseProjection,
+      executionStatus: 'completed',
+      flightState: 'BLOCKED',
+      evidenceVerdict: 'BLOCKED',
+    })).toMatchObject({
+      key: 'NEEDS_ATTENTION',
+      label: 'الإثبات المطلوب غير مكتمل',
+      detail: expect.stringContaining('لا تعتبر النتيجة مقبولة'),
+    });
+  });
+
   it('does not present delivery as verified when required proof is missing', () => {
     expect(getMissionState({
       projection: {

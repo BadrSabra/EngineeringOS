@@ -209,9 +209,27 @@ function runtimeStartDetail(overrides: Record<string, unknown> = {}) {
       evidenceRequired: true,
       resumable: false,
     },
-    operationEvidence: { proof: { verdict: 'PROVEN' } },
+    operationEvidence: { proof: { verdict: 'PROVEN', accepted: true } },
     ...overrides,
   };
+}
+
+function completedProofProjection() {
+  return {
+    schemaVersion: 2,
+    kind: 'DELIVERY',
+    phase: 'COMPLETE',
+    objective: 'Confirm current execution proof',
+    progress: { percent: 100, label: 'Execution ended', currentStep: null, completedSteps: 2, totalSteps: 2 },
+    plan: { steps: [], currentStepId: null },
+    tools: { totalCalls: 0, activeTool: null, recent: [] },
+    workspace: { changedFiles: [], diffStatus: 'none' },
+    verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: true },
+    approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
+    stopped: { reason: null, outcome: 'SUCCEEDED' },
+    timeline: [],
+    allowedActions: [],
+  } as never;
 }
 
 function parseCsv(csv: string): string[][] {
@@ -346,6 +364,36 @@ describe('Mission Control', () => {
       'href',
       '/flight-deck?executionId=execution-1',
     );
+  });
+
+  it('does not show successful completion when the current OperationEvidence proof is unaccepted', () => {
+    currentExecutionDetail = runtimeStartDetail({
+      status: 'completed',
+      proofRequired: true,
+      flightState: 'COMPLETED',
+      projection: completedProofProjection(),
+      operationEvidence: { proof: { verdict: 'PROVEN', accepted: false } },
+    });
+    renderPage();
+
+    const capsule = screen.getByTestId('mission-capsule');
+    expect(within(capsule).getByTestId('text-lifecycle-title')).toHaveTextContent('الإثبات المطلوب غير مكتمل');
+    expect(within(capsule).getByTestId('text-mission-state-detail')).toHaveTextContent('لا تعتبر النتيجة مقبولة');
+    const timeline = screen.getByRole('region', { name: 'World Transition timeline' });
+    expect(timeline).toHaveTextContent('Canonical Proof: BLOCKED');
+    expect(timeline).not.toHaveTextContent('Canonical Proof: PROVEN');
+  });
+
+  it('hides the execution capsule while the selected detail belongs to another execution', () => {
+    currentExecutionDetail = runtimeStartDetail({
+      id: 'execution-previous',
+      projection: completedProofProjection(),
+    });
+    renderPage();
+
+    expect(screen.queryByTestId('mission-capsule')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Evidence Braid' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'World Transition timeline' })).not.toBeInTheDocument();
   });
 
   it('shows the runtime.start observation, effect, acceptance, and materialization as distinct records', async () => {
@@ -1031,6 +1079,38 @@ describe('Mission Control', () => {
     expect(screen.getByText('0.75')).toBeInTheDocument();
     expect(screen.getByText('base 0.50')).toBeInTheDocument();
     expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
+  });
+
+  it('separates current unaccepted proof from recorded evidence in the comparison card', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        proofRequired: true,
+        evidenceProjection: {
+          completeness: 'complete',
+          proof: { verdict: 'PROVEN', accepted: false },
+        },
+      }],
+    };
+    renderPage();
+    const imported = {
+      executions: [{ id: 'archived-run', state: 'COMPLETED', evidence: { verdict: 'VERIFIED' } }],
+      benchmark: {
+        scorecard: { suiteVersion: 'archived-suite', metrics: { correctCompletionRate: 0.75 } },
+        baseline: { baselineId: 'archived-baseline', metrics: { correctCompletionRate: 0.5 } },
+      },
+    };
+    const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+
+    const liveRun = await screen.findByTestId('comparison-run-live-run');
+    const currentEvidenceStatus = within(liveRun).getByTestId('comparison-evidence-status-live-run');
+    expect(currentEvidenceStatus).toHaveTextContent('BLOCKED');
+    expect(currentEvidenceStatus).not.toHaveTextContent('PROVEN');
+    expect(liveRun).toHaveTextContent('Recorded evidence metadata is not Canonical Proof');
+    expect(liveRun).toHaveTextContent('Recorded verdict');
+    expect(liveRun).toHaveTextContent('PROVEN');
   });
 
   it('lets operators switch the live and imported runs without mutating either history', async () => {

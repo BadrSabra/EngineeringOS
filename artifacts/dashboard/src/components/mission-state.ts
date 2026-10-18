@@ -100,14 +100,6 @@ export function getMissionState(input: MissionStateInput): MissionState {
     }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'REVIEW_PROOF', 'START_NEW_RUN'], 'مراجعة سبب تعديل الخطة', allowedActions);
   }
 
-  if (stopped === 'FAILED' || executionStatus === 'FAILED' || flightState === 'BLOCKED' || verification === 'failed' || evidenceVerdict === 'BLOCKED') {
-    return withPrimaryAction({
-      key: 'NEEDS_ATTENTION',
-      label: 'يحتاج مراجعتك',
-      detail: 'سجّل الخادم عائقًا أو خطوة لم تنجح. راجع الأدلة، ثم استخدم إجراء الاسترداد المتاح إن وجد.',
-    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'مراجعة سبب التوقف المسجل', allowedActions);
-  }
-
   if (stopped === 'INTERRUPTED' || executionStatus === 'CANCELLED' || executionStatus === 'CANCELLING' || flightState === 'CANCELLED') {
     return withPrimaryAction({
       key: 'INCOMPLETE',
@@ -140,6 +132,14 @@ export function getMissionState(input: MissionStateInput): MissionState {
       label: 'الإثبات المطلوب غير مكتمل',
       detail: 'سجّل الخادم انتهاءً ناجحًا، لكن الإثبات المطلوب غير مثبت. لا تعتبر النتيجة مقبولة من هذه الحالة.',
     }, ['REVIEW_PROOF', 'REVIEW_DIFF'], 'مراجعة الإثبات غير المكتمل', allowedActions);
+  }
+
+  if (stopped === 'FAILED' || executionStatus === 'FAILED' || flightState === 'BLOCKED' || verification === 'failed' || evidenceVerdict === 'BLOCKED') {
+    return withPrimaryAction({
+      key: 'NEEDS_ATTENTION',
+      label: 'يحتاج مراجعتك',
+      detail: 'سجّل الخادم عائقًا أو خطوة لم تنجح. راجع الأدلة، ثم استخدم إجراء الاسترداد المتاح إن وجد.',
+    }, ['REVIEW_PROOF', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN'], 'مراجعة سبب التوقف المسجل', allowedActions);
   }
 
   if (flightState === 'PUSHED') {

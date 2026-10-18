@@ -12,6 +12,7 @@ import {
 import type { OperationEvidenceProjection } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { executionChatHref } from '@/lib/execution-chat-link';
+import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 
 type FlightNode = {
   id: string;
@@ -371,9 +372,9 @@ export default function FlightDeck() {
     );
   }
 
-  const canonicalProof = execution.operationEvidence?.proof;
-  const evidenceVerdict = canonicalProof?.verdict ?? execution.evidenceVerdict ?? 'UNAVAILABLE';
-  const state = execution.flightState ?? fallbackFlightState({
+  const proofPresentation = resolveExecutionProofPresentation(execution);
+  const evidenceVerdict = proofPresentation.evidenceVerdict;
+  const state = proofPresentation.flightState ?? fallbackFlightState({
     ...execution,
     proofVerdict: evidenceVerdict,
   });

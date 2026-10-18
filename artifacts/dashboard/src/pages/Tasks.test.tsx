@@ -360,7 +360,11 @@ describe('project-scoped task list contracts', () => {
 function mockTaskExecutionProjection(
   taskCorrelationId: string,
   executionCorrelationId: string,
-  options: { taskStatus?: string; executionIsFetching?: boolean } = {},
+  options: {
+    taskStatus?: string;
+    executionIsFetching?: boolean;
+    executionOverride?: Record<string, unknown>;
+  } = {},
 ) {
   vi.mocked(useGetTask).mockReturnValue({
     data: {
@@ -399,10 +403,12 @@ function mockTaskExecutionProjection(
       flightState: 'VALIDATING',
       evidenceVerdict: 'PARTIAL',
       proofRequired: true,
+      operationEvidence: { proof: { verdict: 'PARTIAL', accepted: false } },
       checkpoint: {},
       checkpointVersion: 1,
       resumable: false,
       projection: executionProjectionFixture,
+      ...options.executionOverride,
     } as NonNullable<ReturnType<typeof useGetAiExecution>['data']>,
     isLoading: false,
     isFetching: options.executionIsFetching ?? false,
@@ -493,6 +499,35 @@ describe('Tasks recovery rendering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
 
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
+  });
+
+  it('does not show a completed Task capsule from a stale PROVEN checkpoint', () => {
+    mockTaskExecutionProjection('correlation-current', 'correlation-current', {
+      taskStatus: 'completed',
+      executionOverride: {
+        status: 'completed',
+        flightState: 'COMPLETED',
+        evidenceVerdict: 'PROVEN',
+        proofRequired: true,
+        operationEvidence: {
+          proof: { verdict: 'INCOMPLETE', accepted: false },
+        },
+        projection: {
+          ...executionProjectionFixture,
+          phase: 'COMPLETE',
+          workspace: { changedFiles: [], diffStatus: 'none' },
+          verification: { status: 'passed', evidenceVerdict: 'PROVEN', proofRequired: true },
+          approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
+          stopped: { reason: null, outcome: 'SUCCEEDED' },
+        },
+      },
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'عرض تفاصيل المهمة: Repair provider authentication' }));
+
+    const capsule = screen.getByTestId('mission-capsule');
+    expect(within(capsule).getByTestId('text-lifecycle-title')).toHaveTextContent('الإثبات المطلوب غير مكتمل');
+    expect(within(capsule).getByTestId('text-mission-state-detail')).toHaveTextContent('لا تعتبر النتيجة مقبولة');
   });
 
   it('hides a cached execution projection while the running attempt refreshes', () => {

@@ -86,6 +86,7 @@ import {
   getExecutionRecoveryView,
   type ExecutionRecoveryView,
 } from '@/lib/execution-recovery-view';
+import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 import { parseProjectQuerySourceReference } from '@/lib/project-query-source-reference';
 import {
@@ -8605,8 +8606,14 @@ type AgentExecutionProofStatus = {
     | 'PUSHED'
     | 'CANCELLED'
     | 'COMPLETED';
-  evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'NOT_RECORDED';
+  evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'CLAIM_UNCLOSED' | 'NOT_RECORDED';
   evidenceReason?: string | null;
+  operationEvidence?: {
+    proof?: {
+      verdict?: string | null;
+      accepted?: boolean | null;
+    } | null;
+  } | null;
   acceptanceDisposition?: AcceptanceDispositionView | null;
   terminalProjection?: AiTerminalProjection | null;
   acceptance?: {
@@ -8676,7 +8683,9 @@ function flightDeckStateClasses(state: AgentExecutionProofStatus['flightState'])
 
 function flightDeckEvidenceClasses(verdict: AgentExecutionProofStatus['evidenceVerdict']): string {
   if (verdict === 'PROVEN') return 'border-green-500/40 bg-green-500/10 text-green-200';
-  if (verdict === 'BLOCKED' || verdict === 'UNAVAILABLE') return 'border-red-500/40 bg-red-500/10 text-red-200';
+  if (verdict === 'BLOCKED' || verdict === 'UNAVAILABLE' || verdict === 'CLAIM_UNCLOSED') {
+    return 'border-red-500/40 bg-red-500/10 text-red-200';
+  }
   if (verdict === 'PARTIAL') return 'border-amber-500/40 bg-amber-500/10 text-amber-200';
   return 'border-border/60 bg-background/30 text-muted-foreground';
 }
@@ -8913,6 +8922,8 @@ function evidenceVerdictLabel(verdict: NonNullable<AgentExecutionProofStatus['ev
       return 'لم يثبت اكتمال الأدلة';
     case 'NOT_RECORDED':
       return 'لم تُسجّل حالة الأدلة';
+    case 'CLAIM_UNCLOSED':
+      return 'لم تُغلق مطالبات الإثبات المطلوبة';
   }
 }
 
@@ -9174,7 +9185,9 @@ function AgentExecutionProofPanel({
 }) {
   const persistedStatus = execution?.status;
   const projectedTerminal = execution?.terminalProjection ?? terminalProjection;
-  const flightState = execution?.flightState;
+  const proofPresentation = resolveExecutionProofPresentation(execution);
+  const flightState = proofPresentation.flightState;
+  const evidenceVerdict = proofPresentation.evidenceVerdict;
   const status = busy
     ? persistedStatus ?? 'running'
     : persistedStatus ??
@@ -9230,10 +9243,10 @@ function AgentExecutionProofPanel({
         : 'No writes applied automatically';
   const scopeLabel = verdictScope?.scope ?? (isFixtureLocal ? 'FIXTURE_LOCAL' : undefined);
   const proofBlocked = execution?.proofRequired === true
-    && execution.evidenceVerdict !== 'PROVEN'
+    && evidenceVerdict !== 'PROVEN'
     && status === 'completed';
   const forensicIncomplete = forensicVerdict === 'INCOMPLETE'
-    || (execution?.proofRequired === true && execution.evidenceVerdict !== 'PROVEN');
+    || (execution?.proofRequired === true && evidenceVerdict !== 'PROVEN');
   const objectiveLabel = execution?.objective && typeof execution.objective === 'object'
     ? String(
         execution.objective.objective
@@ -9262,9 +9275,9 @@ function AgentExecutionProofPanel({
   const isCancelledAudit = status === 'cancelled';
   const isIncompleteAudit = isCancelledAudit
     || status === 'failed'
-    || (execution?.proofRequired === true && execution.evidenceVerdict !== 'PROVEN');
+    || (execution?.proofRequired === true && evidenceVerdict !== 'PROVEN');
   const needsNewAuditRun = isIncompleteAudit
-    && execution?.evidenceVerdict !== 'PROVEN';
+    && evidenceVerdict !== 'PROVEN';
   const hasRetainedAudit = Boolean(isCancelledAudit && executionId && canExport);
 
   return (
@@ -9297,9 +9310,9 @@ function AgentExecutionProofPanel({
              }`}>
                {flightState ? flightDeckStateLabel(flightState) : proofStatusLabel(status)}
             </span>
-             {execution?.evidenceVerdict && (
-               <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(execution.evidenceVerdict)}`}>
-                  حالة الأدلة: {evidenceVerdictLabel(execution.evidenceVerdict)}
+              {evidenceVerdict && (
+                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${flightDeckEvidenceClasses(evidenceVerdict)}`}>
+                   حالة الأدلة: {evidenceVerdictLabel(evidenceVerdict)}
                </span>
              )}
              {forensicVerdict && (
@@ -9443,8 +9456,8 @@ function AgentExecutionProofPanel({
         taskId={execution?.linkedTaskId}
         proposalId={execution?.projection?.approval?.proposalId}
         executionStatus={execution?.status}
-        flightState={execution?.flightState}
-        evidenceVerdict={execution?.evidenceVerdict}
+        flightState={flightState}
+        evidenceVerdict={evidenceVerdict}
         resumable={execution?.resumable}
         nextAction={execution?.evidenceReason ?? execution?.acceptanceDisposition?.operatorAction}
         onAction={onProjectionAction}
@@ -13084,8 +13097,12 @@ export default function AiChat() {
     : null;
   const scopedExecutionStatus = activeExecutionStatus?.id
     && activeExecutionStatus.id !== activeExecution?.id ? null : activeExecutionStatus;
+  const currentProofPresentation = resolveExecutionProofPresentation(scopedExecutionStatus);
+  const displayExecutionStatus = scopedExecutionStatus
+    ? { ...scopedExecutionStatus, ...currentProofPresentation }
+    : null;
   const recoveryView = activeExecution
-    ? getExecutionRecoveryView(scopedExecutionStatus, Boolean(historicalExecutionId))
+    ? getExecutionRecoveryView(displayExecutionStatus, Boolean(historicalExecutionId))
     : null;
   const activeExecutionIsProofBearing = Boolean(
     activeExecution
@@ -14114,7 +14131,7 @@ export default function AiChat() {
             <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
                {showExecutionProof && (
                  <AgentExecutionProofPanel
-                    execution={scopedExecutionStatus}
+                    execution={displayExecutionStatus}
                     recoveryView={recoveryView ?? undefined}
                    terminalProjection={activeExecution?.terminalProjection}
                    executionId={activeExecution?.id}

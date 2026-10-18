@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -498,6 +499,7 @@ function TaskExecutionProjection({ taskId, isResuming }: { taskId: string; isRes
   );
   if (isResuming || activeExecutionIsRefreshing) return null;
   if (!executionId || !execution?.projection || !executionMatchesCurrentTask) return null;
+  const proofPresentation = resolveExecutionProofPresentation(execution);
   return (
     <MissionCapsule
       projection={execution.projection}
@@ -507,8 +509,8 @@ function TaskExecutionProjection({ taskId, isResuming }: { taskId: string; isRes
       taskId={taskId}
       allowTaskRecovery={executionMatchesCurrentTask}
       executionStatus={execution.status}
-      flightState={execution.flightState}
-      evidenceVerdict={execution.evidenceVerdict}
+      flightState={proofPresentation.flightState}
+      evidenceVerdict={proofPresentation.evidenceVerdict}
       resumable={execution.resumable}
       nextAction={execution.evidenceReason ?? execution.acceptance?.disposition?.operatorAction}
       compact
