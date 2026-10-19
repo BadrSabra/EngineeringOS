@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -11,12 +12,14 @@ import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
+  aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
   aiChatSessionsTable,
+  aiChatMessagesTable,
   aiStrategyCandidatesTable,
   aiStrategyReplayCaseRunsTable,
   aiStrategyReplayCasesTable,
@@ -80,6 +83,8 @@ import {
   StrategyReplayCaseBusyError,
 } from "./agent-state/strategy-replay-case-runner.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
+import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
+import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
 
 const validationCalls: string[] = [];
 const validationEvidenceContexts: unknown[] = [];
@@ -3987,6 +3992,594 @@ describe("recipe operation preparation", () => {
       await fixture.cleanup(executionId);
     }
   });
+
+  it("binds runtime-start World State to a real GitHub receipt and observed delivery effect", async () => {
+    const fixture = await createGateCRecipeFixture("delivery.push.github");
+    const { projectId, rootPath, sessionId } = fixture.params;
+    const remoteUrl = "https://github.com/example/project.git";
+    const branchName = "main";
+    const proposalId = crypto.randomUUID();
+    const deliveryOperationId = crypto.randomUUID();
+    const apiProblems: string[] = [];
+    const remoteWrites = { blobs: 0, trees: 0, commits: 0, refUpdates: 0 };
+    let fakeGithub: ReturnType<typeof createHttpServer> | undefined;
+    let manager: WorkspaceRuntimeManager | undefined;
+    let deliveryRunnerCalls = 0;
+    let pendingMessage = "";
+    let branch = {
+      commitHash: "",
+      treeHash: "",
+      message: "initial",
+      parents: [] as string[],
+    };
+
+    try {
+      await writeFile(
+        path.join(rootPath, "package.json"),
+        JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+        "utf8",
+      );
+      await writeFile(
+        path.join(rootPath, "server.mjs"),
+        [
+          "import http from 'node:http';",
+          "import { readFileSync } from 'node:fs';",
+          "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
+          "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
+          "server.listen(Number(process.env.PORT), '127.0.0.1');",
+          "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+        ].join("\n"),
+        "utf8",
+      );
+      await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+      await writeFile(path.join(rootPath, "README.md"), "before\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+      await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "README.md", "package.json", "server.mjs"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "initial"]);
+      const parentHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
+      const parentTreeHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${parentHash}^{tree}`],
+      )).stdout.trim();
+      const baseTreeHash = await hashDeliveryTree(rootPath);
+
+      await writeFile(path.join(rootPath, "README.md"), "after\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "add", "README.md"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "verified local delivery"]);
+      const commitHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
+      const gitTreeHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${commitHash}^{tree}`],
+      )).stdout.trim();
+      const blobHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${commitHash}:README.md`],
+      )).stdout.trim();
+      const committedTreeHash = await hashDeliveryTree(rootPath);
+      const sourceRevision = commitHash;
+      await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
+      await writeFile(
+        path.join(rootPath, "node_modules/.cache/revision.txt"),
+        `${sourceRevision}\n`,
+        "utf8",
+      );
+
+      branch = {
+        commitHash: parentHash,
+        treeHash: parentTreeHash,
+        message: "initial",
+        parents: [],
+      };
+      await db.update(projectsTable).set({
+        gitRemoteUrl: remoteUrl,
+        gitDefaultBranch: branchName,
+      }).where(eq(projectsTable.id, projectId));
+      const registerCommittedProposal = async (operationId: string, id: string) => {
+        const messageId = crypto.randomUUID();
+        const createdAt = new Date();
+        await db.insert(aiChatMessagesTable).values({
+          id: messageId,
+          sessionId,
+          role: "assistant",
+          content: "Verified delivery candidate",
+          createdAt,
+        });
+        await db.insert(aiChangeProposalsTable).values({
+          id,
+          projectId,
+          sessionId,
+          messageId,
+          changes: JSON.stringify([{ path: "README.md", newContent: "after\n" }]),
+          appliedChanges: JSON.stringify([{ path: "README.md", newContent: "after\n" }]),
+          status: "applied",
+          lifecycle: "committed",
+          operationId,
+          baseRevision: parentHash,
+          changeSetHash: `integrated-delivery:${operationId}`,
+          baseTreeHash,
+          candidateTreeHash: committedTreeHash,
+          promotedTreeHash: committedTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          commitHash,
+          committedTreeHash,
+          createdAt,
+          consumedAt: createdAt,
+        });
+        await db.insert(eventsTable).values({
+          id: crypto.randomUUID(),
+          type: "GitCommitCreated",
+          projectId,
+          severity: "info",
+          message: "Verified local commit created for integrated delivery test",
+          correlationId: operationId,
+          payload: {
+            proposalId: id,
+            operationId,
+            commitHash,
+            committedTreeHash,
+            committedPaths: ["README.md"],
+          },
+        });
+      };
+      await registerCommittedProposal(deliveryOperationId, proposalId);
+
+      fakeGithub = createHttpServer(async (req, res) => {
+        const respond = (status: number, payload: Record<string, unknown>) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const rawBody = Buffer.concat(chunks).toString("utf8");
+          const body = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
+          const requestPath = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+          if (req.method === "GET" && requestPath.endsWith("/git/ref/heads/main")) {
+            respond(200, { ref: "refs/heads/main", object: { sha: branch.commitHash } });
+            return;
+          }
+          const commitMatch = requestPath.match(/\/git\/commits\/([^/]+)$/);
+          if (req.method === "GET" && commitMatch) {
+            const requestedHash = decodeURIComponent(commitMatch[1]!);
+            if (requestedHash === parentHash) {
+              respond(200, {
+                sha: parentHash,
+                tree: { sha: parentTreeHash },
+                message: "initial",
+                parents: [],
+              });
+              return;
+            }
+            if (requestedHash === commitHash && branch.commitHash === commitHash) {
+              respond(200, {
+                sha: commitHash,
+                tree: { sha: branch.treeHash },
+                message: branch.message,
+                parents: branch.parents.map((sha) => ({ sha })),
+              });
+              return;
+            }
+            respond(404, { message: "Unknown fixture commit" });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/blobs")) {
+            remoteWrites.blobs += 1;
+            if (
+              body.encoding !== "base64"
+              || Buffer.from(String(body.content ?? ""), "base64").toString("utf8") !== "after\n"
+            ) {
+              apiProblems.push("Blob request did not contain the committed README bytes.");
+              respond(422, { message: "Unexpected blob request" });
+              return;
+            }
+            respond(201, { sha: blobHash });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/trees")) {
+            remoteWrites.trees += 1;
+            if (
+              body.base_tree !== parentTreeHash
+              || !Array.isArray(body.tree)
+              || !body.tree.some((entry) =>
+                entry
+                && typeof entry === "object"
+                && (entry as Record<string, unknown>).path === "README.md"
+                && (entry as Record<string, unknown>).sha === blobHash)
+            ) {
+              apiProblems.push("Tree request did not use the verified parent and README blob.");
+              respond(422, { message: "Unexpected tree request" });
+              return;
+            }
+            respond(201, { sha: gitTreeHash });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/commits")) {
+            remoteWrites.commits += 1;
+            const parents = Array.isArray(body.parents) ? body.parents : [];
+            if (body.tree !== gitTreeHash || parents.length !== 1 || parents[0] !== parentHash) {
+              apiProblems.push("Commit request did not match the verified tree and parent.");
+              respond(422, { message: "Unexpected commit request" });
+              return;
+            }
+            pendingMessage = String(body.message ?? "");
+            respond(201, { sha: commitHash });
+            return;
+          }
+          if (req.method === "PATCH" && requestPath.endsWith("/git/refs/heads/main")) {
+            if (
+              branch.commitHash !== parentHash
+              || body.sha !== commitHash
+              || body.force !== false
+              || !pendingMessage.includes(`EngineeringOS-Operation: ${deliveryOperationId}`)
+            ) {
+              apiProblems.push("Ref update did not match the verified delivery commit.");
+              respond(409, { message: "Unexpected ref update" });
+              return;
+            }
+            branch = {
+              commitHash,
+              treeHash: gitTreeHash,
+              message: pendingMessage,
+              parents: [parentHash],
+            };
+            remoteWrites.refUpdates += 1;
+            respond(200, { ref: "refs/heads/main", object: { sha: commitHash } });
+            return;
+          }
+          apiProblems.push(`Unexpected fixture GitHub request: ${req.method} ${requestPath}`);
+          respond(404, { message: "Unexpected fixture GitHub request" });
+        } catch (error) {
+          apiProblems.push(error instanceof Error ? error.message : String(error));
+          respond(500, { message: "Fixture GitHub API failed" });
+        }
+      });
+      await new Promise<void>((resolve, reject) => {
+        fakeGithub!.once("error", reject);
+        fakeGithub!.listen(0, "127.0.0.1", resolve);
+      });
+      const fixtureAddress = fakeGithub.address();
+      if (!fixtureAddress || typeof fixtureAddress === "string") {
+        throw new Error("Fixture GitHub API did not receive a TCP address.");
+      }
+      const fixtureUrl = `http://127.0.0.1:${fixtureAddress.port}`;
+      const request = async (
+        apiPath: string,
+        init: { method?: string; headers?: Record<string, string>; body?: string } = {},
+      ): Promise<Record<string, unknown>> => {
+        const response = await fetch(`${fixtureUrl}${apiPath}`, {
+          method: init.method ?? "GET",
+          headers: init.headers,
+          body: init.body,
+        });
+        const payload = await response.json() as Record<string, unknown>;
+        if (!response.ok) throw new Error(JSON.stringify(payload));
+        return payload;
+      };
+
+      manager = new WorkspaceRuntimeManager({
+        store: createInMemoryWorkspaceRuntimeStore(),
+        workerId: `runtime-github-integration:${projectId}`,
+        startPreStateObserver: async ({
+          projectId: observedProjectId,
+          revision,
+        }: {
+          projectId: string;
+          revision: string;
+        }) => ({
+          status: "observed" as const,
+          runtimeStatus: "stopped" as const,
+          projectId: observedProjectId,
+          revision,
+          sessionId: null,
+          pid: null,
+          port: null,
+          processAlive: false,
+          portReady: false,
+          source: "test_observer" as const,
+          inventoryComplete: true,
+          unknownListenerPorts: [],
+          observedAt: new Date().toISOString(),
+          detail: "The isolated test observer confirms the runtime is stopped.",
+        }),
+      });
+      const runtimeResult = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        sourceRevision,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      expect(runtimeResult.status).toBe("completed");
+      const [runtimeAcceptance] = await db.select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, runtimeResult.executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      const [runtimeTransition] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, runtimeResult.executionId))
+        .limit(1);
+      expect(runtimeAcceptance).toMatchObject({
+        attempt: 0,
+        outcome: "SUCCEEDED",
+        effectBundleId: expect.any(String),
+      });
+      expect(runtimeTransition).toMatchObject({
+        status: "materialized",
+        attempt: runtimeAcceptance?.attempt,
+        effectBundleId: runtimeAcceptance?.effectBundleId,
+        resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      const runtimeWorld = await worldState.getProjectWorldState(projectId);
+      const runtimeStatusFact = runtimeWorld.currentFacts.find((fact) =>
+        fact.predicate === "runtime.status" && fact.value === "running",
+      );
+      expect(runtimeStatusFact).toBeDefined();
+      await assertCanonicalRecipeProof({ ...fixture.params, sourceRevision }, runtimeResult.executionId);
+
+      const makeDeliveryRunner = (
+        boundProposalId: string,
+        mismatchBeforeAttempt = false,
+      ) => async (input: Parameters<
+        NonNullable<Parameters<typeof runRecipeOperation>[0]["githubDeliveryRunner"]>
+      >[0]) => {
+          deliveryRunnerCalls += 1;
+          if (
+            !input.executionId
+            || typeof input.executionAttempt !== "number"
+            || !input.sourceRevision
+            || !input.beforeStateObserver
+          ) {
+            throw new Error("GitHub recipe did not provide its attempt-bound delivery observer.");
+          }
+          return executeVerifiedGitHubDelivery({
+            projectId: input.projectId,
+            proposalId: boundProposalId,
+            operationId: input.operationId,
+            executionId: input.executionId,
+            executionAttempt: input.executionAttempt,
+            sourceRevision: input.sourceRevision,
+            rootPath,
+            remoteUrl,
+            branch: branchName,
+            message: input.message,
+            signal: input.signal,
+            beforeStateObserver: mismatchBeforeAttempt
+              ? async (state) => input.beforeStateObserver!({
+                  ...state,
+                  executionAttempt: state.executionAttempt + 1,
+                })
+              : input.beforeStateObserver,
+            request,
+          });
+      };
+      const unboundProposalId = crypto.randomUUID();
+      const unboundOperationId = crypto.randomUUID();
+      await registerCommittedProposal(unboundOperationId, unboundProposalId);
+      const unboundResult = await runRecipeOperation({
+        ...fixture.params,
+        operationId: unboundOperationId,
+        idempotencyKey: `${unboundOperationId}:unbound-real-delivery`,
+        sourceRevision,
+        proofRequired: true,
+        githubDeliveryRunner: makeDeliveryRunner(unboundProposalId, true),
+      });
+      expect(unboundResult.status).not.toBe("completed");
+      const unboundSuccesses = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, unboundResult.executionId),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ));
+      const unboundEffects = await db.select({ id: aiAgentEffectsTable.id })
+        .from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, unboundResult.executionId));
+      const unboundTransitions = await db.select({ id: aiWorldTransitionsTable.id })
+        .from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, unboundResult.executionId));
+      expect(unboundSuccesses).toEqual([]);
+      expect(unboundEffects).toEqual([]);
+      expect(unboundTransitions).toEqual([]);
+      expect(remoteWrites).toEqual({ blobs: 0, trees: 0, commits: 0, refUpdates: 0 });
+      const worldAfterUnboundAttempt = await worldState.getProjectWorldState(projectId);
+      expect(worldAfterUnboundAttempt.facts).toEqual(runtimeWorld.facts);
+
+      const deliveryParams = {
+        ...fixture.params,
+        operationId: deliveryOperationId,
+        idempotencyKey: `${deliveryOperationId}:integrated-real-delivery`,
+        sourceRevision,
+        proofRequired: true,
+        githubDeliveryRunner: makeDeliveryRunner(proposalId),
+      };
+      const deliveryResult = await runRecipeOperation(deliveryParams);
+      expect(deliveryResult.status).toBe("completed");
+      expect(deliveryRunnerCalls).toBe(2);
+      expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
+      expect(apiProblems).toEqual([]);
+      await assertCanonicalRecipeProof({
+        ...fixture.params,
+        operationId: deliveryOperationId,
+        sourceRevision,
+      }, deliveryResult.executionId);
+      const deliveryBundleId = await assertSuccessfulGateCEffect(
+        deliveryResult.executionId,
+        "github.push_verified_commit",
+        5,
+      );
+      const [deliveryAcceptance] = await db.select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, deliveryResult.executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      const [deliveryTransition] = await db.select().from(aiWorldTransitionsTable).where(and(
+        eq(aiWorldTransitionsTable.projectId, projectId),
+        eq(aiWorldTransitionsTable.idempotencyKey, `github.delivery:${deliveryResult.executionId}:${deliveryOperationId}`),
+      )).limit(1);
+      expect(deliveryAcceptance).toMatchObject({
+        attempt: 0,
+        outcome: "SUCCEEDED",
+        effectBundleId: deliveryBundleId,
+      });
+      expect(deliveryTransition).toMatchObject({
+        status: "materialized",
+        attempt: deliveryAcceptance?.attempt,
+        episodeId: expect.any(String),
+        actionId: expect.any(String),
+        effectBundleId: deliveryBundleId,
+        parentWorldRevision: worldAfterUnboundAttempt.worldRevision,
+        resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(deliveryTransition?.resultingWorldRevision)
+        .not.toBe(deliveryTransition?.parentWorldRevision);
+      expect(deliveryTransition?.parentFactRefs).toContain(runtimeStatusFact?.id);
+      const [deliveryEpisode] = await db.select({
+        executionId: aiAgentEpisodesTable.executionId,
+        attempt: aiAgentEpisodesTable.attempt,
+      }).from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.id, deliveryTransition!.episodeId),
+        eq(aiAgentEpisodesTable.projectId, projectId),
+      )).limit(1);
+      expect(deliveryEpisode).toEqual({
+        executionId: deliveryResult.executionId,
+        attempt: deliveryAcceptance?.attempt,
+      });
+
+      const transitionObservationIds = [
+        ...(deliveryTransition?.beforeObservationIds as string[] ?? []),
+        ...(deliveryTransition?.afterObservationIds as string[] ?? []),
+      ];
+      const transitionObservations = await db.select().from(aiAgentObservationsTable)
+        .where(inArray(aiAgentObservationsTable.id, transitionObservationIds));
+      expect(transitionObservations).toHaveLength(2);
+      expect(transitionObservations.every((observation) => (
+        observation.projectId === projectId
+        && observation.executionId === deliveryResult.executionId
+        && observation.episodeId === deliveryTransition?.episodeId
+        && observation.provenance === "DIRECT_OBSERVATION"
+        && observation.completeness === "complete"
+        && observation.freshness === "fresh"
+      ))).toBe(true);
+      const beforeObservation = transitionObservations.find((observation) =>
+        (deliveryTransition?.beforeObservationIds as string[]).includes(observation.id),
+      );
+      const afterObservation = transitionObservations.find((observation) =>
+        (deliveryTransition?.afterObservationIds as string[]).includes(observation.id),
+      );
+      expect(beforeObservation?.value).toMatchObject({
+        status: "observed",
+        projectId,
+        operationId: deliveryOperationId,
+        executionId: deliveryResult.executionId,
+        executionAttempt: deliveryAcceptance?.attempt,
+        proposalId,
+        remoteUrl,
+        branch: branchName,
+        expectedCommitHash: commitHash,
+        expectedParentHash: parentHash,
+        remoteCommitHash: parentHash,
+      });
+      expect(afterObservation?.value).toMatchObject({
+        status: "passed",
+        projectId,
+        operationId: deliveryOperationId,
+        executionId: deliveryResult.executionId,
+        executionAttempt: deliveryAcceptance?.attempt,
+        proposalId,
+        remoteUrl,
+        branch: branchName,
+        expectedCommitHash: commitHash,
+        expectedParentHash: parentHash,
+        remoteCommitHash: commitHash,
+        remoteParentHash: parentHash,
+        remoteTreeHash: gitTreeHash,
+        markerMatched: true,
+      });
+
+      const deliveryEffects = await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, deliveryResult.executionId));
+      expect(deliveryEffects).toHaveLength(1);
+      expect(deliveryEffects[0]).toMatchObject({
+        attempt: deliveryAcceptance?.attempt,
+        episodeId: deliveryTransition?.episodeId,
+        actionId: deliveryTransition?.actionId,
+        capabilityId: "github.push_verified_commit",
+        status: "observed",
+      });
+      const receiptEvents = await db.select({
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "GitPushed"),
+        eq(eventsTable.correlationId, deliveryOperationId),
+      ));
+      expect(receiptEvents).toHaveLength(1);
+      expect(receiptEvents[0]?.payload).toMatchObject({
+        proposalId,
+        operationId: deliveryOperationId,
+        commitHash,
+        remoteCommitHash: commitHash,
+        remoteTreeHash: gitTreeHash,
+      });
+
+      const changedFacts = await db.select().from(aiWorldFactsTable).where(inArray(
+        aiWorldFactsTable.id,
+        deliveryTransition?.changedFactRefs as string[],
+      ));
+      expect(changedFacts.some((fact) => (
+        fact.predicate === "delivery.remote_branch_state"
+        && fact.projectRevision === commitHash
+        && typeof fact.value === "object"
+        && fact.value !== null
+        && !Array.isArray(fact.value)
+        && (fact.value as Record<string, unknown>).remoteCommitHash === commitHash
+      ))).toBe(true);
+      const finalWorld = await worldState.getProjectWorldState(projectId);
+      expect(finalWorld.currentFacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "runtime.status",
+          value: "running",
+        }),
+        expect.objectContaining({
+          predicate: "delivery.remote_branch_state",
+          projectRevision: commitHash,
+        }),
+      ]));
+
+      const replay = await runRecipeOperation(deliveryParams);
+      expect(replay).toMatchObject({
+        executionId: deliveryResult.executionId,
+        status: "completed",
+        receipt: { status: "completed" },
+      });
+      expect(deliveryRunnerCalls).toBe(2);
+      expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
+    } finally {
+      await manager?.shutdown();
+      if (fakeGithub?.listening) {
+        await new Promise<void>((resolve) => fakeGithub!.close(() => resolve()));
+      }
+      const projectExecutions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      for (const execution of projectExecutions) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution.id));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.id));
+      }
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+      await db.delete(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.projectId, projectId));
+      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+      await fixture.cleanup();
+    }
+  }, 90_000);
 
   it("fails closed before capability execution when a passed checkpoint has no evidence", async () => {
     validationCalls.length = 0;
