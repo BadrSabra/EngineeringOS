@@ -16,6 +16,7 @@
     "test:project-query-proof-harness": "RELEASE_AI_STREAM_TEST_NAME=\"accepts the bounded generic PROJECT_QUERY objective through JSON, SSE, claim refs, and history\" node ./scripts/run-release-ai-stream.mjs",
     "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
     "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
+    "test:task-route-acceptance-response-loss": "pnpm run build && RUN_TASK_ROUTE_ACCEPTANCE_CRASH=1 NODE_ENV=test RUN_CONTROLLED_RELEASE_VALIDATION=1 DASHBOARD_E2E_TEST_MODE=fixture AI_PROVIDER_EGRESS_DISABLED=1 node --import tsx --test scripts/task-route-acceptance-response-loss.test.mjs",
     "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
     "validate:live-provider-review": "node ./scripts/run-live-provider-review-campaign.mjs",
     "validate:empirical-quality": "node ./scripts/run-empirical-quality-campaign.mjs",

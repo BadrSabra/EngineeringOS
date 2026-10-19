@@ -154,6 +154,18 @@ PostgreSQL process and remove only its dedicated temporary data root after
 verification; state explicitly that managed workflows and live providers were
 not exercised.
 
+Operational API children must also receive a per-run temporary `WORKSPACE_PATH`,
+and fixture projects should use that same root. Startup's `ensureEncryptionKey`
+persists `.local/encryption.key` under this path when no key is configured.
+
+**Why:** A process-recovery attempt using the API package root created a
+persistent ignored encryption-key file before the test reached its assertions.
+Database isolation alone does not isolate filesystem side effects.
+
+**How to apply:** Keep the temporary workspace until every API child has exited,
+then remove only that test-owned root. Do not inspect or delete a key created in
+the shared workspace; use a temporary root to prevent recurrence instead.
+
 Ordinary API Vitest suites should keep controlled live-provider lifecycle checks
 off and block outbound `fetch` in test setup while permitting loopback fixtures.
 Do not set the application-level provider egress flag for mocked contract tests.

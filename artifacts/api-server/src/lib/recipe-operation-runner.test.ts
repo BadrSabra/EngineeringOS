@@ -3071,31 +3071,54 @@ describe("recipe operation preparation", () => {
             stdio: "pipe",
           });
           child.stdin?.end();
+          let childOutput = "";
+          let childDiagnostics = "";
+          child.stdout?.setEncoding("utf8");
+          child.stderr?.setEncoding("utf8");
+          child.stdout?.on("data", (chunk: string) => {
+            childOutput += chunk;
+          });
+          child.stderr?.on("data", (chunk: string) => {
+            childDiagnostics += chunk;
+          });
           const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
             (resolve) => child.once("exit", (code, signal) => resolve({ code, signal })),
           );
           try {
-            const pauseDeadline = Date.now() + 30_000;
+            const pauseDeadline = Date.now() + 120_000;
             let writerPaused = false;
+            let lastWriterActivity: unknown[] = [];
             while (Date.now() < pauseDeadline) {
               if (child.exitCode !== null || child.signalCode !== null) {
-                throw new Error("Gate C completion child exited before acceptance transaction pause.");
+                throw new Error(
+                  "Gate C completion child exited before acceptance transaction pause. "
+                  + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+                );
               }
               const activity = await db.execute(sql`
-                SELECT pid FROM pg_stat_activity
+                SELECT pid, state, wait_event, left(query, 160) AS query
+                FROM pg_stat_activity
                 WHERE datname = current_database()
                   AND application_name = ${crashApplicationName}
-                  AND state = 'active'
-                  AND wait_event = 'PgSleep'
-                  AND query ILIKE '%ai_execution_acceptances%'
               `);
-              if (activity.rows.length > 0) {
+              lastWriterActivity = activity.rows;
+              if (activity.rows.some((row) =>
+                row.state === "active"
+                && row.wait_event === "PgSleep"
+                && String(row.query).toLowerCase().includes("ai_execution_acceptances")
+              )) {
                 writerPaused = true;
                 break;
               }
               await new Promise((resolve) => setTimeout(resolve, 100));
             }
-            if (!writerPaused) throw new Error("Timed out waiting for Gate C acceptance transaction pause.");
+            if (!writerPaused) {
+              throw new Error(
+                "Timed out waiting for Gate C acceptance transaction pause. "
+                + `backendActivity=${JSON.stringify(lastWriterActivity)}; `
+                + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+              );
+            }
             child.kill("SIGKILL");
             expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
             const disconnectDeadline = Date.now() + 20_000;
@@ -3540,7 +3563,10 @@ describe("recipe operation preparation", () => {
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await fixture.cleanup();
     }
-  }, process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1" ? 120_000 : 20_000);
+  }, process.env.RUN_E2_RUNTIME_START_API_STARTUP_RECOVERY === "1"
+    || process.env.RUN_E2_RUNTIME_START_GATE_C_CRASH === "1"
+    ? 240_000
+    : 20_000);
 
   it("rejects proof-required runtime recipes before execution", async () => {
     const fixture = await createGateCRecipeFixture("runtime.start");

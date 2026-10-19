@@ -136,6 +136,7 @@
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
+- [Vitest generated-schema import cost](vitest-import-cost.md) — group suites; use a built API in a standalone Node child for recovery tests instead of nesting cold Vitest imports.
 - [Turn intent delivery contract](turn-intent-delivery-contract.md) — authoritative delivery handoffs must not inherit a stale analysis output contract.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
 - [P7.5 boundaries](p75-boundaries-index.md) — measurement, mission context, and readiness remain advisory until their provenance and review gates are satisfied.

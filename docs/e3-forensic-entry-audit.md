@@ -482,3 +482,11 @@ The dashboard audit found checkpoint/current-proof conflicts in Mission Control 
 The imported-history comparison card also displayed `evidenceProjection.proof.verdict=PROVEN` when `accepted=false`. It now passes that projection through the shared resolver and displays `BLOCKED` as its evidence status. Raw recorder evidence remains available as historical metadata, explicitly labeled “Recorded verdict” and accompanied by a note that it is not Canonical Proof or acceptance. This preserves history without presenting it as current acceptance.
 
 The focused Mission Control page suite passed 30/30 after adding the regression; dashboard TypeScript and `git diff --check` passed. The dashboard workflow restarted and became Vite-ready. Preview again showed the sign-in page only, so signed-in visuals were not verified. Tests used mocked Mission Control data only; no API or database action, provider call, recovery, Strategy Replay, E3.2, E4, or P7.5 work occurred. E3 remains OPEN.
+
+### 2026-10-19 — Mission / Proposal and Transition / Episode lock-test matrix
+
+The per-edge lock audit, direct PostgreSQL test boundaries, `PARTIAL` findings,
+and API-operation status are recorded in
+[`mission-proposal-lock-coverage.md`](mission-proposal-lock-coverage.md). The
+matrix does not close E4, P7.5, learning measurement, or independent evaluator
+qualification.

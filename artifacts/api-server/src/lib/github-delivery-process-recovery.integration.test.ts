@@ -465,7 +465,11 @@ describe("E2 verified GitHub delivery process recovery", () => {
           PORT: String(indexPort),
         });
         try {
-          await fullIndex.waitFor(/E2_FULL_INDEX_IMPORTED/, "full src/index.ts import");
+          await fullIndex.waitFor(
+            /E2_FULL_INDEX_IMPORTED/,
+            "full src/index.ts import",
+            120_000,
+          );
           await waitUntil("full API listener", async () => {
             if (fullIndex.child.exitCode !== null || fullIndex.child.signalCode !== null) {
               throw new Error(

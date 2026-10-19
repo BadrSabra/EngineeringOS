@@ -413,6 +413,7 @@ describe("E2 verified GitHub delivery race and failure contracts", () => {
         await fixture.cleanup();
       }
     },
+    60_000,
   );
 
   it.runIf(RUN_RACES)(

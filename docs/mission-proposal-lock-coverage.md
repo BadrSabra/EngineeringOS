@@ -46,17 +46,22 @@ not a reproduced partial-World-State failure.
 
 ## API operation status (separate from test health)
 
-The API workflow is currently **not started**. During the prior API start
-attempt, the workflow reported `EADDRINUSE` on port 8080 while an existing Node
-API process was present and responded to a request. Its ownership was not
-confirmed, so it was left running and not restarted or terminated. That is an
-operational port-ownership issue: it is neither a failure of the lock tests nor
-proof that the managed API workflow is healthy.
+During startup, the first development-domain health request returned HTTP 502
+and a direct request to `127.0.0.1:8080/api/healthz` was refused while the API
+workflow was still building. The build completed, the workflow logged
+`Server listening` on port 8080, and a subsequent direct health request returned
+HTTP 200 with `status: ok`. Thus the API is **currently healthy at the local
+health endpoint**; the earlier failures were transient startup observations.
 
-No `/api/healthz` result was collected as part of the lock-test verification
-recorded above. The typecheck and PostgreSQL integration tests are backend
-engineering checks, not an API liveness probe. Keep those result categories
-separate.
+A previous, separate start attempt had reported `EADDRINUSE` while an existing
+Node API process was present and responsive. That process was not manually
+terminated. The later successful workflow start and health response are the
+current operational evidence; they do not change the test results below.
+
+Keep the result categories separate: disposable-PostgreSQL integration tests,
+API TypeScript typecheck, and `git diff --check` are backend engineering checks;
+the HTTP 200 `/api/healthz` response is an API liveness/health observation. None
+of these substitutes for the others.
 
 ## Explicitly out of scope
 
