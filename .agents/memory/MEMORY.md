@@ -30,6 +30,7 @@
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic checks, keep Preview blocking by default, and treat local schema validation as authoritative for live provider JSON.
 - [Task execution lifecycle](task-execution-lifecycle.md) — preserve live worker leases during startup; keep Mission content revisions separate from metadata timestamps.
+- [Process-level AI worker fixtures](process-level-ai-worker-fixtures.md) — mock provider resolution only in controlled child modes; keep PostgreSQL claims and terminal writes real.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Package test root](package-test-root.md) — run Vitest from its owning package; pinned validation clones need linked dependencies and a clean-baseline suite run.

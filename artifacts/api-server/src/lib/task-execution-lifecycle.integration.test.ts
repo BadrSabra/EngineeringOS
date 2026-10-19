@@ -97,6 +97,19 @@ vi.mock("./ai-route-helpers.js", async () => {
   ) => Promise<unknown>;
   return {
     ...actual,
+    requireProvider: async (...args: Parameters<typeof actual.requireProvider>) => {
+      if (
+        process.env.TASK_ROUTE_PROCESS_CHILD === "worker"
+        || process.env.TASK_ROUTE_PROCESS_CHILD === "resume-worker"
+      ) {
+        return {
+          provider: "groq" as const,
+          apiKey: "test-dummy-key-for-mocked-tests",
+          source: "server" as const,
+        };
+      }
+      return actual.requireProvider(...args);
+    },
     runAgentWithFallback,
     chatWithFallback,
   };
@@ -373,7 +386,7 @@ function createDeferred<T = void>() {
   return { promise, resolve, reject };
 }
 
-function startApiStartupProcess(applicationName: string) {
+function startApiStartupProcess(applicationName: string, workspacePath?: string) {
   const rawDatabaseUrl = process.env.DATABASE_URL;
   if (!rawDatabaseUrl) {
     throw new Error("Mission repair process recovery requires an explicit disposable DATABASE_URL.");
@@ -411,6 +424,7 @@ function startApiStartupProcess(applicationName: string) {
       RUN_CONTROLLED_RELEASE_VALIDATION: "1",
       DASHBOARD_E2E_TEST_MODE: "fixture",
       PGAPPNAME: applicationName,
+      WORKSPACE_PATH: workspacePath ?? process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -540,6 +554,7 @@ function startTaskRouteTestProcess(input: {
   readySignalFile?: string;
   releaseSignalFile?: string;
   resultSignalFile?: string;
+  workspacePath?: string;
   leaseMs?: number;
   heartbeatIntervalMs?: number;
 }) {
@@ -569,7 +584,7 @@ function startTaskRouteTestProcess(input: {
       NODE_ENV: "test",
       PATH: process.env.PATH ?? "",
       HOME: process.env.HOME ?? "",
-      WORKSPACE_PATH: process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
+      WORKSPACE_PATH: input.workspacePath ?? process.env.WORKSPACE_PATH ?? "/home/runner/workspace",
       AI_PROVIDER_EGRESS_DISABLED: "1",
       RUN_CONTROLLED_RELEASE_VALIDATION: "1",
       DASHBOARD_E2E_TEST_MODE: "fixture",
@@ -608,6 +623,20 @@ function startTaskRouteTestProcess(input: {
     return captured;
   };
   return { applicationName, child, exit, output };
+}
+
+async function waitForTaskRouteReleaseSignal(signalFile: string) {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    try {
+      await readFile(signalFile, "utf8");
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error("Timed out waiting for the task route release signal.");
 }
 
 function startStructuredRouteTestProcess(input: {
@@ -3705,6 +3734,19 @@ describe("real durable task execution lifecycle", () => {
           taskId,
           stage: "model_call_pending",
         }), "utf8");
+        const releaseSignalFile = process.env.TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE;
+        if (releaseSignalFile) {
+          await waitForTaskRouteReleaseSignal(releaseSignalFile);
+          return {
+            result: {
+              summary: "Task completed after a controlled late model response.",
+              confidence: "high",
+              steps: ["The old worker resumed after a replacement lease was acquired."],
+              needsHumanReview: false,
+            },
+            effectiveProvider: "groq",
+          };
+        }
         return await new Promise<never>(() => {});
       });
 
@@ -3732,6 +3774,15 @@ describe("real durable task execution lifecycle", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.linkedTaskId, taskId))
         .limit(3);
+      const resultSignalFile = process.env.TASK_ROUTE_PROCESS_RESULT_SIGNAL_FILE;
+      if (resultSignalFile) {
+        await writeFile(resultSignalFile, JSON.stringify({
+          response: { status: response.status, body: response.body },
+          taskState: taskState ?? null,
+          executionState,
+        }), "utf8");
+        return;
+      }
       await writeFile(readySignalFile, JSON.stringify({
         taskId,
         stage: "http_route_returned",
@@ -3785,10 +3836,31 @@ describe("real durable task execution lifecycle", () => {
           taskId,
           stage: "resumed_model_call_pending",
         }), "utf8");
+        const releaseSignalFile = process.env.TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE;
+        if (releaseSignalFile) {
+          await waitForTaskRouteReleaseSignal(releaseSignalFile);
+          return {
+            result: {
+              summary: "Task completed by the replacement lease owner.",
+              confidence: "high",
+              steps: ["The current worker completed the resumed execution."],
+              needsHumanReview: false,
+            },
+            effectiveProvider: "groq",
+          };
+        }
         return await new Promise<never>(() => {});
       });
 
       const response = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+      const resultSignalFile = process.env.TASK_ROUTE_PROCESS_RESULT_SIGNAL_FILE;
+      if (resultSignalFile) {
+        await writeFile(resultSignalFile, JSON.stringify({
+          status: response.status,
+          body: response.body,
+        }), "utf8");
+        return;
+      }
       throw new Error(
         `AI task resume route returned before the parent terminated its process: ${response.status} ${JSON.stringify(response.body)}`,
       );
@@ -4965,6 +5037,406 @@ describe("real durable task execution lifecycle", () => {
           }
           await resumeProcess.exit;
           await waitForChildDatabaseDisconnect(resumeProcess.applicationName).catch(() => undefined);
+        }
+        await cleanupProjectExecutionData(projectId);
+        await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+        await db.delete(eventsTable).where(eq(eventsTable.taskId, taskId));
+        await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+        await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+        if (signalRoot) await rm(signalRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
+  );
+
+  const staleTaskRouteWorkerLeaseTakeoverTest =
+    process.env.RUN_TASK_ROUTE_STALE_WORKER_LEASE_TAKEOVER === "1" ? it : it.skip;
+  staleTaskRouteWorkerLeaseTakeoverTest(
+    "rejects an old AI task worker result after a replacement worker acquires the lease",
+    async () => {
+      requireMissionRepairDisposableDatabaseUrl();
+      const projectId = randomUUID();
+      const taskId = randomUUID();
+      const now = new Date();
+      let signalRoot: string | undefined;
+      let workerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let recoveryApiProcess: ReturnType<typeof startApiStartupProcess> | undefined;
+      let replacementWorkerProcess: ReturnType<typeof startTaskRouteTestProcess> | undefined;
+      let executionId: string | undefined;
+
+      try {
+        await db.insert(projectsTable).values({
+          id: projectId,
+          ownerId: "test-user",
+          name: `task-worker-lease-takeover-${projectId.slice(0, 8)}`,
+          rootPath: process.cwd(),
+          language: "typescript",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+        await db.insert(tasksTable).values({
+          id: taskId,
+          projectId,
+          title: `Lease takeover task ${taskId.slice(0, 6)}`,
+          description: "A task for a late worker result after lease takeover.",
+          status: "pending",
+          priority: "p2",
+          retryCount: 0,
+          maxRetries: 2,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        signalRoot = await mkdtemp(join("/tmp", "ai-task-worker-lease-takeover-"));
+        const workspacePath = join(signalRoot, "workspace");
+        await mkdir(workspacePath, { recursive: true });
+        const oldReadySignalFile = join(signalRoot, "old-worker-ready.json");
+        const oldReleaseSignalFile = join(signalRoot, "release-old-worker");
+        const oldResultSignalFile = join(signalRoot, "old-worker-result.json");
+        workerProcess = startTaskRouteTestProcess({
+          mode: "worker",
+          taskId,
+          readySignalFile: oldReadySignalFile,
+          releaseSignalFile: oldReleaseSignalFile,
+          resultSignalFile: oldResultSignalFile,
+          workspacePath,
+        });
+        let oldWorkerReadyPayload: string;
+        try {
+          oldWorkerReadyPayload = await waitForProcessSignalFile(oldReadySignalFile, workerProcess);
+        } catch (error) {
+          const earlyResponse = await readFile(oldResultSignalFile, "utf8").catch(() => "<not written>");
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}; early worker response=${earlyResponse}`,
+          );
+        }
+        const oldWorkerReady = JSON.parse(oldWorkerReadyPayload) as { taskId: string; stage: string };
+        expect(oldWorkerReady).toEqual({ taskId, stage: "model_call_pending" });
+
+        const [initialExecution] = await db
+          .select({
+            id: aiExecutionsTable.id,
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+          .limit(1);
+        expect(initialExecution).toMatchObject({
+          attempt: 0,
+          status: "running",
+          workerId: expect.any(String),
+        });
+        executionId = initialExecution?.id;
+        if (!executionId || !initialExecution?.workerId) {
+          throw new Error("The first AI task worker did not persist its execution lease.");
+        }
+        const oldWorkerId = initialExecution.workerId;
+        expect(initialExecution.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        const [initialTask] = await db
+          .select({
+            status: tasksTable.status,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(initialTask?.status).toBe("running");
+        expect(initialTask?.workerId).toBe(oldWorkerId);
+        expect(initialTask?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(workerProcess.child.exitCode).toBeNull();
+
+        const expiredAt = new Date(Date.now() - 60_000);
+        await db.update(aiExecutionsTable)
+          .set({ leaseUntil: expiredAt, updatedAt: new Date() })
+          .where(and(
+            eq(aiExecutionsTable.id, executionId),
+            eq(aiExecutionsTable.workerId, oldWorkerId),
+            eq(aiExecutionsTable.attempt, 0),
+          ));
+        await db.update(tasksTable)
+          .set({ leaseUntil: expiredAt, updatedAt: new Date() })
+          .where(and(
+            eq(tasksTable.id, taskId),
+            eq(tasksTable.workerId, oldWorkerId),
+            eq(tasksTable.status, "running"),
+          ));
+
+        recoveryApiProcess = startApiStartupProcess(
+          `ai-task-worker-lease-recovery-${randomUUID()}`,
+          workspacePath,
+        );
+        await recoveryApiProcess.waitForReady();
+        const recoveryDeadline = Date.now() + 60_000;
+        let executionRecovered = false;
+        while (!executionRecovered && Date.now() < recoveryDeadline) {
+          const [current] = await db
+            .select({ status: aiExecutionsTable.status })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, executionId))
+            .limit(1);
+          executionRecovered = current?.status === "paused";
+          if (!executionRecovered) {
+            if (
+              recoveryApiProcess.child.exitCode !== null
+              || recoveryApiProcess.child.signalCode !== null
+            ) {
+              throw new Error(
+                `API startup exited before recovering the expired worker; ${recoveryApiProcess.output()}`,
+              );
+            }
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+          }
+        }
+        const [recoveredExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(recoveredExecution).toEqual({
+          attempt: 0,
+          status: "paused",
+          workerId: null,
+          leaseUntil: null,
+        });
+        const recoveredAcceptances = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(recoveredAcceptances).toEqual([{
+          attempt: 0,
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+        }]);
+        const [recoveredTask] = await db
+          .select({
+            status: tasksTable.status,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(["pending", "queued", "verifying"]).toContain(recoveredTask?.status);
+        expect(recoveredTask?.workerId).toBeNull();
+        expect(recoveredTask?.leaseUntil).toBeNull();
+        expect(workerProcess.child.exitCode).toBeNull();
+
+        expect(recoveryApiProcess.child.kill("SIGKILL")).toBe(true);
+        expect(await waitForChildProcessExit(recoveryApiProcess)).toMatchObject({
+          code: null,
+          signal: "SIGKILL",
+        });
+        await waitForChildDatabaseDisconnect(recoveryApiProcess.applicationName);
+        recoveryApiProcess = undefined;
+
+        const replacementReadySignalFile = join(signalRoot, "replacement-worker-ready.json");
+        const replacementReleaseSignalFile = join(signalRoot, "release-replacement-worker");
+        const replacementResultSignalFile = join(signalRoot, "replacement-worker-result.json");
+        replacementWorkerProcess = startTaskRouteTestProcess({
+          mode: "resume-worker",
+          taskId,
+          readySignalFile: replacementReadySignalFile,
+          releaseSignalFile: replacementReleaseSignalFile,
+          resultSignalFile: replacementResultSignalFile,
+          workspacePath,
+        });
+        const replacementReady = JSON.parse(
+          await waitForProcessSignalFile(replacementReadySignalFile, replacementWorkerProcess),
+        ) as { taskId: string; stage: string };
+        expect(replacementReady).toEqual({
+          taskId,
+          stage: "resumed_model_call_pending",
+        });
+
+        const [replacementExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(replacementExecution).toMatchObject({
+          attempt: 1,
+          status: "running",
+          workerId: expect.any(String),
+        });
+        const replacementWorkerId = replacementExecution?.workerId;
+        if (!replacementWorkerId) {
+          throw new Error("The replacement worker did not acquire the resumed execution lease.");
+        }
+        expect(replacementWorkerId).not.toBe(oldWorkerId);
+        expect(replacementExecution.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        const [replacementTask] = await db
+          .select({
+            status: tasksTable.status,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(replacementTask?.status).toBe("running");
+        expect(replacementTask?.workerId).toBe(replacementWorkerId);
+        expect(replacementTask?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        expect(workerProcess.child.exitCode).toBeNull();
+
+        await writeFile(oldReleaseSignalFile, "release");
+        const oldWorkerResult = JSON.parse(
+          await waitForProcessSignalFile(oldResultSignalFile, workerProcess),
+        ) as { response: { status: number; body: { error?: string; code?: string } } };
+        expect(oldWorkerResult.response).toMatchObject({
+          status: 409,
+          body: { error: "task_state_changed_concurrently", code: "TASK_STATE_CHANGED_CONCURRENTLY" },
+        });
+        expect(await waitForChildProcessExit(workerProcess), workerProcess.output()).toEqual({
+          code: 0,
+          signal: null,
+        });
+        await waitForChildDatabaseDisconnect(workerProcess.applicationName);
+        workerProcess = undefined;
+
+        const [executionAfterStaleResult] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+            leaseUntil: aiExecutionsTable.leaseUntil,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(executionAfterStaleResult).toMatchObject({
+          attempt: 1,
+          status: "running",
+          workerId: replacementWorkerId,
+        });
+        expect(executionAfterStaleResult?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        const [taskAfterStaleResult] = await db
+          .select({
+            status: tasksTable.status,
+            workerId: tasksTable.workerId,
+            leaseUntil: tasksTable.leaseUntil,
+          })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(taskAfterStaleResult?.status).toBe("running");
+        expect(taskAfterStaleResult?.workerId).toBe(replacementWorkerId);
+        expect(taskAfterStaleResult?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
+        const acceptancesAfterStaleResult = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        expect(acceptancesAfterStaleResult).toEqual([{
+          attempt: 0,
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+        }]);
+        const eventsAfterStaleResult = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(eventsAfterStaleResult.some((event) => event.type === "TaskCompleted")).toBe(false);
+
+        await writeFile(replacementReleaseSignalFile, "release");
+        const replacementResult = JSON.parse(
+          await waitForProcessSignalFile(replacementResultSignalFile, replacementWorkerProcess),
+        ) as { status: number; body: { status?: string } };
+        expect(replacementResult).toMatchObject({
+          status: 202,
+          body: { status: "completed" },
+        });
+        expect(await waitForChildProcessExit(replacementWorkerProcess), replacementWorkerProcess.output())
+          .toEqual({ code: 0, signal: null });
+        await waitForChildDatabaseDisconnect(replacementWorkerProcess.applicationName);
+        replacementWorkerProcess = undefined;
+
+        const [completedExecution] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            workerId: aiExecutionsTable.workerId,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, executionId))
+          .limit(1);
+        expect(completedExecution).toEqual({
+          attempt: 1,
+          status: "completed",
+          workerId: null,
+        });
+        const completedAcceptanceHistory = await db
+          .select({
+            attempt: aiExecutionAcceptancesTable.attempt,
+            outcome: aiExecutionAcceptancesTable.outcome,
+            terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          })
+          .from(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+          .then((acceptances) => acceptances.sort((left, right) => left.attempt - right.attempt));
+        expect(completedAcceptanceHistory).toEqual([
+          { attempt: 0, outcome: "FAILED", terminalStatus: "paused" },
+          { attempt: 1, outcome: "SUCCEEDED", terminalStatus: "completed" },
+        ]);
+        const [completedTask] = await db
+          .select({ status: tasksTable.status })
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1);
+        expect(completedTask?.status).toBe("completed");
+        const completedEvents = await db
+          .select({ type: eventsTable.type })
+          .from(eventsTable)
+          .where(eq(eventsTable.taskId, taskId));
+        expect(completedEvents.filter((event) => event.type === "TaskCompleted")).toHaveLength(1);
+      } finally {
+        if (workerProcess) {
+          if (workerProcess.child.exitCode === null && workerProcess.child.signalCode === null) {
+            workerProcess.child.kill("SIGKILL");
+          }
+          await workerProcess.exit;
+          await waitForChildDatabaseDisconnect(workerProcess.applicationName).catch(() => undefined);
+        }
+        if (recoveryApiProcess) {
+          if (
+            recoveryApiProcess.child.exitCode === null
+            && recoveryApiProcess.child.signalCode === null
+          ) {
+            recoveryApiProcess.child.kill("SIGKILL");
+          }
+          await recoveryApiProcess.exit;
+          await waitForChildDatabaseDisconnect(recoveryApiProcess.applicationName).catch(() => undefined);
+        }
+        if (replacementWorkerProcess) {
+          if (
+            replacementWorkerProcess.child.exitCode === null
+            && replacementWorkerProcess.child.signalCode === null
+          ) {
+            replacementWorkerProcess.child.kill("SIGKILL");
+          }
+          await replacementWorkerProcess.exit;
+          await waitForChildDatabaseDisconnect(replacementWorkerProcess.applicationName).catch(() => undefined);
         }
         await cleanupProjectExecutionData(projectId);
         await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
