@@ -2652,7 +2652,7 @@ describe("real durable task execution lifecycle", () => {
     }
   });
 
-  it("fails closed for a non-final workflow phase without acceptance evidence", async () => {
+  it("fails closed before creating an execution for a non-empty workflow phase", async () => {
     const projectId = randomUUID();
     const missionId = randomUUID();
     const goalId = randomUUID();
@@ -2738,6 +2738,11 @@ describe("real durable task execution lifecycle", () => {
         isFinalPhase: false,
       });
       expect(result.status).toBe("failed");
+      expect(result).toMatchObject({
+        executionId: workflowExecutionId,
+        created: false,
+        failureCode: "WORKFLOW_PHASE_RUNNER_UNAVAILABLE",
+      });
 
       const [execution] = await db
         .select({
@@ -2764,19 +2769,10 @@ describe("real durable task execution lifecycle", () => {
         })
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, result.executionId));
-      const projection = (goal?.outcomeContract as Record<string, unknown>).acceptance as Record<string, unknown>;
 
-      expect(execution?.status).toBe("failed");
-      expect(execution?.checkpoint).toContain("required acceptance evidence is missing");
-      expect(acceptance).toMatchObject({
-        terminalStatus: "failed",
-        outcome: "FAILED",
-      });
-      expect(projection).toMatchObject({
-        executionId: result.executionId,
-        outcome: "FAILED",
-        verdict: "FAILED",
-      });
+      expect(execution).toBeUndefined();
+      expect(acceptance).toBeUndefined();
+      expect(goal?.outcomeContract).toEqual({});
       expect(goal?.status).toBe("running");
       expect(mission?.status).toBe("active");
     } finally {
