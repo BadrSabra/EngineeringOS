@@ -16,3 +16,9 @@ For Episode-request recovery, require a well-formed worker provenance record and
 **Why:** Worker IDs may rotate while a same-attempt Episode remains stable. Equating historical actorId with current lease owner would make a valid append-only request unrecoverable; dropping the current append fence would let stale workers write.
 
 **How to apply:** Separate immutable event provenance from current write authority. Preserve the attempt boundary, reject missing/malformed request identity, and let the existing ownership-fenced append authorize the new event.
+
+Generic task diagnostic logs are still worker output: insert them only while the linked execution and Task both match the current worker, execution attempt, correlation, running state, and live leases. Lock execution before Task, and recheck both lease deadlines after acquiring the locks.
+
+**Why:** A stale worker can append progress after recovery even when acceptance and completion are safely fenced, polluting the replacement worker's task history.
+
+**How to apply:** Keep diagnostic inserts inside an ownership-checked transaction; skip the insert when either owner or lease no longer matches, and follow the execution-then-Task lock order used by heartbeat/recovery paths.

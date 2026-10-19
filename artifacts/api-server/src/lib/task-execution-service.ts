@@ -4307,10 +4307,58 @@ export async function executeTaskLifecycle(params: {
         .filter(([key]) => key !== "workerId")
         .map(([key, value]) => [key, typeof value === "string" ? safeText(value, 240) : value]),
     );
-    await db.insert(taskLogsTable).values({
-      id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
-      metadata: { ...safeMetadata, executionId, trigger: params.trigger },
-      correlationId,
+    await db.transaction(async (tx) => {
+      const now = new Date();
+      const [ownedExecution] = await tx
+        .select({
+          id: aiExecutionsTable.id,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, executionId),
+          eq(aiExecutionsTable.linkedTaskId, before.id),
+          eq(aiExecutionsTable.attempt, executionAttempt),
+          eq(aiExecutionsTable.workerId, workerId),
+          eq(aiExecutionsTable.status, "running"),
+          gt(aiExecutionsTable.leaseUntil, now),
+        ))
+        .for("update")
+        .limit(1);
+      if (!ownedExecution) return;
+
+      const [ownedTask] = await tx
+        .select({
+          id: tasksTable.id,
+          leaseUntil: tasksTable.leaseUntil,
+        })
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, before.id),
+          eq(tasksTable.workerId, workerId),
+          eq(tasksTable.status, "running"),
+          eq(tasksTable.correlationId, correlationId),
+          gt(tasksTable.leaseUntil, now),
+        ))
+        .for("update")
+        .limit(1);
+      if (!ownedTask) return;
+
+      const writeAt = new Date();
+      if (
+        !ownedExecution.leaseUntil
+        || ownedExecution.leaseUntil <= writeAt
+        || !ownedTask.leaseUntil
+        || ownedTask.leaseUntil <= writeAt
+      ) {
+        return;
+      }
+
+      await tx.insert(taskLogsTable).values({
+        id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
+        metadata: { ...safeMetadata, executionId, trigger: params.trigger },
+        correlationId,
+      });
     }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
   };
   const progress = createTaskProgressEmitter({

@@ -120,6 +120,19 @@ vi.mock("@workspace/ai-orchestrator", async () => {
   return {
     ...actual,
     buildProjectContext: vi.fn(async () => ({ fixture: true })),
+    executeTask: async (...args: Parameters<typeof actual.executeTask>) => {
+      if (process.env.TASK_ROUTE_PROCESS_CHILD === "worker") {
+        const options = args[1] as { onProgress?: (message: string) => Promise<void> };
+        await options.onProgress?.("Late diagnostic progress from the retired worker.");
+        return {
+          summary: "Task completed after a controlled late model response.",
+          confidence: "high" as const,
+          steps: ["The old worker resumed after a replacement lease was acquired."],
+          needsHumanReview: false,
+        };
+      }
+      return actual.executeTask(...args);
+    },
     invalidateContextCache: vi.fn(),
     getProviderLifecycleSnapshot: vi.fn(async () => ({
       provider: "groq" as const,
@@ -3725,7 +3738,7 @@ describe("real durable task execution lifecycle", () => {
         throw new Error("AI task route worker child is missing its durable fixture identity.");
       }
       process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
-      runAgentWithFallback.mockImplementation(async () => {
+      runAgentWithFallback.mockImplementation(async (...args: unknown[]) => {
         await writeFile(readySignalFile, JSON.stringify({
           taskId,
           stage: "model_call_pending",
@@ -3733,6 +3746,14 @@ describe("real durable task execution lifecycle", () => {
         const releaseSignalFile = process.env.TASK_ROUTE_PROCESS_RELEASE_SIGNAL_FILE;
         if (releaseSignalFile) {
           await waitForTaskRouteReleaseSignal(releaseSignalFile);
+          const run = args[2];
+          if (typeof run === "function") {
+            await (run as (options: Record<string, unknown>) => Promise<unknown>)({
+              provider: "groq",
+              apiKey: "test-dummy-key-for-mocked-tests",
+              executionLedger: {},
+            });
+          }
           return {
             result: {
               summary: "Task completed after a controlled late model response.",
@@ -5292,6 +5313,17 @@ describe("real durable task execution lifecycle", () => {
         expect(replacementTask?.workerId).toBe(replacementWorkerId);
         expect(replacementTask?.leaseUntil?.getTime()).toBeGreaterThan(Date.now());
         expect(workerProcess.child.exitCode).toBeNull();
+        const logsBeforeLateResult = await db
+          .select({
+            id: taskLogsTable.id,
+            message: taskLogsTable.message,
+            metadata: taskLogsTable.metadata,
+          })
+          .from(taskLogsTable)
+          .where(eq(taskLogsTable.taskId, taskId))
+          .then((logs) => logs.filter((entry) => entry.metadata?.executionId === executionId));
+        expect(logsBeforeLateResult.some((entry) => entry.message === "Building project context"))
+          .toBe(true);
 
         await writeFile(oldReleaseSignalFile, "release");
         const oldWorkerResult = JSON.parse(
@@ -5307,6 +5339,19 @@ describe("real durable task execution lifecycle", () => {
         });
         await waitForChildDatabaseDisconnect(workerProcess.applicationName);
         workerProcess = undefined;
+        const logsAfterLateResult = await db
+          .select({
+            id: taskLogsTable.id,
+            message: taskLogsTable.message,
+            metadata: taskLogsTable.metadata,
+          })
+          .from(taskLogsTable)
+          .where(eq(taskLogsTable.taskId, taskId))
+          .then((logs) => logs.filter((entry) => entry.metadata?.executionId === executionId));
+        expect(logsAfterLateResult).toEqual(logsBeforeLateResult);
+        expect(logsAfterLateResult.some((entry) =>
+          entry.message === "Late diagnostic progress from the retired worker.",
+        )).toBe(false);
 
         const [executionAfterStaleResult] = await db
           .select({
