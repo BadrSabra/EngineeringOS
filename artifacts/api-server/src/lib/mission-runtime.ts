@@ -35,8 +35,8 @@ import {
 } from "./ai-execution-acceptance.js";
 import { projectGoalAcceptance } from "./mission-acceptance-projection.js";
 import {
-  applyChangesMissionRequirement,
   evaluateApplyChangesD2,
+  resolveApplyChangesMissionRequirement,
 } from "./agent-state/apply-changes-mission-gate.js";
 import { deliveryWorkspaceExists } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
@@ -2458,7 +2458,8 @@ export async function runMissionGoal(params: {
       }
     }
 
-    const applyRequirement = applyChangesMissionRequirement(
+    const applyRequirement = await resolveApplyChangesMissionRequirement(
+      tx,
       goal,
       mission,
       activePlanRevision,

@@ -8089,7 +8089,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     }
   });
 
-  it("applies a partial hunk selection — only accepted hunks are written via rebase", async () => {
+  it("applies an unlinked legacy Proposal through the route-only path with proof", async () => {
     const id = randomUUID();
     const now = new Date();
     const projectParent = await fs.mkdtemp(
@@ -8108,6 +8108,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
       updatedAt: now,
     });
     projectIds.push(id);
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, id))).toEqual([]);
+    expect(await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.projectId, id))).toEqual([]);
 
     // Stub behavioral verification so the isolated project root (no package.json)
     // doesn't cause "unavailable" → rollback in the apply route.
@@ -8175,6 +8179,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
       // allOk=true → 200; 207 is for partial success only.
       expect(res.status).toBe(200);
       expect(res.body.results[0]).toMatchObject({ ok: true });
+      expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, id))).toEqual([]);
+      expect(await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+        .where(eq(aiGoalsTable.projectId, id))).toEqual([]);
       const [execution] = await db.select({
         id: aiExecutionsTable.id,
         attempt: aiExecutionsTable.attempt,
@@ -8417,7 +8425,17 @@ describe("POST /api/ai/chat/apply-changes", () => {
       scope: { kind: "project", projectId },
       autonomyPolicy: {
         activePlanRevision: planRevision,
-        applyMission: { proposalId, requirement },
+        applyMission: {
+          proposalId,
+          proposalRevision: 0,
+          baseTreeHash: deliveryWorkspace.baseTreeHash,
+          operationId,
+          candidateIdentity: `${proposalId}:${deliveryWorkspace.candidateTreeHash}`,
+          baseRevision: requirement.baseRevision,
+          candidateTreeHash: requirement.candidateTreeHash,
+          changeSetHash: requirement.changeSetHash,
+          requirement,
+        },
       },
       createdAt: now,
       updatedAt: now,
@@ -8507,19 +8525,47 @@ describe("POST /api/ai/chat/apply-changes", () => {
       .mockImplementation(() => undefined);
 
     try {
-      const interruptedResponse = await (async () => {
-        const responseJsonSpy = vi.spyOn(app.response, "json").mockImplementationOnce(() => {
-          throw new Error("simulated_apply_response_loss");
-        });
-        try {
-          return await request(app)
-            .post("/api/ai/chat/apply-changes")
-            .send({ projectId, proposalId, changes: [change] });
-        } finally {
-          responseJsonSpy.mockRestore();
-        }
-      })();
-      expect(interruptedResponse.status).toBe(500);
+      const [missionBeforeRecoveryCheck] = await db.select({
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId)).limit(1);
+      const originalPolicy = missionBeforeRecoveryCheck!.autonomyPolicy as Record<string, unknown>;
+      const originalApplyMission = originalPolicy.applyMission as Record<string, unknown>;
+      expect(originalApplyMission.operationId).toBe(operationId);
+      const [proposalBeforeBindingRejection] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId)).limit(1);
+      const incompleteApplyMission = { ...originalApplyMission };
+      delete incompleteApplyMission.operationId;
+      await db.update(aiMissionsTable)
+        .set({ autonomyPolicy: { ...originalPolicy, applyMission: incompleteApplyMission } })
+        .where(eq(aiMissionsTable.id, missionId));
+
+      const blockedLegacyFallback = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId, proposalId, changes: [change] });
+      expect(blockedLegacyFallback.status).toBe(409);
+      expect(blockedLegacyFallback.body.code).toBe("APPLY_MISSION_BINDING_CONFLICT");
+      expect(blockedLegacyFallback.body.error).toContain("Do not edit the binding.");
+      expect(blockedLegacyFallback.body.error).toContain("fresh Proposal");
+      expect(await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.proposalId, proposalId))).toEqual([]);
+      const [unchangedProposal] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId)).limit(1);
+      expect(unchangedProposal).toEqual(proposalBeforeBindingRejection);
+
+      await db.update(aiMissionsTable)
+        .set({ autonomyPolicy: originalPolicy })
+        .where(eq(aiMissionsTable.id, missionId));
+
+      const initialResponse = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId, proposalId, changes: [change] });
+      expect(initialResponse.status, JSON.stringify(initialResponse.body)).toBe(200);
 
       const response = await request(app)
         .post("/api/ai/chat/apply-changes")
@@ -8665,6 +8711,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
 
       const [applyGoal] = await db.select({
         status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
         outcomeContract: aiGoalsTable.outcomeContract,
       }).from(aiGoalsTable).where(eq(aiGoalsTable.id, applyGoalId)).limit(1);
       const [reportGoal] = await db.select({
@@ -8698,7 +8745,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
         }).from(aiExecutionAcceptancesTable)
           .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id)),
       };
-      expect(applyGoal?.status).toBe("completed");
+      expect(applyGoal?.status, JSON.stringify({ applyGoal, proofDiagnostics })).toBe("completed");
       expect(applyGoal?.outcomeContract).toMatchObject({
         acceptance: {
           verdict: "PROVEN",

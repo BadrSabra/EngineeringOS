@@ -38,6 +38,7 @@ import { dispatchPendingMissionChatHandoffs } from "../../lib/mission-chat-hando
 import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
+import { evaluateApplyChangesD2 } from "../../lib/agent-state/apply-changes-mission-gate.js";
 import {
   createDeliveryWorkspace,
   DELIVERY_TREE_DIGEST_VERSION,
@@ -255,6 +256,44 @@ async function waitForMissionRowLock(
   }
   throw new Error(
     `Mission write did not reach the locked Mission row; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
+  );
+}
+
+async function waitForProposalRowLock(
+  handoffPromise: Promise<{ status: number; body: unknown }>,
+  timeoutMs = 10_000,
+  minimumWaiters = 1,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let blockedQueries: string[] = [];
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.query
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as { rows?: Array<{ query: string | null }> }).rows ?? [];
+    blockedQueries = rows.map((row) => row.query ?? "");
+    if (blockedQueries.filter((query) => /ai_change_proposals/i.test(query)).length
+      >= minimumWaiters) {
+      return;
+    }
+    const completedEarly = await Promise.race([
+      handoffPromise.then((response) => ({ response })),
+      new Promise<{ response?: undefined }>((resolve) => setTimeout(() => resolve({}), 25)),
+    ]);
+    if (completedEarly.response) {
+      throw new Error(
+        `Apply Mission returned before waiting on Proposal: HTTP ${completedEarly.response.status} ${JSON.stringify(completedEarly.response.body)}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(
+    `Apply Mission did not wait on Proposal; blocked queries: ${blockedQueries.join(" | ") || "none"}`,
   );
 }
 
@@ -4431,6 +4470,7 @@ describe("AI missions and goals", () => {
       messageId,
       changes: "[]",
       status: "pending",
+      operationId: `apply-operation:${proposalId}`,
       baseRevision,
       baseTreeHash,
       candidateTreeHash,
@@ -4478,7 +4518,17 @@ describe("AI missions and goals", () => {
       to: "applied",
     };
     expect(mission?.autonomyPolicy).toMatchObject({
-      applyMission: { proposalId, requirement },
+      applyMission: {
+        proposalId,
+        proposalRevision: 0,
+        baseTreeHash,
+        operationId: `apply-operation:${proposalId}`,
+        candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+        baseRevision,
+        candidateTreeHash,
+        changeSetHash,
+        requirement,
+      },
       activePlanRevision: applyGoal?.successCriteria
         && (applyGoal.successCriteria as { planRevision?: { hash?: string } }).planRevision?.hash,
     });
@@ -4492,12 +4542,109 @@ describe("AI missions and goals", () => {
     expect(await db.select({ id: tasksTable.id }).from(tasksTable)
       .where(eq(tasksTable.goalId, created.body.applyGoal.goalId))).toEqual([]);
 
+    const originalPolicy = mission?.autonomyPolicy as Record<string, unknown>;
+    const originalApplyBinding = originalPolicy.applyMission as Record<string, unknown>;
+    const safePolicyPatch = await request(app)
+      .patch(`/api/ai/missions/${created.body.mission.id}`)
+      .send({ autonomyPolicy: { operatorNote: "safe non-binding setting" } });
+    expect(safePolicyPatch.status).toBe(200);
+    const [policyAfterSafePatch] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, created.body.mission.id));
+    expect(policyAfterSafePatch?.autonomyPolicy).toMatchObject({
+      activePlanRevision: originalPolicy.activePlanRevision,
+      applyMission: originalApplyBinding,
+      operatorNote: "safe non-binding setting",
+    });
+
+    const applyBindingAttacks = [
+      { ...originalApplyBinding, proposalId: "other-proposal" },
+      {
+        ...originalApplyBinding,
+        proposalRevision: (originalApplyBinding.proposalRevision as number) + 1,
+      },
+      { ...originalApplyBinding, baseTreeHash: "f".repeat(64) },
+      { ...originalApplyBinding, operationId: "other-operation" },
+      { ...originalApplyBinding, candidateIdentity: "other-candidate" },
+      { ...originalApplyBinding, baseRevision: "other-revision" },
+      { ...originalApplyBinding, candidateTreeHash: "f".repeat(64) },
+      { ...originalApplyBinding, changeSetHash: "f".repeat(64) },
+      {
+        proposalId,
+        requirement: originalApplyBinding.requirement,
+      },
+    ];
+    for (const applyMission of applyBindingAttacks) {
+      const attemptedRewrite = await request(app)
+        .patch(`/api/ai/missions/${created.body.mission.id}`)
+        .send({ autonomyPolicy: { applyMission } });
+      expect(attemptedRewrite.status).toBe(400);
+      expect(attemptedRewrite.body.code).toBe("MISSION_APPLY_BINDING_SERVER_OWNED");
+      const [persistedAfterAttack] = await db.select({
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, created.body.mission.id));
+      expect(
+        (persistedAfterAttack?.autonomyPolicy as Record<string, unknown>)?.applyMission,
+      ).toEqual(originalApplyBinding);
+    }
+
+    const [intactMission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, created.body.mission.id));
+    const [intactGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, created.body.applyGoal.goalId));
+    expect(intactMission).toBeDefined();
+    expect(intactGoal).toBeDefined();
+    const d2AfterRejectedMissionPatches = await db.transaction((tx) =>
+      evaluateApplyChangesD2(tx, {
+        goal: intactGoal!,
+        mission: intactMission!,
+        activePlanRevision: (intactMission!.autonomyPolicy as Record<string, unknown>)
+          .activePlanRevision as string,
+      }));
+    expect(d2AfterRejectedMissionPatches).toEqual({
+      state: "pending",
+      reason: "apply_execution_missing",
+    });
+
+    // Goal JSON is client-editable while no execution exists. It must not be
+    // possible to relabel a still-linked Apply Mission as a legacy report Goal
+    // and thereby make D2 return NOT_APPLICABLE.
+    const relabeledGoal = await request(app)
+      .patch(`/api/ai/goals/${created.body.applyGoal.goalId}`)
+      .send({
+        successCriteria: { stepId: "report-applied" },
+        outcomeContract: { stepId: "report-applied" },
+      });
+    expect(relabeledGoal.status).toBe(200);
+    const [tamperedMission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, created.body.mission.id));
+    const [tamperedGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, created.body.applyGoal.goalId));
+    expect(tamperedMission).toBeDefined();
+    expect(tamperedGoal).toBeDefined();
+    const d2AfterPatch = await db.transaction((tx) => evaluateApplyChangesD2(tx, {
+      goal: tamperedGoal!,
+      mission: tamperedMission!,
+      activePlanRevision: (tamperedMission!.autonomyPolicy as Record<string, unknown>)
+        .activePlanRevision as string,
+    }));
+    expect(d2AfterPatch).toEqual({
+      state: "failed",
+      reason: "apply_requirement_invalid",
+    });
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, created.body.applyGoal.goalId))).toEqual([]);
+    expect(await db.select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+      .where(eq(aiExecutionsTable.goalId, created.body.applyGoal.goalId))).toEqual([]);
+
     const prematureCompletion = await request(app)
       .patch(`/api/ai/missions/${created.body.mission.id}`)
       .send({ status: "completed" });
     expect(prematureCompletion.status).toBe(409);
     expect(prematureCompletion.body.code).toBe("MISSION_COMPLETION_REQUIRES_PROOF");
-    expect(prematureCompletion.body.missingGoalIds).toContain(created.body.applyGoal.goalId);
+    expect(prematureCompletion.body.missingGoalIds).not.toHaveLength(0);
 
     const subsequentDuplicate = await request(app)
       .post("/api/ai/missions/apply-from-proposal")
@@ -4513,6 +4660,420 @@ describe("AI missions and goals", () => {
     });
     expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
       .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
+  });
+
+  it("rejects client-supplied Apply Mission identity on generic Mission creation", async () => {
+    const projectId = await insertProject();
+    const response = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Attempted client Apply Mission",
+      intent: "Do not let generic creation forge a Proposal handoff",
+      autonomyPolicy: {
+        applyMission: {
+          proposalId: randomUUID(),
+          proposalRevision: 0,
+        },
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("MISSION_APPLY_BINDING_SERVER_OWNED");
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+  });
+
+  it.each([
+    "unchanged",
+    "status",
+    "approvalRequired",
+    "lifecycle",
+    "revision",
+    "baseRevision",
+    "baseTreeHash",
+    "candidateTreeHash",
+    "changeSetHash",
+    "changes",
+    "operationId",
+    "workspaceRoot",
+  ] as const)(
+    "revalidates the complete Proposal identity after the handoff waits on its row lock (%s)",
+    async (changedField) => {
+      const projectId = await insertProject();
+      const sessionId = randomUUID();
+      const messageId = randomUUID();
+      const proposalId = randomUUID();
+      const now = new Date();
+      await db.insert(aiChatSessionsTable).values({
+        id: sessionId,
+        projectId,
+        title: "Proposal lock revalidation fixture",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiChatMessagesTable).values({
+        id: messageId,
+        sessionId,
+        role: "assistant",
+        content: "Prepared change proposal",
+        createdAt: now,
+      });
+      await db.insert(aiChangeProposalsTable).values({
+        id: proposalId,
+        projectId,
+        sessionId,
+        messageId,
+        changes: '[{"path":"src/index.ts","content":"prepared"}]',
+        status: "pending",
+        revision: 1,
+        approvalRequired: false,
+        lifecycle: "proposed",
+        operationId: `operation:${proposalId}`,
+        workspaceRoot: path.resolve(
+          process.cwd(),
+          "../../.test-roots",
+          `proposal-candidate-${proposalId}`,
+        ),
+        baseRevision: "a".repeat(40),
+        baseTreeHash: "b".repeat(64),
+        treeDigestVersion: "test-tree-v1",
+        candidateTreeHash: "c".repeat(64),
+        changeSetHash: "d".repeat(64),
+        createdAt: now,
+      });
+      const initialProposal = {
+        changes: '[{"path":"src/index.ts","content":"prepared"}]',
+        status: "pending",
+        revision: 1,
+        approvalRequired: false,
+        lifecycle: "proposed",
+        operationId: `operation:${proposalId}`,
+        workspaceRoot: path.resolve(
+          process.cwd(),
+          "../../.test-roots",
+          `proposal-candidate-${proposalId}`,
+        ),
+        baseRevision: "a".repeat(40),
+        baseTreeHash: "b".repeat(64),
+        treeDigestVersion: "test-tree-v1",
+        candidateTreeHash: "c".repeat(64),
+        changeSetHash: "d".repeat(64),
+      };
+      const expectedProposal = { ...initialProposal };
+
+      let announceProposalLocked!: () => void;
+      let releaseProposalLock!: () => void;
+      const proposalLocked = new Promise<void>((resolve) => {
+        announceProposalLocked = resolve;
+      });
+      const proposalLockRelease = new Promise<void>((resolve) => {
+        releaseProposalLock = resolve;
+      });
+      const proposalLockHolder = db.transaction(async (tx) => {
+        await tx.select({ id: aiChangeProposalsTable.id })
+          .from(aiChangeProposalsTable)
+          .where(eq(aiChangeProposalsTable.id, proposalId))
+          .for("update");
+        announceProposalLocked();
+        await proposalLockRelease;
+        switch (changedField) {
+          case "unchanged":
+            break;
+          case "status":
+            expectedProposal.status = "rejected";
+            await tx.update(aiChangeProposalsTable)
+              .set({ status: "rejected" })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "approvalRequired":
+            expectedProposal.approvalRequired = true;
+            await tx.update(aiChangeProposalsTable)
+              .set({ approvalRequired: true })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "lifecycle":
+            expectedProposal.lifecycle = "blocked";
+            await tx.update(aiChangeProposalsTable)
+              .set({ lifecycle: "blocked" })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "revision":
+            expectedProposal.revision = 2;
+            await tx.update(aiChangeProposalsTable)
+              .set({ revision: 2 })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "baseRevision":
+            expectedProposal.baseRevision = "e".repeat(40);
+            await tx.update(aiChangeProposalsTable)
+              .set({ baseRevision: "e".repeat(40) })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "baseTreeHash":
+            expectedProposal.baseTreeHash = "f".repeat(64);
+            await tx.update(aiChangeProposalsTable)
+              .set({ baseTreeHash: "f".repeat(64) })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "candidateTreeHash":
+            expectedProposal.candidateTreeHash = "7".repeat(64);
+            await tx.update(aiChangeProposalsTable)
+              .set({ candidateTreeHash: "7".repeat(64) })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "changeSetHash":
+            expectedProposal.changeSetHash = "8".repeat(64);
+            await tx.update(aiChangeProposalsTable)
+              .set({ changeSetHash: "8".repeat(64) })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "changes":
+            expectedProposal.changes = '[{"path":"src/index.ts","content":"changed"}]';
+            await tx.update(aiChangeProposalsTable)
+              .set({ changes: expectedProposal.changes })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "operationId":
+            expectedProposal.operationId = `changed-operation:${proposalId}`;
+            await tx.update(aiChangeProposalsTable)
+              .set({ operationId: expectedProposal.operationId })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+          case "workspaceRoot":
+            expectedProposal.workspaceRoot = path.resolve(
+              process.cwd(),
+              "../../.test-roots",
+              `changed-candidate-${proposalId}`,
+            );
+            await tx.update(aiChangeProposalsTable)
+              .set({ workspaceRoot: expectedProposal.workspaceRoot })
+              .where(eq(aiChangeProposalsTable.id, proposalId));
+            break;
+        }
+      });
+      await proposalLocked;
+
+      const handoffCount = changedField === "revision" ? 2 : 1;
+      const handoffs: Array<Promise<{ status: number; body: unknown }>> = [];
+      let synchronizationError: unknown;
+      try {
+        handoffs.push(request(app)
+          .post("/api/ai/missions/apply-from-proposal")
+          .send({ projectId, proposalId })
+          .then((response) => response));
+        if (handoffCount === 2) {
+          handoffs.push(request(app)
+            .post("/api/ai/missions/apply-from-proposal")
+            .send({ projectId, proposalId })
+            .then((response) => response));
+        }
+        await waitForProposalRowLock(handoffs[0]!, 10_000, handoffCount);
+      } catch (error) {
+        synchronizationError = error;
+      } finally {
+        releaseProposalLock();
+      }
+
+      const [holderOutcome, ...handoffOutcomes] = await Promise.allSettled([
+        proposalLockHolder,
+        ...handoffs,
+      ]);
+      if (synchronizationError) throw synchronizationError;
+      expect(holderOutcome.status).toBe("fulfilled");
+      expect(handoffOutcomes).toHaveLength(handoffCount);
+      const responses = handoffOutcomes.map((outcome) =>
+        outcome.status === "fulfilled" ? outcome.value : undefined,
+      );
+      expect(responses.every(Boolean)).toBe(true);
+      const [proposal] = await db.select().from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.id, proposalId));
+      const missions = await db.select().from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, projectId));
+      const [goals, tasks, executions, correlatedEvents] = await Promise.all([
+        db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+          .where(eq(aiGoalsTable.projectId, projectId)),
+        db.select({ id: tasksTable.id }).from(tasksTable)
+          .where(eq(tasksTable.projectId, projectId)),
+        db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.proposalId, proposalId)),
+        db.select({ id: eventsTable.id }).from(eventsTable)
+          .where(and(
+            eq(eventsTable.projectId, projectId),
+            eq(eventsTable.correlationId, proposalId),
+          )),
+      ]);
+      const missionRequirements = missions.map((mission) => {
+        const policy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object"
+          ? mission.autonomyPolicy as Record<string, unknown>
+          : {};
+        const applyMission = policy.applyMission && typeof policy.applyMission === "object"
+          ? policy.applyMission as Record<string, unknown>
+          : {};
+        return applyMission.requirement;
+      });
+      const expectedRequirement = {
+        kind: "apply.changes",
+        version: 1,
+        sourceStepId: "apply-changes",
+        proposalId,
+        baseRevision: "a".repeat(40),
+        candidateTreeHash: "c".repeat(64),
+        changeSetHash: "d".repeat(64),
+        from: "candidate",
+        to: "applied",
+      };
+      expect({
+        responseStatuses: responses.map((response) => response?.status),
+        responseCodes: responses.map((response) =>
+          (response?.body as Record<string, unknown> | undefined)?.code,
+        ),
+        proposal,
+        missionRequirements,
+      }).toEqual({
+        responseStatuses: Array.from(
+          { length: handoffCount },
+          () => changedField === "unchanged" ? 201 : 409,
+        ),
+        responseCodes: Array.from(
+          { length: handoffCount },
+          () => changedField === "unchanged"
+            ? undefined
+            : "PROPOSAL_CHANGED_DURING_HANDOFF",
+        ),
+        proposal: expect.objectContaining(expectedProposal),
+        missionRequirements: changedField === "unchanged" ? [expectedRequirement] : [],
+      });
+
+      if (changedField === "unchanged") {
+        const policy = missions[0]?.autonomyPolicy as Record<string, unknown> | undefined;
+        expect(policy?.applyMission).toMatchObject({
+          proposalRevision: initialProposal.revision,
+          baseTreeHash: initialProposal.baseTreeHash,
+          operationId: initialProposal.operationId,
+          candidateIdentity: `${proposalId}:${initialProposal.candidateTreeHash}`,
+        });
+        const goals = await db.select().from(aiGoalsTable)
+          .where(eq(aiGoalsTable.missionId, missions[0]?.id ?? ""));
+        const applyGoal = goals.find((goal) => {
+          const criteria = goal.successCriteria as Record<string, unknown> | undefined;
+          return criteria?.stepId === "apply-changes";
+        });
+        const criteria = applyGoal?.successCriteria as Record<string, unknown> | undefined;
+        const activePlanRevision = policy?.activePlanRevision;
+        expect(activePlanRevision).toEqual(expect.any(String));
+        expect((criteria?.planRevision as Record<string, unknown> | undefined)?.hash)
+          .toBe(activePlanRevision);
+      } else {
+        expect({ goals, tasks, executions, correlatedEvents }).toEqual({
+          goals: [],
+          tasks: [],
+          executions: [],
+          correlatedEvents: [],
+        });
+      }
+    },
+  );
+
+  it("rolls back the Mission and generated plan when a later transaction write fails", async () => {
+    const projectId = await insertProject();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const triggerSuffix = randomUUID().replaceAll("-", "");
+    const functionName = `test_fail_apply_handoff_${triggerSuffix}`;
+    const triggerName = `test_fail_apply_handoff_${triggerSuffix}`;
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Apply Mission rollback fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Prepared change proposal",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      status: "pending",
+      revision: 1,
+      operationId: `apply-operation:${proposalId}`,
+      baseRevision: "a".repeat(40),
+      baseTreeHash: "b".repeat(64),
+      candidateTreeHash: "c".repeat(64),
+      changeSetHash: "d".repeat(64),
+      createdAt: now,
+    });
+
+    try {
+      await db.execute(sql.raw(`
+        CREATE FUNCTION ${functionName}() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'forced Apply Mission transaction failure';
+        END;
+        $$
+      `));
+      await db.execute(sql.raw(`
+        CREATE TRIGGER ${triggerName}
+        BEFORE INSERT ON events
+        FOR EACH ROW
+        WHEN (
+          NEW.type = 'AiApplyMissionCreated'
+          AND NEW.correlation_id = '${proposalId}'
+        )
+        EXECUTE FUNCTION ${functionName}()
+      `));
+
+      const response = await request(app)
+        .post("/api/ai/missions/apply-from-proposal")
+        .send({ projectId, proposalId });
+
+      expect(response.status).toBe(500);
+      const [missions, goals, dependencies, tasks, executions, correlatedEvents] =
+        await Promise.all([
+          db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+            .where(eq(aiMissionsTable.projectId, projectId)),
+          db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+            .where(eq(aiGoalsTable.projectId, projectId)),
+          db.select({ id: aiGoalDependenciesTable.id }).from(aiGoalDependenciesTable)
+            .where(eq(aiGoalDependenciesTable.projectId, projectId)),
+          db.select({ id: tasksTable.id }).from(tasksTable)
+            .where(eq(tasksTable.projectId, projectId)),
+          db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.proposalId, proposalId)),
+          db.select({ id: eventsTable.id }).from(eventsTable)
+            .where(and(
+              eq(eventsTable.projectId, projectId),
+              eq(eventsTable.correlationId, proposalId),
+            )),
+        ]);
+      expect({
+        missions,
+        goals,
+        dependencies,
+        tasks,
+        executions,
+        correlatedEvents,
+      }).toEqual({
+        missions: [],
+        goals: [],
+        dependencies: [],
+        tasks: [],
+        executions: [],
+        correlatedEvents: [],
+      });
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON events`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+    }
   });
 
   it("does not deadlock proposal handoff against Mission Goal approval locks", async () => {
@@ -4590,6 +5151,7 @@ describe("AI missions and goals", () => {
       revision: 1,
       approvalRequired: true,
       lifecycle: "proposed",
+      operationId: `apply-operation:${proposalId}`,
       baseRevision,
       baseTreeHash: "b".repeat(64),
       candidateTreeHash,

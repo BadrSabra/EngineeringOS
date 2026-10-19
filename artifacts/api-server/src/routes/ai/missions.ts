@@ -1730,8 +1730,39 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       .for("update")
       .limit(1);
     if (!lockedProposal) return { kind: "not_found" as const };
-    if (lockedProposal.status !== "pending" || !lockedProposal.baseRevision
-        || !lockedProposal.candidateTreeHash || !lockedProposal.changeSetHash) {
+    // FOR UPDATE can return a newer row after waiting. Do not silently turn a
+    // request that began for one prepared candidate into an approval of a
+    // different revision, change set, or workspace identity. The approval
+    // adapter may legitimately clear approvalRequired while this request waits;
+    // the final locked row must still have that gate cleared below.
+    const approvalWasClearedWhileWaiting = proposal.approvalRequired
+      && !lockedProposal.approvalRequired;
+    const initialIdentityAtLockedApprovalState = {
+      ...proposal,
+      approvalRequired: lockedProposal.approvalRequired,
+    };
+    if (
+      (proposal.approvalRequired !== lockedProposal.approvalRequired
+        && !approvalWasClearedWhileWaiting)
+      || !isDeepStrictEqual(initialIdentityAtLockedApprovalState, lockedProposal)
+    ) {
+      return { kind: "proposal_changed" as const };
+    }
+    if (
+      lockedProposal.status !== "pending"
+      || lockedProposal.approvalRequired
+      || !lockedProposal.baseRevision
+      || !Number.isSafeInteger(lockedProposal.revision)
+      || lockedProposal.revision < 0
+      || typeof lockedProposal.baseTreeHash !== "string"
+      || !/^[a-f0-9]{64}$/.test(lockedProposal.baseTreeHash)
+      || typeof lockedProposal.candidateTreeHash !== "string"
+      || !/^[a-f0-9]{64}$/.test(lockedProposal.candidateTreeHash)
+      || typeof lockedProposal.changeSetHash !== "string"
+      || !/^[a-f0-9]{64}$/.test(lockedProposal.changeSetHash)
+      || typeof lockedProposal.operationId !== "string"
+      || lockedProposal.operationId.trim().length === 0
+    ) {
       return { kind: "not_prepared" as const };
     }
 
@@ -1782,6 +1813,10 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       autonomyPolicy: {
         applyMission: {
           proposalId: proposal.id,
+          proposalRevision: lockedProposal.revision,
+          baseTreeHash: lockedProposal.baseTreeHash,
+          operationId: lockedProposal.operationId,
+          candidateIdentity: `${lockedProposal.id}:${lockedProposal.candidateTreeHash}`,
           baseRevision: requirement.baseRevision,
           candidateTreeHash: requirement.candidateTreeHash,
           changeSetHash: requirement.changeSetHash,
@@ -1814,6 +1849,13 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
     res.status(409).json({
       error: "The proposal is not prepared for a Mission apply handoff.",
       code: "PROPOSAL_NOT_PREPARED",
+    });
+    return;
+  }
+  if (result.kind === "proposal_changed") {
+    res.status(409).json({
+      error: "The proposal changed while the Mission handoff was waiting. Review it and try again.",
+      code: "PROPOSAL_CHANGED_DURING_HANDOFF",
     });
     return;
   }
@@ -1987,6 +2029,16 @@ router.post("/ai/missions", async (req, res) => {
     });
     return;
   }
+  if (
+    body.autonomyPolicy
+    && Object.prototype.hasOwnProperty.call(body.autonomyPolicy, "applyMission")
+  ) {
+    res.status(400).json({
+      error: "applyMission is server-owned",
+      code: "MISSION_APPLY_BINDING_SERVER_OWNED",
+    });
+    return;
+  }
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
   const activationPreview = buildMissionPlanPreview({
@@ -2069,7 +2121,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   let result: {
     updated?: typeof aiMissionsTable.$inferSelect;
     activationPlan?: MissionPlanMaterialization;
-    policyError?: "handoffSource" | "activePlanRevision";
+    policyError?: "handoffSource" | "activePlanRevision" | "applyMission";
   };
   try {
     result = await db.transaction(async (tx) => {
@@ -2091,6 +2143,10 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         existingAutonomyPolicy
         && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "activePlanRevision"),
       );
+      const hasServerOwnedApplyMission = Boolean(
+        existingAutonomyPolicy
+        && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "applyMission"),
+      );
       if (
         autonomyPolicy
         && Object.prototype.hasOwnProperty.call(autonomyPolicy, "handoffSource")
@@ -2108,6 +2164,19 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
       ) {
         return { policyError: "activePlanRevision" as const };
       }
+      if (
+        autonomyPolicy
+        && Object.prototype.hasOwnProperty.call(autonomyPolicy, "applyMission")
+        && (
+          !hasServerOwnedApplyMission
+          || !isDeepStrictEqual(
+            autonomyPolicy.applyMission,
+            existingAutonomyPolicy!.applyMission,
+          )
+        )
+      ) {
+        return { policyError: "applyMission" as const };
+      }
 
       const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
         ...rest,
@@ -2121,6 +2190,9 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
                   : {}),
                 ...(hasServerOwnedActivePlanRevision
                   ? { activePlanRevision: existingAutonomyPolicy!.activePlanRevision }
+                  : {}),
+                ...(hasServerOwnedApplyMission
+                  ? { applyMission: existingAutonomyPolicy!.applyMission }
                   : {}),
               },
             }
@@ -2185,13 +2257,18 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   }
   if ("policyError" in result) {
     const isActivePlanRevision = result.policyError === "activePlanRevision";
+    const isApplyMission = result.policyError === "applyMission";
     return res.status(400).json({
-      error: isActivePlanRevision
-        ? "activePlanRevision is server-owned"
-        : "handoffSource is server-owned",
-      code: isActivePlanRevision
-        ? "MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED"
-        : "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
+      error: isApplyMission
+        ? "applyMission is server-owned"
+        : isActivePlanRevision
+          ? "activePlanRevision is server-owned"
+          : "handoffSource is server-owned",
+      code: isApplyMission
+        ? "MISSION_APPLY_BINDING_SERVER_OWNED"
+        : isActivePlanRevision
+          ? "MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED"
+          : "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
     });
   }
   if (!result.updated) return res.status(404).json({ error: "Mission not found" });

@@ -193,7 +193,8 @@ import {
   serverEnvironmentProfile,
 } from "../../lib/agent-state/environment-attestation.js";
 import {
-  applyChangesMissionRequirement,
+  resolveApplyChangesMissionRequirement,
+  type ApplyChangesMissionRequirement,
 } from "../../lib/agent-state/apply-changes-mission-gate.js";
 import {
   isBoundApplyTransition,
@@ -16771,6 +16772,108 @@ async function applyChangesHandler(req: Request, res: Response) {
     }
     const applyCorrelationId = canonicalOperationId;
     const applyAttemptId = randomUUID();
+    const missionBindingPreflight = await db.transaction(async (tx) => {
+      const linkedGoals = await tx.select({
+        goal: aiGoalsTable,
+        mission: aiMissionsTable,
+      }).from(aiGoalsTable)
+        .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+        .where(and(
+          eq(aiGoalsTable.projectId, projectId),
+          eq(aiMissionsTable.projectId, projectId),
+          eq(aiMissionsTable.userId, req.userId),
+        ));
+      let matchingBindings = 0;
+      let invalidBinding = false;
+      let ambiguousBinding = false;
+      for (const linked of linkedGoals) {
+        const criteria = linked.goal.successCriteria
+          && typeof linked.goal.successCriteria === "object"
+          ? linked.goal.successCriteria as Record<string, unknown>
+          : {};
+        const outcome = linked.goal.outcomeContract
+          && typeof linked.goal.outcomeContract === "object"
+          ? linked.goal.outcomeContract as Record<string, unknown>
+          : {};
+        const criteriaRequirement = criteria.applyRequirement
+          && typeof criteria.applyRequirement === "object"
+          ? criteria.applyRequirement as Record<string, unknown>
+          : {};
+        const outcomeRequirement = outcome.applyRequirement
+          && typeof outcome.applyRequirement === "object"
+          ? outcome.applyRequirement as Record<string, unknown>
+          : {};
+        const policy = linked.mission.autonomyPolicy
+          && typeof linked.mission.autonomyPolicy === "object"
+          ? linked.mission.autonomyPolicy as Record<string, unknown>
+          : {};
+        const applyMission = policy.applyMission
+          && typeof policy.applyMission === "object"
+          ? policy.applyMission as Record<string, unknown>
+          : {};
+        const requirementProposalIds = [
+          criteriaRequirement.proposalId,
+          outcomeRequirement.proposalId,
+        ];
+        const hasApplyGoalMarker = Object.hasOwn(criteria, "applyRequirement")
+          || Object.hasOwn(outcome, "applyRequirement")
+          || criteria.stepId === "apply-changes"
+          || outcome.stepId === "apply-changes";
+        const retiredMission = ["completed", "cancelled"].includes(linked.mission.status);
+        const nonEmptyProposalId = (value: unknown) =>
+          typeof value === "string" && value.trim().length > 0;
+        if (
+          !retiredMission
+          && (
+            (Object.hasOwn(policy, "applyMission")
+              && !nonEmptyProposalId(applyMission.proposalId))
+            || (hasApplyGoalMarker
+              && !requirementProposalIds.some(nonEmptyProposalId))
+          )
+        ) {
+          ambiguousBinding = true;
+        }
+        const activeRevision = typeof policy.activePlanRevision === "string"
+          ? policy.activePlanRevision
+          : undefined;
+        const binding = await resolveApplyChangesMissionRequirement(
+          tx,
+          linked.goal,
+          linked.mission,
+          activeRevision,
+        );
+        const isForProposal = requirementProposalIds.includes(proposalId)
+          || applyMission.proposalId === proposalId;
+        if (binding.kind === "none" || !isForProposal) continue;
+
+        matchingBindings += 1;
+        const valid = binding.kind === "valid"
+          && binding.requirement.proposalId === proposal.id
+          && binding.requirement.baseRevision === proposal.baseRevision
+          && binding.requirement.candidateTreeHash === proposal.candidateTreeHash
+          && binding.requirement.changeSetHash === proposal.changeSetHash
+          && binding.proposalRevision === proposal.revision
+          && binding.baseTreeHash === proposal.baseTreeHash
+          && binding.operationId === proposal.operationId
+          && binding.candidateIdentity === `${proposal.id}:${proposal.candidateTreeHash}`
+          && linked.mission.status !== "blocked"
+          && linked.mission.status !== "needs_replan"
+          && linked.goal.status === "waiting_for_event"
+          && linked.goal.blockedReason === "apply_changes_pending";
+        if (!valid) invalidBinding = true;
+      }
+      return { matchingBindings, invalidBinding, ambiguousBinding };
+    });
+    if (
+      missionBindingPreflight.ambiguousBinding
+      || missionBindingPreflight.invalidBinding
+      || missionBindingPreflight.matchingBindings > 1
+    ) {
+      return res.status(409).json({
+        error: "The proposal has an ambiguous or stale Mission apply binding. Do not edit the binding. Keep the existing Mission history, cancel that Mission if it is still active, then prepare a fresh Proposal and start a new Apply Mission.",
+        code: "APPLY_MISSION_BINDING_CONFLICT",
+      });
+    }
     // Materialize the approved change set into an operation-owned workspace
     // before touching the user's checkout. This workspace is retained as the
     // recovery/proof artifact; the durable root is only written after all
@@ -17194,49 +17297,60 @@ async function applyChangesHandler(req: Request, res: Response) {
       // A Mission-linked apply is discovered from the immutable server-owned
       // requirement; the client cannot nominate a Goal. Legacy proposals have
       // no matching requirement and continue through the route-only path.
-      const linkedGoals = await db.select({
-        goal: aiGoalsTable,
-        mission: aiMissionsTable,
-      }).from(aiGoalsTable)
-        .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
-        .where(and(
-          eq(aiGoalsTable.projectId, projectId),
-          eq(aiMissionsTable.projectId, projectId),
-          eq(aiMissionsTable.userId, req.userId),
-        ));
-      const proposalBindings = linkedGoals.filter((linked) => {
-        const criteria = linked.goal.successCriteria && typeof linked.goal.successCriteria === "object"
-          ? linked.goal.successCriteria as Record<string, unknown>
-          : {};
-        const requirement = criteria.applyRequirement && typeof criteria.applyRequirement === "object"
-          ? criteria.applyRequirement as Record<string, unknown>
-          : {};
-        const policy = linked.mission.autonomyPolicy && typeof linked.mission.autonomyPolicy === "object"
-          ? linked.mission.autonomyPolicy as Record<string, unknown>
-          : {};
-        const applyMission = policy.applyMission && typeof policy.applyMission === "object"
-          ? policy.applyMission as Record<string, unknown>
-          : {};
-        const activeRevision = typeof policy.activePlanRevision === "string"
-          ? policy.activePlanRevision
-          : undefined;
-        const binding = applyChangesMissionRequirement(
-          linked.goal,
-          linked.mission,
-          activeRevision,
-        );
-        return binding.kind !== "none"
-          && (requirement.proposalId === proposalId || applyMission.proposalId === proposalId);
-      });
-      if (proposalBindings.length > 0) {
-        const validBindings = proposalBindings.filter((linked) => {
-          const policy = linked.mission.autonomyPolicy && typeof linked.mission.autonomyPolicy === "object"
+      const proposalBindings = await db.transaction(async (tx) => {
+        const linkedGoals = await tx.select({
+          goal: aiGoalsTable,
+          mission: aiMissionsTable,
+        }).from(aiGoalsTable)
+          .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+          .where(and(
+            eq(aiGoalsTable.projectId, projectId),
+            eq(aiMissionsTable.projectId, projectId),
+            eq(aiMissionsTable.userId, req.userId),
+          ));
+        const bindings: Array<{
+          goal: typeof aiGoalsTable.$inferSelect;
+          mission: typeof aiMissionsTable.$inferSelect;
+          binding: ApplyChangesMissionRequirement;
+        }> = [];
+        for (const linked of linkedGoals) {
+          const criteria = linked.goal.successCriteria
+            && typeof linked.goal.successCriteria === "object"
+            ? linked.goal.successCriteria as Record<string, unknown>
+            : {};
+          const requirement = criteria.applyRequirement
+            && typeof criteria.applyRequirement === "object"
+            ? criteria.applyRequirement as Record<string, unknown>
+            : {};
+          const policy = linked.mission.autonomyPolicy
+            && typeof linked.mission.autonomyPolicy === "object"
             ? linked.mission.autonomyPolicy as Record<string, unknown>
+            : {};
+          const applyMission = policy.applyMission
+            && typeof policy.applyMission === "object"
+            ? policy.applyMission as Record<string, unknown>
             : {};
           const activeRevision = typeof policy.activePlanRevision === "string"
             ? policy.activePlanRevision
             : undefined;
-          const binding = applyChangesMissionRequirement(linked.goal, linked.mission, activeRevision);
+          const binding = await resolveApplyChangesMissionRequirement(
+            tx,
+            linked.goal,
+            linked.mission,
+            activeRevision,
+          );
+          if (
+            binding.kind !== "none"
+            && (requirement.proposalId === proposalId || applyMission.proposalId === proposalId)
+          ) {
+            bindings.push({ ...linked, binding });
+          }
+        }
+        return bindings;
+      });
+      if (proposalBindings.length > 0) {
+        const validBindings = proposalBindings.filter((linked) => {
+          const binding = linked.binding;
           return binding.kind === "valid"
             && binding.requirement.proposalId === proposalId
             && binding.requirement.baseRevision === proposal.baseRevision
@@ -17249,33 +17363,21 @@ async function applyChangesHandler(req: Request, res: Response) {
         });
         if (proposalBindings.length !== 1 || validBindings.length !== 1) {
           res.status(409).json({
-            error: "The proposal has an ambiguous or stale Mission apply binding.",
+            error: "The proposal has an ambiguous or stale Mission apply binding. Do not edit the binding. Keep the existing Mission history, cancel that Mission if it is still active, then prepare a fresh Proposal and start a new Apply Mission.",
             code: "APPLY_MISSION_BINDING_CONFLICT",
           });
           return;
         }
         const selectedBinding = validBindings[0]!;
-        const selectedPolicy = selectedBinding.mission.autonomyPolicy
-          && typeof selectedBinding.mission.autonomyPolicy === "object"
-          ? selectedBinding.mission.autonomyPolicy as Record<string, unknown>
-          : {};
-        const selectedRevision = typeof selectedPolicy.activePlanRevision === "string"
-          ? selectedPolicy.activePlanRevision
-          : undefined;
-        const selectedRequirement = applyChangesMissionRequirement(
-          selectedBinding.goal,
-          selectedBinding.mission,
-          selectedRevision,
-        );
-        if (selectedRequirement.kind !== "valid") {
+        if (selectedBinding.binding.kind !== "valid") {
           return res.status(409).json({
-            error: "The proposal no longer has a valid Mission apply binding.",
+            error: "The proposal no longer has a valid Mission apply binding. Do not edit the binding. Keep the existing Mission history, cancel that Mission if it is still active, then prepare a fresh Proposal and start a new Apply Mission.",
             code: "APPLY_MISSION_BINDING_CONFLICT",
           });
         }
         missionGoalId = selectedBinding.goal.id;
         missionId = selectedBinding.mission.id;
-        missionPlanRevision = selectedRequirement.planRevision;
+        missionPlanRevision = selectedBinding.binding.planRevision;
       }
       const workerId = `apply-worker:${randomUUID()}`;
       const durable = await createAiExecution({

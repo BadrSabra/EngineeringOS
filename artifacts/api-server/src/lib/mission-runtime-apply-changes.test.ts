@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import {
   aiAgentEffectBundlesTable,
@@ -30,6 +32,8 @@ import * as applyChangesMissionGate from "./agent-state/apply-changes-mission-ga
 import { finalizeApplyChangesTransition } from "./agent-state/runtime-start-transition.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
+import * as worldStateModule from "./agent-state/world-state.js";
+import { hashDeliveryTree } from "./delivery-workspace.js";
 
 const { scheduleTaskExecution } = vi.hoisted(() => ({
   scheduleTaskExecution: vi.fn(),
@@ -49,6 +53,7 @@ import {
 } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
+const workspaceRoots: string[] = [];
 
 async function waitForTableLockWaiters(table: string) {
   const deadline = Date.now() + 10_000;
@@ -135,19 +140,28 @@ async function createApplyChangesFixture() {
   const effectAfterObservationId = randomUUID();
   const now = new Date();
   const baseRevision = "a".repeat(40);
-  const baseTreeHash = "b".repeat(64);
-  const candidateTreeHash = "c".repeat(64);
   const changeSetHash = "d".repeat(64);
   const planRevision = "e".repeat(64);
   const environmentRevision = `env-v1:${"f".repeat(64)}`;
   const applyActionId = `action:${executionId}:0:apply`;
-  const parentWorldRevision = "1".repeat(64);
   const resultingWorldRevision = "2".repeat(64);
   const operationId = `operation:${executionId}`;
   const evidenceSnapshotId = `apply-evidence:${executionId}`;
   const episodeScope = { kind: "project" };
   const taskScope = "project";
   const sourceBody = "Source retained before the approved change.\n";
+  const rootPath = path.resolve(
+    process.cwd(),
+    "../../.test-roots",
+    `mission-runtime-apply-${projectId}`,
+  );
+  const targetPath = path.join(rootPath, "src", "target.ts");
+  workspaceRoots.push(rootPath);
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, "export const value = 'before';\n", "utf8");
+  const baseTreeHash = await hashDeliveryTree(rootPath);
+  await writeFile(targetPath, "export const value = 'after';\n", "utf8");
+  const candidateTreeHash = await hashDeliveryTree(rootPath);
   const candidateIdentity = `${proposalId}:${candidateTreeHash}`;
   const applyEffectExpectation = buildApplyChangeEffectProofExpectation({
     executionId,
@@ -187,13 +201,14 @@ async function createApplyChangesFixture() {
     id: projectId,
     ownerId: "test-user",
     name: `mission-runtime-apply-${projectId.slice(0, 8)}`,
-    rootPath: `/tmp/mission-runtime-apply-${projectId}`,
+    rootPath,
     language: "typescript",
     status: "active",
     createdAt: now,
     updatedAt: now,
   });
   projectIds.push(projectId);
+  const parentWorldRevision = (await getProjectWorldState(projectId)).worldRevision;
 
   await db.insert(aiMissionsTable).values({
     id: missionId,
@@ -205,7 +220,17 @@ async function createApplyChangesFixture() {
     scope: { kind: "project", projectId },
     autonomyPolicy: {
       activePlanRevision: planRevision,
-      applyMission: { proposalId, requirement },
+      applyMission: {
+        proposalId,
+        proposalRevision: 1,
+        baseTreeHash,
+        operationId,
+        candidateIdentity,
+        baseRevision,
+        candidateTreeHash,
+        changeSetHash,
+        requirement,
+      },
     },
     createdAt: now,
     updatedAt: now,
@@ -295,6 +320,8 @@ async function createApplyChangesFixture() {
     changes: "[]",
     status: "applied",
     lifecycle: "applied",
+    revision: 1,
+    operationId,
     baseRevision,
     baseTreeHash,
     candidateTreeHash,
@@ -525,10 +552,7 @@ async function createApplyChangesFixture() {
     createdAt: now,
     updatedAt: now,
   });
-  const resultingWorldState = await getProjectWorldState(projectId, {
-    taskScope,
-    environmentRevision,
-  });
+  const resultingWorldState = await getProjectWorldState(projectId);
   await db.update(aiWorldTransitionsTable)
     .set({ resultingWorldRevision: resultingWorldState.worldRevision, updatedAt: now })
     .where(eq(aiWorldTransitionsTable.id, transitionId));
@@ -548,6 +572,10 @@ async function createApplyChangesFixture() {
     transitionId,
     beforeObservationId,
     afterObservationId,
+    baseTreeHash,
+    candidateTreeHash,
+    candidateIdentity,
+    parentWorldRevision,
     planRevision,
   };
 }
@@ -711,6 +739,111 @@ const invalidApplyProofCases: Array<{
     },
   },
   {
+    name: "proposal revision changed after Mission binding",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      await db.update(aiChangeProposalsTable)
+        .set({ revision: 2 })
+        .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    },
+  },
+  {
+    name: "proposal base tree changed after Mission binding",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      await db.update(aiChangeProposalsTable)
+        .set({ baseTreeHash: "7".repeat(64) })
+        .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    },
+  },
+  {
+    name: "proposal operation identity changed after Mission binding",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      await db.update(aiChangeProposalsTable)
+        .set({ operationId: `other:${fixture.proposalId}` })
+        .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    },
+  },
+  {
+    name: "Mission operation identity is missing",
+    expectedReason: "apply_plan_binding_invalid",
+    mutate: async (fixture) => {
+      const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+      const policy = mission?.autonomyPolicy as Record<string, unknown>;
+      const applyMission = { ...(policy.applyMission as Record<string, unknown>) };
+      delete applyMission.operationId;
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: { ...policy, applyMission },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    },
+  },
+  {
+    name: "Mission Proposal revision differs from the stored Proposal",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+      const policy = mission?.autonomyPolicy as Record<string, unknown>;
+      const applyMission = policy.applyMission as Record<string, unknown>;
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: {
+          ...policy,
+          applyMission: { ...applyMission, proposalRevision: 2 },
+        },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    },
+  },
+  {
+    name: "Mission base tree differs from the stored Proposal",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+      const policy = mission?.autonomyPolicy as Record<string, unknown>;
+      const applyMission = policy.applyMission as Record<string, unknown>;
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: {
+          ...policy,
+          applyMission: { ...applyMission, baseTreeHash: "7".repeat(64) },
+        },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    },
+  },
+  {
+    name: "Mission operation identity differs from the stored Proposal",
+    expectedReason: "apply_proposal_binding_invalid",
+    mutate: async (fixture) => {
+      const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+      const policy = mission?.autonomyPolicy as Record<string, unknown>;
+      const applyMission = policy.applyMission as Record<string, unknown>;
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: {
+          ...policy,
+          applyMission: { ...applyMission, operationId: "other-operation" },
+        },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    },
+  },
+  {
+    name: "candidate workspace identity differs from Mission binding",
+    expectedReason: "apply_plan_binding_invalid",
+    mutate: async (fixture) => {
+      const [mission] = await db.select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+        .from(aiMissionsTable).where(eq(aiMissionsTable.id, fixture.missionId));
+      const policy = mission?.autonomyPolicy as Record<string, unknown>;
+      const applyMission = policy.applyMission as Record<string, unknown>;
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: {
+          ...policy,
+          applyMission: { ...applyMission, candidateIdentity: "different-candidate" },
+        },
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    },
+  },
+  {
     name: "Apply Mission requirement binding mismatch",
     expectedReason: "apply_plan_binding_invalid",
     mutate: async (fixture) => {
@@ -737,9 +870,185 @@ afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
+  for (const workspaceRoot of workspaceRoots.splice(0)) {
+    await rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 describe("Apply Changes Mission D2 dispatch", () => {
+  it("serializes a Transition claim against the live D2 gate before atomically materializing Episode", async () => {
+    const fixture = await createApplyChangesFixture();
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    if (!mission || !goal) throw new Error("Apply Changes lock-order fixture is incomplete.");
+
+    await db.update(aiWorldTransitionsTable).set({
+      status: "pending",
+      failureCode: null,
+      nextRetryAt: null,
+      retryCount: 0,
+      resultingWorldRevision: null,
+      materializedObservationIds: [],
+      changedFactRefs: [],
+      materializedAt: null,
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    let announceEpisodeLocked!: () => void;
+    let releaseEpisodeLock!: () => void;
+    const episodeLocked = new Promise<void>((resolve) => {
+      announceEpisodeLocked = resolve;
+    });
+    const episodeLockRelease = new Promise<void>((resolve) => {
+      releaseEpisodeLock = resolve;
+    });
+    let announceMaterializerStarted!: () => void;
+    let releaseMaterializer!: () => void;
+    const materializerStarted = new Promise<void>((resolve) => {
+      announceMaterializerStarted = resolve;
+    });
+    const materializerRelease = new Promise<void>((resolve) => {
+      releaseMaterializer = resolve;
+    });
+    const originalMaterializer = worldStateModule.materializeWorldStateForProject;
+    const materializer = vi.spyOn(worldStateModule, "materializeWorldStateForProject")
+      .mockImplementation(async (projectId, options, beforeCommit) => {
+        announceMaterializerStarted();
+        await materializerRelease;
+        return originalMaterializer(projectId, options, beforeCommit);
+      });
+
+    const pending: Promise<unknown>[] = [];
+    let transitionWorker: ReturnType<typeof finalizeApplyChangesTransition> | undefined;
+    let d2Gate: Promise<applyChangesMissionGate.ApplyChangesD2Evaluation> | undefined;
+    try {
+      const episodeBlocker = db.transaction(async (tx) => {
+        await tx.select({ id: aiAgentEpisodesTable.id })
+          .from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.id, fixture.episodeId))
+          .for("update");
+        announceEpisodeLocked();
+        await episodeLockRelease;
+      });
+      pending.push(episodeBlocker);
+      await episodeLocked;
+
+      transitionWorker = finalizeApplyChangesTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.applyActionId,
+        effectBundleId: fixture.effectBundleId,
+      });
+      pending.push(transitionWorker);
+      await waitForTableLockWaiters("ai_agent_episodes");
+
+      d2Gate = db.transaction((tx) => applyChangesMissionGate.evaluateApplyChangesD2(tx, {
+        goal,
+        mission,
+        activePlanRevision: fixture.planRevision,
+      }));
+      pending.push(d2Gate);
+      await waitForTableLockWaiters("ai_world_transitions");
+
+      releaseEpisodeLock();
+      const transitionProgress = await Promise.race([
+        materializerStarted.then(() => ({ kind: "materializing" as const })),
+        transitionWorker.then(
+          (result) => ({ kind: "settled" as const, result }),
+          (error) => ({
+            kind: "rejected" as const,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        ),
+      ]);
+      if (transitionProgress.kind !== "materializing") {
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          failureCode: aiWorldTransitionsTable.failureCode,
+          nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        throw new Error(
+          `Transition worker ended before materialization: ${JSON.stringify({ progress: transitionProgress, transition })}`,
+        );
+      }
+      expect(await d2Gate).toMatchObject({
+        state: "pending",
+        reason: "apply_transition_pending",
+      });
+
+      releaseMaterializer();
+      const transitionResult = await transitionWorker;
+      if (transitionResult.status !== "materialized") {
+        const [transition] = await db.select({
+          status: aiWorldTransitionsTable.status,
+          failureCode: aiWorldTransitionsTable.failureCode,
+          nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+          resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+        }).from(aiWorldTransitionsTable)
+          .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+        throw new Error(
+          `Transition materialization did not complete: ${JSON.stringify({ result: transitionResult, transition })}`,
+        );
+      }
+      const outcomes = await Promise.allSettled(pending);
+      const deadlocks = outcomes.filter((outcome) =>
+        outcome.status === "rejected"
+        && postgresErrorCodes(outcome.reason).includes("40P01"),
+      );
+      expect(deadlocks).toEqual([]);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+        "fulfilled",
+      ]);
+
+      const [transition] = await db.select({
+        status: aiWorldTransitionsTable.status,
+        executionId: aiWorldTransitionsTable.executionId,
+        attempt: aiWorldTransitionsTable.attempt,
+        episodeId: aiWorldTransitionsTable.episodeId,
+        parentWorldRevision: aiWorldTransitionsTable.parentWorldRevision,
+        resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+      const [episode] = await db.select({
+        worldRevision: aiAgentEpisodesTable.worldRevision,
+        executionId: aiAgentEpisodesTable.executionId,
+        attempt: aiAgentEpisodesTable.attempt,
+        missionId: aiAgentEpisodesTable.missionId,
+        goalId: aiAgentEpisodesTable.goalId,
+        planRevision: aiAgentEpisodesTable.planRevision,
+      }).from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+      expect(transition).toMatchObject({
+        status: "materialized",
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        parentWorldRevision: fixture.parentWorldRevision,
+        resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(episode).toMatchObject({
+        executionId: fixture.executionId,
+        attempt: 0,
+        missionId: fixture.missionId,
+        goalId: fixture.applyGoalId,
+        planRevision: fixture.planRevision,
+        worldRevision: transition?.resultingWorldRevision,
+      });
+      expect(materializer).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseEpisodeLock();
+      releaseMaterializer();
+      materializer.mockRestore();
+      await Promise.allSettled(pending);
+    }
+  });
+
   it("does not deadlock dependency proof against an Apply Changes transition claim", async () => {
     const fixture = await createApplyChangesFixture();
     const [applyGoal] = await db.select()
@@ -752,7 +1061,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
       throw new Error("Apply Changes lock-order fixture is incomplete.");
     }
 
-    const candidateIdentity = `${fixture.proposalId}:${"c".repeat(64)}`;
+    const candidateIdentity = fixture.candidateIdentity;
     const operationId = `operation:${fixture.executionId}`;
     const environmentRevision = `env-v1:${"f".repeat(64)}`;
     await db.update(aiGoalsTable)

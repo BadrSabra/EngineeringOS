@@ -822,7 +822,17 @@ describe("runtime.start transition retry scheduling", () => {
       scope: { kind: "project", projectId: fixture.projectId },
       autonomyPolicy: {
         activePlanRevision: planRevision,
-        applyMission: { proposalId, requirement },
+        applyMission: {
+          proposalId,
+          proposalRevision: 0,
+          baseTreeHash,
+          operationId: executionIdentity.correlationId,
+          candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+          baseRevision,
+          candidateTreeHash,
+          changeSetHash,
+          requirement,
+        },
       },
       createdAt: now, updatedAt: now,
     });

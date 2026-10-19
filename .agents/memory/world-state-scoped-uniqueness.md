@@ -9,6 +9,14 @@ description: Why task/environment evidence identity uses a non-null environment 
 
 **How to apply:** When extending durable observation/fact identity by task or environment, preserve existing column types, keep the null sentinel explicit, and retain database uniqueness protection rather than relying only on an application-side check. Use environment freshness only for its own read-only World State filtering; it must not substitute for project-revision checks or proof.
 
+## Transition parent revision scope
+
+Use the unscoped project World State revision as a Transition's parent revision. Materialization validates that parent against all project facts and observations, excluding the current Episode; a task- or environment-filtered revision is a different digest and can cause a false parent-revision retry.
+
+**Why:** A successful materialization test initially used a scoped projection for the parent while the production materializer checked the all-scope project state. The fixture looked fresh but was rejected as a retryable revision mismatch.
+
+**How to apply:** Build Transition materialization fixtures and parent-revision checks from the same all-scope project view used by materialization. Keep task/environment-filtered projections for scoped reads, not for this concurrency precondition.
+
 Normalize absent nullable Episode IDs to explicit `null` before hashing task-scope identity.
 
 **Why:** Public Episode objects may omit optional mission/goal IDs while PostgreSQL rows expose them as `null`; hashing those representations differently splits one Episode across multiple scopes.

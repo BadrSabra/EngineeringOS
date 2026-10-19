@@ -262,7 +262,17 @@ async function createApplyFixture(label: string): Promise<ApplyFixture> {
     scope: { kind: "project", projectId },
     autonomyPolicy: {
       activePlanRevision: planRevision,
-      applyMission: { proposalId, requirement },
+      applyMission: {
+        proposalId,
+        proposalRevision: 0,
+        baseTreeHash,
+        operationId,
+        candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+        baseRevision,
+        candidateTreeHash,
+        changeSetHash,
+        requirement,
+      },
     },
     createdAt: now,
     updatedAt: now,

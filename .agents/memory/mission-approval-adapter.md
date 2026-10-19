@@ -16,3 +16,9 @@ The Apply Mission handoff shares the proposal row with Goal approval, so it must
 **Why:** The inverse proposal-before-Mission ordering reproduced an HTTP 500 under a forced concurrent interleaving. A simple lock-order swap can weaken same-proposal duplicate detection if the Mission scan began before another request inserted its Apply Mission; the proposal row serializes those requests, and the post-lock read observes the winner.
 
 **How to apply:** Preserve Mission-before-proposal locking and the fresh post-proposal duplicate read whenever changing Apply Mission creation or proposal-backed Goal approval.
+
+After an Apply Mission handoff waits for the Proposal lock, compare the locked row with the initial snapshot before creating any Mission state. The only allowed difference is `approvalRequired` changing from `true` to `false` while the approval adapter commits; require it to be false in the locked row. Pin the Proposal revision, base-tree digest, operation identity, and candidate identity on the Mission, and re-check those bindings at D2. Older Missions without these fields retain their existing compatibility path.
+
+**Why:** A locked read can return a newer candidate than the one observed when the handoff began. Silently adopting that row can authorize different work, while rejecting the approval adapter's legitimate `true`→`false` transition breaks the existing Mission/Goal approval interleaving.
+
+**How to apply:** Keep the Mission-before-Proposal lock order, compare all other Proposal fields, build the plan only from the locked row, and test both stale handoff rejection and the approval-gate transition under real PostgreSQL locks.

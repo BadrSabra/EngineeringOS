@@ -83,6 +83,9 @@ export type ApplyChangesMissionRequirement =
       requirement: ApplyChangesRequirement;
       planRevision: string;
       candidateIdentity: string;
+      proposalRevision: number;
+      baseTreeHash: string;
+      operationId: string;
     };
 
 export function applyChangesMissionRequirement(
@@ -94,8 +97,10 @@ export function applyChangesMissionRequirement(
   const outcome = record(goal.outcomeContract);
   const autonomyPolicy = record(mission.autonomyPolicy);
   const applyMission = record(autonomyPolicy.applyMission);
+  const hasApplyMissionLink = Object.hasOwn(autonomyPolicy, "applyMission");
   if (
-    criteria.stepId === "report-applied"
+    !hasApplyMissionLink
+    && criteria.stepId === "report-applied"
     && outcome.stepId === "report-applied"
     && !Object.hasOwn(criteria, "applyRequirement")
     && !Object.hasOwn(outcome, "applyRequirement")
@@ -118,6 +123,23 @@ export function applyChangesMissionRequirement(
   const criteriaPlan = record(criteria.planRevision);
   const outcomePlan = record(outcome.planRevision);
   const planRevision = typeof criteriaPlan.hash === "string" ? criteriaPlan.hash : "";
+  const candidateIdentity = `${requirement.proposalId}:${requirement.candidateTreeHash}`;
+  const proposalRevision = applyMission.proposalRevision;
+  const baseTreeHash = applyMission.baseTreeHash;
+  const operationId = applyMission.operationId;
+  const hasCompleteProposalIdentity = hasApplyMissionLink
+    && Object.hasOwn(applyMission, "proposalRevision")
+    && typeof proposalRevision === "number"
+    && Number.isSafeInteger(proposalRevision)
+    && proposalRevision >= 0
+    && Object.hasOwn(applyMission, "baseTreeHash")
+    && typeof baseTreeHash === "string"
+    && /^[a-f0-9]{64}$/.test(baseTreeHash)
+    && Object.hasOwn(applyMission, "operationId")
+    && typeof operationId === "string"
+    && operationId.trim().length > 0
+    && Object.hasOwn(applyMission, "candidateIdentity")
+    && applyMission.candidateIdentity === candidateIdentity;
   if (
     !/^[a-f0-9]{64}$/.test(planRevision)
     || planRevision !== activePlanRevision
@@ -126,6 +148,10 @@ export function applyChangesMissionRequirement(
     || !sameRequirement(outcomePlan.applyRequirement, requirement)
     || applyMission.proposalId !== requirement.proposalId
     || !sameRequirement(applyMission.requirement, requirement)
+    || (hasApplyMissionLink && !hasCompleteProposalIdentity)
+    || applyMission.baseRevision !== requirement.baseRevision
+    || applyMission.candidateTreeHash !== requirement.candidateTreeHash
+    || applyMission.changeSetHash !== requirement.changeSetHash
   ) {
     return { kind: "invalid", reason: "apply_plan_binding_invalid" };
   }
@@ -154,8 +180,73 @@ export function applyChangesMissionRequirement(
     kind: "valid",
     requirement,
     planRevision,
-    candidateIdentity: `${requirement.proposalId}:${requirement.candidateTreeHash}`,
+    candidateIdentity,
+    proposalRevision: proposalRevision as number,
+    baseTreeHash: baseTreeHash as string,
+    operationId: operationId as string,
   };
+}
+
+/**
+ * A linked Apply Mission also contains a legitimate report-applied successor.
+ * Only its durable dependency on the valid Apply Goal makes that successor
+ * exempt from D2; client-editable Goal labels alone never do.
+ */
+export async function resolveApplyChangesMissionRequirement(
+  tx: MissionTransaction,
+  goal: Goal,
+  mission: Mission,
+  activePlanRevision: string | undefined,
+): Promise<ApplyChangesMissionRequirement> {
+  const criteria = record(goal.successCriteria);
+  const outcome = record(goal.outcomeContract);
+  const autonomyPolicy = record(mission.autonomyPolicy);
+  const isReportSuccessorShape = criteria.stepId === "report-applied"
+    && outcome.stepId === "report-applied"
+    && !Object.hasOwn(criteria, "applyRequirement")
+    && !Object.hasOwn(outcome, "applyRequirement");
+  if (!isReportSuccessorShape || !Object.hasOwn(autonomyPolicy, "applyMission")) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  const criteriaPlan = record(criteria.planRevision);
+  const outcomePlan = record(outcome.planRevision);
+  if (
+    !activePlanRevision
+    || criteriaPlan.hash !== activePlanRevision
+    || outcomePlan.hash !== activePlanRevision
+  ) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  const dependencies = await tx.select()
+    .from(aiGoalDependenciesTable)
+    .where(and(
+      eq(aiGoalDependenciesTable.projectId, goal.projectId),
+      eq(aiGoalDependenciesTable.missionId, goal.missionId),
+      eq(aiGoalDependenciesTable.goalId, goal.id),
+      eq(aiGoalDependenciesTable.planRevision, activePlanRevision),
+    ))
+    .for("update");
+  if (dependencies.length !== 1) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  const [applyGoal] = await tx.select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, dependencies[0].dependsOnGoalId),
+      eq(aiGoalsTable.projectId, goal.projectId),
+      eq(aiGoalsTable.missionId, goal.missionId),
+    ))
+    .for("update");
+  if (
+    !applyGoal
+    || applyChangesMissionRequirement(applyGoal, mission, activePlanRevision).kind !== "valid"
+  ) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+  return { kind: "none" };
 }
 
 export type ApplyChangesD2Evaluation =
@@ -239,7 +330,8 @@ export async function evaluateApplyChangesD2(
     activePlanRevision: string | undefined;
   },
 ): Promise<ApplyChangesD2Evaluation> {
-  const binding = applyChangesMissionRequirement(
+  const binding = await resolveApplyChangesMissionRequirement(
+    tx,
     input.goal,
     input.mission,
     input.activePlanRevision,
@@ -321,6 +413,9 @@ export async function evaluateApplyChangesD2(
     || proposal.status !== "applied"
     || proposal.lifecycle !== "applied"
     || proposal.baseRevision !== requirement.baseRevision
+    || proposal.revision !== binding.proposalRevision
+    || proposal.baseTreeHash !== binding.baseTreeHash
+    || proposal.operationId !== binding.operationId
     || proposal.candidateTreeHash !== requirement.candidateTreeHash
     || proposal.changeSetHash !== requirement.changeSetHash
     || proposal.promotedTreeHash !== requirement.candidateTreeHash

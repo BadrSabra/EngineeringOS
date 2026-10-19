@@ -9,7 +9,10 @@ import {
   loadCanonicalProof,
   type CanonicalProof,
 } from "./proof-foundation.js";
-import { evaluateApplyChangesD2, applyChangesMissionRequirement } from "./agent-state/apply-changes-mission-gate.js";
+import {
+  evaluateApplyChangesD2,
+  resolveApplyChangesMissionRequirement,
+} from "./agent-state/apply-changes-mission-gate.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -185,7 +188,8 @@ async function composeGoalProofs(
       deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
       deliveryReceipt: projected?.deliveryReceipt ?? null,
     });
-    const applyRequirement = applyChangesMissionRequirement(
+    const applyRequirement = await resolveApplyChangesMissionRequirement(
+      tx,
       goal,
       mission,
       activePlanRevision(mission) ?? undefined,

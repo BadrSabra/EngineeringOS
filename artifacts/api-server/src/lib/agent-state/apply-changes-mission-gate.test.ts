@@ -6,6 +6,8 @@ const proposalId = "proposal-apply-mission";
 const baseRevision = "a".repeat(40);
 const candidateTreeHash = "b".repeat(64);
 const changeSetHash = "c".repeat(64);
+const baseTreeHash = "e".repeat(64);
+const operationId = "operation-apply-mission";
 const planRevision = "d".repeat(64);
 
 const requirement = {
@@ -19,6 +21,17 @@ const requirement = {
   from: "candidate",
   to: "applied",
 } as const;
+const applyMissionBinding = {
+  proposalId,
+  proposalRevision: 3,
+  baseTreeHash,
+  operationId,
+  candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+  baseRevision,
+  candidateTreeHash,
+  changeSetHash,
+  requirement,
+};
 
 function fixtures(overrides: {
   criteria?: Record<string, unknown>;
@@ -50,7 +63,7 @@ function fixtures(overrides: {
   const mission = {
     autonomyPolicy: overrides.missionPolicy ?? {
       activePlanRevision: planRevision,
-      applyMission: { proposalId, requirement },
+      applyMission: applyMissionBinding,
     },
   } as unknown as typeof aiMissionsTable.$inferSelect;
   return { goal, mission };
@@ -65,6 +78,9 @@ describe("applyChangesMissionRequirement", () => {
       requirement,
       planRevision,
       candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+      proposalRevision: 3,
+      baseTreeHash,
+      operationId,
     });
   });
 
@@ -98,6 +114,62 @@ describe("applyChangesMissionRequirement", () => {
     expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
       kind: "invalid",
       reason: "apply_plan_shape_invalid",
+    });
+  });
+
+  it.each([
+    "proposalRevision",
+    "baseTreeHash",
+    "operationId",
+    "candidateIdentity",
+  ] as const)("requires the bound Proposal %s on a linked Mission", (field) => {
+    const incompleteBinding = { ...applyMissionBinding } as Record<string, unknown>;
+    delete incompleteBinding[field];
+    const { goal, mission } = fixtures({
+      missionPolicy: {
+        activePlanRevision: planRevision,
+        applyMission: incompleteBinding,
+      },
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "invalid",
+      reason: "apply_plan_binding_invalid",
+    });
+  });
+
+  it.each([
+    ["proposalId", "other-proposal"],
+    ["baseRevision", "other-revision"],
+    ["candidateTreeHash", "f".repeat(64)],
+    ["changeSetHash", "f".repeat(64)],
+  ] as const)("rejects a Mission binding whose %s differs from its requirement", (field, value) => {
+    const changedBinding = {
+      ...applyMissionBinding,
+      [field]: value,
+    };
+    const { goal, mission } = fixtures({
+      missionPolicy: {
+        activePlanRevision: planRevision,
+        applyMission: changedBinding,
+      },
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "invalid",
+      reason: "apply_plan_binding_invalid",
+    });
+  });
+
+  it("does not classify a Proposal-linked Mission as legacy when its Goal is relabeled", () => {
+    const { goal, mission } = fixtures({
+      criteria: { stepId: "report-applied" },
+      outcome: { stepId: "report-applied" },
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "invalid",
+      reason: "apply_requirement_invalid",
     });
   });
 

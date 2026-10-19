@@ -9,11 +9,11 @@ Keep a proposal's Git-committable lifecycle blocked until the same execution att
 
 **How to apply:** Release lifecycle only after effect acceptance is durably accepted. If the route crashes or the lifecycle projection update fails, retain the blocked state and return or preserve a non-success result. Recovery must use attempt-bound acceptance plus fresh direct workspace observations; a journal, receipt, or proposal status alone is not evidence.
 
-Keep operation identities in their own namespaces: the proposal `operationId` is stable correlation for its journal and apply event, while the acceptance `operationId` identifies the execution attempt and must match both `aiExecutions.operationId` and the action's `attemptId`.
+Keep operation identities in their own namespaces: a Mission's `applyMission.operationId` is copied from and compared only to the Proposal's `operationId`; the acceptance `operationId` identifies the execution attempt and must match both `aiExecutions.operationId` and the action's `attemptId`.
 
-**Why:** Comparing acceptance directly to the proposal correlation ID rejects valid proofs; conflating the two can also make recovery bind evidence from the wrong retry.
+**Why:** The prepared-candidate correlation and execution identity are distinct. Comparing a Mission or acceptance against the wrong identity rejects valid proofs; conflating them can also make recovery bind evidence from the wrong retry.
 
-**How to apply:** Match acceptance to execution and attempt, then separately match the journal/event to proposal correlation. Never use the stable proposal ID as the attempt fence.
+**How to apply:** Match Mission identity to Proposal identity; match acceptance to execution and attempt; then separately match the journal/event to Proposal correlation. Never use the stable Proposal identity as the attempt fence.
 
 Never treat candidate/proposal-scoped observations as live-project facts. For an explicitly linked Apply Mission, only direct live-project before/after observations with subject `project:<projectId>`, their respective base/promoted tree revisions, and one fresh environment revision may materialize through the bound apply transition. D2 proof gates the Mission successor.
 
@@ -50,3 +50,9 @@ Serialize Apply proof replay and World Transition materialization on the current
 **Why:** A controlled PostgreSQL overlap reproduced `40P01` when materialization held Bundle and waited to update Episode while proof replay held Episode and waited for Bundle. This establishes a possible deadlock under that test schedule, not an observed production incident.
 
 **How to apply:** When changing either path's row locks, keep materialization's current-attempt Execution lock ahead of Bundle and retain transition ownership and canonical proof checks. Verify with an isolated PostgreSQL overlap test.
+
+An incomplete historical Apply Mission binding is not repairable from Goal text or request payload. Reject it before changing Proposal lifecycle or materializing a candidate; preserve the old Mission, cancel it if active, and recover by preparing a fresh Proposal and creating a new Apply Mission.
+
+**Why:** Missing revision, base-tree, operation, or candidate identity cannot prove which prepared Proposal the old Mission authorized. Backfilling from mutable Goal content could bind proof to a different candidate, while mutating lifecycle before rejection can leave a delivery stranded in recovery.
+
+**How to apply:** Audit read-only. Reuse a historical binding only when its exact durable Proposal identity remains complete and matches; otherwise keep D2 fail-closed and use the fresh Proposal/Mission path.
