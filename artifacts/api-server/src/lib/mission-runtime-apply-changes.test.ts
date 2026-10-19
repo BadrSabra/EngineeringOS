@@ -1049,6 +1049,107 @@ describe("Apply Changes Mission D2 dispatch", () => {
     }
   });
 
+  it("rolls back World State and Transition writes when the post-Episode update trigger fails", async () => {
+    const fixture = await createApplyChangesFixture();
+    const suffix = randomUUID().replaceAll("-", "");
+    const functionName = `eprb_fn_${suffix}`;
+    const triggerName = `eprb_tr_${suffix}`;
+    const sequenceName = `eprb_seq_${suffix}`;
+    const [episodeBefore] = await db.select({
+      worldRevision: aiAgentEpisodesTable.worldRevision,
+    }).from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    const worldBefore = await getProjectWorldState(fixture.projectId);
+
+    await db.update(aiWorldTransitionsTable).set({
+      status: "pending",
+      failureCode: null,
+      nextRetryAt: null,
+      retryCount: 0,
+      resultingWorldRevision: null,
+      materializedObservationIds: [],
+      changedFactRefs: [],
+      materializedAt: null,
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    try {
+      await db.execute(sql.raw(`CREATE SEQUENCE ${sequenceName}`));
+      await db.execute(sql.raw(`
+        CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          PERFORM nextval('public.${sequenceName}');
+          RAISE EXCEPTION 'forced_failure_after_episode_update';
+        END;
+        $$
+      `));
+      await db.execute(sql.raw(`
+        CREATE TRIGGER ${triggerName}
+        AFTER UPDATE OF world_revision ON ai_agent_episodes
+        FOR EACH ROW
+        WHEN (NEW.id = '${fixture.episodeId}')
+        EXECUTE FUNCTION ${functionName}()
+      `));
+
+      await expect(finalizeApplyChangesTransition({
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.applyActionId,
+        effectBundleId: fixture.effectBundleId,
+      })).resolves.toMatchObject({
+        status: "terminal_failed",
+        failureCode: "world_state_materialization_failed",
+      });
+
+      const triggerInvocations = await db.execute(sql.raw(
+        `SELECT last_value, is_called FROM ${sequenceName}`,
+      ));
+      expect(triggerInvocations.rows).toHaveLength(1);
+      expect(triggerInvocations.rows[0]?.is_called).toBe(true);
+      expect(Number(triggerInvocations.rows[0]?.last_value)).toBe(1);
+
+      const [episodeAfter] = await db.select({
+        worldRevision: aiAgentEpisodesTable.worldRevision,
+      }).from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+      const [transitionAfter] = await db.select({
+        status: aiWorldTransitionsTable.status,
+        failureCode: aiWorldTransitionsTable.failureCode,
+        resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+        materializedObservationIds: aiWorldTransitionsTable.materializedObservationIds,
+        changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
+        materializedAt: aiWorldTransitionsTable.materializedAt,
+      }).from(aiWorldTransitionsTable).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+      const worldAfter = await getProjectWorldState(fixture.projectId);
+
+      expect(episodeAfter?.worldRevision).toBe(episodeBefore?.worldRevision);
+      expect(transitionAfter).toMatchObject({
+        status: "terminal_failed",
+        failureCode: "world_state_materialization_failed",
+        resultingWorldRevision: null,
+        materializedObservationIds: [],
+        changedFactRefs: [],
+        materializedAt: null,
+      });
+      expect({
+        projectId: worldAfter.projectId,
+        worldRevision: worldAfter.worldRevision,
+        facts: worldAfter.facts,
+        currentFacts: worldAfter.currentFacts,
+        contradictions: worldAfter.contradictions,
+      }).toEqual({
+        projectId: worldBefore.projectId,
+        worldRevision: worldBefore.worldRevision,
+        facts: worldBefore.facts,
+        currentFacts: worldBefore.currentFacts,
+        contradictions: worldBefore.contradictions,
+      });
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_agent_episodes`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+      await db.execute(sql.raw(`DROP SEQUENCE IF EXISTS ${sequenceName}`));
+    }
+  });
+
   it("does not deadlock dependency proof against an Apply Changes transition claim", async () => {
     const fixture = await createApplyChangesFixture();
     const [applyGoal] = await db.select()
