@@ -13950,9 +13950,24 @@ export default function AiChat() {
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
           {routeSessionUnavailable && (
-            <div role="status" data-testid="notice-chat-route-unavailable"
-              className="mx-auto mb-4 max-w-3xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              The linked AI conversation is unavailable in this project. Choose another session to continue.
+            <div
+              role="status"
+              data-testid="notice-chat-route-unavailable"
+              className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            >
+              <span>The linked AI conversation is unavailable in this project. Choose another session to continue.</span>
+              {!sidebarOpen && sessions.length > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0 px-2 text-[11px]"
+                  data-testid="button-open-chat-history"
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  Choose another session
+                </Button>
+              ) : null}
             </div>
           )}
           {visibleRouteMissionRestoration && (

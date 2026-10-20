@@ -5757,6 +5757,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    expect(new URL(page.url()).searchParams.has("messageId")).toBe(false);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("notice-chat-source-message-unavailable")).toBeVisible();
+    const staleSourceUrl = new URL(page.url());
+    expect(staleSourceUrl.searchParams.get("projectId")).toBe(projectId);
+    expect(staleSourceUrl.searchParams.get("sessionId")).toBe(sessionId);
+    expect(staleSourceUrl.searchParams.get("missionId")).toBe(missionId);
+    await page.getByTestId("button-open-latest-chat").click();
+    await expect.poll(() => new URL(page.url()).searchParams.has("messageId")).toBe(false);
     expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
     browserErrors.assertClean();

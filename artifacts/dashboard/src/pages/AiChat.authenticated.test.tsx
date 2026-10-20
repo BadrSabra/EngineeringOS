@@ -975,10 +975,16 @@ describe('AI conversation return links', () => {
         proofRequired: true,
         message: 'Earlier execution',
       }));
-      renderAiChat();
+      renderAiChat(false);
       expect(await screen.findByTestId('notice-chat-route-unavailable')).toHaveTextContent('unavailable in this project');
       expect(screen.getByTestId('text-chat-current-session')).toHaveTextContent('محادثة جديدة');
       expect(screen.queryByTestId('link-current-work-flight-deck')).not.toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('button-open-chat-history'));
+      });
+      expect(screen.getByRole('dialog', { name: 'محادثات المشروع' })).toBeVisible();
+      expect(screen.getByTestId('button-chat-session-session-1')).toBeInTheDocument();
+      expect(screen.getByTestId('text-chat-current-session')).toHaveTextContent('محادثة جديدة');
     } finally {
       window.history.pushState({}, '', originalPath);
     }
