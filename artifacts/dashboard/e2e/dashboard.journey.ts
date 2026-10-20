@@ -5775,6 +5775,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect.poll(() => new URL(page.url()).searchParams.has("messageId")).toBe(false);
     expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    const unlinkedMissionId = "e2e-unlinked-mission";
+    await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
+      projectId,
+      sessionId,
+      missionId: unlinkedMissionId,
+    }).toString()}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("notice-chat-route-mission-unavailable"))
+      .toContainText("This Mission is not linked to the requested conversation.");
+    const rejectedMissionUrl = new URL(page.url());
+    expect(rejectedMissionUrl.searchParams.get("projectId")).toBe(projectId);
+    expect(rejectedMissionUrl.searchParams.get("sessionId")).toBe(sessionId);
+    expect(rejectedMissionUrl.searchParams.get("missionId")).toBe(unlinkedMissionId);
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
     browserErrors.assertClean();
   });
 
