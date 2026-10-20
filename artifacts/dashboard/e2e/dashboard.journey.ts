@@ -6268,22 +6268,122 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         };
       }, mission.id);
 
-      await expect.poll(async () => {
-        const projectionResponse = await readProjection();
-        if (projectionResponse.status !== 200 || !projectionResponse.body) return [];
-        const projection = projectionResponse.body as {
-          goals?: Array<{
-            goal?: { status?: string; outcomeContract?: { acceptance?: { verdict?: string } } };
-            currentAttempt?: { status?: string } | null;
-          }>;
+      type GoalFirstGoal = {
+        goal?: {
+          status?: string;
+          outcomeContract?: {
+            acceptance?: {
+              executionId?: string;
+              outcome?: string;
+              verdict?: string;
+            };
+          };
         };
-        return (projection.goals ?? []).map((entry) =>
-          `${entry.goal?.status ?? "missing"}/${entry.currentAttempt?.status ?? "missing"}/${entry.goal?.outcomeContract?.acceptance?.verdict ?? "missing"}`,
+        currentAttempt?: { id?: string; status?: string } | null;
+      };
+      type ProviderDiagnostics = {
+        failureCategories?: { provider?: Record<string, number> };
+        rateLimitScopes?: Record<string, number>;
+        rateLimitAttempts?: Array<{
+          provider?: string;
+          scope?: string;
+          retryAfterMs?: number;
+        }>;
+      };
+      const goalDeadline = Date.now() + liveTimeoutMs();
+      let reachedCanonicalProof = false;
+      let lastGoalStates: string[] = [];
+      while (Date.now() < goalDeadline) {
+        const projectionResponse = await readProjection();
+        if (projectionResponse.status === 200 && projectionResponse.body) {
+          const projection = projectionResponse.body as {
+            goals?: GoalFirstGoal[];
+          };
+          const goals = projection.goals ?? [];
+          lastGoalStates = goals.map((entry) =>
+            `${entry.goal?.status ?? "missing"}/${entry.currentAttempt?.status ?? "missing"}/${entry.goal?.outcomeContract?.acceptance?.verdict ?? "missing"}`,
+          );
+          const provenGoal = goals.find((entry) =>
+            entry.goal?.status === "completed"
+            && entry.currentAttempt?.status === "completed"
+            && entry.goal?.outcomeContract?.acceptance?.verdict === "PROVEN",
+          );
+          if (provenGoal) {
+            reachedCanonicalProof = true;
+            break;
+          }
+
+          const failedGoal = goals.find((entry) =>
+            entry.currentAttempt?.status === "failed"
+            || entry.currentAttempt?.status === "cancelled"
+            || entry.goal?.outcomeContract?.acceptance?.outcome === "FAILED"
+            || entry.goal?.outcomeContract?.acceptance?.verdict === "FAILED"
+            || entry.goal?.status === "failed"
+            || entry.goal?.status === "cancelled",
+          );
+          if (failedGoal) {
+            const acceptance = failedGoal.goal?.outcomeContract?.acceptance;
+            const executionId = acceptance?.executionId ?? failedGoal.currentAttempt?.id;
+            if (!executionId) {
+              throw new Error(
+                `Goal-first reached a failed terminal state without an execution ID: ${lastGoalStates.join(", ")}`,
+              );
+            }
+            const executionResponse = await page.evaluate(async (id) => {
+              const response = await fetch(`/api/ai/executions/${encodeURIComponent(id)}`);
+              return {
+                status: response.status,
+                body: await response.json().catch(() => null),
+              };
+            }, executionId);
+            if (
+              executionResponse.status !== 200
+              || !executionResponse.body
+              || typeof executionResponse.body !== "object"
+            ) {
+              throw new Error(
+                `Goal-first reached a failed terminal state, but execution diagnostics could not be loaded (HTTP ${executionResponse.status}); goals=${lastGoalStates.join(", ")}`,
+              );
+            }
+            const execution = executionResponse.body as {
+              status?: string;
+              resumable?: boolean;
+              executionDiagnostics?: ProviderDiagnostics;
+            };
+            if (
+              (execution.status === "failed" || execution.status === "cancelled")
+              && execution.resumable === false
+            ) {
+              const diagnostics = execution.executionDiagnostics;
+              const providerFailures = diagnostics?.failureCategories?.provider ?? {};
+              const providerFailureCategory = Object.entries(providerFailures)
+                .find(([, count]) => count > 0)?.[0] ?? "not recorded";
+              const rateLimitScopes = Object.entries(diagnostics?.rateLimitScopes ?? {})
+                .filter(([, count]) => count > 0)
+                .map(([scope]) => scope);
+              const openRouterRateLimit = diagnostics?.rateLimitAttempts?.find(
+                (attempt) => attempt.provider === "openrouter",
+              );
+              throw new Error(
+                `Goal-first ended before Canonical Proof: ${JSON.stringify({
+                  goals: lastGoalStates,
+                  executionStatus: execution.status,
+                  resumable: execution.resumable,
+                  providerFailureCategory,
+                  rateLimitScopes,
+                  retryAfterMs: openRouterRateLimit?.retryAfterMs ?? null,
+                })}`,
+              );
+            }
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!reachedCanonicalProof) {
+        throw new Error(
+          `Goal-first did not reach Canonical Proof within its bound; last goal states: ${lastGoalStates.join(", ") || "unavailable"}`,
         );
-      }, {
-        timeout: liveTimeoutMs(),
-        intervals: [500, 1_000, 2_000],
-      }).toContain("completed/completed/PROVEN");
+      }
 
       const durableProjection = await readProjection();
       expect(durableProjection.status).toBe(200);

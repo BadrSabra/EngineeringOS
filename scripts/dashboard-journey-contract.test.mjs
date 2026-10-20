@@ -434,8 +434,18 @@ test("live journey timeout has Playwright headroom", () => {
   );
   assert.match(
     goalFirstTestSource,
-    /expect\.poll\([\s\S]*?timeout: liveTimeoutMs\(\)/,
+    /const goalDeadline = Date\.now\(\) \+ liveTimeoutMs\(\)/,
     "Goal-first terminal polling must honor the configured live timeout.",
+  );
+  assert.match(
+    goalFirstTestSource,
+    /execution\.status === "failed" \|\| execution\.status === "cancelled"[\s\S]*?execution\.resumable === false/,
+    "Goal-first polling must stop on a terminal execution with no resume path.",
+  );
+  assert.match(
+    goalFirstTestSource,
+    /providerFailureCategory[\s\S]*?rateLimitScopes[\s\S]*?retryAfterMs/,
+    "A terminal provider failure must report its category, rate-limit scope, and retry delay when available.",
   );
 });
 
