@@ -1034,7 +1034,7 @@ type MissionToolLoopExecution = {
 };
 
 type MissionRepairCandidateProposalDraft = {
-  changes: PendingChange[];
+  changes: Array<Pick<PendingChange, "path" | "newContent">>;
   rootPath: string;
   sourceRevision: string;
   candidateIdentity: string;
@@ -1061,6 +1061,7 @@ async function persistMissionRepairCandidateProposal(params: {
       id: aiExecutionsTable.id,
       sessionId: aiExecutionsTable.sessionId,
       proposalId: aiExecutionsTable.proposalId,
+      operationId: aiExecutionsTable.operationId,
     })
     .from(aiExecutionsTable)
     .where(and(
@@ -1070,6 +1071,7 @@ async function persistMissionRepairCandidateProposal(params: {
     ))
     .limit(1);
   if (!execution) throw new Error("mission_candidate_execution_missing");
+  if (!execution.operationId) throw new Error("mission_candidate_execution_operation_missing");
   if (execution.proposalId) {
     const [existing] = await db
       .select({
@@ -1126,7 +1128,7 @@ async function persistMissionRepairCandidateProposal(params: {
       undefined,
       [],
       {
-        operationId: params.executionId,
+        operationId: execution.operationId,
         projectRevision: params.draft.sourceRevision,
         candidateHash: deliveryWorkspace.candidateTreeHash,
         environmentProfile: serverEnvironmentProfile("TASK_EXECUTION", {
@@ -1159,22 +1161,55 @@ async function persistMissionRepairCandidateProposal(params: {
     const proposedSessionId = execution.sessionId ?? handoff?.sessionId ?? null;
     const now = new Date();
     const proposalId = randomUUID();
+    const proposalChanges = await Promise.all(params.draft.changes.map(async (change): Promise<PendingChange> => {
+      const absolutePath = resolvePath(params.rootPath, change.path);
+      if (absolutePath !== params.rootPath && !absolutePath.startsWith(`${params.rootPath}${pathSeparator}`)) {
+        throw new Error("mission_candidate_change_escaped_project_root");
+      }
+      let originalContent: string | null;
+      try {
+        originalContent = await readFile(absolutePath, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        originalContent = null;
+      }
+      return {
+        path: change.path,
+        absolutePath,
+        newContent: change.newContent,
+        originalContent,
+        reason: "تغيير مرشح إصلاح Mission",
+        validationProfile: params.draft.validationProfile,
+      };
+    }));
+    if (await missionWorkspaceRevision(params.rootPath) !== params.draft.sourceRevision) {
+      throw new Error("mission_candidate_source_changed_before_proposal_persist");
+    }
     const validationEvidence = JSON.stringify([{
+      profile: params.draft.validationProfile,
       status: "passed",
-      validatorId: "registered-validation.v1",
-      evidenceId: validation.evidence.evidenceId,
-      artifactRef: validation.evidence.artifactRef,
-      validatorProfile: params.draft.validationProfile,
+      scenario: "mission-repair-candidate",
+      exitCode: validation.exitCode,
+      evidence: {
+        evidenceId: validation.evidence.evidenceId,
+        observedAt: validation.evidence.observedAt,
+        artifactRef: validation.evidence.artifactRef,
+        operationId: execution.operationId,
+        projectRevision: params.draft.sourceRevision,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateHash: deliveryWorkspace.candidateTreeHash,
+        changeSetHash: deliveryWorkspace.changeSetHash,
+      },
       projectId: params.task.projectId,
       executionId: params.executionId,
+      executionOperationId: execution.operationId,
       attempt: params.attempt,
-      operationId: params.executionId,
       sourceRevision: params.draft.sourceRevision,
       candidateIdentity: params.draft.candidateIdentity,
-      baseTreeHash: deliveryWorkspace.baseTreeHash,
       candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
       changeSetHash: deliveryWorkspace.changeSetHash,
-      environmentRevision: validation.evidence.environmentRevision ?? null,
       missionId: params.goal.missionId,
       goalId: params.goal.id,
     }]);
@@ -1245,7 +1280,7 @@ async function persistMissionRepairCandidateProposal(params: {
         projectId: params.task.projectId,
         sessionId,
         messageId,
-        changes: JSON.stringify(params.draft.changes),
+        changes: JSON.stringify(proposalChanges),
         status: "pending",
         revision: 0,
         approvalRequired: true,
@@ -1288,7 +1323,6 @@ async function persistMissionRepairCandidateProposal(params: {
           candidateTreeHash: deliveryWorkspace!.candidateTreeHash,
           changeSetHash: deliveryWorkspace!.changeSetHash,
         },
-        createdAt: now,
       });
       return { proposalId, sessionId };
     });

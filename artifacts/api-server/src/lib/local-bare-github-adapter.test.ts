@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLocalBareGitHubRequest } from "./local-bare-github-adapter.js";
+import {
+  createControlledLocalBareGitHubRequest,
+  createLocalBareGitHubRequest,
+} from "./local-bare-github-adapter.js";
 
 const execFileAsync = promisify(execFile);
 const temporaryRoots: string[] = [];
@@ -38,6 +41,31 @@ async function createFixtureRepo() {
   return { source, remote };
 }
 
+async function withControlledLifecycleFixture<T>(
+  remote: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const fixtureEnv: Record<string, string> = {
+    RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+    DASHBOARD_E2E_TEST_MODE: "fixture",
+    ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+    ENGINEERING_AGENT_LIFECYCLE_REMOTE: remote,
+    NODE_ENV: "test",
+  };
+  const previous = new Map(
+    Object.keys(fixtureEnv).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, fixtureEnv);
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -45,7 +73,11 @@ afterEach(async () => {
 describe("controlled local bare GitHub adapter", () => {
   it("backs the verified GitHub REST object flow with actual objects and a compare-and-set ref update", async () => {
     const { remote } = await createFixtureRepo();
-    const request = await createLocalBareGitHubRequest({ bareRepoPath: remote });
+    const request = await withControlledLifecycleFixture(remote, async () =>
+      createControlledLocalBareGitHubRequest(
+        "https://github.com/fixture/engineering-agent-lifecycle",
+      ));
+    if (!request) throw new Error("Controlled lifecycle fixture guard did not activate.");
     const refPath = "/repos/fixture/engineering-agent-lifecycle/git/ref/heads/main";
     const updateRefPath = "/repos/fixture/engineering-agent-lifecycle/git/refs/heads/main";
     const ref = await request(refPath);

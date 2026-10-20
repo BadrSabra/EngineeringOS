@@ -5026,6 +5026,206 @@ describe("AI missions and goals", () => {
       .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
   });
 
+  it("blocks a Mission candidate until its current attempt has Canonical Proof", async () => {
+    const projectId = await insertProject();
+    const missionResponse = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Candidate approval boundary",
+      intent: "Validate a Mission repair candidate before creating its Apply Mission",
+    });
+    expect(missionResponse.status).toBe(201);
+    const missionId = missionResponse.body.id as string;
+    const goalResponse = await request(app)
+      .post(`/api/ai/missions/${missionId}/goals`)
+      .send({ title: "Prepare candidate" });
+    expect(goalResponse.status).toBe(201);
+    const goalId = goalResponse.body.id as string;
+    await db.update(aiGoalsTable)
+      .set({ status: "completed" })
+      .where(eq(aiGoalsTable.id, goalId));
+
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const executionId = randomUUID();
+    const sourceOperationId = `source-operation-${executionId}`;
+    const now = new Date();
+    const sourceRevision = "e".repeat(40);
+    const baseTreeHash = "a".repeat(64);
+    const candidateTreeHash = "b".repeat(64);
+    const changeSetHash = "c".repeat(64);
+    const candidateIdentity = `mission-candidate:${"d".repeat(64)}`;
+    const validationEvidence = JSON.stringify([{
+      profile: "workspace-typecheck",
+      status: "passed",
+      scenario: "mission-repair-candidate",
+      exitCode: 0,
+      evidence: {
+        evidenceId: `validation:${executionId}`,
+        observedAt: now.toISOString(),
+        artifactRef: `validation-result:${executionId}`,
+        operationId: sourceOperationId,
+        projectRevision: sourceRevision,
+        treeDigestVersion: "delivery-tree-v1",
+        baseTreeHash,
+        candidateHash: candidateTreeHash,
+        changeSetHash,
+      },
+      projectId,
+      executionId,
+      executionOperationId: sourceOperationId,
+      attempt: 0,
+      sourceRevision,
+      candidateIdentity,
+      candidateTreeHash,
+      baseTreeHash,
+      changeSetHash,
+      missionId,
+      goalId,
+    }]);
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission candidate review",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Validated Mission repair candidate awaits approval.",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{
+        path: "src/index.ts",
+        absolutePath: "/tmp/project/src/index.ts",
+        newContent: "export const repaired = true;",
+        originalContent: "export const repaired = false;",
+        reason: "Mission repair candidate",
+        validationProfile: "workspace-typecheck",
+      }]),
+      status: "pending",
+      revision: 0,
+      approvalRequired: false,
+      operationId: `mission-repair-${executionId}`,
+      workspaceRoot: path.resolve(process.cwd(), "../../.test-roots", `mission-candidate-${proposalId}`),
+      baseRevision: sourceRevision,
+      baseTreeHash,
+      candidateTreeHash,
+      treeDigestVersion: "delivery-tree-v1",
+      changeSetHash,
+      lifecycle: "validated",
+      validationEvidence,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId,
+      operationId: sourceOperationId,
+      proposalId,
+      goalId,
+      userId: "test-user",
+      idempotencyKey: `mission-candidate-${executionId}`,
+      attempt: 0,
+      resumeTokenHash: `mission-candidate-token-${executionId}`,
+      baseRevision: sourceRevision,
+      request: JSON.stringify({ workspaceRevision: sourceRevision }),
+      checkpoint: "{}",
+      status: "completed",
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+
+    const waitingReview = await request(app)
+      .get(`/api/ai/chat/${sessionId}/pending-proposal`);
+    expect(waitingReview.status).toBe(200);
+    expect(waitingReview.body).toMatchObject({
+      proposalId,
+      missionCandidate: true,
+      missionCandidateAccepted: false,
+      sourceMissionId: missionId,
+      sourceGoalId: goalId,
+    });
+
+    const blocked = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe("MISSION_CANDIDATE_NOT_ACCEPTED");
+    expect(await db.select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
+
+    const evidenceSnapshotId = randomUUID();
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: evidenceSnapshotId,
+      executionId,
+      projectId,
+      attempt: 0,
+      operationId: sourceOperationId,
+      sourceRevision,
+      candidateIdentity,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 64,
+      createdAt: now,
+    });
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId,
+      sourceRevision,
+      candidateIdentity,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `mission-candidate-final-${executionId}`,
+      operationId: sourceOperationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof },
+      evidenceSnapshotId,
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      candidateIdentity,
+      createdAt: now,
+    });
+
+    const acceptedReview = await request(app)
+      .get(`/api/ai/chat/${sessionId}/pending-proposal`);
+    expect(acceptedReview.status).toBe(200);
+    expect(acceptedReview.body).toMatchObject({
+      proposalId,
+      missionCandidate: true,
+      missionCandidateAccepted: true,
+    });
+
+    const accepted = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId });
+    expect(accepted.status).toBe(201);
+    expect(accepted.body).toMatchObject({
+      applyGoal: { stepId: "apply-changes", taskId: null },
+    });
+  });
+
   it("rejects client-supplied Apply Mission identity on generic Mission creation", async () => {
     const projectId = await insertProject();
     const response = await request(app).post("/api/ai/missions").send({

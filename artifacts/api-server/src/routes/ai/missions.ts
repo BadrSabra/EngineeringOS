@@ -2086,6 +2086,103 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
     ) {
       return { kind: "proposal_changed" as const };
     }
+    const [sourceExecution] = await tx.select()
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, project.id),
+        eq(aiExecutionsTable.proposalId, lockedProposal.id),
+      ))
+      .limit(1)
+      .for("update");
+    if (sourceExecution?.goalId) {
+      const executionOperationId = sourceExecution.operationId;
+      const [sourceAcceptance] = await tx.select()
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, sourceExecution.id),
+          eq(aiExecutionAcceptancesTable.projectId, project.id),
+          eq(aiExecutionAcceptancesTable.attempt, sourceExecution.attempt),
+        ))
+        .limit(1);
+      const [sourceGoal] = await tx.select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, sourceExecution.goalId),
+          eq(aiGoalsTable.projectId, project.id),
+        ))
+        .limit(1);
+      const [sourceMission] = sourceGoal
+        ? await tx.select()
+            .from(aiMissionsTable)
+            .where(and(
+              eq(aiMissionsTable.id, sourceGoal.missionId),
+              eq(aiMissionsTable.projectId, project.id),
+              eq(aiMissionsTable.userId, req.userId),
+            ))
+            .limit(1)
+        : [];
+      let sourceBinding: Record<string, unknown> | undefined;
+      try {
+        const parsed: unknown = JSON.parse(lockedProposal.validationEvidence ?? "null");
+        if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === "object") {
+          sourceBinding = parsed[0] as Record<string, unknown>;
+        }
+      } catch {
+        sourceBinding = undefined;
+      }
+      if (
+        sourceExecution.status !== "completed"
+        || !executionOperationId
+        || !sourceExecution.baseRevision
+        || !sourceAcceptance
+        || sourceAcceptance.outcome !== "SUCCEEDED"
+        || sourceAcceptance.terminalStatus !== "completed"
+        || sourceAcceptance.evidenceRequired !== 1
+        || sourceAcceptance.evidenceComplete !== 1
+        || !sourceAcceptance.evidenceSnapshotId
+        || !sourceGoal
+        || sourceGoal.status !== "completed"
+        || !sourceMission
+        || sourceBinding?.status !== "passed"
+        || sourceBinding.executionId !== sourceExecution.id
+        || sourceBinding.executionOperationId !== executionOperationId
+        || sourceBinding.attempt !== sourceExecution.attempt
+        || sourceBinding.missionId !== sourceGoal.missionId
+        || sourceBinding.goalId !== sourceGoal.id
+        || sourceBinding.candidateIdentity !== sourceAcceptance.candidateIdentity
+        || sourceBinding.sourceRevision !== sourceAcceptance.sourceRevision
+        || sourceBinding.sourceRevision !== lockedProposal.baseRevision
+        || sourceBinding.baseTreeHash !== lockedProposal.baseTreeHash
+        || sourceBinding.candidateTreeHash !== lockedProposal.candidateTreeHash
+        || sourceBinding.changeSetHash !== lockedProposal.changeSetHash
+      ) {
+        return { kind: "source_not_accepted" as const };
+      }
+      const canonicalProof = await loadCanonicalProof({
+        tx,
+        executionId: sourceExecution.id,
+        attempt: sourceExecution.attempt,
+        scope: {
+          projectId: project.id,
+          executionId: sourceExecution.id,
+          operationId: executionOperationId,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: "required",
+          sourceRevision: sourceExecution.baseRevision,
+          candidateIdentity: String(sourceBinding.candidateIdentity),
+        },
+        goalStatus: sourceGoal.status,
+      });
+      if (
+        canonicalProof.verdict !== "PROVEN"
+        || canonicalProof.acceptanceId !== sourceAcceptance.id
+        || canonicalProof.evidenceSnapshotId !== sourceAcceptance.evidenceSnapshotId
+        || canonicalProof.sourceRevision !== sourceAcceptance.sourceRevision
+        || canonicalProof.candidateIdentity !== sourceBinding.candidateIdentity
+      ) {
+        return { kind: "source_not_accepted" as const };
+      }
+    }
     if (
       lockedProposal.status !== "pending"
       || lockedProposal.approvalRequired
@@ -2194,6 +2291,13 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
     res.status(409).json({
       error: "The proposal changed while the Mission handoff was waiting. Review it and try again.",
       code: "PROPOSAL_CHANGED_DURING_HANDOFF",
+    });
+    return;
+  }
+  if (result.kind === "source_not_accepted") {
+    res.status(409).json({
+      error: "The Mission candidate has not passed its durable acceptance gate.",
+      code: "MISSION_CANDIDATE_NOT_ACCEPTED",
     });
     return;
   }

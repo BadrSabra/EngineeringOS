@@ -15555,13 +15555,28 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(1);
-  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+  if (!proposal) {
+    return res.json({
+      proposalId: null,
+      operationId: null,
+      changes: [],
+      lifecycle: null,
+      missionCandidate: false,
+      missionCandidateAccepted: false,
+      sourceMissionId: null,
+      sourceGoalId: null,
+    });
+  }
 
   const [proposalExecution] = await db
     .select({
       id: aiExecutionsTable.id,
       operationId: aiExecutionsTable.operationId,
       buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+      goalId: aiExecutionsTable.goalId,
+      attempt: aiExecutionsTable.attempt,
+      status: aiExecutionsTable.status,
+      baseRevision: aiExecutionsTable.baseRevision,
     })
     .from(aiExecutionsTable)
     .where(and(
@@ -15574,6 +15589,97 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ?? proposalExecution?.buildPlanMessageId
     ?? proposalExecution?.id
     ?? proposal.messageId;
+  const [sourceGoal] = proposalExecution?.goalId
+    ? await db
+        .select({
+          id: aiGoalsTable.id,
+          missionId: aiGoalsTable.missionId,
+          status: aiGoalsTable.status,
+        })
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, proposalExecution.goalId),
+          eq(aiGoalsTable.projectId, session.projectId),
+        ))
+        .limit(1)
+    : [];
+  const [sourceMission] = sourceGoal
+    ? await db
+        .select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, sourceGoal.missionId),
+          eq(aiMissionsTable.projectId, session.projectId),
+          eq(aiMissionsTable.userId, req.userId),
+        ))
+        .limit(1)
+    : [];
+  let missionCandidateAccepted = false;
+  if (proposalExecution?.goalId && sourceGoal && sourceMission) {
+    let sourceBinding: Record<string, unknown> | undefined;
+    try {
+      const parsed: unknown = parseStoredJson(proposal.validationEvidence);
+      if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === "object") {
+        sourceBinding = parsed[0] as Record<string, unknown>;
+      }
+    } catch {
+      sourceBinding = undefined;
+    }
+    const [sourceAcceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, proposalExecution.id),
+        eq(aiExecutionAcceptancesTable.projectId, session.projectId),
+        eq(aiExecutionAcceptancesTable.attempt, proposalExecution.attempt),
+      ))
+      .limit(1);
+    const sourceBindingMatches = Boolean(
+      sourceAcceptance
+      && proposalExecution.status === "completed"
+      && sourceGoal.status === "completed"
+      && proposalExecution.operationId
+      && proposalExecution.baseRevision
+      && sourceAcceptance.outcome === "SUCCEEDED"
+      && sourceAcceptance.terminalStatus === "completed"
+      && sourceAcceptance.evidenceRequired === 1
+      && sourceAcceptance.evidenceComplete === 1
+      && sourceAcceptance.evidenceSnapshotId
+      && sourceBinding?.status === "passed"
+      && sourceBinding.executionId === proposalExecution.id
+      && sourceBinding.executionOperationId === proposalExecution.operationId
+      && sourceBinding.attempt === proposalExecution.attempt
+      && sourceBinding.missionId === sourceGoal.missionId
+      && sourceBinding.goalId === sourceGoal.id
+      && sourceBinding.candidateIdentity === sourceAcceptance.candidateIdentity
+      && sourceBinding.sourceRevision === sourceAcceptance.sourceRevision
+      && sourceBinding.sourceRevision === proposal.baseRevision
+      && sourceBinding.baseTreeHash === proposal.baseTreeHash
+      && sourceBinding.candidateTreeHash === proposal.candidateTreeHash
+      && sourceBinding.changeSetHash === proposal.changeSetHash
+    );
+    if (sourceBindingMatches && sourceAcceptance && proposalExecution.operationId && proposalExecution.baseRevision) {
+      const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: proposalExecution.id,
+        attempt: proposalExecution.attempt,
+        scope: {
+          projectId: session.projectId,
+          executionId: proposalExecution.id,
+          operationId: proposalExecution.operationId,
+          sourceRevisionBinding: "scope",
+          candidateIdentityBinding: "required",
+          sourceRevision: proposalExecution.baseRevision,
+          candidateIdentity: String(sourceBinding?.candidateIdentity),
+        },
+        goalStatus: sourceGoal.status,
+      }));
+      missionCandidateAccepted = canonicalProof.verdict === "PROVEN"
+        && canonicalProof.evidenceSnapshotId === sourceAcceptance.evidenceSnapshotId
+        && canonicalProof.sourceRevision === sourceAcceptance.sourceRevision
+        && canonicalProof.candidateIdentity === sourceBinding?.candidateIdentity;
+    }
+  }
 
   try {
     const changes = parseStoredJson(proposal.changes) as ServerPendingChange[];
@@ -15581,6 +15687,10 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       proposalId: proposal.id,
       operationId: canonicalOperationId,
       changes,
+      missionCandidate: Boolean(proposalExecution?.goalId && sourceGoal),
+      missionCandidateAccepted,
+      sourceMissionId: sourceGoal?.missionId ?? null,
+      sourceGoalId: proposalExecution?.goalId ?? null,
       approvalRequired: proposal.approvalRequired,
       revision: proposal.revision,
       ...(

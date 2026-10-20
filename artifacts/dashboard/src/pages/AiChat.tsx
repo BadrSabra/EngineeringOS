@@ -92,6 +92,7 @@ import { resolveExecutionProofPresentation } from '@/lib/execution-proof-present
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 import { parseProjectQuerySourceReference } from '@/lib/project-query-source-reference';
 import {
+  createApplyMissionFromProposal,
   createMissionFromChat,
   previewMissionPlanFromChat,
   type MissionPlanPreviewResult,
@@ -4553,11 +4554,16 @@ function PendingChangesCard({
   projectRevision,
   changeSetHash,
   onApply,
+  onApproveMissionCandidate,
+  onCreateApplyMission,
   onRebase,
   onReject,
   isPending,
+  isApplyMissionPending,
   isRebasePending,
   approvalRequired,
+  missionCandidate,
+  missionCandidateAccepted,
   lifecycle,
 }: {
   changes: PendingChange[];
@@ -4567,11 +4573,16 @@ function PendingChangesCard({
   projectRevision?: string | null;
   changeSetHash?: string | null;
   onApply: (changes: PendingChange[]) => void;
+  onApproveMissionCandidate: () => void;
+  onCreateApplyMission: () => void;
   onRebase: (changes: PendingChange[]) => void;
   onReject: () => void;
   isPending: boolean;
+  isApplyMissionPending: boolean;
   isRebasePending: boolean;
   approvalRequired: boolean;
+  missionCandidate: boolean;
+  missionCandidateAccepted: boolean;
   lifecycle?: DeliveryLifecycle;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -4842,19 +4853,47 @@ function PendingChangesCard({
 
         {/* Actions */}
         <div dir="rtl" lang="ar" className="flex flex-wrap gap-2 px-4 py-3 border-t border-amber-500/20">
-          <Button
-            size="sm"
-            className="h-7 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
-            onClick={() => onApply(effectiveChanges)}
-            disabled={isPending || isRebasePending || effectiveChanges.length === 0}
-          >
-            {isPending
-              ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
-              : <Check className="w-3 h-3 mr-1.5" />}
-            {approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'}{' '}
-            {effectiveChanges.length} تغيير
-            {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} مقطع)` : ''}
-          </Button>
+          {missionCandidate ? (
+            <Button
+              size="sm"
+              className="h-7 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
+              onClick={missionCandidateAccepted
+                ? approvalRequired
+                  ? onApproveMissionCandidate
+                  : onCreateApplyMission
+                : undefined}
+              disabled={
+                isPending
+                || isApplyMissionPending
+                || isRebasePending
+                || effectiveChanges.length === 0
+                || !missionCandidateAccepted
+              }
+            >
+              {isPending || isApplyMissionPending
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
+                : <Check className="w-3 h-3 mr-1.5" />}
+              {!missionCandidateAccepted
+                ? 'بانتظار قبول التنفيذ الأصلي'
+                : approvalRequired
+                  ? 'أوافق على المرشح بعد مراجعته'
+                  : 'إنشاء هدف تطبيق وتسليم'}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="h-7 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-black font-medium disabled:opacity-50"
+              onClick={() => onApply(effectiveChanges)}
+              disabled={isPending || isRebasePending || effectiveChanges.length === 0}
+            >
+              {isPending
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
+                : <Check className="w-3 h-3 mr-1.5" />}
+              {approvalRequired ? 'الموافقة وتطبيق' : 'تطبيق'}{' '}
+              {effectiveChanges.length} تغيير
+              {hasPartialSelection ? ` (${acceptedHunkCount}/${totalHunkCount} مقطع)` : ''}
+            </Button>
+          )}
           {hasPatchConflict && (
             <Button
               size="sm"
@@ -11313,12 +11352,23 @@ export default function AiChat() {
     changeSetHash?: string | null;
     conflictReason?: string | null;
     validationEvidence?: PublicValidationResult[] | null;
+    missionCandidate?: boolean;
+    missionCandidateAccepted?: boolean;
+    sourceMissionId?: string | null;
+    sourceGoalId?: string | null;
   }>(
     sessionId ?? '',
     {
       query: {
         queryKey: ['ai-pending-proposal', sessionId],
         enabled: isLoaded && !!sessionId,
+        refetchInterval: (query) => {
+          const proposal = query.state.data as {
+            missionCandidate?: boolean;
+            missionCandidateAccepted?: boolean;
+          } | undefined;
+          return proposal?.missionCandidate && !proposal.missionCandidateAccepted ? 3_000 : false;
+        },
       },
     },
   );
@@ -11372,6 +11422,7 @@ export default function AiChat() {
     },
   });
   const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
+  const [applyMissionPending, setApplyMissionPending] = useState(false);
   const [deliveryToDiscard, setDeliveryToDiscard] = useState<{
     projectId: string;
     delivery: RecoverableDelivery;
@@ -11949,6 +12000,65 @@ export default function AiChat() {
         ...(operationId ? { operationId } : {}),
       },
     });
+  }
+
+  function handleApproveMissionCandidate() {
+    if (
+      !selectedProjectId
+      || !proposalId
+      || proposalRevision === undefined
+      || serverProposal?.missionCandidateAccepted !== true
+    ) {
+      toast({
+        title: 'المقترح غير متاح للموافقة',
+        description: 'حدّث المحادثة ثم راجع المقترح قبل الموافقة عليه.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    reapprovalApplyRef.current = null;
+    reapprovalMutation.mutate({
+      proposalId,
+      data: {
+        projectId: selectedProjectId,
+        revision: proposalRevision,
+      },
+    });
+  }
+
+  async function handleCreateApplyMission() {
+    if (
+      !selectedProjectId
+      || !proposalId
+      || serverProposal?.missionCandidate !== true
+      || serverProposal?.missionCandidateAccepted !== true
+      || proposalRequiresApproval
+      || applyMissionPending
+    ) return;
+    setApplyMissionPending(true);
+    try {
+      const result = await createApplyMissionFromProposal({
+        projectId: selectedProjectId,
+        proposalId,
+        title: 'تطبيق المرشح المعتمد وتسليمه',
+        intent: 'تطبيق المرشح المعتمد على مساحة المشروع والتحقق من التسليم إلى المستودع المرتبط.',
+      });
+      toast({
+        title: 'أُنشئ هدف التطبيق والتسليم',
+        description: 'انتقلت المتابعة إلى هدف تطبيق مستقل؛ لم يُطبّق المرشح مباشرة من المحادثة.',
+      });
+      setLocation(
+        `/missions?projectId=${encodeURIComponent(selectedProjectId)}&missionId=${encodeURIComponent(result.mission.id)}`,
+      );
+    } catch (error) {
+      toast({
+        title: 'تعذر إنشاء هدف التطبيق',
+        description: error instanceof Error ? error.message : 'لم يُطبّق المرشح.',
+        variant: 'destructive',
+      });
+    } finally {
+      setApplyMissionPending(false);
+    }
   }
 
   async function handleProjectionAction(action: AiExecutionProjection['allowedActions'][number]): Promise<void> {
@@ -14619,11 +14729,16 @@ export default function AiChat() {
                   projectRevision={serverProposal?.baseRevision}
                   changeSetHash={serverProposal?.changeSetHash}
                   onApply={handleApplyChanges}
+                  onApproveMissionCandidate={handleApproveMissionCandidate}
+                  onCreateApplyMission={handleCreateApplyMission}
                   onRebase={handleRebaseChanges}
                   onReject={handleRejectProposal}
                   isPending={applyMutation.isPending || reapprovalMutation.isPending}
+                  isApplyMissionPending={applyMissionPending}
                   isRebasePending={rebaseMutation.isPending}
                   approvalRequired={proposalRequiresApproval}
+                  missionCandidate={serverProposal?.missionCandidate === true}
+                  missionCandidateAccepted={serverProposal?.missionCandidateAccepted === true}
                   lifecycle={deliveryLifecycle}
                 />
               )}

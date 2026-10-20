@@ -194,6 +194,19 @@ async function main() {
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    console.log("Verifying Mission candidate acceptance before Apply Mission handoff.");
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/routes/ai/missions.test.ts",
+      "-t",
+      "blocks a Mission candidate until its current attempt has Canonical Proof",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
     console.log(
       liveProviderRun
         ? "Running the live-provider goal-first journey against the real API and isolated loopback database."

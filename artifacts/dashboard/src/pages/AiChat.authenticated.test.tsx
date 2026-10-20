@@ -131,6 +131,7 @@ const mocks = vi.hoisted(() => {
     sessionMissionsSessionId: undefined as string | undefined,
     sessionMissionsOptions: undefined as unknown,
     fetchMissionProjection: vi.fn(),
+    createApplyMissionFromProposal: vi.fn(),
     createMissionFromChat: vi.fn(),
     previewMissionPlanFromChat: vi.fn(),
     historicalAudits: [] as Array<Record<string, unknown>>,
@@ -240,6 +241,7 @@ vi.mock('@/lib/ai-missions', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ai-missions')>();
   return {
     ...actual,
+    createApplyMissionFromProposal: mocks.createApplyMissionFromProposal,
     createMissionFromChat: mocks.createMissionFromChat,
     previewMissionPlanFromChat: mocks.previewMissionPlanFromChat,
     fetchMissionProjection: mocks.fetchMissionProjection,
@@ -4723,6 +4725,78 @@ it.each([
       mocks.mutationOptions.push?.onSuccess?.({ ok: true, branch: 'main', output: 'pushed' });
     });
     await waitFor(() => expect(screen.queryByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).not.toBeInTheDocument());
+  });
+
+  it('requires Mission candidate approval, then creates an Apply Mission without direct application', async () => {
+    const missionProposal = {
+      proposalId: 'mission-candidate-proposal',
+      missionCandidate: true,
+      missionCandidateAccepted: false,
+      sourceMissionId: 'source-mission',
+      sourceGoalId: 'source-goal',
+      approvalRequired: true,
+      revision: 2,
+      changes: [{
+        path: 'src/app.ts',
+        absolutePath: '/project/src/app.ts',
+        newContent: 'export const ready = true;',
+        originalContent: 'export const ready = false;',
+        reason: 'Mission repair candidate',
+        validationProfile: 'api-ai-tests',
+      }],
+    };
+    mocks.serverProposal = missionProposal;
+    mocks.createApplyMissionFromProposal.mockResolvedValue({
+      mission: { id: 'apply-mission' },
+      applyGoal: { stepId: 'apply-changes', goalId: 'apply-goal', taskId: null, dependencies: [] },
+      planGoals: [],
+      runs: [],
+    });
+    const { queryClient, rerender } = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const waitingButton = await screen.findByRole('button', {
+      name: 'بانتظار قبول التنفيذ الأصلي',
+    });
+    expect(waitingButton).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /الموافقة وتطبيق|تطبيق 1 تغيير/ })).not.toBeInTheDocument();
+    fireEvent.click(waitingButton);
+    expect(mocks.mutations.approveRebased.mutate).not.toHaveBeenCalled();
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+
+    mocks.serverProposal = {
+      ...missionProposal,
+      missionCandidateAccepted: true,
+    };
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <AiChat />
+      </QueryClientProvider>,
+    );
+    const approveButton = await screen.findByRole('button', {
+      name: 'أوافق على المرشح بعد مراجعته',
+    });
+    fireEvent.click(approveButton);
+    expect(mocks.mutations.approveRebased.mutate).toHaveBeenCalledWith({
+      proposalId: 'mission-candidate-proposal',
+      data: { projectId: 'project-1', revision: 2 },
+    });
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+
+    act(() => {
+      mocks.mutationOptions.approveRebased?.onSuccess?.({});
+    });
+    const createApplyButton = await screen.findByRole('button', {
+      name: 'إنشاء هدف تطبيق وتسليم',
+    });
+    fireEvent.click(createApplyButton);
+    await waitFor(() => expect(mocks.createApplyMissionFromProposal).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      proposalId: 'mission-candidate-proposal',
+      title: 'تطبيق المرشح المعتمد وتسليمه',
+      intent: 'تطبيق المرشح المعتمد على مساحة المشروع والتحقق من التسليم إلى المستودع المرتبط.',
+    }));
+    expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
   });
 
   it('renders linked Apply, Commit, and Push evidence and blocks hash mismatches', async () => {
