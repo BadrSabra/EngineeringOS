@@ -91,6 +91,24 @@ beforeEach(() => {
   fetchMissionsMock.mockResolvedValue([]);
   fetchMissionProjectionMock.mockResolvedValue({
     mission,
+    engineeringAgent: {
+      state: 'PLANNING',
+      nextAction: { kind: 'NONE', target: null, reasonCode: 'mission_draft' },
+      intervention: { required: false, kind: 'none', reasonCode: null },
+      autonomy: {
+        mode: 'assisted',
+        allowAutoContinue: false,
+        allowAutoApply: false,
+        allowAutoCommit: false,
+        allowAutoPush: false,
+        requireHumanForExternalDelivery: true,
+        maxAutoReplans: 0,
+      },
+      missionId: mission.id,
+      sessionId: null,
+      goalId: null,
+      executionId: null,
+    },
     agentControl: null,
     currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
     goals: [],
@@ -120,6 +138,46 @@ beforeEach(() => {
 });
 
 describe('Missions management', () => {
+  it('renders the server-owned Mission decision even when stored Mission status differs', async () => {
+    fetchMissionsMock.mockResolvedValue([mission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission,
+      engineeringAgent: {
+        state: 'AWAITING_APPROVAL',
+        nextAction: {
+          kind: 'APPROVE',
+          target: { kind: 'goal', id: 'goal-1' },
+          reasonCode: 'approval_pending',
+        },
+        intervention: { required: true, kind: 'approval', reasonCode: 'approval_pending' },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: null,
+        goalId: 'goal-1',
+        executionId: 'execution-1',
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId(`mission-agent-state-${mission.id}`))
+      .toHaveAttribute('data-state', 'AWAITING_APPROVAL');
+    expect(screen.getByTestId(`mission-agent-next-action-${mission.id}`))
+      .toHaveTextContent('راجع الموافقة المطلوبة');
+  });
+
   it('rejects malformed advanced JSON in Arabic without granting scope or starting work', async () => {
     renderPage();
     fireEvent.click(await screen.findByTestId('button-create-mission'));

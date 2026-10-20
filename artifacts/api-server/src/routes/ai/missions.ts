@@ -41,6 +41,7 @@ import { parsePagination } from "../../lib/pagination.js";
 import {
   receiveMissionEvent,
   runMissionGoal,
+  authorizeMissionGoalContinuation,
   deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
@@ -52,8 +53,14 @@ import { dispatchMissionChatHandoff } from "../../lib/mission-chat-handoffs.js";
 import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
+  projectMissionCompletion,
+  projectMissionGoalProof,
   projectMissionActivePlan,
 } from "../../lib/mission-completion-gate.js";
+import {
+  reduceEngineeringAgentProjection,
+  type EngineeringAgentGoalFact,
+} from "../../lib/engineering-agent-projection.js";
 import {
   loadCanonicalProof,
   projectCanonicalProof,
@@ -747,6 +754,212 @@ function publicExecution(execution: typeof aiExecutionsTable.$inferSelect) {
   };
 }
 
+function engineeringAgentRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+async function buildEngineeringAgentProjection(
+  mission: typeof aiMissionsTable.$inferSelect,
+  goals: Array<typeof aiGoalsTable.$inferSelect>,
+  currentPlan: ReturnType<typeof projectMissionActivePlan>,
+  currentExecutionByGoalId: Map<string, typeof aiExecutionsTable.$inferSelect>,
+  proposals: Array<Pick<
+    typeof aiChangeProposalsTable.$inferSelect,
+    "id" | "status" | "approvalRequired"
+  >>,
+  sessionId: string | null,
+) {
+  const activeGoalIds = new Set(currentPlan.goalIds);
+  const activeGoals = goals.filter((goal) => activeGoalIds.has(goal.id));
+  const currentExecutions = activeGoals
+    .map((goal) => currentExecutionByGoalId.get(goal.id))
+    .filter((execution): execution is typeof aiExecutionsTable.$inferSelect => Boolean(execution));
+  const acceptanceRows = currentExecutions.length > 0
+    ? await db
+      .select({
+        executionId: aiExecutionAcceptancesTable.executionId,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        resumable: aiExecutionAcceptancesTable.resumable,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.projectId, mission.projectId),
+        inArray(aiExecutionAcceptancesTable.executionId, currentExecutions.map((item) => item.id)),
+      ))
+    : [];
+  const acceptanceByAttempt = new Map(
+    acceptanceRows.map((acceptance) => [
+      `${acceptance.executionId}:${acceptance.attempt}`,
+      acceptance,
+    ]),
+  );
+  const proofByGoalId = new Map<string, Awaited<ReturnType<typeof projectMissionGoalProof>>>();
+
+  let completionEvaluation: Awaited<ReturnType<typeof projectMissionCompletion>> | null = null;
+  if (mission.status === "completed") {
+    completionEvaluation = await db.transaction((tx) =>
+      projectMissionCompletion(tx, mission, goals),
+    );
+    for (const proof of completionEvaluation.proofs ?? []) {
+      proofByGoalId.set(proof.goalId, proof);
+    }
+  } else {
+    const goalsNeedingProof = activeGoals
+      .filter((goal) => {
+        const execution = currentExecutionByGoalId.get(goal.id);
+        const acceptance = execution
+          ? acceptanceByAttempt.get(`${execution.id}:${execution.attempt}`)
+          : undefined;
+        return goal.status === "completed"
+          || execution?.status === "completed"
+          || acceptance?.outcome === "SUCCEEDED";
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (goalsNeedingProof.length > 0) {
+      await db.transaction(async (tx) => {
+        for (const goal of goalsNeedingProof) {
+          const proof = await projectMissionGoalProof(tx, mission, goal);
+          if (proof) proofByGoalId.set(goal.id, proof);
+        }
+      });
+    }
+  }
+
+  const policy = engineeringAgentRecord(mission.autonomyPolicy);
+  const runtimeContinuationGoalIds = new Set<string>();
+  if (
+    mission.status === "active"
+    && currentPlan.binding !== "revision_mismatch"
+    && policy.mode === "autonomous"
+    && policy.allowAutoContinue === true
+  ) {
+    const eligibleGoals = activeGoals
+      .filter((goal) => {
+        if (!["queued", "planning"].includes(goal.status)) return false;
+        const action = GoalNextActionSchema.safeParse(goal.nextAction);
+        return action.success && ["task", "recipe"].includes(action.data.kind);
+      })
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (eligibleGoals.length > 0) {
+      await db.transaction(async (tx) => {
+        for (const goal of eligibleGoals) {
+          const execution = currentExecutionByGoalId.get(goal.id);
+          const authorization = await authorizeMissionGoalContinuation(tx, mission, goal, {
+            ...(execution ? { targetExecutionId: execution.id } : {}),
+          });
+          if (authorization.allowed) runtimeContinuationGoalIds.add(goal.id);
+        }
+      });
+    }
+  }
+
+  const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
+  const goalFacts: EngineeringAgentGoalFact[] = activeGoals.map((goal) => {
+    const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    const nextAction = parsedAction.success ? parsedAction.data : null;
+    const execution = currentExecutionByGoalId.get(goal.id) ?? null;
+    const acceptance = execution
+      ? acceptanceByAttempt.get(`${execution.id}:${execution.attempt}`) ?? null
+      : null;
+    const proof = proofByGoalId.get(goal.id) ?? null;
+    const proofMatchesCurrentAttempt = Boolean(
+      proof
+      && execution
+      && acceptance
+      && proof.executionId === execution.id
+      && acceptance.outcome === "SUCCEEDED"
+      && acceptance.terminalStatus === "completed",
+    );
+    const currentProposal = execution?.proposalId
+      ? proposalById.get(execution.proposalId)
+      : undefined;
+    const outcome = engineeringAgentRecord(goal.outcomeContract);
+    const acceptedOutcome = engineeringAgentRecord(outcome.acceptance);
+    const deliveryReceipt = engineeringAgentRecord(acceptedOutcome.deliveryReceipt);
+    const approvalPending = goal.status === "waiting_for_approval"
+      || (nextAction?.kind === "wait" && nextAction.reason === "approval")
+      || Boolean(currentProposal?.status === "pending" && currentProposal.approvalRequired);
+
+    return {
+      id: goal.id,
+      status: goal.status,
+      nextAction: nextAction ? {
+        kind: nextAction.kind,
+        ...("reason" in nextAction ? { reason: nextAction.reason } : {}),
+      } : null,
+      currentExecution: execution ? {
+        id: execution.id,
+        status: execution.status,
+        acceptance: acceptance ? {
+          outcome: acceptance.outcome,
+          terminalStatus: acceptance.terminalStatus,
+          nextActionCode: acceptance.nextActionCode,
+          evidenceRequired: acceptance.evidenceRequired === 1,
+          evidenceComplete: acceptance.evidenceComplete === 1,
+          resumable: acceptance.resumable === 1,
+        } : null,
+      } : null,
+      canonicalProof: proof ? {
+        accepted: proof.accepted,
+        verdict: proof.verdict,
+        executionId: proof.executionId ?? null,
+        matchesCurrentAttempt: proofMatchesCurrentAttempt,
+        failureReasons: proof.failureReasons,
+      } : null,
+      approval: {
+        pending: approvalPending,
+        proposalId: approvalPending
+          && currentProposal?.status === "pending"
+          && currentProposal.approvalRequired
+          ? currentProposal.id
+          : null,
+      },
+      delivery: {
+        required: outcome.deliveryRequired === true,
+        receiptPresent: Object.keys(deliveryReceipt).length > 0,
+      },
+      runtimeContinuationAuthorized: runtimeContinuationGoalIds.has(goal.id),
+    };
+  });
+
+  const missionCompletionAccepted = Boolean(
+    completionEvaluation?.allowed
+    && activeGoals.length > 0
+    && activeGoals.every((goal) => {
+      const execution = currentExecutionByGoalId.get(goal.id);
+      const acceptance = execution
+        ? acceptanceByAttempt.get(`${execution.id}:${execution.attempt}`)
+        : undefined;
+      const proof = proofByGoalId.get(goal.id);
+      return Boolean(
+        execution
+        && acceptance
+        && acceptance.outcome === "SUCCEEDED"
+        && acceptance.terminalStatus === "completed"
+        && proof?.accepted
+        && proof.executionId === execution.id,
+      );
+    }),
+  );
+
+  return reduceEngineeringAgentProjection({
+    missionId: mission.id,
+    sessionId,
+    missionStatus: mission.status,
+    planBinding: currentPlan.binding,
+    goals: goalFacts,
+    missionCompletionAccepted,
+    autonomyPolicy: mission.autonomyPolicy,
+  });
+}
+
 function withStoredStatusProjection<T extends { status: unknown }>(value: T) {
   return {
     ...value,
@@ -1164,13 +1377,28 @@ async function buildMissionProjection(
   const [handoff] = await db
     .select()
     .from(aiMissionHandoffsTable)
-    .where(eq(aiMissionHandoffsTable.missionId, mission.id))
+    .where(and(
+      eq(aiMissionHandoffsTable.missionId, mission.id),
+      eq(aiMissionHandoffsTable.projectId, mission.projectId),
+      eq(aiMissionHandoffsTable.userId, mission.userId),
+    ))
     .limit(1);
+  const [handoffSession] = handoff?.sessionId
+    ? await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(and(
+        eq(aiChatSessionsTable.id, handoff.sessionId),
+        eq(aiChatSessionsTable.projectId, mission.projectId),
+      ))
+      .limit(1)
+    : [];
+  const validatedHandoffSessionId = handoffSession?.id ?? null;
   const agentControl = handoff
     ? {
         handoff: {
           kind: "chat" as const,
-          sessionId: handoff.sessionId,
+          sessionId: validatedHandoffSessionId,
           messageId: handoff.messageId,
           assistantMessageId: handoff.assistantMessageId,
           planHash: handoff.planHash,
@@ -1182,10 +1410,19 @@ async function buildMissionProjection(
     : null;
   const goalIds = goals.map((goal) => goal.id);
   if (goalIds.length === 0) {
+    const engineeringAgent = await buildEngineeringAgentProjection(
+      mission,
+      goals,
+      currentPlan,
+      new Map(),
+      [],
+      validatedHandoffSessionId,
+    );
     return {
       mission: withStoredStatusProjection(mission),
       agentControl,
       currentPlan,
+      engineeringAgent,
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     };
@@ -1219,6 +1456,8 @@ async function buildMissionProjection(
     )),
     db.select({
       id: aiChangeProposalsTable.id,
+      status: aiChangeProposalsTable.status,
+      approvalRequired: aiChangeProposalsTable.approvalRequired,
       operationId: aiChangeProposalsTable.operationId,
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
@@ -1273,6 +1512,14 @@ async function buildMissionProjection(
     }
   }
   const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
+  const engineeringAgent = await buildEngineeringAgentProjection(
+    mission,
+    goals,
+    currentPlan,
+    currentExecutionByGoalId,
+    proposals,
+    validatedHandoffSessionId,
+  );
   const candidateByGoalId = new Map<string, {
     skillCandidate: {
       candidateId: string;
@@ -1359,6 +1606,7 @@ async function buildMissionProjection(
     mission: withStoredStatusProjection(mission),
     agentControl,
     currentPlan,
+    engineeringAgent,
     goals: goals.map((goal) => ({
       goal: withStoredStatusProjection({
         ...goal,

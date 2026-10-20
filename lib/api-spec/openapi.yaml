@@ -4659,7 +4659,7 @@ components:
           pattern: "^[a-z0-9][a-z0-9-]*$"
     AiMissionControlProjection:
       type: object
-      required: [mission, agentControl, currentPlan, goals, counts]
+      required: [mission, agentControl, currentPlan, goals, counts, engineeringAgent]
       properties:
         mission:
           type: object
@@ -4720,6 +4720,102 @@ components:
             workflows: { type: integer, minimum: 0 }
             executions: { type: integer, minimum: 0 }
             events: { type: integer, minimum: 0 }
+        engineeringAgent:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentProjection"
+    AiMissionEngineeringAgentProjection:
+      type: object
+      additionalProperties: false
+      required: [state, nextAction, intervention, autonomy, missionId, sessionId, goalId, executionId]
+      properties:
+        state:
+          type: string
+          enum: [PLANNING, WORKING, VERIFYING, AWAITING_APPROVAL, RECOVERING, DELIVERING, COMPLETE, NEEDS_ATTENTION]
+        nextAction:
+          type: object
+          additionalProperties: false
+          required: [kind, target, reasonCode]
+          properties:
+            kind:
+              type: string
+              enum: [AUTO_CONTINUE, RESUME, RETRY, APPROVE, REVIEW, STOP, NONE]
+            target:
+              anyOf:
+                - $ref: "#/components/schemas/AiMissionEngineeringAgentTarget"
+                - type: "null"
+            reasonCode:
+              $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
+        intervention:
+          type: object
+          additionalProperties: false
+          required: [required, kind, reasonCode]
+          properties:
+            required: { type: boolean }
+            kind:
+              type: string
+              enum: [none, approval, review, recovery, scope, delivery]
+            reasonCode:
+              anyOf:
+                - $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
+                - type: "null"
+        autonomy:
+          type: object
+          additionalProperties: false
+          required:
+            - mode
+            - allowAutoContinue
+            - allowAutoApply
+            - allowAutoCommit
+            - allowAutoPush
+            - requireHumanForExternalDelivery
+            - maxAutoReplans
+          properties:
+            mode:
+              type: string
+              enum: [assisted, autonomous]
+            allowAutoContinue: { type: boolean }
+            allowAutoApply: { type: boolean }
+            allowAutoCommit: { type: boolean }
+            allowAutoPush: { type: boolean }
+            requireHumanForExternalDelivery: { type: boolean }
+            maxAutoReplans: { type: integer, minimum: 0, maximum: 10 }
+        missionId: { type: string, minLength: 1, maxLength: 200 }
+        sessionId: { type: ["string", "null"], maxLength: 200 }
+        goalId: { type: ["string", "null"], maxLength: 200 }
+        executionId: { type: ["string", "null"], maxLength: 200 }
+    AiMissionEngineeringAgentTarget:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          type: string
+          enum: [mission, goal, execution, proposal]
+        id: { type: string, minLength: 1, maxLength: 200 }
+    AiMissionEngineeringAgentReasonCode:
+      type: string
+      enum:
+        - mission_draft
+        - mission_cancelled
+        - mission_blocked
+        - mission_not_active
+        - plan_revision_mismatch
+        - approval_pending
+        - required_evidence_incomplete
+        - required_evidence_unavailable
+        - required_evidence_stale
+        - acceptance_blocked
+        - verification_in_progress
+        - execution_in_progress
+        - execution_queued
+        - goal_waiting_for_event
+        - continuation_authorized
+        - execution_resumable
+        - execution_retryable
+        - delivery_review_required
+        - mission_proven_complete
+        - no_active_goal
+        - goal_requires_replan
+        - state_unresolved
     AiChatSessionMissionsResponse:
       type: object
       required: [sessionId, missions]

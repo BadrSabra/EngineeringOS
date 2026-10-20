@@ -1,6 +1,7 @@
 import type { AiExecutionProjection } from '@workspace/api-client-react';
+import type { EngineeringAgentProjection } from '@/lib/ai-missions';
 
-export type MissionStateKey =
+export type ExecutionPresentationKey =
   | 'UNDERSTANDING'
   | 'INVESTIGATING'
   | 'PLANNING'
@@ -15,8 +16,8 @@ export type MissionStateKey =
   | 'NEEDS_ATTENTION'
   | 'INCOMPLETE';
 
-export type MissionState = {
-  key: MissionStateKey;
+export type ExecutionPresentation = {
+  key: ExecutionPresentationKey;
   label: string;
   detail: string;
   /** The one server-authorized action that should be visually primary. */
@@ -25,7 +26,7 @@ export type MissionState = {
   primaryActionLabel: string;
 };
 
-export type MissionStateInput = {
+export type ExecutionPresentationInput = {
   projection: AiExecutionProjection;
   executionStatus?: string | null;
   flightState?: string | null;
@@ -43,11 +44,11 @@ function phaseMatches(phase: string, ...values: string[]): boolean {
 }
 
 function withPrimaryAction(
-  state: Omit<MissionState, 'primaryAction' | 'primaryActionLabel'>,
+  state: Omit<ExecutionPresentation, 'primaryAction' | 'primaryActionLabel'>,
   preferredActions: AiExecutionProjection['allowedActions'][number][],
   waitingLabel: string,
   allowedActions: AiExecutionProjection['allowedActions'],
-): MissionState {
+): ExecutionPresentation {
   const primaryAction = preferredActions.find((action) => allowedActions.includes(action)) ?? null;
   return {
     ...state,
@@ -79,7 +80,7 @@ function actionLabel(action: AiExecutionProjection['allowedActions'][number]): s
  * Reduces the server-owned execution signals to the one state an operator
  * needs first. The raw signals remain available in the technical details.
  */
-export function getMissionState(input: MissionStateInput): MissionState {
+export function getExecutionPresentation(input: ExecutionPresentationInput): ExecutionPresentation {
   const executionStatus = normalized(input.executionStatus);
   const flightState = normalized(input.flightState);
   const evidenceVerdict = normalized(input.evidenceVerdict ?? input.projection.verification?.evidenceVerdict);
@@ -245,4 +246,77 @@ export function getMissionState(input: MissionStateInput): MissionState {
     label: 'العمل جارٍ',
     detail: 'التنفيذ نشط بحسب السجل. تتحدث هذه الحالة عند تسجيل الخطوة التالية ضمن النطاق المسموح.',
   }, ['CANCEL'], 'متابعة العمل الجاري', allowedActions);
+}
+
+export type MissionState = {
+  key: EngineeringAgentProjection['state'];
+  label: string;
+  detail: string;
+  nextAction: EngineeringAgentProjection['nextAction']['kind'];
+  nextActionLabel: string;
+  reasonCode: string;
+  interventionRequired: boolean;
+  interventionLabel: string;
+};
+
+const missionStateLabels: Record<EngineeringAgentProjection['state'], string> = {
+  PLANNING: 'قيد التخطيط',
+  WORKING: 'العمل جارٍ',
+  VERIFYING: 'قيد التحقق',
+  AWAITING_APPROVAL: 'بانتظار موافقتك',
+  RECOVERING: 'يحتاج إلى استرداد',
+  DELIVERING: 'بانتظار مراجعة التسليم',
+  COMPLETE: 'اكتمل بإثبات مقبول',
+  NEEDS_ATTENTION: 'يحتاج مراجعتك',
+};
+
+const missionReasonDetails: Record<string, string> = {
+  mission_draft: 'الهدف الرئيسي مسودة ولم يبدأ Mission Runtime العمل عليه.',
+  mission_cancelled: 'أُلغيت المهمة؛ يجب ألا يستمر التنفيذ.',
+  mission_blocked: 'سجّل الخادم عائقًا أو حاجة إلى تعديل الخطة.',
+  mission_not_active: 'المهمة ليست في حالة تسمح بمتابعة التنفيذ.',
+  plan_revision_mismatch: 'الخطوة لا تطابق إصدار الخطة النشط؛ راجع الخطة قبل أي متابعة.',
+  approval_pending: 'تنتظر هذه الخطوة موافقتك. لن تُنفّذ الموافقة تلقائيًا.',
+  required_evidence_incomplete: 'النتيجة لم تستوفِ الأدلة المطلوبة، لذلك لا تُعد مقبولة.',
+  required_evidence_unavailable: 'تعذر التحقق من الأدلة الحالية؛ لا تُعد النتيجة مقبولة.',
+  required_evidence_stale: 'الأدلة المسجلة قديمة ولا تثبت النسخة الحالية من النتيجة.',
+  acceptance_blocked: 'لم يجتز القبول الحالي جميع فحوص الإثبات والارتباط المطلوبة.',
+  verification_in_progress: 'يفحص Mission Runtime النتيجة والأدلة المسجلة.',
+  execution_in_progress: 'ينفذ Mission Runtime الخطوة الحالية ضمن الخطة النشطة.',
+  execution_queued: 'الخطوة مسجلة في قائمة Mission Runtime، ولا يوجد إذن متابعة تلقائية.',
+  goal_waiting_for_event: 'تنتظر الخطوة حدثًا أو موعدًا مسجلًا قبل المتابعة.',
+  continuation_authorized: 'سمح Mission Runtime بالمتابعة لهذه الخطوة تحديدًا.',
+  execution_resumable: 'أكّد سجل القبول أن المحاولة الحالية قابلة للاستئناف.',
+  execution_retryable: 'أكّد سجل القبول أن المحاولة الحالية قابلة لإعادة المحاولة.',
+  delivery_review_required: 'يتطلب التسليم الخارجي مراجعة منفصلة؛ وضع الاستقلالية لا ينفذه وحده.',
+  mission_proven_complete: 'اكتمل الهدف بعد اجتياز بوابة القبول والإثبات الحالية.',
+  no_active_goal: 'لا توجد خطوة مرتبطة بإصدار الخطة النشط لتبرير حالة الاكتمال.',
+  goal_requires_replan: 'تحتاج الخطوة إلى مراجعة أو خطة جديدة قبل أي متابعة.',
+  state_unresolved: 'تعذر حسم الحالة بأمان من بيانات Mission الحالية.',
+};
+
+const missionActionLabels: Record<EngineeringAgentProjection['nextAction']['kind'], string> = {
+  AUTO_CONTINUE: 'المتابعة مسموحة عبر Mission Runtime',
+  RESUME: 'استئناف المحاولة المسجلة عبر Mission Runtime',
+  RETRY: 'إعادة المحاولة المسجلة عبر Mission Runtime',
+  APPROVE: 'راجع الموافقة المطلوبة في الخطوة',
+  REVIEW: 'راجع الخطة أو الإثبات المسجل',
+  STOP: 'أوقف متابعة هذا المسار',
+  NONE: 'لا يوجد إجراء مطلوب الآن',
+};
+
+export function getMissionState(projection: EngineeringAgentProjection): MissionState {
+  return {
+    key: projection.state,
+    label: missionStateLabels[projection.state],
+    detail: missionReasonDetails[projection.nextAction.reasonCode]
+      ?? 'تُعرض الحالة والقرار كما حددهما الخادم لهذا الإسقاط.',
+    nextAction: projection.nextAction.kind,
+    nextActionLabel: missionActionLabels[projection.nextAction.kind],
+    reasonCode: projection.nextAction.reasonCode,
+    interventionRequired: projection.intervention.required,
+    interventionLabel: projection.intervention.required
+      ? 'يتطلب تدخلًا بشريًا'
+      : 'لا يتطلب تدخلًا بشريًا الآن',
+  };
 }

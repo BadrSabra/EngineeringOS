@@ -5,6 +5,7 @@ import { Link } from 'wouter';
 import type { AiChatSessionMissionsResponse } from '@workspace/api-client-react';
 import { Button } from '@/components/ui/button';
 import { fetchMissionProjection, type MissionProjection } from '@/lib/ai-missions';
+import { MissionAgentProjectionSummary } from './MissionAgentProjectionSummary';
 
 type SessionMission = AiChatSessionMissionsResponse['missions'][number];
 
@@ -131,6 +132,13 @@ function MissionProjectionDetails({
 
           {projection && projectionMatchesMission && (
             <div className="space-y-3">
+              {projection.engineeringAgent?.missionId === projection.mission.id
+                && projection.engineeringAgent.sessionId === sessionId ? (
+                <MissionAgentProjectionSummary
+                  projection={projection.engineeringAgent}
+                  compact
+                />
+              ) : null}
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-muted-foreground">Current Mission status</span>
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${missionStatusClass(projection.mission.status)}`}>

@@ -1437,6 +1437,110 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it("projects a safe empty-Mission state without creating runtime records", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Empty plan",
+      intent: "Wait for an explicit start",
+    });
+    expect(createdMission.status).toBe(201);
+
+    const snapshot = async () => ({
+      missions: await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, projectId)),
+      goals: await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+        .where(eq(aiGoalsTable.projectId, projectId)),
+      tasks: await db.select({ id: tasksTable.id }).from(tasksTable)
+        .where(eq(tasksTable.projectId, projectId)),
+      executions: await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId)),
+      events: await db.select({ id: eventsTable.id }).from(eventsTable)
+        .where(eq(eventsTable.projectId, projectId)),
+    });
+    const before = await snapshot();
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.engineeringAgent).toMatchObject({
+      state: "PLANNING",
+      nextAction: {
+        kind: "NONE",
+        target: null,
+        reasonCode: "mission_draft",
+      },
+      intervention: { required: false, kind: "none", reasonCode: null },
+      autonomy: {
+        mode: "assisted",
+        allowAutoContinue: false,
+        allowAutoApply: false,
+        allowAutoCommit: false,
+        allowAutoPush: false,
+        requireHumanForExternalDelivery: true,
+        maxAutoReplans: 0,
+      },
+      missionId: createdMission.body.id,
+      sessionId: null,
+      goalId: null,
+      executionId: null,
+    });
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("does not return an Engineering Agent projection to a non-owner", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Private Mission",
+      intent: "Keep the projection owner-scoped",
+    });
+    expect(createdMission.status).toBe(201);
+    await db.update(projectsTable)
+      .set({ ownerId: "another-user" })
+      .where(eq(projectsTable.id, projectId));
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect([403, 404]).toContain(projection.status);
+    expect(projection.body.engineeringAgent).toBeUndefined();
+  });
+
+  it("projects a pending Goal approval as the Mission's primary intervention", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Approval gate",
+      intent: "Wait for explicit operator approval",
+    });
+    const createdGoal = await request(app)
+      .post(`/api/ai/missions/${createdMission.body.id}/goals`)
+      .send({ title: "Review proposed change" });
+    expect(createdGoal.status).toBe(201);
+    await db.update(aiMissionsTable)
+      .set({ status: "active" })
+      .where(eq(aiMissionsTable.id, createdMission.body.id));
+    await db.update(aiGoalsTable)
+      .set({
+        status: "waiting_for_approval",
+        nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+      })
+      .where(eq(aiGoalsTable.id, createdGoal.body.id));
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.engineeringAgent).toMatchObject({
+      state: "AWAITING_APPROVAL",
+      nextAction: {
+        kind: "APPROVE",
+        target: { kind: "goal", id: createdGoal.body.id },
+        reasonCode: "approval_pending",
+      },
+      intervention: { required: true, kind: "approval", reasonCode: "approval_pending" },
+    });
+  });
+
   it("projects only active-revision Goals and their highest latest execution attempt", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({

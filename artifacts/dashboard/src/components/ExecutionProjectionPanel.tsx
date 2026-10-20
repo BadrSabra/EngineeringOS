@@ -20,7 +20,7 @@ import {
 } from '@workspace/api-client-react';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { Link } from 'wouter';
-import { getMissionState } from './mission-state';
+import { getExecutionPresentation } from './mission-state';
 import { ResultDetailsSummary } from './ResultDetailsSummary';
 import type { ExecutionRecoveryView } from '@/lib/execution-recovery-view';
 
@@ -273,7 +273,7 @@ export function ExecutionProjectionPanel({
     (left, right) => actionOrder.indexOf(left) - actionOrder.indexOf(right),
   );
   const verdict = evidenceVerdict ?? projection.verification?.evidenceVerdict;
-  const missionState = getMissionState({
+  const missionState = getExecutionPresentation({
     projection,
     executionStatus,
     flightState,

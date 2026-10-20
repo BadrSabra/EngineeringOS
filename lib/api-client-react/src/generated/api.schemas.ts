@@ -196,12 +196,160 @@ export interface AiMissionAgentControl {
   handoff: AiMissionAgentControlHandoff;
 }
 
+export type AiMissionEngineeringAgentProjectionState = typeof AiMissionEngineeringAgentProjectionState[keyof typeof AiMissionEngineeringAgentProjectionState];
+
+
+export const AiMissionEngineeringAgentProjectionState = {
+  PLANNING: 'PLANNING',
+  WORKING: 'WORKING',
+  VERIFYING: 'VERIFYING',
+  AWAITING_APPROVAL: 'AWAITING_APPROVAL',
+  RECOVERING: 'RECOVERING',
+  DELIVERING: 'DELIVERING',
+  COMPLETE: 'COMPLETE',
+  NEEDS_ATTENTION: 'NEEDS_ATTENTION',
+} as const;
+
+export type AiMissionEngineeringAgentProjectionNextActionKind = typeof AiMissionEngineeringAgentProjectionNextActionKind[keyof typeof AiMissionEngineeringAgentProjectionNextActionKind];
+
+
+export const AiMissionEngineeringAgentProjectionNextActionKind = {
+  AUTO_CONTINUE: 'AUTO_CONTINUE',
+  RESUME: 'RESUME',
+  RETRY: 'RETRY',
+  APPROVE: 'APPROVE',
+  REVIEW: 'REVIEW',
+  STOP: 'STOP',
+  NONE: 'NONE',
+} as const;
+
+export type AiMissionEngineeringAgentTargetKind = typeof AiMissionEngineeringAgentTargetKind[keyof typeof AiMissionEngineeringAgentTargetKind];
+
+
+export const AiMissionEngineeringAgentTargetKind = {
+  mission: 'mission',
+  goal: 'goal',
+  execution: 'execution',
+  proposal: 'proposal',
+} as const;
+
+export interface AiMissionEngineeringAgentTarget {
+  kind: AiMissionEngineeringAgentTargetKind;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  id: string;
+}
+
+export type AiMissionEngineeringAgentReasonCode = typeof AiMissionEngineeringAgentReasonCode[keyof typeof AiMissionEngineeringAgentReasonCode];
+
+
+export const AiMissionEngineeringAgentReasonCode = {
+  mission_draft: 'mission_draft',
+  mission_cancelled: 'mission_cancelled',
+  mission_blocked: 'mission_blocked',
+  mission_not_active: 'mission_not_active',
+  plan_revision_mismatch: 'plan_revision_mismatch',
+  approval_pending: 'approval_pending',
+  required_evidence_incomplete: 'required_evidence_incomplete',
+  required_evidence_unavailable: 'required_evidence_unavailable',
+  required_evidence_stale: 'required_evidence_stale',
+  acceptance_blocked: 'acceptance_blocked',
+  verification_in_progress: 'verification_in_progress',
+  execution_in_progress: 'execution_in_progress',
+  execution_queued: 'execution_queued',
+  goal_waiting_for_event: 'goal_waiting_for_event',
+  continuation_authorized: 'continuation_authorized',
+  execution_resumable: 'execution_resumable',
+  execution_retryable: 'execution_retryable',
+  delivery_review_required: 'delivery_review_required',
+  mission_proven_complete: 'mission_proven_complete',
+  no_active_goal: 'no_active_goal',
+  goal_requires_replan: 'goal_requires_replan',
+  state_unresolved: 'state_unresolved',
+} as const;
+
+export type AiMissionEngineeringAgentProjectionInterventionKind = typeof AiMissionEngineeringAgentProjectionInterventionKind[keyof typeof AiMissionEngineeringAgentProjectionInterventionKind];
+
+
+export const AiMissionEngineeringAgentProjectionInterventionKind = {
+  none: 'none',
+  approval: 'approval',
+  review: 'review',
+  recovery: 'recovery',
+  scope: 'scope',
+  delivery: 'delivery',
+} as const;
+
+export type AiMissionEngineeringAgentProjectionAutonomyMode = typeof AiMissionEngineeringAgentProjectionAutonomyMode[keyof typeof AiMissionEngineeringAgentProjectionAutonomyMode];
+
+
+export const AiMissionEngineeringAgentProjectionAutonomyMode = {
+  assisted: 'assisted',
+  autonomous: 'autonomous',
+} as const;
+
+export type AiMissionEngineeringAgentProjectionNextAction = {
+  kind: AiMissionEngineeringAgentProjectionNextActionKind;
+  target: AiMissionEngineeringAgentTarget | null;
+  reasonCode: AiMissionEngineeringAgentReasonCode;
+};
+
+export type AiMissionEngineeringAgentProjectionIntervention = {
+  required: boolean;
+  kind: AiMissionEngineeringAgentProjectionInterventionKind;
+  reasonCode: AiMissionEngineeringAgentReasonCode | null;
+};
+
+export type AiMissionEngineeringAgentProjectionAutonomy = {
+  mode: AiMissionEngineeringAgentProjectionAutonomyMode;
+  allowAutoContinue: boolean;
+  allowAutoApply: boolean;
+  allowAutoCommit: boolean;
+  allowAutoPush: boolean;
+  requireHumanForExternalDelivery: boolean;
+  /**
+     * @minimum 0
+     * @maximum 10
+     */
+  maxAutoReplans: number;
+};
+
+export interface AiMissionEngineeringAgentProjection {
+  state: AiMissionEngineeringAgentProjectionState;
+  nextAction: AiMissionEngineeringAgentProjectionNextAction;
+  intervention: AiMissionEngineeringAgentProjectionIntervention;
+  autonomy: AiMissionEngineeringAgentProjectionAutonomy;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  missionId: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  sessionId: string | null;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  goalId: string | null;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  executionId: string | null;
+}
+
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
   agentControl: AiMissionAgentControl | null;
   currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
+  engineeringAgent: AiMissionEngineeringAgentProjection;
 }
 
 export type AiChatSessionMissionReferenceMissionStatus = typeof AiChatSessionMissionReferenceMissionStatus[keyof typeof AiChatSessionMissionReferenceMissionStatus];

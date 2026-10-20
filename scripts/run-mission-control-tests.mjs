@@ -134,6 +134,17 @@ async function main() {
       throw new Error(`Test run interrupted by ${shutdownSignal}.`);
     }
 
+    console.log("Running the owner-scoped Mission Agent projection route tests.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/routes/ai/missions.test.ts",
+      "-t",
+      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention",
+    ], {
+      env: databaseEnv,
+    });
+
     console.log("Running the five Mission Control route tests without live provider requests.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",

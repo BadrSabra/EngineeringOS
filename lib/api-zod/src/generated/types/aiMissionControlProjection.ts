@@ -10,6 +10,7 @@ import type { AiMissionControlProjectionCounts } from './aiMissionControlProject
 import type { AiMissionControlProjectionCurrentPlan } from './aiMissionControlProjectionCurrentPlan';
 import type { AiMissionControlProjectionGoalsItem } from './aiMissionControlProjectionGoalsItem';
 import type { AiMissionControlProjectionMission } from './aiMissionControlProjectionMission';
+import type { AiMissionEngineeringAgentProjection } from './aiMissionEngineeringAgentProjection';
 
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
@@ -17,4 +18,5 @@ export interface AiMissionControlProjection {
   currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
+  engineeringAgent: AiMissionEngineeringAgentProjection;
 }

@@ -1,6 +1,10 @@
 import type { AiExecutionProjection } from '@workspace/api-client-react';
+import type { EngineeringAgentProjection } from '@/lib/ai-missions';
 import { describe, expect, it } from 'vitest';
-import { getMissionState } from './mission-state';
+import {
+  getExecutionPresentation as getMissionState,
+  getMissionState as getServerMissionState,
+} from './mission-state';
 
 const baseProjection: AiExecutionProjection = {
   schemaVersion: 2,
@@ -18,7 +22,7 @@ const baseProjection: AiExecutionProjection = {
   allowedActions: [],
 };
 
-describe('getMissionState', () => {
+describe('getExecutionPresentation', () => {
   it('keeps state precedence and action authority independent of Arabic labels', () => {
     const actions: AiExecutionProjection['allowedActions'] = [
       'CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN',
@@ -185,5 +189,63 @@ describe('getMissionState', () => {
       flightState: 'BLOCKED',
       nextAction: 'NEEDS_REPLAN',
     })).toMatchObject({ key: 'NEEDS_REPLAN', label: 'يحتاج تعديل الخطة' });
+  });
+});
+
+const baseEngineeringAgentProjection: EngineeringAgentProjection = {
+  state: 'AWAITING_APPROVAL',
+  nextAction: {
+    kind: 'APPROVE',
+    target: { kind: 'goal', id: 'goal-1' },
+    reasonCode: 'approval_pending',
+  },
+  intervention: { required: true, kind: 'approval', reasonCode: 'approval_pending' },
+  autonomy: {
+    mode: 'assisted',
+    allowAutoContinue: false,
+    allowAutoApply: false,
+    allowAutoCommit: false,
+    allowAutoPush: false,
+    requireHumanForExternalDelivery: true,
+    maxAutoReplans: 0,
+  },
+  missionId: 'mission-1',
+  sessionId: 'session-1',
+  goalId: 'goal-1',
+  executionId: 'execution-1',
+};
+
+describe('server-owned Mission state presentation', () => {
+  it('renders the supplied Mission state and next action rather than inferring from execution signals', () => {
+    expect(getServerMissionState(baseEngineeringAgentProjection)).toMatchObject({
+      key: 'AWAITING_APPROVAL',
+      label: 'بانتظار موافقتك',
+      nextAction: 'APPROVE',
+      nextActionLabel: 'راجع الموافقة المطلوبة في الخطوة',
+      reasonCode: 'approval_pending',
+      interventionRequired: true,
+    });
+  });
+
+  it('keeps a proof-review decision as supplied by the server', () => {
+    expect(getServerMissionState({
+      ...baseEngineeringAgentProjection,
+      state: 'NEEDS_ATTENTION',
+      nextAction: {
+        kind: 'REVIEW',
+        target: { kind: 'execution', id: 'execution-1' },
+        reasonCode: 'required_evidence_incomplete',
+      },
+      intervention: {
+        required: true,
+        kind: 'review',
+        reasonCode: 'required_evidence_incomplete',
+      },
+    })).toMatchObject({
+      key: 'NEEDS_ATTENTION',
+      label: 'يحتاج مراجعتك',
+      nextAction: 'REVIEW',
+      reasonCode: 'required_evidence_incomplete',
+    });
   });
 });

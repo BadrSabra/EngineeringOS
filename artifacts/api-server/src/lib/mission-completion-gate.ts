@@ -252,6 +252,14 @@ export async function evaluateMissionCompletion(
       eq(aiGoalsTable.projectId, mission.projectId),
     ))
     .for("update");
+  return evaluateMissionCompletionForRows(tx, mission, goals);
+}
+
+async function evaluateMissionCompletionForRows(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goals: Array<typeof aiGoalsTable.$inferSelect>,
+): Promise<MissionCompletionEvaluation> {
   const active = selectActiveGoals(mission, goals);
   const revision = activePlanRevision(mission);
   if (active.length === 0) {
@@ -301,6 +309,31 @@ export async function evaluateMissionCompletion(
     missingGoalIds: [],
     proofs,
   };
+}
+
+/**
+ * Read-only counterpart for status projections. It shares the exact proof,
+ * delivery, active-plan, and dependency checks with the locked completion gate.
+ */
+export async function projectMissionCompletion(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goals: Array<typeof aiGoalsTable.$inferSelect>,
+): Promise<MissionCompletionEvaluation> {
+  return evaluateMissionCompletionForRows(tx, mission, goals);
+}
+
+/**
+ * Revalidates one Goal's canonical acceptance without locking or changing it.
+ * Mission completion still uses the full gate above, including dependencies.
+ */
+export async function projectMissionGoalProof(
+  tx: MissionTransaction,
+  mission: typeof aiMissionsTable.$inferSelect,
+  goal: typeof aiGoalsTable.$inferSelect,
+): Promise<(CanonicalProof & { goalId: string }) | null> {
+  const [proof] = await composeGoalProofs(tx, mission, [goal]);
+  return proof ?? null;
 }
 
 export async function evaluateGoalCompletion(

@@ -59,6 +59,7 @@ import {
 import MissionActionDialog, {
   type MissionActionConfirmation,
 } from '@/components/MissionActionDialog';
+import { MissionAgentProjectionSummary } from '@/components/MissionAgentProjectionSummary';
 import { ResultDetailsSummary } from '@/components/ResultDetailsSummary';
 
 function formatDate(value: string | null | undefined, includeTime = false) {
@@ -1819,6 +1820,13 @@ export default function Missions() {
                         <Metric label="Goals" value={projection?.counts.goals ?? '—'} />
                         <Metric label="Tasks" value={projection?.counts.tasks ?? '—'} />
                       </div>
+                      {projection?.mission.id === activeMission.id
+                        && projection.mission.projectId === activeMission.projectId
+                        && projection.engineeringAgent?.missionId === activeMission.id ? (
+                        <div className="mt-4" data-testid={`mission-agent-projection-${activeMission.id}`}>
+                          <MissionAgentProjectionSummary projection={projection.engineeringAgent} />
+                        </div>
+                      ) : null}
                     </div>
 
                     {acceptedFindingSource ? (

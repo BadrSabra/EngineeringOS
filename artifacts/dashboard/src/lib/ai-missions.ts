@@ -148,8 +148,44 @@ export interface SkillCandidateProjection {
   };
 }
 
+export interface EngineeringAgentProjection {
+  state:
+    | 'PLANNING'
+    | 'WORKING'
+    | 'VERIFYING'
+    | 'AWAITING_APPROVAL'
+    | 'RECOVERING'
+    | 'DELIVERING'
+    | 'COMPLETE'
+    | 'NEEDS_ATTENTION';
+  nextAction: {
+    kind: 'AUTO_CONTINUE' | 'RESUME' | 'RETRY' | 'APPROVE' | 'REVIEW' | 'STOP' | 'NONE';
+    target: { kind: 'mission' | 'goal' | 'execution' | 'proposal'; id: string } | null;
+    reasonCode: string;
+  };
+  intervention: {
+    required: boolean;
+    kind: 'none' | 'approval' | 'review' | 'recovery' | 'scope' | 'delivery';
+    reasonCode: string | null;
+  };
+  autonomy: {
+    mode: 'assisted' | 'autonomous';
+    allowAutoContinue: boolean;
+    allowAutoApply: boolean;
+    allowAutoCommit: boolean;
+    allowAutoPush: boolean;
+    requireHumanForExternalDelivery: boolean;
+    maxAutoReplans: number;
+  };
+  missionId: string;
+  sessionId: string | null;
+  goalId: string | null;
+  executionId: string | null;
+}
+
 export interface MissionProjection {
   mission: Mission;
+  engineeringAgent: EngineeringAgentProjection;
   agentControl: {
     handoff: {
       kind: 'chat';

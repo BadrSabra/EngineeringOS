@@ -8,3 +8,9 @@ For Engineering Agent continuity, treat Mission as the product-level Agent Run i
 **Why:** Existing Mission Runtime has durable scheduling and recovery, while Episode, execution, and canonical-proof records already participate in attempt- and revision-bound acceptance. A new scheduler or broad continue action could duplicate behavior or bypass approval and delivery gates.
 
 **How to apply:** Plan Agent Workspace and continuity changes as identity linkage, an aggregated Mission-level projection, and deterministic control decisions. Preserve per-Goal approval, apply, and committed-proposal delivery paths; treat new autonomy modes as a separate explicit scope.
+
+The Engineering Agent projection must keep external delivery human-gated regardless of a stored autonomous-mode policy. It may expose policy-authorized continuation only when the existing Mission Runtime independently authorizes the exact current Goal.
+
+**Why:** A Mission-level autonomy setting must not widen approval or delivery authority beyond the existing scoped contracts.
+
+**How to apply:** In read-only projection and UI mapping, keep automatic push disabled and report that external delivery requires a human. Treat `AUTO_CONTINUE` as an advisory server decision only; never execute it from the projection.
