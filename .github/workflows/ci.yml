@@ -13,10 +13,10 @@ on:
         type: environment
 
 # PR-5: A dedicated fast-path job runs codegen:check + typecheck whenever the
-# OpenAPI contract or one of its focused dashboard consumers changes. It
-# completes in ~60 s and catches drift before the full test suite (which takes
-# several minutes) even starts. The full job always runs in parallel so neither
-# blocks the other.
+# OpenAPI contract or an explicitly selected production Dashboard API consumer
+# changes. It completes in ~60 s and catches drift before the full test suite
+# (which takes several minutes) even starts. The full job always runs in
+# parallel so neither blocks the other.
 jobs:
   contract-trigger:
     name: Detect contract changes
@@ -58,6 +58,21 @@ jobs:
               - 'artifacts/dashboard/src/pages/Rules.tsx'
               - 'artifacts/dashboard/src/pages/Tasks.tsx'
               - 'artifacts/dashboard/src/pages/Workflows.tsx'
+              - 'artifacts/dashboard/src/components/BrowserValidationProfilesPanel.tsx'
+              - 'artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx'
+              - 'artifacts/dashboard/src/components/DashboardWorkSummary.tsx'
+              - 'artifacts/dashboard/src/components/EvidenceGraphPanel.tsx'
+              - 'artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx'
+              - 'artifacts/dashboard/src/components/ProjectAiBudgetPanel.tsx'
+              - 'artifacts/dashboard/src/components/ProjectPluginsPanel.tsx'
+              - 'artifacts/dashboard/src/components/RuleDetailActions.tsx'
+              - 'artifacts/dashboard/src/components/WorldTransitionTimeline.tsx'
+              - 'artifacts/dashboard/src/components/mission-state.ts'
+              - 'artifacts/dashboard/src/components/result-details.ts'
+              - 'artifacts/dashboard/src/lib/execution-recovery-view.ts'
+              - 'artifacts/dashboard/src/pages/GeneralChat.tsx'
+              - 'artifacts/dashboard/src/pages/Missions.tsx'
+              - 'artifacts/dashboard/src/pages/SkillRegistry.tsx'
 
   contract-drift:
     name: OpenAPI contract drift guard

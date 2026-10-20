@@ -24,6 +24,21 @@
     "artifacts/dashboard/src/pages/Projects.tsx": "trigger",
     "artifacts/dashboard/src/pages/Rules.tsx": "trigger",
     "artifacts/dashboard/src/pages/Tasks.tsx": "trigger",
-    "artifacts/dashboard/src/pages/Workflows.tsx": "trigger"
+    "artifacts/dashboard/src/pages/Workflows.tsx": "trigger",
+    "artifacts/dashboard/src/components/BrowserValidationProfilesPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx": "trigger",
+    "artifacts/dashboard/src/components/DashboardWorkSummary.tsx": "trigger",
+    "artifacts/dashboard/src/components/EvidenceGraphPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/ProjectAiBudgetPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/ProjectPluginsPanel.tsx": "trigger",
+    "artifacts/dashboard/src/components/RuleDetailActions.tsx": "trigger",
+    "artifacts/dashboard/src/components/WorldTransitionTimeline.tsx": "trigger",
+    "artifacts/dashboard/src/components/mission-state.ts": "trigger",
+    "artifacts/dashboard/src/components/result-details.ts": "trigger",
+    "artifacts/dashboard/src/lib/execution-recovery-view.ts": "trigger",
+    "artifacts/dashboard/src/pages/GeneralChat.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Missions.tsx": "trigger",
+    "artifacts/dashboard/src/pages/SkillRegistry.tsx": "trigger"
   }
 }
