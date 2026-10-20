@@ -79,6 +79,7 @@ test("contract fast path covers representative source changes", async () => {
     [["artifacts/dashboard/src/pages/Projects.tsx"], true],
     [["artifacts/dashboard/src/components/ChatSessionMissionHandoffs.tsx"], true],
     [["artifacts/dashboard/src/components/ExecutionProjectionPanel.tsx"], true],
+    [["artifacts/dashboard/src/lib/ai-missions.ts"], true],
     [["artifacts/dashboard/src/components/mission-state.ts"], true],
     [["artifacts/dashboard/src/pages/GeneralChat.tsx"], true],
     [["artifacts/dashboard/src/pages/Missions.tsx"], true],
@@ -99,6 +100,15 @@ test("contract fast path covers representative source changes", async () => {
 
 test("contract job evaluates the real changed-path filter output", async () => {
   const condition = await readContractJobCondition();
+  const workflow = await readFile(workflowPath, "utf8");
+  const triggerJobStart = workflow.indexOf("  contract-trigger:\n");
+  const driftJobStart = workflow.indexOf("\n  contract-drift:", triggerJobStart);
+  assert.notEqual(triggerJobStart, -1, "Workflow must define the contract-trigger job.");
+  assert.notEqual(driftJobStart, -1, "Contract-trigger job boundary is malformed.");
+  const contractTriggerJob = workflow.slice(triggerJobStart, driftJobStart);
+  const validateJobStart = workflow.indexOf("\n  validate:", driftJobStart);
+  assert.notEqual(validateJobStart, -1, "Contract-drift job boundary is malformed.");
+  const contractDriftJob = workflow.slice(driftJobStart, validateJobStart);
 
   assert.match(
     condition,
@@ -109,6 +119,26 @@ test("contract job evaluates the real changed-path filter output", async () => {
     condition,
     /github\.event\.pull_request\.changed_files/,
     "Contract-drift must not treat changed_files (a numeric count) as paths.",
+  );
+  assert.doesNotMatch(
+    contractTriggerJob,
+    /^\s{4}if:/m,
+    "The policy guard job must run regardless of changed-path matches.",
+  );
+  assert.match(
+    contractTriggerJob,
+    /uses: actions\/setup-node@v4[\s\S]*?node-version: 20/,
+    "The unconditional policy guard job must set up Node.js.",
+  );
+  assert.match(
+    contractTriggerJob,
+    /run: node --test scripts\/dashboard-contract-trigger\.test\.mjs/,
+    "The policy regression test must run in the unconditional trigger job.",
+  );
+  assert.doesNotMatch(
+    contractDriftJob,
+    /dashboard-contract-trigger/,
+    "The conditional contract-drift job must not duplicate the policy guard.",
   );
 });
 

@@ -19,7 +19,7 @@ on:
 # parallel so neither blocks the other.
 jobs:
   contract-trigger:
-    name: Detect contract changes
+    name: Detect contract changes and verify policy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,6 +28,10 @@ jobs:
       should_run: ${{ steps.filter.outputs.contract }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Check changed paths
         id: filter
@@ -70,9 +74,13 @@ jobs:
               - 'artifacts/dashboard/src/components/mission-state.ts'
               - 'artifacts/dashboard/src/components/result-details.ts'
               - 'artifacts/dashboard/src/lib/execution-recovery-view.ts'
+              - 'artifacts/dashboard/src/lib/ai-missions.ts'
               - 'artifacts/dashboard/src/pages/GeneralChat.tsx'
               - 'artifacts/dashboard/src/pages/Missions.tsx'
               - 'artifacts/dashboard/src/pages/SkillRegistry.tsx'
+
+      - name: Verify Dashboard contract trigger policy
+        run: node --test scripts/dashboard-contract-trigger.test.mjs
 
   contract-drift:
     name: OpenAPI contract drift guard
@@ -122,9 +130,6 @@ jobs:
       # fast path so stale dashboard-facing API types fail with the spec job.
       - name: Validate API client and dashboard contract
         run: pnpm run validate:dashboard-client-contract
-
-      - name: Verify dashboard contract trigger policy
-        run: pnpm run test:dashboard-contract-trigger
 
   validate:
     name: Validate (codegen drift + typecheck + tests)

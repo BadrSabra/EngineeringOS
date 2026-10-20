@@ -37,6 +37,7 @@
     "artifacts/dashboard/src/components/mission-state.ts": "trigger",
     "artifacts/dashboard/src/components/result-details.ts": "trigger",
     "artifacts/dashboard/src/lib/execution-recovery-view.ts": "trigger",
+    "artifacts/dashboard/src/lib/ai-missions.ts": "trigger",
     "artifacts/dashboard/src/pages/GeneralChat.tsx": "trigger",
     "artifacts/dashboard/src/pages/Missions.tsx": "trigger",
     "artifacts/dashboard/src/pages/SkillRegistry.tsx": "trigger"
