@@ -174,11 +174,18 @@ export async function validateAiProvidersAtStartup(
 ): Promise<ProviderValidationResult[]> {
   const results: ProviderValidationResult[] = [];
   const providerEgressDisabled = isProviderEgressDisabled();
-  const controlledGroqFixtureOnly =
-    providerEgressDisabled &&
+  const localMissionProviderFixture =
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
+    process.env.DASHBOARD_E2E_TEST_MODE === "fixture" &&
+    process.env.MISSION_E2E_PROVIDER_FIXTURE === "1" &&
+    process.env.NODE_ENV !== "production";
+  // The local Mission fixture keeps its provider fetch shim reachable, so the
+  // in-memory Groq catalog campaign must not depend only on global egress being disabled.
+  const controlledGroqFixtureEnabled =
+    (providerEgressDisabled || localMissionProviderFixture) &&
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
     process.env.GROQ_CATALOG_FIXTURE_MODE !== undefined;
-  const providersToValidate = controlledGroqFixtureOnly
+  const providersToValidate = controlledGroqFixtureEnabled
     ? [...new Set([...PROVIDER_PRIORITY, "groq" as const])]
     : PROVIDER_PRIORITY;
 
@@ -186,7 +193,7 @@ export async function validateAiProvidersAtStartup(
     for (const provider of PROVIDER_PRIORITY) {
       // The Groq release campaign uses controlledGroqCatalogResult below,
       // which is in-memory fixture data; every other provider stays skipped.
-      if (controlledGroqFixtureOnly && provider === "groq") continue;
+      if (controlledGroqFixtureEnabled && provider === "groq") continue;
       results.push({
         provider,
         valid: false,
@@ -198,13 +205,13 @@ export async function validateAiProvidersAtStartup(
     console.info(
       JSON.stringify({
         scope: "startup-validator",
-        status: controlledGroqFixtureOnly ? "fixture" : "skipped",
-        reason: controlledGroqFixtureOnly
+        status: controlledGroqFixtureEnabled ? "fixture" : "skipped",
+        reason: controlledGroqFixtureEnabled
           ? "provider egress disabled; only the controlled Groq catalog fixture will run"
           : "provider egress disabled for deterministic fixture validation",
       }),
     );
-    if (!controlledGroqFixtureOnly) return results;
+    if (!controlledGroqFixtureEnabled) return results;
   }
 
   // Track whether any provider is usable at all.
@@ -217,7 +224,7 @@ export async function validateAiProvidersAtStartup(
     const keyEnv = PROVIDER_KEY_ENV[providerId];
     const keyValue =
       process.env[keyEnv] ??
-      (providerId === "groq" && controlledGroqFixtureOnly
+      (providerId === "groq" && controlledGroqFixtureEnabled
         ? "controlled-release-fixture-key"
         : undefined);
 

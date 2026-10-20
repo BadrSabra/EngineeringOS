@@ -113,6 +113,7 @@
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
 - [Mission management browser proof](missions-management-browser-proof.md) — fixture plan confirmation and verify base-aware return to original Chat plus durable selection after reload.
+- [Mission Projection polling](mission-projection-polling.md) — the 3-second refresh while a Mission is active is intentional; preserve it unless the product contract changes.
 - [Mission approval adapter](mission-approval-adapter.md) — preserve Mission-first locking; compare the locked Proposal identity and pin it to the Apply Mission plan.
 - [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
 - [Recovery test isolation](recovery-test-isolation.md) — drain tracked observation work between nested lifecycle handoff phases and before dependency-ordered cleanup.

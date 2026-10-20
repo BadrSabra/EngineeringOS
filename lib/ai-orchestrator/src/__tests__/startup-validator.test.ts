@@ -10,6 +10,7 @@ const egressEnvironments = [
   "AI_PROVIDER_EGRESS_DISABLED",
   "RUN_CONTROLLED_RELEASE_VALIDATION",
   "DASHBOARD_E2E_TEST_MODE",
+  "MISSION_E2E_PROVIDER_FIXTURE",
   "NODE_ENV",
 ] as const;
 const fixtureEnvironments = [
@@ -41,6 +42,7 @@ describe("validateAiProvidersAtStartup", () => {
     for (const name of [...providerEnvironments, ...fixtureEnvironments]) {
       delete process.env[name];
     }
+    delete process.env.MISSION_E2E_PROVIDER_FIXTURE;
   });
 
   afterEach(() => {
@@ -65,6 +67,13 @@ describe("validateAiProvidersAtStartup", () => {
     delete process.env.RUN_CONTROLLED_RELEASE_VALIDATION;
     delete process.env.AI_PROVIDER_EGRESS_DISABLED;
     delete process.env.DASHBOARD_E2E_TEST_MODE;
+    const missionProviderFixture =
+      originalEnvironment.MISSION_E2E_PROVIDER_FIXTURE;
+    if (missionProviderFixture === undefined) {
+      delete process.env.MISSION_E2E_PROVIDER_FIXTURE;
+    } else {
+      process.env.MISSION_E2E_PROVIDER_FIXTURE = missionProviderFixture;
+    }
     const nodeEnv = originalEnvironment.NODE_ENV;
     if (nodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = nodeEnv;
@@ -183,6 +192,46 @@ describe("validateAiProvidersAtStartup", () => {
     expect(callbacks.onGroqModelCatalogDrift).not.toHaveBeenCalled();
     expect(callbacks.onGroqModelCatalogHealthy).not.toHaveBeenCalled();
     expect(callbacks.onGroqModelCatalogNotConfigured).not.toHaveBeenCalled();
+    expect(groqList).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("runs the in-memory Groq catalog fixture with the local Mission provider fixture", async () => {
+    delete process.env.AI_PROVIDER_EGRESS_DISABLED;
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.DASHBOARD_E2E_TEST_MODE = "fixture";
+    process.env.MISSION_E2E_PROVIDER_FIXTURE = "1";
+    process.env.NODE_ENV = "development";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "timeout";
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const groqList = vi.fn().mockRejectedValue(new Error("network path must not run"));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = { list: groqList };
+      },
+    }));
+    const callbacks = {
+      onGroqModelCatalogDrift: vi.fn(),
+      onGroqModelCatalogUnavailable: vi.fn(),
+      onGroqModelCatalogHealthy: vi.fn(),
+      onGroqModelCatalogNotConfigured: vi.fn(),
+    };
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup(callbacks);
+
+    expect(process.env.AI_PROVIDER_EGRESS_DISABLED).toBeUndefined();
+    expect(results.find((result) => result.provider === "groq")).toMatchObject({
+      provider: "groq",
+      valid: true,
+      modelCheck: "unavailable",
+    });
+    expect(callbacks.onGroqModelCatalogUnavailable).toHaveBeenCalledTimes(1);
+    expect(callbacks.onGroqModelCatalogNotConfigured).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogDrift).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogHealthy).not.toHaveBeenCalled();
     expect(groqList).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });

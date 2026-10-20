@@ -890,6 +890,9 @@ async function installApiFixtures(
           attempt: 2,
           evidenceVerdict: "PROVEN",
           evidenceReason: "The server-owned source evidence is complete.",
+          operationEvidence: {
+            proof: { verdict: "PROVEN", accepted: true },
+          },
           proofRequired: true,
           resumable: false,
           acceptance: acceptanceSnapshots.accepted,
@@ -2677,6 +2680,9 @@ function installIncompleteProjectQueryFixture() {
     resumable: false,
     evidenceVerdict: "PARTIAL",
     evidenceReason: "A complete source read was retained, but the required objective claim was not accepted.",
+    operationEvidence: {
+      proof: { verdict: "PARTIAL", accepted: false },
+    },
     acceptance,
     acceptanceDisposition,
     terminalProjection,
@@ -5422,7 +5428,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         recipeReceipt: { recipeId: "runtime.start" },
         worldTransitions: [transition],
         acceptance,
-        operationEvidence: { proof: { verdict: "PROVEN" } },
+        operationEvidence: { proof: { verdict: "PROVEN", accepted: true } },
       },
     };
 
@@ -5441,7 +5447,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(timeline).toContainText("e2e-runtime-start-observation-before");
     await expect(timeline).toContainText("e2e-runtime-start-observation-after");
     await expect(timeline).toContainText("e2e-runtime-start-effect");
-    await expect(timeline).toContainText("PROVEN");
+    await expect(timeline).toContainText(
+      "Server acceptance and Canonical Proof are both PROVEN.",
+    );
     await expect(timeline).toContainText("Status: pending");
     await expect(timeline).not.toContainText("e2e-world-after");
 
@@ -5464,7 +5472,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-observation-before");
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-observation-after");
     await expect(timelineAfterReload).toContainText("e2e-runtime-start-effect");
-    await expect(timelineAfterReload).toContainText("PROVEN");
+    await expect(timelineAfterReload).toContainText(
+      "Server acceptance and Canonical Proof are both PROVEN.",
+    );
     await expect(timelineAfterReload).toContainText("Status: materialized");
     await expect(timelineAfterReload).toContainText("e2e-world-after");
   });
@@ -6411,7 +6421,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(page.getByTestId(`card-goal-${provenGoalId}`)).toBeVisible();
       await expect(
         page.getByTestId(`goal-acceptance-verdict-${provenGoalId}`),
-      ).toContainText("تم إثبات النتيجة");
+      ).toContainText("الإثبات المسجل: PROVEN (غير معاد التحقق)");
+      await expect(
+        page.getByTestId(`goal-acceptance-notice-${provenGoalId}`),
+      ).toContainText("لم يُعَد فحص Canonical Proof الحالي في هذا العرض.");
       browserErrors.assertClean();
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
@@ -7465,7 +7478,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .click();
     await expect.poll(() => actionRequests.length).toBe(1);
     expect(actionRequests[0]).toBe(`execute:${readyTaskId}`);
-    await expect(readyRow).toContainText("running");
+    await expect(readyRow).toContainText("قيد التنفيذ");
     await expect(
       page.getByLabel(
         "بدء تنفيذ المهمة: Execute SQL input sanitization remediation",
@@ -7503,7 +7516,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .click();
     await expect.poll(() => actionRequests.length).toBe(2);
     expect(actionRequests[1]).toBe(`retry:${reviewTaskId}`);
-    await expect(reviewRow).toContainText("queued");
+    await expect(reviewRow).toContainText("في قائمة الانتظار");
     await expect(
       page.getByLabel(
         "إعادة محاولة المهمة: Review incomplete SQL remediation evidence",
@@ -7556,7 +7569,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       passed: false,
     });
     await expect(verificationChecks).toContainText("السجل غير مكتمل");
-    await expect(verificationRow).toContainText("verifying");
+    await expect(verificationRow).toContainText("قيد التحقق");
 
     await firstEvidence.fill("The focused regression test passes after the fix.");
     await passButtons.nth(0).click();
@@ -7580,7 +7593,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       passed: true,
       evidence: "All user-controlled query values use the parameterized helper.",
     });
-    await expect(verificationRow).toContainText("completed");
+    await expect(verificationRow).toContainText("انتهت بحسب السجل");
     await verificationDetails.getByRole("button", { name: "التفاصيل" }).click();
     await expect(verificationPlan).toContainText("تم التحقق");
     await verificationDetails.getByRole("button", { name: "السجل" }).click();
@@ -7593,7 +7606,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedVerificationRow = page.getByRole("button", {
       name: /^(?:عرض تفاصيل المهمة|طي تفاصيل المهمة): Verify parameterized SQL remediation$/,
     });
-    await expect(reloadedVerificationRow).toContainText("completed");
+    await expect(reloadedVerificationRow).toContainText("انتهت بحسب السجل");
     await reloadedVerificationRow.click();
     const reloadedDetails = page.locator(
       `#task-details-${verificationTaskId}`,
@@ -9289,6 +9302,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           proofRequired: true,
           resumable: false,
           evidenceVerdict: "PARTIAL",
+          operationEvidence: {
+            proof: { verdict: "PARTIAL", accepted: false },
+          },
           objective: expect.objectContaining({
             requiredEvidencePaths: fixture.targetPaths,
           }),

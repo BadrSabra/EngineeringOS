@@ -33,6 +33,22 @@ persistence without provider egress.
 **How to apply:** Keep this exception behind the controlled-release fixture
 guards, and test it with the normal runtime provider priority and no Groq key.
 
+The local dashboard Mission provider fixture is distinct from the global
+egress-disabled path. When controlled release, dashboard fixture mode, the local
+Mission provider fixture, non-production mode, and a Groq catalog fixture are all
+active, startup validation may include the in-memory Groq catalog fixture even
+though global provider egress remains enabled. Keep this Groq check in-memory;
+do not require a Groq credential or alter application provider routing.
+
+**Why:** The Mission browser fixture keeps its own provider shim reachable, so
+global egress cannot be disabled just to trigger the separate Groq catalog
+campaign. Without a fixture-specific guard, the Groq operator-alert journey is
+skipped when no Groq key is configured.
+
+**How to apply:** Keep the exception behind all local Mission and controlled
+release guards. Test that the Groq SDK and network fetch are not called, while
+preserving the independent provider-egress-disabled case and runtime priority.
+
 Ordinary provider routing and direct completion remain deterministic unless
 `AI_LIFECYCLE_LIVE_CHECKS=1` or `RUN_CONTROLLED_RELEASE_VALIDATION=1` is set;
 the lifecycle service still records confirmed runtime outcomes.
