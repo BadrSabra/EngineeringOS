@@ -45,6 +45,7 @@ import {
   runRecipeOperation,
 } from "./recipe-operation-runner.js";
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
+import { createControlledLocalBareGitHubRequest } from "./local-bare-github-adapter.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import {
@@ -1938,7 +1939,8 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
               branch: project.gitDefaultBranch ?? "main",
               message,
               signal,
-               beforeStateObserver,
+              beforeStateObserver,
+              request: await createControlledLocalBareGitHubRequest(project.gitRemoteUrl!),
             }),
           }
         : {}),

@@ -9,13 +9,18 @@ import {
 } from "node:path";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
+  aiChangeProposalsTable,
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionHandoffsTable,
   aiMissionsTable,
   projectsTable,
+  eventsTable,
   taskLogsTable,
   tasksTable,
   db,
@@ -99,7 +104,13 @@ import {
   buildMissionRepairEffectContract,
   buildMissionRepairToolAction,
 } from "./agent-state/mission-repair-effect.js";
-import { hashDeliveryTree } from "./delivery-workspace.js";
+import {
+  createDeliveryWorkspace,
+  DELIVERY_TREE_DIGEST_VERSION,
+  discardDeliveryWorkspace,
+  hashChangeSet,
+  hashDeliveryTree,
+} from "./delivery-workspace.js";
 import {
   buildMissionReadScopeHash,
   isMissionReadScopeToolName,
@@ -1015,10 +1026,280 @@ type MissionToolLoopExecution = {
     candidateIdentity: string;
     effectRequired: boolean;
     effectBundleId?: string;
+    candidateProposalDraft?: MissionRepairCandidateProposalDraft;
+    candidateProposal?: { proposalId: string; sessionId: string; operationId: string };
     refs: string[];
     stateProjection: MissionStateProjection;
   };
 };
+
+type MissionRepairCandidateProposalDraft = {
+  changes: PendingChange[];
+  rootPath: string;
+  sourceRevision: string;
+  candidateIdentity: string;
+  baseTreeHash: string;
+  candidateTreeHash: string;
+  validationProfile: ValidationProfile;
+  targetPaths: string[];
+};
+
+async function persistMissionRepairCandidateProposal(params: {
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect;
+  executionId: string;
+  attempt: number;
+  rootPath: string;
+  draft: MissionRepairCandidateProposalDraft;
+}): Promise<{ proposalId: string; sessionId: string; operationId: string }> {
+  const operationId = `mission-repair-${createHash("sha256")
+    .update(`${params.executionId}:${params.attempt}`)
+    .digest("hex")
+    .slice(0, 48)}`;
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      sessionId: aiExecutionsTable.sessionId,
+      proposalId: aiExecutionsTable.proposalId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.projectId, params.task.projectId),
+      eq(aiExecutionsTable.attempt, params.attempt),
+    ))
+    .limit(1);
+  if (!execution) throw new Error("mission_candidate_execution_missing");
+  if (execution.proposalId) {
+    const [existing] = await db
+      .select({
+        id: aiChangeProposalsTable.id,
+        sessionId: aiChangeProposalsTable.sessionId,
+        operationId: aiChangeProposalsTable.operationId,
+        candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+        changeSetHash: aiChangeProposalsTable.changeSetHash,
+      })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, execution.proposalId),
+        eq(aiChangeProposalsTable.projectId, params.task.projectId),
+      ))
+      .limit(1);
+    if (
+      existing
+      && existing.operationId === operationId
+      && existing.candidateTreeHash === params.draft.candidateTreeHash
+      && existing.changeSetHash === hashChangeSet(params.draft.changes)
+    ) {
+      return {
+        proposalId: existing.id,
+        sessionId: existing.sessionId,
+        operationId,
+      };
+    }
+    throw new Error("mission_candidate_proposal_identity_conflict");
+  }
+
+  let deliveryWorkspace: Awaited<ReturnType<typeof createDeliveryWorkspace>> | undefined;
+  try {
+    if (await missionWorkspaceRevision(params.rootPath) !== params.draft.sourceRevision) {
+      throw new Error("mission_candidate_source_revision_changed");
+    }
+    deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath: params.rootPath,
+      operationId,
+      baseRevision: params.draft.sourceRevision,
+      changes: params.draft.changes,
+    });
+    if (
+      deliveryWorkspace.baseTreeHash !== params.draft.baseTreeHash
+      || deliveryWorkspace.candidateTreeHash !== params.draft.candidateTreeHash
+      || deliveryWorkspace.changeSetHash !== hashChangeSet(params.draft.changes)
+    ) {
+      throw new Error("mission_candidate_delivery_workspace_identity_mismatch");
+    }
+
+    const validation = await runRepairValidation(
+      deliveryWorkspace.workspaceRoot,
+      params.draft.validationProfile,
+      params.draft.targetPaths,
+      undefined,
+      [],
+      {
+        operationId: params.executionId,
+        projectRevision: params.draft.sourceRevision,
+        candidateHash: deliveryWorkspace.candidateTreeHash,
+        environmentProfile: serverEnvironmentProfile("TASK_EXECUTION", {
+          kind: "mission-task",
+          taskId: params.task.id,
+          missionId: params.goal.missionId,
+          goalId: params.goal.id,
+        }),
+      },
+    );
+    if (
+      validation.status !== "passed"
+      || !validation.evidence.evidenceId
+      || !validation.evidence.artifactRef
+      || validation.evidence.validatorProfile !== params.draft.validationProfile
+      || await hashDeliveryTree(deliveryWorkspace.workspaceRoot) !== deliveryWorkspace.candidateTreeHash
+      || await hashDeliveryTree(params.rootPath) !== deliveryWorkspace.baseTreeHash
+    ) {
+      throw new Error("mission_candidate_delivery_validation_not_proven");
+    }
+
+    const [handoff] = await db
+      .select({ sessionId: aiMissionHandoffsTable.sessionId })
+      .from(aiMissionHandoffsTable)
+      .where(and(
+        eq(aiMissionHandoffsTable.missionId, params.goal.missionId),
+        eq(aiMissionHandoffsTable.projectId, params.task.projectId),
+      ))
+      .limit(1);
+    const proposedSessionId = execution.sessionId ?? handoff?.sessionId ?? null;
+    const now = new Date();
+    const proposalId = randomUUID();
+    const validationEvidence = JSON.stringify([{
+      status: "passed",
+      validatorId: "registered-validation.v1",
+      evidenceId: validation.evidence.evidenceId,
+      artifactRef: validation.evidence.artifactRef,
+      validatorProfile: params.draft.validationProfile,
+      projectId: params.task.projectId,
+      executionId: params.executionId,
+      attempt: params.attempt,
+      operationId: params.executionId,
+      sourceRevision: params.draft.sourceRevision,
+      candidateIdentity: params.draft.candidateIdentity,
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      candidateTreeHash: deliveryWorkspace.candidateTreeHash,
+      changeSetHash: deliveryWorkspace.changeSetHash,
+      environmentRevision: validation.evidence.environmentRevision ?? null,
+      missionId: params.goal.missionId,
+      goalId: params.goal.id,
+    }]);
+
+    const created = await db.transaction(async (tx) => {
+      const [lockedExecution] = await tx
+        .select()
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.projectId, params.task.projectId),
+          eq(aiExecutionsTable.attempt, params.attempt),
+        ))
+        .for("update")
+        .limit(1);
+      if (!lockedExecution || lockedExecution.proposalId) {
+        throw new Error("mission_candidate_execution_changed");
+      }
+      let sessionId = proposedSessionId;
+      if (sessionId) {
+        const [session] = await tx
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(and(
+            eq(aiChatSessionsTable.id, sessionId),
+            eq(aiChatSessionsTable.projectId, params.task.projectId),
+          ))
+          .limit(1);
+        if (!session) sessionId = null;
+      }
+      if (!sessionId) {
+        sessionId = randomUUID();
+        await tx.insert(aiChatSessionsTable).values({
+          id: sessionId,
+          projectId: params.task.projectId,
+          title: `${params.goal.title} — مراجعة المرشح`.slice(0, 200),
+          activeMissionId: params.goal.missionId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await tx
+          .update(aiChatSessionsTable)
+          .set({ updatedAt: now })
+          .where(eq(aiChatSessionsTable.id, sessionId));
+      }
+      const messageId = randomUUID();
+      await tx.insert(aiChatMessagesTable).values({
+        id: messageId,
+        sessionId,
+        role: "assistant",
+        content: `تم إنشاء مرشح للتغييرات والتحقق منه على النسخة المعزولة. لم تُطبّق التغييرات؛ راجع المقترح ووافق عليه قبل إنشاء هدف التطبيق.`,
+        sources: JSON.stringify(params.draft.changes.map((change) => change.path)),
+        toolTrace: JSON.stringify([{
+          kind: "mission_candidate_ready",
+          missionId: params.goal.missionId,
+          goalId: params.goal.id,
+          executionId: params.executionId,
+          candidateIdentity: params.draft.candidateIdentity,
+          candidateTreeHash: deliveryWorkspace!.candidateTreeHash,
+        }]),
+        turnIntent: "DELIVERY",
+        executionId: params.executionId,
+        createdAt: now,
+      });
+      await tx.insert(aiChangeProposalsTable).values({
+        id: proposalId,
+        projectId: params.task.projectId,
+        sessionId,
+        messageId,
+        changes: JSON.stringify(params.draft.changes),
+        status: "pending",
+        revision: 0,
+        approvalRequired: true,
+        operationId,
+        workspaceRoot: deliveryWorkspace!.workspaceRoot,
+        baseRevision: deliveryWorkspace!.baseRevision,
+        baseTreeHash: deliveryWorkspace!.baseTreeHash,
+        candidateTreeHash: deliveryWorkspace!.candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        changeSetHash: deliveryWorkspace!.changeSetHash,
+        lifecycle: "validated",
+        validationEvidence,
+        createdAt: now,
+      });
+      const [updatedExecution] = await tx
+        .update(aiExecutionsTable)
+        .set({ proposalId, sessionId, updatedAt: now })
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.projectId, params.task.projectId),
+          eq(aiExecutionsTable.attempt, params.attempt),
+          isNull(aiExecutionsTable.proposalId),
+        ))
+        .returning({ id: aiExecutionsTable.id });
+      if (!updatedExecution) throw new Error("mission_candidate_execution_link_failed");
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiMissionCandidatePrepared",
+        projectId: params.task.projectId,
+        severity: "info",
+        message: "Mission repair candidate validated and awaits user approval",
+        correlationId: params.executionId,
+        payload: {
+          missionId: params.goal.missionId,
+          goalId: params.goal.id,
+          executionId: params.executionId,
+          attempt: params.attempt,
+          proposalId,
+          operationId,
+          candidateTreeHash: deliveryWorkspace!.candidateTreeHash,
+          changeSetHash: deliveryWorkspace!.changeSetHash,
+        },
+        createdAt: now,
+      });
+      return { proposalId, sessionId };
+    });
+    return { ...created, operationId };
+  } catch (error) {
+    if (deliveryWorkspace) {
+      await discardDeliveryWorkspace(deliveryWorkspace.workspaceRoot, operationId).catch(() => false);
+    }
+    throw error;
+  }
+}
 
 type MissionToolLoopCheckpoint = {
   schemaVersion: 2;
@@ -3871,6 +4152,25 @@ async function executeMissionToolLoop(params: {
       candidateIdentity,
       effectRequired,
       ...(effectBundleId ? { effectBundleId } : {}),
+      ...(params.profile === "mission_repair"
+        && proofStatus === "PROVEN"
+        && validationResult?.status === "passed"
+        && candidateEffectContext
+        && outputPendingChanges.length > 0
+        && policy.validationProfile
+        ? {
+            candidateProposalDraft: {
+              changes: outputPendingChanges.map((change) => ({ ...change })),
+              rootPath: root.canonicalPath,
+              sourceRevision: params.workspaceRevision,
+              candidateIdentity,
+              baseTreeHash: candidateEffectContext.baseTreeHash,
+              candidateTreeHash: candidateEffectContext.candidateTreeHash,
+              validationProfile: policy.validationProfile,
+              targetPaths: [...policy.targetPaths],
+            },
+          }
+        : {}),
       refs: [
         ...validatorReceipts.map((receipt) => receipt.artifactRef),
         ...(effectBundleId ? [effectBundleId] : []),
@@ -4488,6 +4788,31 @@ export async function executeTaskLifecycle(params: {
           ...(missionResumeState ? { resumeState: missionResumeState } : {}),
         })
       : undefined;
+    if (missionExecution?.proof.candidateProposalDraft && missionGoal) {
+      try {
+        missionExecution.proof.candidateProposal = await persistMissionRepairCandidateProposal({
+          task: before,
+          goal: missionGoal,
+          executionId,
+          attempt: executionAttempt,
+          rootPath: missionExecution.proof.candidateProposalDraft.rootPath,
+          draft: missionExecution.proof.candidateProposalDraft,
+        });
+      } catch (error) {
+        missionExecution.proof.status = "INCOMPLETE";
+        delete missionExecution.proof.candidateProposalDraft;
+        logger.warn(
+          {
+            scope: "task-execution",
+            code: "mission_candidate_proposal_persistence_failed",
+            taskId: before.id,
+            executionId,
+            error,
+          },
+          "Validated Mission candidate could not be staged for explicit approval",
+        );
+      }
+    }
     const { result, effectiveProvider } = missionExecution ?? await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
       params.userId,
       params.provider,
