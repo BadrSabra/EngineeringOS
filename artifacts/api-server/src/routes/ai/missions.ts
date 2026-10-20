@@ -132,6 +132,9 @@ const MissionAgentContinuationBody = z.object({
   idempotencyKey: z.string().uuid(),
   expectedDecision: EngineeringAgentDecisionSchema,
 }).strict();
+const MissionGoalApprovalBody = z.object({
+  expectedDecision: EngineeringAgentDecisionSchema.optional(),
+}).strict();
 
 type EngineeringAgentDecisionIdentity = z.infer<typeof EngineeringAgentDecisionSchema>;
 
@@ -2340,8 +2343,22 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
  * clears the proposal gate and resumes the existing Mission runtime.
  */
 router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) => {
+  const body = MissionGoalApprovalBody.parse(req.body ?? {});
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
+  if (body.expectedDecision) {
+    const projection = await loadMissionProjection(owned);
+    if (
+      body.expectedDecision.kind !== "APPROVE"
+      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
+    ) {
+      return res.status(409).json({
+        error: "The Mission decision changed. Review the current state before trying again.",
+        code: "AGENT_DECISION_STALE",
+        projection,
+      });
+    }
+  }
   const result = await approveMissionGoal({
     missionId: owned.mission.id,
     goalId: req.params.goalId,
@@ -3996,6 +4013,9 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
       expectedDecision: body.expectedDecision,
     }))
     .digest("hex");
+  const idempotencyCorrelationId = createHash("sha256")
+    .update(`${owned.mission.id}:${body.idempotencyKey}`)
+    .digest("hex");
   const now = new Date();
   const [priorEvent] = await db
     .select()
@@ -4003,7 +4023,7 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
     .where(and(
       eq(eventsTable.projectId, owned.project.id),
       eq(eventsTable.type, "AiMissionAgentContinuationRequested"),
-      eq(eventsTable.correlationId, body.idempotencyKey),
+      eq(eventsTable.correlationId, idempotencyCorrelationId),
     ))
     .limit(1);
   if (priorEvent) {
@@ -4068,10 +4088,8 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
       projection: initialProjection,
     });
   }
-  if (
-    body.expectedDecision.target?.kind !== "goal"
-    || !body.expectedDecision.target.id
-  ) {
+  const continuationTarget = body.expectedDecision.target;
+  if (!continuationTarget || continuationTarget.kind !== "goal" || !continuationTarget.id) {
     return res.status(409).json({
       error: "This continuation action has no eligible Goal target.",
       code: "AGENT_ACTION_UNSUPPORTED",
@@ -4098,7 +4116,7 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
       .where(and(
         eq(eventsTable.projectId, owned.project.id),
         eq(eventsTable.type, "AiMissionAgentContinuationRequested"),
-        eq(eventsTable.correlationId, body.idempotencyKey),
+        eq(eventsTable.correlationId, idempotencyCorrelationId),
       ))
       .for("update")
       .limit(1);
@@ -4139,10 +4157,10 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
       id: eventId,
       type: "AiMissionAgentContinuationRequested",
       projectId: owned.project.id,
-      goalId: body.expectedDecision.target.id,
+      goalId: continuationTarget.id,
       severity: "info",
       message: "Mission continuation requested from the current Engineering Agent decision",
-      correlationId: body.idempotencyKey,
+      correlationId: idempotencyCorrelationId,
       payload: {
         missionId: owned.mission.id,
         requestHash,
@@ -4222,7 +4240,7 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
   }
 
   const run = await runMissionGoal({
-    goalId: body.expectedDecision.target.id,
+    goalId: continuationTarget.id,
     userId: req.userId,
     trigger: "resume",
   });

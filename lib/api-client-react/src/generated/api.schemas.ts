@@ -196,6 +196,13 @@ export interface AiMissionAgentControl {
   handoff: AiMissionAgentControlHandoff;
 }
 
+export type AiMissionEngineeringAgentProjectionSchemaVersion = typeof AiMissionEngineeringAgentProjectionSchemaVersion[keyof typeof AiMissionEngineeringAgentProjectionSchemaVersion];
+
+
+export const AiMissionEngineeringAgentProjectionSchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
 export type AiMissionEngineeringAgentProjectionState = typeof AiMissionEngineeringAgentProjectionState[keyof typeof AiMissionEngineeringAgentProjectionState];
 
 
@@ -214,10 +221,12 @@ export type AiMissionEngineeringAgentProjectionNextActionKind = typeof AiMission
 
 
 export const AiMissionEngineeringAgentProjectionNextActionKind = {
+  START: 'START',
   AUTO_CONTINUE: 'AUTO_CONTINUE',
   RESUME: 'RESUME',
   RETRY: 'RETRY',
   APPROVE: 'APPROVE',
+  REPLAN: 'REPLAN',
   REVIEW: 'REVIEW',
   STOP: 'STOP',
   NONE: 'NONE',
@@ -317,6 +326,7 @@ export type AiMissionEngineeringAgentProjectionAutonomy = {
 };
 
 export interface AiMissionEngineeringAgentProjection {
+  schemaVersion: AiMissionEngineeringAgentProjectionSchemaVersion;
   state: AiMissionEngineeringAgentProjectionState;
   nextAction: AiMissionEngineeringAgentProjectionNextAction;
   intervention: AiMissionEngineeringAgentProjectionIntervention;
@@ -350,6 +360,130 @@ export interface AiMissionControlProjection {
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
   engineeringAgent: AiMissionEngineeringAgentProjection;
+}
+
+export type AiMissionEngineeringAgentDecisionKind = typeof AiMissionEngineeringAgentDecisionKind[keyof typeof AiMissionEngineeringAgentDecisionKind];
+
+
+export const AiMissionEngineeringAgentDecisionKind = {
+  START: 'START',
+  AUTO_CONTINUE: 'AUTO_CONTINUE',
+  RESUME: 'RESUME',
+  RETRY: 'RETRY',
+  APPROVE: 'APPROVE',
+  REPLAN: 'REPLAN',
+  REVIEW: 'REVIEW',
+  STOP: 'STOP',
+  NONE: 'NONE',
+} as const;
+
+export interface AiMissionEngineeringAgentDecision {
+  kind: AiMissionEngineeringAgentDecisionKind;
+  target: AiMissionEngineeringAgentTarget | null;
+  reasonCode: AiMissionEngineeringAgentReasonCode;
+}
+
+export interface AiMissionAgentContinuationInput {
+  idempotencyKey: string;
+  expectedDecision: AiMissionEngineeringAgentDecision;
+}
+
+export interface AiMissionGoalApprovalInput {
+  expectedDecision?: AiMissionEngineeringAgentDecision;
+}
+
+export type AiMissionAgentContinuationResponseRun = {
+  status: string;
+  goalId: string;
+  /** @nullable */
+  taskId: string | null;
+  /** @nullable */
+  executionId: string | null;
+  /** @nullable */
+  reason: string | null;
+} | null;
+
+export interface AiMissionAgentContinuationResponse {
+  missionId: string;
+  projection: AiMissionControlProjection;
+  run: AiMissionAgentContinuationResponseRun;
+  idempotentReplay: boolean;
+  inProgress?: boolean;
+}
+
+export type AiMissionAgentCommandErrorRun = { [key: string]: unknown };
+
+export interface AiMissionAgentCommandError {
+  error: string;
+  code: string;
+  projection?: AiMissionControlProjection;
+  run?: AiMissionAgentCommandErrorRun;
+}
+
+export type AiMissionUpdateInputStatus = typeof AiMissionUpdateInputStatus[keyof typeof AiMissionUpdateInputStatus];
+
+
+export const AiMissionUpdateInputStatus = {
+  draft: 'draft',
+  active: 'active',
+  waiting: 'waiting',
+  blocked: 'blocked',
+  needs_replan: 'needs_replan',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export type AiMissionUpdateInputAutonomyPolicy = { [key: string]: unknown };
+
+export type AiMissionUpdateInputBudget = { [key: string]: unknown };
+
+export interface AiMissionUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  intent?: string;
+  status?: AiMissionUpdateInputStatus;
+  autonomyPolicy?: AiMissionUpdateInputAutonomyPolicy;
+  budget?: AiMissionUpdateInputBudget;
+  deadline?: string | null;
+  expectedDecision?: AiMissionEngineeringAgentDecision;
+}
+
+export interface AiMissionReplanInput {
+  /**
+     * @minLength 1
+     * @maxLength 10000
+     */
+  message?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  objective?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  expectedPlanHash?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  reason?: string;
+  /**
+     * @maxLength 80
+     * @nullable
+     * @pattern ^[a-z0-9][a-z0-9-]*$
+     */
+  runtimeStartTargetStepId?: string | null;
+  expectedDecision?: AiMissionEngineeringAgentDecision;
 }
 
 export type AiChatSessionMissionReferenceMissionStatus = typeof AiChatSessionMissionReferenceMissionStatus[keyof typeof AiChatSessionMissionReferenceMissionStatus];

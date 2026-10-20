@@ -1,3 +1,5 @@
+import type { AiMissionEngineeringAgentReasonCode } from '@workspace/api-client-react';
+
 export type MissionStatus =
   | 'draft'
   | 'active'
@@ -162,12 +164,12 @@ export interface EngineeringAgentProjection {
   nextAction: {
     kind: 'START' | 'AUTO_CONTINUE' | 'RESUME' | 'RETRY' | 'APPROVE' | 'REPLAN' | 'REVIEW' | 'STOP' | 'NONE';
     target: { kind: 'mission' | 'goal' | 'execution' | 'proposal'; id: string } | null;
-    reasonCode: string;
+    reasonCode: AiMissionEngineeringAgentReasonCode;
   };
   intervention: {
     required: boolean;
     kind: 'none' | 'approval' | 'review' | 'recovery' | 'scope' | 'delivery';
-    reasonCode: string | null;
+    reasonCode: AiMissionEngineeringAgentReasonCode | null;
   };
   autonomy: {
     mode: 'assisted' | 'autonomous';
@@ -183,6 +185,8 @@ export interface EngineeringAgentProjection {
   goalId: string | null;
   executionId: string | null;
 }
+
+export type EngineeringAgentDecision = EngineeringAgentProjection['nextAction'];
 
 export interface MissionProjection {
   mission: Mission;
@@ -224,11 +228,13 @@ export interface MissionProjection {
 
 export class MissionRequestError extends Error {
   status: number;
+  code: string | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null) {
     super(message);
     this.name = 'MissionRequestError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -243,15 +249,18 @@ async function requestJson<T>(url: string, init: RequestInit = {}, signal?: Abor
 
   if (!response.ok) {
     let detail = '';
+    let code: string | null = null;
     try {
-      const body = (await response.json()) as { message?: string; error?: string };
+      const body = (await response.json()) as { message?: string; error?: string; code?: string };
       detail = body.message ?? body.error ?? '';
+      code = typeof body.code === 'string' ? body.code : null;
     } catch {
       detail = '';
     }
     throw new MissionRequestError(
       response.status,
       detail || `Request failed with status ${response.status}.`,
+      code,
     );
   }
 
@@ -285,6 +294,7 @@ export interface UpdateMissionInput {
   autonomyPolicy?: Record<string, unknown>;
   budget?: Record<string, unknown>;
   deadline?: string | null;
+  expectedDecision?: EngineeringAgentDecision;
 }
 
 export interface CreateGoalInput {
@@ -438,6 +448,7 @@ export interface ReplanMissionInput {
   objective?: string;
   expectedPlanHash?: string;
   reason?: string;
+  expectedDecision?: EngineeringAgentDecision;
 }
 
 export function replanMission(missionId: string, body: ReplanMissionInput) {
@@ -449,6 +460,30 @@ export function replanMission(missionId: string, body: ReplanMissionInput) {
     runs: ChatMissionHandoffResult['runs'];
   }>(
     `/api/ai/missions/${encodeURIComponent(missionId)}/replan`,
+    jsonRequest('POST', body),
+  );
+}
+
+export interface MissionAgentContinuationResponse {
+  missionId: string;
+  projection: MissionProjection;
+  run: {
+    status: string;
+    goalId: string;
+    taskId: string | null;
+    executionId: string | null;
+    reason: string | null;
+  } | null;
+  idempotentReplay: boolean;
+  inProgress?: boolean;
+}
+
+export function continueMissionAgent(
+  missionId: string,
+  body: { idempotencyKey: string; expectedDecision: EngineeringAgentDecision },
+) {
+  return requestJson<MissionAgentContinuationResponse>(
+    `/api/ai/missions/${encodeURIComponent(missionId)}/agent/continue`,
     jsonRequest('POST', body),
   );
 }

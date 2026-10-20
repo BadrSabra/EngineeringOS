@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +32,8 @@ import {
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { executionChatHref } from '@/lib/execution-chat-link';
+import { fetchMissionProjection, type MissionProjection } from '@/lib/ai-missions';
+import { MissionAgentProjectionSummary } from '@/components/MissionAgentProjectionSummary';
 import { resolveExecutionProofPresentation } from '@/lib/execution-proof-presentation';
 import WorldTransitionTimeline from '@/components/WorldTransitionTimeline';
 
@@ -1183,7 +1186,25 @@ function MissionSkeleton() {
 export default function MissionControl() {
   const searchParams = new URLSearchParams(window.location.search);
   const projectId = searchParams.get('projectId') ?? '';
+  const requestedMissionId = searchParams.get('missionId') ?? '';
   const requestedExecutionId = searchParams.get('executionId') ?? '';
+  const missionProjectionQuery = useQuery({
+    queryKey: ['mission-agent-projection', projectId, requestedMissionId],
+    queryFn: () => fetchMissionProjection(requestedMissionId),
+    enabled: Boolean(requestedMissionId && projectId),
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const mission = (query.state.data as MissionProjection | undefined)?.mission;
+      return mission?.status === 'active' ? 3_000 : false;
+    },
+  });
+  const missionProjection = missionProjectionQuery.data;
+  const matchingMissionDecision = missionProjection?.mission.id === requestedMissionId
+    && String(missionProjection.mission.projectId) === projectId
+    && missionProjection?.engineeringAgent?.schemaVersion === 1
+    && missionProjection?.engineeringAgent?.missionId === requestedMissionId
+    ? missionProjection.engineeringAgent
+    : null;
   const [selectedId, setSelectedId] = useState<string | null>(() => requestedExecutionId || null);
   const [comparisonLiveId, setComparisonLiveId] = useState<string | null>(null);
   const [comparisonImportedId, setComparisonImportedId] = useState<string | null>(null);
@@ -1491,6 +1512,24 @@ export default function MissionControl() {
           </button>
         </div>
       </header>
+
+      {requestedMissionId && matchingMissionDecision ? (
+        <section
+          className="rounded-xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5"
+          data-testid={`mission-control-decision-${requestedMissionId}`}
+        >
+          <div className="mb-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">Mission decision</p>
+            <h2 className="mt-1 text-base font-semibold">{missionProjection?.mission.title}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Current server-owned action and intervention state for this Mission.</p>
+          </div>
+          <MissionAgentProjectionSummary projection={matchingMissionDecision} />
+        </section>
+      ) : requestedMissionId && missionProjectionQuery.isError ? (
+        <section className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-muted-foreground" role="status">
+          Mission decision is unavailable. Refresh the Mission page before taking an action.
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-primary/20 bg-card p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

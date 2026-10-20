@@ -10,10 +10,12 @@ export type AiMissionEngineeringAgentProjectionNextActionKind = typeof AiMission
 
 
 export const AiMissionEngineeringAgentProjectionNextActionKind = {
+  START: 'START',
   AUTO_CONTINUE: 'AUTO_CONTINUE',
   RESUME: 'RESUME',
   RETRY: 'RETRY',
   APPROVE: 'APPROVE',
+  REPLAN: 'REPLAN',
   REVIEW: 'REVIEW',
   STOP: 'STOP',
   NONE: 'NONE',

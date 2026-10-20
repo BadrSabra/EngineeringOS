@@ -1628,6 +1628,74 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it("rejects stale Mission decisions before start, replan, approval, or continuation writes", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Stale decision guard",
+      intent: "Keep stale Mission actions read-only",
+    });
+    expect(createdMission.status).toBe(201);
+    const missionId = createdMission.body.id as string;
+    const snapshot = async () => ({
+      mission: await db.select({ id: aiMissionsTable.id, status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId)),
+      goals: await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+        .where(eq(aiGoalsTable.missionId, missionId)),
+      events: await db.select({ id: eventsTable.id, type: eventsTable.type }).from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "AiMissionAgentContinuationRequested"),
+        )),
+    });
+    const before = await snapshot();
+    const staleStart = {
+      kind: "NONE",
+      target: null,
+      reasonCode: "state_unresolved",
+    };
+    const staleResults = await Promise.all([
+      request(app).patch(`/api/ai/missions/${missionId}`)
+        .send({ status: "active", expectedDecision: staleStart }),
+      request(app).post(`/api/ai/missions/${missionId}/replan`)
+        .send({
+          expectedDecision: {
+            kind: "REPLAN",
+            target: { kind: "mission", id: missionId },
+            reasonCode: "goal_requires_replan",
+          },
+        }),
+      request(app).post(`/api/ai/missions/${missionId}/goals/not-a-goal/approve`)
+        .send({
+          expectedDecision: {
+            kind: "APPROVE",
+            target: { kind: "goal", id: "not-a-goal" },
+            reasonCode: "approval_pending",
+          },
+        }),
+      request(app).post(`/api/ai/missions/${missionId}/agent/continue`)
+        .send({
+          idempotencyKey: randomUUID(),
+          expectedDecision: {
+            kind: "AUTO_CONTINUE",
+            target: { kind: "goal", id: "not-a-goal" },
+            reasonCode: "continuation_authorized",
+          },
+        }),
+    ]);
+
+    for (const result of staleResults) {
+      expect(result.status).toBe(409);
+      expect(result.body.code).toBe("AGENT_DECISION_STALE");
+      expect(result.body.projection.engineeringAgent.nextAction).toMatchObject({
+        kind: "START",
+        target: { kind: "mission", id: missionId },
+      });
+    }
+    expect(await snapshot()).toEqual(before);
+  });
+
   it("projects a safe empty-Mission state without creating runtime records", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({

@@ -8,9 +8,11 @@
 import type { AiMissionEngineeringAgentProjectionAutonomy } from './aiMissionEngineeringAgentProjectionAutonomy';
 import type { AiMissionEngineeringAgentProjectionIntervention } from './aiMissionEngineeringAgentProjectionIntervention';
 import type { AiMissionEngineeringAgentProjectionNextAction } from './aiMissionEngineeringAgentProjectionNextAction';
+import type { AiMissionEngineeringAgentProjectionSchemaVersion } from './aiMissionEngineeringAgentProjectionSchemaVersion';
 import type { AiMissionEngineeringAgentProjectionState } from './aiMissionEngineeringAgentProjectionState';
 
 export interface AiMissionEngineeringAgentProjection {
+  schemaVersion: AiMissionEngineeringAgentProjectionSchemaVersion;
   state: AiMissionEngineeringAgentProjectionState;
   nextAction: AiMissionEngineeringAgentProjectionNextAction;
   intervention: AiMissionEngineeringAgentProjectionIntervention;

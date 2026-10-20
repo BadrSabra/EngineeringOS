@@ -467,7 +467,7 @@ export function reduceEngineeringAgentProjection(
           );
         } else {
           const replanGoal = activeGoals.find((goal) =>
-            ["blocked", "failed", "needs_replan"].includes(normalized(goal.status)),
+            ["blocked", "needs_replan"].includes(normalized(goal.status)),
           );
           const resumable = activeGoals
             .map(recoveryDecision)

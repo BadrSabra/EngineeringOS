@@ -41,9 +41,15 @@ import type {
   AiFallbackDiagnostic,
   AiFallbackDiagnosticInput,
   AiFileContent,
+  AiMissionAgentCommandError,
+  AiMissionAgentContinuationInput,
+  AiMissionAgentContinuationResponse,
   AiMissionControl,
   AiMissionControlProjection,
+  AiMissionGoalApprovalInput,
   AiMissionInput,
+  AiMissionReplanInput,
+  AiMissionUpdateInput,
   AiOrchestrateRequest,
   AiOrchestrationDecision,
   AiPendingProposal,
@@ -10504,14 +10510,21 @@ export const getUpdateAiMissionUrl = (missionId: string,) => {
 /**
  * @summary Update an AI mission
  */
-export const updateAiMission = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const updateAiMission = async (missionId: string,
+    aiMissionUpdateInput: AiMissionUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getUpdateAiMissionUrl(missionId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getUpdateAiMissionUrl(missionId),
   {
     ...options,
-    method: 'PATCH'
-
-
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionUpdateInput)
   }
 );}
 
@@ -10521,7 +10534,7 @@ export const updateAiMission = async (missionId: string, options?: Parameters<ty
 
 export const getUpdateAiMissionMutationKey = () => ['updateAiMission'] as const;
 
-export const getUpdateAiMissionMutationOptions = <TError = ErrorType<unknown>,
+export const getUpdateAiMissionMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext> => {
 
@@ -10536,9 +10549,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiMission>>, UpdateAiMissionMutationVariables> = (props) => {
-          const {missionId} = props ?? {};
+          const {missionId,data} = props ?? {};
 
-          return  updateAiMission(missionId,requestOptions)
+          return  updateAiMission(missionId,data,requestOptions)
         }
 
 
@@ -10549,14 +10562,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiMission>>>
-
-    export type UpdateAiMissionMutationError = ErrorType<unknown>
-    export type UpdateAiMissionMutationVariables = {missionId: string}
+    export type UpdateAiMissionMutationBody = BodyType<AiMissionUpdateInput>
+    export type UpdateAiMissionMutationError = ErrorType<void>
+    export type UpdateAiMissionMutationVariables = {missionId: string;data: BodyType<AiMissionUpdateInput>}
 
     /**
  * @summary Update an AI mission
  */
-export const useUpdateAiMission = <TError = ErrorType<unknown>,
+export const useUpdateAiMission = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateAiMission>>,
@@ -10578,14 +10591,21 @@ export const getReplanAiMissionUrl = (missionId: string,) => {
 /**
  * @summary Create a new server-owned mission plan revision
  */
-export const replanAiMission = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const replanAiMission = async (missionId: string,
+    aiMissionReplanInput: AiMissionReplanInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getReplanAiMissionUrl(missionId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getReplanAiMissionUrl(missionId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionReplanInput)
   }
 );}
 
@@ -10595,7 +10615,7 @@ export const replanAiMission = async (missionId: string, options?: Parameters<ty
 
 export const getReplanAiMissionMutationKey = () => ['replanAiMission'] as const;
 
-export const getReplanAiMissionMutationOptions = <TError = ErrorType<unknown>,
+export const getReplanAiMissionMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext> => {
 
@@ -10610,9 +10630,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof replanAiMission>>, ReplanAiMissionMutationVariables> = (props) => {
-          const {missionId} = props ?? {};
+          const {missionId,data} = props ?? {};
 
-          return  replanAiMission(missionId,requestOptions)
+          return  replanAiMission(missionId,data,requestOptions)
         }
 
 
@@ -10623,14 +10643,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ReplanAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof replanAiMission>>>
-
-    export type ReplanAiMissionMutationError = ErrorType<unknown>
-    export type ReplanAiMissionMutationVariables = {missionId: string}
+    export type ReplanAiMissionMutationBody = BodyType<AiMissionReplanInput>
+    export type ReplanAiMissionMutationError = ErrorType<void>
+    export type ReplanAiMissionMutationVariables = {missionId: string;data: BodyType<AiMissionReplanInput>}
 
     /**
  * @summary Create a new server-owned mission plan revision
  */
-export const useReplanAiMission = <TError = ErrorType<unknown>,
+export const useReplanAiMission = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof replanAiMission>>,
@@ -10805,14 +10825,21 @@ export const getApproveAiMissionGoalUrl = (missionId: string,
  * @summary Approve a proposal-backed mission goal
  */
 export const approveAiMissionGoal = async (missionId: string,
-    goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+    goalId: string,
+    aiMissionGoalApprovalInput?: AiMissionGoalApprovalInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getApproveAiMissionGoalUrl(missionId,goalId),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getApproveAiMissionGoalUrl(missionId,goalId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionGoalApprovalInput)
   }
 );}
 
@@ -10822,7 +10849,7 @@ export const approveAiMissionGoal = async (missionId: string,
 
 export const getApproveAiMissionGoalMutationKey = () => ['approveAiMissionGoal'] as const;
 
-export const getApproveAiMissionGoalMutationOptions = <TError = ErrorType<unknown>,
+export const getApproveAiMissionGoalMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext> => {
 
@@ -10837,9 +10864,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAiMissionGoal>>, ApproveAiMissionGoalMutationVariables> = (props) => {
-          const {missionId,goalId} = props ?? {};
+          const {missionId,goalId,data} = props ?? {};
 
-          return  approveAiMissionGoal(missionId,goalId,requestOptions)
+          return  approveAiMissionGoal(missionId,goalId,data,requestOptions)
         }
 
 
@@ -10850,14 +10877,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ApproveAiMissionGoalMutationResult = NonNullable<Awaited<ReturnType<typeof approveAiMissionGoal>>>
-
-    export type ApproveAiMissionGoalMutationError = ErrorType<unknown>
-    export type ApproveAiMissionGoalMutationVariables = {missionId: string;goalId: string}
+    export type ApproveAiMissionGoalMutationBody = BodyType<AiMissionGoalApprovalInput> | undefined
+    export type ApproveAiMissionGoalMutationError = ErrorType<void>
+    export type ApproveAiMissionGoalMutationVariables = {missionId: string;goalId: string;data?: BodyType<AiMissionGoalApprovalInput>}
 
     /**
  * @summary Approve a proposal-backed mission goal
  */
-export const useApproveAiMissionGoal = <TError = ErrorType<unknown>,
+export const useApproveAiMissionGoal = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof approveAiMissionGoal>>,
@@ -10944,6 +10971,88 @@ export function useGetAiMissionProjection<TData = Awaited<ReturnType<typeof getA
 
 
 
+
+export const getContinueAiMissionAgentUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/agent/continue`
+}
+
+/**
+ * AUTO_CONTINUE is revalidated by Mission Runtime. Other decision kinds are rejected unless explicitly supported by this command.
+ * @summary Continue a Mission using its current server-owned decision
+ */
+export const continueAiMissionAgent = async (missionId: string,
+    aiMissionAgentContinuationInput: AiMissionAgentContinuationInput, options?: Parameters<typeof customFetch>[1]): Promise<AiMissionAgentContinuationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiMissionAgentContinuationResponse>(getContinueAiMissionAgentUrl(missionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionAgentContinuationInput)
+  }
+);}
+
+
+
+
+
+export const getContinueAiMissionAgentMutationKey = () => ['continueAiMissionAgent'] as const;
+
+export const getContinueAiMissionAgentMutationOptions = <TError = ErrorType<void | AiMissionAgentCommandError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof continueAiMissionAgent>>, TError,ContinueAiMissionAgentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof continueAiMissionAgent>>, TError,ContinueAiMissionAgentMutationVariables, TContext> => {
+
+const mutationKey = getContinueAiMissionAgentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof continueAiMissionAgent>>, ContinueAiMissionAgentMutationVariables> = (props) => {
+          const {missionId,data} = props ?? {};
+
+          return  continueAiMissionAgent(missionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ContinueAiMissionAgentMutationResult = NonNullable<Awaited<ReturnType<typeof continueAiMissionAgent>>>
+    export type ContinueAiMissionAgentMutationBody = BodyType<AiMissionAgentContinuationInput>
+    export type ContinueAiMissionAgentMutationError = ErrorType<void | AiMissionAgentCommandError>
+    export type ContinueAiMissionAgentMutationVariables = {missionId: string;data: BodyType<AiMissionAgentContinuationInput>}
+
+    /**
+ * @summary Continue a Mission using its current server-owned decision
+ */
+export const useContinueAiMissionAgent = <TError = ErrorType<void | AiMissionAgentCommandError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof continueAiMissionAgent>>, TError,ContinueAiMissionAgentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof continueAiMissionAgent>>,
+        TError,
+        ContinueAiMissionAgentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getContinueAiMissionAgentMutationOptions(options));
+    }
 
 export const getGetAiGoalUrl = (goalId: string,) => {
 

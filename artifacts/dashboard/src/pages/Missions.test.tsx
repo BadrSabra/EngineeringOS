@@ -8,8 +8,10 @@ const {
   createMissionMock,
   previewMissionPlanMock,
   bindMissionDeliveryMock,
+  continueMissionAgentMock,
   fetchMissionsMock,
   fetchMissionProjectionMock,
+  updateMissionMock,
   useListProjectsMock,
   approveMissionGoalMutateMock,
   replanMissionMutateMock,
@@ -17,8 +19,10 @@ const {
   createMissionMock: vi.fn(),
   previewMissionPlanMock: vi.fn(),
   bindMissionDeliveryMock: vi.fn(),
+  continueMissionAgentMock: vi.fn(),
   fetchMissionsMock: vi.fn(),
   fetchMissionProjectionMock: vi.fn(),
+  updateMissionMock: vi.fn(),
   useListProjectsMock: vi.fn(),
   approveMissionGoalMutateMock: vi.fn(),
   replanMissionMutateMock: vi.fn(),
@@ -35,20 +39,23 @@ vi.mock('@workspace/api-client-react', () => ({
 vi.mock('@/lib/ai-missions', () => ({
   MissionRequestError: class MissionRequestError extends Error {
     status: number;
+    code: string | null;
 
-    constructor(status: number, message: string) {
+    constructor(status: number, message: string, code: string | null = null) {
       super(message);
       this.status = status;
+      this.code = code;
     }
   },
   createGoal: vi.fn(),
   bindMissionDelivery: bindMissionDeliveryMock,
+  continueMissionAgent: continueMissionAgentMock,
   createMission: createMissionMock,
   previewMissionPlanFromChat: previewMissionPlanMock,
   fetchMissionProjection: fetchMissionProjectionMock,
   fetchMissions: fetchMissionsMock,
   updateGoal: vi.fn(),
-  updateMission: vi.fn(),
+  updateMission: updateMissionMock,
 }));
 
 const project = { id: 'project-1', name: 'Test Project' };
@@ -92,8 +99,13 @@ beforeEach(() => {
   fetchMissionProjectionMock.mockResolvedValue({
     mission,
     engineeringAgent: {
+      schemaVersion: 1,
       state: 'PLANNING',
-      nextAction: { kind: 'NONE', target: null, reasonCode: 'mission_draft' },
+      nextAction: {
+        kind: 'START',
+        target: { kind: 'mission', id: mission.id },
+        reasonCode: 'mission_draft',
+      },
       intervention: { required: false, kind: 'none', reasonCode: null },
       autonomy: {
         mode: 'assisted',
@@ -115,6 +127,7 @@ beforeEach(() => {
     counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
   });
   createMissionMock.mockResolvedValue(mission);
+  updateMissionMock.mockResolvedValue({ ...mission, status: 'active' });
   previewMissionPlanMock.mockImplementation(async ({ message }: { message: string }) => ({
     version: 1,
     objective: message,
@@ -138,11 +151,150 @@ beforeEach(() => {
 });
 
 describe('Missions management', () => {
+  it('starts a draft only when the current server decision is START', async () => {
+    fetchMissionsMock.mockResolvedValue([mission]);
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId(`button-start-mission-${mission.id}`));
+    await waitFor(() => {
+      expect(updateMissionMock).toHaveBeenCalledWith(mission.id, {
+        status: 'active',
+        expectedDecision: {
+          kind: 'START',
+          target: { kind: 'mission', id: mission.id },
+          reasonCode: 'mission_draft',
+        },
+      });
+    });
+  });
+
+  it('does not infer START from draft status when the projection says NONE', async () => {
+    fetchMissionsMock.mockResolvedValue([mission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission,
+      engineeringAgent: {
+        schemaVersion: 1,
+        state: 'PLANNING',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'mission_not_active' },
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: null,
+        goalId: null,
+        executionId: null,
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+
+    renderPage();
+    await screen.findByTestId(`text-mission-title-${mission.id}`);
+    expect(screen.queryByTestId(`button-start-mission-${mission.id}`)).not.toBeInTheDocument();
+    expect(updateMissionMock).not.toHaveBeenCalled();
+  });
+
+  it('sends AUTO_CONTINUE with the exact projected decision and an idempotency key', async () => {
+    const activeMission = { ...mission, status: 'active' as const };
+    const queuedGoal = {
+      id: 'goal-queued-1',
+      missionId: mission.id,
+      projectId: project.id,
+      parentGoalId: null,
+      title: 'Continue the approved step',
+      description: null,
+      status: 'queued' as const,
+      priority: 'p1',
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: {},
+      nextAction: null,
+      blockedReason: null,
+      nextWakeAt: null,
+      createdAt: '2026-09-22T00:00:00.000Z',
+      updatedAt: '2026-09-22T00:00:00.000Z',
+      completedAt: null,
+      dependencies: [],
+    };
+    const expectedDecision = {
+      kind: 'AUTO_CONTINUE',
+      target: { kind: 'goal', id: queuedGoal.id },
+      reasonCode: 'continuation_authorized',
+    } as const;
+    const projection = {
+      mission: activeMission,
+      engineeringAgent: {
+        schemaVersion: 1,
+        state: 'PLANNING',
+        nextAction: expectedDecision,
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: true,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: null,
+        goalId: queuedGoal.id,
+        executionId: null,
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [queuedGoal.id] },
+      goals: [{
+        goal: queuedGoal,
+        currentAttempt: null,
+        tasks: [],
+        workflows: [],
+        executions: [],
+        events: [],
+      }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    };
+    fetchMissionsMock.mockResolvedValue([activeMission]);
+    fetchMissionProjectionMock.mockResolvedValue(projection);
+    continueMissionAgentMock.mockResolvedValue({
+      missionId: mission.id,
+      projection,
+      run: {
+        status: 'scheduled',
+        goalId: queuedGoal.id,
+        taskId: 'task-queued-1',
+        executionId: 'execution-queued-1',
+        reason: null,
+      },
+      idempotentReplay: false,
+      inProgress: false,
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId(`button-continue-mission-${mission.id}`));
+    await waitFor(() => {
+      expect(continueMissionAgentMock).toHaveBeenCalledWith(mission.id, {
+        idempotencyKey: expect.any(String),
+        expectedDecision,
+      });
+    });
+  });
+
   it('renders the server-owned Mission decision even when stored Mission status differs', async () => {
     fetchMissionsMock.mockResolvedValue([mission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission,
       engineeringAgent: {
+        schemaVersion: 1,
         state: 'AWAITING_APPROVAL',
         nextAction: {
           kind: 'APPROVE',
@@ -462,7 +614,7 @@ describe('Missions management', () => {
     );
     expect(await screen.findByTestId('link-mission-source-execution')).toHaveAttribute(
       'href',
-      '/mission-control?projectId=project-1&executionId=mission-execution-1',
+      '/mission-control?projectId=project-1&missionId=mission-1&executionId=mission-execution-1',
     );
   });
 
@@ -536,6 +688,29 @@ describe('Missions management', () => {
     fetchMissionsMock.mockResolvedValue([needsReplanMission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: needsReplanMission,
+      engineeringAgent: {
+        schemaVersion: 1,
+        state: 'NEEDS_ATTENTION',
+        nextAction: {
+          kind: 'REPLAN',
+          target: { kind: 'mission', id: mission.id },
+          reasonCode: 'goal_requires_replan',
+        },
+        intervention: { required: true, kind: 'scope', reasonCode: 'goal_requires_replan' },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: null,
+        goalId: null,
+        executionId: null,
+      },
       agentControl: null,
       currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
       goals: [],
@@ -552,7 +727,16 @@ describe('Missions management', () => {
 
     await waitFor(() => {
       expect(replanMissionMutateMock).toHaveBeenCalledWith(
-        { missionId: mission.id },
+        {
+          missionId: mission.id,
+          data: {
+            expectedDecision: {
+              kind: 'REPLAN',
+              target: { kind: 'mission', id: mission.id },
+              reasonCode: 'goal_requires_replan',
+            },
+          },
+        },
         expect.objectContaining({
           onSuccess: expect.any(Function),
           onError: expect.any(Function),
@@ -595,6 +779,29 @@ describe('Missions management', () => {
     fetchMissionsMock.mockResolvedValue([activeMission]);
     fetchMissionProjectionMock.mockResolvedValue({
       mission: activeMission,
+      engineeringAgent: {
+        schemaVersion: 1,
+        state: 'AWAITING_APPROVAL',
+        nextAction: {
+          kind: 'APPROVE',
+          target: { kind: 'goal', id: waitingGoal.id },
+          reasonCode: 'approval_pending',
+        },
+        intervention: { required: true, kind: 'approval', reasonCode: 'approval_pending' },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: activeMission.id,
+        sessionId: null,
+        goalId: waitingGoal.id,
+        executionId: 'execution-approval-1',
+      },
       agentControl: null,
       currentPlan: {
         revision: null,
@@ -631,7 +838,7 @@ describe('Missions management', () => {
 
     expect(screen.getByTestId('link-review-mission-approval')).toHaveAttribute(
       'href',
-      '/mission-control?projectId=project-1&executionId=execution-approval-1',
+      '/mission-control?projectId=project-1&missionId=mission-1&executionId=execution-approval-1',
     );
     expect(screen.getByRole('alertdialog')).toHaveTextContent(
       'لا تطبّق الملفات أو تسلّمها بذاتها.',
@@ -640,7 +847,17 @@ describe('Missions management', () => {
 
     await waitFor(() => {
       expect(approveMissionGoalMutateMock).toHaveBeenCalledWith(
-        { missionId: activeMission.id, goalId: waitingGoal.id },
+        {
+          missionId: activeMission.id,
+          goalId: waitingGoal.id,
+          data: {
+            expectedDecision: {
+              kind: 'APPROVE',
+              target: { kind: 'goal', id: waitingGoal.id },
+              reasonCode: 'approval_pending',
+            },
+          },
+        },
         expect.objectContaining({
           onSuccess: expect.any(Function),
           onError: expect.any(Function),

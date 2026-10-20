@@ -3717,9 +3717,17 @@ paths:
       summary: Update an AI mission
       tags: [AI]
       x-no-codegen: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionUpdateInput"
       responses:
         "200":
           description: Updated mission
+        "409":
+          description: The current server-owned Mission action is stale.
 
   /api/ai/missions/{missionId}/replan:
     post:
@@ -3732,9 +3740,17 @@ paths:
           name: missionId
           required: true
           schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionReplanInput"
       responses:
         "200":
           description: Replanned mission
+        "409":
+          description: The current server-owned Mission action or active plan revision is stale.
 
   /api/ai/missions/{missionId}/goals:
     get:
@@ -3779,9 +3795,17 @@ paths:
           name: goalId
           required: true
           schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionGoalApprovalInput"
       responses:
         "200":
           description: Approved goal
+        "409":
+          description: The current server-owned Mission decision or proposal is stale.
 
   /api/ai/missions/{missionId}/projection:
     get:
@@ -3801,6 +3825,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiMissionControlProjection"
+
+  /api/ai/missions/{missionId}/agent/continue:
+    post:
+      operationId: continueAiMissionAgent
+      summary: Continue a Mission using its current server-owned decision
+      description: AUTO_CONTINUE is revalidated by Mission Runtime. Other decision kinds are rejected unless explicitly supported by this command.
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionAgentContinuationInput"
+      responses:
+        "202":
+          description: Continuation accepted or an identical request is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionAgentContinuationResponse"
+        "400":
+          description: Invalid continuation request
+        "404":
+          description: Mission not found
+        "409":
+          description: Decision stale, unsupported, or rejected by Mission Runtime
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionAgentCommandError"
 
   /api/ai/goals/{goalId}:
     parameters:
@@ -4812,6 +4872,101 @@ components:
         sessionId: { type: ["string", "null"], maxLength: 200 }
         goalId: { type: ["string", "null"], maxLength: 200 }
         executionId: { type: ["string", "null"], maxLength: 200 }
+    AiMissionEngineeringAgentDecision:
+      type: object
+      additionalProperties: false
+      required: [kind, target, reasonCode]
+      properties:
+        kind:
+          type: string
+          enum: [START, AUTO_CONTINUE, RESUME, RETRY, APPROVE, REPLAN, REVIEW, STOP, NONE]
+        target:
+          anyOf:
+            - $ref: "#/components/schemas/AiMissionEngineeringAgentTarget"
+            - type: "null"
+        reasonCode:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
+    AiMissionAgentContinuationInput:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, expectedDecision]
+      properties:
+        idempotencyKey: { type: string, format: uuid }
+        expectedDecision:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
+    AiMissionGoalApprovalInput:
+      type: object
+      additionalProperties: false
+      properties:
+        expectedDecision:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
+    AiMissionAgentContinuationResponse:
+      type: object
+      required: [missionId, projection, run, idempotentReplay]
+      properties:
+        missionId: { type: string }
+        projection:
+          $ref: "#/components/schemas/AiMissionControlProjection"
+        run:
+          anyOf:
+            - type: object
+              required: [status, goalId, taskId, executionId, reason]
+              properties:
+                status: { type: string }
+                goalId: { type: string }
+                taskId: { type: ["string", "null"] }
+                executionId: { type: ["string", "null"] }
+                reason: { type: ["string", "null"] }
+            - type: "null"
+        idempotentReplay: { type: boolean }
+        inProgress: { type: boolean }
+    AiMissionAgentCommandError:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string }
+        projection:
+          $ref: "#/components/schemas/AiMissionControlProjection"
+        run:
+          type: object
+          additionalProperties: true
+    AiMissionUpdateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        intent: { type: string, minLength: 1, maxLength: 500 }
+        status:
+          type: string
+          enum: [draft, active, waiting, blocked, needs_replan, completed, failed, cancelled]
+        autonomyPolicy:
+          type: object
+          additionalProperties: true
+        budget:
+          type: object
+          additionalProperties: true
+        deadline:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        expectedDecision:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
+    AiMissionReplanInput:
+      type: object
+      additionalProperties: false
+      properties:
+        message: { type: string, minLength: 1, maxLength: 10000 }
+        objective: { type: string, minLength: 1, maxLength: 2000 }
+        expectedPlanHash: { type: string, minLength: 1, maxLength: 200 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+        runtimeStartTargetStepId:
+          type: ["string", "null"]
+          maxLength: 80
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+        expectedDecision:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
     AiMissionEngineeringAgentTarget:
       type: object
       additionalProperties: false

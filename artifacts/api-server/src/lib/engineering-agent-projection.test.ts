@@ -72,8 +72,8 @@ describe("reduceEngineeringAgentProjection", () => {
   });
 
   it("exposes REPLAN for an eligible current-plan Goal and uses plan order", () => {
-    const first = goal({ id: "goal-z", status: "needs_replan" });
-    const second = goal({ id: "goal-a", status: "failed" });
+    const first = goal({ id: "goal-z", status: "needs_replan", currentExecution: null });
+    const second = goal({ id: "goal-a", status: "failed", currentExecution: null });
     const projection = reduceEngineeringAgentProjection(context({
       goals: [second, first],
       planGoalOrder: ["goal-z", "goal-a"],

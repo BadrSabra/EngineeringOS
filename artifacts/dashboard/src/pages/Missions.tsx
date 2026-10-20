@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearch } from 'wouter';
 import {
   createTask,
@@ -33,6 +33,7 @@ import {
 import {
   createGoal,
   createMission,
+  continueMissionAgent,
   fetchMissionProjection,
   fetchMissions,
   Goal,
@@ -47,6 +48,7 @@ import {
   MissionStatus,
   MissionProjection,
   MissionRequestError,
+  type EngineeringAgentDecision,
   ProjectionEvent,
   ProjectionExecution,
   ProjectionTask,
@@ -1072,6 +1074,7 @@ function GoalCard({
   onCreateTask,
   onBindDelivery,
   onReviewApproval,
+  approvalAvailable,
   approvalDisabled,
   planBinding,
   inCurrentPlan,
@@ -1085,6 +1088,7 @@ function GoalCard({
   onCreateTask: () => void;
   onBindDelivery: () => void;
   onReviewApproval: (executionId: string | null) => void;
+  approvalAvailable: boolean;
   approvalDisabled: boolean;
 }) {
   const { goal, tasks, workflows, executions, events, skillCandidate } = item;
@@ -1143,7 +1147,7 @@ function GoalCard({
               <span className="sm:hidden">ربط</span>
             </button>
           ) : null}
-          {goal.status === 'waiting_for_approval' ? (
+          {goal.status === 'waiting_for_approval' && approvalAvailable ? (
             <button
               type="button"
               onClick={() => onReviewApproval(item.executions[0]?.id ?? null)}
@@ -1299,6 +1303,7 @@ export default function Missions() {
   const [mutationError, setMutationError] = useState<unknown>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
   const [pendingMissionAction, setPendingMissionAction] = useState<MissionActionConfirmation | null>(null);
+  const continuationKeys = useRef(new Map<string, string>());
   const [missionActionError, setMissionActionError] = useState<string | null>(null);
 
   const search = useSearch();
@@ -1410,8 +1415,49 @@ export default function Missions() {
     ? Number((projectsQueryError as { status?: unknown }).status)
     : null;
   const projectionGoals = projection?.goals ?? [];
-  const needsReplan = activeMission?.status === 'needs_replan'
-    || projectionGoals.some((item) => item.goal.status === 'needs_replan');
+  const decisionProjectionIsCurrent = Boolean(
+    activeMission
+    && projection?.mission.id === activeMission.id
+    && projection.mission.projectId === activeMission.projectId
+    && projection?.engineeringAgent?.schemaVersion === 1
+    && projection?.engineeringAgent?.missionId === activeMission.id,
+  );
+  const missionDecision = decisionProjectionIsCurrent
+    ? projection!.engineeringAgent.nextAction
+    : null;
+  const missionDecisionIdentity: EngineeringAgentDecision | null = missionDecision
+    ? {
+        kind: missionDecision.kind,
+        target: missionDecision.target,
+        reasonCode: missionDecision.reasonCode,
+      }
+    : null;
+  const decisionTargetIsMission = Boolean(
+    activeMission
+    && missionDecision?.target?.kind === 'mission'
+    && missionDecision.target.id === activeMission.id,
+  );
+  const decisionTargetIsCurrentGoal = Boolean(
+    missionDecision?.target?.kind === 'goal'
+    && projectionGoals.some((item) => item.goal.id === missionDecision.target?.id),
+  );
+  const needsReplan = missionDecision?.kind === 'REPLAN'
+    && (decisionTargetIsMission || decisionTargetIsCurrentGoal);
+  const approvalGoalId = missionDecision?.kind === 'APPROVE'
+    ? projection?.engineeringAgent.goalId ?? null
+    : null;
+  const approvalGoalIsCurrent = Boolean(
+    approvalGoalId
+    && missionDecision?.target
+    && ['goal', 'proposal'].includes(missionDecision.target.kind)
+    && projectionGoals.some((item) => item.goal.id === approvalGoalId && item.goal.status === 'waiting_for_approval'),
+  );
+  const canStartMission = missionDecision?.kind === 'START' && decisionTargetIsMission;
+  const canAutoContinue = missionDecision?.kind === 'AUTO_CONTINUE' && decisionTargetIsCurrentGoal;
+  const reviewExecutionId = missionDecision?.kind === 'REVIEW'
+    && missionDecision.target?.kind === 'execution'
+    ? missionDecision.target.id
+    : null;
   const missionActionPending = replanMission.isPending || approveMissionGoal.isPending;
   const acceptedFindingSource = activeMission
     ? readAcceptedProjectQueryHandoffSource(activeMission.autonomyPolicy)
@@ -1483,7 +1529,15 @@ export default function Missions() {
         setMutationNotice('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'mission-edit') {
-        const updated = await updateMission(editor.mission.id, data as UpdateMissionInput);
+        const input = data as UpdateMissionInput;
+        const isDraftStart = editor.mission.status === 'draft' && input.status === 'active';
+        if (isDraftStart && (!canStartMission || !missionDecisionIdentity)) {
+          throw new Error('تعذر البدء لأن قرار الهدف الرئيسي الحالي لا يسمح بذلك. حدّث الحالة ثم حاول مجددًا.');
+        }
+        const updated = await updateMission(editor.mission.id, {
+          ...input,
+          ...(isDraftStart ? { expectedDecision: missionDecisionIdentity! } : {}),
+        });
         setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
         setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
         setEditor(null);
@@ -1542,12 +1596,15 @@ export default function Missions() {
   };
 
   const startMission = async () => {
-    if (!activeMission || mutationSaving) return;
+    if (!activeMission || mutationSaving || !canStartMission || !missionDecisionIdentity) return;
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const updated = await updateMission(activeMission.id, { status: 'active' });
+      const updated = await updateMission(activeMission.id, {
+        status: 'active',
+        expectedDecision: missionDecisionIdentity,
+      });
       setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
       setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
       setMutationNotice('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
@@ -1555,6 +1612,36 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       setMutationError(error);
+    } finally {
+      setMutationSaving(false);
+    }
+  };
+
+  const continueMission = async () => {
+    if (!activeMission || mutationSaving || !canAutoContinue || !missionDecisionIdentity) return;
+    const idempotencyKey = continuationKeys.current.get(activeMission.id) ?? crypto.randomUUID();
+    continuationKeys.current.set(activeMission.id, idempotencyKey);
+    setMutationSaving(true);
+    setMutationError(null);
+    setMutationNotice(null);
+    try {
+      const result = await continueMissionAgent(activeMission.id, {
+        idempotencyKey,
+        expectedDecision: missionDecisionIdentity,
+      });
+      setProjection(result.projection);
+      if (!result.inProgress) continuationKeys.current.delete(activeMission.id);
+      setMutationNotice(
+        result.inProgress
+          ? 'المتابعة نفسها قيد التنفيذ بالفعل؛ حدّث الحالة لمعرفة نتيجتها.'
+          : 'أُرسلت المتابعة إلى مسار التنفيذ الحالي، وسيُعاد التحقق من الحالة قبل أي عمل.',
+      );
+      setProjectionReload((value) => value + 1);
+    } catch (error: unknown) {
+      if (error instanceof MissionRequestError) continuationKeys.current.delete(activeMission.id);
+      setMutationError(error);
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
     } finally {
       setMutationSaving(false);
     }
@@ -1569,7 +1656,10 @@ export default function Missions() {
     };
     if (pendingMissionAction.type === 'replan') {
       replanMission.mutate(
-        { missionId: pendingMissionAction.missionId },
+        {
+          missionId: pendingMissionAction.missionId,
+          data: { expectedDecision: pendingMissionAction.expectedDecision },
+        },
         {
           onSuccess: () => {
             setPendingMissionAction(null);
@@ -1589,6 +1679,7 @@ export default function Missions() {
       {
         missionId: pendingMissionAction.missionId,
         goalId: pendingMissionAction.goalId,
+        data: { expectedDecision: pendingMissionAction.expectedDecision },
       },
       {
         onSuccess: () => {
@@ -1791,6 +1882,7 @@ export default function Missions() {
                                     type: 'replan',
                                     missionId: activeMission.id,
                                     missionTitle: activeMission.title,
+                                    expectedDecision: missionDecisionIdentity!,
                                   });
                                 }}
                                 disabled={mutationSaving || missionActionPending}
@@ -1801,11 +1893,37 @@ export default function Missions() {
                                 إنشاء خطة جديدة
                               </button>
                             ) : null}
-                            {activeMission.status === 'draft' ? (
+                            {canStartMission ? (
                               <button type="button" onClick={() => void startMission()} disabled={mutationSaving} data-testid={`button-start-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-300/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/25 disabled:cursor-wait disabled:opacity-60">
                                 {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
                                 بدء الهدف الرئيسي
                               </button>
+                            ) : null}
+                            {canAutoContinue ? (
+                              <button
+                                type="button"
+                                onClick={() => void continueMission()}
+                                disabled={mutationSaving || missionActionPending}
+                                data-testid={`button-continue-mission-${activeMission.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                                متابعة التنفيذ
+                              </button>
+                            ) : null}
+                            {reviewExecutionId && activeMission ? (
+                              <Link
+                                href={`/mission-control?${new URLSearchParams({
+                                  projectId: String(activeMission.projectId),
+                                  missionId: activeMission.id,
+                                  executionId: reviewExecutionId,
+                                }).toString()}`}
+                                data-testid={`link-review-mission-execution-${activeMission.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-[11px] font-semibold text-slate-300 transition-colors hover:border-cyan-400/35 hover:text-cyan-100"
+                              >
+                                <ArrowUpRight className="h-3.5 w-3.5" />
+                                مراجعة التنفيذ
+                              </Link>
                             ) : null}
                             <button type="button" onClick={() => openEditor({ type: 'mission-edit', mission: activeMission })} data-testid={`button-edit-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-100">
                               <Edit3 className="h-3.5 w-3.5" />
@@ -1863,6 +1981,7 @@ export default function Missions() {
                               <a
                                 href={`/mission-control?${new URLSearchParams({
                                   projectId: String(activeMission.projectId),
+                                  missionId: activeMission.id,
                                   executionId: latestMissionExecution.id,
                                 }).toString()}`}
                                 data-testid="link-mission-source-execution"
@@ -2020,6 +2139,11 @@ export default function Missions() {
                                  onCreateTask={() => openEditor({ type: 'task-create', goal: item.goal, projectId })}
                                  onBindDelivery={() => openEditor({ type: 'delivery-bind', goal: item.goal })}
                                 onReviewApproval={(executionId) => {
+                                  if (
+                                    !missionDecisionIdentity
+                                    || !approvalGoalIsCurrent
+                                    || approvalGoalId !== item.goal.id
+                                  ) return;
                                   setMissionActionError(null);
                                   setPendingMissionAction({
                                     type: 'approve',
@@ -2029,8 +2153,10 @@ export default function Missions() {
                                     goalTitle: item.goal.title,
                                     projectId: String(activeMission.projectId),
                                     executionId,
+                                    expectedDecision: missionDecisionIdentity,
                                   });
                                 }}
+                                approvalAvailable={approvalGoalIsCurrent && approvalGoalId === item.goal.id}
                                 approvalDisabled={mutationSaving || missionActionPending}
                               />
                             ))}

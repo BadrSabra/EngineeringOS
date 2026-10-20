@@ -9,12 +9,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { AlertTriangle } from 'lucide-react';
+import type { EngineeringAgentDecision } from '@/lib/ai-missions';
 
 export type MissionActionConfirmation =
   | {
       type: 'replan';
       missionId: string;
       missionTitle: string;
+      expectedDecision: EngineeringAgentDecision;
     }
   | {
       type: 'approve';
@@ -24,6 +26,7 @@ export type MissionActionConfirmation =
       goalTitle: string;
       projectId: string;
       executionId: string | null;
+      expectedDecision: EngineeringAgentDecision;
     };
 
 type MissionActionDialogProps = {
@@ -44,6 +47,7 @@ export default function MissionActionDialog({
   const reviewUrl = action?.type === 'approve' && action.executionId
     ? `/mission-control?${new URLSearchParams({
         projectId: action.projectId,
+        missionId: action.missionId,
         executionId: action.executionId,
       }).toString()}`
     : null;
