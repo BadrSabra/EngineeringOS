@@ -5739,6 +5739,26 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
+      projectId,
+      sessionId,
+      missionId,
+      messageId: "deleted-source-message",
+    }).toString()}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("notice-chat-source-message-unavailable")).toBeVisible();
+    await page.getByTestId("button-open-latest-chat").click();
+    await expect.poll(() => new URL(page.url()).searchParams.has("messageId")).toBe(false);
+    const latestChatUrl = new URL(page.url());
+    expect(latestChatUrl.pathname.endsWith("/ai")).toBe(true);
+    expect(latestChatUrl.searchParams.get("projectId")).toBe(projectId);
+    expect(latestChatUrl.searchParams.get("sessionId")).toBe(sessionId);
+    expect(latestChatUrl.searchParams.get("missionId")).toBe(missionId);
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
     browserErrors.assertClean();
   });
 

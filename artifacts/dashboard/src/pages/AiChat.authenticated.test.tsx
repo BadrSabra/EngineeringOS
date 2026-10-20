@@ -2841,6 +2841,7 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('does not scroll when the linked source message is unavailable', async () => {
     const previousLocation = `${window.location.pathname}${window.location.search}`;
+    mocks.serverProposal = { changes: [] };
     window.history.replaceState(
       {},
       '',
