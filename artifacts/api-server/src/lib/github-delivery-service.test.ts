@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -15,7 +15,13 @@ import {
 } from "@workspace/db";
 import { describe, expect, it } from "vitest";
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
-import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
+import {
+  DELIVERY_TREE_DIGEST_VERSION,
+  hashChangeSet,
+  hashDeliveryTree,
+} from "./delivery-workspace.js";
+import { createControlledLocalBareGitHubRequest } from "./local-bare-github-adapter.js";
+import type { GitHubRequest } from "./github-connector.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -324,6 +330,208 @@ describe("verified GitHub delivery service", () => {
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId)).catch(() => undefined);
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
       await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers an approved, committed candidate through the controlled local bare remote", async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), "engineeringos-approved-delivery-"));
+    const rootPath = path.join(temporaryRoot, "workspace");
+    const bareRemotePath = path.join(temporaryRoot, "remote.git");
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const now = new Date();
+    const remoteUrl = "https://github.com/fixture/engineering-agent-lifecycle";
+    try {
+      await mkdir(rootPath, { recursive: true });
+      await execFileAsync("git", ["init", "--bare", "--initial-branch=main", bareRemotePath]);
+      await git(rootPath, ["init", "-q", "--initial-branch=main"]);
+      await writeFile(path.join(rootPath, "README.md"), "base\n", "utf8");
+      await git(rootPath, ["add", "README.md"]);
+      await git(rootPath, [
+        "-c", "user.name=Lifecycle Fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "-qm", "Mission source",
+      ]);
+      const baseTreeHash = await hashDeliveryTree(rootPath);
+      const baseCommit = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.toString().trim();
+      await git(rootPath, ["remote", "add", "origin", bareRemotePath]);
+      await git(rootPath, ["push", "origin", "main"]);
+
+      const candidateContent = "verified Mission repair\n";
+      const changeSetHash = hashChangeSet([{ path: "README.md", newContent: candidateContent }]);
+      await writeFile(path.join(rootPath, "README.md"), candidateContent, "utf8");
+      await git(rootPath, ["add", "README.md"]);
+      await git(rootPath, [
+        "-c", "user.name=Lifecycle Fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "-qm", "Apply reviewed Mission candidate",
+      ]);
+      const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.toString().trim();
+      const candidateTreeHash = await hashDeliveryTree(rootPath);
+
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: "approved-delivery-test",
+        name: `approved-delivery-${projectId.slice(0, 8)}`,
+        rootPath,
+        language: "typescript",
+        status: "active",
+        gitRemoteUrl: remoteUrl,
+        gitDefaultBranch: "main",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiChatSessionsTable).values({
+        id: sessionId,
+        projectId,
+        title: "Approved Mission delivery",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(aiChatMessagesTable).values({
+        id: messageId,
+        sessionId,
+        role: "assistant",
+        content: "Approved Mission candidate",
+        createdAt: now,
+      });
+      await db.insert(aiChangeProposalsTable).values({
+        id: proposalId,
+        projectId,
+        sessionId,
+        messageId,
+        changes: JSON.stringify([{ path: "README.md", newContent: candidateContent }]),
+        status: "pending",
+        lifecycle: "validated",
+        approvalRequired: true,
+        operationId,
+        baseRevision: "accepted-source-revision",
+        changeSetHash,
+        baseTreeHash,
+        candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        createdAt: now,
+      });
+
+      const envKeys = [
+        "RUN_CONTROLLED_RELEASE_VALIDATION",
+        "DASHBOARD_E2E_TEST_MODE",
+        "ENGINEERING_AGENT_LIFECYCLE_E2E",
+        "ENGINEERING_AGENT_LIFECYCLE_REMOTE",
+        "NODE_ENV",
+      ] as const;
+      const previousEnv = new Map(envKeys.map((key) => [key, process.env[key]]));
+      Object.assign(process.env, {
+        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+        DASHBOARD_E2E_TEST_MODE: "fixture",
+        ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+        ENGINEERING_AGENT_LIFECYCLE_REMOTE: bareRemotePath,
+        NODE_ENV: "test",
+      });
+      let fixtureRequest: GitHubRequest | undefined;
+      try {
+        fixtureRequest = await createControlledLocalBareGitHubRequest(remoteUrl);
+      } finally {
+        for (const [key, value] of previousEnv) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+      if (!fixtureRequest) throw new Error("Controlled local bare remote fixture did not activate.");
+
+      const connectorCalls: string[] = [];
+      const request: GitHubRequest = async (requestPath, init) => {
+        connectorCalls.push(`${init?.method ?? "GET"} ${requestPath}`);
+        return fixtureRequest!(requestPath, init);
+      };
+      const beforeApproval = await executeVerifiedGitHubDelivery({
+        ...params({ projectId, proposalId, operationId, rootPath, remoteUrl }),
+        branch: "main",
+        request,
+      });
+      expect(beforeApproval).toMatchObject({ status: "blocked" });
+      expect(connectorCalls).toEqual([]);
+      expect((await git(bareRemotePath, ["rev-parse", "refs/heads/main"])).stdout.toString().trim())
+        .toBe(baseCommit);
+
+      await db.update(aiChangeProposalsTable)
+        .set({
+          status: "applied",
+          lifecycle: "committed",
+          approvalRequired: false,
+          promotedTreeHash: candidateTreeHash,
+          committedTreeHash: candidateTreeHash,
+          commitHash,
+          consumedAt: now,
+        })
+        .where(eq(aiChangeProposalsTable.id, proposalId));
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "GitCommitCreated",
+        projectId,
+        severity: "info",
+        message: "Approved Mission candidate committed",
+        correlationId: operationId,
+        payload: {
+          proposalId,
+          operationId,
+          commitHash,
+          committedTreeHash: candidateTreeHash,
+          committedPaths: ["README.md"],
+        },
+      });
+
+      const delivered = await executeVerifiedGitHubDelivery({
+        ...params({ projectId, proposalId, operationId, rootPath, remoteUrl }),
+        branch: "main",
+        request,
+      });
+      expect(delivered).toMatchObject({
+        status: "passed",
+        candidateTreeHash,
+        committedTreeHash: candidateTreeHash,
+        afterState: {
+          status: "passed",
+          proposalId,
+          operationId,
+          expectedParentHash: baseCommit,
+          remoteParentHash: baseCommit,
+          markerMatched: true,
+        },
+      });
+      expect(connectorCalls.some((call) => call.startsWith("PATCH "))).toBe(true);
+      const remoteHead = (await git(bareRemotePath, ["rev-parse", "refs/heads/main"])).stdout.toString().trim();
+      expect(remoteHead).not.toBe(baseCommit);
+      expect((await execFileAsync("git", [
+        "--git-dir", bareRemotePath, "show", `${remoteHead}:README.md`,
+      ], { encoding: "utf8" })).stdout).toBe(candidateContent);
+      expect((await git(bareRemotePath, ["show", "-s", "--format=%P", remoteHead])).stdout.toString().trim())
+        .toBe(baseCommit);
+
+      const [pushReceipt] = await db.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushed"),
+          eq(eventsTable.correlationId, operationId),
+        ))
+        .limit(1);
+      expect(pushReceipt?.payload).toMatchObject({
+        proposalId,
+        operationId,
+        commitHash,
+        remoteCommitHash: remoteHead,
+        remoteParentHash: baseCommit,
+        remoteTreeHash: (await git(bareRemotePath, ["rev-parse", `${remoteHead}^{tree}`])).stdout.toString().trim(),
+      });
+    } finally {
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId)).catch(() => undefined);
+      await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId)).catch(() => undefined);
+      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId)).catch(() => undefined);
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId)).catch(() => undefined);
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+      await rm(temporaryRoot, { recursive: true, force: true });
     }
   });
 });

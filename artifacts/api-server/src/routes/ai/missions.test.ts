@@ -5112,7 +5112,7 @@ describe("AI missions and goals", () => {
       }]),
       status: "pending",
       revision: 0,
-      approvalRequired: false,
+      approvalRequired: true,
       operationId: `mission-repair-${executionId}`,
       workspaceRoot: path.resolve(process.cwd(), "../../.test-roots", `mission-candidate-${proposalId}`),
       baseRevision: sourceRevision,
@@ -5216,6 +5216,21 @@ describe("AI missions and goals", () => {
       missionCandidate: true,
       missionCandidateAccepted: true,
     });
+
+    const unapproved = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId });
+    expect(unapproved.status).toBe(409);
+    expect(unapproved.body.code).toBe("PROPOSAL_NOT_PREPARED");
+    expect(await db.select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
+
+    const approved = await request(app)
+      .post(`/api/ai/chat/proposals/${proposalId}/approve`)
+      .send({ projectId, revision: 0 });
+    expect(approved.status).toBe(200);
+    expect(approved.body).toMatchObject({ proposalId, approvalRequired: false, revision: 0 });
 
     const accepted = await request(app)
       .post("/api/ai/missions/apply-from-proposal")

@@ -207,6 +207,19 @@ async function main() {
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    console.log("Verifying approved Mission delivery against the controlled local bare remote.");
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/github-delivery-service.test.ts",
+      "-t",
+      "approved, committed candidate through the controlled local bare remote",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
     console.log(
       liveProviderRun
         ? "Running the live-provider goal-first journey against the real API and isolated loopback database."
