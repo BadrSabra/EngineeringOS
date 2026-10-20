@@ -2862,7 +2862,25 @@ describe('AiChat authenticated generated mutations', () => {
       renderAiChat();
       expect(await screen.findByTestId('notice-chat-source-message-unavailable'))
         .toHaveTextContent('The conversation opened, but its original message is unavailable.');
+      const latestMessagesButton = screen.getByTestId('button-open-latest-chat');
       expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(latestMessagesButton);
+      });
+      await waitFor(() => {
+        const latestUrl = new URL(window.location.href);
+        expect(latestUrl.pathname).toBe('/ai');
+        expect(latestUrl.searchParams.get('projectId')).toBe('project-1');
+        expect(latestUrl.searchParams.get('sessionId')).toBe('session-1');
+        expect(latestUrl.searchParams.get('missionId')).toBe('mission-one');
+        expect(latestUrl.searchParams.has('messageId')).toBe(false);
+      });
+      expect(screen.queryByTestId('notice-chat-source-message-unavailable')).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+      });
+      expect(mocks.mutations.setActiveMission.mutateAsync).not.toHaveBeenCalled();
     } finally {
       window.history.replaceState({}, '', previousLocation);
     }

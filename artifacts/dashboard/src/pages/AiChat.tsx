@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
 import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, Zap } from 'lucide-react';
-import { Link, useSearch } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
 import { Textarea } from '@/components/ui/textarea';
@@ -9749,6 +9749,7 @@ export default function AiChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded, user } = useUser();
 
+  const [, setLocation] = useLocation();
   const locationSearch = useSearch();
   const chatRouteTarget = useMemo(
     () => parseAiChatRouteTarget(locationSearch),
@@ -13983,9 +13984,27 @@ export default function AiChat() {
             <div
               role="status"
               data-testid="notice-chat-source-message-unavailable"
-              className="mx-auto mb-4 max-w-3xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+              className="mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
             >
-              The conversation opened, but its original message is unavailable.
+              <span>The conversation opened, but its original message is unavailable.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                data-testid="button-open-latest-chat"
+                onClick={() => {
+                  if (!sessionId) return;
+                  const params = new URLSearchParams({
+                    projectId: selectedProjectId,
+                    sessionId,
+                  });
+                  if (routeMissionId) params.set('missionId', routeMissionId);
+                  setLocation(`/ai?${params.toString()}`);
+                }}
+              >
+                Open latest messages
+              </Button>
             </div>
           )}
           {historicalReportError && (
