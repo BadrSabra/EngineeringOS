@@ -26,11 +26,19 @@ runtime, browser, or usability checks have passed.
 
 All services start automatically via the configured workflows:
 
+Use the **Run** button (`Project`) to start the existing services, then open
+`/dashboard/` in the app preview. Run package commands from the repository root
+with pnpm; there is no root `dev` script.
+
 | Service | Workflow |
 |---|---|
 | API server | `artifacts/api-server: API Server` |
 | Dashboard | `artifacts/dashboard: web` |
 | Mockup sandbox | `artifacts/mockup-sandbox: Component Preview Server` |
+| Project runtime supervisor | `workspace-runtime-supervisor` |
+
+The release and restart validation workflows are on-demand checks, not required
+for ordinary startup.
 
 ### Build versus runtime environment
 
@@ -51,11 +59,45 @@ The `dev` and `preview` commands remain fail-fast runtime commands: they require
 `PORT` and `BASE_PATH`, and the Dashboard additionally requires a valid public
 Clerk key. `CLERK_SECRET_KEY` is never read into or embedded in browser output.
 
-## Post-import setup (already done)
+## Post-import setup
 
-1. `pnpm install` — restores node_modules
-2. `pnpm --filter @workspace/db run schema:apply` — pushes and verifies the full Drizzle schema
-3. `setupClerkWhitelabelAuth()` — provisions Clerk keys
+For a fresh import:
+
+1. `pnpm install --frozen-lockfile` — restores all workspace dependencies.
+2. Provision Replit-managed Clerk through the Auth setup if the import has no
+   Clerk configuration; do not copy credentials from another app.
+3. `pnpm run db:schema:apply` — applies the schema to the development database
+   and verifies the application, audit outbox, and operator alert contracts.
+4. Start `Project` with the Run button.
+
+The current import has completed these steps. Express was updated within its
+existing major version because the imported lockfile's `proxy-addr@2.0.7`
+download was rejected by the package firewall. Express 5.3 uses `proxy-addr`
+2.0.8 or later; the firewall was not bypassed.
+
+### Import verification
+
+- `/api/readiness`: HTTP 200; API, database, and schema report ready.
+- `/api/healthz`: HTTP 200.
+- `/api/projects` without a session: HTTP 401 (authentication remains enforced).
+- `/dashboard/` and `/dashboard/sign-in`: visually checked; the Arabic landing
+  page and Clerk sign-in form render.
+- Signed-in dashboard journeys and live AI-provider calls have not been
+  verified. AI features still require a provider key.
+- The development-banner plugin requests an unprefixed script and logs a 404
+  under the dashboard preview path; it does not prevent the app or sign-in form
+  from rendering.
+- For browser checks after a fresh import, install the test browser with
+  `pnpm --filter @workspace/dashboard exec playwright install firefox`.
+  Firefox was installed and independently opened the dashboard landing page.
+- The dashboard restart smoke check passed. The broader release checks did not
+  pass: their browser run initially lacked Firefox; a separate API regression
+  run then failed the stream completion assertion in
+  `src/routes/ai-stream-integration.test.ts` and timed out in the matching
+  paired-baseline auto-promotion case in `src/routes/ai.test.ts`.
+  These are not resolved by import setup; do not treat startup readiness as
+  release approval. The full release/browser suites have not been rerun after
+  installing Firefox.
 
 ## Required secrets (already provisioned)
 
