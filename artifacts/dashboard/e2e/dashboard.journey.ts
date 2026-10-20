@@ -3976,6 +3976,7 @@ async function completeReadinessHandshake(
 async function installMissionManagementFixtures(
   page: Page,
   initialMission: Record<string, unknown> | null = null,
+  initialAgentControl: Record<string, unknown> | null = null,
 ) {
   const projectId = "e2e-project";
   const mutations: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
@@ -4119,6 +4120,7 @@ async function installMissionManagementFixtures(
       return route.fulfill(jsonResponse({
         mission,
         goals: goalItems,
+        ...(initialAgentControl ? { agentControl: initialAgentControl } : {}),
         counts: {
           goals: goalItems.length,
           tasks: 0,
@@ -5674,7 +5676,18 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       sessionId,
     });
     await installApiFixtures(page, { arabicAi: chatFixture });
-    await installMissionManagementFixtures(page, mission);
+    await installMissionManagementFixtures(page, mission, {
+      handoff: {
+        kind: "chat",
+        sessionId,
+        messageId,
+        assistantMessageId,
+        planHash: "e2e-mission-return-plan",
+        dispatchStatus: "dispatched",
+        confirmedAt: now,
+        dispatchedAt: now,
+      },
+    });
     const sessionMissionFixture = await installChatSessionMissionFixture(page, {
       sessionId,
       mission,
@@ -5692,7 +5705,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await historyMission.getByTestId(`link-chat-session-mission-${missionId}`).click();
 
     await expect(page.getByTestId(`mission-source-provenance-${missionId}`)).toBeVisible();
-    const returnLink = page.getByTestId("link-mission-source-chat");
+    const findingSourceLink = page.getByTestId("link-mission-source-chat");
+    await expect(findingSourceLink).toHaveAttribute(
+      "href",
+      `${DASHBOARD_PATH}ai?projectId=${projectId}&sessionId=${sessionId}&messageId=${assistantMessageId}`,
+    );
+    const returnLink = page.getByTestId("link-mission-handoff-chat");
     await expect(returnLink).toHaveAttribute(
       "href",
       `${DASHBOARD_PATH}ai?projectId=${projectId}&sessionId=${sessionId}&missionId=${missionId}&messageId=${assistantMessageId}`,

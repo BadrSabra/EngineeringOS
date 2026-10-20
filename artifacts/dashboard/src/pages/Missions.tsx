@@ -1982,6 +1982,7 @@ export default function Missions() {
                                     activeMission.id,
                                     projection.agentControl.handoff,
                                   )!}
+                                  data-testid="link-mission-handoff-chat"
                                   className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-200 hover:text-cyan-100"
                                 >
                                   Return to originating conversation <ArrowUpRight className="h-3.5 w-3.5" />
