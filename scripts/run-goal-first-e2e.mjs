@@ -141,7 +141,7 @@ async function main() {
     env.DASHBOARD_E2E_TEST_MODE = liveProviderRun ? "live-provider" : "fixture";
     env.DASHBOARD_E2E_GREP = liveProviderRun
       ? "goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"
-      : "goal-first";
+      : "goal-first|signs in and traverses the authenticated operational shell|returns from Mission details to the original Chat session with its active Mission restored";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? "240000";
@@ -217,6 +217,19 @@ async function main() {
       "src/lib/github-delivery-service.test.ts",
       "-t",
       "approved, committed candidate through the controlled local bare remote",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
+    console.log("Verifying AI-scoped commit identity and delivery through the isolated local remote.");
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/routes/git.test.ts",
+      "-t",
+      "keeps manual Git push outside AI World State and completes the approved delivery trace",
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 

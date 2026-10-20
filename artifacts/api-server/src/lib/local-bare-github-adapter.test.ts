@@ -102,6 +102,8 @@ describe("controlled local bare GitHub adapter", () => {
         message: "Apply verified lifecycle candidate",
         tree: tree.sha,
         parents: [baseCommit],
+        author: { name: "Lifecycle Fixture", email: "fixture@example.invalid", date: "2024-01-01T00:00:00Z" },
+        committer: { name: "Lifecycle Fixture", email: "fixture@example.invalid", date: "2024-01-01T00:00:00Z" },
       }),
     });
     await request(updateRefPath, {

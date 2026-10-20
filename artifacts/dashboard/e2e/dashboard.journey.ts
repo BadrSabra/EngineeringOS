@@ -5097,6 +5097,27 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .getByTestId("event-home-e2e-event")
         .getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
+    for (const testId of [
+      "link-tasks-from-home",
+      "card-active-work-home",
+      "card-completed-work-home",
+      "card-failed-work-home",
+    ]) {
+      await expect(page.getByTestId(testId)).toHaveAttribute(
+        "href",
+        `${DASHBOARD_PATH}tasks`,
+      );
+    }
+    await page.getByTestId("link-tasks-from-home").click();
+    await expect(page).toHaveURL(new RegExp(
+      `${DASHBOARD_PATH.replaceAll("/", "\\/")}tasks$`,
+    ));
+    await expect(
+      page.getByRole("heading", { name: "المهام", exact: true }),
+    ).toBeVisible();
+    await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
+    await expectDashboardReady(page);
+
     await openNavigation(page, "المشاريع", `${DASHBOARD_PATH}projects`);
     await expect(page.getByRole("heading", { name: "المشاريع" })).toBeVisible();
     await expect(

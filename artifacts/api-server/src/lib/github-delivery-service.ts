@@ -209,10 +209,6 @@ function operationMarker(operationId: string): string {
   return `EngineeringOS-Operation: ${operationId}`;
 }
 
-function deliveryCommitMessage(message: string, operationId: string): string {
-  return `${message.trim()}\n\n${operationMarker(operationId)}`;
-}
-
 async function localCommitIdentity(rootPath: string, commitHash: string): Promise<{
   parentHash: string;
   parentTreeHash: string;
@@ -596,8 +592,11 @@ export async function executeVerifiedGitHubDelivery(
       return blocked("The repository HEAD changed after the recorded AI commit.");
     }
 
-    const expectedMessage = deliveryCommitMessage(params.message, params.operationId);
     const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
+    const commitMessage = await gitText(params.rootPath, ["show", "-s", "--format=%B", commitHash]);
+    if (!commitMessage.split(/\r?\n/u).some((line) => line.trim() === operationMarker(params.operationId))) {
+      return blocked("The committed Git object does not contain this delivery operation marker.");
+    }
     const remoteBeforeState = await getGitHubBranchState({
       remote,
       branch: params.branch,
@@ -711,7 +710,7 @@ export async function executeVerifiedGitHubDelivery(
       remote,
       branch: params.branch,
       commitHash,
-      message: expectedMessage,
+      message: commitMessage,
       ...(params.request ? { request: params.request } : {}),
     });
     const remoteAfterState = await getGitHubBranchState({

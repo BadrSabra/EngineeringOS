@@ -56,6 +56,22 @@ function parseObjectBody(body: string | undefined): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function parseCommitIdentity(value: unknown): { name: string; email: string; date: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Local GitHub fixture commit identity is missing.");
+  }
+  const identity = value as Record<string, unknown>;
+  const { name, email, date } = identity;
+  if (
+    typeof name !== "string" || !name.trim() || name.length > 200 || /[\r\n\0]/u.test(name)
+    || typeof email !== "string" || !email.trim() || email.length > 320 || /[\r\n\0]/u.test(email)
+    || typeof date !== "string" || date.length > 80 || !Number.isFinite(Date.parse(date))
+  ) {
+    throw new Error("Local GitHub fixture commit identity is invalid.");
+  }
+  return { name, email, date };
+}
+
 function safeBranch(branch: string): string {
   const normalized = branch.split("/").map(decodeURIComponent).join("/");
   if (
@@ -229,12 +245,16 @@ export async function createLocalBareGitHubRequest(input: {
       if (typeof body.message !== "string" || !body.message.trim() || body.message.length > 500) {
         throw new Error("Local GitHub fixture commit message is invalid.");
       }
+      const author = parseCommitIdentity(body.author);
+      const committer = parseCommitIdentity(body.committer);
       const sha = (await runGit(bareRepoPath, ["commit-tree", tree, "-p", parent, "-m", body.message], {
         env: {
-          GIT_AUTHOR_NAME: "EngineeringOS Lifecycle Fixture",
-          GIT_AUTHOR_EMAIL: "fixture@example.invalid",
-          GIT_COMMITTER_NAME: "EngineeringOS Lifecycle Fixture",
-          GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+          GIT_AUTHOR_NAME: author.name,
+          GIT_AUTHOR_EMAIL: author.email,
+          GIT_AUTHOR_DATE: author.date,
+          GIT_COMMITTER_NAME: committer.name,
+          GIT_COMMITTER_EMAIL: committer.email,
+          GIT_COMMITTER_DATE: committer.date,
         },
       })).stdout.toString("utf8").trim();
       return { sha };

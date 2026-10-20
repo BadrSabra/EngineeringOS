@@ -38,3 +38,9 @@ Concurrent delivery needs separate operation serialization and durable event uni
 **Why:** Lookup-then-insert races can duplicate remote object creation, attempts, or receipts, while the shared events table also stores unrelated manual activity.
 
 **How to apply:** Add concurrency protection only to the verified delivery path. Preserve the expected-parent fence, make receipt finalization idempotent, and avoid broad uniqueness on all correlated events.
+
+To preserve the exact local commit identity through GitHub's REST Git-data API, proposal commits must already contain the server-owned operation marker, and the mirrored remote commit must reuse the local message plus author/committer names, emails, and dates. Never substitute a new message or accept a different remote SHA.
+
+**Why:** A Git commit hash includes its tree, parent, message, author, committer, and timestamps. Recreating only its tree and parent necessarily produces another hash, making exact delivery proof impossible.
+
+**How to apply:** Append the operation marker when creating an AI-scoped local commit, then mirror that exact commit message and identity through the GitHub commit endpoint. Keep remote after-state verification bound to the exact local hash.

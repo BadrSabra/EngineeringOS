@@ -312,6 +312,9 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
 
   const { rootPath, id: projectId } = req.project!;
   const correlationId = operationId ?? proposalId ?? randomUUID();
+  const commitMessage = proposalId
+    ? `${message}\n\nEngineeringOS-Operation: ${correlationId}`
+    : message;
 
   try {
     await assertRootPathExists(rootPath);
@@ -532,18 +535,18 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       }
       if (workingTreePaths.length === 0) {
         const { stdout: headMetadata } = await runGit(
-          ["log", "-1", "--format=%H%x00%s"],
+          ["log", "-1", "--format=%H%x00%B"],
           rootPath,
         );
         const [headHash, ...headMessageParts] = headMetadata.split("\0");
-        const headMessage = headMessageParts.join("\0");
+        const headMessage = headMessageParts.join("\0").trimEnd();
         const headPaths = (await runGit(
           ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
           rootPath,
         )).stdout.split("\n").filter(Boolean).sort();
         if (
           headHash
-          && headMessage === message.trim()
+          && headMessage === commitMessage
           && headPaths.length === scopedPaths.length
           && headPaths.every((candidate, index) => candidate === [...scopedPaths!].sort()[index])
         ) {
@@ -579,7 +582,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         [
           "-c", "user.name=EngineeringOS",
           "-c", "user.email=ai@engineeringos.local",
-          "commit", "-m", message.trim(),
+          "commit", "-m", commitMessage,
         ],
         rootPath,
       ));

@@ -80,6 +80,32 @@ async function gitText(rootPath: string, args: string[]): Promise<string> {
   return String(result.stdout).trim();
 }
 
+async function gitCommitIdentities(rootPath: string, commitHash: string): Promise<{
+  author: { name: string; email: string; date: string };
+  committer: { name: string; email: string; date: string };
+}> {
+  const result = await execFileAsync("git", [
+    "-C", rootPath,
+    "show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI",
+    commitHash,
+  ], { maxBuffer: GIT_MAX_BUFFER, encoding: "utf8" });
+  const [authorName, authorEmail, authorDate, committerName, committerEmail, committerDate] =
+    String(result.stdout).trimEnd().split("\0");
+  if (
+    !authorName || !authorEmail || !authorDate
+    || !committerName || !committerEmail || !committerDate
+  ) {
+    throw new GitHubConnectorError(
+      "The verified local commit has incomplete author or committer metadata.",
+      "GITHUB_COMMIT_METADATA_INVALID",
+    );
+  }
+  return {
+    author: { name: authorName, email: authorEmail, date: authorDate },
+    committer: { name: committerName, email: committerEmail, date: committerDate },
+  };
+}
+
 async function gitBlob(rootPath: string, commitHash: string, filePath: string): Promise<Buffer> {
   const result = await execFileAsync(
     "git",
@@ -285,12 +311,14 @@ export async function pushLocalCommitToGitHub(args: {
     throw new GitHubConnectorError("GitHub tree creation returned no sha", "GITHUB_API_INVALID_RESPONSE");
   }
 
+  const identities = await gitCommitIdentities(args.rootPath, args.commitHash);
   const createdCommit = await request(repoPath(args.remote, "/git/commits"), {
     method: "POST",
     body: JSON.stringify({
       message: args.message,
       tree: createdTree.sha,
       parents: [remoteCommitHash],
+      ...identities,
     }),
   });
   if (typeof createdCommit.sha !== "string") {

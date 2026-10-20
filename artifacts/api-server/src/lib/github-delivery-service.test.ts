@@ -364,8 +364,8 @@ describe("verified GitHub delivery service", () => {
       await writeFile(path.join(rootPath, "README.md"), candidateContent, "utf8");
       await git(rootPath, ["add", "README.md"]);
       await git(rootPath, [
-        "-c", "user.name=Lifecycle Fixture", "-c", "user.email=fixture@example.invalid",
-        "commit", "-qm", "Apply reviewed Mission candidate",
+        "-c", "user.name=EngineeringOS", "-c", "user.email=ai@engineeringos.local",
+        "commit", "-qm", `Apply reviewed Mission candidate\n\nEngineeringOS-Operation: ${operationId}`,
       ]);
       const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.toString().trim();
       const candidateTreeHash = await hashDeliveryTree(rootPath);
@@ -490,7 +490,7 @@ describe("verified GitHub delivery service", () => {
       expect(delivered).toMatchObject({
         status: "passed",
         candidateTreeHash,
-        committedTreeHash: candidateTreeHash,
+        treeHash: candidateTreeHash,
         afterState: {
           status: "passed",
           proposalId,
@@ -502,7 +502,7 @@ describe("verified GitHub delivery service", () => {
       });
       expect(connectorCalls.some((call) => call.startsWith("PATCH "))).toBe(true);
       const remoteHead = (await git(bareRemotePath, ["rev-parse", "refs/heads/main"])).stdout.toString().trim();
-      expect(remoteHead).not.toBe(baseCommit);
+      expect(remoteHead).toBe(commitHash);
       expect((await execFileAsync("git", [
         "--git-dir", bareRemotePath, "show", `${remoteHead}:README.md`,
       ], { encoding: "utf8" })).stdout).toBe(candidateContent);

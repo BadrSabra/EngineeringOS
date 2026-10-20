@@ -229,7 +229,7 @@ describe("AI-scoped Git commits", () => {
     await git(fixture.rootPath, [
       "-c", "user.name=EngineeringOS",
       "-c", "user.email=ai@engineeringos.local",
-      "commit", "-qm", message,
+      "commit", "-qm", `${message}\n\nEngineeringOS-Operation: ${fixture.proposalId}`,
     ]);
 
     const response = await request(app)
@@ -386,6 +386,12 @@ process.exit(result.status ?? 1);
         promotedTreeHash: fixture.promotedTreeHash,
         treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       });
+      const committedMessage = String(
+        (await git(fixture.rootPath, ["show", "-s", "--format=%B", "HEAD"])).stdout,
+      ).trimEnd();
+      expect(committedMessage).toBe(
+        `Apply verified AI changes\n\nEngineeringOS-Operation: ${operationId}`,
+      );
       const duplicateCommit = await request(app)
         .post(`/api/projects/${fixture.projectId}/git/commit`)
         .send({
