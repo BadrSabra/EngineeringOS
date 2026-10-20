@@ -4385,6 +4385,9 @@ describe("recipe operation preparation", () => {
       expect(unboundTransitions).toEqual([]);
       expect(remoteWrites).toEqual({ blobs: 0, trees: 0, commits: 0, refUpdates: 0 });
       const worldAfterUnboundAttempt = await worldState.getProjectWorldState(projectId);
+      // Revision includes eligible observation progress, so this rejection advances the evidence revision.
+      // It records Gate C pending evidence without changing materialized World State facts.
+      expect(worldAfterUnboundAttempt.worldRevision).not.toBe(runtimeWorld.worldRevision);
       expect(worldAfterUnboundAttempt.facts).toEqual(runtimeWorld.facts);
 
       const deliveryParams = {
@@ -4580,6 +4583,516 @@ describe("recipe operation preparation", () => {
       await fixture.cleanup();
     }
   }, 90_000);
+
+  it("fails closed after a recipe worker dies between GitHub ref update and receipt persistence", async () => {
+    const fixture = await createGateCRecipeFixture("delivery.push.github");
+    const { projectId, rootPath, sessionId } = fixture.params;
+    const operationId = fixture.params.operationId;
+    const proposalId = crypto.randomUUID();
+    const remoteUrl = "https://github.com/example/project.git";
+    const branchName = "main";
+    const remoteWrites = { blobs: 0, trees: 0, commits: 0, refUpdates: 0 };
+    const apiProblems: string[] = [];
+    let fakeGithub: ReturnType<typeof createHttpServer> | undefined;
+    let child: ReturnType<typeof spawn> | undefined;
+    let childExit: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
+    let postPushCommitReadHeld = false;
+    let branch = {
+      commitHash: "",
+      treeHash: "",
+      message: "initial",
+      parents: [] as string[],
+    };
+    let pendingMessage = "";
+
+    try {
+      await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+      await writeFile(path.join(rootPath, "README.md"), "before\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+      await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+      await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "README.md", "package.json"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "initial"]);
+      const parentHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
+      const parentTreeHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${parentHash}^{tree}`],
+      )).stdout.trim();
+      const baseTreeHash = await hashDeliveryTree(rootPath);
+
+      await writeFile(path.join(rootPath, "README.md"), "after\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "add", "README.md"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "verified local delivery"]);
+      const commitHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
+      const gitTreeHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${commitHash}^{tree}`],
+      )).stdout.trim();
+      const blobHash = (await execFileAsync(
+        "git",
+        ["-C", rootPath, "rev-parse", `${commitHash}:README.md`],
+      )).stdout.trim();
+      const committedTreeHash = await hashDeliveryTree(rootPath);
+      branch = {
+        commitHash: parentHash,
+        treeHash: parentTreeHash,
+        message: "initial",
+        parents: [],
+      };
+
+      await db.update(projectsTable).set({
+        gitRemoteUrl: remoteUrl,
+        gitDefaultBranch: branchName,
+      }).where(eq(projectsTable.id, projectId));
+      const now = new Date();
+      await db.insert(aiChatMessagesTable).values({
+        id: crypto.randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: "Verified delivery candidate",
+        createdAt: now,
+      });
+      const messageId = (await db.select({ id: aiChatMessagesTable.id })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.sessionId, sessionId))
+        .limit(1))[0]!.id;
+      await db.insert(aiChangeProposalsTable).values({
+        id: proposalId,
+        projectId,
+        sessionId,
+        messageId,
+        changes: JSON.stringify([{ path: "README.md", newContent: "after\n" }]),
+        appliedChanges: JSON.stringify([{ path: "README.md", newContent: "after\n" }]),
+        status: "applied",
+        lifecycle: "committed",
+        operationId,
+        baseRevision: parentHash,
+        changeSetHash: `crash-recovery:${operationId}`,
+        baseTreeHash,
+        candidateTreeHash: committedTreeHash,
+        promotedTreeHash: committedTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        commitHash,
+        committedTreeHash,
+        createdAt: now,
+        consumedAt: now,
+      });
+      await db.insert(eventsTable).values({
+        id: crypto.randomUUID(),
+        type: "GitCommitCreated",
+        projectId,
+        severity: "info",
+        message: "Verified local commit created for recipe crash recovery test",
+        correlationId: operationId,
+        payload: {
+          proposalId,
+          operationId,
+          commitHash,
+          committedTreeHash,
+          committedPaths: ["README.md"],
+        },
+      });
+
+      fakeGithub = createHttpServer(async (req, res) => {
+        const respond = (status: number, payload: Record<string, unknown>) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(Buffer.from(chunk));
+          const rawBody = Buffer.concat(chunks).toString("utf8");
+          const body = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
+          const requestPath = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+          if (req.method === "GET" && requestPath.endsWith("/git/ref/heads/main")) {
+            respond(200, { ref: "refs/heads/main", object: { sha: branch.commitHash } });
+            return;
+          }
+          const commitMatch = requestPath.match(/\/git\/commits\/([^/]+)$/);
+          if (req.method === "GET" && commitMatch) {
+            const requestedHash = decodeURIComponent(commitMatch[1]!);
+            if (requestedHash === parentHash) {
+              respond(200, {
+                sha: parentHash,
+                tree: { sha: parentTreeHash },
+                message: "initial",
+                parents: [],
+              });
+              return;
+            }
+            if (requestedHash === commitHash && branch.commitHash === commitHash) {
+              if (!postPushCommitReadHeld) {
+                postPushCommitReadHeld = true;
+                return;
+              }
+              respond(200, {
+                sha: commitHash,
+                tree: { sha: branch.treeHash },
+                message: branch.message,
+                parents: branch.parents.map((sha) => ({ sha })),
+              });
+              return;
+            }
+            respond(404, { message: "Unknown fixture commit" });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/blobs")) {
+            remoteWrites.blobs += 1;
+            if (
+              body.encoding !== "base64"
+              || Buffer.from(String(body.content ?? ""), "base64").toString("utf8") !== "after\n"
+            ) {
+              apiProblems.push("Blob request did not contain the committed README bytes.");
+              respond(422, { message: "Unexpected blob request" });
+              return;
+            }
+            respond(201, { sha: blobHash });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/trees")) {
+            remoteWrites.trees += 1;
+            if (
+              body.base_tree !== parentTreeHash
+              || !Array.isArray(body.tree)
+              || !body.tree.some((entry) =>
+                entry
+                && typeof entry === "object"
+                && (entry as Record<string, unknown>).path === "README.md"
+                && (entry as Record<string, unknown>).sha === blobHash)
+            ) {
+              apiProblems.push("Tree request did not use the verified parent and README blob.");
+              respond(422, { message: "Unexpected tree request" });
+              return;
+            }
+            respond(201, { sha: gitTreeHash });
+            return;
+          }
+          if (req.method === "POST" && requestPath.endsWith("/git/commits")) {
+            remoteWrites.commits += 1;
+            const parents = Array.isArray(body.parents) ? body.parents : [];
+            if (body.tree !== gitTreeHash || parents.length !== 1 || parents[0] !== parentHash) {
+              apiProblems.push("Commit request did not match the verified tree and parent.");
+              respond(422, { message: "Unexpected commit request" });
+              return;
+            }
+            pendingMessage = String(body.message ?? "");
+            respond(201, { sha: commitHash });
+            return;
+          }
+          if (req.method === "PATCH" && requestPath.endsWith("/git/refs/heads/main")) {
+            if (
+              branch.commitHash !== parentHash
+              || body.sha !== commitHash
+              || body.force !== false
+              || !pendingMessage.includes(`EngineeringOS-Operation: ${operationId}`)
+            ) {
+              apiProblems.push("Ref update did not match the verified delivery commit.");
+              respond(409, { message: "Unexpected ref update" });
+              return;
+            }
+            branch = {
+              commitHash,
+              treeHash: gitTreeHash,
+              message: pendingMessage,
+              parents: [parentHash],
+            };
+            remoteWrites.refUpdates += 1;
+            respond(200, { ref: "refs/heads/main", object: { sha: commitHash } });
+            return;
+          }
+          apiProblems.push(`Unexpected fixture GitHub request: ${req.method} ${requestPath}`);
+          respond(404, { message: "Unexpected fixture GitHub request" });
+        } catch (error) {
+          apiProblems.push(error instanceof Error ? error.message : String(error));
+          respond(500, { message: "Fixture GitHub API failed" });
+        }
+      });
+      await new Promise<void>((resolve, reject) => {
+        fakeGithub!.once("error", reject);
+        fakeGithub!.listen(0, "127.0.0.1", resolve);
+      });
+      const fixtureAddress = fakeGithub.address();
+      if (!fixtureAddress || typeof fixtureAddress === "string") {
+        throw new Error("Fixture GitHub API did not receive a TCP address.");
+      }
+      const fixtureUrl = `http://127.0.0.1:${fixtureAddress.port}`;
+      const rawDatabaseUrl = process.env.DATABASE_URL;
+      if (!rawDatabaseUrl) {
+        throw new Error("Recipe crash recovery requires an explicit disposable DATABASE_URL.");
+      }
+      const childDatabaseUrl = new URL(rawDatabaseUrl);
+      if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(childDatabaseUrl.hostname)) {
+        throw new Error("Recipe crash recovery requires a loopback-only PostgreSQL database.");
+      }
+      const childApplicationName = `e2-gh-recipe-${projectId}`;
+      childDatabaseUrl.searchParams.set("application_name", childApplicationName);
+      const runnerModuleUrl = new URL("./recipe-operation-runner.ts", import.meta.url).href;
+      const deliveryModuleUrl = new URL("./github-delivery-service.ts", import.meta.url).href;
+      const childSource = [
+        "(async () => {",
+        `  const { runRecipeOperation } = await import(${JSON.stringify(runnerModuleUrl)});`,
+        `  const { executeVerifiedGitHubDelivery } = await import(${JSON.stringify(deliveryModuleUrl)});`,
+        "  let rawInput = '';",
+        "  const inputPromise = new Promise((resolve) => {",
+        "    process.stdin.setEncoding('utf8');",
+        "    process.stdin.on('data', (chunk) => { rawInput += chunk; });",
+        "    process.stdin.on('end', () => resolve(rawInput));",
+        "  });",
+        "  const input = JSON.parse(await inputPromise);",
+        "  const request = async (apiPath, init = {}) => {",
+        "    const response = await fetch(process.env.E2_GITHUB_FIXTURE_URL + apiPath, {",
+        "      method: init.method ?? 'GET', headers: init.headers, body: init.body,",
+        "    });",
+        "    const body = await response.json();",
+        "    if (!response.ok) throw new Error(JSON.stringify(body));",
+        "    return body;",
+        "  };",
+        "  await runRecipeOperation({",
+        "    ...input.params,",
+        "    githubDeliveryRunner: async (deliveryInput) => executeVerifiedGitHubDelivery({",
+        "      projectId: deliveryInput.projectId,",
+        "      proposalId: input.proposalId,",
+        "      operationId: deliveryInput.operationId,",
+        "      executionId: deliveryInput.executionId,",
+        "      executionAttempt: deliveryInput.executionAttempt,",
+        "      sourceRevision: deliveryInput.sourceRevision,",
+        "      rootPath: input.params.rootPath,",
+        "      remoteUrl: input.remoteUrl,",
+        "      branch: input.branchName,",
+        "      message: deliveryInput.message,",
+        "      signal: deliveryInput.signal,",
+        "      beforeStateObserver: deliveryInput.beforeStateObserver,",
+        "      request,",
+        "    }),",
+        "  });",
+        "})().catch((error) => { console.error(error); process.exitCode = 1; });",
+      ].join("\n");
+      child = spawn(process.execPath, ["--import", "tsx", "-e", childSource], {
+        cwd: process.cwd(),
+        env: {
+          DATABASE_URL: childDatabaseUrl.toString(),
+          NODE_ENV: "test",
+          PATH: process.env.PATH ?? "",
+          HOME: process.env.HOME ?? "/tmp",
+          PGAPPNAME: childApplicationName,
+          AI_PROVIDER_EGRESS_DISABLED: "1",
+          RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+          DASHBOARD_E2E_TEST_MODE: "fixture",
+          E2_GITHUB_FIXTURE_URL: fixtureUrl,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      let childOutput = "";
+      let childDiagnostics = "";
+      child.stdout?.on("data", (chunk: string) => { childOutput += chunk; });
+      child.stderr?.on("data", (chunk: string) => { childDiagnostics += chunk; });
+      childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+        (resolve) => child!.once("exit", (code, signal) => resolve({ code, signal })),
+      );
+      const deliveryInput = {
+        ...fixture.params,
+        sourceRevision: commitHash,
+        proofRequired: true,
+      };
+      child.stdin?.end(JSON.stringify({ params: deliveryInput, proposalId, remoteUrl, branchName }));
+
+      const pushDeadline = Date.now() + 60_000;
+      while (!postPushCommitReadHeld && Date.now() < pushDeadline) {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          throw new Error(
+            `Recipe child exited before the post-push commit read was held `
+            + `(code=${child.exitCode}, signal=${child.signalCode}); `
+            + `stderr=${childDiagnostics}; stdout=${childOutput}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(postPushCommitReadHeld).toBe(true);
+      expect(branch.commitHash).toBe(commitHash);
+      expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
+      expect(child.kill("SIGKILL")).toBe(true);
+      expect(await childExit).toMatchObject({ code: null, signal: "SIGKILL" });
+
+      const disconnectDeadline = Date.now() + 20_000;
+      let childDisconnected = false;
+      while (Date.now() < disconnectDeadline) {
+        const sessions = await db.execute(sql`
+          SELECT pid FROM pg_stat_activity
+          WHERE datname = current_database() AND application_name = ${childApplicationName}
+        `);
+        if (sessions.rows.length === 0) {
+          childDisconnected = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(childDisconnected).toBe(true);
+
+      const [interruptedExecution] = await db.select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.operationId, operationId))
+        .limit(1);
+      expect(interruptedExecution).toMatchObject({ status: "running", attempt: 0 });
+      if (!interruptedExecution) {
+        throw new Error("Interrupted delivery recipe did not persist its execution.");
+      }
+      const interruptedAttemptEvents = await db.select({
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(and(
+        eq(eventsTable.type, "GitPushAttemptStarted"),
+        eq(eventsTable.correlationId, operationId),
+      ));
+      expect(interruptedAttemptEvents).toHaveLength(1);
+      expect(interruptedAttemptEvents[0]?.payload).toMatchObject({
+        proposalId,
+        operationId,
+        executionId: interruptedExecution.id,
+        executionAttempt: 0,
+        commitHash,
+      });
+      const interruptedReceipts = await db.select({ id: eventsTable.id }).from(eventsTable)
+        .where(and(
+          eq(eventsTable.type, "GitPushed"),
+          eq(eventsTable.correlationId, operationId),
+        ));
+      expect(interruptedReceipts).toEqual([]);
+      const interruptedSuccesses = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, interruptedExecution.id),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ));
+      const interruptedEffects = await db.select({ id: aiAgentEffectsTable.id })
+        .from(aiAgentEffectsTable).where(eq(aiAgentEffectsTable.executionId, interruptedExecution.id));
+      const interruptedBundles = await db.select({ id: aiAgentEffectBundlesTable.id })
+        .from(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.executionId, interruptedExecution.id));
+      const interruptedTransitions = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, interruptedExecution.id));
+      expect(interruptedSuccesses).toEqual([]);
+      expect(interruptedEffects).toEqual([]);
+      expect(interruptedBundles).toEqual([]);
+      expect(interruptedTransitions).toHaveLength(1);
+      expect(interruptedTransitions[0]).toMatchObject({
+        status: "pending",
+        attempt: 0,
+        afterObservationIds: [],
+      });
+      expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
+      expect(apiProblems).toEqual([]);
+
+      const interruptedWorld = await worldState.getProjectWorldState(projectId);
+      await db.update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiExecutionsTable.id, interruptedExecution.id));
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBeGreaterThanOrEqual(1);
+      let recoveredRunnerCalls = 0;
+      const recovered = await runRecipeOperation({
+        ...deliveryInput,
+        githubDeliveryRunner: makeTestRunner(),
+      });
+      function makeTestRunner() {
+        return async (input: Parameters<
+          NonNullable<Parameters<typeof runRecipeOperation>[0]["githubDeliveryRunner"]>
+        >[0]) => {
+          recoveredRunnerCalls += 1;
+          return executeVerifiedGitHubDelivery({
+            projectId: input.projectId,
+            proposalId,
+            operationId: input.operationId,
+            executionId: input.executionId!,
+            executionAttempt: input.executionAttempt!,
+            sourceRevision: input.sourceRevision!,
+            rootPath,
+            remoteUrl,
+            branch: branchName,
+            message: input.message,
+            signal: input.signal,
+            beforeStateObserver: input.beforeStateObserver,
+            request: async (apiPath, init = {}) => {
+              const response = await fetch(`${fixtureUrl}${apiPath}`, {
+                method: init.method ?? "GET",
+                headers: init.headers,
+                body: init.body,
+              });
+              const payload = await response.json() as Record<string, unknown>;
+              if (!response.ok) throw new Error(JSON.stringify(payload));
+              return payload;
+            },
+          });
+        };
+      }
+      expect(recovered.status).toBe("blocked");
+      expect(recovered).toMatchObject({
+        executionId: interruptedExecution.id,
+        completedNodeIds: [],
+        receipt: {
+          attempt: 1,
+          status: "blocked",
+          completedNodeIds: [],
+          nodes: [{
+            status: "blocked",
+            attempts: 1,
+            evidenceId: null,
+          }],
+        },
+      });
+      expect(recoveredRunnerCalls).toBe(0);
+      const finalReceipts = await db.select({ id: eventsTable.id }).from(eventsTable)
+        .where(and(
+          eq(eventsTable.type, "GitPushed"),
+          eq(eventsTable.correlationId, operationId),
+        ));
+      expect(finalReceipts).toEqual([]);
+      const finalSuccesses = await db.select({ id: aiExecutionAcceptancesTable.id })
+        .from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, interruptedExecution.id),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ));
+      const finalEffects = await db.select({ id: aiAgentEffectsTable.id })
+        .from(aiAgentEffectsTable).where(eq(aiAgentEffectsTable.executionId, interruptedExecution.id));
+      const finalBundles = await db.select({ id: aiAgentEffectBundlesTable.id })
+        .from(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.executionId, interruptedExecution.id));
+      const finalTransitions = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, interruptedExecution.id));
+      expect(finalSuccesses).toEqual([]);
+      expect(finalEffects).toEqual([]);
+      expect(finalBundles).toEqual([]);
+      expect(finalTransitions).toHaveLength(1);
+      expect(finalTransitions[0]).toMatchObject({
+        id: interruptedTransitions[0]!.id,
+        status: "pending",
+        attempt: 0,
+      });
+      expect((await worldState.getProjectWorldState(projectId)).facts).toEqual(interruptedWorld.facts);
+      expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
+      expect(apiProblems).toEqual([]);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await childExit;
+      }
+      if (fakeGithub?.listening) {
+        await new Promise<void>((resolve) => fakeGithub!.close(() => resolve()));
+      }
+      const projectExecutions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      for (const execution of projectExecutions) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution.id));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.id));
+      }
+      await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
+      await db.delete(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.projectId, projectId));
+      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.sessionId, sessionId));
+      await fixture.cleanup();
+    }
+  }, 120_000);
 
   it("fails closed before capability execution when a passed checkpoint has no evidence", async () => {
     validationCalls.length = 0;
