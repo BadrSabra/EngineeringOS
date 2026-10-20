@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Locator,
   type Page,
+  type Route,
 } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -3966,10 +3967,13 @@ async function completeReadinessHandshake(
   );
 }
 
-async function installMissionManagementFixtures(page: Page) {
+async function installMissionManagementFixtures(
+  page: Page,
+  initialMission: Record<string, unknown> | null = null,
+) {
   const projectId = "e2e-project";
   const mutations: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
-  let mission: Record<string, unknown> | null = null;
+  let mission: Record<string, unknown> | null = initialMission;
   let goal: Record<string, unknown> | null = null;
 
   const now = "2026-01-01T00:00:00.000Z";
@@ -4171,6 +4175,86 @@ async function installMissionManagementFixtures(page: Page) {
   });
 
   return { mutations };
+}
+
+async function installChatSessionMissionFixture(
+  page: Page,
+  options: {
+    sessionId: string;
+    mission: Record<string, unknown>;
+    messageId: string;
+    assistantMessageId: string;
+  },
+) {
+  const missionId = String(options.mission.id);
+  let activeMissionId: string | null = null;
+  const selectionRequests: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
+  const createdAt = String(options.mission.createdAt);
+  const updatedAt = String(options.mission.updatedAt);
+  const missionReference = {
+    id: missionId,
+    title: String(options.mission.title),
+    status: String(options.mission.status),
+    createdAt,
+    updatedAt,
+  };
+
+  const handleRoute = async (route: Route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace(/^\/dashboard(?=\/|$)/, "");
+    if (
+      path === `/api/ai/chat/${options.sessionId}/missions`
+      && request.method() === "GET"
+    ) {
+      return route.fulfill(jsonResponse({
+        sessionId: options.sessionId,
+        activeMissionId,
+        missions: [{
+          mission: missionReference,
+          agentControl: {
+            handoff: {
+              kind: "chat",
+              sessionId: options.sessionId,
+              messageId: options.messageId,
+              assistantMessageId: options.assistantMessageId,
+              planHash: "e2e-mission-return-plan",
+              dispatchStatus: "dispatched",
+              confirmedAt: createdAt,
+              dispatchedAt: createdAt,
+            },
+          },
+        }],
+      }));
+    }
+    if (
+      path === `/api/ai/chat/${options.sessionId}/active-mission`
+      && request.method() === "PUT"
+    ) {
+      let body: Record<string, unknown> = {};
+      try {
+        body = (request.postDataJSON() as Record<string, unknown>) ?? {};
+      } catch {
+        body = {};
+      }
+      selectionRequests.push({ method: request.method(), path, body });
+      if (body.missionId !== missionId) {
+        return route.fulfill(jsonResponse({ error: "Mission not found" }, 404));
+      }
+      activeMissionId = missionId;
+      return route.fulfill(jsonResponse({
+        sessionId: options.sessionId,
+        activeMissionId,
+      }));
+    }
+    return route.fulfill(jsonResponse({ error: "Method not allowed" }, 405));
+  };
+  await page.route(`**/api/ai/chat/${options.sessionId}/missions`, handleRoute);
+  await page.route(`**/api/ai/chat/${options.sessionId}/active-mission`, handleRoute);
+
+  return {
+    selectionRequests,
+    getActiveMissionId: () => activeMissionId,
+  };
 }
 
 const NAVIGATION_GROUP_BY_PATH: Partial<Record<string, string>> = {
@@ -5534,6 +5618,99 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       owner: "operator",
       action: "approve",
     });
+    browserErrors.assertClean();
+  });
+
+  test("returns from Mission details to the original Chat session with its active Mission restored", async ({
+    page,
+  }) => {
+    const browserErrors = installBrowserErrorMonitor(page);
+    const projectId = "e2e-project";
+    const sessionId = "e2e-mission-return-session";
+    const missionId = "e2e-mission-management";
+    const messageId = `${sessionId}-user-message`;
+    const assistantMessageId = "e2e-arabic-ai-message";
+    const now = "2026-01-01T00:00:00.000Z";
+    const handoffSource = {
+      kind: "chat",
+      sourceType: "accepted_project_query",
+      sessionId,
+      messageId,
+      assistantMessageId,
+      executionId: "e2e-mission-return-execution",
+      acceptanceId: "e2e-mission-return-acceptance",
+      evidenceSnapshotId: "e2e-mission-return-evidence",
+      sourceRevision: "e2e-mission-return-revision",
+      acceptedClaimRefs: ["e2e-mission-return-claim"],
+      planHash: "e2e-mission-return-plan",
+    };
+    const mission: Record<string, unknown> = {
+      id: missionId,
+      projectId,
+      userId: "e2e-user",
+      title: "Original Chat mission",
+      intent: "Return to the chat that started this mission.",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { handoffSource },
+      budget: {},
+      deadline: null,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+    };
+    const chatFixture = await installArabicAiFixture(page, {
+      projectId,
+      sessionId,
+    });
+    await installApiFixtures(page, { arabicAi: chatFixture });
+    await installMissionManagementFixtures(page, mission);
+    const sessionMissionFixture = await installChatSessionMissionFixture(page, {
+      sessionId,
+      mission,
+      messageId,
+      assistantMessageId,
+    });
+    await programmaticSignIn(page);
+
+    await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
+      projectId,
+      sessionId,
+    }).toString()}`, { waitUntil: "domcontentloaded" });
+    const historyMission = page.getByTestId(`chat-session-mission-${missionId}`);
+    await expect(historyMission).toBeVisible();
+    await historyMission.getByTestId(`link-chat-session-mission-${missionId}`).click();
+
+    await expect(page.getByTestId(`mission-source-provenance-${missionId}`)).toBeVisible();
+    const returnLink = page.getByTestId("link-mission-source-chat");
+    await expect(returnLink).toHaveAttribute(
+      "href",
+      `${DASHBOARD_PATH}ai?projectId=${projectId}&sessionId=${sessionId}&missionId=${missionId}&messageId=${assistantMessageId}`,
+    );
+    await returnLink.click();
+
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    const returnedUrl = new URL(page.url());
+    expect(returnedUrl.pathname.endsWith("/ai")).toBe(true);
+    expect(returnedUrl.searchParams.get("projectId")).toBe(projectId);
+    expect(returnedUrl.searchParams.get("sessionId")).toBe(sessionId);
+    expect(returnedUrl.searchParams.get("missionId")).toBe(missionId);
+    expect(returnedUrl.searchParams.get("messageId")).toBe(assistantMessageId);
+    expect(sessionMissionFixture.selectionRequests).toEqual([{
+      method: "PUT",
+      path: `/api/ai/chat/${sessionId}/active-mission`,
+      body: { missionId },
+    }]);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
     browserErrors.assertClean();
   });
 

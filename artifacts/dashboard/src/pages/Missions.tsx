@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { useSearch } from 'wouter';
+import { Link, useSearch } from 'wouter';
 import {
   createTask,
   getListProjectsQueryKey,
@@ -1849,7 +1849,7 @@ export default function Missions() {
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <a
+                            <Link
                               href={`/ai?${new URLSearchParams({
                                 projectId: String(activeMission.projectId),
                                 sessionId: acceptedFindingSource.sessionId,
@@ -1861,7 +1861,7 @@ export default function Missions() {
                             >
                               <ArrowUpRight className="h-3 w-3" />
                               Open original finding in Chat
-                            </a>
+                            </Link>
                             {latestMissionExecution ? (
                               <a
                                 href={`/mission-control?${new URLSearchParams({
