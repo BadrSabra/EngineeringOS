@@ -1,9 +1,9 @@
-import { isValidElement, useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { isValidElement, useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
 import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, Zap } from 'lucide-react';
-import { Link } from 'wouter';
+import { Link, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
 import { Textarea } from '@/components/ui/textarea';
@@ -1037,6 +1037,11 @@ type AiChatRouteTarget = {
   sessionId?: string;
   messageId?: string;
   missionId?: string;
+};
+
+type RouteMissionRestoration = {
+  key: string;
+  kind: 'not-linked' | 'selection-failed' | 'missions-unavailable';
 };
 
 export function parseAiChatRouteTarget(search: string): AiChatRouteTarget | null {
@@ -9744,8 +9749,23 @@ export default function AiChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded, user } = useUser();
 
-  const [chatRouteTarget] = useState(() => parseAiChatRouteTarget(window.location.search));
+  const locationSearch = useSearch();
+  const chatRouteTarget = useMemo(
+    () => parseAiChatRouteTarget(locationSearch),
+    [locationSearch],
+  );
+  const [routeMissionRestoration, setRouteMissionRestoration] =
+    useState<RouteMissionRestoration | null>(null);
   const routeMissionSelectionAttempt = useRef('');
+  const hydratedSelectionContextRef = useRef('');
+  const lastRouteContextRef = useRef('');
+  const currentRouteMissionKey = chatRouteTarget?.projectId
+    && chatRouteTarget.sessionId
+    && chatRouteTarget.missionId
+    ? `${chatRouteTarget.projectId}:${chatRouteTarget.sessionId}:${chatRouteTarget.missionId}`
+    : '';
+  const currentRouteMissionKeyRef = useRef(currentRouteMissionKey);
+  currentRouteMissionKeyRef.current = currentRouteMissionKey;
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
@@ -9917,7 +9937,6 @@ export default function AiChat() {
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
   const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
-  const hydratedSelectionProjectRef = useRef<string | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryPending, setResumeRecoveryPending] = useState(false);
@@ -10984,14 +11003,40 @@ export default function AiChat() {
   // when it recovered a different session, leave that resumable execution
   // visible rather than allowing a stale selection to replace it.
   useEffect(() => {
+    if (!chatRouteTarget?.projectId) return;
+    const routeContextKey = [
+      chatRouteTarget.projectId,
+      chatRouteTarget.sessionId ?? '',
+      chatRouteTarget.missionId ?? '',
+    ].join('|');
+    if (lastRouteContextRef.current === routeContextKey) return;
+    lastRouteContextRef.current = routeContextKey;
+    routeMissionSelectionAttempt.current = '';
+    setRouteMissionRestoration(null);
+    if (chatRouteTarget.projectId !== selectedProjectId) {
+      setSelectedProjectId(chatRouteTarget.projectId);
+    }
+  }, [
+    chatRouteTarget?.projectId,
+    chatRouteTarget?.sessionId,
+    chatRouteTarget?.missionId,
+    selectedProjectId,
+  ]);
+
+  useEffect(() => {
     if (
       !selectedProjectId
       || !sessionsFetched
       || sessionsError
-      || hydratedSelectionProjectRef.current === selectedProjectId
     ) {
       return;
     }
+
+    const routeContextKey = chatRouteTarget?.projectId === selectedProjectId
+      ? JSON.stringify([selectedProjectId, chatRouteTarget.sessionId ?? null, chatRouteTarget.missionId ?? null])
+      : JSON.stringify([selectedProjectId, null, null]);
+    const selectionContextKey = `${selectedProjectId}:${routeContextKey}`;
+    if (hydratedSelectionContextRef.current === selectionContextKey) return;
 
     let rawSelection: string | null = null;
     try {
@@ -11014,7 +11059,7 @@ export default function AiChat() {
       ? routeSelection
       : parseAiChatSelection(rawSelection, selectedProjectId);
     if (!selection) {
-      hydratedSelectionProjectRef.current = selectedProjectId;
+      hydratedSelectionContextRef.current = selectionContextKey;
       if (rawSelection !== null) clearAiChatSelection(selectedProjectId);
       if (routeSessionId) {
         // A stale deep link must not silently fall back to a saved execution
@@ -11026,7 +11071,7 @@ export default function AiChat() {
       return;
     }
     if (selection.kind === 'historical-audit' && historicalAuditsLoading) return;
-    hydratedSelectionProjectRef.current = selectedProjectId;
+    hydratedSelectionContextRef.current = selectionContextKey;
 
     const recoveredExecution = Boolean(
       storedExecution
@@ -11159,6 +11204,7 @@ export default function AiChat() {
   const selectSessionMission = useCallback(async (
     targetSessionId: string,
     missionId: string,
+    showErrorToast = true,
   ): Promise<void> => {
     try {
       const result = await activeMissionSelectionMutation.mutateAsync({
@@ -11175,11 +11221,13 @@ export default function AiChat() {
           : current
       ));
     } catch (error) {
-      toast({
-        title: 'تعذّر تغيير المهمة الحالية',
-        description: error instanceof Error ? error.message : 'لم يتغير الاختيار المحفوظ.',
-        variant: 'destructive',
-      });
+      if (showErrorToast) {
+        toast({
+          title: 'تعذّر تغيير المهمة الحالية',
+          description: error instanceof Error ? error.message : 'لم يتغير الاختيار المحفوظ.',
+          variant: 'destructive',
+        });
+      }
       throw error;
     }
   }, [activeMissionSelectionMutation, qc, toast, user?.id]);
@@ -11189,25 +11237,68 @@ export default function AiChat() {
       !routeMissionId
       || !sessionId
       || !selectedProjectId
-      || currentSessionMissions?.sessionId !== sessionId
     ) {
       return;
     }
     const attemptKey = `${selectedProjectId}:${sessionId}:${routeMissionId}`;
-    if (routeMissionSelectionAttempt.current === attemptKey) return;
-    if (!currentSessionMissions.missions.some(({ mission }) => mission.id === routeMissionId)) {
+    if (currentSessionMissionsPending) return;
+    if (chatSessionMissionsError) {
+      setRouteMissionRestoration((current) => (
+        current?.key === attemptKey && current.kind === 'missions-unavailable'
+          ? current
+          : { key: attemptKey, kind: 'missions-unavailable' }
+      ));
       return;
     }
+    if (currentSessionMissions?.sessionId !== sessionId) return;
+    if (currentSessionMissions.activeMissionId === routeMissionId) {
+      routeMissionSelectionAttempt.current = attemptKey;
+      setRouteMissionRestoration(null);
+      return;
+    }
+    if (!currentSessionMissions.missions.some(({ mission }) => mission.id === routeMissionId)) {
+      setRouteMissionRestoration((current) => (
+        current?.key === attemptKey && current.kind === 'not-linked'
+          ? current
+          : { key: attemptKey, kind: 'not-linked' }
+      ));
+      return;
+    }
+    if (routeMissionRestoration?.key === attemptKey) {
+      if (routeMissionRestoration.kind === 'selection-failed') return;
+      setRouteMissionRestoration(null);
+    }
+    if (routeMissionSelectionAttempt.current === attemptKey) return;
     routeMissionSelectionAttempt.current = attemptKey;
-    if (currentSessionMissions.activeMissionId === routeMissionId) return;
-    void selectSessionMission(sessionId, routeMissionId).catch(() => undefined);
+    setRouteMissionRestoration(null);
+    void selectSessionMission(sessionId, routeMissionId, false).catch(() => {
+      if (currentRouteMissionKeyRef.current === attemptKey) {
+        setRouteMissionRestoration({ key: attemptKey, kind: 'selection-failed' });
+      }
+    });
   }, [
     currentSessionMissions,
+    chatSessionMissionsError,
+    currentSessionMissionsPending,
     routeMissionId,
+    routeMissionRestoration,
     selectSessionMission,
     selectedProjectId,
     sessionId,
   ]);
+
+  const retryRouteMissionRestoration = useCallback(async () => {
+    if (!routeMissionRestoration || !sessionId) return;
+    const attemptKey = routeMissionRestoration.key;
+    try {
+      await refetchChatSessionMissions();
+    } finally {
+      if (currentRouteMissionKeyRef.current === attemptKey) {
+        routeMissionSelectionAttempt.current = '';
+        setRouteMissionRestoration(null);
+      }
+    }
+  }, [refetchChatSessionMissions, routeMissionRestoration, sessionId]);
 
   const { data: serverProposal } = useGetAiPendingProposal<{
     proposalId: string | null;
@@ -11540,19 +11631,35 @@ export default function AiChat() {
 
   useEffect(() => {
     const targetMessageId = chatRouteTarget?.messageId;
+    const routeMissionIsRestored = !routeMissionId
+      || currentSessionMissions?.activeMissionId === routeMissionId;
     if (
       !targetMessageId
       || !messagesFetched
       || !sessionId
       || chatRouteTarget?.projectId !== selectedProjectId
       || chatRouteTarget.sessionId !== sessionId
+      || !routeMissionIsRestored
     ) {
       return;
     }
+    const belongsToSession = localMessages.some((message) => (
+      message.id === targetMessageId
+      && (!message.sessionId || message.sessionId === sessionId)
+    ));
+    if (!belongsToSession) return;
     const target = [...document.querySelectorAll<HTMLElement>('[data-chat-message-id]')]
       .find((element) => element.dataset.chatMessageId === targetMessageId);
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [chatRouteTarget, localMessages, messagesFetched, selectedProjectId, sessionId]);
+  }, [
+    chatRouteTarget,
+    currentSessionMissions?.activeMissionId,
+    localMessages,
+    messagesFetched,
+    routeMissionId,
+    selectedProjectId,
+    sessionId,
+  ]);
 
   useEffect(() => {
     if (
@@ -13132,6 +13239,20 @@ export default function AiChat() {
     && !sessionsError
     && !sessions.some((session) => session.id === chatRouteTarget.sessionId),
   );
+  const visibleRouteMissionRestoration = routeMissionRestoration?.key === currentRouteMissionKey
+    ? routeMissionRestoration
+    : null;
+  const routeSourceMessageUnavailable = Boolean(
+    chatRouteTarget?.messageId
+    && chatRouteTarget.projectId === selectedProjectId
+    && chatRouteTarget.sessionId === sessionId
+    && messagesFetched
+    && (!routeMissionId || currentSessionMissions?.activeMissionId === routeMissionId)
+    && !localMessages.some((message) => (
+      message.id === chatRouteTarget.messageId
+      && (!message.sessionId || message.sessionId === sessionId)
+    )),
+  );
   const emptyContext = !isLoaded || projectsLoading
     ? { title: 'جارٍ تحميل مشاريعك', subtitle: 'نحمّل قائمة المشاريع المتاحة لحسابك.' }
     : projectLoadFailure
@@ -13831,6 +13952,40 @@ export default function AiChat() {
             <div role="status" data-testid="notice-chat-route-unavailable"
               className="mx-auto mb-4 max-w-3xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               The linked AI conversation is unavailable in this project. Choose another session to continue.
+            </div>
+          )}
+          {visibleRouteMissionRestoration && (
+            <div
+              role="alert"
+              data-testid="notice-chat-route-mission-unavailable"
+              className="mx-auto mb-4 flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            >
+              <span>
+                {visibleRouteMissionRestoration.kind === 'not-linked'
+                  ? 'This Mission is not linked to the requested conversation.'
+                  : visibleRouteMissionRestoration.kind === 'missions-unavailable'
+                    ? 'The requested Mission could not be checked. Your saved selection was not changed.'
+                    : 'Mission selection failed. Your saved selection was not changed.'}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                data-testid="button-retry-chat-route-mission"
+                onClick={() => void retryRouteMissionRestoration()}
+              >
+                Retry restore
+              </Button>
+            </div>
+          )}
+          {routeSourceMessageUnavailable && (
+            <div
+              role="status"
+              data-testid="notice-chat-source-message-unavailable"
+              className="mx-auto mb-4 max-w-3xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            >
+              The conversation opened, but its original message is unavailable.
             </div>
           )}
           {historicalReportError && (

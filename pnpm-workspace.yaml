@@ -75,6 +75,9 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Keep optional Vitest peers on the workspace's Vite 7 major; newer Vite
+  # peers can split the React JSX transform from the test runner.
+  vite: ^7.3.2
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"

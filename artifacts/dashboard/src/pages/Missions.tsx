@@ -61,6 +61,7 @@ import MissionActionDialog, {
 } from '@/components/MissionActionDialog';
 import { MissionAgentProjectionSummary } from '@/components/MissionAgentProjectionSummary';
 import { ResultDetailsSummary } from '@/components/ResultDetailsSummary';
+import { buildMissionOriginChatHref } from '@/lib/mission-chat-link';
 
 function formatDate(value: string | null | undefined, includeTime = false) {
   if (!value) return 'Not set';
@@ -78,15 +79,12 @@ function chatHandoffHref(
   missionId: string,
   handoff: ChatHandoffProjection,
 ): string | null {
-  if (!handoff.sessionId) return null;
-  const params = new URLSearchParams({
+  return buildMissionOriginChatHref({
     projectId,
-    sessionId: handoff.sessionId,
     missionId,
+    sessionId: handoff.sessionId,
+    messageId: handoff.assistantMessageId ?? handoff.messageId,
   });
-  const messageId = handoff.assistantMessageId ?? handoff.messageId;
-  if (messageId) params.set('messageId', messageId);
-  return `/ai?${params.toString()}`;
 }
 
 function compactId(value: string) {
@@ -1853,7 +1851,6 @@ export default function Missions() {
                               href={`/ai?${new URLSearchParams({
                                 projectId: String(activeMission.projectId),
                                 sessionId: acceptedFindingSource.sessionId,
-                                missionId: activeMission.id,
                                 messageId: acceptedFindingSource.assistantMessageId,
                               }).toString()}`}
                               data-testid="link-mission-source-chat"
@@ -1979,7 +1976,7 @@ export default function Missions() {
                                 activeMission.id,
                                 projection.agentControl.handoff,
                               ) ? (
-                                <a
+                                <Link
                                   href={chatHandoffHref(
                                     String(activeMission.projectId),
                                     activeMission.id,
@@ -1987,10 +1984,10 @@ export default function Missions() {
                                   )!}
                                   className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-200 hover:text-cyan-100"
                                 >
-                                  Open linked chat <ArrowUpRight className="h-3.5 w-3.5" />
-                                </a>
+                                  Return to originating conversation <ArrowUpRight className="h-3.5 w-3.5" />
+                                </Link>
                               ) : (
-                                <span className="text-xs text-slate-600">The linked chat session is no longer available.</span>
+                                <span className="text-xs text-slate-600">No originating conversation is linked to this Mission.</span>
                               )}
                             </div>
                           </section>

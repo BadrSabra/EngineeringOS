@@ -14,3 +14,9 @@ Pinned benchmark source clones need an available `node_modules` tree: the benchm
 **Why:** A missing dependency tree initially surfaced as a generic pnpm failure, while a version-only probe did not reveal suite-level baseline failures.
 
 **How to apply:** Before a pinned live run, ensure the temporary source root has dependencies compatible with its lockfile, run the exact registered validation profile on the clean baseline, and distinguish module-load failures from test assertion failures.
+
+Vitest may resolve an optional Vite peer to a newer major than the workspace's Vite catalog, even when the dashboard itself uses the catalog version. This can split the React JSX transform from Vitest and produce an import-analysis JSX parse error while typechecking succeeds.
+
+**Why:** A dependency re-resolution selected Vite 8 for Vitest while the app and React plugin used Vite 7; the JSX parser error disappeared when the peer was forced onto the workspace's Vite major.
+
+**How to apply:** If Vitest reports invalid JSX during import analysis, inspect `pnpm why vite` and the lockfile peer context before changing TSX. Keep Vitest's Vite peer aligned with the app's supported major.

@@ -2730,10 +2730,13 @@ describe('AiChat authenticated generated mutations', () => {
         agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
       }],
     };
+    mocks.serverProposal = { changes: [] };
 
     try {
       const rendered = renderAiChat();
       expect(mocks.mutations.setActiveMission.mutateAsync).not.toHaveBeenCalled();
+      expect(await screen.findByTestId('notice-chat-route-mission-unavailable'))
+        .toHaveTextContent('This Mission is not linked to the requested conversation.');
       mocks.sessionMissions = {
         sessionId: 'session-1',
         activeMissionId: 'mission-one',
@@ -2759,6 +2762,107 @@ describe('AiChat authenticated generated mutations', () => {
           data: { missionId: 'mission-two' },
         });
       });
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+    }
+  });
+
+  it('shows a recoverable error and retries a failed Mission restoration', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(
+      {},
+      '',
+      '/ai?projectId=project-1&sessionId=session-1&missionId=mission-two',
+    );
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [
+        {
+          mission: { id: 'mission-one', title: 'Current Mission', status: 'active' },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+        },
+        {
+          mission: { id: 'mission-two', title: 'Return Mission', status: 'completed' },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+        },
+      ],
+    };
+    mocks.mutations.setActiveMission.mutateAsync
+      .mockRejectedValueOnce(new Error('selection failed'));
+
+    try {
+      renderAiChat();
+      expect(await screen.findByTestId('notice-chat-route-mission-unavailable'))
+        .toHaveTextContent('Mission selection failed.');
+      expect(mocks.toast).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId('button-retry-chat-route-mission'));
+      await waitFor(() => {
+        expect(mocks.mutations.setActiveMission.mutateAsync).toHaveBeenCalledTimes(2);
+      });
+      expect(mocks.mutations.setActiveMission.mutateAsync).toHaveBeenLastCalledWith({
+        sessionId: 'session-1',
+        data: { missionId: 'mission-two' },
+      });
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+    }
+  });
+
+  it('restores changed route targets from browser back and forward navigation', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    mocks.sessions = [
+      { id: 'session-1', title: 'First session', updatedAt: '2026-08-12T00:00:00.000Z' },
+      { id: 'session-2', title: 'Second session', updatedAt: '2026-08-13T00:00:00.000Z' },
+    ];
+    window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+
+    try {
+      renderAiChat();
+      expect(await screen.findByTestId('text-chat-current-context')).toHaveTextContent('First session');
+
+      window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-2');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      await waitFor(() => {
+        expect(screen.getByTestId('text-chat-current-context')).toHaveTextContent('Second session');
+      });
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  });
+
+  it('does not scroll when the linked source message is unavailable', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(
+      {},
+      '',
+      '/ai?projectId=project-1&sessionId=session-1&missionId=mission-one&messageId=missing-source-message',
+    );
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Origin Mission', status: 'completed' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+
+    try {
+      renderAiChat();
+      expect(await screen.findByTestId('notice-chat-source-message-unavailable'))
+        .toHaveTextContent('The conversation opened, but its original message is unavailable.');
+      expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
     } finally {
       window.history.replaceState({}, '', previousLocation);
     }
