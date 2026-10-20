@@ -234,7 +234,7 @@ describe('Missions management', () => {
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
-    expect(screen.getByRole('status')).toHaveTextContent('بدأ الهدف الرئيسي.');
+    expect(screen.getByText(/بدأ الهدف الرئيسي\./)).toBeInTheDocument();
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -454,11 +454,11 @@ describe('Missions management', () => {
     expect(screen.getByText('This Mission is the Agent run')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open linked chat/ })).toHaveAttribute(
       'href',
-      '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
+      '/ai?projectId=project-1&sessionId=session-accepted-1&missionId=mission-1&messageId=assistant-message-1',
     );
     expect(screen.getByTestId('link-mission-source-chat')).toHaveAttribute(
       'href',
-      '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
+      '/ai?projectId=project-1&sessionId=session-accepted-1&missionId=mission-1&messageId=assistant-message-1',
     );
     expect(await screen.findByTestId('link-mission-source-execution')).toHaveAttribute(
       'href',

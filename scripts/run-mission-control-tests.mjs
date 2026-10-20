@@ -130,6 +130,19 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Simulating an existing Chat schema before the active Mission column was added.");
+    await run("psql", [
+      databaseUrl,
+      "-v", "ON_ERROR_STOP=1",
+      "-c", 'ALTER TABLE "ai_chat_sessions" DROP COLUMN IF EXISTS "active_mission_id"',
+    ], {
+      env: databaseEnv,
+    });
+    console.log("Applying the additive schema change to that existing database.");
+    await run("pnpm", ["--filter", "@workspace/db", "run", "schema:apply"], {
+      env: databaseEnv,
+    });
+
     if (shutdownSignal) {
       throw new Error(`Test run interrupted by ${shutdownSignal}.`);
     }
@@ -140,7 +153,7 @@ async function main() {
       "exec", "vitest", "run",
       "src/routes/ai/missions.test.ts",
       "-t",
-      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention",
+      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention|binds handoffs to the exact Chat message and resumes the persisted Agent-control projection|rejects active Mission selection without a handoff to the exact session and project|rolls back the Mission plan and handoff when persisting the session selection fails",
     ], {
       env: databaseEnv,
     });

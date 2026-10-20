@@ -30,6 +30,8 @@ import type {
   AiChatOutput,
   AiChatRequest,
   AiChatSession,
+  AiChatSessionActiveMissionInput,
+  AiChatSessionActiveMissionResponse,
   AiChatSessionMissionsResponse,
   AiCodeReview,
   AiDeliveryPolicy,
@@ -8826,6 +8828,87 @@ export function useListAiChatSessionMissions<TData = Awaited<ReturnType<typeof l
 
 
 
+
+export const getSetAiChatSessionActiveMissionUrl = (sessionId: string,) => {
+
+
+
+
+  return `/api/ai/chat/${sessionId}/active-mission`
+}
+
+/**
+ * @summary Select a linked Mission as a chat session's active continuity context
+ */
+export const setAiChatSessionActiveMission = async (sessionId: string,
+    aiChatSessionActiveMissionInput: AiChatSessionActiveMissionInput, options?: Parameters<typeof customFetch>[1]): Promise<AiChatSessionActiveMissionResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiChatSessionActiveMissionResponse>(getSetAiChatSessionActiveMissionUrl(sessionId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiChatSessionActiveMissionInput)
+  }
+);}
+
+
+
+
+
+export const getSetAiChatSessionActiveMissionMutationKey = () => ['setAiChatSessionActiveMission'] as const;
+
+export const getSetAiChatSessionActiveMissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAiChatSessionActiveMission>>, TError,SetAiChatSessionActiveMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setAiChatSessionActiveMission>>, TError,SetAiChatSessionActiveMissionMutationVariables, TContext> => {
+
+const mutationKey = getSetAiChatSessionActiveMissionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setAiChatSessionActiveMission>>, SetAiChatSessionActiveMissionMutationVariables> = (props) => {
+          const {sessionId,data} = props ?? {};
+
+          return  setAiChatSessionActiveMission(sessionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetAiChatSessionActiveMissionMutationResult = NonNullable<Awaited<ReturnType<typeof setAiChatSessionActiveMission>>>
+    export type SetAiChatSessionActiveMissionMutationBody = BodyType<AiChatSessionActiveMissionInput>
+    export type SetAiChatSessionActiveMissionMutationError = ErrorType<void>
+    export type SetAiChatSessionActiveMissionMutationVariables = {sessionId: string;data: BodyType<AiChatSessionActiveMissionInput>}
+
+    /**
+ * @summary Select a linked Mission as a chat session's active continuity context
+ */
+export const useSetAiChatSessionActiveMission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAiChatSessionActiveMission>>, TError,SetAiChatSessionActiveMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setAiChatSessionActiveMission>>,
+        TError,
+        SetAiChatSessionActiveMissionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSetAiChatSessionActiveMissionMutationOptions(options));
+    }
 
 export const getExplainAiFallbackUrl = () => {
 

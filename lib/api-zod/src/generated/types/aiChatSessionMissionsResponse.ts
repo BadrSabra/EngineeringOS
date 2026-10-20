@@ -9,5 +9,7 @@ import type { AiChatSessionMissionReference } from './aiChatSessionMissionRefere
 
 export interface AiChatSessionMissionsResponse {
   sessionId: string;
+  /** @nullable */
+  activeMissionId: string | null;
   missions: AiChatSessionMissionReference[];
 }

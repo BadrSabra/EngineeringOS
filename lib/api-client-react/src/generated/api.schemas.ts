@@ -381,7 +381,22 @@ export interface AiChatSessionMissionReference {
 
 export interface AiChatSessionMissionsResponse {
   sessionId: string;
+  /** @nullable */
+  activeMissionId: string | null;
   missions: AiChatSessionMissionReference[];
+}
+
+export interface AiChatSessionActiveMissionInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  missionId: string;
+}
+
+export interface AiChatSessionActiveMissionResponse {
+  sessionId: string;
+  activeMissionId: string;
 }
 
 export interface ApplyMissionFromProposalInput {

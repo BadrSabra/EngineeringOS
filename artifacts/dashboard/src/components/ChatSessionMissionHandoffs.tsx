@@ -10,9 +10,30 @@ import { MissionAgentProjectionSummary } from './MissionAgentProjectionSummary';
 type SessionMission = AiChatSessionMissionsResponse['missions'][number];
 
 function missionStatusLabel(status: string) {
-  return status
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const labels: Record<string, string> = {
+    draft: 'مسودة',
+    active: 'نشطة',
+    queued: 'في قائمة الانتظار',
+    planning: 'قيد التخطيط',
+    running: 'قيد التنفيذ',
+    verifying: 'جارٍ التحقق',
+    waiting: 'بانتظار المتابعة',
+    waiting_for_event: 'بانتظار حدث',
+    waiting_for_approval: 'بانتظار الموافقة',
+    blocked: 'متوقفة',
+    needs_replan: 'تحتاج إلى إعادة تخطيط',
+    completed: 'مكتملة',
+    failed: 'فشلت',
+    cancelled: 'أُلغيت',
+  };
+  return labels[status] ?? 'حالة غير معروفة';
+}
+
+function missionDisplayStatus(mission: SessionMission['mission'], dispatchStatus: string) {
+  if (mission.status === 'active' && dispatchStatus === 'pending') {
+    return 'بانتظار بدء التنفيذ';
+  }
+  return missionStatusLabel(mission.status);
 }
 
 function missionStatusClass(status: string) {
@@ -25,7 +46,20 @@ function missionStatusClass(status: string) {
   if (status === 'waiting' || status === 'waiting_for_event' || status === 'waiting_for_approval') {
     return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
   }
+  if (status === 'cancelled' || status === 'draft') {
+    return 'border-border/70 bg-background/60 text-muted-foreground';
+  }
   return 'border-primary/30 bg-primary/10 text-primary';
+}
+
+function formatUpdatedAt(value: string | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat('ar', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function MissionProjectionDetails({
@@ -208,18 +242,45 @@ export function ChatSessionMissionHandoffs({
   sessionId,
   userId,
   missions,
+  activeMissionId,
   isPending,
   isError,
+  isSelectingMission,
   onRetry,
+  onSelectMission,
 }: {
   projectId: string;
   sessionId: string;
   userId: string | null;
   missions: SessionMission[];
+  activeMissionId: string | null;
   isPending: boolean;
   isError: boolean;
+  isSelectingMission: boolean;
   onRetry: () => void;
+  onSelectMission: (missionId: string) => Promise<void>;
 }) {
+  const [selectionError, setSelectionError] = useState(false);
+  const [pendingMissionId, setPendingMissionId] = useState<string | null>(null);
+  const [failedMissionId, setFailedMissionId] = useState<string | null>(null);
+  const activeMission = missions.find(({ mission }) => mission.id === activeMissionId) ?? null;
+  const historyMissions = missions.filter(({ mission }) => mission.id !== activeMissionId);
+
+  async function selectMission(missionId: string) {
+    setPendingMissionId(missionId);
+    setFailedMissionId(null);
+    setSelectionError(false);
+    try {
+      await onSelectMission(missionId);
+      setSelectionError(false);
+    } catch {
+      setSelectionError(true);
+      setFailedMissionId(missionId);
+    } finally {
+      setPendingMissionId(null);
+    }
+  }
+
   if (missions.length === 0 && !isError && !isPending) return null;
 
   return (
@@ -231,15 +292,15 @@ export function ChatSessionMissionHandoffs({
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 id="chat-session-missions-heading" className="text-sm font-semibold text-foreground">
-            Missions linked to this chat
+            مسار العمل المرتبط بهذه المحادثة
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Each Mission stays connected to this conversation.
+            تظهر المهمة الحالية هنا، وتبقى المهام السابقة متاحة للرجوع إليها.
           </p>
         </div>
         {(missions.length > 0 || !isPending) && (
           <span className="rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-xs text-muted-foreground">
-            {missions.length} {missions.length === 1 ? 'Mission' : 'Missions'}
+            {missions.length} {missions.length === 1 ? 'مهمة' : 'مهام'}
           </span>
         )}
       </div>
@@ -251,7 +312,7 @@ export function ChatSessionMissionHandoffs({
           role="status"
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          Loading linked Missions…
+          جارٍ استعادة المهام المرتبطة…
         </p>
       )}
 
@@ -262,51 +323,137 @@ export function ChatSessionMissionHandoffs({
         >
           <span>
             {missions.length > 0
-              ? 'The linked Mission list could not be refreshed.'
-              : 'Linked Missions could not be loaded.'}
+              ? 'تعذّر تحديث قائمة المهام المرتبطة.'
+              : 'تعذّر تحميل المهام المرتبطة.'}
           </span>
           <Button type="button" size="sm" variant="outline" className="h-7" onClick={onRetry}>
             <RotateCcw className="mr-1.5 h-3 w-3" />
-            Retry
+            إعادة المحاولة
           </Button>
         </div>
       )}
 
-      {missions.length > 0 && (
-        <ul className="grid gap-2 md:grid-cols-2">
-          {missions.map(({ mission, agentControl }) => (
-            <li
-              key={mission.id}
-              className="min-w-0 rounded-lg border border-border/60 bg-background/70 p-3"
-              data-testid={`chat-session-mission-${mission.id}`}
+      {selectionError && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
+          <span>تعذّر تغيير المهمة الحالية. لم يتغير الاختيار المحفوظ.</span>
+          {failedMissionId && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={isSelectingMission}
+              onClick={() => void selectMission(failedMissionId)}
             >
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="break-words text-sm font-medium text-foreground">{mission.title}</p>
-                  <span
-                    className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${missionStatusClass(mission.status)}`}
-                  >
-                    {missionStatusLabel(mission.status)}
-                  </span>
-                </div>
-                <Link
-                  href={`/missions?projectId=${encodeURIComponent(projectId)}&missionId=${encodeURIComponent(mission.id)}`}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  data-testid={`link-chat-session-mission-${mission.id}`}
+              إعادة المحاولة
+            </Button>
+          )}
+        </div>
+      )}
+
+      {activeMission && (
+        <article
+          className="mb-3 rounded-lg border border-primary/35 bg-background/80 p-4"
+          data-testid="chat-active-engineering-run"
+          aria-labelledby="chat-active-engineering-run-title"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
+                المهمة الحالية
+              </p>
+              <h4
+                id="chat-active-engineering-run-title"
+                className="mt-1 break-words text-sm font-semibold text-foreground"
+              >
+                {activeMission.mission.title}
+              </h4>
+              <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${missionStatusClass(activeMission.mission.status)}`}>
+                {missionDisplayStatus(activeMission.mission, activeMission.agentControl.handoff.dispatchStatus)}
+              </span>
+              {formatUpdatedAt(activeMission.mission.updatedAt) && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  آخر تحديث: <time dateTime={activeMission.mission.updatedAt}>{formatUpdatedAt(activeMission.mission.updatedAt)}</time>
+                </p>
+              )}
+            </div>
+            <Link
+              href={`/missions?projectId=${encodeURIComponent(projectId)}&missionId=${encodeURIComponent(activeMission.mission.id)}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid={`link-chat-session-mission-${activeMission.mission.id}`}
+            >
+              فتح التفاصيل
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </div>
+          <MissionProjectionDetails
+            projectId={projectId}
+            sessionId={sessionId}
+            userId={userId}
+            mission={activeMission}
+          />
+        </article>
+      )}
+
+      {!activeMission && missions.length > 0 && (
+        <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200" role="status">
+          لا توجد مهمة حالية محددة لهذه المحادثة. يمكنك اختيار مهمة من السجل.
+        </p>
+      )}
+
+      {historyMissions.length > 0 && (
+        <section aria-labelledby="chat-session-mission-history-heading" className="space-y-2">
+          <h4 id="chat-session-mission-history-heading" className="text-xs font-semibold text-muted-foreground">
+            سجل المهام
+          </h4>
+          <ul className="grid gap-2 md:grid-cols-2">
+            {historyMissions.map(({ mission, agentControl }) => {
+              const isPendingSelection = pendingMissionId === mission.id && isSelectingMission;
+              return (
+                <li
+                  key={mission.id}
+                  className="min-w-0 rounded-lg border border-border/60 bg-background/70 p-3"
+                  data-testid={`chat-session-mission-${mission.id}`}
                 >
-                  Open Mission
-                  <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </Link>
-              </div>
-              <MissionProjectionDetails
-                projectId={projectId}
-                sessionId={sessionId}
-                userId={userId}
-                mission={{ mission, agentControl }}
-              />
-            </li>
-          ))}
-        </ul>
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium text-foreground">{mission.title}</p>
+                      <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${missionStatusClass(mission.status)}`}>
+                        {missionDisplayStatus(mission, agentControl.handoff.dispatchStatus)}
+                      </span>
+                    </div>
+                    <Link
+                      href={`/missions?projectId=${encodeURIComponent(projectId)}&missionId=${encodeURIComponent(mission.id)}`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid={`link-chat-session-mission-${mission.id}`}
+                    >
+                      فتح التفاصيل
+                      <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Link>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3 h-7 text-[11px]"
+                    disabled={isSelectingMission}
+                    aria-label={`تعيين ${mission.title} كمهمة حالية`}
+                    onClick={() => void selectMission(mission.id)}
+                  >
+                    {isPendingSelection && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" aria-hidden="true" />}
+                    تعيين كمهمة حالية
+                  </Button>
+                  <MissionProjectionDetails
+                    projectId={projectId}
+                    sessionId={sessionId}
+                    userId={userId}
+                    mission={{ mission, agentControl }}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </section>
   );

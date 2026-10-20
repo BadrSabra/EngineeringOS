@@ -3200,6 +3200,33 @@ paths:
         "404":
           description: Chat session not found
 
+  /api/ai/chat/{sessionId}/active-mission:
+    put:
+      operationId: setAiChatSessionActiveMission
+      summary: Select a linked Mission as a chat session's active continuity context
+      tags: [AI]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatSessionActiveMissionInput"
+      responses:
+        "200":
+          description: The active Mission selection stored for the chat session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatSessionActiveMissionResponse"
+        "404":
+          description: Session or linked Mission not found
+
   /api/ai/chat/fallback-diagnostic:
     post:
       operationId: explainAiFallback
@@ -4818,13 +4845,29 @@ components:
         - state_unresolved
     AiChatSessionMissionsResponse:
       type: object
-      required: [sessionId, missions]
+      required: [sessionId, activeMissionId, missions]
       properties:
         sessionId: { type: string }
+        activeMissionId: { type: [string, "null"] }
         missions:
           type: array
           items:
             $ref: "#/components/schemas/AiChatSessionMissionReference"
+    AiChatSessionActiveMissionInput:
+      type: object
+      additionalProperties: false
+      required: [missionId]
+      properties:
+        missionId:
+          type: string
+          minLength: 1
+          maxLength: 200
+    AiChatSessionActiveMissionResponse:
+      type: object
+      required: [sessionId, activeMissionId]
+      properties:
+        sessionId: { type: string }
+        activeMissionId: { type: string }
     AiChatSessionMissionReference:
       type: object
       required: [mission, agentControl]

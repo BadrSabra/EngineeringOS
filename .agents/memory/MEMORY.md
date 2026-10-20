@@ -51,6 +51,7 @@
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [OpenAPI Zod compatibility](openapi-zod-compatibility.md) — avoid URI/UUID formats that generate methods missing from the workspace's Zod 3.
+- [OpenAPI additional-property enforcement](openapi-additional-properties.md) — generated Zod objects may accept extras despite `additionalProperties: false`; enforce strictness at the API boundary.
 - [Mission schema readiness](mission-schema-readiness.md) — reconciliation workers query Mission/Goal tables at startup; schema readiness must precede durable worker execution.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.

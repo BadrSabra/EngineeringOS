@@ -101,6 +101,10 @@ const CANCELLED_FORENSIC_REPORT_FIXTURE = [
 const mocks = vi.hoisted(() => {
   const mutation = () => ({
     mutate: vi.fn(),
+    mutateAsync: vi.fn(async (variables: { sessionId: string; data: { missionId: string } }) => ({
+      sessionId: variables.sessionId,
+      activeMissionId: variables.data.missionId,
+    })),
     isPending: false,
     isError: false,
     error: null,
@@ -119,7 +123,7 @@ const mocks = vi.hoisted(() => {
     sessionsError: false,
     messagesFetched: true,
     messagesError: false,
-    sessionMissions: { sessionId: 'session-1', missions: [] } as unknown,
+    sessionMissions: { sessionId: 'session-1', activeMissionId: null, missions: [] } as unknown,
     sessionMissionsPending: false,
     sessionMissionsError: false,
     sessionMissionsRefetch: vi.fn(),
@@ -161,6 +165,7 @@ const mocks = vi.hoisted(() => {
       commit: mutation(),
       push: mutation(),
       fallbackDiagnostic: mutation(),
+      setActiveMission: mutation(),
     },
     mutationOptions: {
       saveDeepSeek: undefined as { onSuccess?: (data: unknown) => void; onError?: (error: unknown) => void } | undefined,
@@ -363,6 +368,7 @@ vi.mock('@workspace/api-client-react', () => {
         refetch: mocks.sessionMissionsRefetch,
       };
     }),
+    useSetAiChatSessionActiveMission: vi.fn(() => mocks.mutations.setActiveMission),
     getListAiChatSessionMissionsQueryKey: (sessionId: string) => [
       `/api/ai/chat/${sessionId}/missions`,
     ],
@@ -466,7 +472,7 @@ function renderAiChat(isDesktop = true) {
       <AiChat />
     </QueryClientProvider>,
   );
-  return { invalidateQueries, ...rendered };
+  return { invalidateQueries, queryClient, ...rendered };
 }
 
 function openProviderSettings() {
@@ -562,6 +568,7 @@ beforeEach(() => {
     timeline: [],
   });
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
+  mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   vi.mocked(useListProjects).mockReset().mockImplementation(() => ({
     data: mocks.projects,
     isLoading: false,
@@ -576,7 +583,7 @@ beforeEach(() => {
   mocks.sessionsError = false;
   mocks.messagesFetched = true;
   mocks.messagesError = false;
-  mocks.sessionMissions = { sessionId: 'session-1', missions: [] };
+  mocks.sessionMissions = { sessionId: 'session-1', activeMissionId: null, missions: [] };
   mocks.sessionMissionsPending = false;
   mocks.sessionMissionsError = false;
   mocks.sessionMissionsRefetch.mockReset();
@@ -641,6 +648,10 @@ beforeEach(() => {
   mocks.operationEvents = [];
   for (const mutation of Object.values(mocks.mutations)) {
     mutation.mutate.mockReset();
+    mutation.mutateAsync.mockReset().mockImplementation(async (variables) => ({
+      sessionId: variables.sessionId,
+      activeMissionId: variables.data.missionId,
+    }));
     mutation.isPending = false;
     mutation.isError = false;
     mutation.error = null;
@@ -670,13 +681,17 @@ afterEach(() => {
 describe('AiChat route target parsing', () => {
   it('accepts only explicit project-scoped session and message targets', () => {
     expect(parseAiChatRouteTarget(
-      '?projectId=project-1&sessionId=session-1&messageId=assistant-message-1',
+      '?projectId=project-1&sessionId=session-1&messageId=assistant-message-1&missionId=mission-1',
     )).toEqual({
       projectId: 'project-1',
       sessionId: 'session-1',
       messageId: 'assistant-message-1',
+      missionId: 'mission-1',
     });
     expect(parseAiChatRouteTarget('?sessionId=session-1&messageId=assistant-message-1')).toBeNull();
+    expect(parseAiChatRouteTarget('?projectId=project-1&missionId=mission-1')).toEqual({
+      projectId: 'project-1',
+    });
   });
 });
 
@@ -2582,13 +2597,26 @@ describe('AiChat authenticated generated mutations', () => {
     }));
     mocks.sessionMissions = {
       sessionId: 'session-1',
+      activeMissionId: 'mission-one',
       missions: [
         {
-          mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+          mission: {
+            id: 'mission-one',
+            title: 'Add workspace search',
+            status: 'active',
+            createdAt: '2026-08-13T00:00:00.000Z',
+            updatedAt: '2026-08-13T00:00:00.000Z',
+          },
           agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
         },
         {
-          mission: { id: 'mission-two', title: 'Improve project setup', status: 'completed' },
+          mission: {
+            id: 'mission-two',
+            title: 'Improve project setup',
+            status: 'completed',
+            createdAt: '2026-08-12T00:00:00.000Z',
+            updatedAt: '2026-08-12T00:00:00.000Z',
+          },
           agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
         },
       ],
@@ -2597,10 +2625,12 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     const missionList = await screen.findByTestId('chat-session-missions');
+    expect(screen.getByTestId('chat-active-engineering-run')).toHaveTextContent('Add workspace search');
     expect(missionList).toHaveTextContent('Add workspace search');
     expect(missionList).toHaveTextContent('Improve project setup');
-    expect(missionList).toHaveTextContent('Active');
-    expect(missionList).toHaveTextContent('Completed');
+    expect(missionList).toHaveTextContent('نشطة');
+    expect(missionList).toHaveTextContent('مكتملة');
+    expect(screen.getByText('سجل المهام')).toBeInTheDocument();
     expect(screen.getByTestId('link-chat-session-mission-mission-one')).toHaveAttribute(
       'href',
       '/missions?projectId=project-1&missionId=mission-one',
@@ -2621,6 +2651,141 @@ describe('AiChat authenticated generated mutations', () => {
       refetchOnMount: 'always',
       refetchInterval: 15_000,
     });
+  });
+
+  it('does not infer the active Mission from history ordering when the server returns no selection', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: null,
+      missions: [
+        {
+          mission: { id: 'mission-newest', title: 'Newest Mission', status: 'active' },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+        },
+      ],
+    };
+
+    renderAiChat();
+
+    expect(await screen.findByText('لا توجد مهمة حالية محددة لهذه المحادثة. يمكنك اختيار مهمة من السجل.')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-active-engineering-run')).not.toBeInTheDocument();
+    expect(mocks.mutations.setActiveMission.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('selects a historical Mission through the server API and updates the session query cache', async () => {
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [
+        {
+          mission: { id: 'mission-one', title: 'Current Mission', status: 'active' },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+        },
+        {
+          mission: { id: 'mission-two', title: 'Historical Mission', status: 'completed' },
+          agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+        },
+      ],
+    };
+
+    const rendered = renderAiChat();
+    const queryKey = ['/api/ai/chat/session-1/missions', 'user-1'];
+    rendered.queryClient.setQueryData(queryKey, mocks.sessionMissions);
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'تعيين Historical Mission كمهمة حالية',
+    }));
+
+    await waitFor(() => {
+      expect(mocks.mutations.setActiveMission.mutateAsync).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        data: { missionId: 'mission-two' },
+      });
+    });
+    expect(rendered.queryClient.getQueryData(queryKey)).toMatchObject({
+      activeMissionId: 'mission-two',
+    });
+  });
+
+  it('restores an explicitly linked Mission only when it belongs to the routed session', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(
+      {},
+      '',
+      '/ai?projectId=project-1&sessionId=session-1&missionId=mission-two',
+    );
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Current Mission', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+
+    try {
+      const rendered = renderAiChat();
+      expect(mocks.mutations.setActiveMission.mutateAsync).not.toHaveBeenCalled();
+      mocks.sessionMissions = {
+        sessionId: 'session-1',
+        activeMissionId: 'mission-one',
+        missions: [
+          {
+            mission: { id: 'mission-one', title: 'Current Mission', status: 'active' },
+            agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+          },
+          {
+            mission: { id: 'mission-two', title: 'Return Mission', status: 'completed' },
+            agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+          },
+        ],
+      };
+      rendered.rerender(
+        <QueryClientProvider client={rendered.queryClient}>
+          <AiChat />
+        </QueryClientProvider>,
+      );
+      await waitFor(() => {
+        expect(mocks.mutations.setActiveMission.mutateAsync).toHaveBeenCalledWith({
+          sessionId: 'session-1',
+          data: { missionId: 'mission-two' },
+        });
+      });
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+    }
+  });
+
+  it('does not show a previous session Mission while the new session handoffs are loading', async () => {
+    mocks.sessions = [
+      { id: 'session-1', title: 'Old session', updatedAt: '2026-08-12T00:00:00.000Z' },
+      { id: 'session-2', title: 'New session', updatedAt: '2026-08-13T00:00:00.000Z' },
+    ];
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-2',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'old-mission',
+      missions: [{
+        mission: { id: 'old-mission', title: 'Previous session Mission', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+
+    renderAiChat();
+
+    expect(await screen.findByTestId('chat-session-missions-loading')).toBeInTheDocument();
+    expect(screen.queryByText('Previous session Mission')).not.toBeInTheDocument();
+    expect(mocks.sessionMissionsSessionId).toBe('session-2');
   });
 
   it('loads Mission details on demand and displays only active-plan Goals with their latest attempts', async () => {
@@ -2644,7 +2809,7 @@ describe('AiChat authenticated generated mutations', () => {
       'Inspect the active project plan',
     );
     expect(screen.getByTestId('chat-mission-current-attempt-goal-current')).toHaveTextContent(
-      'Latest attempt 2 · Running',
+      'Latest attempt 2 · قيد التنفيذ',
     );
     expect(screen.getByText('plan-revision-current')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-mission-current-goal-goal-historical')).not.toBeInTheDocument();
@@ -2761,7 +2926,7 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByTestId('chat-session-missions-loading')).toHaveTextContent(
-      'Loading linked Missions',
+      'جارٍ استعادة المهام المرتبطة',
     );
   });
 
@@ -2872,8 +3037,8 @@ describe('AiChat authenticated generated mutations', () => {
 
     renderAiChat();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Linked Missions could not be loaded.');
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('تعذّر تحميل المهام المرتبطة.');
+    fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
     expect(mocks.sessionMissionsRefetch).toHaveBeenCalledTimes(1);
   });
 

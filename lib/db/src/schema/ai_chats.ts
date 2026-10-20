@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, pgEnum, index, real, jsonb, uniqueIndex, integer } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { tasksTable } from "./tasks.js";
+import { aiMissionsTable } from "./ai_missions.js";
 
 export const aiMessageRoleEnum = pgEnum("ai_message_role", [
   "user",
@@ -22,6 +23,13 @@ export const aiChatSessionsTable = pgTable("ai_chat_sessions", {
   linkedTaskId: text("linked_task_id")
     .references(() => tasksTable.id, { onDelete: "set null" }),
   /**
+   * Durable conversational continuation context. This points to the last
+   * explicitly selected Mission; it does not assert that the Mission is
+   * currently executing.
+   */
+  activeMissionId: text("active_mission_id")
+    .references(() => aiMissionsTable.id, { onDelete: "set null" }),
+  /**
    * Verified resumable task contract for short continuation messages such as
    * "أكمل" or "ابدأ". Stored as validated JSON so the next request can resume
    * the task contract without trusting prose from the conversation history.
@@ -36,6 +44,8 @@ export const aiChatSessionsTable = pgTable("ai_chat_sessions", {
   index("idx_ai_chat_sessions_project_id_updated_at").on(t.projectId, t.updatedAt),
   // Covers: WHERE linked_task_id = ? (find all sessions for a task)
   index("idx_ai_chat_sessions_linked_task_id").on(t.linkedTaskId),
+  // Covers: WHERE active_mission_id = ? (find sessions selecting a Mission)
+  index("idx_ai_chat_sessions_active_mission_id").on(t.activeMissionId),
 ]);
 
 export const aiChatMessagesTable = pgTable("ai_chat_messages", {

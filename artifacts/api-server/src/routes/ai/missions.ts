@@ -1794,6 +1794,19 @@ router.post("/ai/missions/from-chat", async (req, res) => {
     if (body.assistantMessageId && !acceptedSource) {
       return { kind: "invalid_source" as const };
     }
+    const originSessionId = acceptedSource?.sessionId ?? body.sessionId ?? null;
+    if (originSessionId) {
+      const [originSession] = await tx
+        .select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable)
+        .where(and(
+          eq(aiChatSessionsTable.id, originSessionId),
+          eq(aiChatSessionsTable.projectId, project.id),
+        ))
+        .for("update")
+        .limit(1);
+      if (!originSession) return { kind: "session_not_found" as const };
+    }
     const userObjective = acceptedSource
       ? body.objective ?? DEFAULT_ACCEPTED_FINDING_MISSION_OBJECTIVE
       : body.objective;
@@ -1827,7 +1840,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       ? {
           kind: "chat",
           sourceType: "accepted_project_query",
-          sessionId: acceptedSource.sessionId,
+          sessionId: originSessionId,
           messageId: acceptedSource.userMessageId,
           assistantMessageId: acceptedSource.assistantMessageId,
           executionId: acceptedSource.executionId,
@@ -1838,7 +1851,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
           planHash: preview.plan.planHash,
         }
       : body.sessionId && body.messageId
-        ? { kind: "chat", sessionId: body.sessionId, messageId: body.messageId }
+        ? { kind: "chat", sessionId: originSessionId, messageId: body.messageId }
         : { kind: "chat", sessionId: null, messageId: null };
     const [mission] = await tx.insert(aiMissionsTable).values({
       id: missionId,
@@ -1877,7 +1890,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       projectId: project.id,
       userId: req.userId,
       missionId,
-      sessionId: acceptedSource?.sessionId ?? body.sessionId ?? null,
+      sessionId: originSessionId,
       messageId: acceptedSource?.userMessageId ?? body.messageId ?? null,
       assistantMessageId: acceptedSource?.assistantMessageId ?? body.assistantMessageId ?? null,
       idempotencyKey: body.idempotencyKey,
@@ -1892,6 +1905,19 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       createdAt: now,
       updatedAt: now,
     });
+    if (originSessionId) {
+      const [updatedSession] = await tx
+        .update(aiChatSessionsTable)
+        .set({ activeMissionId: missionId })
+        .where(and(
+          eq(aiChatSessionsTable.id, originSessionId),
+          eq(aiChatSessionsTable.projectId, project.id),
+        ))
+        .returning({ id: aiChatSessionsTable.id });
+      if (!updatedSession) {
+        throw new Error("The authorized Chat session disappeared during Mission handoff.");
+      }
+    }
     return {
       kind: "created" as const,
       mission,
@@ -1910,6 +1936,12 @@ router.post("/ai/missions/from-chat", async (req, res) => {
     return res.status(409).json({
       error: "The selected result is no longer a current, accepted PROJECT_QUERY finding",
       code: "MISSION_SOURCE_NOT_ACCEPTED",
+    });
+  }
+  if (result.kind === "session_not_found") {
+    return res.status(404).json({
+      error: "Chat session not found",
+      code: "SESSION_NOT_FOUND",
     });
   }
   if (result.kind === "not_admitted") {

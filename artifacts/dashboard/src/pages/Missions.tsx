@@ -73,11 +73,16 @@ function formatDate(value: string | null | undefined, includeTime = false) {
 
 type ChatHandoffProjection = NonNullable<MissionProjection['agentControl']>['handoff'];
 
-function chatHandoffHref(projectId: string, handoff: ChatHandoffProjection): string | null {
+function chatHandoffHref(
+  projectId: string,
+  missionId: string,
+  handoff: ChatHandoffProjection,
+): string | null {
   if (!handoff.sessionId) return null;
   const params = new URLSearchParams({
     projectId,
     sessionId: handoff.sessionId,
+    missionId,
   });
   const messageId = handoff.assistantMessageId ?? handoff.messageId;
   if (messageId) params.set('messageId', messageId);
@@ -1848,6 +1853,7 @@ export default function Missions() {
                               href={`/ai?${new URLSearchParams({
                                 projectId: String(activeMission.projectId),
                                 sessionId: acceptedFindingSource.sessionId,
+                                missionId: activeMission.id,
                                 messageId: acceptedFindingSource.assistantMessageId,
                               }).toString()}`}
                               data-testid="link-mission-source-chat"
@@ -1970,11 +1976,13 @@ export default function Missions() {
                               </div>
                               {chatHandoffHref(
                                 String(activeMission.projectId),
+                                activeMission.id,
                                 projection.agentControl.handoff,
                               ) ? (
                                 <a
                                   href={chatHandoffHref(
                                     String(activeMission.projectId),
+                                    activeMission.id,
                                     projection.agentControl.handoff,
                                   )!}
                                   className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-200 hover:text-cyan-100"

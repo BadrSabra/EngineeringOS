@@ -63,6 +63,8 @@ export * from './aiChatOutput';
 export * from './aiChatOutputRepairPlanItem';
 export * from './aiChatRequest';
 export * from './aiChatSession';
+export * from './aiChatSessionActiveMissionInput';
+export * from './aiChatSessionActiveMissionResponse';
 export * from './aiChatSessionForensicStatus';
 export * from './aiChatSessionMissionReference';
 export * from './aiChatSessionMissionReferenceMission';

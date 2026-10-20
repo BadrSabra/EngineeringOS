@@ -675,6 +675,11 @@ describe("AI missions and goals", () => {
     const input = { ...baseInput, message };
     const handoff = await request(app).post("/api/ai/missions/from-chat").send(input);
     expect(handoff.status).toBe(201);
+    const [sessionAfterFirstHandoff] = await db
+      .select({ activeMissionId: aiChatSessionsTable.activeMissionId })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(sessionAfterFirstHandoff.activeMissionId).toBe(handoff.body.mission.id);
 
     const retry = await request(app).post("/api/ai/missions/from-chat").send(input);
     expect(retry.status).toBe(200);
@@ -685,11 +690,17 @@ describe("AI missions and goals", () => {
     expect(keyConflict.status).toBe(409);
     expect(keyConflict.body.code).toBe("MISSION_HANDOFF_IDEMPOTENCY_CONFLICT");
 
+    const newConfirmationInput = { ...input, idempotencyKey: randomUUID() };
     const newConfirmation = await request(app)
       .post("/api/ai/missions/from-chat")
-      .send({ ...input, idempotencyKey: randomUUID() });
+      .send(newConfirmationInput);
     expect(newConfirmation.status).toBe(201);
     expect(newConfirmation.body.mission.id).not.toBe(handoff.body.mission.id);
+    const [sessionAfterSecondHandoff] = await db
+      .select({ activeMissionId: aiChatSessionsTable.activeMissionId })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(sessionAfterSecondHandoff.activeMissionId).toBe(newConfirmation.body.mission.id);
     expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
       .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(2);
 
@@ -709,6 +720,7 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/chat/${sessionId}/missions`);
     expect(sessionMissions.status).toBe(200);
     expect(sessionMissions.body.sessionId).toBe(sessionId);
+    expect(sessionMissions.body.activeMissionId).toBe(newConfirmation.body.mission.id);
     expect(sessionMissions.body.missions).toHaveLength(2);
     expect(new Set(sessionMissions.body.missions.map(
       (entry: { mission: { id: string } }) => entry.mission.id,
@@ -723,6 +735,36 @@ describe("AI missions and goals", () => {
         && entry.agentControl.handoff.dispatchStatus === "dispatched",
     )).toBe(true);
 
+    const explicitOlderSelection = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: handoff.body.mission.id });
+    expect(explicitOlderSelection.status).toBe(200);
+    expect(explicitOlderSelection.body).toEqual({
+      sessionId,
+      activeMissionId: handoff.body.mission.id,
+    });
+
+    const replayAfterSelection = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send(newConfirmationInput);
+    expect(replayAfterSelection.status).toBe(200);
+    const persistedSelection = await request(app)
+      .get(`/api/ai/chat/${sessionId}/missions`);
+    expect(persistedSelection.body.activeMissionId).toBe(handoff.body.mission.id);
+
+    await db.update(aiChatSessionsTable)
+      .set({ activeMissionId: null })
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    const legacySelection = await request(app)
+      .get(`/api/ai/chat/${sessionId}/missions`);
+    expect(legacySelection.status).toBe(200);
+    expect(legacySelection.body.activeMissionId).toBe(newConfirmation.body.mission.id);
+
+    const restoreOlderSelection = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: handoff.body.mission.id });
+    expect(restoreOlderSelection.status).toBe(200);
+
     const [durableHandoff] = await db
       .select({ id: aiMissionHandoffsTable.id })
       .from(aiMissionHandoffsTable)
@@ -736,6 +778,155 @@ describe("AI missions and goals", () => {
       .from(aiMissionHandoffsTable)
       .where(eq(aiMissionHandoffsTable.id, durableHandoff.id));
     expect(recoveredHandoff.dispatchStatus).toBe("dispatched");
+
+    await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, handoff.body.mission.id));
+    const [sessionAfterMissionDelete] = await db
+      .select({ activeMissionId: aiChatSessionsTable.activeMissionId })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(sessionAfterMissionDelete.activeMissionId).toBeNull();
+  });
+
+  it("rejects active Mission selection without a handoff to the exact session and project", async () => {
+    const projectId = await insertProject();
+    const otherProjectId = await insertProject();
+    const sessionId = randomUUID();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission selection boundary",
+    });
+
+    const unlinkedMission = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        idempotencyKey: randomUUID(),
+        message: "Inspect the source, then fix the blocking issue.",
+      });
+    expect(unlinkedMission.status).toBe(201);
+
+    const differentSessionId = randomUUID();
+    const differentSessionMessageId = randomUUID();
+    const sourceMessage = "Inspect the source, then fix the blocking issue.";
+    await db.insert(aiChatSessionsTable).values({
+      id: differentSessionId,
+      projectId,
+      title: "Different source session",
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: differentSessionMessageId,
+      sessionId: differentSessionId,
+      role: "user",
+      content: sourceMessage,
+    });
+    const missionLinkedElsewhere = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        idempotencyKey: randomUUID(),
+        message: sourceMessage,
+        sessionId: differentSessionId,
+        messageId: differentSessionMessageId,
+      });
+    expect(missionLinkedElsewhere.status).toBe(201);
+
+    const otherProjectMission = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId: otherProjectId,
+        idempotencyKey: randomUUID(),
+        message: "Inspect the source, then fix the blocking issue.",
+      });
+    expect(otherProjectMission.status).toBe(201);
+
+    const noSessionHandoff = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: unlinkedMission.body.mission.id });
+    expect(noSessionHandoff.status).toBe(404);
+    expect(noSessionHandoff.body.code).toBe("MISSION_NOT_FOUND");
+
+    const crossSessionSelection = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: missionLinkedElsewhere.body.mission.id });
+    expect(crossSessionSelection.status).toBe(404);
+    expect(crossSessionSelection.body.code).toBe("MISSION_NOT_FOUND");
+
+    const crossProjectSelection = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: otherProjectMission.body.mission.id });
+    expect(crossProjectSelection.status).toBe(404);
+    expect(crossProjectSelection.body.code).toBe("MISSION_NOT_FOUND");
+
+    const invalidPayload = await request(app)
+      .put(`/api/ai/chat/${sessionId}/active-mission`)
+      .send({ missionId: unlinkedMission.body.mission.id, projectId });
+    expect(invalidPayload.status).toBe(400);
+    expect(invalidPayload.body.code).toBe("ACTIVE_MISSION_SELECTION_INVALID");
+  });
+
+  it("rolls back the Mission plan and handoff when persisting the session selection fails", async () => {
+    const projectId = await insertProject();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const message = "Inspect the source, then fix the blocking issue.";
+    const suffix = randomUUID().replaceAll("-", "");
+    const functionName = `fail_active_mission_${suffix}`;
+    const triggerName = `fail_active_mission_${suffix}`;
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Atomic active Mission selection",
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "user",
+      content: message,
+    });
+
+    await db.execute(sql.raw(`
+      CREATE FUNCTION ${functionName}() RETURNS trigger
+      LANGUAGE plpgsql AS $body$
+      BEGIN
+        IF NEW.id = '${sessionId}' AND NEW.active_mission_id IS NOT NULL THEN
+          RAISE EXCEPTION 'forced active Mission selection failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $body$
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER ${triggerName}
+      BEFORE UPDATE OF active_mission_id ON ai_chat_sessions
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+    `));
+
+    try {
+      const response = await request(app)
+        .post("/api/ai/missions/from-chat")
+        .send({
+          projectId,
+          idempotencyKey: randomUUID(),
+          message,
+          sessionId,
+          messageId,
+        });
+      expect(response.status).toBe(500);
+      expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+      expect(await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+        .where(eq(aiGoalsTable.projectId, projectId))).toEqual([]);
+      expect(await db.select({ id: aiMissionHandoffsTable.id }).from(aiMissionHandoffsTable)
+        .where(eq(aiMissionHandoffsTable.sessionId, sessionId))).toEqual([]);
+      const [session] = await db.select({
+        activeMissionId: aiChatSessionsTable.activeMissionId,
+      }).from(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      expect(session.activeMissionId).toBeNull();
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON ai_chat_sessions`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`));
+    }
   });
 
   it("keeps handoff provenance server-owned across generic Mission writes", async () => {

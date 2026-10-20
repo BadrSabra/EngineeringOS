@@ -159,6 +159,8 @@ import {
 import {
   ListAiChatMessagesResponseItem,
   ListAiChatSessionMissionsResponse,
+  SetAiChatSessionActiveMissionBody,
+  SetAiChatSessionActiveMissionResponse,
   type EvidenceGraph as ApiEvidenceGraph,
 } from "@workspace/api-zod";
 import { loadEpisodeEvidenceBraid } from "../../lib/agent-state/episode-evidence-braid";
@@ -14845,6 +14847,7 @@ router.get("/ai/chat/:sessionId/missions", async (req, res) => {
     .select({
       id: aiChatSessionsTable.id,
       projectId: aiChatSessionsTable.projectId,
+      activeMissionId: aiChatSessionsTable.activeMissionId,
     })
     .from(aiChatSessionsTable)
     .where(eq(aiChatSessionsTable.id, sessionId))
@@ -14884,8 +14887,14 @@ router.get("/ai/chat/:sessionId/missions", async (req, res) => {
     ))
     .orderBy(desc(aiMissionHandoffsTable.createdAt), desc(aiMissionHandoffsTable.id));
 
+  const activeMissionId = session.activeMissionId === null
+    ? rows[0]?.missionId ?? null
+    : rows.some((row) => row.missionId === session.activeMissionId)
+      ? session.activeMissionId
+      : null;
   const response = ListAiChatSessionMissionsResponse.parse({
     sessionId,
+    activeMissionId,
     missions: rows.map((row) => ({
       mission: {
         id: row.missionId,
@@ -14909,6 +14918,93 @@ router.get("/ai/chat/:sessionId/missions", async (req, res) => {
     })),
   });
   return res.json(response);
+});
+
+router.put("/ai/chat/:sessionId/active-mission", async (req, res) => {
+  const { sessionId } = req.params;
+  const body = SetAiChatSessionActiveMissionBody.strict().safeParse(req.body);
+  if (!body.success) {
+    return res.status(400).json({
+      error: "A valid linked Mission ID is required.",
+      code: "ACTIVE_MISSION_SELECTION_INVALID",
+    });
+  }
+
+  const [session] = await db
+    .select({
+      id: aiChatSessionsTable.id,
+      projectId: aiChatSessionsTable.projectId,
+    })
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.id, sessionId))
+    .limit(1);
+  if (!session) {
+    return res.status(404).json({
+      error: "Chat session not found",
+      code: "SESSION_NOT_FOUND",
+    });
+  }
+
+  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  if (!project) return;
+
+  const selection = await db.transaction(async (tx) => {
+    // Lock the owned Mission before updating its session pointer. This keeps
+    // Mission deletion/FK cleanup ordered with explicit selection.
+    const [mission] = await tx
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, body.data.missionId),
+        eq(aiMissionsTable.projectId, project.id),
+        eq(aiMissionsTable.userId, req.userId),
+      ))
+      .for("update")
+      .limit(1);
+    if (!mission) return { kind: "mission_not_found" as const };
+
+    const [handoff] = await tx
+      .select({ id: aiMissionHandoffsTable.id })
+      .from(aiMissionHandoffsTable)
+      .where(and(
+        eq(aiMissionHandoffsTable.missionId, mission.id),
+        eq(aiMissionHandoffsTable.sessionId, session.id),
+        eq(aiMissionHandoffsTable.projectId, project.id),
+        eq(aiMissionHandoffsTable.userId, req.userId),
+      ))
+      .limit(1);
+    if (!handoff) return { kind: "mission_not_found" as const };
+
+    const [updatedSession] = await tx
+      .update(aiChatSessionsTable)
+      .set({ activeMissionId: mission.id })
+      .where(and(
+        eq(aiChatSessionsTable.id, session.id),
+        eq(aiChatSessionsTable.projectId, project.id),
+      ))
+      .returning({ activeMissionId: aiChatSessionsTable.activeMissionId });
+    if (!updatedSession) return { kind: "session_not_found" as const };
+
+    return { kind: "selected" as const, activeMissionId: updatedSession.activeMissionId };
+  });
+
+  if (selection.kind === "mission_not_found") {
+    return res.status(404).json({
+      error: "Mission not found",
+      code: "MISSION_NOT_FOUND",
+    });
+  }
+  if (selection.kind === "session_not_found") {
+    return res.status(404).json({
+      error: "Chat session not found",
+      code: "SESSION_NOT_FOUND",
+    });
+  }
+
+  return res.json(SetAiChatSessionActiveMissionResponse.parse({
+    sessionId: session.id,
+    activeMissionId: selection.activeMissionId,
+  }));
 });
 
 // ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────

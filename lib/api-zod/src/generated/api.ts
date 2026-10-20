@@ -7754,6 +7754,7 @@ export const ListAiChatSessionMissionsParams = zod.object({
 
 export const ListAiChatSessionMissionsResponse = zod.object({
   "sessionId": zod.string(),
+  "activeMissionId": zod.string().nullable(),
   "missions": zod.array(zod.object({
   "mission": zod.object({
   "id": zod.string(),
@@ -7775,6 +7776,27 @@ export const ListAiChatSessionMissionsResponse = zod.object({
 })
 })
 }))
+})
+
+
+/**
+ * @summary Select a linked Mission as a chat session's active continuity context
+ */
+export const SetAiChatSessionActiveMissionParams = zod.object({
+  "sessionId": zod.coerce.string()
+})
+
+export const setAiChatSessionActiveMissionBodyMissionIdMax = 200;
+
+
+
+export const SetAiChatSessionActiveMissionBody = zod.object({
+  "missionId": zod.string().min(1).max(setAiChatSessionActiveMissionBodyMissionIdMax)
+})
+
+export const SetAiChatSessionActiveMissionResponse = zod.object({
+  "sessionId": zod.string(),
+  "activeMissionId": zod.string()
 })
 
 

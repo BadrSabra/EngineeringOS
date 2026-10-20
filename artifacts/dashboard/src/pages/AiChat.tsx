@@ -1,4 +1,4 @@
-import { isValidElement, useState, useRef, useEffect, type ReactNode } from 'react';
+import { isValidElement, useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
@@ -49,6 +49,7 @@ import {
   useListAiChatMessages,
   useListAiChatSessionMissions,
   getListAiChatSessionMissionsQueryKey,
+  useSetAiChatSessionActiveMission,
   useGetAiPendingProposal,
   useListEvents,
   useGetAiChatFileContent,
@@ -73,6 +74,7 @@ import {
   useListBrowserValidationProfiles,
   getListBrowserValidationProfilesQueryKey,
   useExplainAiFallback,
+  type AiChatSessionMissionsResponse,
 } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
@@ -1034,6 +1036,7 @@ type AiChatRouteTarget = {
   projectId: string;
   sessionId?: string;
   messageId?: string;
+  missionId?: string;
 };
 
 export function parseAiChatRouteTarget(search: string): AiChatRouteTarget | null {
@@ -1042,10 +1045,13 @@ export function parseAiChatRouteTarget(search: string): AiChatRouteTarget | null
   if (!isOpaqueSelectionId(projectId)) return null;
   const sessionId = params.get('sessionId');
   const messageId = params.get('messageId');
+  const missionId = params.get('missionId');
+  const hasExplicitSessionId = isOpaqueSelectionId(sessionId);
   return {
     projectId,
-    ...(isOpaqueSelectionId(sessionId) ? { sessionId } : {}),
+    ...(hasExplicitSessionId ? { sessionId } : {}),
     ...(isOpaqueSelectionId(messageId) ? { messageId } : {}),
+    ...(hasExplicitSessionId && isOpaqueSelectionId(missionId) ? { missionId } : {}),
   };
 }
 
@@ -9732,12 +9738,14 @@ function AgentExecutionProofPanel({
 export default function AiChat() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const activeMissionSelectionMutation = useSetAiChatSessionActiveMission();
   const fallbackDiagnosticMutation = useExplainAiFallback();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded, user } = useUser();
 
   const [chatRouteTarget] = useState(() => parseAiChatRouteTarget(window.location.search));
+  const routeMissionSelectionAttempt = useRef('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
@@ -11138,6 +11146,68 @@ export default function AiChat() {
       refetchIntervalInBackground: false,
     },
   });
+  const currentSessionMissions = chatSessionMissions?.sessionId === sessionId
+    ? chatSessionMissions
+    : undefined;
+  const currentSessionMissionsPending = chatSessionMissionsPending
+    || Boolean(sessionId && !currentSessionMissions && !chatSessionMissionsError);
+  const routeMissionId = chatRouteTarget?.projectId === selectedProjectId
+    && chatRouteTarget.sessionId === sessionId
+    ? chatRouteTarget.missionId
+    : undefined;
+
+  const selectSessionMission = useCallback(async (
+    targetSessionId: string,
+    missionId: string,
+  ): Promise<void> => {
+    try {
+      const result = await activeMissionSelectionMutation.mutateAsync({
+        sessionId: targetSessionId,
+        data: { missionId },
+      });
+      const queryKey = [
+        ...getListAiChatSessionMissionsQueryKey(targetSessionId),
+        user?.id ?? null,
+      ];
+      qc.setQueryData<AiChatSessionMissionsResponse>(queryKey, (current) => (
+        current?.sessionId === targetSessionId
+          ? { ...current, activeMissionId: result.activeMissionId }
+          : current
+      ));
+    } catch (error) {
+      toast({
+        title: 'تعذّر تغيير المهمة الحالية',
+        description: error instanceof Error ? error.message : 'لم يتغير الاختيار المحفوظ.',
+        variant: 'destructive',
+      });
+      throw error;
+    }
+  }, [activeMissionSelectionMutation, qc, toast, user?.id]);
+
+  useEffect(() => {
+    if (
+      !routeMissionId
+      || !sessionId
+      || !selectedProjectId
+      || currentSessionMissions?.sessionId !== sessionId
+    ) {
+      return;
+    }
+    const attemptKey = `${selectedProjectId}:${sessionId}:${routeMissionId}`;
+    if (routeMissionSelectionAttempt.current === attemptKey) return;
+    if (!currentSessionMissions.missions.some(({ mission }) => mission.id === routeMissionId)) {
+      return;
+    }
+    routeMissionSelectionAttempt.current = attemptKey;
+    if (currentSessionMissions.activeMissionId === routeMissionId) return;
+    void selectSessionMission(sessionId, routeMissionId).catch(() => undefined);
+  }, [
+    currentSessionMissions,
+    routeMissionId,
+    selectSessionMission,
+    selectedProjectId,
+    sessionId,
+  ]);
 
   const { data: serverProposal } = useGetAiPendingProposal<{
     proposalId: string | null;
@@ -14009,13 +14079,17 @@ export default function AiChat() {
           {selectedProjectId && sessionId && (
             <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
               <ChatSessionMissionHandoffs
+                key={sessionId}
                 projectId={selectedProjectId}
                 sessionId={sessionId}
                 userId={user?.id ?? null}
-                missions={chatSessionMissions?.missions ?? []}
-                isPending={chatSessionMissionsPending}
+                missions={currentSessionMissions?.missions ?? []}
+                activeMissionId={currentSessionMissions?.activeMissionId ?? null}
+                isPending={currentSessionMissionsPending}
                 isError={chatSessionMissionsError}
+                isSelectingMission={activeMissionSelectionMutation.isPending}
                 onRetry={() => void refetchChatSessionMissions()}
+                onSelectMission={(missionId) => selectSessionMission(sessionId, missionId)}
               />
             </div>
           )}
