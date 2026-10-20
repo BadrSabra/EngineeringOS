@@ -4752,8 +4752,11 @@ components:
     AiMissionEngineeringAgentProjection:
       type: object
       additionalProperties: false
-      required: [state, nextAction, intervention, autonomy, missionId, sessionId, goalId, executionId]
+      required: [schemaVersion, state, nextAction, intervention, autonomy, missionId, sessionId, goalId, executionId]
       properties:
+        schemaVersion:
+          type: integer
+          enum: [1]
         state:
           type: string
           enum: [PLANNING, WORKING, VERIFYING, AWAITING_APPROVAL, RECOVERING, DELIVERING, COMPLETE, NEEDS_ATTENTION]
@@ -4764,7 +4767,7 @@ components:
           properties:
             kind:
               type: string
-              enum: [AUTO_CONTINUE, RESUME, RETRY, APPROVE, REVIEW, STOP, NONE]
+              enum: [START, AUTO_CONTINUE, RESUME, RETRY, APPROVE, REPLAN, REVIEW, STOP, NONE]
             target:
               anyOf:
                 - $ref: "#/components/schemas/AiMissionEngineeringAgentTarget"

@@ -10,10 +10,12 @@ export const engineeringAgentStates = [
 ] as const;
 
 export const engineeringAgentActions = [
+  "START",
   "AUTO_CONTINUE",
   "RESUME",
   "RETRY",
   "APPROVE",
+  "REPLAN",
   "REVIEW",
   "STOP",
   "NONE",
@@ -57,6 +59,7 @@ export type EngineeringAgentInterventionKind =
   | "delivery";
 
 export type EngineeringAgentProjection = {
+  schemaVersion: 1;
   state: EngineeringAgentState;
   nextAction: {
     kind: EngineeringAgentAction;
@@ -124,6 +127,8 @@ export type EngineeringAgentProjectionContext = {
   sessionId: string | null;
   missionStatus: string;
   planBinding: string;
+  /** The active plan's persisted topological order, used to select among Goals. */
+  planGoalOrder?: string[];
   goals: EngineeringAgentGoalFact[];
   missionCompletionAccepted: boolean | null;
   autonomyPolicy: unknown;
@@ -171,10 +176,6 @@ function normalizeAutonomyPolicy(value: unknown): EngineeringAgentProjection["au
 
 function normalized(value: string | null | undefined): string {
   return (value ?? "").toLowerCase();
-}
-
-function byGoalId(left: EngineeringAgentGoalFact, right: EngineeringAgentGoalFact): number {
-  return left.id.localeCompare(right.id);
 }
 
 function goalTarget(goal: EngineeringAgentGoalFact): Decision["target"] {
@@ -319,17 +320,36 @@ function decision(
 
 /**
  * Pure state reducer for the read-only Engineering Agent projection.
+ *
+ * Precedence is fail-closed: plan/proof binding, terminal Mission state,
+ * approval, acceptance evidence, delivery, and completion gates are resolved
+ * before ordinary runtime state. Within an active plan, verification/running
+ * execution and an explicitly authorized recovery take precedence over
+ * replanning; queued work is considered only after those gates.
+ *
  * It interprets only supplied server-owned facts and never starts runtime work.
  */
 export function reduceEngineeringAgentProjection(
   context: EngineeringAgentProjectionContext,
 ): EngineeringAgentProjection {
   const autonomy = normalizeAutonomyPolicy(context.autonomyPolicy);
+  const planOrder = new Map(
+    (context.planGoalOrder ?? []).map((goalId, index) => [goalId, index]),
+  );
   const activeGoals = context.goals
     .filter((goal) => context.planBinding === "legacy_unversioned"
       || context.planBinding === "active_revision")
     .slice()
-    .sort(byGoalId);
+    .sort((left, right) => {
+      const leftOrder = planOrder.get(left.id);
+      const rightOrder = planOrder.get(right.id);
+      if (leftOrder !== undefined || rightOrder !== undefined) {
+        if (leftOrder === undefined) return 1;
+        if (rightOrder === undefined) return -1;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      }
+      return left.id.localeCompare(right.id);
+    });
   const missionTarget = { kind: "mission" as const, id: context.missionId };
   let result: Decision;
 
@@ -345,10 +365,7 @@ export function reduceEngineeringAgentProjection(
       { interventionKind: "scope", interventionRequired: true, goal: staleProofGoal },
     );
   } else if (context.missionStatus === "cancelled") {
-    result = decision("NEEDS_ATTENTION", "STOP", "mission_cancelled", missionTarget, {
-      interventionKind: "scope",
-      interventionRequired: true,
-    });
+    result = decision("NEEDS_ATTENTION", "NONE", "mission_cancelled", null);
   } else {
     const approvalGoal = activeGoals.find(isApprovalPending);
     if (approvalGoal) {
@@ -408,8 +425,23 @@ export function reduceEngineeringAgentProjection(
                 { interventionKind: "review", interventionRequired: true, goal: activeGoals[0] },
               );
         } else if (context.missionStatus === "draft") {
-          result = decision("PLANNING", "NONE", "mission_draft", null);
-        } else if (["blocked", "failed", "needs_replan"].includes(context.missionStatus)) {
+          result = decision("PLANNING", "START", "mission_draft", missionTarget);
+        } else if (context.missionStatus === "needs_replan") {
+          const replanGoal = activeGoals.find((goal) =>
+            ["blocked", "failed", "needs_replan"].includes(normalized(goal.status)),
+          );
+          result = decision(
+            "NEEDS_ATTENTION",
+            "REPLAN",
+            "goal_requires_replan",
+            replanGoal ? goalTarget(replanGoal) : missionTarget,
+            {
+              interventionKind: "review",
+              interventionRequired: true,
+              goal: replanGoal,
+            },
+          );
+        } else if (["blocked", "failed"].includes(context.missionStatus)) {
           result = decision(
             "NEEDS_ATTENTION",
             "REVIEW",
@@ -457,15 +489,7 @@ export function reduceEngineeringAgentProjection(
           );
           const allCompleted = activeGoals.every((goal) => normalized(goal.status) === "completed");
 
-          if (replanGoal && !resumable) {
-            result = decision(
-              "NEEDS_ATTENTION",
-              "REVIEW",
-              "goal_requires_replan",
-              goalTarget(replanGoal),
-              { interventionKind: "review", interventionRequired: true, goal: replanGoal },
-            );
-          } else if (verificationGoal) {
+          if (verificationGoal) {
             result = decision(
               "VERIFYING",
               "NONE",
@@ -483,6 +507,14 @@ export function reduceEngineeringAgentProjection(
             );
           } else if (resumable) {
             result = resumable;
+          } else if (replanGoal) {
+            result = decision(
+              "NEEDS_ATTENTION",
+              "REPLAN",
+              "goal_requires_replan",
+              goalTarget(replanGoal),
+              { interventionKind: "review", interventionRequired: true, goal: replanGoal },
+            );
           } else if (waitingEventGoal) {
             result = decision(
               "PLANNING",
@@ -535,6 +567,7 @@ export function reduceEngineeringAgentProjection(
   const goal = result.goal;
   const executionId = goal?.currentExecution?.id ?? null;
   return {
+    schemaVersion: 1,
     state: result.state,
     nextAction: {
       kind: result.action,

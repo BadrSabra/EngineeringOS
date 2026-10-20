@@ -1655,10 +1655,11 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/missions/${createdMission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.engineeringAgent).toMatchObject({
+      schemaVersion: 1,
       state: "PLANNING",
       nextAction: {
-        kind: "NONE",
-        target: null,
+        kind: "START",
+        target: { kind: "mission", id: createdMission.body.id },
         reasonCode: "mission_draft",
       },
       intervention: { required: false, kind: "none", reasonCode: null },

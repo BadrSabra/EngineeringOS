@@ -296,23 +296,29 @@ const missionReasonDetails: Record<string, string> = {
 };
 
 const missionActionLabels: Record<EngineeringAgentProjection['nextAction']['kind'], string> = {
+  START: 'بدء الهدف الرئيسي',
   AUTO_CONTINUE: 'المتابعة مسموحة عبر Mission Runtime',
   RESUME: 'استئناف المحاولة المسجلة عبر Mission Runtime',
   RETRY: 'إعادة المحاولة المسجلة عبر Mission Runtime',
   APPROVE: 'راجع الموافقة المطلوبة في الخطوة',
+  REPLAN: 'إنشاء خطة جديدة للهدف',
   REVIEW: 'راجع الخطة أو الإثبات المسجل',
   STOP: 'أوقف متابعة هذا المسار',
   NONE: 'لا يوجد إجراء مطلوب الآن',
 };
 
 export function getMissionState(projection: EngineeringAgentProjection): MissionState {
+  const stateLabel = (missionStateLabels as Record<string, string>)[projection.state]
+    ?? 'حالة الوكيل غير معروفة';
+  const nextActionLabel = (missionActionLabels as Record<string, string>)[projection.nextAction.kind]
+    ?? 'راجع تفاصيل الحالة قبل المتابعة';
   return {
     key: projection.state,
-    label: missionStateLabels[projection.state],
+    label: stateLabel,
     detail: missionReasonDetails[projection.nextAction.reasonCode]
       ?? 'تُعرض الحالة والقرار كما حددهما الخادم لهذا الإسقاط.',
     nextAction: projection.nextAction.kind,
-    nextActionLabel: missionActionLabels[projection.nextAction.kind],
+    nextActionLabel,
     reasonCode: projection.nextAction.reasonCode,
     interventionRequired: projection.intervention.required,
     interventionLabel: projection.intervention.required

@@ -55,6 +55,55 @@ function context(
 }
 
 describe("reduceEngineeringAgentProjection", () => {
+  it("exposes START for a draft Mission and targets that Mission", () => {
+    const projection = reduceEngineeringAgentProjection(context({
+      missionStatus: "draft",
+      goals: [],
+    }));
+    expect(projection).toMatchObject({
+      schemaVersion: 1,
+      state: "PLANNING",
+      nextAction: {
+        kind: "START",
+        target: { kind: "mission", id: "mission-1" },
+        reasonCode: "mission_draft",
+      },
+    });
+  });
+
+  it("exposes REPLAN for an eligible current-plan Goal and uses plan order", () => {
+    const first = goal({ id: "goal-z", status: "needs_replan" });
+    const second = goal({ id: "goal-a", status: "failed" });
+    const projection = reduceEngineeringAgentProjection(context({
+      goals: [second, first],
+      planGoalOrder: ["goal-z", "goal-a"],
+    }));
+    expect(projection).toMatchObject({
+      state: "NEEDS_ATTENTION",
+      nextAction: {
+        kind: "REPLAN",
+        target: { kind: "goal", id: "goal-z" },
+        reasonCode: "goal_requires_replan",
+      },
+    });
+  });
+
+  it("does not represent a cancelled Mission as a new STOP operation", () => {
+    const projection = reduceEngineeringAgentProjection(context({
+      missionStatus: "cancelled",
+      goals: [],
+    }));
+    expect(projection).toMatchObject({
+      state: "NEEDS_ATTENTION",
+      nextAction: {
+        kind: "NONE",
+        target: null,
+        reasonCode: "mission_cancelled",
+      },
+      intervention: { required: false, kind: "none", reasonCode: null },
+    });
+  });
+
   it("gives an active-plan mismatch precedence over approval and execution state", () => {
     const projection = reduceEngineeringAgentProjection(context({
       planBinding: "revision_mismatch",

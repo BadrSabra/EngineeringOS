@@ -193,6 +193,7 @@ describe('getExecutionPresentation', () => {
 });
 
 const baseEngineeringAgentProjection: EngineeringAgentProjection = {
+  schemaVersion: 1,
   state: 'AWAITING_APPROVAL',
   nextAction: {
     kind: 'APPROVE',

@@ -149,6 +149,7 @@ export interface SkillCandidateProjection {
 }
 
 export interface EngineeringAgentProjection {
+  schemaVersion: 1;
   state:
     | 'PLANNING'
     | 'WORKING'
@@ -159,7 +160,7 @@ export interface EngineeringAgentProjection {
     | 'COMPLETE'
     | 'NEEDS_ATTENTION';
   nextAction: {
-    kind: 'AUTO_CONTINUE' | 'RESUME' | 'RETRY' | 'APPROVE' | 'REVIEW' | 'STOP' | 'NONE';
+    kind: 'START' | 'AUTO_CONTINUE' | 'RESUME' | 'RETRY' | 'APPROVE' | 'REPLAN' | 'REVIEW' | 'STOP' | 'NONE';
     target: { kind: 'mission' | 'goal' | 'execution' | 'proposal'; id: string } | null;
     reasonCode: string;
   };
