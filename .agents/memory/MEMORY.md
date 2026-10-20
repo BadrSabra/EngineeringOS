@@ -112,7 +112,7 @@
 - [Server-owned confidence](server-owned-confidence.md) — confidence is computed from accepted evidence, claim closure, source diversity, revision, and contradictions; provider scores are non-authoritative.
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
-- [Mission management browser proof](missions-management-browser-proof.md) — isolate CRUD journeys with provider-free fixtures and assert durable source values after reload.
+- [Mission management browser proof](missions-management-browser-proof.md) — fixture Mission plan preview and assert its exact hash alongside durable CRUD values after reload.
 - [Mission approval adapter](mission-approval-adapter.md) — preserve Mission-first locking; compare the locked Proposal identity and pin it to the Apply Mission plan.
 - [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
 - [Recovery test isolation](recovery-test-isolation.md) — drain tracked observation work between nested lifecycle handoff phases and before dependency-ordered cleanup.

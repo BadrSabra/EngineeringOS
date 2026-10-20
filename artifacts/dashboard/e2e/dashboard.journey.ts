@@ -3987,6 +3987,27 @@ async function installMissionManagementFixtures(page: Page) {
       body = {};
     }
 
+    if (path === "/api/ai/missions/plan-preview" && request.method() === "POST") {
+      return route.fulfill(jsonResponse({
+        version: 1,
+        objective: String(body.objective ?? body.message ?? ""),
+        admission: "mission",
+        admissionReason: "e2e mission-management fixture",
+        plan: {
+          planHash: "e2e-mission-management-plan",
+          steps: [{
+            id: "e2e-mission-management-step",
+            title: "Review the release candidate",
+            kind: "analyze",
+            dependencies: [],
+            files: [],
+            readOnly: true,
+            approvalRequired: false,
+          }],
+        },
+      }));
+    }
+
     if (path === "/api/ai/missions" && request.method() === "GET") {
       return route.fulfill(jsonResponse(mission ? [mission] : []));
     }
@@ -3999,7 +4020,7 @@ async function installMissionManagementFixtures(page: Page) {
         userId: "e2e-user",
         title: body.title,
         intent: body.intent,
-        status: "draft",
+        status: body.status ?? "draft",
         scope: { kind: "project", projectId },
         autonomyPolicy: body.autonomyPolicy ?? {},
         budget: body.budget ?? {},
@@ -5403,6 +5424,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page
       .getByTestId("mission-autonomy-policy")
       .fill('{"mode":"operator-gated"}');
+    const planPreviewResponsePromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname.endsWith("/api/ai/missions/plan-preview")
+      && response.request().method() === "POST"
+    ));
+    await page.getByTestId("button-preview-mission-plan").click();
+    const planPreviewResponse = await planPreviewResponsePromise;
+    expect(planPreviewResponse.status()).toBe(200);
+    const planPreview = await planPreviewResponse.json() as {
+      plan?: { planHash?: string };
+    };
+    expect(planPreview.plan?.planHash).toBe("e2e-mission-management-plan");
+    await expect(page.getByTestId("mission-plan-preview")).toBeVisible();
+    await expect(page.getByTestId("button-save-editor")).toBeEnabled();
     await page.getByTestId("button-save-editor").click();
 
     await expect(page.getByTestId("button-mission-e2e-mission-management")).toBeVisible();
@@ -5490,6 +5524,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(missionFixtures.mutations[0]?.body.autonomyPolicy).toEqual({
       mode: "operator-gated",
     });
+    expect(missionFixtures.mutations[0]?.body.expectedPlanHash).toBe(
+      "e2e-mission-management-plan",
+    );
     expect(missionFixtures.mutations[2]?.body.successCriteria).toEqual({
       validator: "release",
     });
