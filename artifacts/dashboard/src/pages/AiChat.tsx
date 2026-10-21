@@ -4564,6 +4564,7 @@ function PendingChangesCard({
   approvalRequired,
   missionCandidate,
   missionCandidateAccepted,
+  applyMissionReady,
   lifecycle,
 }: {
   changes: PendingChange[];
@@ -4583,6 +4584,7 @@ function PendingChangesCard({
   approvalRequired: boolean;
   missionCandidate: boolean;
   missionCandidateAccepted: boolean;
+  applyMissionReady: boolean;
   lifecycle?: DeliveryLifecycle;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -4860,7 +4862,9 @@ function PendingChangesCard({
               onClick={missionCandidateAccepted
                 ? approvalRequired
                   ? onApproveMissionCandidate
-                  : onCreateApplyMission
+                  : applyMissionReady
+                    ? () => onApply(effectiveChanges)
+                    : onCreateApplyMission
                 : undefined}
               disabled={
                 isPending
@@ -4877,7 +4881,9 @@ function PendingChangesCard({
                 ? 'بانتظار قبول التنفيذ الأصلي'
                 : approvalRequired
                   ? 'أوافق على المرشح بعد مراجعته'
-                  : 'إنشاء هدف تطبيق وتسليم'}
+                  : applyMissionReady
+                    ? `تطبيق المرشح المعتمد (${effectiveChanges.length} تغيير)`
+                    : 'إنشاء هدف تطبيق وتسليم'}
             </Button>
           ) : (
             <Button
@@ -11354,6 +11360,7 @@ export default function AiChat() {
     validationEvidence?: PublicValidationResult[] | null;
     missionCandidate?: boolean;
     missionCandidateAccepted?: boolean;
+    applyMissionReady?: boolean;
     sourceMissionId?: string | null;
     sourceGoalId?: string | null;
   }>(
@@ -11772,6 +11779,14 @@ export default function AiChat() {
       onSuccess: (data) => {
         const failed = data.results.filter((r) => !r.ok);
         const succeeded = data.results.filter((r) => r.ok);
+        const missionHandoff = data.lifecycle?.missionHandoff;
+        const missionHandoffFailed = missionHandoff?.transitionStatus === 'not_created'
+          || missionHandoff?.transitionStatus === 'terminal_failed'
+          || ['blocked', 'failed', 'conflict', 'needs_replan'].includes(missionHandoff?.goalWakeStatus ?? '');
+        const missionHandoffPending = Boolean(missionHandoff)
+          && !missionHandoffFailed
+          && (missionHandoff?.transitionStatus !== 'materialized'
+            || missionHandoff?.goalWakeStatus !== 'completed');
         const verificationFor = (result: (typeof data.results)[number]): BehavioralVerification => ({
           status: result.behavioralVerification?.status ?? 'unavailable',
           profile: result.behavioralVerification?.profile,
@@ -11792,13 +11807,23 @@ export default function AiChat() {
             .map((r) => `${r.path}: ${verificationFor(r).status}`)
             .join('\n');
           const needsReview = succeeded.filter((r) => verificationFor(r).status !== 'passed');
+          const missionHandoffMessage = missionHandoffFailed
+            ? '\nتعذر استكمال إثبات التسليم لهدف Mission؛ لم يُعلَن اكتماله.'
+            : missionHandoffPending
+              ? '\nتم تطبيق التغييرات، وهدف Mission ما زال قيد التحقق.'
+              : missionHandoff
+                ? '\nاكتمل إثبات هدف Mission.'
+                : '';
           toast({
-            title: needsReview.length > 0
+            title: missionHandoffFailed
+              ? `Wrote ${succeeded.length} file change${succeeded.length !== 1 ? 's' : ''} — Mission needs attention`
+              : needsReview.length > 0
               ? `Wrote ${succeeded.length} file change${succeeded.length !== 1 ? 's' : ''} — review required`
               : `Wrote ${succeeded.length} file change${succeeded.length !== 1 ? 's' : ''}`,
             description: needsReview.length > 0
-              ? `Persistence verified, but behavioral verification is incomplete.\n${verificationText}`
-              : `Persistence and behavioral verification passed.\n${verificationText}`,
+              ? `Persistence verified, but behavioral verification is incomplete.\n${verificationText}${missionHandoffMessage}`
+              : `Persistence and behavioral verification passed.\n${verificationText}${missionHandoffMessage}`,
+            ...(missionHandoffFailed ? { variant: 'destructive' as const } : {}),
           });
         }
         setOperationId(data.correlationId);
@@ -11997,7 +12022,6 @@ export default function AiChat() {
         changes: approvedChanges,
         projectId: selectedProjectId,
         proposalId,
-        ...(operationId ? { operationId } : {}),
       },
     });
   }
@@ -12037,19 +12061,19 @@ export default function AiChat() {
     ) return;
     setApplyMissionPending(true);
     try {
-      const result = await createApplyMissionFromProposal({
+      await createApplyMissionFromProposal({
         projectId: selectedProjectId,
         proposalId,
         title: 'تطبيق المرشح المعتمد وتسليمه',
         intent: 'تطبيق المرشح المعتمد على مساحة المشروع والتحقق من التسليم إلى المستودع المرتبط.',
       });
+      if (sessionId) {
+        await qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+      }
       toast({
         title: 'أُنشئ هدف التطبيق والتسليم',
-        description: 'انتقلت المتابعة إلى هدف تطبيق مستقل؛ لم يُطبّق المرشح مباشرة من المحادثة.',
+        description: 'راجع هدف التطبيق ثم استخدم زر تطبيق المرشح المعتمد لبدء التطبيق المحمي بصورة منفصلة.',
       });
-      setLocation(
-        `/missions?projectId=${encodeURIComponent(selectedProjectId)}&missionId=${encodeURIComponent(result.mission.id)}`,
-      );
     } catch (error) {
       toast({
         title: 'تعذر إنشاء هدف التطبيق',
@@ -14744,6 +14768,7 @@ export default function AiChat() {
                   approvalRequired={proposalRequiresApproval}
                   missionCandidate={serverProposal?.missionCandidate === true}
                   missionCandidateAccepted={serverProposal?.missionCandidateAccepted === true}
+                  applyMissionReady={serverProposal?.applyMissionReady === true}
                   lifecycle={deliveryLifecycle}
                 />
               )}

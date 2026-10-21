@@ -5149,6 +5149,7 @@ describe("AI missions and goals", () => {
     expect(waitingReview.status).toBe(200);
     expect(waitingReview.body).toMatchObject({
       proposalId,
+      operationId: `mission-repair-${executionId}`,
       missionCandidate: true,
       missionCandidateAccepted: false,
       sourceMissionId: missionId,
@@ -5215,6 +5216,7 @@ describe("AI missions and goals", () => {
       proposalId,
       missionCandidate: true,
       missionCandidateAccepted: true,
+      applyMissionReady: false,
     });
 
     const unapproved = await request(app)
@@ -5232,12 +5234,30 @@ describe("AI missions and goals", () => {
     expect(approved.status).toBe(200);
     expect(approved.body).toMatchObject({ proposalId, approvalRequired: false, revision: 0 });
 
+    const approvedWithoutApplyMission = await request(app)
+      .get(`/api/ai/chat/${sessionId}/pending-proposal`);
+    expect(approvedWithoutApplyMission.status).toBe(200);
+    expect(approvedWithoutApplyMission.body).toMatchObject({
+      proposalId,
+      missionCandidateAccepted: true,
+      applyMissionReady: false,
+    });
+
     const accepted = await request(app)
       .post("/api/ai/missions/apply-from-proposal")
       .send({ projectId, proposalId });
     expect(accepted.status).toBe(201);
     expect(accepted.body).toMatchObject({
       applyGoal: { stepId: "apply-changes", taskId: null },
+    });
+
+    const readyToApply = await request(app)
+      .get(`/api/ai/chat/${sessionId}/pending-proposal`);
+    expect(readyToApply.status).toBe(200);
+    expect(readyToApply.body).toMatchObject({
+      proposalId,
+      missionCandidateAccepted: true,
+      applyMissionReady: true,
     });
   });
 

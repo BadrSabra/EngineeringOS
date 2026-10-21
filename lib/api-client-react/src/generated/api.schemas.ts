@@ -4707,10 +4707,35 @@ export type AiApplyChangesResultResultsItem = {
   behavioralVerification?: AiApplyChangesResultResultsItemBehavioralVerification;
 };
 
+export type AiApplyMissionHandoffTransitionStatus = typeof AiApplyMissionHandoffTransitionStatus[keyof typeof AiApplyMissionHandoffTransitionStatus];
+
+
+export const AiApplyMissionHandoffTransitionStatus = {
+  not_created: 'not_created',
+  pending: 'pending',
+  materialized: 'materialized',
+  terminal_failed: 'terminal_failed',
+  deferred: 'deferred',
+} as const;
+
+export interface AiApplyMissionHandoff {
+  transitionStatus: AiApplyMissionHandoffTransitionStatus;
+  /** @nullable */
+  failureCode?: string | null;
+  /** @minLength 1 */
+  goalWakeStatus: string;
+}
+
+export interface AiApplyChangesLifecycle {
+  missionHandoff?: AiApplyMissionHandoff | null;
+  [key: string]: unknown;
+ }
+
 export interface AiApplyChangesResult {
   /** Logical operation identifier shared with the proposal's plan and later Git operations */
   correlationId: string;
   applyStatus: AiApplyChangesResultApplyStatus;
+  lifecycle?: AiApplyChangesLifecycle;
   integrityOutcome?: AiApplyChangesResultIntegrityOutcome;
   baseTreeHash?: string;
   candidateTreeHash?: string;

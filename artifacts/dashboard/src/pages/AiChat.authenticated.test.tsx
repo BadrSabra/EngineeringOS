@@ -4728,9 +4728,10 @@ it.each([
     await waitFor(() => expect(screen.queryByRole('button', { name: 'رفع تغييرات Git إلى المستودع البعيد' })).not.toBeInTheDocument());
   });
 
-  it('requires Mission candidate approval, then creates an Apply Mission without direct application', async () => {
+  it('requires candidate approval and an Apply Mission before the separate apply action', async () => {
     const missionProposal = {
       proposalId: 'mission-candidate-proposal',
+      operationId: 'proposal-operation-id',
       missionCandidate: true,
       missionCandidateAccepted: false,
       sourceMissionId: 'source-mission',
@@ -4798,6 +4799,56 @@ it.each([
       intent: 'تطبيق المرشح المعتمد على مساحة المشروع والتحقق من التسليم إلى المستودع المرتبط.',
     }));
     expect(mocks.mutations.applyChanges.mutate).not.toHaveBeenCalled();
+
+    mocks.serverProposal = {
+      ...missionProposal,
+      missionCandidateAccepted: true,
+      approvalRequired: false,
+      applyMissionReady: true,
+    };
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <AiChat />
+      </QueryClientProvider>,
+    );
+    const applyApprovedButton = await screen.findByRole('button', {
+      name: 'تطبيق المرشح المعتمد (1 تغيير)',
+    });
+    fireEvent.click(applyApprovedButton);
+    await waitFor(() => expect(mocks.mutations.applyChanges.mutate).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({
+        projectId: 'project-1',
+        proposalId: 'mission-candidate-proposal',
+        changes: missionProposal.changes,
+      }),
+    }));
+    const lastApplyCall = mocks.mutations.applyChanges.mutate.mock.calls[
+      mocks.mutations.applyChanges.mutate.mock.calls.length - 1
+    ]?.[0];
+    expect(lastApplyCall?.data).not.toHaveProperty('operationId');
+    await act(async () => {
+      mocks.mutationOptions.applyChanges?.onSuccess?.({
+        correlationId: 'apply-correlation',
+        applyStatus: 'APPLIED',
+        validationEvidence: [],
+        results: [{
+          ok: true,
+          path: 'src/app.ts',
+          behavioralVerification: { status: 'passed' },
+        }],
+        lifecycle: {
+          missionHandoff: {
+            transitionStatus: 'pending',
+            failureCode: null,
+            goalWakeStatus: 'waiting',
+          },
+        },
+      } as never);
+    });
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Wrote 1 file change',
+      description: expect.stringContaining('هدف Mission ما زال قيد التحقق'),
+    }));
   });
 
   it('renders linked Apply, Commit, and Push evidence and blocks hash mismatches', async () => {

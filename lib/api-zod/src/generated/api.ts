@@ -6819,6 +6819,7 @@ export const AiApplyChangesBody = zod.object({
 }))
 })
 
+
 export const aiApplyChangesResponseValidationEvidenceItemProcessBudgetMsMin = 0;
 
 export const aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin = 0;
@@ -6832,6 +6833,13 @@ export const aiApplyChangesResponseValidationEvidenceItemRemainingMsMin = 0;
 export const AiApplyChangesResponse = zod.object({
   "correlationId": zod.string().describe('Logical operation identifier shared with the proposal\'s plan and later Git operations'),
   "applyStatus": zod.enum(['APPLIED', 'PARTIAL', 'BLOCKED', 'ROLLBACK_FAILED']),
+  "lifecycle": zod.object({
+  "missionHandoff": zod.union([zod.object({
+  "transitionStatus": zod.enum(['not_created', 'pending', 'materialized', 'terminal_failed', 'deferred']),
+  "failureCode": zod.string().nullish(),
+  "goalWakeStatus": zod.string().min(1)
+}),zod.null()]).optional()
+}).optional(),
   "integrityOutcome": zod.enum(['verified', 'blocked', 'mismatch', 'unknown']).optional(),
   "baseTreeHash": zod.string().optional(),
   "candidateTreeHash": zod.string().optional(),

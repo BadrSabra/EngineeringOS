@@ -1045,6 +1045,16 @@ export async function chatWithFallback(
     ? { ...options, refreshLifecycle: true }
     : options;
   const orderedProviders = await collectAvailableProviders(userId, selectionOptions);
+  if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
+    logger.info({
+      scope: "mission-provider-fixture",
+      stage: "provider_selection",
+      initialProvider: initialProvider.provider,
+      eligibleProviders: orderedProviders.map((candidate) => candidate.provider),
+      requireTools: Boolean(options?.requireTools),
+      qualityProfile: options?.qualityProfile ?? null,
+    }, "controlled Mission fixture provider selection");
+  }
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
@@ -1218,6 +1228,14 @@ export async function chatWithFallback(
       // while the orchestrator adds this request-scoped additive option.
       // Keep the compatibility cast at this package boundary only.
       let acceptedSynthesisProvider: ProviderId | undefined;
+      if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
+        logger.info({
+          scope: "mission-provider-fixture",
+          stage: "chat_attempt_start",
+          provider: providerEntry.provider,
+          attemptNumber: providerAttemptProjectionState.attemptNumber + 1,
+        }, "controlled Mission fixture entered orchestrator chat");
+      }
       const result = await chat({
         ...baseParams,
         apiKey: providerEntry.apiKey,
@@ -1315,6 +1333,20 @@ export async function chatWithFallback(
         executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
+      if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
+        logger.info({
+          scope: "mission-provider-fixture",
+          stage: "chat_attempt_return",
+          provider: providerEntry.provider,
+          hasResolvedModel: Boolean(result.resolvedModel),
+          pendingChangeCount: result.pendingChanges.length,
+          hasTaskResult: Boolean(result.taskResult),
+          hasRepairPlan: Boolean(result.repairPlan),
+          parseErrorCode: result._parseError?.code ?? null,
+          qualityErrorCode: result._qualityError?.code ?? null,
+          responseSource: result.projectQueryResponseSource ?? null,
+        }, "controlled Mission fixture chat returned");
+      }
       const contractTelemetry = deriveAiContractTelemetry({
         message: baseParams.message,
         response: result.response,
@@ -1350,6 +1382,15 @@ export async function chatWithFallback(
     } catch (err) {
       const projectBudgetAdmissionFailed = err instanceof AiBudgetAdmissionError;
       const providerError = normalizeProviderFailure(err);
+      if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
+        logger.info({
+          scope: "mission-provider-fixture",
+          stage: "chat_attempt_failure",
+          provider: providerEntry.provider,
+          errorCode: providerError.code,
+          errorName: err instanceof Error ? err.name : typeof err,
+        }, "controlled Mission fixture chat attempt stopped before acceptance");
+      }
       const providerLedgerAfter = executionLedger.snapshot();
       await emitLedgerProviderAttempts(
         providerLedgerBefore,

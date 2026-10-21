@@ -6556,9 +6556,38 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         exact: true,
       });
       await expect(candidateApprovalButton).toBeEnabled({ timeout: 120_000 });
-      await expect(page.getByText(ENGINEERING_AGENT_LIFECYCLE_SENTENCE, {
+      const candidateRegion = page.getByRole("region", {
+        name: "التغييرات المقترحة والموافقة",
+      });
+      await candidateRegion.getByRole("button", {
+        name: "عرض الفروق",
         exact: true,
-      })).toBeVisible();
+      }).click();
+      await expect(candidateRegion.getByText(
+        ENGINEERING_AGENT_LIFECYCLE_SENTENCE,
+        { exact: false },
+      )).toBeVisible();
+      const sourceProposal = await page.evaluate(async (targetSessionId) => {
+        const response = await fetch(
+          `/api/ai/chat/${encodeURIComponent(targetSessionId)}/pending-proposal`,
+          { credentials: "include" },
+        );
+        if (!response.ok) throw new Error("Mission candidate proposal could not be reloaded.");
+        return response.json();
+      }, sessionId) as {
+        proposalId?: string | null;
+        missionCandidate?: boolean;
+        missionCandidateAccepted?: boolean;
+        candidateTreeHash?: string;
+      };
+      expect(sourceProposal.missionCandidate).toBe(true);
+      expect(sourceProposal.missionCandidateAccepted).toBe(true);
+      expect(sourceProposal.proposalId).toBeTruthy();
+      expect(sourceProposal.candidateTreeHash).toMatch(/^[a-f0-9]{64}$/);
+      const proposalId = sourceProposal.proposalId!;
+      const candidateTreeHash = sourceProposal.candidateTreeHash!;
+      const candidateIdentity = acceptance?.candidateIdentity;
+      expect(candidateIdentity).toMatch(/^mission-candidate:[a-f0-9]{64}$/);
       const candidateApprovalResponsePromise = page.waitForResponse((response) => {
         const pathname = new URL(response.url()).pathname;
         return pathname.includes("/proposals/")
@@ -6571,19 +6600,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const proposalPathMatch = new URL(candidateApprovalResponse.url()).pathname
         .match(/\/proposals\/([^/]+)/);
       expect(proposalPathMatch?.[1]).toBeTruthy();
-      const proposalId = decodeURIComponent(proposalPathMatch![1]);
+      expect(decodeURIComponent(proposalPathMatch![1])).toBe(proposalId);
       const candidateApprovalRequest = candidateApprovalResponse.request().postDataJSON() as {
         projectId?: string;
         revision?: number;
       };
       expect(candidateApprovalRequest.projectId).toBe(projectId);
       expect(Number.isInteger(candidateApprovalRequest.revision)).toBe(true);
-      const candidateIdentity = acceptance?.candidateIdentity;
-      const candidateIdentityPrefix = `${proposalId}:`;
-      expect(candidateIdentity).toMatch(
-        new RegExp(`^${proposalId}:[a-f0-9]{64}$`),
-      );
-      const candidateTreeHash = candidateIdentity!.slice(candidateIdentityPrefix.length);
       chain.proposalId = proposalId;
       chain.proposalRevision = candidateApprovalRequest.revision;
       chain.candidateTreeHash = candidateTreeHash;
@@ -6616,15 +6639,80 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.applyMissionId = applyMissionId;
       chain.applyGoalId = applyGoalId;
 
+      stage = "apply-changes";
+      const applyApprovedCandidateButton = page.getByRole("button", {
+        name: /تطبيق المرشح المعتمد/,
+      });
+      await expect(applyApprovedCandidateButton).toBeEnabled({ timeout: 60_000 });
+      const applyChangesResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/chat/apply-changes")
+        && response.request().method() === "POST"
+      ));
+      await applyApprovedCandidateButton.click();
+      const applyChangesResponse = await applyChangesResponsePromise;
+      const applyChangesResult = await applyChangesResponse.json() as {
+        error?: string;
+        code?: string;
+        candidateTreeHash?: string;
+        applyStatus?: string;
+        results?: Array<{ success?: boolean; ok?: boolean }>;
+        lifecycle?: {
+          missionHandoff?: {
+            transitionStatus?: string;
+            failureCode?: string | null;
+            goalWakeStatus?: string | null;
+          } | null;
+        };
+      };
+      expect(
+        applyChangesResponse.status(),
+        `Apply Changes failed (${applyChangesResponse.status()}): ${JSON.stringify(applyChangesResult)}`,
+      ).toBe(200);
+      expect(applyChangesResult.candidateTreeHash).toBe(candidateTreeHash);
+      expect(applyChangesResponse.request().postDataJSON()).toMatchObject({
+        projectId,
+        proposalId,
+      });
+      expect(applyChangesResult.results?.length).toBeGreaterThan(0);
+      expect(applyChangesResult.results?.every((result) => result.success === true || result.ok === true)).toBe(true);
+      const missionHandoff = applyChangesResult.lifecycle?.missionHandoff;
+      expect(missionHandoff, 'The successful file apply must remain linked to its Apply Mission proof handoff.')
+        .toBeTruthy();
+      if (
+        missionHandoff?.transitionStatus === 'not_created'
+        || missionHandoff?.transitionStatus === 'terminal_failed'
+        || ['blocked', 'failed', 'conflict', 'needs_replan'].includes(missionHandoff?.goalWakeStatus ?? '')
+      ) {
+        throw new Error(`Apply Mission proof handoff failed: ${JSON.stringify(missionHandoff)}`);
+      }
+
       stage = "apply-commit-push";
       let finalProjection: Record<string, any> | undefined;
-      await expect.poll(async () => {
-        finalProjection = await readMissionProjection(applyMissionId!);
-        return finalProjection.engineeringAgent?.state ?? "missing";
-      }, {
-        timeout: 300_000,
-        intervals: [1_000, 2_000, 3_000],
-      }).toBe("COMPLETE");
+      try {
+        await expect.poll(async () => {
+          finalProjection = await readMissionProjection(applyMissionId!);
+          return finalProjection.engineeringAgent?.state ?? "missing";
+        }, {
+          timeout: 90_000,
+          intervals: [1_000, 2_000, 3_000],
+        }).toBe("COMPLETE");
+      } catch (error) {
+        const projectionSummary = {
+          missionStatus: finalProjection?.mission?.status ?? finalProjection?.status ?? null,
+          engineeringAgentState: finalProjection?.engineeringAgent?.state ?? null,
+          goals: finalProjection?.goals?.map((entry: any) => ({
+            status: entry.goal?.status ?? null,
+            blockedReason: entry.goal?.blockedReason ?? null,
+            attemptStatus: entry.currentAttempt?.status ?? null,
+          })) ?? [],
+          missionHandoff,
+        };
+        throw new Error(
+          `Apply Mission did not complete: ${JSON.stringify(projectionSummary)}. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
       const appliedGoal = finalProjection!.goals?.find(
         (entry: any) => entry.goal?.id === applyGoalId,
       );

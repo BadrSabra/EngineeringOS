@@ -50,6 +50,7 @@ import {
   authorizeMissionGoalContinuation,
   runMissionGoal,
   wakeApplyChangesMissionGoals,
+  wakeReadyMissionGoals,
 } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
@@ -1422,6 +1423,41 @@ describe("Apply Changes Mission D2 dispatch", () => {
       outcome: "SUCCEEDED",
       effectBundleId: fixture.effectBundleId,
     });
+  });
+
+  it("wakes an already-queued report Goal after direct D2 completion", async () => {
+    const fixture = await createApplyChangesFixture();
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", blockedReason: null })
+      .where(eq(aiGoalsTable.id, fixture.reportGoalId));
+
+    const result = await runApplyGoalAfterD2Mutation(fixture, async () => {});
+
+    expect(result).toMatchObject({ status: "completed" });
+    const [applyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    const [reportGoal] = await db.select({
+      status: aiGoalsTable.status,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    expect(applyGoal?.status).toBe("completed");
+    expect(applyGoal?.outcomeContract).toMatchObject({
+      acceptance: { verdict: "PROVEN", reasonCode: "APPLY_CHANGES_D2_PROVEN" },
+    });
+    expect(reportGoal?.status).toBe("running");
+
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+      taskId: eventsTable.taskId,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    expect(dispatches.filter((event) =>
+      event.type === "AiGoalDispatchRequested" && event.goalId === fixture.reportGoalId,
+    )).toHaveLength(1);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
+    expect(await wakeReadyMissionGoals()).toBe(0);
+    expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
   });
 
   it.each(invalidApplyProofCases)(

@@ -8572,6 +8572,8 @@ components:
         applyStatus:
           type: string
           enum: [APPLIED, PARTIAL, BLOCKED, ROLLBACK_FAILED]
+        lifecycle:
+          $ref: "#/components/schemas/AiApplyChangesLifecycle"
         integrityOutcome:
           type: string
           enum: [verified, blocked, mismatch, unknown]
@@ -8645,6 +8647,29 @@ components:
                   detail:
                     type: string
                 description: Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending.
+
+    AiApplyChangesLifecycle:
+      type: object
+      additionalProperties: true
+      properties:
+        missionHandoff:
+          oneOf:
+            - $ref: "#/components/schemas/AiApplyMissionHandoff"
+            - type: "null"
+
+    AiApplyMissionHandoff:
+      type: object
+      additionalProperties: false
+      required: [transitionStatus, goalWakeStatus]
+      properties:
+        transitionStatus:
+          type: string
+          enum: [not_created, pending, materialized, terminal_failed, deferred]
+        failureCode:
+          type: ["string", "null"]
+        goalWakeStatus:
+          type: string
+          minLength: 1
 
     PublicValidationResult:
       type: object

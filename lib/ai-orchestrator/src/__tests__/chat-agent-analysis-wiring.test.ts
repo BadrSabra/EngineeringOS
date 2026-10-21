@@ -200,11 +200,14 @@ describe("chat analysis tool wiring", () => {
   });
 
   it("forwards an approved server repair mode without requiring natural-language repair inference", async () => {
-    const { chat } = await import("../agents/chat-agent.js");
     const { resolveTurnIntent } = await import("../turn-intent.js");
-    const turnIntent = resolveTurnIntent("Continue", {
+    const { classifyRequest } = await import("../prompts/profile-classifier.js");
+    const message = "Create an implementation plan to update src/server.ts and prepare the verified change for approval.";
+    const turnIntent = resolveTurnIntent(message, {
+      classification: classifyRequest(message),
       authoritativeKind: "DELIVERY",
     });
+    expect(turnIntent.classification.implementationPlanMode).toBe(true);
     const approvedFilePaths = ["src/server.ts"];
     executeToolLoopMock.mockClear();
     executeToolLoopMock.mockImplementationOnce(async (opts: {
@@ -228,26 +231,40 @@ describe("chat analysis tool wiring", () => {
       throw new Error("approved Mission repair wiring sentinel");
     });
 
-    await expect(chat({
-      message: "Continue",
-      history: [],
-      projectContext: context,
-      rootPath: process.cwd(),
-      provider: "openrouter",
-      apiKey: "test-key",
-      turnIntent,
-      executionMode: "repair_plan",
-      approvalState: "APPROVED",
-      approvedFilePaths,
-      allowValidationTools: true,
-      onToolInvocation: async () => undefined,
-      validationRunner: async () => ({
-        status: "passed" as const,
-        profile: "workspace-typecheck",
-        command: "pnpm typecheck",
-        exitCode: 0,
-      }),
-    })).rejects.toThrow("approved Mission repair wiring sentinel");
+    vi.resetModules();
+    const implementationPlanMock = vi.fn(async () => {
+      throw new Error("approved Mission repair entered plan-only mode");
+    });
+    vi.doMock("../agents/implementation-planner.js", () => ({
+      createImplementationPlan: implementationPlanMock,
+    }));
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      await expect(chat({
+        message,
+        history: [],
+        projectContext: context,
+        rootPath: process.cwd(),
+        provider: "openrouter",
+        apiKey: "test-key",
+        turnIntent,
+        executionMode: "repair_plan",
+        approvalState: "APPROVED",
+        approvedFilePaths,
+        allowValidationTools: true,
+        onToolInvocation: async () => undefined,
+        validationRunner: async () => ({
+          status: "passed" as const,
+          profile: "workspace-typecheck",
+          command: "pnpm typecheck",
+          exitCode: 0,
+        }),
+      })).rejects.toThrow("approved Mission repair wiring sentinel");
+      expect(implementationPlanMock).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../agents/implementation-planner.js");
+      vi.resetModules();
+    }
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
   });
 

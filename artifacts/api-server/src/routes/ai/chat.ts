@@ -195,6 +195,7 @@ import {
   serverEnvironmentProfile,
 } from "../../lib/agent-state/environment-attestation.js";
 import {
+  applyChangesMissionRequirement,
   resolveApplyChangesMissionRequirement,
   type ApplyChangesMissionRequirement,
 } from "../../lib/agent-state/apply-changes-mission-gate.js";
@@ -15537,6 +15538,70 @@ router.get("/ai/chat/file-content", async (req, res) => {
   });
 });
 
+async function hasReadyApplyMissionForProposal(params: {
+  projectId: string;
+  userId: string;
+  proposalId: string;
+}): Promise<boolean> {
+  const missions = await db.select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.projectId, params.projectId),
+      eq(aiMissionsTable.userId, params.userId),
+    ));
+  const linkedMissions = missions.filter((mission) => {
+    const policy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object"
+      && !Array.isArray(mission.autonomyPolicy)
+      ? mission.autonomyPolicy as Record<string, unknown>
+      : {};
+    const applyMission = policy.applyMission && typeof policy.applyMission === "object"
+      && !Array.isArray(policy.applyMission)
+      ? policy.applyMission as Record<string, unknown>
+      : {};
+    return applyMission.proposalId === params.proposalId;
+  });
+  if (linkedMissions.length !== 1) return false;
+
+  const [mission] = linkedMissions;
+  if (["blocked", "needs_replan", "failed", "cancelled", "completed"].includes(mission.status)) {
+    return false;
+  }
+  const goals = await db.select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, mission.id),
+      eq(aiGoalsTable.projectId, params.projectId),
+    ));
+  const applyGoals = goals.filter((goal) => {
+    const criteria = goal.successCriteria && typeof goal.successCriteria === "object"
+      && !Array.isArray(goal.successCriteria)
+      ? goal.successCriteria as Record<string, unknown>
+      : {};
+    return criteria.stepId === "apply-changes";
+  });
+  if (applyGoals.length !== 1) return false;
+
+  const [goal] = applyGoals;
+  const policy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object"
+    && !Array.isArray(mission.autonomyPolicy)
+    ? mission.autonomyPolicy as Record<string, unknown>
+    : {};
+  const activePlanRevision = typeof policy.activePlanRevision === "string"
+    ? policy.activePlanRevision
+    : undefined;
+  const binding = applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  const nextAction = goal.nextAction && typeof goal.nextAction === "object"
+    && !Array.isArray(goal.nextAction)
+    ? goal.nextAction as Record<string, unknown>
+    : {};
+  return binding.kind === "valid"
+    && binding.requirement.proposalId === params.proposalId
+    && goal.status === "waiting_for_event"
+    && goal.blockedReason === "apply_changes_pending"
+    && nextAction.kind === "wait"
+    && nextAction.reason === "event";
+}
+
 router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
   const [session] = await db
     .select()
@@ -15566,6 +15631,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       missionCandidateAccepted: false,
       sourceMissionId: null,
       sourceGoalId: null,
+      applyMissionReady: false,
     });
   }
 
@@ -15586,7 +15652,8 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ))
     .orderBy(desc(aiExecutionsTable.updatedAt))
     .limit(1);
-  const canonicalOperationId = proposalExecution?.operationId
+  const canonicalOperationId = proposal.operationId
+    ?? proposalExecution?.operationId
     ?? proposalExecution?.buildPlanMessageId
     ?? proposalExecution?.id
     ?? proposal.messageId;
@@ -15598,6 +15665,14 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       proposal,
       sourceExecution: proposalExecution ?? null,
     }));
+  const applyMissionReady = missionCandidateAcceptance.accepted
+    && !proposal.approvalRequired
+    ? await hasReadyApplyMissionForProposal({
+        projectId: session.projectId,
+        userId: req.userId,
+        proposalId: proposal.id,
+      })
+    : false;
 
   try {
     const changes = parseStoredJson(proposal.changes) as ServerPendingChange[];
@@ -15609,6 +15684,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       missionCandidateAccepted: missionCandidateAcceptance.accepted,
       sourceMissionId: missionCandidateAcceptance.sourceMissionId,
       sourceGoalId: missionCandidateAcceptance.sourceGoalId,
+      applyMissionReady,
       approvalRequired: proposal.approvalRequired,
       revision: proposal.revision,
       ...(
@@ -16741,6 +16817,9 @@ async function applyChangesHandler(req: Request, res: Response) {
   let applyWorldAfterObservationIds: string[] = [];
   let applyD2EvidenceFailure: string | null = null;
   let applyD2TransitionId: string | null = null;
+  let applyD2TransitionStatus: string | null = null;
+  let applyD2TransitionFailureCode: string | null = null;
+  let applyMissionGoalWakeStatus: string | null = null;
   let missionGoalId: string | null = null;
   let missionId: string | null = null;
   let missionPlanRevision: string | null = null;
@@ -18183,8 +18262,11 @@ async function applyChangesHandler(req: Request, res: Response) {
             ],
             environmentRevision, promotedTreeHash: candidateHash,
           });
+          applyD2TransitionStatus = "pending";
           } catch (error) {
             applyD2EvidenceFailure = "apply_transition_creation_failed";
+            applyD2TransitionStatus = "not_created";
+            applyD2TransitionFailureCode = "apply_transition_creation_failed";
             logger.warn(
               { projectId, proposalId, error },
               "apply Mission transition could not be recorded; preserving independent apply acceptance",
@@ -18255,7 +18337,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       if (missionGoalId) {
         try {
           if (applyD2TransitionId && applyProof.effectBundleId) {
-            await finalizeApplyChangesTransition({
+            const transitionResult = await finalizeApplyChangesTransition({
               projectId,
               executionId: applyProof.executionId,
               attempt: applyProof.attempt,
@@ -18263,13 +18345,20 @@ async function applyChangesHandler(req: Request, res: Response) {
               actionId: applyProof.action.actionId,
               effectBundleId: applyProof.effectBundleId,
             });
+            applyD2TransitionStatus = transitionResult.status;
+            applyD2TransitionFailureCode = transitionResult.failureCode ?? null;
           }
-          await runMissionGoal({
+          const wakeResult = await runMissionGoal({
             goalId: missionGoalId,
             userId: req.userId,
             trigger: "wake",
           });
+          applyMissionGoalWakeStatus = wakeResult.status;
         } catch (error) {
+          applyD2TransitionStatus ??= applyD2TransitionId ? "deferred" : "not_created";
+          applyD2TransitionFailureCode ??= applyD2EvidenceFailure
+            ?? "apply_mission_handoff_deferred";
+          applyMissionGoalWakeStatus ??= "deferred";
           logger.warn(
             {
               projectId,
@@ -18302,6 +18391,11 @@ async function applyChangesHandler(req: Request, res: Response) {
         validationRequired: true,
         approvalRequired: false,
         validationRepairDecisions,
+        missionHandoff: missionGoalId ? {
+          transitionStatus: applyD2TransitionStatus ?? "not_created",
+          failureCode: applyD2TransitionFailureCode ?? applyD2EvidenceFailure,
+          goalWakeStatus: applyMissionGoalWakeStatus ?? "deferred",
+        } : null,
       },
       baseTreeHash: deliveryWorkspace.baseTreeHash,
       candidateTreeHash,

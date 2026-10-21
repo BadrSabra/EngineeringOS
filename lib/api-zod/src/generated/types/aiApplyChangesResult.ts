@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiApplyChangesLifecycle } from './aiApplyChangesLifecycle';
 import type { AiApplyChangesResultApplyStatus } from './aiApplyChangesResultApplyStatus';
 import type { AiApplyChangesResultIntegrityOutcome } from './aiApplyChangesResultIntegrityOutcome';
 import type { AiApplyChangesResultResultsItem } from './aiApplyChangesResultResultsItem';
@@ -15,6 +16,7 @@ export interface AiApplyChangesResult {
   /** Logical operation identifier shared with the proposal's plan and later Git operations */
   correlationId: string;
   applyStatus: AiApplyChangesResultApplyStatus;
+  lifecycle?: AiApplyChangesLifecycle;
   integrityOutcome?: AiApplyChangesResultIntegrityOutcome;
   baseTreeHash?: string;
   candidateTreeHash?: string;

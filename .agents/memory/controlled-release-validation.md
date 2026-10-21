@@ -48,6 +48,9 @@ skipped when no Groq key is configured.
 **How to apply:** Keep the exception behind all local Mission and controlled
 release guards. Test that the Groq SDK and network fetch are not called, while
 preserving the independent provider-egress-disabled case and runtime priority.
+The Mission fixture request log records the target provider hostname before
+returning a local response; a hostname or client `baseUrl` alone is not proof of
+network egress. Confirm interception behavior before labeling a run live.
 
 Ordinary provider routing and direct completion remain deterministic unless
 `AI_LIFECYCLE_LIVE_CHECKS=1` or `RUN_CONTROLLED_RELEASE_VALIDATION=1` is set;

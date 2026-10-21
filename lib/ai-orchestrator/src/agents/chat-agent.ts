@@ -6661,6 +6661,12 @@ export async function chat(opts: {
   const planOnlyTurn =
     classification.implementationPlanMode &&
     !buildHandoff &&
+    !(
+      opts.executionMode === "repair_plan" &&
+      turnIntent.kind === "DELIVERY" &&
+      approvalState === "APPROVED" &&
+      approvedFilePaths?.some((filePath) => filePath.trim().length > 0)
+    ) &&
     !turnIntent.implementationPlanResume;
   const toolSurfaceMayBeEnabled =
     turnIntent.requiresTools ||
@@ -6688,7 +6694,19 @@ export async function chat(opts: {
   // Plan mode is intentionally a separate, read-only path. It produces a
   // reviewable contract and never enters the forensic tool loop or exposes
   // write tools. Approval and execution will be separate milestones.
-  if (classification.implementationPlanMode && !buildHandoff && !turnIntent.implementationPlanResume) {
+  // Mission repair arrives only after its plan approval was verified server-side.
+  // Its bounded mode and exact approved paths must not be reclassified as a new plan.
+  const approvedMissionRepairHandoff =
+    opts.executionMode === "repair_plan" &&
+    turnIntent.kind === "DELIVERY" &&
+    approvalState === "APPROVED" &&
+    Boolean(approvedFilePaths?.some((filePath) => filePath.trim().length > 0));
+  if (
+    classification.implementationPlanMode &&
+    !buildHandoff &&
+    !approvedMissionRepairHandoff &&
+    !turnIntent.implementationPlanResume
+  ) {
     const planResult = await createImplementationPlan(
       { message, projectContext },
       {

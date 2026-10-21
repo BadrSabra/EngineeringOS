@@ -266,6 +266,22 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
         role: "user",
         content: "Server-owned Mission execution.\\n\\nExecution profile: mission_repair.\\n\\nAdd the requested README sentence and validate the candidate.",
       }];
+      const planResponse = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "liquid/lfm-2.5-2.6b:free",
+          messages: [
+            { role: "system", content: "You are a planning agent for a code intelligence system." },
+            ...rootMessages,
+          ],
+          tools: [],
+        }),
+      });
+      if (!planResponse.ok) throw new Error("lifecycle query plan unexpectedly failed");
+      const queryPlan = JSON.parse(
+        (await planResponse.json()).choices?.[0]?.message?.content ?? "{}",
+      );
       async function request(messages, includeWriteTool = true) {
         const response = await fetch(url, {
           method: "POST",
@@ -300,6 +316,7 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
       const final = await request(messages);
       const summary = JSON.parse(final.payload.choices?.[0]?.message?.content ?? "{}");
       console.log(JSON.stringify({
+        queryPlan,
         toolNames: calls.map((call) => call.function.name),
         toolArguments: calls.map((call) => JSON.parse(call.function.arguments)),
         blockedStatus: blocked.status,
@@ -322,7 +339,19 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
     assert.equal(result.signal, null, result.stderr);
     assert.equal(result.code, 0, result.stderr);
     const response = JSON.parse(result.stdout.trim());
+    assert.ok(Number.isInteger(response.queryPlan.suggestedIterations));
+    assert.ok(response.queryPlan.suggestedIterations >= 5 && response.queryPlan.suggestedIterations <= 16);
     assert.deepEqual(response, {
+      queryPlan: {
+        targetFiles: ["README.md"],
+        targetEntities: [],
+        targetConfidence: 0.95,
+        scopeEstimate: "narrow",
+        suggestedIterations: 8,
+        requiresToolUse: true,
+        subQueries: [],
+        compoundParts: [],
+      },
       toolNames: ["read_file", "write_file", "run_validation"],
       toolArguments: [
         { path: "README.md" },
@@ -344,7 +373,6 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
       summary: {
         response: "The README change was staged as a candidate and the registered validation passed.",
         sources: ["README.md"],
-        claimRefs: [],
       },
     });
 
@@ -353,6 +381,7 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
       .split("\n")
       .map((line) => JSON.parse(line));
     assert.deepEqual(requests.map(({ kind }) => kind), [
+      "lifecycle-query-plan",
       "lifecycle-read_file",
       "lifecycle-write_file",
       "lifecycle-run_validation",

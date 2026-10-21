@@ -259,10 +259,10 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   requireValue(sourceAcceptance?.executionId, chain.sourceExecutionId, "source_goal_acceptance_execution");
   requireValue(sourceAcceptance?.outcome, "SUCCEEDED", "source_goal_acceptance_outcome");
   requireValue(sourceAcceptance?.verdict, "PROVEN", "source_goal_acceptance_verdict");
-  requireValue(
-    sourceAcceptance?.candidateIdentity,
-    `${chain.proposalId}:${chain.candidateTreeHash}`,
-    "source_goal_candidate_identity",
+  assert.match(
+    sourceAcceptance?.candidateIdentity ?? "",
+    /^mission-candidate:[a-f0-9]{64}$/,
+    "source_goal_candidate_identity_invalid",
   );
   assert.ok(Array.isArray(snapshot.sourceAcceptances), "source_acceptance_rows_invalid");
   const acceptedRow = snapshot.sourceAcceptances.find((row) => row.id === chain.acceptanceId);
@@ -271,7 +271,7 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   requireValue(acceptedRow.attempt, chain.sourceAttempt, "acceptance_attempt");
   requireValue(
     acceptedRow.candidate_identity,
-    `${chain.proposalId}:${chain.candidateTreeHash}`,
+    sourceAcceptance.candidateIdentity,
     "acceptance_candidate_identity",
   );
   requireValue(acceptedRow.terminal_status, "completed", "acceptance_terminal_status");
@@ -286,6 +286,33 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   requireValue(proposal.commit_hash, chain.commitHash, "proposal_commit_hash");
   requireValue(proposal.promoted_tree_hash, chain.candidateTreeHash, "proposal_promoted_tree");
   requireValue(proposal.committed_tree_hash, chain.candidateTreeHash, "proposal_committed_tree");
+  let proposalValidationEvidence;
+  try {
+    proposalValidationEvidence = JSON.parse(proposal.validation_evidence ?? "null");
+  } catch {
+    proposalValidationEvidence = null;
+  }
+  assert.ok(
+    Array.isArray(proposalValidationEvidence)
+      && proposalValidationEvidence[0]
+      && typeof proposalValidationEvidence[0] === "object",
+    "proposal_validation_binding_missing",
+  );
+  requireValue(
+    proposalValidationEvidence[0].candidateIdentity,
+    sourceAcceptance.candidateIdentity,
+    "proposal_source_candidate_identity",
+  );
+  requireValue(
+    proposalValidationEvidence[0].candidateTreeHash,
+    chain.candidateTreeHash,
+    "proposal_validation_candidate_tree_hash",
+  );
+  requireValue(
+    proposalValidationEvidence[0].changeSetHash,
+    proposal.change_set_hash,
+    "proposal_validation_change_set_hash",
+  );
   assert.ok(typeof proposal.applied_changes === "string" && proposal.applied_changes.length > 0);
   requireValue(proposalMessage.session_id, chain.sessionId, "proposal_message_session");
   requireValue(proposalMessage.role, "assistant", "proposal_message_role");

@@ -3303,6 +3303,19 @@ async function executeMissionToolLoop(params: {
     ...missionValidationToolNames,
   ];
 
+  if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
+    logger.info({
+      scope: "mission-provider-fixture",
+      stage: "chat_start",
+      profile: params.profile,
+      approvalState,
+      targetPathCount: policy.targetPaths.length,
+      authorizedToolNames: missionToolNames,
+      hasResumeState: Boolean(params.resumeState),
+      hasRecoveryManifest: Boolean(recoveryManifest),
+    }, "controlled Mission fixture reached the provider boundary");
+  }
+
   const chat = recoveryManifest
     ? {
         result: {

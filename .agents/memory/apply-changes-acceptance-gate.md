@@ -56,3 +56,9 @@ An incomplete historical Apply Mission binding is not repairable from Goal text 
 **Why:** Missing revision, base-tree, operation, or candidate identity cannot prove which prepared Proposal the old Mission authorized. Backfilling from mutable Goal content could bind proof to a different candidate, while mutating lifecycle before rejection can leave a delivery stranded in recovery.
 
 **How to apply:** Audit read-only. Reuse a historical binding only when its exact durable Proposal identity remains complete and matches; otherwise keep D2 fail-closed and use the fresh Proposal/Mission path.
+
+Creating a candidate-bound Apply Mission and applying its candidate are two separate user actions. Mission creation leaves the exact `apply-changes` Goal waiting; the UI may expose Apply only after the server projects one exact ready binding, and the existing apply handler must revalidate it before promotion.
+
+**Why:** Candidate approval and Mission creation do not prove or authorize a completed apply. Combining them would hide the transition between review and filesystem effect; treating a readiness projection as authority could apply a stale or mismatched candidate.
+
+**How to apply:** Keep Apply Mission creation non-mutating. Surface the separate apply action only when the persisted proposal, candidate, Mission, and waiting Goal match; submit through the existing guarded apply path, which remains authoritative. Return D2 transition and Goal-wake status separately from file-apply success; clients must not infer Mission completion from HTTP 2xx.

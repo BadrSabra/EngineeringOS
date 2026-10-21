@@ -21,6 +21,16 @@ const missionQueryPlan = JSON.stringify({
   subQueries: [],
   compoundParts: [],
 });
+const lifecycleQueryPlan = JSON.stringify({
+  targetFiles: ["README.md"],
+  targetEntities: [],
+  targetConfidence: 0.95,
+  scopeEstimate: "narrow",
+  suggestedIterations: 8,
+  requiresToolUse: true,
+  subQueries: [],
+  compoundParts: [],
+});
 const missionReadToolCalls = [
   {
     id: "call_goal_first_readme",
@@ -325,7 +335,6 @@ function lifecycleMissionResponse(requestBody, messages, url, method) {
   const content = JSON.stringify({
     response: "The README change was staged as a candidate and the registered validation passed.",
     sources: ["README.md"],
-    claimRefs: [],
   });
   return requestBody.stream === true
     ? streamResponse(requestBody.model, content)
@@ -422,6 +431,12 @@ globalThis.fetch = async (input, init) => {
     assertLifecycleFixtureMode();
     const isMissionRepairExecution = isMissionExecution
       && serializedMessages.includes("Execution profile: mission_repair.");
+    if (isMissionRepairExecution && isQueryPlannerRequest) {
+      recordRequest(url, method, "lifecycle-query-plan");
+      return requestBody.stream === true
+        ? streamResponse(requestBody.model, lifecycleQueryPlan)
+        : fixtureJsonResponse(completionPayload(requestBody.model, lifecycleQueryPlan));
+    }
     if (isMissionRepairExecution) {
       return lifecycleMissionResponse(requestBody, messages, url, method);
     }
