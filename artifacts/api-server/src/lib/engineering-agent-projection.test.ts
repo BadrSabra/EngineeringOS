@@ -361,7 +361,7 @@ describe("reduceEngineeringAgentProjection", () => {
           nextActionCode: "RETRY_AFTER_TIMEOUT",
           evidenceRequired: false,
           evidenceComplete: false,
-          resumable: true,
+          resumable: false,
         },
       },
     });

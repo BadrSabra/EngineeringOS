@@ -285,7 +285,7 @@ function recoveryDecision(goal: EngineeringAgentGoalFact): Decision | null {
   }
 
   if (
-    acceptance.resumable
+    acceptance.resumable === false
     && ["RETRY_AFTER_TIMEOUT", "RETRY_AFTER_RATE_LIMIT"].includes(acceptance.nextActionCode)
     && ["failed", "cancelled"].includes(normalized(execution.status))
   ) {

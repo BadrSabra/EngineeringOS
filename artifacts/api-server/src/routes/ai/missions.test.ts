@@ -2093,8 +2093,9 @@ describe("AI missions and goals", () => {
       projectId,
       goalId: goal.body.id,
       title: "Execute the authorized Goal",
-      status: "pending",
+      status: "verifying",
       phase: "execute",
+      prompt: "Continue this verified task through the Mission Runtime.",
       idempotencyKey: `mission-gateway-auto-${taskId}`,
       createdAt: now,
       updatedAt: now,
@@ -2113,7 +2114,7 @@ describe("AI missions and goals", () => {
     const first = await request(app)
       .post(`/api/ai/missions/${mission.body.id}/agent/action`)
       .send(body);
-    expect(first.status).toBe(202);
+    expect(first.status, JSON.stringify(first.body)).toBe(202);
     expect(first.body).toMatchObject({
       outcome: "accepted",
       idempotentReplay: false,
@@ -2403,7 +2404,7 @@ describe("AI missions and goals", () => {
       .where(eq(aiMissionsTable.id, mission.body.id));
     await db.update(aiGoalsTable).set({
       status: "running",
-      nextAction: { kind: "task", taskId: randomUUID(), purpose: "execution" },
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
     }).where(eq(aiGoalsTable.id, goal.body.id));
     await db.update(aiExecutionsTable).set({
       status: "running",
