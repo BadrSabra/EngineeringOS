@@ -10,6 +10,7 @@ import {
   db,
   eventsTable,
   projectsTable,
+  tasksTable,
 } from "@workspace/db";
 import { createAiExecution } from "./ai-execution-state.js";
 
@@ -172,6 +173,175 @@ describe("Mission Goal approval adapter", () => {
 
     const second = await approveMissionGoal({ missionId, goalId, userId: "test-user" });
     expect(second).toMatchObject({
+      status: "conflict",
+      reason: "goal_not_waiting_for_approval",
+    });
+  });
+
+  it("approves only the active plan revision before any execution exists", async () => {
+    const projectId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const taskId = crypto.randomUUID();
+    const planRevision = "a".repeat(64);
+    const now = new Date();
+    const planSnapshot = {
+      hash: planRevision,
+      steps: [{
+        id: "execute",
+        kind: "execute",
+        title: "Prepare candidate",
+        dependencies: [],
+        files: ["README.md"],
+        readOnly: false,
+        approvalRequired: true,
+      }],
+    };
+    projectIds.push(projectId);
+    missionRunner.mockResolvedValue({
+      status: "scheduled",
+      goalId,
+      executionId: "resumed-execution",
+    });
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-plan-approval-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Prepare the bounded candidate",
+      intent: "Prepare a candidate without applying it.",
+      status: "waiting",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Prepare candidate",
+      status: "waiting_for_approval",
+      successCriteria: {
+        kind: "mission_plan_step",
+        missionId,
+        stepId: "execute",
+        objective: "Prepare a bounded candidate.",
+        planRevision: planSnapshot,
+      },
+      outcomeContract: {
+        kind: "evidence_backed_progress_report",
+        stepId: "execute",
+        planRevision: planSnapshot,
+        planApproval: {
+          kind: "mission_plan_step",
+          state: "PENDING",
+          planRevision,
+          stepId: "execute",
+        },
+      },
+      nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Prepare candidate",
+      description: "Prepare a bounded candidate.",
+      status: "verifying",
+      priority: "p1",
+      phase: "execute",
+      prompt: "Prepare a bounded candidate.",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: "b".repeat(64) } })
+      .where(eq(aiMissionsTable.id, missionId));
+    const stale = await approveMissionGoal({ missionId, goalId, userId: "test-user" });
+    expect(stale).toMatchObject({
+      status: "conflict",
+      reason: "plan_approval_binding_mismatch",
+    });
+    expect(missionRunner).not.toHaveBeenCalled();
+    const [stillWaiting] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId));
+    expect(stillWaiting?.status).toBe("waiting_for_approval");
+
+    await db.update(aiMissionsTable)
+      .set({ autonomyPolicy: { activePlanRevision: planRevision } })
+      .where(eq(aiMissionsTable.id, missionId));
+    const result = await approveMissionGoal({ missionId, goalId, userId: "test-user" });
+    expect(result).toMatchObject({
+      status: "approved",
+      approvalKind: "plan",
+      missionId,
+      goalId,
+      planRevision,
+      stepId: "execute",
+      run: { status: "scheduled", goalId },
+    });
+    expect(missionRunner).toHaveBeenCalledOnce();
+
+    const [approvedGoal] = await db
+      .select({
+        status: aiGoalsTable.status,
+        nextAction: aiGoalsTable.nextAction,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goalId));
+    const [activeMission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    const approvalEvents = await db
+      .select({ type: eventsTable.type, payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, goalId),
+        eq(eventsTable.type, "AiGoalApprovalGranted"),
+      ));
+    expect(approvedGoal?.status).toBe("queued");
+    expect(approvedGoal?.nextAction).toMatchObject({
+      kind: "task",
+      taskId,
+      purpose: "activation",
+    });
+    expect(approvedGoal?.outcomeContract).toMatchObject({
+      planApproval: {
+        kind: "mission_plan_step",
+        state: "APPROVED",
+        planRevision,
+        stepId: "execute",
+        approvedBy: "test-user",
+      },
+    });
+    expect(activeMission?.status).toBe("active");
+    expect(approvalEvents).toHaveLength(1);
+    expect(approvalEvents[0]?.payload).toMatchObject({
+      approvalKind: "mission_plan_step",
+      planRevision,
+      stepId: "execute",
+    });
+
+    const duplicate = await approveMissionGoal({ missionId, goalId, userId: "test-user" });
+    expect(duplicate).toMatchObject({
       status: "conflict",
       reason: "goal_not_waiting_for_approval",
     });

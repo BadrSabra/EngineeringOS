@@ -2266,6 +2266,14 @@ export async function runMissionGoal(params: {
     }
 
     const draftWaitAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    if (
+      goal.status === "waiting_for_approval"
+      && draftWaitAction.success
+      && draftWaitAction.data.kind === "wait"
+      && draftWaitAction.data.reason === "approval"
+    ) {
+      return { status: "waiting" as const, goalId: goal.id, reason: "approval" };
+    }
     const allowDraftDependencyWait = params.trigger === "resume"
       && draftWaitAction.success
       && draftWaitAction.data.kind === "recipe"

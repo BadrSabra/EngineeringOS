@@ -1269,6 +1269,18 @@ type EditorState =
   | { type: 'task-create'; goal: Goal; projectId: string }
   | null;
 
+function missionPlanRevisionHash(outcomeContract: unknown): string | null {
+  if (!outcomeContract || typeof outcomeContract !== 'object' || Array.isArray(outcomeContract)) {
+    return null;
+  }
+  const planRevision = (outcomeContract as Record<string, unknown>).planRevision;
+  if (!planRevision || typeof planRevision !== 'object' || Array.isArray(planRevision)) {
+    return null;
+  }
+  const hash = (planRevision as Record<string, unknown>).hash;
+  return typeof hash === 'string' ? hash : null;
+}
+
 export default function Missions() {
   const {
     data: rawProjects,
@@ -1684,7 +1696,11 @@ export default function Missions() {
       {
         onSuccess: () => {
           setPendingMissionAction(null);
-          setMutationNotice('سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.');
+            setMutationNotice(
+              pendingMissionAction.executionId === null
+                ? 'اعتُمدت نسخة الخطة وبدأت خطوة إعداد المرشح. ستظل موافقة المرشح والتطبيق والتسليم منفصلة.'
+                : 'سُجّلت الموافقة على المقترح واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
+            );
           refreshMissionData();
         },
         onError: (error) => {
@@ -2153,6 +2169,7 @@ export default function Missions() {
                                     goalTitle: item.goal.title,
                                     projectId: String(activeMission.projectId),
                                     executionId,
+                                    planRevision: missionPlanRevisionHash(item.goal.outcomeContract),
                                     expectedDecision: missionDecisionIdentity,
                                   });
                                 }}

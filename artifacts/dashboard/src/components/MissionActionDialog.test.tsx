@@ -7,6 +7,11 @@ const approval: MissionActionConfirmation = {
   goalId: 'goal-1', goalTitle: 'مراجعة src/App.tsx', projectId: 'project-1',
   executionId: 'execution-1',
 };
+const planApproval: MissionActionConfirmation = {
+  ...approval,
+  executionId: null,
+  planRevision: 'a'.repeat(64),
+};
 
 describe('Arabic decision confirmation boundaries', () => {
   it('opens a review without approving, preserves identities, and makes cancellation inert', () => {
@@ -18,7 +23,7 @@ describe('Arabic decision confirmation boundaries', () => {
     const titles = screen.getAllByText('مراجعة src/App.tsx');
     expect(titles).toHaveLength(2);
     titles.forEach((title) => expect(title).toHaveAttribute('dir', 'auto'));
-    expect(screen.getByTestId('link-review-mission-approval')).toHaveAttribute('href', '/mission-control?projectId=project-1&executionId=execution-1');
+    expect(screen.getByTestId('link-review-mission-approval')).toHaveAttribute('href', '/mission-control?projectId=project-1&missionId=mission-1&executionId=execution-1');
     expect(onConfirm).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'إلغاء' }));
     expect(onClose).toHaveBeenCalledOnce();
@@ -36,6 +41,14 @@ describe('Arabic decision confirmation boundaries', () => {
     expect(screen.getByTestId('button-cancel-mission-action')).toBeDisabled();
     fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it('distinguishes plan approval from proposal approval and binds the displayed revision', () => {
+    render(<MissionActionDialog action={planApproval} isPending={false} error={null} onConfirm={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText(/تعتمد نسخة الخطة التالية وتبدأ خطوة محدودة لإعداد المرشح/)).toBeInTheDocument();
+    expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'اعتماد الخطة وبدء التنفيذ' })).toBeInTheDocument();
+    expect(screen.queryByTestId('link-review-mission-approval')).not.toBeInTheDocument();
   });
 
   it('distinguishes replanning from approval, retains history warning, and preserves server errors', () => {

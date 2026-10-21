@@ -26,6 +26,7 @@ export type MissionActionConfirmation =
       goalTitle: string;
       projectId: string;
       executionId: string | null;
+      planRevision?: string | null;
       expectedDecision: EngineeringAgentDecision;
     };
 
@@ -68,7 +69,16 @@ export default function MissionActionDialog({
           <AlertDialogDescription>
             {action?.type === 'replan'
               ? <>سيستخدم الخادم الغاية الحالية للهدف الرئيسي «<bdi dir="auto">{action.missionTitle}</bdi>» لإنشاء نسخة خطة جديدة وبدء تنفيذها. تبقى الخطوات والأدلة السابقة في سجل الهدف.</>
-              : <>ستوافق على المقترح المحفوظ لدى الخادم للخطوة «<bdi dir="auto">{action?.goalTitle ?? 'هذه الخطوة'}</bdi>»، وتستأنف الهدف الرئيسي «<bdi dir="auto">{action?.missionTitle ?? 'الهدف الرئيسي'}</bdi>». الموافقة تزيل بوابة الانتظار، لكنها لا تطبّق الملفات أو تسلّمها بذاتها.</>}
+              : action?.executionId
+                ? <>ستوافق على المقترح المحفوظ لدى الخادم للخطوة «<bdi dir="auto">{action.goalTitle}</bdi>»، وتستأنف الهدف الرئيسي «<bdi dir="auto">{action.missionTitle}</bdi>». الموافقة تزيل بوابة الانتظار، لكنها لا تطبّق الملفات أو تسلّمها بذاتها.</>
+                : <>
+                    ستعتمد نسخة الخطة التالية وتبدأ خطوة محدودة لإعداد المرشح. هذه الموافقة لا تعتمد المرشح الناتج ولا تطبّق الملفات أو تسلّمها؛ ستحتاج إلى مراجعة المرشح وموافقة منفصلة قبل التطبيق.
+                    {action?.planRevision ? (
+                      <span className="mt-2 block text-xs text-slate-300">
+                        إصدار الخطة: <bdi dir="ltr" className="break-all font-mono">{action.planRevision}</bdi>
+                      </span>
+                    ) : null}
+                  </>}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -101,7 +111,9 @@ export default function MissionActionDialog({
               ? 'جارٍ التنفيذ…'
               : action?.type === 'replan'
                  ? 'إنشاء خطة جديدة'
-                 : 'الموافقة والاستئناف'}
+                 : action?.executionId
+                   ? 'الموافقة والاستئناف'
+                   : 'اعتماد الخطة وبدء التنفيذ'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

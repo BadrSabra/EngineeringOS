@@ -1057,6 +1057,16 @@ function planStepNextAction(
   };
 }
 
+function missionStepRequiresPlanApproval(
+  step: MissionPlanPreview["plan"]["steps"][number],
+): boolean {
+  return step.kind === "execute"
+    && !step.readOnly
+    && !step.recipe
+    && step.approvalRequired
+    && step.files.length > 0;
+}
+
 function planStepRequiresDeliveryReceipt(
   step: MissionPlanPreview["plan"]["steps"][number],
 ): boolean {
@@ -1180,65 +1190,78 @@ export async function createMissionPlanGoal(
     taskId: randomUUID(),
     correlationId: randomUUID(),
   }));
-  await tx.insert(aiGoalsTable).values(materialized.map(({ step, goalId, taskId }) => ({
-    id: goalId,
-    missionId: mission.id,
-    projectId: mission.projectId,
-    title: step.title,
-    description: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" for mission "${mission.title}".`,
-    status: "queued" as const,
-    priority: "p1",
-    successCriteria: {
-      kind: planKind,
+  await tx.insert(aiGoalsTable).values(materialized.map(({ step, goalId, taskId }) => {
+    const requiresPlanApproval = missionStepRequiresPlanApproval(step);
+    return {
+      id: goalId,
       missionId: mission.id,
-      stepId: step.id,
-      objective: preview.objective,
-      planRevision: planSnapshot,
-      ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
-        applyRequirement: preview.plan.applyRequirement,
-      } : {}),
-      ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
-        requirement.targetStepId === step.id,
-      ) ? {
-        transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+      projectId: mission.projectId,
+      title: step.title,
+      description: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" for mission "${mission.title}".`,
+      status: requiresPlanApproval ? "waiting_for_approval" as const : "queued" as const,
+      priority: "p1",
+      successCriteria: {
+        kind: planKind,
+        missionId: mission.id,
+        stepId: step.id,
+        objective: preview.objective,
+        planRevision: planSnapshot,
+        ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
+          applyRequirement: preview.plan.applyRequirement,
+        } : {}),
+        ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
           requirement.targetStepId === step.id,
-        ),
-      } : {}),
-    },
-    evidenceContract: {
-      required: true,
-      source: "project_context",
-      planHash: planSnapshot.hash,
-      stepId: step.id,
-    },
-    outcomeContract: {
-      kind: "evidence_backed_progress_report",
-      stepId: step.id,
-      planRevision: planSnapshot,
-      ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
-        applyRequirement: preview.plan.applyRequirement,
-        candidateIdentity: `${preview.plan.applyRequirement.proposalId}:${preview.plan.applyRequirement.candidateTreeHash}`,
-      } : {}),
-      ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
-        requirement.targetStepId === step.id,
-      ) ? {
-        transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+        ) ? {
+          transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+            requirement.targetStepId === step.id,
+          ),
+        } : {}),
+      },
+      evidenceContract: {
+        required: true,
+        source: "project_context",
+        planHash: planSnapshot.hash,
+        stepId: step.id,
+      },
+      outcomeContract: {
+        kind: "evidence_backed_progress_report",
+        stepId: step.id,
+        planRevision: planSnapshot,
+        ...(requiresPlanApproval ? {
+          planApproval: {
+            kind: "mission_plan_step",
+            state: "PENDING",
+            planRevision: planSnapshot.hash,
+            stepId: step.id,
+          },
+        } : {}),
+        ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
+          applyRequirement: preview.plan.applyRequirement,
+          candidateIdentity: `${preview.plan.applyRequirement.proposalId}:${preview.plan.applyRequirement.candidateTreeHash}`,
+        } : {}),
+        ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
           requirement.targetStepId === step.id,
+        ) ? {
+          transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+            requirement.targetStepId === step.id,
+          ),
+        } : {}),
+        deliveryRequired: planStepRequiresDeliveryReceipt(step),
+        executionProfile: executionProfileForMissionStep(
+          step.kind,
+          Boolean(step.recipe),
+          step.files.length > 0,
         ),
-      } : {}),
-      deliveryRequired: planStepRequiresDeliveryReceipt(step),
-      executionProfile: executionProfileForMissionStep(
-        step.kind,
-        Boolean(step.recipe),
-        step.files.length > 0,
-      ),
-    },
-    nextAction: step.id === "apply-changes"
-      ? { kind: "wait", reason: "event", wakeAt: null }
-      : planStepNextAction(step, taskId, purpose),
-    createdAt: now,
-    updatedAt: now,
-  })));
+      },
+      nextAction: requiresPlanApproval
+        ? { kind: "wait", reason: "approval", wakeAt: null }
+        : step.id === "apply-changes"
+          ? { kind: "wait", reason: "event", wakeAt: null }
+          : planStepNextAction(step, taskId, purpose),
+      createdAt: now,
+      updatedAt: now,
+    };
+  }));
   const taskfulMaterialized = materialized.filter(({ step }) => step.id !== "apply-changes");
   await tx.insert(tasksTable).values(taskfulMaterialized.map(({ step, goalId, taskId, correlationId }) => ({
     id: taskId,
@@ -2364,9 +2387,9 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
 });
 
 /**
- * Approve a server-owned proposal currently blocking one Mission Goal.
- * Applying/delivery remain separate guarded operations; this endpoint only
- * clears the proposal gate and resumes the existing Mission runtime.
+ * Approve an exact server-owned Mission plan step or proposal.
+ * Plan approval only starts bounded candidate generation. Applying and
+ * delivery remain separate guarded operations.
  */
 router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) => {
   const body = MissionGoalApprovalBody.parse(req.body ?? {});
@@ -2401,9 +2424,17 @@ router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) =>
   return res.json({
     missionId: result.missionId,
     goalId: result.goalId,
-    executionId: result.executionId,
-    proposalId: result.proposalId,
-    revision: result.revision,
+    approvalKind: result.approvalKind,
+    ...(result.approvalKind === "proposal"
+      ? {
+          executionId: result.executionId,
+          proposalId: result.proposalId,
+          revision: result.revision,
+        }
+      : {
+          planRevision: result.planRevision,
+          stepId: result.stepId,
+        }),
     run: result.run,
   });
 });

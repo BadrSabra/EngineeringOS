@@ -6313,6 +6313,49 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.sourceMissionId = sourceMissionId;
       chain.sourceGoalId = sourceGoalId;
 
+      stage = "plan-approval";
+      const preApprovalProjection = await readMissionProjection(sourceMissionId);
+      const preApprovalGoal = preApprovalProjection.goals?.find(
+        (entry: any) => entry.goal?.id === sourceGoalId,
+      );
+      expect(preApprovalGoal?.goal?.status).toBe("waiting_for_approval");
+      expect(preApprovalGoal?.goal?.nextAction).toMatchObject({
+        kind: "wait",
+        reason: "approval",
+      });
+      expect(preApprovalGoal?.currentAttempt ?? null).toBeNull();
+      expect(preApprovalGoal?.goal?.outcomeContract?.acceptance).toBeFalsy();
+
+      await page.goto(
+        `${DASHBOARD_PATH}missions?${new URLSearchParams({ projectId, missionId: sourceMissionId }).toString()}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const reviewPlanApprovalButton = page.getByTestId(`button-review-approval-${sourceGoalId}`);
+      await expect(reviewPlanApprovalButton).toBeVisible({ timeout: 60_000 });
+      await reviewPlanApprovalButton.click();
+      await expect(page.getByText(/ستعتمد نسخة الخطة التالية وتبدأ خطوة محدودة لإعداد المرشح/))
+        .toBeVisible();
+      await expect(page.getByText(handoff.preview!.plan!.planHash, { exact: true })).toBeVisible();
+      const confirmPlanApprovalButton = page.getByRole("button", {
+        name: "اعتماد الخطة وبدء التنفيذ",
+        exact: true,
+      });
+      await expect(confirmPlanApprovalButton).toBeEnabled();
+      const planApprovalResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith(
+          `/api/ai/missions/${sourceMissionId}/goals/${sourceGoalId}/approve`,
+        )
+        && response.request().method() === "POST"
+      ));
+      await confirmPlanApprovalButton.click();
+      const planApprovalResponse = await planApprovalResponsePromise;
+      expect(planApprovalResponse.status()).toBe(200);
+      expect(await planApprovalResponse.json()).toMatchObject({
+        approvalKind: "plan",
+        planRevision: handoff.preview!.plan!.planHash,
+        stepId: "execute",
+      });
+
       stage = "candidate-execution";
       let sourceProjection: Record<string, any> | undefined;
       const candidateDeadline = Date.now() + 240_000;
@@ -6340,9 +6383,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
               : "MISSION_CANDIDATE_BLOCKED";
           blockedCode = reasonCode;
           throw new Error(
-            `Candidate generation stopped before proposal approval: goalStatus=${goalStatus}; `
-            + `reasonCode=${reasonCode}. The current plan requires approval before candidate `
-            + "creation, while the existing Mission approval route requires a pending proposal.",
+            `Candidate generation stopped before candidate-bound proof: goalStatus=${goalStatus}; `
+            + `reasonCode=${reasonCode}. The separately approved plan step did not produce an `
+            + "accepted candidate.",
           );
         }
 
@@ -6363,6 +6406,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       expect(acceptance).toMatchObject({
         executionId: sourceExecutionId,
         verdict: "PROVEN",
+      });
+      expect(sourceGoal?.goal?.outcomeContract?.planApproval).toMatchObject({
+        kind: "mission_plan_step",
+        state: "APPROVED",
+        planRevision: handoff.preview!.plan!.planHash,
+        stepId: "execute",
       });
       chain.sourceExecutionId = sourceExecutionId;
       chain.sourceAttempt = sourceAttempt;

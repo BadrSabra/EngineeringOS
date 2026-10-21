@@ -1817,6 +1817,7 @@ function missionTaskPolicy(params: {
   const outcome = jsonRecord(params.goal?.outcomeContract);
   const success = jsonRecord(params.goal?.successCriteria);
   const planRevision = jsonRecord(outcome.planRevision ?? success.planRevision);
+  const planApproval = jsonRecord(outcome.planApproval);
   const steps = Array.isArray(planRevision.steps) ? planRevision.steps : [];
   const step = steps.find((candidate) =>
     candidate && typeof candidate === "object"
@@ -1838,9 +1839,20 @@ function missionTaskPolicy(params: {
     : params.profile === "mission_observe"
       ? undefined
       : "workspace-typecheck" as ValidationProfile;
+  const planHash = typeof planRevision.hash === "string" ? planRevision.hash : undefined;
+  const stepId = typeof stepRecord.id === "string" ? stepRecord.id : undefined;
+  const planApprovalMatches =
+    planApproval.kind === "mission_plan_step"
+    && planApproval.state === "APPROVED"
+    && typeof planHash === "string"
+    && planApproval.planRevision === planHash
+    && typeof stepId === "string"
+    && planApproval.stepId === stepId
+    && typeof planApproval.approvedBy === "string"
+    && typeof planApproval.approvedAt === "string";
   return {
     targetPaths,
-    approvalRequired: stepRecord.approvalRequired === true,
+    approvalRequired: stepRecord.approvalRequired === true && !planApprovalMatches,
     objective: typeof success.objective === "string"
       ? success.objective
       : params.task.description ?? params.task.title,
