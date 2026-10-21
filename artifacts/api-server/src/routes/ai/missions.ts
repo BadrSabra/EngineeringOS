@@ -4626,6 +4626,59 @@ async function handleMissionAgentAction(
       });
   };
 
+  const finalizeStagedActionResult = async (
+    eventId: string,
+    expectedClaimId: string,
+  ): Promise<{
+    event: typeof eventsTable.$inferSelect;
+    payload: Record<string, unknown>;
+  } | null> => db.transaction(async (tx) => {
+    const [event] = await tx.select().from(eventsTable).where(and(
+      eq(eventsTable.id, eventId),
+      eq(eventsTable.projectId, owned.project.id),
+      inArray(eventsTable.type, [...eventTypes]),
+      eq(eventsTable.correlationId, idempotencyCorrelationId),
+    )).for("update").limit(1);
+    if (!event) return null;
+    const payload = readRecord(event.payload);
+    if (!payload || payload.requestHash !== requestHash) return null;
+    if (["completed", "rejected", "stale"].includes(String(payload.status))) {
+      return { event, payload };
+    }
+    if (
+      payload.status !== "processing"
+      || payload.claimId !== expectedClaimId
+    ) return null;
+    const result = safeStoredAgentActionResult(payload.result);
+    if (!result) return null;
+    const status = result.outcome === "rejected" ? "rejected" : "completed";
+    const responseStatus = typeof payload.responseStatus === "number"
+      ? payload.responseStatus
+      : result.outcome === "rejected"
+        ? 409
+        : result.outcome === "accepted" || result.outcome === "in_progress"
+          ? 202
+          : 200;
+    const completedPayload = {
+      ...payload,
+      status,
+      responseStatus,
+      leaseUntil: null,
+    };
+    const [updated] = await tx.update(eventsTable)
+      .set({ payload: completedPayload })
+      .where(and(
+        eq(eventsTable.id, event.id),
+        eq(eventsTable.projectId, owned.project.id),
+        eq(eventsTable.correlationId, idempotencyCorrelationId),
+        sql`${eventsTable.payload}->>'claimId' = ${expectedClaimId}`,
+        sql`${eventsTable.payload}->>'requestHash' = ${requestHash}`,
+        sql`${eventsTable.payload}->>'status' = 'processing'`,
+      ))
+      .returning();
+    return updated ? { event: updated, payload: completedPayload } : null;
+  });
+
   if (priorEvent) {
     const priorPayload = readRecord(priorEvent.payload);
     if (!isMatchingStoredRequest(priorEvent, priorPayload)) {
@@ -4634,6 +4687,17 @@ async function handleMissionAgentAction(
         code: "AGENT_ACTION_IDEMPOTENCY_CONFLICT",
       });
       return;
+    }
+    if (
+      priorPayload?.status === "processing"
+      && typeof priorPayload.claimId === "string"
+      && safeStoredAgentActionResult(priorPayload.result)
+    ) {
+      const finalized = await finalizeStagedActionResult(priorEvent.id, priorPayload.claimId);
+      if (finalized) {
+        await sendPriorResult(finalized.event, finalized.payload);
+        return;
+      }
     }
     if (
       priorPayload?.status === "completed"
@@ -5287,25 +5351,47 @@ async function handleMissionAgentAction(
     : result.outcome === "accepted" || result.outcome === "in_progress"
       ? 202
       : 200;
+  const stagedPayload = {
+    missionId: owned.mission.id,
+    requestHash,
+    action: currentSelection.action,
+    expectedDecision: body.expectedDecision,
+    ...(body.command ? { command: body.command } : {}),
+    status: "processing",
+    responseStatus,
+    claimId,
+    leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+    result: safeResult,
+  };
+  const [stagedEvent] = await db.update(eventsTable)
+    .set({ payload: stagedPayload })
+    .where(and(
+      eq(eventsTable.id, reservation.eventId),
+      eq(eventsTable.projectId, owned.project.id),
+      sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
+      sql`${eventsTable.payload}->>'status' = 'processing'`,
+    ))
+    .returning({ id: eventsTable.id });
+  if (!stagedEvent) {
+    res.status(409).json({
+      error: "This action reservation is no longer owned by this request.",
+      code: "AGENT_ACTION_LEASE_LOST",
+    });
+    return;
+  }
   const [updatedEvent] = await db.update(eventsTable)
     .set({
       payload: {
-        missionId: owned.mission.id,
-        requestHash,
-        action: currentSelection.action,
-        expectedDecision: body.expectedDecision,
-        ...(body.command ? { command: body.command } : {}),
+        ...stagedPayload,
         status: storedStatus,
-        responseStatus,
-        claimId,
         leaseUntil: null,
-        result: safeResult,
       },
     })
     .where(and(
       eq(eventsTable.id, reservation.eventId),
       eq(eventsTable.projectId, owned.project.id),
       sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
+      sql`${eventsTable.payload}->>'status' = 'processing'`,
     ))
     .returning({ id: eventsTable.id });
   if (!updatedEvent) {

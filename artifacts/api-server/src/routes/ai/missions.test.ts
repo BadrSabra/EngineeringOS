@@ -2646,25 +2646,46 @@ describe("AI missions and goals", () => {
       const goalsAfterAcceptance = await db.select({ id: aiGoalsTable.id })
         .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
       expect(goalsAfterAcceptance.length).toBeGreaterThan(0);
+      const [stagedAction] = await db.select({ payload: eventsTable.payload })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "AiMissionAgentActionRequested"),
+        ));
+      expect(stagedAction?.payload).toMatchObject({
+        status: "processing",
+        responseStatus: 202,
+        result: { outcome: "accepted" },
+      });
+      await db.execute(sql.raw(`DROP TRIGGER "${triggerName}" ON public.events`));
 
       const retryAfterFailure = await request(app)
         .post(`/api/ai/missions/${missionId}/agent/action`)
         .send(body);
       expect(retryAfterFailure.status).toBe(202);
       expect(retryAfterFailure.body).toMatchObject({
-        outcome: "in_progress",
+        outcome: "accepted",
         idempotentReplay: true,
+        operation: { status: "activated" },
       });
       const goalsAfterReplay = await db.select({ id: aiGoalsTable.id })
         .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
       expect(goalsAfterReplay).toEqual(goalsAfterAcceptance);
-      const actionEvents = await db.select({ id: eventsTable.id })
+      const actionEvents = await db.select({ payload: eventsTable.payload })
         .from(eventsTable)
         .where(and(
           eq(eventsTable.projectId, projectId),
           eq(eventsTable.type, "AiMissionAgentActionRequested"),
         ));
       expect(actionEvents).toHaveLength(1);
+      expect(actionEvents[0]?.payload).toMatchObject({
+        status: "completed",
+        responseStatus: 202,
+        result: {
+          outcome: "accepted",
+          operation: { status: "activated" },
+        },
+      });
     } finally {
       await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
       await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));
