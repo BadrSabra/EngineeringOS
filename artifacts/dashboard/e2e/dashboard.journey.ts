@@ -6,7 +6,8 @@ import {
   type Page,
   type Route,
 } from "@playwright/test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
@@ -79,6 +80,27 @@ const LIVE_CAMPAIGN_SCENARIOS = new Set([
   "malformed-output",
   "delivery-success",
 ]);
+const ENGINEERING_AGENT_LIFECYCLE_SENTENCE =
+  "Lifecycle acceptance sentinel: retained after approved delivery.";
+const ENGINEERING_AGENT_LIFECYCLE_REMOTE_URL =
+  "https://github.com/fixture/engineering-agent-lifecycle";
+
+function runLifecycleGit(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+async function writeEngineeringAgentLifecycleReceipt(
+  receipt: Record<string, unknown>,
+): Promise<void> {
+  const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
+  if (!receiptPath) throw new Error("Lifecycle receipt path is not configured.");
+  await mkdir(dirname(receiptPath), { recursive: true });
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+}
 
 function liveCampaignScenario(): string | undefined {
   const scenario = process.env.DASHBOARD_E2E_LIVE_SCENARIO?.trim();
@@ -6051,6 +6073,468 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       browserErrors.assertClean();
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain", async ({
+    page,
+  }) => {
+    test.setTimeout(540_000);
+    test.skip(
+      process.env.ENGINEERING_AGENT_LIFECYCLE_E2E !== "1",
+      "Run only through the isolated lifecycle acceptance runner.",
+    );
+    const browserErrors = installBrowserErrorMonitor(page);
+    const projectRoot = process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+    const bareRemotePath = process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
+    const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
+    let stage = "setup";
+    let blockedCode: string | undefined;
+    const chain: Record<string, unknown> = {};
+    const recordBlocked = async () => {
+      await writeEngineeringAgentLifecycleReceipt({
+        schemaVersion: 1,
+        status: "blocked",
+        stage,
+        code: blockedCode ?? `${stage.replaceAll("-", "_").toUpperCase()}_BLOCKED`,
+        chain,
+      });
+    };
+    const readMissionProjection = async (missionId: string) => {
+      const result = await page.evaluate(async (id) => {
+        const response = await fetch(
+          `/api/ai/missions/${encodeURIComponent(id)}/projection`,
+        );
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, missionId);
+      if (result.status !== 200 || !result.body || typeof result.body !== "object") {
+        throw new Error(`Mission projection unavailable (${result.status}).`);
+      }
+      return result.body as Record<string, any>;
+    };
+
+    try {
+      if (
+        process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1"
+        || process.env.DASHBOARD_E2E_TEST_MODE !== "fixture"
+        || !projectRoot
+        || !bareRemotePath
+        || !receiptPath
+      ) {
+        throw new Error("The controlled lifecycle runner is not configured.");
+      }
+
+      await mkdir(resolve(projectRoot, "test"), { recursive: true });
+      await writeFile(
+        resolve(projectRoot, "package.json"),
+        JSON.stringify({
+          name: "engineering-agent-lifecycle-e2e",
+          private: true,
+          version: "1.0.0",
+          type: "module",
+          scripts: { typecheck: "node --test" },
+        }, null, 2),
+        "utf8",
+      );
+      await writeFile(
+        resolve(projectRoot, "README.md"),
+        [
+          "# Engineering Agent lifecycle fixture",
+          "",
+          "A disposable project used to verify an approved, validated change and delivery.",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await writeFile(
+        resolve(projectRoot, "test", "lifecycle.test.mjs"),
+        [
+          'import assert from "node:assert/strict";',
+          'import { readFile } from "node:fs/promises";',
+          'import test from "node:test";',
+          "",
+          'test("the approved lifecycle sentence is present", async () => {',
+          '  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");',
+          `  assert.ok(readme.split("\\n").includes(${JSON.stringify(ENGINEERING_AGENT_LIFECYCLE_SENTENCE)}));`,
+          "});",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      runLifecycleGit(projectRoot, ["init", "--initial-branch=main"]);
+      runLifecycleGit(projectRoot, ["config", "user.name", "EngineeringOS Lifecycle E2E"]);
+      runLifecycleGit(projectRoot, ["config", "user.email", "engineeringos-e2e@example.invalid"]);
+      runLifecycleGit(projectRoot, ["add", "package.json", "README.md", "test/lifecycle.test.mjs"]);
+      runLifecycleGit(projectRoot, ["commit", "-m", "Create isolated lifecycle fixture"]);
+      runLifecycleGit(projectRoot, [
+        "push",
+        bareRemotePath,
+        "HEAD:refs/heads/main",
+      ]);
+      runLifecycleGit(projectRoot, [
+        "remote",
+        "add",
+        "origin",
+        ENGINEERING_AGENT_LIFECYCLE_REMOTE_URL,
+      ]);
+
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      const projectName = `Engineering Agent lifecycle ${randomUUID().slice(0, 8)}`;
+      const projectResponse = await page.evaluate(async (input) => {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, {
+        name: projectName,
+        rootPath: projectRoot,
+        language: "TypeScript",
+      });
+      expect(
+        projectResponse.status,
+        `Real lifecycle project registration failed (${projectResponse.status}).`,
+      ).toBe(201);
+      const project = projectResponse.body as { id?: unknown } | null;
+      expect(typeof project?.id).toBe("string");
+      const projectId = project!.id as string;
+      chain.projectId = projectId;
+
+      const gitConfigResponse = await page.evaluate(async ({ id, remoteUrl }) => {
+        const response = await fetch(`/api/projects/${encodeURIComponent(id)}/git/config`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ remoteUrl, branch: "main" }),
+        });
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, { id: projectId, remoteUrl: ENGINEERING_AGENT_LIFECYCLE_REMOTE_URL });
+      expect(gitConfigResponse.status).toBe(200);
+      expect(gitConfigResponse.body).toMatchObject({
+        remoteUrl: ENGINEERING_AGENT_LIFECYCLE_REMOTE_URL,
+        branch: "main",
+      });
+
+      stage = "chat-request";
+      await page.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "domcontentloaded" });
+      const projectSelect = page.getByTestId("select-chat-project");
+      await expect(projectSelect).toBeVisible();
+      await projectSelect.selectOption(projectId);
+      const userRequest = [
+        "Fix the documentation: add the exact line",
+        `"${ENGINEERING_AGENT_LIFECYCLE_SENTENCE}"`,
+        "to README.md, run the registered validation, and prepare the verified change for my approval.",
+        "Do not apply, commit, or push before I approve the exact candidate.",
+      ].join(" ");
+      await page.getByTestId("input-ai-chat-composer").fill(userRequest);
+      await page.getByTestId("button-send-ai-message").click();
+      const handoffButton = page.locator(
+        '[data-testid^="button-mission-handoff-"]',
+      ).last();
+      await expect(handoffButton).toBeVisible({ timeout: 120_000 });
+      const handoffTestId = await handoffButton.getAttribute("data-testid");
+      const optimisticMessageId = handoffTestId?.replace("button-mission-handoff-", "");
+      expect(optimisticMessageId).toBeTruthy();
+      await expect(page.locator("#group-assistant-response-progress"))
+        .toHaveCount(0, { timeout: 120_000 });
+
+      stage = "chat-mission-handoff";
+      const matchesHandoffRequest = (request: import("@playwright/test").Request) => (
+        new URL(request.url()).pathname.endsWith("/api/ai/missions/from-chat")
+        && request.method() === "POST"
+      );
+      const matchesHandoffResponse = (response: import("@playwright/test").Response) => (
+        matchesHandoffRequest(response.request())
+      );
+      const handoffRequestPromise = page.waitForRequest(
+        matchesHandoffRequest,
+        { timeout: 30_000 },
+      );
+      const handoffResponsePromise = page.waitForResponse(
+        matchesHandoffResponse,
+        { timeout: 30_000 },
+      );
+      await expect(handoffButton).toBeEnabled({ timeout: 30_000 });
+      await handoffButton.click({ timeout: 30_000 });
+      const [handoffRequestObserved, handoffResponse] = await Promise.all([
+        handoffRequestPromise,
+        handoffResponsePromise,
+      ]);
+      expect(handoffResponse.request().url()).toBe(handoffRequestObserved.url());
+      expect([200, 201]).toContain(handoffResponse.status());
+      const handoffRequest = handoffResponse.request().postDataJSON() as {
+        projectId?: string;
+        message?: string;
+        messageId?: string;
+        sessionId?: string;
+      };
+      const handoff = await handoffResponse.json() as {
+        mission?: { id?: string; title?: string };
+        activation?: { goalId?: string; taskId?: string };
+        preview?: { plan?: { planHash?: string; steps?: Array<Record<string, unknown>> } };
+      };
+      expect(handoffRequest).toMatchObject({
+        projectId,
+        message: userRequest,
+      });
+      expect(handoffRequest.messageId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      );
+      expect(handoffRequest.sessionId).toBeTruthy();
+      expect(handoff.mission?.id).toBeTruthy();
+      expect(handoff.activation?.goalId).toBeTruthy();
+      expect(handoff.preview?.plan?.planHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(handoff.preview?.plan?.steps).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "execute",
+          files: ["README.md"],
+          readOnly: false,
+          approvalRequired: true,
+        }),
+      ]));
+      const userMessageId = handoffRequest.messageId!;
+      const sessionId = handoffRequest.sessionId!;
+      const sourceMissionId = handoff.mission!.id!;
+      const sourceGoalId = handoff.activation!.goalId!;
+      chain.sessionId = sessionId;
+      chain.userMessageId = userMessageId;
+      chain.userMessageHash = createHash("sha256").update(userRequest).digest("hex");
+      chain.handoffPlanHash = handoff.preview!.plan!.planHash;
+      chain.sourceMissionId = sourceMissionId;
+      chain.sourceGoalId = sourceGoalId;
+
+      stage = "candidate-execution";
+      let sourceProjection: Record<string, any> | undefined;
+      const candidateDeadline = Date.now() + 240_000;
+      let candidateProven = false;
+      while (Date.now() < candidateDeadline) {
+        sourceProjection = await readMissionProjection(sourceMissionId);
+        const goal = sourceProjection.goals?.find(
+          (entry: any) => entry.goal?.id === sourceGoalId,
+        );
+        const acceptance = goal?.goal?.outcomeContract?.acceptance;
+        if (
+          acceptance?.verdict === "PROVEN"
+          && goal?.currentAttempt?.status === "completed"
+        ) {
+          candidateProven = true;
+          break;
+        }
+
+        const goalStatus = goal?.goal?.status;
+        if (["needs_replan", "blocked", "failed", "cancelled"].includes(goalStatus)) {
+          const rawReasonCode = acceptance?.reasonCode;
+          const reasonCode =
+            typeof rawReasonCode === "string" && /^[A-Z0-9_]{1,80}$/.test(rawReasonCode)
+              ? rawReasonCode
+              : "MISSION_CANDIDATE_BLOCKED";
+          blockedCode = reasonCode;
+          throw new Error(
+            `Candidate generation stopped before proposal approval: goalStatus=${goalStatus}; `
+            + `reasonCode=${reasonCode}. The current plan requires approval before candidate `
+            + "creation, while the existing Mission approval route requires a pending proposal.",
+          );
+        }
+
+        await page.waitForTimeout(1_000);
+      }
+      if (!candidateProven) {
+        blockedCode = "CANDIDATE_PROOF_TIMEOUT";
+        throw new Error("The Mission did not produce candidate-bound proof before the lifecycle timeout.");
+      }
+      const sourceGoal = sourceProjection!.goals?.find(
+        (entry: any) => entry.goal?.id === sourceGoalId,
+      );
+      const sourceExecutionId = sourceGoal?.currentAttempt?.id;
+      const sourceAttempt = sourceGoal?.currentAttempt?.attempt;
+      const acceptance = sourceGoal?.goal?.outcomeContract?.acceptance;
+      expect(sourceExecutionId).toBeTruthy();
+      expect(Number.isInteger(sourceAttempt)).toBe(true);
+      expect(acceptance).toMatchObject({
+        executionId: sourceExecutionId,
+        verdict: "PROVEN",
+      });
+      chain.sourceExecutionId = sourceExecutionId;
+      chain.sourceAttempt = sourceAttempt;
+      chain.acceptanceId = acceptance?.acceptanceId;
+
+      stage = "candidate-approval";
+      await page.goto(
+        `${DASHBOARD_PATH}ai?${new URLSearchParams({
+          projectId,
+          sessionId,
+          missionId: sourceMissionId,
+        }).toString()}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const candidateApprovalButton = page.getByRole("button", {
+        name: "أوافق على المرشح بعد مراجعته",
+        exact: true,
+      });
+      await expect(candidateApprovalButton).toBeEnabled({ timeout: 120_000 });
+      await expect(page.getByText(ENGINEERING_AGENT_LIFECYCLE_SENTENCE, {
+        exact: true,
+      })).toBeVisible();
+      const candidateApprovalResponsePromise = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname;
+        return pathname.includes("/proposals/")
+          && pathname.includes("approve")
+          && response.request().method() !== "GET";
+      });
+      await candidateApprovalButton.click();
+      const candidateApprovalResponse = await candidateApprovalResponsePromise;
+      expect(candidateApprovalResponse.status()).toBe(200);
+      const proposalPathMatch = new URL(candidateApprovalResponse.url()).pathname
+        .match(/\/proposals\/([^/]+)/);
+      expect(proposalPathMatch?.[1]).toBeTruthy();
+      const proposalId = decodeURIComponent(proposalPathMatch![1]);
+      const candidateApprovalRequest = candidateApprovalResponse.request().postDataJSON() as {
+        projectId?: string;
+        revision?: number;
+      };
+      expect(candidateApprovalRequest.projectId).toBe(projectId);
+      expect(Number.isInteger(candidateApprovalRequest.revision)).toBe(true);
+      const candidateIdentity = acceptance?.candidateIdentity;
+      const candidateIdentityPrefix = `${proposalId}:`;
+      expect(candidateIdentity).toMatch(
+        new RegExp(`^${proposalId}:[a-f0-9]{64}$`),
+      );
+      const candidateTreeHash = candidateIdentity!.slice(candidateIdentityPrefix.length);
+      chain.proposalId = proposalId;
+      chain.proposalRevision = candidateApprovalRequest.revision;
+      chain.candidateTreeHash = candidateTreeHash;
+
+      const createApplyMissionButton = page.getByRole("button", {
+        name: "إنشاء هدف تطبيق وتسليم",
+        exact: true,
+      });
+      await expect(createApplyMissionButton).toBeEnabled({ timeout: 60_000 });
+      stage = "apply-mission-handoff";
+      const applyMissionResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname.endsWith("/api/ai/missions/apply-from-proposal")
+        && response.request().method() === "POST"
+      ));
+      await createApplyMissionButton.click();
+      const applyMissionResponse = await applyMissionResponsePromise;
+      expect([200, 201]).toContain(applyMissionResponse.status());
+      const applyMissionResult = await applyMissionResponse.json() as {
+        mission?: { id?: string };
+        applyGoal?: { goalId?: string };
+      };
+      const applyMissionId = applyMissionResult.mission?.id;
+      const applyGoalId = applyMissionResult.applyGoal?.goalId;
+      expect(applyMissionId).toBeTruthy();
+      expect(applyGoalId).toBeTruthy();
+      expect(applyMissionResponse.request().postDataJSON()).toMatchObject({
+        projectId,
+        proposalId,
+      });
+      chain.applyMissionId = applyMissionId;
+      chain.applyGoalId = applyGoalId;
+
+      stage = "apply-commit-push";
+      let finalProjection: Record<string, any> | undefined;
+      await expect.poll(async () => {
+        finalProjection = await readMissionProjection(applyMissionId!);
+        return finalProjection.engineeringAgent?.state ?? "missing";
+      }, {
+        timeout: 300_000,
+        intervals: [1_000, 2_000, 3_000],
+      }).toBe("COMPLETE");
+      const appliedGoal = finalProjection!.goals?.find(
+        (entry: any) => entry.goal?.id === applyGoalId,
+      );
+      const applyExecutionId = appliedGoal?.currentAttempt?.id;
+      expect(appliedGoal?.goal?.status).toBe("completed");
+      expect(appliedGoal?.currentAttempt?.status).toBe("completed");
+      expect(applyExecutionId).toBeTruthy();
+      chain.applyExecutionId = applyExecutionId;
+      chain.finalMissionId = applyMissionId;
+      chain.engineeringAgentState = finalProjection!.engineeringAgent?.state;
+
+      const appliedReadme = await readFile(resolve(projectRoot, "README.md"), "utf8");
+      expect(appliedReadme.split("\n")).toContain(ENGINEERING_AGENT_LIFECYCLE_SENTENCE);
+      const localCommitHash = runLifecycleGit(projectRoot, ["rev-parse", "HEAD"]);
+      const remoteCommitHash = runLifecycleGit(projectRoot, [
+        "--git-dir",
+        bareRemotePath,
+        "rev-parse",
+        "refs/heads/main",
+      ]);
+      expect(remoteCommitHash).toBe(localCommitHash);
+      const remoteReadme = runLifecycleGit(projectRoot, [
+        "--git-dir",
+        bareRemotePath,
+        "show",
+        "refs/heads/main:README.md",
+      ]);
+      expect(remoteReadme.split("\n")).toContain(ENGINEERING_AGENT_LIFECYCLE_SENTENCE);
+      chain.commitHash = localCommitHash;
+      chain.remoteCommitHash = remoteCommitHash;
+      chain.branch = "main";
+
+      stage = "durable-reload";
+      await page.goto(
+        `${DASHBOARD_PATH}missions?${new URLSearchParams({
+          projectId,
+          missionId: applyMissionId!,
+        }).toString()}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await page.reload({ waitUntil: "domcontentloaded" });
+      const reloadedProjection = await readMissionProjection(applyMissionId!);
+      expect(reloadedProjection.engineeringAgent?.state).toBe("COMPLETE");
+      expect(reloadedProjection.goals?.some(
+        (entry: any) => entry.goal?.id === applyGoalId
+          && entry.goal?.status === "completed"
+          && entry.currentAttempt?.id === applyExecutionId
+          && entry.currentAttempt?.status === "completed",
+      )).toBe(true);
+
+      await page.goto(
+        `${DASHBOARD_PATH}ai?${new URLSearchParams({
+          projectId,
+          sessionId,
+          missionId: sourceMissionId,
+          messageId: userMessageId!,
+        }).toString()}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await expect(page.getByTestId("chat-active-engineering-run"))
+        .toContainText(handoff.mission?.title ?? projectName);
+      await expect(page.getByText(userRequest, { exact: true })).toBeVisible();
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("chat-active-engineering-run"))
+        .toContainText(handoff.mission?.title ?? projectName);
+      chain.activeMissionIdAfterReload = sourceMissionId;
+      browserErrors.assertClean();
+
+      stage = "complete";
+      await writeEngineeringAgentLifecycleReceipt({
+        schemaVersion: 1,
+        status: "passed",
+        stage,
+        chain: {
+          ...chain,
+          userMessageHash: createHash("sha256").update(userRequest).digest("hex"),
+          handoffPlanHash: handoff.preview!.plan!.planHash,
+          acceptanceId: acceptance?.acceptanceId,
+          proposalRevision: candidateApprovalRequest.revision,
+        },
+      });
+    } catch (error) {
+      await recordBlocked();
+      throw error;
     }
   });
 

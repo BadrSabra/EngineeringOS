@@ -14,3 +14,9 @@ Model-authored implementation plans always enter persistence as `PENDING_APPROVA
 **Why:** The persisted approval pair is consumed by Build Mode; accepting those fields from model output would let a generated plan bypass the separate approval transition.
 
 **How to apply:** Normalize at both the planner output and API persistence boundary. Build eligibility must still depend on the server-mutated stored state and its existing identity, scope, and context checks.
+
+Full-lifecycle acceptance tests must report a stage-specific blocker when existing server-owned approval or tool policy prevents candidate generation. They must not widen production permissions, seed acceptance or approval, or fake delivery to make the journey pass.
+
+**Why:** The acceptance journey must measure the supported runtime rather than grant itself the capabilities it is meant to verify.
+
+**How to apply:** Keep deterministic provider fixtures inside the existing authorized tool manifest. If no approved path reaches candidate creation, stop at that stage and report the compatibility gap.

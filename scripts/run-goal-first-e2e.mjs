@@ -1,22 +1,34 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const databaseUser = "goal_first_e2e";
 const databaseName = "postgres";
 const dashboardPort = Number(process.env.DASHBOARD_E2E_DASHBOARD_PORT ?? 23184);
+const lifecycleRun = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
+const lifecycleResultsRoot = resolve(
+  workspaceRoot,
+  "test-results/engineering-agent-lifecycle",
+);
+const lifecycleReceiptPath = resolve(lifecycleResultsRoot, "receipt.json");
 const providerLogPath = resolve(
   workspaceRoot,
-  "test-results/goal-first-e2e/provider-fixture-requests.jsonl",
+  lifecycleRun
+    ? "test-results/engineering-agent-lifecycle/provider-fixture-requests.jsonl"
+    : "test-results/goal-first-e2e/provider-fixture-requests.jsonl",
 );
 
 let temporaryRoot = "";
 let dataDirectory = "";
 let socketDirectory = "";
+let lifecycleProjectRoot = "";
+let lifecycleRemotePath = "";
+let lifecycleRunnerStage = "setup";
 let postgresPort = 0;
 let initialized = false;
 let activeChild;
@@ -106,8 +118,43 @@ async function stopPostgres() {
   }
 }
 
+async function writeFallbackLifecycleReceipt() {
+  if (!lifecycleRun) return;
+  const existingText = await readFile(lifecycleReceiptPath, "utf8").catch(() => "");
+  let existing;
+  try {
+    existing = existingText ? JSON.parse(existingText) : undefined;
+  } catch {
+    existing = undefined;
+  }
+  if (existing?.status === "blocked") return;
+  await mkdir(lifecycleResultsRoot, { recursive: true });
+  const failedStage = lifecycleRunnerStage.replaceAll("-", "_").toUpperCase();
+  const receipt = existing?.status === "passed"
+    ? {
+        ...existing,
+        status: "blocked",
+        stage: lifecycleRunnerStage,
+        code: `${failedStage}_FAILED_AFTER_JOURNEY`,
+      }
+    : {
+        schemaVersion: 1,
+        status: "blocked",
+        stage: lifecycleRunnerStage,
+        code: "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
+      };
+  await writeFile(
+    lifecycleReceiptPath,
+    `${JSON.stringify(receipt, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 async function main() {
   const liveProviderRun = process.env.GOAL_FIRST_LIVE_PROVIDER === "1";
+  if (lifecycleRun && liveProviderRun) {
+    throw new Error("The controlled lifecycle acceptance run cannot use the live provider.");
+  }
   if (os.userInfo().uid === 0) {
     throw new Error("Refusing to initialize the temporary PostgreSQL cluster as root.");
   }
@@ -120,6 +167,42 @@ async function main() {
   await mkdir(socketDirectory, { recursive: true });
 
   try {
+    if (lifecycleRun) {
+      lifecycleRemotePath = join(temporaryRoot, "engineering-agent-lifecycle-remote.git");
+      lifecycleProjectRoot = resolve(
+        workspaceRoot,
+        "test-results",
+        "engineering-agent-lifecycle",
+        `project-${randomUUID()}`,
+      );
+      const remoteRelativePath = relative(
+        await realpath(temporaryRoot),
+        resolve(lifecycleRemotePath),
+      );
+      if (
+        !remoteRelativePath
+        || remoteRelativePath === ".."
+        || remoteRelativePath.startsWith(`..${sep}`)
+      ) {
+        throw new Error("The disposable bare remote must remain inside the isolated runner root.");
+      }
+      await rm(lifecycleReceiptPath, { force: true });
+      await rm(providerLogPath, { force: true });
+      await mkdir(dirname(lifecycleProjectRoot), { recursive: true });
+      await rm(lifecycleProjectRoot, { recursive: true, force: true });
+      await run("git", ["init", "--bare", lifecycleRemotePath]);
+      await run("git", [
+        "--git-dir",
+        lifecycleRemotePath,
+        "symbolic-ref",
+        "HEAD",
+        "refs/heads/main",
+      ]);
+      if (await realpath(lifecycleRemotePath) !== resolve(lifecycleRemotePath)) {
+        throw new Error("The disposable bare remote resolved outside its configured location.");
+      }
+    }
+
     await run("initdb", [
       "-D", dataDirectory,
       "-U", databaseUser,
@@ -139,12 +222,15 @@ async function main() {
     const env = isolatedDatabaseEnvironment(databaseUrl);
     env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
     env.DASHBOARD_E2E_TEST_MODE = liveProviderRun ? "live-provider" : "fixture";
-    env.DASHBOARD_E2E_GREP = liveProviderRun
-      ? "goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"
-      : "goal-first|signs in and traverses the authenticated operational shell|returns from Mission details to the original Chat session with its active Mission restored";
+    env.DASHBOARD_E2E_GREP = lifecycleRun
+      ? "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain"
+      : liveProviderRun
+        ? "goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"
+        : "goal-first|signs in and traverses the authenticated operational shell|returns from Mission details to the original Chat session with its active Mission restored";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
-    env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? "240000";
+    env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS
+      ?? (lifecycleRun ? "600000" : "240000");
     if (liveProviderRun) {
       env.DASHBOARD_E2E_LIVE_PROVIDER = "1";
       env.DASHBOARD_E2E_LIVE_DISPOSABLE = "1";
@@ -157,10 +243,22 @@ async function main() {
     } else {
       env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
       env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG = providerLogPath;
+      env.OPENROUTER_API_KEY = "engineering-agent-lifecycle-local-fixture";
       delete env.DASHBOARD_E2E_LIVE_PROVIDER;
       delete env.DASHBOARD_E2E_LIVE_DISPOSABLE;
       delete env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE;
       delete env.DASHBOARD_E2E_LIVE_GOAL_FIRST;
+    }
+    if (lifecycleRun) {
+      env.ENGINEERING_AGENT_LIFECYCLE_E2E = "1";
+      env.ENGINEERING_AGENT_LIFECYCLE_REMOTE = lifecycleRemotePath;
+      env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT = lifecycleProjectRoot;
+      env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT = lifecycleReceiptPath;
+    } else {
+      delete env.ENGINEERING_AGENT_LIFECYCLE_E2E;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
     }
     delete env.AI_PROVIDER_EGRESS_DISABLED;
 
@@ -175,13 +273,24 @@ async function main() {
     await rm(providerLogPath, { force: true });
 
     console.log("Checking local provider fixture guards and response contracts.");
+    lifecycleRunnerStage = "provider-fixture";
     await run("pnpm", ["run", "test:goal-first-provider-fixture"], { env });
 
+    if (lifecycleRun) {
+      lifecycleRunnerStage = "receipt-contract";
+      await run("pnpm", ["run", "test:engineering-agent-lifecycle-receipt"], { env });
+      lifecycleRunnerStage = "journey-contracts";
+      await run("pnpm", ["run", "test:mission-correlation-report"], { env });
+      await run("pnpm", ["run", "test:dashboard-journey-contract"], { env });
+    }
+
     console.log("Applying the schema to an isolated loopback-only PostgreSQL cluster.");
+    lifecycleRunnerStage = "database-schema";
     await run("pnpm", ["--filter", "@workspace/db", "run", "schema:apply"], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     console.log("Verifying stale Mission plan confirmations against the isolated database.");
+    lifecycleRunnerStage = "mission-plan-confirmation";
     await run("pnpm", [
       "--filter",
       "@workspace/api-server",
@@ -195,6 +304,7 @@ async function main() {
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     console.log("Verifying Mission candidate acceptance before Apply Mission handoff.");
+    lifecycleRunnerStage = "candidate-acceptance";
     await run("pnpm", [
       "--filter",
       "@workspace/api-server",
@@ -208,6 +318,7 @@ async function main() {
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     console.log("Verifying approved Mission delivery against the controlled local bare remote.");
+    lifecycleRunnerStage = "delivery-service";
     await run("pnpm", [
       "--filter",
       "@workspace/api-server",
@@ -221,6 +332,7 @@ async function main() {
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     console.log("Verifying AI-scoped commit identity and delivery through the isolated local remote.");
+    lifecycleRunnerStage = "git-delivery-route";
     await run("pnpm", [
       "--filter",
       "@workspace/api-server",
@@ -234,15 +346,57 @@ async function main() {
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     console.log(
-      liveProviderRun
+      lifecycleRun
+        ? "Running the authenticated correlated Engineering Agent lifecycle journey with a disposable local remote."
+        : liveProviderRun
         ? "Running the live-provider goal-first journey against the real API and isolated loopback database."
         : "Running the goal-first browser journey against the real API and isolated database.",
     );
+    lifecycleRunnerStage = "browser-journey";
     const journeyLogs = await run(
       "pnpm",
       ["run", "validate:dashboard-journey"],
       { env, capture: true },
     );
+
+    if (lifecycleRun) {
+      const receipt = JSON.parse(await readFile(lifecycleReceiptPath, "utf8"));
+      if (
+        receipt?.schemaVersion !== 1
+        || receipt.status !== "passed"
+        || receipt.stage !== "complete"
+      ) {
+        throw new Error(
+          `Engineering Agent lifecycle did not complete: ${receipt?.stage ?? "receipt"} / ${receipt?.code ?? "invalid_receipt"}.`,
+        );
+      }
+      const lifecycleKinds = new Set(
+        (await readFile(providerLogPath, "utf8"))
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => {
+            try {
+              return JSON.parse(line).kind;
+            } catch {
+              return undefined;
+            }
+          })
+          .filter(Boolean),
+      );
+      for (const expectedKind of [
+        "lifecycle-read_file",
+        "lifecycle-write_file",
+        "lifecycle-run_validation",
+        "lifecycle-mission-final",
+      ]) {
+        if (!lifecycleKinds.has(expectedKind)) {
+          throw new Error(`Lifecycle provider fixture did not observe ${expectedKind}.`);
+        }
+      }
+      lifecycleRunnerStage = "independent-verifier";
+      await run("node", ["scripts/verify-engineering-agent-lifecycle-receipt.mjs"], { env });
+      return;
+    }
 
     const providerLog = await readFile(providerLogPath, "utf8").catch(() => "");
     if (liveProviderRun) {
@@ -368,6 +522,9 @@ async function main() {
     }
   } finally {
     await stopPostgres();
+    if (lifecycleProjectRoot) {
+      await rm(lifecycleProjectRoot, { recursive: true, force: true }).catch(() => {});
+    }
     if (temporaryRoot) {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -383,5 +540,9 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  void writeFallbackLifecycleReceipt()
+    .catch(() => {})
+    .finally(() => {
+      process.exitCode = 1;
+    });
 });

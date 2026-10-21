@@ -248,3 +248,119 @@ test("provider interception fails closed outside controlled non-production fixtu
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.stdout.trim(), "blocked");
 });
+
+test("lifecycle fixture stages only manifest-authorized README and validation calls", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(os.tmpdir(), "engineering-agent-lifecycle-fixture-test-"),
+  );
+  const logPath = join(temporaryRoot, "requests.jsonl");
+  try {
+    const script = `
+      const url = "https://openrouter.ai/api/v1/chat/completions";
+      const tools = [
+        { type: "function", function: { name: "read_file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } },
+        { type: "function", function: { name: "write_file", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" }, reason: { type: "string" } }, required: ["path", "content", "reason"] } } },
+        { type: "function", function: { name: "run_validation", parameters: { type: "object", properties: { profile: { type: "string" } }, required: ["profile"] } } },
+      ];
+      const rootMessages = [{
+        role: "user",
+        content: "Server-owned Mission execution.\\n\\nExecution profile: mission_repair.\\n\\nAdd the requested README sentence and validate the candidate.",
+      }];
+      async function request(messages, includeWriteTool = true) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "liquid/lfm-2.5-2.6b:free",
+            messages,
+            tools: includeWriteTool ? tools : tools.filter((tool) => tool.function.name !== "write_file"),
+          }),
+        });
+        return { status: response.status, payload: await response.json() };
+      }
+      const toolResults = [];
+      let messages = rootMessages;
+      let messagesAfterRead;
+      const calls = [];
+      for (let index = 0; index < 3; index += 1) {
+        const response = await request(messages);
+        if (response.status !== 200) throw new Error("lifecycle step unexpectedly blocked");
+        const call = response.payload.choices?.[0]?.message?.tool_calls?.[0];
+        if (!call) throw new Error("lifecycle fixture omitted a required server tool call");
+        calls.push(call);
+        toolResults.push({ role: "tool", name: call.function.name, tool_call_id: call.id, content: JSON.stringify({ ok: true }) });
+        messages = [
+          ...rootMessages,
+          ...calls.map((item) => ({ role: "assistant", tool_calls: [item] })),
+          ...toolResults,
+        ];
+        if (index === 0) messagesAfterRead = messages;
+      }
+      const blocked = await request(messagesAfterRead, false);
+      const final = await request(messages);
+      const summary = JSON.parse(final.payload.choices?.[0]?.message?.content ?? "{}");
+      console.log(JSON.stringify({
+        toolNames: calls.map((call) => call.function.name),
+        toolArguments: calls.map((call) => JSON.parse(call.function.arguments)),
+        blockedStatus: blocked.status,
+        finalStatus: final.status,
+        summary,
+      }));
+    `;
+    const result = await runFixture(script, {
+      PATH: process.env.PATH ?? "",
+      NODE_ENV: "development",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      MISSION_E2E_PROVIDER_FIXTURE: "1",
+      ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+      ENGINEERING_AGENT_LIFECYCLE_REMOTE: join(temporaryRoot, "remote.git"),
+      ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT: join(temporaryRoot, "project"),
+      ENGINEERING_AGENT_LIFECYCLE_RECEIPT: join(temporaryRoot, "receipt.json"),
+      DASHBOARD_E2E_PROVIDER_FIXTURE_LOG: logPath,
+    });
+    assert.equal(result.signal, null, result.stderr);
+    assert.equal(result.code, 0, result.stderr);
+    const response = JSON.parse(result.stdout.trim());
+    assert.deepEqual(response, {
+      toolNames: ["read_file", "write_file", "run_validation"],
+      toolArguments: [
+        { path: "README.md" },
+        {
+          path: "README.md",
+          content: [
+            "# Engineering Agent lifecycle fixture",
+            "",
+            "A disposable project used to verify an approved, validated change and delivery.",
+            "Lifecycle acceptance sentinel: retained after approved delivery.",
+            "",
+          ].join("\n"),
+          reason: "Add the approved lifecycle acceptance sentence.",
+        },
+        { profile: "workspace-typecheck" },
+      ],
+      blockedStatus: 403,
+      finalStatus: 200,
+      summary: {
+        response: "The README change was staged as a candidate and the registered validation passed.",
+        sources: ["README.md"],
+        claimRefs: [],
+      },
+    });
+
+    const requests = (await readFile(logPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(requests.map(({ kind }) => kind), [
+      "lifecycle-read_file",
+      "lifecycle-write_file",
+      "lifecycle-run_validation",
+      "lifecycle-write_file-not-authorized",
+      "lifecycle-mission-final",
+    ]);
+    assert.equal((await readFile(logPath, "utf8")).includes("requested README"), false);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});

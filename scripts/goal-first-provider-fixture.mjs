@@ -73,6 +73,18 @@ function assertFixtureMode() {
   }
 }
 
+function assertLifecycleFixtureMode() {
+  assertFixtureMode();
+  if (
+    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E !== "1"
+    || !process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE
+    || !process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT
+    || !process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT
+  ) {
+    throw new Error("The lifecycle provider fixture requires the isolated lifecycle runner.");
+  }
+}
+
 function fixtureJsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -106,6 +118,10 @@ function completionPayload(model, content = fixtureText) {
 }
 
 function toolCallPayload(model) {
+  return toolCallsPayload(model, missionReadToolCalls);
+}
+
+function toolCallsPayload(model, toolCalls) {
   return {
     id: "goal-first-local-fixture",
     object: "chat.completion",
@@ -116,7 +132,7 @@ function toolCallPayload(model) {
       message: {
         role: "assistant",
         content: null,
-        tool_calls: missionReadToolCalls,
+        tool_calls: toolCalls,
       },
       finish_reason: "tool_calls",
     }],
@@ -173,6 +189,10 @@ function streamResponse(model, content = fixtureText) {
 }
 
 function streamToolCallResponse(model) {
+  return streamToolCallsResponse(model, missionReadToolCalls);
+}
+
+function streamToolCallsResponse(model, toolCalls) {
   const safeModel = typeof model === "string" ? model : "goal-first-local-fixture";
   const chunks = [
     {
@@ -182,7 +202,7 @@ function streamToolCallResponse(model) {
       model: safeModel,
       choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
     },
-    ...missionReadToolCalls.map((toolCall, index) => ({
+    ...toolCalls.map((toolCall, index) => ({
       id: "goal-first-local-fixture",
       object: "chat.completion.chunk",
       created: 0,
@@ -225,6 +245,91 @@ function streamToolCallResponse(model) {
       "x-goal-first-provider-fixture": "1",
     },
   });
+}
+
+const LIFECYCLE_SENTENCE =
+  "Lifecycle acceptance sentinel: retained after approved delivery.";
+const LIFECYCLE_README = [
+  "# Engineering Agent lifecycle fixture",
+  "",
+  "A disposable project used to verify an approved, validated change and delivery.",
+  LIFECYCLE_SENTENCE,
+  "",
+].join("\n");
+let lifecycleToolCallSequence = 0;
+
+function requestToolName(toolCall) {
+  return toolCall?.function?.name ?? toolCall?.name;
+}
+
+function lifecycleToolCalls(messages) {
+  const priorCalls = messages.flatMap((message) =>
+    message?.role === "assistant" && Array.isArray(message.tool_calls)
+      ? message.tool_calls
+      : [],
+  );
+  const calledNames = new Set(priorCalls.map(requestToolName));
+  const nextToolName = !calledNames.has("read_file")
+    ? "read_file"
+    : !calledNames.has("write_file")
+      ? "write_file"
+      : !calledNames.has("run_validation")
+        ? "run_validation"
+        : undefined;
+  if (!nextToolName) return undefined;
+  const args = nextToolName === "read_file"
+    ? { path: "README.md" }
+    : nextToolName === "write_file"
+      ? {
+          path: "README.md",
+          content: LIFECYCLE_README,
+          reason: "Add the approved lifecycle acceptance sentence.",
+        }
+      : { profile: "workspace-typecheck" };
+  lifecycleToolCallSequence += 1;
+  return [{
+    id: `call_lifecycle_${nextToolName}_${lifecycleToolCallSequence}`,
+    type: "function",
+    function: {
+      name: nextToolName,
+      arguments: JSON.stringify(args),
+    },
+  }];
+}
+
+function lifecycleToolIsAvailable(requestBody, name) {
+  return Array.isArray(requestBody.tools) && requestBody.tools.some((tool) =>
+    requestToolName(tool) === name,
+  );
+}
+
+function lifecycleMissionResponse(requestBody, messages, url, method) {
+  const calls = lifecycleToolCalls(messages);
+  if (calls) {
+    const toolName = calls[0].function.name;
+    if (!lifecycleToolIsAvailable(requestBody, toolName)) {
+      recordRequest(url, method, `lifecycle-${toolName}-not-authorized`);
+      return fixtureJsonResponse({
+        error: {
+          message: `The lifecycle fixture cannot invoke ${toolName} unless the server includes it in the authorized tool manifest.`,
+        },
+      }, 403);
+    }
+    recordRequest(url, method, `lifecycle-${toolName}`);
+    return requestBody.stream === true
+      ? streamToolCallsResponse(requestBody.model, calls)
+      : fixtureJsonResponse(toolCallsPayload(requestBody.model, calls));
+  }
+
+  recordRequest(url, method, "lifecycle-mission-final");
+  const content = JSON.stringify({
+    response: "The README change was staged as a candidate and the registered validation passed.",
+    sources: ["README.md"],
+    claimRefs: [],
+  });
+  return requestBody.stream === true
+    ? streamResponse(requestBody.model, content)
+    : fixtureJsonResponse(completionPayload(requestBody.model, content));
 }
 
 function recordRequest(url, method, kind) {
@@ -312,6 +417,27 @@ globalThis.fetch = async (input, init) => {
       && typeof message.content === "string"
       && message.content.includes("Synthesize a scoped project answer from the retained evidence below."),
   );
+
+  if (process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1") {
+    assertLifecycleFixtureMode();
+    const isMissionRepairExecution = isMissionExecution
+      && serializedMessages.includes("Execution profile: mission_repair.");
+    if (isMissionRepairExecution) {
+      return lifecycleMissionResponse(requestBody, messages, url, method);
+    }
+    if (isMissionExecution || isQueryPlannerRequest || isProjectQuerySynthesis) {
+      recordRequest(url, method, "lifecycle-unsupported-ai-stage");
+      return fixtureJsonResponse({
+        error: {
+          message: "The lifecycle fixture only supports its recognized chat and Mission repair stages.",
+        },
+      }, 503);
+    }
+    recordRequest(url, method, "lifecycle-chat-completion");
+    return requestBody.stream === true
+      ? streamResponse(requestBody.model)
+      : fixtureJsonResponse(completionPayload(requestBody.model));
+  }
 
   if (isQueryPlannerRequest) {
     recordRequest(url, method, "mission-query-plan");
