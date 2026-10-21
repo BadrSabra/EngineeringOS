@@ -12798,6 +12798,11 @@ export default function AiChat() {
                 projection: executionProjection ?? base.projection ?? null,
             }];
           });
+          // The new-session message query can resolve while the stream is still
+          // running and cache an empty history. Re-fetch after the server's
+          // terminal event so persisted user messages (and their durable IDs)
+          // are restored for actions such as Mission handoff.
+          void qc.invalidateQueries({ queryKey: ['ai-messages', data.sessionId] });
           setPendingChanges(data.pendingChanges ?? []);
           setProposalId(data.proposalId ?? undefined);
           setProposalUnavailable(data.proposalUnavailable ?? null);

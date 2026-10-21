@@ -439,8 +439,18 @@ test("live journey timeout has Playwright headroom", () => {
   );
   assert.match(
     goalFirstTestSource,
-    /execution\.status === "failed" \|\| execution\.status === "cancelled"[\s\S]*?execution\.resumable === false/,
-    "Goal-first polling must stop on a terminal execution with no resume path.",
+    /if \(execution\.status === "failed" \|\| execution\.status === "cancelled"\) \{[\s\S]*?executionDiagnostics/,
+    "Goal-first polling must stop on a failed current attempt even when it can be resumed later.",
+  );
+  assert.match(
+    goalFirstTestSource,
+    /category === "RATE_LIMITED" && count > 0/,
+    "Goal-first diagnostics must prioritize RATE_LIMITED when several provider failures were recorded.",
+  );
+  assert.match(
+    goalFirstTestSource,
+    /resumable: execution\.resumable \?\? null/,
+    "The terminal failure summary must preserve whether a later resume is available.",
   );
   assert.match(
     goalFirstTestSource,

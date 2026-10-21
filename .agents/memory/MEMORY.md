@@ -103,7 +103,7 @@
 - [Mission finalization lock order](mission-finalization-lock-order.md) — linked terminal projections acquire Mission/Goal before execution so proof reloads cannot deadlock.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
 - [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
-- [Live provider validation boundary](live-provider-validation-boundary.md) — provider success is not acceptance; exact-model probes verify resolver and actual response identity.
+- [Live provider validation boundary](live-provider-validation-boundary.md) — provider success is not acceptance; verify actual responses and stop polling failed attempts even when they remain resumable.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.

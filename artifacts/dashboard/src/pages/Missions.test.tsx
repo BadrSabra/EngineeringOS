@@ -871,7 +871,7 @@ describe('Missions management', () => {
     ];
     callbacks.onSuccess();
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي.',
+      'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
     );
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });

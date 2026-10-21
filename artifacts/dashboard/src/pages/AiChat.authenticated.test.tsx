@@ -616,6 +616,7 @@ beforeEach(() => {
   mocks.fileContentRequest = undefined;
   mocks.fileContentIsPending = false;
   mocks.fileContentIsError = false;
+  mocks.proposalMessages.splice(1);
   mocks.proposalMessages[0] = {
     ...mocks.proposalMessages[0],
     id: 'message-1',
@@ -6156,6 +6157,77 @@ it.each([
     expect(screen.getByText(/Reading source/)).toBeInTheDocument();
     expect(screen.getByText(/Model response/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/response\.ts/).length).toBeGreaterThan(0);
+  });
+
+  it('refreshes persisted new-session messages after stream completion for Mission handoff', async () => {
+    const { invalidateQueries } = renderAiChat();
+
+    const composer = await screen.findByTestId('input-ai-chat-composer');
+    fireEvent.change(composer, { target: { value: 'Trace the response path' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
+    const callbacks = mocks.streamCallbacks as Record<string, unknown> & {
+      onSessionStarted?: (event: Record<string, unknown>) => void;
+      onDone?: (data: Record<string, unknown>) => void;
+    };
+
+    mocks.sessions = [
+      {
+        id: 'session-new',
+        title: 'Trace the response path',
+        updatedAt: '2026-08-17T00:00:00.000Z',
+      },
+      ...mocks.sessions,
+    ];
+    act(() => callbacks.onSessionStarted?.({
+      type: 'session_started',
+      sessionId: 'session-new',
+      title: 'Trace the response path',
+      updatedAt: '2026-08-17T00:00:00.000Z',
+    }));
+
+    mocks.serverProposal = {
+      proposalId: null,
+      operationId: null,
+      changes: [],
+      approvalRequired: false,
+      revision: null,
+    };
+    mocks.proposalMessages = [
+      {
+        ...mocks.proposalMessages[0],
+        id: 'persisted-user-message',
+        sessionId: 'session-new',
+        role: 'user',
+        content: 'Trace the response path',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'persisted-assistant-message',
+        sessionId: 'session-new',
+        role: 'assistant',
+        content: 'The response path is verified.',
+      },
+    ];
+
+    act(() => callbacks.onDone?.({
+      type: 'done',
+      sessionId: 'session-new',
+      message: {
+        id: 'persisted-assistant-message',
+        role: 'assistant',
+        content: 'The response path is verified.',
+        createdAt: '2026-08-17T00:00:00.000Z',
+      },
+    }));
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['ai-messages', 'session-new'],
+      });
+    });
+    expect(await screen.findByTestId('button-mission-handoff-persisted-user-message'))
+      .toBeInTheDocument();
   });
 
   it('keeps a streamed proposal visible while hydration is empty or stale', async () => {

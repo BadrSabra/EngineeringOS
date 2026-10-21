@@ -7008,13 +7008,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
               resumable?: boolean;
               executionDiagnostics?: ProviderDiagnostics;
             };
-            if (
-              (execution.status === "failed" || execution.status === "cancelled")
-              && execution.resumable === false
-            ) {
+            if (execution.status === "failed" || execution.status === "cancelled") {
               const diagnostics = execution.executionDiagnostics;
               const providerFailures = diagnostics?.failureCategories?.provider ?? {};
               const providerFailureCategory = Object.entries(providerFailures)
+                .find(([category, count]) => category === "RATE_LIMITED" && count > 0)?.[0]
+                ?? Object.entries(providerFailures)
                 .find(([, count]) => count > 0)?.[0] ?? "not recorded";
               const rateLimitScopes = Object.entries(diagnostics?.rateLimitScopes ?? {})
                 .filter(([, count]) => count > 0)
@@ -7026,7 +7025,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 `Goal-first ended before Canonical Proof: ${JSON.stringify({
                   goals: lastGoalStates,
                   executionStatus: execution.status,
-                  resumable: execution.resumable,
+                  resumable: execution.resumable ?? null,
                   providerFailureCategory,
                   rateLimitScopes,
                   retryAfterMs: openRouterRateLimit?.retryAfterMs ?? null,
