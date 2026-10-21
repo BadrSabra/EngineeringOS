@@ -2,7 +2,7 @@ import { isValidElement, useState, useRef, useEffect, useCallback, useMemo, type
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
-import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, Zap } from 'lucide-react';
+import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, XCircle, Zap } from 'lucide-react';
 import { Link, useLocation, useSearch } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { AssistantScopeSwitch } from '@/components/AssistantScopeSwitch';
@@ -94,6 +94,8 @@ import { parseProjectQuerySourceReference } from '@/lib/project-query-source-ref
 import {
   createApplyMissionFromProposal,
   createMissionFromChat,
+  executeMissionAgentAction,
+  fetchMissionProjection,
   previewMissionPlanFromChat,
   type MissionPlanPreviewResult,
 } from '@/lib/ai-missions';
@@ -834,6 +836,7 @@ function inferOperationMode(params: {
 type ActiveExecution = {
   id: string;
   projectId: string;
+  attempt?: number;
   sessionId?: string;
   linkedTaskId?: string | null;
   resumeToken?: string;
@@ -9986,6 +9989,10 @@ export default function AiChat() {
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryPending, setResumeRecoveryPending] = useState(false);
+  const [missionAgentActionPending, setMissionAgentActionPending] = useState(false);
+  const [missionAgentActionNotice, setMissionAgentActionNotice] = useState<string | null>(null);
+  const [missionAgentActionError, setMissionAgentActionError] = useState<string | null>(null);
+  const missionAgentActionKeys = useRef(new Map<string, string>());
   const resumeRecoveryPendingRef = useRef<string | null>(null);
   // Prevent a manual Resume click from racing an already scheduled automatic
   // reconnect. The resume-token path used to bypass resumeRecoveryPendingRef,
@@ -11246,6 +11253,24 @@ export default function AiChat() {
     && chatRouteTarget.sessionId === sessionId
     ? chatRouteTarget.missionId
     : undefined;
+  const missionAgentProjectionQuery = useQuery({
+    queryKey: ['mission-agent-projection', selectedProjectId, routeMissionId],
+    queryFn: () => fetchMissionProjection(routeMissionId!),
+    enabled: Boolean(routeMissionId && selectedProjectId),
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const mission = (query.state.data as { mission?: { status?: string } } | undefined)?.mission;
+      return mission?.status === 'active' ? 3_000 : false;
+    },
+  });
+  const routeMissionProjection = missionAgentProjectionQuery.data;
+  const routeMissionAgent = routeMissionProjection
+    && routeMissionProjection.mission.id === routeMissionId
+    && String(routeMissionProjection.mission.projectId) === selectedProjectId
+    && routeMissionProjection.engineeringAgent?.schemaVersion === 2
+    && routeMissionProjection.engineeringAgent.missionId === routeMissionId
+    ? routeMissionProjection.engineeringAgent
+    : null;
 
   const selectSessionMission = useCallback(async (
     targetSessionId: string,
@@ -12964,7 +12989,10 @@ export default function AiChat() {
     });
   }
 
-  async function resumeActiveExecution(mode: 'resume' | 'retry' = 'resume') {
+  async function resumeActiveExecution(
+    mode: 'resume' | 'retry' = 'resume',
+    recoveryCapability?: { executionId: string; resumeToken: string; attempt: number },
+  ) {
     const execution = activeExecutionRef.current;
     if (
       !execution
@@ -12985,11 +13013,33 @@ export default function AiChat() {
       return;
     }
 
-    if (mode === 'resume' && execution.resumeToken) {
+    if (recoveryCapability && recoveryCapability.executionId !== execution.id) {
+      setResumeRecoveryError('The Mission recovery capability does not match the active Execution.');
+      return;
+    }
+    const suppliedResumeToken = recoveryCapability?.resumeToken;
+    if (suppliedResumeToken || (mode === 'resume' && execution.resumeToken)) {
+      const recovered = {
+        ...execution,
+        ...(suppliedResumeToken ? { resumeToken: suppliedResumeToken } : {}),
+        ...(recoveryCapability ? { attempt: recoveryCapability.attempt } : {}),
+      };
+      activeExecutionRef.current = recovered;
+      setActiveExecution(recovered);
+      if (executionStorageKey) {
+        localStorage.setItem(
+          executionStorageKey,
+          JSON.stringify({
+            ...recovered,
+            projectId: selectedProjectId,
+            sessionId: executionStorageSessionId,
+          }),
+        );
+      }
       resumeStreamExecutionRef.current = execution.id;
       sendMessage(execution.message, {
         executionId: execution.id,
-        resumeToken: execution.resumeToken,
+        resumeToken: recovered.resumeToken,
         buildPlanMessageId: execution.buildPlanMessageId,
         sessionId: execution.sessionId,
       });
@@ -13058,6 +13108,85 @@ export default function AiChat() {
         resumeRecoveryPendingRef.current = null;
       }
       setResumeRecoveryPending(false);
+    }
+  }
+
+  async function performRouteMissionAction(command?: 'STOP') {
+    const agent = routeMissionAgent;
+    const missionId = routeMissionId;
+    if (!agent || !missionId || missionAgentActionPending) return;
+    const action = command ?? agent.nextAction.kind;
+    if (action === 'NONE') return;
+    const stopCommand = command
+      ? agent.availableCommands.find((item) => item.kind === command)
+      : undefined;
+    if (command && !stopCommand) {
+      setMissionAgentActionError('أمر الإيقاف لم يعد متاحًا في الحالة الحالية.');
+      void missionAgentProjectionQuery.refetch();
+      return;
+    }
+    const targetId = command
+      ? stopCommand?.target.id ?? ''
+      : agent.nextAction.target?.id ?? '';
+    if (action === 'APPROVE' && !window.confirm('هل تريد اعتماد القرار الحالي لهذه المهمة؟')) return;
+    if (action === 'REPLAN' && !window.confirm('هل تريد إنشاء نسخة خطة جديدة لهذه المهمة؟')) return;
+    if (action === 'STOP' && !window.confirm('هل تريد إرسال طلب إيقاف التنفيذ الحالي؟')) return;
+    if (action === 'RESUME' || action === 'RETRY') {
+      const activeExecution = activeExecutionRef.current;
+      if (activeExecution?.id !== targetId) {
+        setMissionAgentActionError('افتح المحادثة المرتبطة بهذا التنفيذ قبل استئنافه أو إعادة محاولته.');
+        return;
+      }
+      if (activeExecution.linkedTaskId) {
+        setMissionAgentActionError('هذا التنفيذ مرتبط بمهمة؛ استأنفه من المهمة المالكة.');
+        return;
+      }
+    }
+
+    const actionIdentity = `${missionId}:${action}:${targetId}`;
+    const idempotencyKey = missionAgentActionKeys.current.get(actionIdentity)
+      ?? crypto.randomUUID();
+    missionAgentActionKeys.current.set(actionIdentity, idempotencyKey);
+    setMissionAgentActionPending(true);
+    setMissionAgentActionError(null);
+    setMissionAgentActionNotice(null);
+    try {
+      const result = await executeMissionAgentAction(missionId, {
+        idempotencyKey,
+        expectedDecision: {
+          kind: agent.nextAction.kind,
+          target: agent.nextAction.target,
+          reasonCode: agent.nextAction.reasonCode,
+        },
+        ...(command ? { command } : {}),
+      });
+      if (result.outcome !== 'in_progress') {
+        missionAgentActionKeys.current.delete(actionIdentity);
+      }
+      await missionAgentProjectionQuery.refetch();
+      if (result.recovery) {
+        await resumeActiveExecution(action === 'RETRY' ? 'retry' : 'resume', result.recovery);
+        setMissionAgentActionNotice(
+          action === 'RETRY' ? 'بدأت إعادة المحاولة عبر مسار الاسترداد الحالي.' : 'بدأ استئناف التنفيذ عبر مسار الاسترداد الحالي.',
+        );
+      } else {
+        setMissionAgentActionNotice(result.outcome === 'in_progress'
+          ? 'هذا الطلب قيد التنفيذ بالفعل؛ ستُحدّث الحالة تلقائيًا.'
+          : 'أُرسل الإجراء عبر بوابة المهمة، وتم تحديث الحالة.');
+      }
+    } catch (error: unknown) {
+      const status = typeof error === 'object' && error !== null && 'status' in error
+        ? Number((error as { status?: unknown }).status)
+        : Number.NaN;
+      if (Number.isFinite(status) && status < 500) {
+        missionAgentActionKeys.current.delete(actionIdentity);
+      }
+      setMissionAgentActionError(
+        error instanceof Error ? error.message : 'تعذر تنفيذ إجراء المهمة. حدّث الحالة وحاول مجددًا.',
+      );
+      void missionAgentProjectionQuery.refetch();
+    } finally {
+      setMissionAgentActionPending(false);
     }
   }
 
@@ -14088,6 +14217,112 @@ export default function AiChat() {
 
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+          {routeMissionId && (
+            <div
+              data-testid="mission-agent-action-card"
+              className="mx-auto mb-4 w-full max-w-3xl rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-3"
+            >
+              {missionAgentProjectionQuery.isLoading ? (
+                <p className="text-xs text-muted-foreground" role="status">جارٍ تحميل قرار المهمة الحالي…</p>
+              ) : missionAgentProjectionQuery.isError ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-amber-200">تعذر تحميل قرار المهمة؛ لم يُرسل أي إجراء.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[11px]"
+                    onClick={() => void missionAgentProjectionQuery.refetch()}
+                  >
+                    إعادة التحميل
+                  </Button>
+                </div>
+              ) : routeMissionAgent ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-cyan-200">إجراء المهمة التالي</p>
+                      <p dir="auto" className="mt-1 truncate text-xs text-slate-200">
+                        {routeMissionProjection?.mission.title} · {routeMissionAgent.nextAction.reasonCode}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {routeMissionAgent.nextAction.kind !== 'NONE' ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-cyan-400/30 px-2.5 text-[11px] text-cyan-100"
+                          disabled={missionAgentActionPending || (
+                            ['RESUME', 'RETRY'].includes(routeMissionAgent.nextAction.kind)
+                            && (activeExecution?.id !== routeMissionAgent.nextAction.target?.id
+                              || Boolean(activeExecution?.linkedTaskId))
+                          )}
+                          data-testid={`button-chat-mission-action-${routeMissionAgent.nextAction.kind.toLowerCase()}`}
+                          onClick={() => void performRouteMissionAction()}
+                        >
+                          {missionAgentActionPending
+                            ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            : routeMissionAgent.nextAction.kind === 'RETRY'
+                              ? <RotateCcw className="mr-1 h-3 w-3" />
+                              : <ArrowUpRight className="mr-1 h-3 w-3" />}
+                          {routeMissionAgent.nextAction.kind === 'START'
+                            ? 'بدء المهمة'
+                            : routeMissionAgent.nextAction.kind === 'AUTO_CONTINUE'
+                              ? 'متابعة التنفيذ'
+                              : routeMissionAgent.nextAction.kind === 'RESUME'
+                                ? 'استئناف التنفيذ'
+                                : routeMissionAgent.nextAction.kind === 'RETRY'
+                                  ? 'إعادة المحاولة'
+                                  : routeMissionAgent.nextAction.kind === 'APPROVE'
+                                    ? 'اعتماد القرار'
+                                    : routeMissionAgent.nextAction.kind === 'REPLAN'
+                                      ? 'إنشاء خطة جديدة'
+                                      : routeMissionAgent.nextAction.kind === 'REVIEW'
+                                        ? 'تسجيل المراجعة'
+                                        : 'تنفيذ الإجراء'}
+                        </Button>
+                      ) : null}
+                      {routeMissionAgent.availableCommands.some((item) => item.kind === 'STOP') ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 border-rose-400/30 px-2.5 text-[11px] text-rose-100"
+                          disabled={missionAgentActionPending}
+                          data-testid="button-chat-mission-action-stop"
+                          onClick={() => void performRouteMissionAction('STOP')}
+                        >
+                          <XCircle className="mr-1 h-3 w-3" />
+                          إيقاف التنفيذ
+                        </Button>
+                      ) : null}
+                      <Link
+                        href={`/missions?${new URLSearchParams({
+                          projectId: selectedProjectId,
+                          missionId: routeMissionId,
+                        }).toString()}`}
+                        className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        فتح المهمة
+                      </Link>
+                    </div>
+                  </div>
+                  {missionAgentActionNotice ? (
+                    <p className="mt-2 text-xs text-emerald-200" role="status">{missionAgentActionNotice}</p>
+                  ) : null}
+                  {missionAgentActionError ? (
+                    <p className="mt-2 text-xs text-destructive" role="alert">{missionAgentActionError}</p>
+                  ) : null}
+                  {resumeRecoveryError ? (
+                    <p className="mt-2 text-xs text-destructive" role="alert">{resumeRecoveryError}</p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-amber-200" role="status">تعذر مطابقة قرار المهمة مع المحادثة الحالية؛ لن يُرسل إجراء.</p>
+              )}
+            </div>
+          )}
           {routeSessionUnavailable && (
             <div
               role="status"

@@ -200,7 +200,7 @@ export type AiMissionEngineeringAgentProjectionSchemaVersion = typeof AiMissionE
 
 
 export const AiMissionEngineeringAgentProjectionSchemaVersion = {
-  NUMBER_1: 1,
+  NUMBER_2: 2,
 } as const;
 
 export type AiMissionEngineeringAgentProjectionState = typeof AiMissionEngineeringAgentProjectionState[keyof typeof AiMissionEngineeringAgentProjectionState];
@@ -279,6 +279,20 @@ export const AiMissionEngineeringAgentReasonCode = {
   state_unresolved: 'state_unresolved',
 } as const;
 
+export type AiMissionEngineeringAgentProjectionAvailableCommandsItemKind = typeof AiMissionEngineeringAgentProjectionAvailableCommandsItemKind[keyof typeof AiMissionEngineeringAgentProjectionAvailableCommandsItemKind];
+
+
+export const AiMissionEngineeringAgentProjectionAvailableCommandsItemKind = {
+  STOP: 'STOP',
+} as const;
+
+export type AiMissionEngineeringAgentProjectionAvailableCommandsItemTargetKind = typeof AiMissionEngineeringAgentProjectionAvailableCommandsItemTargetKind[keyof typeof AiMissionEngineeringAgentProjectionAvailableCommandsItemTargetKind];
+
+
+export const AiMissionEngineeringAgentProjectionAvailableCommandsItemTargetKind = {
+  execution: 'execution',
+} as const;
+
 export type AiMissionEngineeringAgentProjectionInterventionKind = typeof AiMissionEngineeringAgentProjectionInterventionKind[keyof typeof AiMissionEngineeringAgentProjectionInterventionKind];
 
 
@@ -302,6 +316,21 @@ export const AiMissionEngineeringAgentProjectionAutonomyMode = {
 export type AiMissionEngineeringAgentProjectionNextAction = {
   kind: AiMissionEngineeringAgentProjectionNextActionKind;
   target: AiMissionEngineeringAgentTarget | null;
+  reasonCode: AiMissionEngineeringAgentReasonCode;
+};
+
+export type AiMissionEngineeringAgentProjectionAvailableCommandsItemTarget = {
+  kind: AiMissionEngineeringAgentProjectionAvailableCommandsItemTargetKind;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  id: string;
+};
+
+export type AiMissionEngineeringAgentProjectionAvailableCommandsItem = {
+  kind: AiMissionEngineeringAgentProjectionAvailableCommandsItemKind;
+  target: AiMissionEngineeringAgentProjectionAvailableCommandsItemTarget;
   reasonCode: AiMissionEngineeringAgentReasonCode;
 };
 
@@ -329,6 +358,7 @@ export interface AiMissionEngineeringAgentProjection {
   schemaVersion: AiMissionEngineeringAgentProjectionSchemaVersion;
   state: AiMissionEngineeringAgentProjectionState;
   nextAction: AiMissionEngineeringAgentProjectionNextAction;
+  availableCommands: AiMissionEngineeringAgentProjectionAvailableCommandsItem[];
   intervention: AiMissionEngineeringAgentProjectionIntervention;
   autonomy: AiMissionEngineeringAgentProjectionAutonomy;
   /**
@@ -386,6 +416,101 @@ export interface AiMissionEngineeringAgentDecision {
 export interface AiMissionAgentContinuationInput {
   idempotencyKey: string;
   expectedDecision: AiMissionEngineeringAgentDecision;
+}
+
+export type AiMissionAgentActionInputCommand = typeof AiMissionAgentActionInputCommand[keyof typeof AiMissionAgentActionInputCommand];
+
+
+export const AiMissionAgentActionInputCommand = {
+  STOP: 'STOP',
+} as const;
+
+export type AiMissionAgentActionInputInputReplan = {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  objective?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  reason?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  expectedPlanHash?: string;
+};
+
+export type AiMissionAgentActionInputInput = {
+  replan?: AiMissionAgentActionInputInputReplan;
+};
+
+export interface AiMissionAgentActionInput {
+  idempotencyKey: string;
+  expectedDecision: AiMissionEngineeringAgentDecision;
+  command?: AiMissionAgentActionInputCommand;
+  input?: AiMissionAgentActionInputInput;
+}
+
+export interface AiMissionAgentActionOperation {
+  goalId?: string;
+  executionId?: string;
+  planRevision?: string;
+  status?: string;
+  /** @minimum 0 */
+  attempt?: number;
+}
+
+export type AiMissionAgentActionResponseOutcome = typeof AiMissionAgentActionResponseOutcome[keyof typeof AiMissionAgentActionResponseOutcome];
+
+
+export const AiMissionAgentActionResponseOutcome = {
+  accepted: 'accepted',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  review_required: 'review_required',
+  no_action: 'no_action',
+  rejected: 'rejected',
+} as const;
+
+export type AiMissionAgentActionResponseRun = {
+  status: string;
+  goalId: string;
+  /** @nullable */
+  taskId: string | null;
+  /** @nullable */
+  executionId: string | null;
+  /** @nullable */
+  reason: string | null;
+} | null;
+
+export type AiMissionAgentActionResponseRecovery = {
+  executionId: string;
+  /**
+     * @minLength 32
+     * @maxLength 128
+     */
+  resumeToken: string;
+  /** @minimum 0 */
+  attempt: number;
+};
+
+export type AiMissionAgentActionResponseError = {
+  code: string;
+  message: string;
+};
+
+export interface AiMissionAgentActionResponse {
+  missionId: string;
+  outcome: AiMissionAgentActionResponseOutcome;
+  projection: AiMissionControlProjection;
+  idempotentReplay: boolean;
+  operation?: AiMissionAgentActionOperation;
+  run?: AiMissionAgentActionResponseRun;
+  recovery?: AiMissionAgentActionResponseRecovery;
+  error?: AiMissionAgentActionResponseError;
 }
 
 export interface AiMissionGoalApprovalInput {

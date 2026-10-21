@@ -4,7 +4,7 @@
  * This route owns the durable objective records and delegates activation to
  * the existing task lifecycle. It does not execute tools itself.
  */
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { createHash, randomUUID } from "crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -45,7 +45,12 @@ import {
   deriveProofGatedMissionStatus,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
-import { parseExecutionRequest } from "../../lib/ai-execution-state.js";
+import {
+  parseExecutionRequest,
+  recoverAiExecutionResumeToken,
+  recoverAiExecutionRetryToken,
+  requestAiExecutionCancel,
+} from "../../lib/ai-execution-state.js";
 import { executionProfileForMissionStep } from "../../lib/mission-execution-profile.js";
 import { parseMissionProposalPaths } from "../../lib/mission-proposal-paths.js";
 import { createMissionEventEnvelope } from "../../lib/mission-events.js";
@@ -62,6 +67,15 @@ import {
   reduceEngineeringAgentProjection,
   type EngineeringAgentGoalFact,
 } from "../../lib/engineering-agent-projection.js";
+import {
+  dispatchEngineeringAgentAction,
+  hashEngineeringAgentActionRequest,
+  selectEngineeringAgentAction,
+  type EngineeringAgentActionContext,
+  type EngineeringAgentActionHandlers,
+  type EngineeringAgentActionInput,
+  type EngineeringAgentActionResult,
+} from "../../lib/engineering-agent-action.js";
 import {
   loadCanonicalProof,
   projectCanonicalProof,
@@ -133,6 +147,18 @@ const EngineeringAgentDecisionSchema = z.object({
 const MissionAgentContinuationBody = z.object({
   idempotencyKey: z.string().uuid(),
   expectedDecision: EngineeringAgentDecisionSchema,
+}).strict();
+const MissionAgentActionBody = z.object({
+  idempotencyKey: z.string().uuid(),
+  expectedDecision: EngineeringAgentDecisionSchema,
+  command: z.literal("STOP").optional(),
+  input: z.object({
+    replan: z.object({
+      objective: z.string().trim().min(1).max(2_000).optional(),
+      reason: z.string().trim().min(1).max(2_000).optional(),
+      expectedPlanHash: z.string().trim().min(1).max(200).optional(),
+    }).strict().optional(),
+  }).strict().optional(),
 }).strict();
 const MissionGoalApprovalBody = z.object({
   expectedDecision: EngineeringAgentDecisionSchema.optional(),
@@ -949,6 +975,7 @@ async function buildEngineeringAgentProjection(
       currentExecution: execution ? {
         id: execution.id,
         status: execution.status,
+        cancelRequested: Boolean(execution.cancelRequestedAt),
         acceptance: acceptance ? {
           outcome: acceptance.outcome,
           terminalStatus: acceptance.terminalStatus,
@@ -1446,6 +1473,59 @@ async function dispatchMissionPlan(
     }));
   }
   return runs;
+}
+
+async function activateMissionFromAgent(
+  owned: {
+    mission: typeof aiMissionsTable.$inferSelect;
+    project: { id: string };
+  },
+  userId: string,
+) {
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, owned.mission.id),
+        eq(aiMissionsTable.projectId, owned.project.id),
+        eq(aiMissionsTable.userId, userId),
+      ))
+      .for("update");
+    if (!mission) return { kind: "missing" as const };
+    if (mission.status !== "draft") return { kind: "stale" as const };
+
+    const [updated] = await tx.update(aiMissionsTable)
+      .set({ status: "active", completedAt: null, updatedAt: now })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, "draft"),
+      ))
+      .returning();
+    if (!updated) return { kind: "stale" as const };
+    const activationPlan = await ensureMissionActivationPlan(
+      tx,
+      updated,
+      now,
+      buildMissionPlanPreview({ message: updated.intent, objective: updated.intent }),
+    );
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiMissionUpdated",
+      projectId: mission.projectId,
+      severity: "info",
+      message: `AI mission "${updated.title}" activated from the Engineering Agent decision`,
+      correlationId: randomUUID(),
+      payload: { missionId: mission.id, changedFields: ["status"] },
+    });
+    return { kind: "activated" as const, mission: updated, activationPlan };
+  });
+  if (result.kind !== "activated") return result;
+  const runs = result.activationPlan
+    ? await dispatchMissionPlan(result.activationPlan, userId, "activation")
+    : [];
+  return { ...result, runs };
 }
 
 async function buildMissionProjection(
@@ -2288,28 +2368,16 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
  * task, execution, and evidence rows. Replan is an explicit operator action;
  * it never rewrites a historical revision in place.
  */
-router.post("/ai/missions/:missionId/replan", async (req, res) => {
-  const body = MissionReplanBody.parse(req.body ?? {});
-  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
-  if (!owned) return;
-  if (body.expectedDecision) {
-    const projection = await loadMissionProjection(owned);
-    if (
-      body.expectedDecision.kind !== "REPLAN"
-      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
-    ) {
-      return res.status(409).json({
-        error: "The Mission decision changed. Review the current state before trying again.",
-        code: "AGENT_DECISION_STALE",
-        projection,
-      });
-    }
-  }
+async function performMissionReplan(
+  owned: {
+    mission: typeof aiMissionsTable.$inferSelect;
+    project: { id: string };
+  },
+  userId: string,
+  body: z.infer<typeof MissionReplanBody>,
+) {
   if (["completed", "cancelled"].includes(owned.mission.status)) {
-    return res.status(409).json({
-      error: "A terminal Mission cannot be replanned",
-      code: "MISSION_TERMINAL",
-    });
+    return { kind: "terminal" as const };
   }
   const expectedActivePlanRevision = readActivePlanRevision(owned.mission.autonomyPolicy);
   const message = body.message ?? body.objective ?? owned.mission.intent;
@@ -2325,29 +2393,24 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
     runtimeStartTargetStepId,
   });
   if (preview.admission !== "mission") {
-    return res.status(409).json({
-      error: "The revised objective is not eligible for Mission execution",
-      code: "MISSION_ADMISSION_REQUIRED",
-      admission: preview.admission,
+    return {
+      kind: "admission_required" as const,
       preview,
-    });
+    };
   }
   if (body.expectedPlanHash && body.expectedPlanHash === preview.plan.planHash) {
-    return res.status(409).json({
-      error: "The revised plan is identical to the current requested revision",
-      code: "MISSION_PLAN_UNCHANGED",
-    });
+    return { kind: "unchanged" as const };
   }
 
   const now = new Date();
-  const result = await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
       .from(aiMissionsTable)
       .where(and(
         eq(aiMissionsTable.id, owned.mission.id),
         eq(aiMissionsTable.projectId, owned.project.id),
-        eq(aiMissionsTable.userId, req.userId),
+        eq(aiMissionsTable.userId, userId),
       ))
       .for("update");
     if (!mission) return { kind: "missing" as const };
@@ -2382,10 +2445,54 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
     });
     return { kind: "created" as const, mission, plan };
   });
+  if (created.kind !== "created") return created;
+  const runs = await dispatchMissionPlan(created.plan, userId, "replan");
+  return {
+    kind: "replanned" as const,
+    mission: { ...created.mission, status: "active" as const, intent: preview.objective },
+    plan: preview.plan,
+    goal: created.plan.primary,
+    goals: created.plan.goals,
+    runs,
+  };
+}
+
+router.post("/ai/missions/:missionId/replan", async (req, res) => {
+  const body = MissionReplanBody.parse(req.body ?? {});
+  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
+  if (!owned) return;
+  if (body.expectedDecision) {
+    const projection = await loadMissionProjection(owned);
+    if (
+      body.expectedDecision.kind !== "REPLAN"
+      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
+    ) {
+      return res.status(409).json({
+        error: "The Mission decision changed. Review the current state before trying again.",
+        code: "AGENT_DECISION_STALE",
+        projection,
+      });
+    }
+  }
+  const result = await performMissionReplan(owned, req.userId, body);
   if (result.kind === "terminal") {
     return res.status(409).json({
       error: "A terminal Mission cannot be replanned",
       code: "MISSION_TERMINAL",
+    });
+  }
+  if (result.kind === "admission_required") {
+    return res.status(409).json({
+      error: "The revised objective is not eligible for Mission execution",
+      code: "MISSION_ADMISSION_REQUIRED",
+      admission: result.preview.admission,
+      preview: result.preview,
+    });
+  }
+  if (result.kind === "unchanged") {
+    return res.status(409).json({
+      error: "The revised plan is identical to the current requested revision",
+      code: "MISSION_PLAN_UNCHANGED",
     });
   }
   if (result.kind === "stale_plan_revision") {
@@ -2394,14 +2501,13 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
       code: "MISSION_PLAN_STALE",
     });
   }
-  if (result.kind !== "created") return res.status(404).json({ error: "Mission not found" });
-  const runs = await dispatchMissionPlan(result.plan, req.userId, "replan");
+  if (result.kind !== "replanned") return res.status(404).json({ error: "Mission not found" });
   return res.status(201).json({
-    mission: { ...result.mission, status: "active", intent: preview.objective },
-    plan: preview.plan,
-    goal: result.plan.primary,
-    goals: result.plan.goals,
-    runs,
+    mission: result.mission,
+    plan: result.plan,
+    goal: result.goal,
+    goals: result.goals,
+    runs: result.runs,
   });
 });
 
@@ -4071,19 +4177,66 @@ router.get("/ai/missions/:missionId/projection", async (req, res) => {
   return res.json(await loadMissionProjection(owned));
 });
 
-router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
-  const parsedBody = MissionAgentContinuationBody.safeParse(req.body ?? {});
-  if (!parsedBody.success) {
-    return res.status(400).json({
-      error: "Invalid Mission continuation request.",
-      code: "INVALID_AGENT_CONTINUATION",
-      issues: parsedBody.error.issues,
-    });
+function safeMissionGoalRun(run: Awaited<ReturnType<typeof runMissionGoal>>) {
+  return {
+    status: run.status,
+    goalId: run.goalId,
+    taskId: "taskId" in run ? run.taskId ?? null : null,
+    executionId: "executionId" in run ? run.executionId ?? null : null,
+    reason: "reason" in run ? run.reason ?? null : null,
+  };
+}
+
+function safeStoredAgentActionResult(value: unknown): EngineeringAgentActionResult | null {
+  const record = readRecord(value);
+  if (
+    !record
+    || !["accepted", "in_progress", "completed", "review_required", "no_action", "rejected"]
+      .includes(String(record.outcome))
+  ) {
+    return null;
   }
-  const body = parsedBody.data;
-  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
+  return {
+    outcome: record.outcome as EngineeringAgentActionResult["outcome"],
+    ...(readRecord(record.operation)
+      ? { operation: readRecord(record.operation) as EngineeringAgentActionResult["operation"] }
+      : {}),
+    ...(readRecord(record.run)
+      ? { run: readRecord(record.run) as EngineeringAgentActionResult["run"] }
+      : {}),
+    ...(readRecord(record.error)
+      ? { error: readRecord(record.error) as EngineeringAgentActionResult["error"] }
+      : {}),
+  };
+}
+
+async function handleMissionAgentAction(
+  req: Request,
+  res: Response,
+  body: z.infer<typeof MissionAgentActionBody>,
+  compatibilityRoute: boolean,
+): Promise<void> {
+  const missionId = Array.isArray(req.params.missionId)
+    ? req.params.missionId[0]
+    : req.params.missionId;
+  if (!missionId) {
+    res.status(400).json({ error: "Mission ID is required", code: "INVALID_MISSION_ID" });
+    return;
+  }
+  const owned = await loadOwnedMission(missionId, req.userId, res);
   if (!owned) return;
-  const requestHash = createHash("sha256")
+  const loadCurrentProjection = async () => {
+    const currentOwned = await loadOwnedMission(missionId, req.userId, res);
+    return currentOwned ? loadMissionProjection(currentOwned) : null;
+  };
+
+  const requestHash = hashEngineeringAgentActionRequest({
+    missionId: owned.mission.id,
+    expectedDecision: body.expectedDecision,
+    ...(body.command ? { command: body.command } : {}),
+    ...(body.input ? { input: body.input } : {}),
+  });
+  const legacyContinuationHash = createHash("sha256")
     .update(JSON.stringify({
       missionId: owned.mission.id,
       expectedDecision: body.expectedDecision,
@@ -4092,85 +4245,279 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
   const idempotencyCorrelationId = createHash("sha256")
     .update(`${owned.mission.id}:${body.idempotencyKey}`)
     .digest("hex");
+  const eventTypes = [
+    "AiMissionAgentActionRequested",
+    "AiMissionAgentContinuationRequested",
+  ] as const;
   const now = new Date();
-  const [priorEvent] = await db
+  const priorEvents = await db
     .select()
     .from(eventsTable)
     .where(and(
       eq(eventsTable.projectId, owned.project.id),
-      eq(eventsTable.type, "AiMissionAgentContinuationRequested"),
+      inArray(eventsTable.type, [...eventTypes]),
       eq(eventsTable.correlationId, idempotencyCorrelationId),
     ))
+    .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
     .limit(1);
-  if (priorEvent) {
-    const priorPayload = readRecord(priorEvent.payload);
-    if (priorPayload?.requestHash !== requestHash) {
-      return res.status(409).json({
-        error: "This idempotency key was already used for a different Mission decision.",
-        code: "AGENT_CONTINUATION_IDEMPOTENCY_CONFLICT",
-      });
-    }
-    const projection = await loadMissionProjection(owned);
-    if (priorPayload.status === "completed" && priorPayload.run) {
-      return res.status(202).json({
-        missionId: owned.mission.id,
-        projection,
-        run: priorPayload.run,
-        idempotentReplay: true,
-      });
-    }
-    if (priorPayload.status === "stale") {
-      return res.status(409).json({
+  const priorEvent = priorEvents[0];
+
+  const isMatchingStoredRequest = (event: typeof priorEvent, payload: Record<string, unknown> | null) => {
+    if (!event || !payload) return false;
+    const storedHash = payload.requestHash;
+    if (storedHash === requestHash) return true;
+    return event.type === "AiMissionAgentContinuationRequested"
+      && body.expectedDecision.kind === "AUTO_CONTINUE"
+      && !body.command
+      && !body.input
+      && storedHash === legacyContinuationHash;
+  };
+  const currentLeaseIsLive = (payload: Record<string, unknown> | null) => {
+    const leaseUntil = typeof payload?.leaseUntil === "string"
+      ? Date.parse(payload.leaseUntil)
+      : Number.NaN;
+    return payload?.status === "processing" && leaseUntil > now.getTime();
+  };
+
+  const reissueStoredRecoveryCapability = async (
+    action: unknown,
+    result: EngineeringAgentActionResult | null,
+    projection: Awaited<ReturnType<typeof loadMissionProjection>>,
+  ) => {
+    if (
+      (action !== "RESUME" && action !== "RETRY")
+      || result?.outcome !== "accepted"
+      || result.operation?.status !== (action === "RESUME"
+        ? "recovery_capability_ready"
+        : "retry_capability_ready")
+    ) return undefined;
+    const decision = projection.engineeringAgent.nextAction;
+    const executionId = result.operation.executionId;
+    const expectedAttempt = result.operation.attempt;
+    if (
+      decision.kind !== action
+      || decision.target?.kind !== "execution"
+      || decision.target.id !== executionId
+      || typeof executionId !== "string"
+      || typeof expectedAttempt !== "number"
+    ) return undefined;
+
+    const [execution] = await db.select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+      linkedTaskId: aiExecutionsTable.linkedTaskId,
+      goalId: aiExecutionsTable.goalId,
+    }).from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, owned.project.id),
+      eq(aiExecutionsTable.userId, req.userId),
+      eq(aiExecutionsTable.attempt, expectedAttempt),
+    )).limit(1);
+    if (!execution?.goalId) return undefined;
+    const [goal] = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable).where(and(
+      eq(aiGoalsTable.id, execution.goalId),
+      eq(aiGoalsTable.missionId, owned.mission.id),
+      eq(aiGoalsTable.projectId, owned.project.id),
+    )).limit(1);
+    if (!goal) return undefined;
+
+    const recovered = action === "RESUME"
+      ? await db.transaction((tx) => recoverAiExecutionResumeToken({
+          executionId,
+          userId: req.userId,
+          linkedTaskId: execution.linkedTaskId ?? undefined,
+          expectedAttempt,
+          transaction: tx,
+        }))
+      : await recoverAiExecutionRetryToken({
+          executionId,
+          userId: req.userId,
+          expectedAttempt,
+        });
+    return recovered
+      ? {
+          executionId: recovered.execution.id,
+          resumeToken: recovered.resumeToken,
+          attempt: recovered.execution.attempt,
+        }
+      : undefined;
+  };
+
+  const sendPriorResult = async (
+    event: NonNullable<typeof priorEvent>,
+    payload: Record<string, unknown>,
+  ) => {
+    const projection = await loadCurrentProjection();
+    if (!projection) return;
+    const result = safeStoredAgentActionResult(payload.result)
+      ?? (payload.run
+        ? {
+            outcome: payload.status === "rejected" ? "rejected" as const : "accepted" as const,
+            run: safeStoredAgentActionResult({ outcome: "accepted", run: payload.run })?.run,
+            ...(payload.status === "rejected"
+              ? {
+                  error: {
+                    code: "AGENT_CONTINUATION_REJECTED",
+                    message: "The Mission runtime rejected this continuation.",
+                  },
+                }
+              : {}),
+          }
+        : null);
+    const recovery = await reissueStoredRecoveryCapability(payload.action, result, projection);
+    const recoveryReplayExpected = (
+      (payload.action === "RESUME" && result?.operation?.status === "recovery_capability_ready")
+      || (payload.action === "RETRY" && result?.operation?.status === "retry_capability_ready")
+    );
+    if (payload.status === "stale") {
+      res.status(409).json({
         error: "This decision was already rejected as stale. Refresh before issuing a new command.",
         code: "AGENT_DECISION_STALE",
-        projection: await loadMissionProjection(owned),
+        projection,
       });
+      return;
     }
-    if (priorPayload.status === "rejected" && priorPayload.run) {
-      return res.status(409).json({
-        error: "The Mission runtime rejected this continuation after rechecking its current state.",
-        code: "AGENT_CONTINUATION_REJECTED",
-        projection: await loadMissionProjection(owned),
-        run: priorPayload.run,
+    if (recoveryReplayExpected && !recovery) {
+      const currentDecision = projection.engineeringAgent.nextAction;
+      const decisionStillMatches = currentDecision.kind === payload.action
+        && currentDecision.target?.kind === "execution"
+        && currentDecision.target.id === result?.operation?.executionId;
+      res.status(409).json({
+        missionId: owned.mission.id,
+        outcome: "rejected",
+        projection,
         idempotentReplay: true,
+        ...(result?.operation ? { operation: result.operation } : {}),
+        error: {
+          code: decisionStillMatches ? "EXECUTION_NOT_RESUMABLE" : "AGENT_DECISION_STALE",
+          message: decisionStillMatches
+            ? "The recovery capability is no longer available."
+            : "The Mission decision changed before recovery could be resumed.",
+        },
       });
+      return;
     }
-    const leaseUntil = typeof priorPayload.leaseUntil === "string"
-      ? Date.parse(priorPayload.leaseUntil)
-      : Number.NaN;
-    if (priorPayload.status === "processing" && leaseUntil > now.getTime()) {
-      return res.status(202).json({
+    if (payload.status === "rejected" || result?.outcome === "rejected") {
+      const error = result?.error ?? {
+        code: "AGENT_ACTION_REJECTED",
+        message: "The Engineering Agent action was rejected by its current business guard.",
+      };
+      if (compatibilityRoute) {
+        res.status(409).json({
+          error: error.message,
+          code: error.code,
+          projection,
+          run: result?.run ?? null,
+          idempotentReplay: true,
+        });
+        return;
+      }
+      res.status(409).json({
+        missionId: owned.mission.id,
+        outcome: "rejected",
+        projection,
+        idempotentReplay: true,
+        ...(result?.operation ? { operation: result.operation } : {}),
+        ...(result?.run ? { run: result.run } : {}),
+        error,
+      });
+      return;
+    }
+    if (compatibilityRoute) {
+      res.status(202).json({
         missionId: owned.mission.id,
         projection,
-        run: null,
+        run: result?.run ?? null,
         idempotentReplay: true,
-        inProgress: true,
+        ...(payload.status === "processing" ? { inProgress: true } : {}),
       });
+      return;
+    }
+    res.status(result?.outcome === "accepted" || result?.outcome === "in_progress" ? 202 : 200)
+      .json({
+        missionId: owned.mission.id,
+        outcome: result?.outcome ?? "in_progress",
+        projection,
+        idempotentReplay: true,
+        ...(result?.operation ? { operation: result.operation } : {}),
+        ...(result?.run ? { run: result.run } : {}),
+        ...(recovery ? { recovery } : {}),
+        ...(result?.error ? { error: result.error } : {}),
+      });
+  };
+
+  if (priorEvent) {
+    const priorPayload = readRecord(priorEvent.payload);
+    if (!isMatchingStoredRequest(priorEvent, priorPayload)) {
+      res.status(409).json({
+        error: "This idempotency key was already used for a different Mission action.",
+        code: "AGENT_ACTION_IDEMPOTENCY_CONFLICT",
+      });
+      return;
+    }
+    if (
+      priorPayload?.status === "completed"
+      || priorPayload?.status === "rejected"
+      || priorPayload?.status === "stale"
+    ) {
+      await sendPriorResult(priorEvent, priorPayload ?? {});
+      return;
+    }
+    if (currentLeaseIsLive(priorPayload)) {
+      const projection = await loadCurrentProjection();
+      if (!projection) return;
+      if (compatibilityRoute) {
+        res.status(202).json({
+          missionId: owned.mission.id,
+          projection,
+          run: null,
+          idempotentReplay: true,
+          inProgress: true,
+        });
+        return;
+      }
+      res.status(202).json({
+        missionId: owned.mission.id,
+        outcome: "in_progress",
+        projection,
+        idempotentReplay: true,
+      });
+      return;
     }
   }
 
   const initialProjection = await loadMissionProjection(owned);
-  if (!matchesEngineeringAgentDecision(body.expectedDecision, initialProjection)) {
-    return res.status(409).json({
-      error: "The Mission decision changed. Review the current state before trying again.",
-      code: "AGENT_DECISION_STALE",
+  const selection = selectEngineeringAgentAction(
+    initialProjection.engineeringAgent,
+    body.expectedDecision,
+    body.command,
+  );
+  if (!selection.ok) {
+    res.status(409).json({
+      error: selection.reason === "stale_decision"
+        ? "The Mission decision changed. Review the current state before trying again."
+        : "This optional command is not available for the current Mission state.",
+      code: selection.reason === "stale_decision"
+        ? "AGENT_DECISION_STALE"
+        : "AGENT_COMMAND_UNAVAILABLE",
       projection: initialProjection,
     });
+    return;
   }
-  if (body.expectedDecision.kind !== "AUTO_CONTINUE") {
-    return res.status(409).json({
-      error: "This continuation endpoint currently supports AUTO_CONTINUE only.",
+  if (compatibilityRoute && selection.action !== "AUTO_CONTINUE") {
+    res.status(409).json({
+      error: "The compatibility continuation endpoint supports AUTO_CONTINUE only.",
       code: "AGENT_ACTION_UNSUPPORTED",
       projection: initialProjection,
     });
+    return;
   }
-  const continuationTarget = body.expectedDecision.target;
-  if (!continuationTarget || continuationTarget.kind !== "goal" || !continuationTarget.id) {
-    return res.status(409).json({
-      error: "This continuation action has no eligible Goal target.",
-      code: "AGENT_ACTION_UNSUPPORTED",
-      projection: initialProjection,
+  if (body.input && selection.action !== "REPLAN") {
+    res.status(400).json({
+      error: "Action input is only valid for REPLAN.",
+      code: "INVALID_AGENT_ACTION_INPUT",
     });
+    return;
   }
 
   const claimId = randomUUID();
@@ -4191,35 +4538,37 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
       .from(eventsTable)
       .where(and(
         eq(eventsTable.projectId, owned.project.id),
-        eq(eventsTable.type, "AiMissionAgentContinuationRequested"),
+        inArray(eventsTable.type, [...eventTypes]),
         eq(eventsTable.correlationId, idempotencyCorrelationId),
       ))
       .for("update")
       .limit(1);
     if (existing) {
       const payload = readRecord(existing.payload);
-      if (payload?.requestHash !== requestHash) {
+      if (!isMatchingStoredRequest(existing, payload)) {
         return { kind: "idempotency_conflict" as const };
       }
-      const existingLease = typeof payload.leaseUntil === "string"
+      const existingLease = typeof payload?.leaseUntil === "string"
         ? Date.parse(payload.leaseUntil)
         : Number.NaN;
-      if (payload.status === "completed" && payload.run) {
-        return { kind: "completed" as const, run: payload.run };
+      if (
+        payload?.status === "completed"
+        || payload?.status === "rejected"
+        || payload?.status === "stale"
+      ) {
+        return { kind: "prior" as const, event: existing, payload: payload ?? {} };
       }
-      if (payload.status === "rejected" && payload.run) {
-        return { kind: "rejected" as const, run: payload.run };
-      }
-      if (payload.status === "stale") {
-        return { kind: "stale" as const };
-      }
-      if (payload.status === "processing" && existingLease > now.getTime()) {
+      if (payload?.status === "processing" && existingLease > now.getTime()) {
         return { kind: "in_progress" as const };
       }
       await tx.update(eventsTable)
         .set({
           payload: {
-            ...payload,
+            missionId: owned.mission.id,
+            requestHash,
+            action: selection.action,
+            expectedDecision: body.expectedDecision,
+            ...(body.command ? { command: body.command } : {}),
             status: "processing",
             claimId,
             leaseUntil: leaseUntil.toISOString(),
@@ -4231,16 +4580,20 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
     const eventId = randomUUID();
     await tx.insert(eventsTable).values({
       id: eventId,
-      type: "AiMissionAgentContinuationRequested",
+      type: "AiMissionAgentActionRequested",
       projectId: owned.project.id,
-      goalId: continuationTarget.id,
+      ...(selection.decision.target?.kind === "goal"
+        ? { goalId: selection.decision.target.id }
+        : {}),
       severity: "info",
-      message: "Mission continuation requested from the current Engineering Agent decision",
+      message: `Engineering Agent action ${selection.action} requested`,
       correlationId: idempotencyCorrelationId,
       payload: {
         missionId: owned.mission.id,
         requestHash,
+        action: selection.action,
         expectedDecision: body.expectedDecision,
+        ...(body.command ? { command: body.command } : {}),
         status: "processing",
         claimId,
         leaseUntil: leaseUntil.toISOString(),
@@ -4248,121 +4601,571 @@ router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
     });
     return { kind: "claimed" as const, eventId };
   });
+
   if (reservation.kind === "missing") {
-    return res.status(404).json({ error: "Mission not found", code: "MISSION_NOT_FOUND" });
+    res.status(404).json({ error: "Mission not found", code: "MISSION_NOT_FOUND" });
+    return;
   }
   if (reservation.kind === "idempotency_conflict") {
-    return res.status(409).json({
-      error: "This idempotency key was already used for a different Mission decision.",
-      code: "AGENT_CONTINUATION_IDEMPOTENCY_CONFLICT",
+    res.status(409).json({
+      error: "This idempotency key was already used for a different Mission action.",
+      code: "AGENT_ACTION_IDEMPOTENCY_CONFLICT",
     });
+    return;
+  }
+  if (reservation.kind === "prior") {
+    await sendPriorResult(reservation.event, reservation.payload);
+    return;
   }
   if (reservation.kind === "in_progress") {
-    return res.status(202).json({
+    const projection = await loadCurrentProjection();
+    if (!projection) return;
+    if (compatibilityRoute) {
+      res.status(202).json({
+        missionId: owned.mission.id,
+        projection,
+        run: null,
+        idempotentReplay: true,
+        inProgress: true,
+      });
+      return;
+    }
+    res.status(202).json({
       missionId: owned.mission.id,
-      projection: await loadMissionProjection(owned),
-      run: null,
-      idempotentReplay: true,
-      inProgress: true,
-    });
-  }
-  if (reservation.kind === "completed") {
-    return res.status(202).json({
-      missionId: owned.mission.id,
-      projection: await loadMissionProjection(owned),
-      run: reservation.run,
+      outcome: "in_progress",
+      projection,
       idempotentReplay: true,
     });
-  }
-  if (reservation.kind === "rejected") {
-    return res.status(409).json({
-      error: "The Mission runtime rejected this continuation after rechecking its current state.",
-      code: "AGENT_CONTINUATION_REJECTED",
-      projection: await loadMissionProjection(owned),
-      run: reservation.run,
-      idempotentReplay: true,
-    });
-  }
-  if (reservation.kind === "stale") {
-    return res.status(409).json({
-      error: "This decision was already rejected as stale. Refresh before issuing a new command.",
-      code: "AGENT_DECISION_STALE",
-      projection: await loadMissionProjection(owned),
-    });
+    return;
   }
 
-  const currentProjection = await loadMissionProjection(owned);
-  if (!matchesEngineeringAgentDecision(body.expectedDecision, currentProjection)) {
+  const currentOwned = await loadOwnedMission(missionId, req.userId, res);
+  if (!currentOwned) return;
+  const currentProjection = await loadMissionProjection(currentOwned);
+  const currentSelection = selectEngineeringAgentAction(
+    currentProjection.engineeringAgent,
+    body.expectedDecision,
+    body.command,
+  );
+  if (!currentSelection.ok) {
+    const stale = currentSelection.reason === "stale_decision";
     await db.update(eventsTable)
       .set({
         payload: {
           missionId: owned.mission.id,
           requestHash,
+          action: selection.action,
           expectedDecision: body.expectedDecision,
-          status: "stale",
+          ...(body.command ? { command: body.command } : {}),
+          status: stale ? "stale" : "rejected",
           claimId,
           leaseUntil: null,
+          ...(stale ? {} : { result: {
+            outcome: "rejected",
+            error: {
+              code: "AGENT_COMMAND_UNAVAILABLE",
+              message: "This optional command is no longer available.",
+            },
+          } }),
         },
       })
       .where(and(
         eq(eventsTable.id, reservation.eventId),
+        eq(eventsTable.projectId, owned.project.id),
         sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
       ));
-    return res.status(409).json({
-      error: "The Mission decision changed. Review the current state before trying again.",
-      code: "AGENT_DECISION_STALE",
+    res.status(409).json({
+      error: stale
+        ? "The Mission decision changed. Review the current state before trying again."
+        : "This optional command is no longer available.",
+      code: stale ? "AGENT_DECISION_STALE" : "AGENT_COMMAND_UNAVAILABLE",
       projection: currentProjection,
     });
+    return;
   }
 
-  const run = await runMissionGoal({
-    goalId: continuationTarget.id,
+  const actionContext: EngineeringAgentActionContext = {
+    missionId: owned.mission.id,
     userId: req.userId,
-    trigger: "resume",
-  });
-  const safeRun = {
-    status: run.status,
-    goalId: run.goalId,
-    taskId: "taskId" in run ? run.taskId ?? null : null,
-    executionId: "executionId" in run ? run.executionId ?? null : null,
-    reason: "reason" in run ? run.reason ?? null : null,
+    decision: currentSelection.decision,
+    ...(body.input ? { input: body.input as EngineeringAgentActionInput } : {}),
   };
-  const continuationAccepted = run.status === "scheduled" || run.status === "completed";
-  await db.update(eventsTable)
+  const runResult = async (
+    goalId: string,
+    trigger: MissionGoalRunTrigger,
+  ): Promise<EngineeringAgentActionResult> => {
+    const run = await runMissionGoal({ goalId, userId: req.userId, trigger });
+    const safeRun = safeMissionGoalRun(run);
+    const accepted = run.status === "scheduled" || run.status === "completed";
+    return {
+      outcome: !accepted
+        ? "rejected"
+        : run.status === "completed"
+          ? "completed"
+          : "accepted",
+      operation: {
+        goalId: run.goalId,
+        ...(safeRun.executionId ? { executionId: safeRun.executionId } : {}),
+        status: run.status,
+      },
+      run: safeRun,
+      ...(!accepted ? {
+        error: {
+          code: "AGENT_ACTION_REJECTED",
+          message: "The Mission Runtime rejected the action after checking its current state.",
+        },
+      } : {}),
+    };
+  };
+
+  const handlers = {
+    START: async (): Promise<EngineeringAgentActionResult> => {
+      if (
+        actionContext.decision.target?.kind !== "mission"
+        || actionContext.decision.target.id !== owned.mission.id
+      ) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "START must target this Mission." },
+        };
+      }
+      const activated = await activateMissionFromAgent(owned, req.userId);
+      if (activated.kind !== "activated") {
+        return {
+          outcome: "rejected",
+          error: {
+            code: activated.kind === "missing" ? "MISSION_NOT_FOUND" : "AGENT_DECISION_STALE",
+            message: "The Mission is no longer a draft that can be started.",
+          },
+        };
+      }
+      const plan = activated.activationPlan;
+      if (!plan) {
+        return {
+          outcome: "accepted",
+          operation: {
+            status: "activated_without_plan",
+          },
+        };
+      }
+      const runs = activated.runs.map(safeMissionGoalRun);
+      return {
+        outcome: runs.some((run) => run.status === "scheduled") ? "accepted" : "completed",
+        operation: {
+          goalId: plan.primary.goalId,
+          planRevision: plan.revision,
+          status: "activated",
+        },
+        ...(runs[0] ? { run: runs[0] } : {}),
+      };
+    },
+    AUTO_CONTINUE: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      if (!target || target.kind !== "goal") {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "AUTO_CONTINUE must target a Goal." },
+        };
+      }
+      return runResult(target.id, "resume");
+    },
+    RESUME: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      if (!target || target.kind !== "execution") {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "RESUME must target an Execution." },
+        };
+      }
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        attempt: aiExecutionsTable.attempt,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
+        goalId: aiExecutionsTable.goalId,
+      }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.id, target.id),
+        eq(aiExecutionsTable.projectId, owned.project.id),
+        eq(aiExecutionsTable.userId, req.userId),
+      )).limit(1);
+      if (!execution?.goalId) {
+        return {
+          outcome: "rejected",
+          error: { code: "EXECUTION_NOT_RESUMABLE", message: "This Mission Execution is no longer resumable." },
+        };
+      }
+      const [goal] = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable).where(and(
+        eq(aiGoalsTable.id, execution.goalId),
+        eq(aiGoalsTable.missionId, owned.mission.id),
+        eq(aiGoalsTable.projectId, owned.project.id),
+      )).limit(1);
+      if (!goal) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
+        };
+      }
+      const recovered = await db.transaction((tx) => recoverAiExecutionResumeToken({
+        executionId: execution.id,
+        userId: req.userId,
+        linkedTaskId: execution.linkedTaskId ?? undefined,
+        expectedAttempt: execution.attempt,
+        transaction: tx,
+      }));
+      if (!recovered) {
+        return {
+          outcome: "rejected",
+          operation: { executionId: execution.id, attempt: execution.attempt },
+          error: { code: "EXECUTION_NOT_RESUMABLE", message: "This Execution is no longer eligible for resume." },
+        };
+      }
+      return {
+        outcome: "accepted",
+        operation: {
+          executionId: recovered.execution.id,
+          attempt: recovered.execution.attempt,
+          status: "recovery_capability_ready",
+        },
+        recovery: {
+          executionId: recovered.execution.id,
+          resumeToken: recovered.resumeToken,
+          attempt: recovered.execution.attempt,
+        },
+      };
+    },
+    RETRY: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      if (!target || target.kind !== "execution") {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "RETRY must target an Execution." },
+        };
+      }
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        attempt: aiExecutionsTable.attempt,
+        goalId: aiExecutionsTable.goalId,
+      }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.id, target.id),
+        eq(aiExecutionsTable.projectId, owned.project.id),
+        eq(aiExecutionsTable.userId, req.userId),
+      )).limit(1);
+      if (!execution?.goalId) {
+        return {
+          outcome: "rejected",
+          error: { code: "EXECUTION_NOT_RETRYABLE", message: "This Mission Execution is no longer retryable." },
+        };
+      }
+      const [goal] = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable).where(and(
+        eq(aiGoalsTable.id, execution.goalId),
+        eq(aiGoalsTable.missionId, owned.mission.id),
+        eq(aiGoalsTable.projectId, owned.project.id),
+      )).limit(1);
+      if (!goal) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
+        };
+      }
+      const recovered = await recoverAiExecutionRetryToken({
+        executionId: execution.id,
+        userId: req.userId,
+        expectedAttempt: execution.attempt,
+      });
+      if (!recovered) {
+        return {
+          outcome: "rejected",
+          operation: { executionId: execution.id, attempt: execution.attempt },
+          error: { code: "EXECUTION_NOT_RETRYABLE", message: "This Execution is no longer eligible for retry." },
+        };
+      }
+      return {
+        outcome: "accepted",
+        operation: {
+          executionId: recovered.execution.id,
+          attempt: recovered.execution.attempt,
+          status: "retry_capability_ready",
+        },
+        recovery: {
+          executionId: recovered.execution.id,
+          resumeToken: recovered.resumeToken,
+          attempt: recovered.execution.attempt,
+        },
+      };
+    },
+    APPROVE: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      const goalId = currentProjection.engineeringAgent.goalId;
+      if (
+        !goalId
+        || !target
+        || !["goal", "proposal"].includes(target.kind)
+        || (target.kind === "goal" && target.id !== goalId)
+      ) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "APPROVE must target the current approval Goal or Proposal." },
+        };
+      }
+      const approved = await approveMissionGoal({
+        missionId: owned.mission.id,
+        goalId,
+        userId: req.userId,
+        ...(target.kind === "proposal" ? { expectedProposalId: target.id } : {}),
+      });
+      if (approved.status !== "approved") {
+        return {
+          outcome: "rejected",
+          operation: { goalId },
+          error: {
+            code: approved.reason,
+            message: "The current Mission approval could not be applied.",
+          },
+        };
+      }
+      const safeRun = safeMissionGoalRun(approved.run);
+      return {
+        outcome: approved.run.status === "completed" ? "completed" : "accepted",
+        operation: {
+          goalId: approved.goalId,
+          ...(approved.approvalKind === "proposal"
+            ? { executionId: approved.executionId, status: approved.run.status }
+            : { planRevision: approved.planRevision, status: approved.run.status }),
+        },
+        run: safeRun,
+      };
+    },
+    REPLAN: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      if (
+        !target
+        || !["mission", "goal"].includes(target.kind)
+        || (target.kind === "mission" && target.id !== owned.mission.id)
+        || (target.kind === "goal"
+          && !currentProjection.goals.some((entry) => entry.goal.id === target.id))
+      ) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "REPLAN must target the current Mission plan." },
+        };
+      }
+      const replan = actionContext.input?.replan;
+      const result = await performMissionReplan(owned, req.userId, {
+        ...(replan?.objective ? { objective: replan.objective, message: replan.objective } : {}),
+        ...(replan?.expectedPlanHash ? { expectedPlanHash: replan.expectedPlanHash } : {}),
+        ...(replan?.reason ? { reason: replan.reason } : {}),
+        expectedDecision: body.expectedDecision,
+      });
+      if (result.kind !== "replanned") {
+        const code = result.kind === "terminal"
+          ? "MISSION_TERMINAL"
+          : result.kind === "stale_plan_revision"
+            ? "MISSION_PLAN_STALE"
+            : result.kind === "admission_required"
+              ? "MISSION_ADMISSION_REQUIRED"
+              : result.kind === "unchanged"
+                ? "MISSION_PLAN_UNCHANGED"
+                : "MISSION_NOT_FOUND";
+        return {
+          outcome: "rejected",
+          error: {
+            code,
+            message: "The current Mission plan could not be revised.",
+          },
+        };
+      }
+      return {
+        outcome: "accepted",
+        operation: {
+          goalId: result.goal.goalId,
+          planRevision: result.plan.planHash,
+          status: "replanned",
+        },
+        ...(result.runs[0] ? { run: safeMissionGoalRun(result.runs[0]) } : {}),
+      };
+    },
+    REVIEW: async (): Promise<EngineeringAgentActionResult> => ({
+      outcome: "review_required",
+      operation: {
+        ...(actionContext.decision.target?.kind === "goal"
+          ? { goalId: actionContext.decision.target.id }
+          : {}),
+        ...(actionContext.decision.target?.kind === "execution"
+          ? { executionId: actionContext.decision.target.id }
+          : {}),
+        status: actionContext.decision.reasonCode,
+      },
+    }),
+    STOP: async (): Promise<EngineeringAgentActionResult> => {
+      const target = actionContext.decision.target;
+      if (!target || target.kind !== "execution") {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "STOP must target an Execution." },
+        };
+      }
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        goalId: aiExecutionsTable.goalId,
+      }).from(aiExecutionsTable).where(and(
+        eq(aiExecutionsTable.id, target.id),
+        eq(aiExecutionsTable.projectId, owned.project.id),
+        eq(aiExecutionsTable.userId, req.userId),
+      )).limit(1);
+      if (!execution?.goalId) {
+        return {
+          outcome: "rejected",
+          error: { code: "EXECUTION_NOT_CANCELLABLE", message: "This Mission Execution is no longer cancellable." },
+        };
+      }
+      const [goal] = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable).where(and(
+        eq(aiGoalsTable.id, execution.goalId),
+        eq(aiGoalsTable.missionId, owned.mission.id),
+        eq(aiGoalsTable.projectId, owned.project.id),
+      )).limit(1);
+      if (!goal) {
+        return {
+          outcome: "rejected",
+          error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
+        };
+      }
+      const stopped = await requestAiExecutionCancel({
+        executionId: execution.id,
+        userId: req.userId,
+      });
+      if (!stopped) {
+        return {
+          outcome: "rejected",
+          operation: { executionId: execution.id },
+          error: { code: "EXECUTION_NOT_CANCELLABLE", message: "This Execution is no longer cancellable." },
+        };
+      }
+      return {
+        outcome: stopped.status === "cancelled" ? "completed" : "accepted",
+        operation: {
+          executionId: stopped.id,
+          status: stopped.status,
+        },
+      };
+    },
+    NONE: async (): Promise<EngineeringAgentActionResult> => ({
+      outcome: "no_action",
+    }),
+  } satisfies EngineeringAgentActionHandlers;
+
+  const result = await dispatchEngineeringAgentAction(
+    currentSelection.action,
+    actionContext,
+    handlers,
+  );
+  const safeResult: EngineeringAgentActionResult = {
+    outcome: result.outcome,
+    ...(result.operation ? { operation: result.operation } : {}),
+    ...(result.run ? { run: result.run } : {}),
+    ...(result.error ? { error: result.error } : {}),
+  };
+  const storedStatus = result.outcome === "rejected" ? "rejected" : "completed";
+  const [updatedEvent] = await db.update(eventsTable)
     .set({
       payload: {
         missionId: owned.mission.id,
         requestHash,
+        action: currentSelection.action,
         expectedDecision: body.expectedDecision,
-        status: continuationAccepted ? "completed" : "rejected",
+        ...(body.command ? { command: body.command } : {}),
+        status: storedStatus,
         claimId,
         leaseUntil: null,
-        run: safeRun,
+        result: safeResult,
       },
     })
     .where(and(
       eq(eventsTable.id, reservation.eventId),
       eq(eventsTable.projectId, owned.project.id),
       sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
-    ));
-  const finalOwned = await loadOwnedMission(req.params.missionId, req.userId, res);
+    ))
+    .returning({ id: eventsTable.id });
+  if (!updatedEvent) {
+    res.status(409).json({
+      error: "This action reservation is no longer owned by this request.",
+      code: "AGENT_ACTION_LEASE_LOST",
+    });
+    return;
+  }
+
+  const finalOwned = await loadOwnedMission(missionId, req.userId, res);
   if (!finalOwned) return;
   const finalProjection = await loadMissionProjection(finalOwned);
-  if (!continuationAccepted) {
-    return res.status(409).json({
-      error: "The Mission runtime rejected this continuation after rechecking its current state.",
-      code: "AGENT_CONTINUATION_REJECTED",
+  if (result.outcome === "rejected") {
+    const error = result.error ?? {
+      code: "AGENT_ACTION_REJECTED",
+      message: "The Engineering Agent action was rejected by its current business guard.",
+    };
+    if (compatibilityRoute) {
+      res.status(409).json({
+        error: error.message,
+        code: error.code,
+        projection: finalProjection,
+        run: result.run ?? null,
+        idempotentReplay: false,
+      });
+      return;
+    }
+    res.status(409).json({
+      missionId: owned.mission.id,
+      outcome: "rejected",
       projection: finalProjection,
-      run: safeRun,
+      idempotentReplay: false,
+      ...(result.operation ? { operation: result.operation } : {}),
+      ...(result.run ? { run: result.run } : {}),
+      error,
+    });
+    return;
+  }
+  if (compatibilityRoute) {
+    res.status(202).json({
+      missionId: owned.mission.id,
+      projection: finalProjection,
+      run: result.run ?? null,
       idempotentReplay: false,
     });
+    return;
   }
-  return res.status(202).json({
+  const statusCode = result.outcome === "accepted" || result.outcome === "in_progress" ? 202 : 200;
+  res.status(statusCode).json({
     missionId: owned.mission.id,
+    outcome: result.outcome,
     projection: finalProjection,
-    run: safeRun,
     idempotentReplay: false,
+    ...(result.operation ? { operation: result.operation } : {}),
+    ...(result.run ? { run: result.run } : {}),
+    ...(result.recovery ? { recovery: result.recovery } : {}),
   });
+}
+
+router.post("/ai/missions/:missionId/agent/action", async (req, res) => {
+  const parsedBody = MissionAgentActionBody.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    res.status(400).json({
+      error: "Invalid Mission action request.",
+      code: "INVALID_AGENT_ACTION",
+      issues: parsedBody.error.issues,
+    });
+    return;
+  }
+  await handleMissionAgentAction(req, res, parsedBody.data, false);
+});
+
+router.post("/ai/missions/:missionId/agent/continue", async (req, res) => {
+  const parsedBody = MissionAgentContinuationBody.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    res.status(400).json({
+      error: "Invalid Mission continuation request.",
+      code: "INVALID_AGENT_CONTINUATION",
+      issues: parsedBody.error.issues,
+    });
+    return;
+  }
+  await handleMissionAgentAction(req, res, parsedBody.data, true);
 });
 
 export default router;

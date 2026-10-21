@@ -59,13 +59,18 @@ export type EngineeringAgentInterventionKind =
   | "delivery";
 
 export type EngineeringAgentProjection = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   state: EngineeringAgentState;
   nextAction: {
     kind: EngineeringAgentAction;
     target: { kind: EngineeringAgentTargetKind; id: string } | null;
     reasonCode: EngineeringAgentReasonCode;
   };
+  availableCommands: Array<{
+    kind: "STOP";
+    target: { kind: "execution"; id: string };
+    reasonCode: EngineeringAgentReasonCode;
+  }>;
   intervention: {
     required: boolean;
     kind: EngineeringAgentInterventionKind;
@@ -102,6 +107,7 @@ export type EngineeringAgentGoalFact = {
   currentExecution?: {
     id: string;
     status: string;
+    cancelRequested?: boolean;
     acceptance: EngineeringAgentAcceptanceFact | null;
   } | null;
   canonicalProof?: {
@@ -566,14 +572,32 @@ export function reduceEngineeringAgentProjection(
 
   const goal = result.goal;
   const executionId = goal?.currentExecution?.id ?? null;
+  const availableCommands = ["active", "waiting"].includes(context.missionStatus)
+    ? activeGoals.flatMap((candidate) => {
+        const execution = candidate.currentExecution;
+        if (
+          !execution
+          || execution.cancelRequested
+          || !["queued", "running", "paused"].includes(normalized(execution.status))
+        ) {
+          return [];
+        }
+        return [{
+          kind: "STOP" as const,
+          target: { kind: "execution" as const, id: execution.id },
+          reasonCode: "execution_in_progress" as const,
+        }];
+      })
+    : [];
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     state: result.state,
     nextAction: {
       kind: result.action,
       target: result.target,
       reasonCode: result.reasonCode,
     },
+    availableCommands,
     intervention: {
       required: result.interventionRequired ?? false,
       kind: result.interventionKind,

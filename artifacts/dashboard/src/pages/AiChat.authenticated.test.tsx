@@ -131,6 +131,7 @@ const mocks = vi.hoisted(() => {
     sessionMissionsSessionId: undefined as string | undefined,
     sessionMissionsOptions: undefined as unknown,
     fetchMissionProjection: vi.fn(),
+    executeMissionAgentAction: vi.fn(),
     createApplyMissionFromProposal: vi.fn(),
     createMissionFromChat: vi.fn(),
     previewMissionPlanFromChat: vi.fn(),
@@ -245,6 +246,7 @@ vi.mock('@/lib/ai-missions', async (importOriginal) => {
     createMissionFromChat: mocks.createMissionFromChat,
     previewMissionPlanFromChat: mocks.previewMissionPlanFromChat,
     fetchMissionProjection: mocks.fetchMissionProjection,
+    executeMissionAgentAction: mocks.executeMissionAgentAction,
   };
 });
 
@@ -593,6 +595,7 @@ beforeEach(() => {
   mocks.sessionMissionsSessionId = undefined;
   mocks.sessionMissionsOptions = undefined;
   mocks.fetchMissionProjection.mockReset();
+  mocks.executeMissionAgentAction.mockReset();
   mocks.createMissionFromChat.mockReset();
   mocks.previewMissionPlanFromChat.mockReset();
   mocks.historicalAudits = [];
@@ -695,6 +698,75 @@ describe('AiChat route target parsing', () => {
     expect(parseAiChatRouteTarget('?projectId=project-1&missionId=mission-1')).toEqual({
       projectId: 'project-1',
     });
+  });
+});
+
+describe('AiChat Mission action gateway', () => {
+  it('executes the exact current Mission decision through the unified action gateway', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const mission = {
+      id: 'mission-1',
+      projectId: 'project-1',
+      title: 'Release readiness',
+      status: 'draft',
+    };
+    const expectedDecision = {
+      kind: 'START',
+      target: { kind: 'mission', id: mission.id },
+      reasonCode: 'mission_draft',
+    } as const;
+    const projection = {
+      mission,
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'PLANNING',
+        nextAction: expectedDecision,
+        availableCommands: [],
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: 'session-1',
+        goalId: null,
+        executionId: null,
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(projection);
+    mocks.executeMissionAgentAction.mockResolvedValue({
+      missionId: mission.id,
+      outcome: 'accepted',
+      projection: { ...projection, mission: { ...mission, status: 'active' } },
+      idempotentReplay: false,
+    });
+    window.history.replaceState(
+      {},
+      '',
+      `/ai?projectId=project-1&sessionId=session-1&missionId=${mission.id}`,
+    );
+    try {
+      renderAiChat();
+      fireEvent.click(await screen.findByTestId('button-chat-mission-action-start'));
+      await waitFor(() => {
+        expect(mocks.executeMissionAgentAction).toHaveBeenCalledWith(mission.id, {
+          idempotencyKey: expect.any(String),
+          expectedDecision,
+        });
+      });
+      expect(await screen.findByText(/أُرسل الإجراء عبر بوابة المهمة/)).toBeInTheDocument();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
   });
 });
 

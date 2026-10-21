@@ -56,6 +56,7 @@ export async function approveMissionGoal(params: {
   missionId: string;
   goalId: string;
   userId: string;
+  expectedProposalId?: string;
 }): Promise<ApproveMissionGoalResult> {
   const prepared = await db.transaction(async (tx) => {
     // Keep the global Mission-before-Goal order used by status/completion
@@ -121,6 +122,14 @@ export async function approveMissionGoal(params: {
       planApproval.kind === "mission_plan_step"
       && planApproval.state === "PENDING"
     ) {
+      if (params.expectedProposalId) {
+        return {
+          status: "conflict" as const,
+          missionId: params.missionId,
+          goalId: params.goalId,
+          reason: "approval_target_changed",
+        };
+      }
       const planHash = typeof outcomePlanRevision.hash === "string"
         ? outcomePlanRevision.hash
         : undefined;
@@ -310,6 +319,14 @@ export async function approveMissionGoal(params: {
         missionId: params.missionId,
         goalId: params.goalId,
         reason: "approval_proposal_missing",
+      };
+    }
+    if (params.expectedProposalId && proposal.id !== params.expectedProposalId) {
+      return {
+        status: "conflict" as const,
+        missionId: params.missionId,
+        goalId: params.goalId,
+        reason: "approval_target_changed",
       };
     }
     if (proposal.status !== "pending" || !proposal.approvalRequired) {

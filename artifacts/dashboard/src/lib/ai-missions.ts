@@ -151,7 +151,7 @@ export interface SkillCandidateProjection {
 }
 
 export interface EngineeringAgentProjection {
-  schemaVersion: 1;
+  schemaVersion: 2;
   state:
     | 'PLANNING'
     | 'WORKING'
@@ -166,6 +166,11 @@ export interface EngineeringAgentProjection {
     target: { kind: 'mission' | 'goal' | 'execution' | 'proposal'; id: string } | null;
     reasonCode: AiMissionEngineeringAgentReasonCode;
   };
+  availableCommands: Array<{
+    kind: 'STOP';
+    target: { kind: 'execution'; id: string };
+    reasonCode: AiMissionEngineeringAgentReasonCode;
+  }>;
   intervention: {
     required: boolean;
     kind: 'none' | 'approval' | 'review' | 'recovery' | 'scope' | 'delivery';
@@ -478,12 +483,62 @@ export interface MissionAgentContinuationResponse {
   inProgress?: boolean;
 }
 
+export interface MissionAgentActionResponse {
+  missionId: string;
+  outcome: 'accepted' | 'in_progress' | 'completed' | 'review_required' | 'no_action' | 'rejected';
+  projection: MissionProjection;
+  idempotentReplay: boolean;
+  operation?: {
+    goalId?: string;
+    executionId?: string;
+    planRevision?: string;
+    status?: string;
+    attempt?: number;
+  };
+  run?: {
+    status: string;
+    goalId: string;
+    taskId: string | null;
+    executionId: string | null;
+    reason: string | null;
+  };
+  recovery?: {
+    executionId: string;
+    resumeToken: string;
+    attempt: number;
+  };
+  error?: { code: string; message: string };
+}
+
+export interface MissionAgentActionInput {
+  idempotencyKey: string;
+  expectedDecision: EngineeringAgentDecision;
+  command?: 'STOP';
+  input?: {
+    replan?: {
+      objective?: string;
+      reason?: string;
+      expectedPlanHash?: string;
+    };
+  };
+}
+
 export function continueMissionAgent(
   missionId: string,
   body: { idempotencyKey: string; expectedDecision: EngineeringAgentDecision },
 ) {
   return requestJson<MissionAgentContinuationResponse>(
     `/api/ai/missions/${encodeURIComponent(missionId)}/agent/continue`,
+    jsonRequest('POST', body),
+  );
+}
+
+export function executeMissionAgentAction(
+  missionId: string,
+  body: MissionAgentActionInput,
+) {
+  return requestJson<MissionAgentActionResponse>(
+    `/api/ai/missions/${encodeURIComponent(missionId)}/agent/action`,
     jsonRequest('POST', body),
   );
 }

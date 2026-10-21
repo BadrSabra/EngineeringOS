@@ -10,5 +10,5 @@ export type AiMissionEngineeringAgentProjectionSchemaVersion = typeof AiMissionE
 
 
 export const AiMissionEngineeringAgentProjectionSchemaVersion = {
-  NUMBER_1: 1,
+  NUMBER_2: 2,
 } as const;

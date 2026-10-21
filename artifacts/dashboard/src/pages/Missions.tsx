@@ -3,9 +3,7 @@ import { Link, useSearch } from 'wouter';
 import {
   createTask,
   getListProjectsQueryKey,
-  useApproveAiMissionGoal,
   useListProjects,
-  useReplanAiMission,
   type CreateTaskInput as ApiCreateTaskInput,
 } from '@workspace/api-client-react';
 import {
@@ -33,7 +31,7 @@ import {
 import {
   createGoal,
   createMission,
-  continueMissionAgent,
+  executeMissionAgentAction,
   fetchMissionProjection,
   fetchMissions,
   Goal,
@@ -1291,8 +1289,6 @@ export default function Missions() {
   } = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });
-  const replanMission = useReplanAiMission();
-  const approveMissionGoal = useApproveAiMissionGoal();
   const projects = useMemo(() => rawProjects ?? [], [rawProjects]);
   const [projectId, setProjectId] = useState('');
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -1315,7 +1311,17 @@ export default function Missions() {
   const [mutationError, setMutationError] = useState<unknown>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
   const [pendingMissionAction, setPendingMissionAction] = useState<MissionActionConfirmation | null>(null);
-  const continuationKeys = useRef(new Map<string, string>());
+  const agentActionKeys = useRef(new Map<string, string>());
+  const getAgentActionKey = (identity: string) => {
+    const existing = agentActionKeys.current.get(identity);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    agentActionKeys.current.set(identity, created);
+    return created;
+  };
+  const clearAgentActionKey = (identity: string) => {
+    agentActionKeys.current.delete(identity);
+  };
   const [missionActionError, setMissionActionError] = useState<string | null>(null);
 
   const search = useSearch();
@@ -1431,7 +1437,7 @@ export default function Missions() {
     activeMission
     && projection?.mission.id === activeMission.id
     && projection.mission.projectId === activeMission.projectId
-    && projection?.engineeringAgent?.schemaVersion === 1
+    && projection?.engineeringAgent?.schemaVersion === 2
     && projection?.engineeringAgent?.missionId === activeMission.id,
   );
   const missionDecision = decisionProjectionIsCurrent
@@ -1466,11 +1472,14 @@ export default function Missions() {
   );
   const canStartMission = missionDecision?.kind === 'START' && decisionTargetIsMission;
   const canAutoContinue = missionDecision?.kind === 'AUTO_CONTINUE' && decisionTargetIsCurrentGoal;
+  const stopCommand = decisionProjectionIsCurrent
+    ? projection?.engineeringAgent.availableCommands.find((command) => command.kind === 'STOP') ?? null
+    : null;
   const reviewExecutionId = missionDecision?.kind === 'REVIEW'
     && missionDecision.target?.kind === 'execution'
     ? missionDecision.target.id
     : null;
-  const missionActionPending = replanMission.isPending || approveMissionGoal.isPending;
+  const missionActionPending = mutationSaving;
   const acceptedFindingSource = activeMission
     ? readAcceptedProjectQueryHandoffSource(activeMission.autonomyPolicy)
     : null;
@@ -1609,21 +1618,31 @@ export default function Missions() {
 
   const startMission = async () => {
     if (!activeMission || mutationSaving || !canStartMission || !missionDecisionIdentity) return;
+    const actionIdentity = `mission:${activeMission.id}:START`;
+    const idempotencyKey = getAgentActionKey(actionIdentity);
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const updated = await updateMission(activeMission.id, {
-        status: 'active',
+      const result = await executeMissionAgentAction(activeMission.id, {
+        idempotencyKey,
         expectedDecision: missionDecisionIdentity,
       });
-      setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
-      setMutationNotice('بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
+      clearAgentActionKey(actionIdentity);
+      setProjection(result.projection);
+      setMissions((current) => current.map((item) => item.id === result.projection.mission.id
+        ? result.projection.mission
+        : item));
+      setMutationNotice(result.operation?.status === 'activated_without_plan'
+        ? 'بدأ الهدف الرئيسي، لكن لم تُنشأ خطة تنفيذ. راجع الخطة قبل المتابعة.'
+        : 'بدأ الهدف الرئيسي. تابع حالة إعداد الخطة وتنفيذها.');
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
+      if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
       setMutationError(error);
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
     } finally {
       setMutationSaving(false);
     }
@@ -1631,26 +1650,29 @@ export default function Missions() {
 
   const continueMission = async () => {
     if (!activeMission || mutationSaving || !canAutoContinue || !missionDecisionIdentity) return;
-    const idempotencyKey = continuationKeys.current.get(activeMission.id) ?? crypto.randomUUID();
-    continuationKeys.current.set(activeMission.id, idempotencyKey);
+    const actionIdentity = `mission:${activeMission.id}:AUTO_CONTINUE:${missionDecisionIdentity.target?.id ?? ''}`;
+    const idempotencyKey = getAgentActionKey(actionIdentity);
     setMutationSaving(true);
     setMutationError(null);
     setMutationNotice(null);
     try {
-      const result = await continueMissionAgent(activeMission.id, {
+      const result = await executeMissionAgentAction(activeMission.id, {
         idempotencyKey,
         expectedDecision: missionDecisionIdentity,
       });
       setProjection(result.projection);
-      if (!result.inProgress) continuationKeys.current.delete(activeMission.id);
+      setMissions((current) => current.map((item) => item.id === result.projection.mission.id
+        ? result.projection.mission
+        : item));
+      if (result.outcome !== 'in_progress') clearAgentActionKey(actionIdentity);
       setMutationNotice(
-        result.inProgress
+        result.outcome === 'in_progress'
           ? 'المتابعة نفسها قيد التنفيذ بالفعل؛ حدّث الحالة لمعرفة نتيجتها.'
           : 'أُرسلت المتابعة إلى مسار التنفيذ الحالي، وسيُعاد التحقق من الحالة قبل أي عمل.',
       );
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
-      if (error instanceof MissionRequestError) continuationKeys.current.delete(activeMission.id);
+      if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
       setMutationError(error);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
@@ -1659,56 +1681,80 @@ export default function Missions() {
     }
   };
 
-  const confirmMissionAction = () => {
-    if (!pendingMissionAction || missionActionPending) return;
-    setMissionActionError(null);
-    const refreshMissionData = () => {
+  const stopMissionExecution = async () => {
+    if (!activeMission || !missionDecisionIdentity || !stopCommand || mutationSaving) return;
+    const actionIdentity = `mission:${activeMission.id}:STOP:${stopCommand.target.id}`;
+    const idempotencyKey = getAgentActionKey(actionIdentity);
+    setMutationSaving(true);
+    setMutationError(null);
+    setMutationNotice(null);
+    try {
+      const result = await executeMissionAgentAction(activeMission.id, {
+        idempotencyKey,
+        expectedDecision: missionDecisionIdentity,
+        command: 'STOP',
+      });
+      clearAgentActionKey(actionIdentity);
+      setProjection(result.projection);
+      setMissions((current) => current.map((item) => item.id === result.projection.mission.id
+        ? result.projection.mission
+        : item));
+      setMutationNotice('أُرسل طلب إيقاف التنفيذ إلى مسار الإلغاء الحالي.');
+      setProjectionReload((value) => value + 1);
+    } catch (error: unknown) {
+      if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      setMutationError(error);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
-    };
-    if (pendingMissionAction.type === 'replan') {
-      replanMission.mutate(
-        {
-          missionId: pendingMissionAction.missionId,
-          data: { expectedDecision: pendingMissionAction.expectedDecision },
-        },
-        {
-          onSuccess: () => {
-            setPendingMissionAction(null);
-            setMutationNotice('أُنشئت نسخة خطة جديدة وسُجّل استئناف تنفيذ الهدف الرئيسي.');
-            refreshMissionData();
-          },
-          onError: (error) => {
-            setMissionActionError(errorMessage(error, 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'));
-            refreshMissionData();
-          },
-        },
-      );
-      return;
+    } finally {
+      setMutationSaving(false);
     }
+  };
 
-    approveMissionGoal.mutate(
-      {
-        missionId: pendingMissionAction.missionId,
-        goalId: pendingMissionAction.goalId,
-        data: { expectedDecision: pendingMissionAction.expectedDecision },
-      },
-      {
-        onSuccess: () => {
-          setPendingMissionAction(null);
-            setMutationNotice(
-              pendingMissionAction.executionId === null
-                ? 'اعتُمدت نسخة الخطة وبدأت خطوة إعداد المرشح. ستظل موافقة المرشح والتطبيق والتسليم منفصلة.'
-                : 'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
-            );
-          refreshMissionData();
-        },
-        onError: (error) => {
-          setMissionActionError(errorMessage(error, 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.'));
-          refreshMissionData();
-        },
-      },
-    );
+  const confirmMissionAction = async () => {
+    if (!pendingMissionAction || missionActionPending) return;
+    setMissionActionError(null);
+    const actionKind = pendingMissionAction.type === 'replan' ? 'REPLAN' : 'APPROVE';
+    const targetId = pendingMissionAction.type === 'replan'
+      ? pendingMissionAction.expectedDecision.target?.id ?? ''
+      : pendingMissionAction.goalId;
+    const actionIdentity = `mission:${pendingMissionAction.missionId}:${actionKind}:${targetId}`;
+    const idempotencyKey = getAgentActionKey(actionIdentity);
+    const missionId = pendingMissionAction.missionId;
+    const wasPlanApproval = pendingMissionAction.type === 'approve'
+      && pendingMissionAction.executionId === null;
+    setMutationSaving(true);
+    try {
+      const result = await executeMissionAgentAction(missionId, {
+        idempotencyKey,
+        expectedDecision: pendingMissionAction.expectedDecision,
+      });
+      clearAgentActionKey(actionIdentity);
+      setProjection(result.projection);
+      setMissions((current) => current.map((item) => item.id === result.projection.mission.id
+        ? result.projection.mission
+        : item));
+      setPendingMissionAction(null);
+      setMutationNotice(pendingMissionAction.type === 'replan'
+        ? 'أُنشئت نسخة خطة جديدة وسُجّل استئناف تنفيذ الهدف الرئيسي.'
+        : wasPlanApproval
+          ? 'اعتُمدت نسخة الخطة وبدأت خطوة إعداد المرشح. ستظل موافقة المرشح والتطبيق والتسليم منفصلة.'
+          : 'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.');
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
+    } catch (error: unknown) {
+      if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
+      setMissionActionError(errorMessage(
+        error,
+        pendingMissionAction.type === 'replan'
+          ? 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'
+          : 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.',
+      ));
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
+    } finally {
+      setMutationSaving(false);
+    }
   };
 
   return (
@@ -1925,6 +1971,18 @@ export default function Missions() {
                               >
                                 {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
                                 متابعة التنفيذ
+                              </button>
+                            ) : null}
+                            {stopCommand ? (
+                              <button
+                                type="button"
+                                onClick={() => void stopMissionExecution()}
+                                disabled={mutationSaving}
+                                data-testid={`button-stop-mission-execution-${activeMission.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-rose-400/30 bg-rose-300/10 px-3 py-1.5 text-[11px] font-semibold text-rose-100 transition-colors hover:bg-rose-300/20 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                                إيقاف التنفيذ
                               </button>
                             ) : null}
                             {reviewExecutionId && activeMission ? (

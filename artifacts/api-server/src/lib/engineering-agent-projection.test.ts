@@ -61,7 +61,7 @@ describe("reduceEngineeringAgentProjection", () => {
       goals: [],
     }));
     expect(projection).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       state: "PLANNING",
       nextAction: {
         kind: "START",
@@ -289,13 +289,18 @@ describe("reduceEngineeringAgentProjection", () => {
     })).nextAction.kind).toBe("NONE");
   });
 
-  it("keeps running and verifying states separate without inventing actions", () => {
+  it("keeps running and verifying separate from the main action while exposing valid STOP commands", () => {
     const running = reduceEngineeringAgentProjection(context({
       goals: [goal()],
     }));
     expect(running).toMatchObject({
       state: "WORKING",
       nextAction: { kind: "NONE", reasonCode: "execution_in_progress" },
+      availableCommands: [{
+        kind: "STOP",
+        target: { kind: "execution", id: "execution-1" },
+        reasonCode: "execution_in_progress",
+      }],
     });
 
     const verifying = reduceEngineeringAgentProjection(context({
@@ -304,7 +309,44 @@ describe("reduceEngineeringAgentProjection", () => {
     expect(verifying).toMatchObject({
       state: "VERIFYING",
       nextAction: { kind: "NONE", reasonCode: "verification_in_progress" },
+      availableCommands: [{
+        kind: "STOP",
+        target: { kind: "execution", id: "execution-1" },
+        reasonCode: "execution_in_progress",
+      }],
     });
+  });
+
+  it("offers STOP only for a current cancellable execution in a live Mission", () => {
+    const cancellable = goal({
+      currentExecution: {
+        id: "execution-stop",
+        status: "running",
+        cancelRequested: false,
+        acceptance: null,
+      },
+    });
+    expect(reduceEngineeringAgentProjection(context({
+      goals: [cancellable],
+    })).availableCommands).toEqual([{
+      kind: "STOP",
+      target: { kind: "execution", id: "execution-stop" },
+      reasonCode: "execution_in_progress",
+    }]);
+    expect(reduceEngineeringAgentProjection(context({
+      goals: [goal({
+        currentExecution: {
+          id: "execution-cancelling",
+          status: "running",
+          cancelRequested: true,
+          acceptance: null,
+        },
+      })],
+    })).availableCommands).toEqual([]);
+    expect(reduceEngineeringAgentProjection(context({
+      missionStatus: "completed",
+      goals: [cancellable],
+    })).availableCommands).toEqual([]);
   });
 
   it("offers retry or resume only for the current acceptance's explicit disposition", () => {

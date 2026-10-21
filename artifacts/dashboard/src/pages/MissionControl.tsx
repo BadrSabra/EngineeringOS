@@ -1201,7 +1201,7 @@ export default function MissionControl() {
   const missionProjection = missionProjectionQuery.data;
   const matchingMissionDecision = missionProjection?.mission.id === requestedMissionId
     && String(missionProjection.mission.projectId) === projectId
-    && missionProjection?.engineeringAgent?.schemaVersion === 1
+    && missionProjection?.engineeringAgent?.schemaVersion === 2
     && missionProjection?.engineeringAgent?.missionId === requestedMissionId
     ? missionProjection.engineeringAgent
     : null;

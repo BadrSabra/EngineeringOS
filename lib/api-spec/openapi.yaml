@@ -3826,6 +3826,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/AiMissionControlProjection"
 
+  /api/ai/missions/{missionId}/agent/action:
+    post:
+      operationId: executeAiMissionAgentAction
+      summary: Execute the current server-owned Engineering Agent action
+      description: Revalidates the current Mission decision, reserves an idempotent action, and dispatches through the existing scoped business services.
+      tags: [AI]
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiMissionAgentActionInput"
+      responses:
+        "200":
+          description: Read-only review or no-action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionAgentActionResponse"
+        "202":
+          description: Action accepted or an identical request is already in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionAgentActionResponse"
+        "400":
+          description: Invalid action request
+        "404":
+          description: Mission not found
+        "409":
+          description: Decision stale, optional command unavailable, or action rejected by its business guard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionAgentCommandError"
   /api/ai/missions/{missionId}/agent/continue:
     post:
       operationId: continueAiMissionAgent
@@ -4812,11 +4852,11 @@ components:
     AiMissionEngineeringAgentProjection:
       type: object
       additionalProperties: false
-      required: [schemaVersion, state, nextAction, intervention, autonomy, missionId, sessionId, goalId, executionId]
+      required: [schemaVersion, state, nextAction, availableCommands, intervention, autonomy, missionId, sessionId, goalId, executionId]
       properties:
         schemaVersion:
           type: integer
-          enum: [1]
+          enum: [2]
         state:
           type: string
           enum: [PLANNING, WORKING, VERIFYING, AWAITING_APPROVAL, RECOVERING, DELIVERING, COMPLETE, NEEDS_ATTENTION]
@@ -4834,6 +4874,23 @@ components:
                 - type: "null"
             reasonCode:
               $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
+        availableCommands:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, target, reasonCode]
+            properties:
+              kind: { type: string, enum: [STOP] }
+              target:
+                type: object
+                additionalProperties: false
+                required: [kind, id]
+                properties:
+                  kind: { type: string, enum: [execution] }
+                  id: { type: string, minLength: 1, maxLength: 200 }
+              reasonCode:
+                $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
         intervention:
           type: object
           additionalProperties: false
@@ -4894,6 +4951,78 @@ components:
         idempotencyKey: { type: string, format: uuid }
         expectedDecision:
           $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
+    AiMissionAgentActionInput:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, expectedDecision]
+      properties:
+        idempotencyKey: { type: string, format: uuid }
+        expectedDecision:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentDecision"
+        command:
+          type: string
+          enum: [STOP]
+        input:
+          type: object
+          additionalProperties: false
+          properties:
+            replan:
+              type: object
+              additionalProperties: false
+              properties:
+                objective: { type: string, minLength: 1, maxLength: 2000 }
+                reason: { type: string, minLength: 1, maxLength: 2000 }
+                expectedPlanHash: { type: string, minLength: 1, maxLength: 200 }
+    AiMissionAgentActionOperation:
+      type: object
+      additionalProperties: false
+      properties:
+        goalId: { type: string }
+        executionId: { type: string }
+        planRevision: { type: string }
+        status: { type: string }
+        attempt: { type: integer, minimum: 0 }
+    AiMissionAgentActionResponse:
+      type: object
+      additionalProperties: false
+      required: [missionId, outcome, projection, idempotentReplay]
+      properties:
+        missionId: { type: string }
+        outcome:
+          type: string
+          enum: [accepted, in_progress, completed, review_required, no_action, rejected]
+        projection:
+          $ref: "#/components/schemas/AiMissionControlProjection"
+        idempotentReplay: { type: boolean }
+        operation:
+          $ref: "#/components/schemas/AiMissionAgentActionOperation"
+        run:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [status, goalId, taskId, executionId, reason]
+              properties:
+                status: { type: string }
+                goalId: { type: string }
+                taskId: { type: ["string", "null"] }
+                executionId: { type: ["string", "null"] }
+                reason: { type: ["string", "null"] }
+            - type: "null"
+        recovery:
+          type: object
+          additionalProperties: false
+          required: [executionId, resumeToken, attempt]
+          properties:
+            executionId: { type: string }
+            resumeToken: { type: string, minLength: 32, maxLength: 128 }
+            attempt: { type: integer, minimum: 0 }
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
     AiMissionGoalApprovalInput:
       type: object
       additionalProperties: false

@@ -1732,6 +1732,106 @@ describe("AI missions and goals", () => {
     expect(await snapshot()).toEqual(before);
   });
 
+  it("keeps stale, unavailable, and unknown gateway requests side-effect free", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Action gateway guards",
+      intent: "Require the current server decision for each action",
+    });
+    expect(createdMission.status).toBe(201);
+    const missionId = createdMission.body.id as string;
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    expect(projection.status).toBe(200);
+    const currentDecision = projection.body.engineeringAgent.nextAction;
+
+    const stale = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: {
+          kind: "NONE",
+          target: null,
+          reasonCode: "state_unresolved",
+        },
+      });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe("AGENT_DECISION_STALE");
+
+    const unavailableStop = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: currentDecision,
+        command: "STOP",
+      });
+    expect(unavailableStop.status).toBe(409);
+    expect(unavailableStop.body.code).toBe("AGENT_COMMAND_UNAVAILABLE");
+
+    const unknownField = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: currentDecision,
+        arbitraryTargetId: "not-authoritative",
+      });
+    expect(unknownField.status).toBe(400);
+    expect(unknownField.body.code).toBe("INVALID_AGENT_ACTION");
+
+    const [persistedMission] = await db.select({
+      status: aiMissionsTable.status,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const goals = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    const actionEvents = await db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(persistedMission?.status).toBe("draft");
+    expect(goals).toHaveLength(0);
+    expect(actionEvents).toHaveLength(0);
+  });
+
+  it("replays a START action with the same idempotency key after the Mission decision changes", async () => {
+    const projectId = await insertProject();
+    const createdMission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Idempotent gateway start",
+      intent: "Start once and replay the recorded result",
+    });
+    expect(createdMission.status).toBe(201);
+    const missionId = createdMission.body.id as string;
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    expect(projection.body.engineeringAgent.nextAction.kind).toBe("START");
+    const requestBody = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+
+    const first = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send(requestBody);
+    expect([200, 202, 409]).toContain(first.status);
+    expect(first.body.idempotentReplay).toBe(false);
+    expect(first.body.projection.mission.status).toBe("active");
+
+    const replay = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send(requestBody);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body.idempotentReplay).toBe(true);
+
+    const actionEvents = await db.select({ id: eventsTable.id }).from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(actionEvents).toHaveLength(1);
+  });
+
   it("projects a safe empty-Mission state without creating runtime records", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({
@@ -1759,13 +1859,14 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/missions/${createdMission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.engineeringAgent).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       state: "PLANNING",
       nextAction: {
         kind: "START",
         target: { kind: "mission", id: createdMission.body.id },
         reasonCode: "mission_draft",
       },
+      availableCommands: [],
       intervention: { required: false, kind: "none", reasonCode: null },
       autonomy: {
         mode: "assisted",

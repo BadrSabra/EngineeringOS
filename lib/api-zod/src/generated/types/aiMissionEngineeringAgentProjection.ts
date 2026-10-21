@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiMissionEngineeringAgentProjectionAutonomy } from './aiMissionEngineeringAgentProjectionAutonomy';
+import type { AiMissionEngineeringAgentProjectionAvailableCommandsItem } from './aiMissionEngineeringAgentProjectionAvailableCommandsItem';
 import type { AiMissionEngineeringAgentProjectionIntervention } from './aiMissionEngineeringAgentProjectionIntervention';
 import type { AiMissionEngineeringAgentProjectionNextAction } from './aiMissionEngineeringAgentProjectionNextAction';
 import type { AiMissionEngineeringAgentProjectionSchemaVersion } from './aiMissionEngineeringAgentProjectionSchemaVersion';
@@ -15,6 +16,7 @@ export interface AiMissionEngineeringAgentProjection {
   schemaVersion: AiMissionEngineeringAgentProjectionSchemaVersion;
   state: AiMissionEngineeringAgentProjectionState;
   nextAction: AiMissionEngineeringAgentProjectionNextAction;
+  availableCommands: AiMissionEngineeringAgentProjectionAvailableCommandsItem[];
   intervention: AiMissionEngineeringAgentProjectionIntervention;
   autonomy: AiMissionEngineeringAgentProjectionAutonomy;
   /**

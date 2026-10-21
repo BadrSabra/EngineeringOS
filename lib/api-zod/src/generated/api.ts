@@ -8529,6 +8529,8 @@ export const getAiMissionProjectionResponseCountsEventsMin = 0;
 
 export const getAiMissionProjectionResponseEngineeringAgentNextActionTargetOneIdMax = 200;
 
+export const getAiMissionProjectionResponseEngineeringAgentAvailableCommandsItemTargetIdMax = 200;
+
 export const getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMin = 0;
 export const getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMax = 10;
 
@@ -8580,7 +8582,7 @@ export const GetAiMissionProjectionResponse = zod.object({
   "events": zod.number().int().min(getAiMissionProjectionResponseCountsEventsMin)
 }),
   "engineeringAgent": zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "state": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
   "nextAction": zod.object({
   "kind": zod.enum(['START', 'AUTO_CONTINUE', 'RESUME', 'RETRY', 'APPROVE', 'REPLAN', 'REVIEW', 'STOP', 'NONE']),
@@ -8590,6 +8592,14 @@ export const GetAiMissionProjectionResponse = zod.object({
 }),zod.null()]),
   "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
 }),
+  "availableCommands": zod.array(zod.object({
+  "kind": zod.enum(['STOP']),
+  "target": zod.object({
+  "kind": zod.enum(['execution']),
+  "id": zod.string().min(1).max(getAiMissionProjectionResponseEngineeringAgentAvailableCommandsItemTargetIdMax)
+}),
+  "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
+})),
   "intervention": zod.object({
   "required": zod.boolean(),
   "kind": zod.enum(['none', 'approval', 'review', 'recovery', 'scope', 'delivery']),
@@ -8609,6 +8619,187 @@ export const GetAiMissionProjectionResponse = zod.object({
   "goalId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentGoalIdMax).nullable(),
   "executionId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentExecutionIdMax).nullable()
 })
+})
+
+
+/**
+ * Revalidates the current Mission decision, reserves an idempotent action, and dispatches through the existing scoped business services.
+ * @summary Execute the current server-owned Engineering Agent action
+ */
+export const ExecuteAiMissionAgentActionParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const executeAiMissionAgentActionBodyExpectedDecisionTargetOneIdMax = 200;
+
+export const executeAiMissionAgentActionBodyInputReplanObjectiveMax = 2000;
+
+export const executeAiMissionAgentActionBodyInputReplanReasonMax = 2000;
+
+export const executeAiMissionAgentActionBodyInputReplanExpectedPlanHashMax = 200;
+
+
+
+export const ExecuteAiMissionAgentActionBody = zod.object({
+  "idempotencyKey": zod.string().uuid(),
+  "expectedDecision": zod.object({
+  "kind": zod.enum(['START', 'AUTO_CONTINUE', 'RESUME', 'RETRY', 'APPROVE', 'REPLAN', 'REVIEW', 'STOP', 'NONE']),
+  "target": zod.union([zod.object({
+  "kind": zod.enum(['mission', 'goal', 'execution', 'proposal']),
+  "id": zod.string().min(1).max(executeAiMissionAgentActionBodyExpectedDecisionTargetOneIdMax)
+}),zod.null()]),
+  "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
+}),
+  "command": zod.enum(['STOP']).optional(),
+  "input": zod.object({
+  "replan": zod.object({
+  "objective": zod.string().min(1).max(executeAiMissionAgentActionBodyInputReplanObjectiveMax).optional(),
+  "reason": zod.string().min(1).max(executeAiMissionAgentActionBodyInputReplanReasonMax).optional(),
+  "expectedPlanHash": zod.string().min(1).max(executeAiMissionAgentActionBodyInputReplanExpectedPlanHashMax).optional()
+}).optional()
+}).optional()
+})
+
+
+export const executeAiMissionAgentActionResponseProjectionGoalsItemCurrentAttemptOneAttemptMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionCountsGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionCountsTasksMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionCountsWorkflowsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionCountsExecutionsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionCountsEventsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentNextActionTargetOneIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAvailableCommandsItemTargetIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin = 0;
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax = 10;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentMissionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentSessionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentGoalIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentExecutionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseOperationAttemptMin = 0;
+
+export const executeAiMissionAgentActionResponseRecoveryResumeTokenMin = 32;
+export const executeAiMissionAgentActionResponseRecoveryResumeTokenMax = 128;
+
+export const executeAiMissionAgentActionResponseRecoveryAttemptMin = 0;
+
+
+
+export const ExecuteAiMissionAgentActionResponse = zod.object({
+  "missionId": zod.string(),
+  "outcome": zod.enum(['accepted', 'in_progress', 'completed', 'review_required', 'no_action', 'rejected']),
+  "projection": zod.object({
+  "mission": zod.record(zod.string(), zod.unknown()),
+  "agentControl": zod.union([zod.object({
+  "handoff": zod.object({
+  "kind": zod.enum(['chat']),
+  "sessionId": zod.string().uuid().nullable(),
+  "messageId": zod.string().uuid().nullable(),
+  "assistantMessageId": zod.string().uuid().nullable(),
+  "planHash": zod.string().min(1),
+  "dispatchStatus": zod.enum(['pending', 'dispatched']),
+  "confirmedAt": zod.coerce.date(),
+  "dispatchedAt": zod.coerce.date().nullable()
+})
+}),zod.null()]),
+  "currentPlan": zod.object({
+  "revision": zod.union([zod.string(),zod.null()]),
+  "binding": zod.enum(['active_revision', 'legacy_unversioned', 'revision_mismatch']),
+  "goalIds": zod.array(zod.string())
+}),
+  "goals": zod.array(zod.object({
+  "goal": zod.record(zod.string(), zod.unknown()),
+  "currentAttempt": zod.union([zod.object({
+  "id": zod.string(),
+  "status": zod.string(),
+  "attempt": zod.number().int().min(executeAiMissionAgentActionResponseProjectionGoalsItemCurrentAttemptOneAttemptMin),
+  "operationId": zod.union([zod.string(),zod.null()]),
+  "updatedAt": zod.coerce.date(),
+  "completedAt": zod.union([zod.coerce.date(),zod.null()])
+}),zod.null()])
+})),
+  "counts": zod.object({
+  "goals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionCountsGoalsMin),
+  "tasks": zod.number().int().min(executeAiMissionAgentActionResponseProjectionCountsTasksMin),
+  "workflows": zod.number().int().min(executeAiMissionAgentActionResponseProjectionCountsWorkflowsMin),
+  "executions": zod.number().int().min(executeAiMissionAgentActionResponseProjectionCountsExecutionsMin),
+  "events": zod.number().int().min(executeAiMissionAgentActionResponseProjectionCountsEventsMin)
+}),
+  "engineeringAgent": zod.object({
+  "schemaVersion": zod.literal(2),
+  "state": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
+  "nextAction": zod.object({
+  "kind": zod.enum(['START', 'AUTO_CONTINUE', 'RESUME', 'RETRY', 'APPROVE', 'REPLAN', 'REVIEW', 'STOP', 'NONE']),
+  "target": zod.union([zod.object({
+  "kind": zod.enum(['mission', 'goal', 'execution', 'proposal']),
+  "id": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentNextActionTargetOneIdMax)
+}),zod.null()]),
+  "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
+}),
+  "availableCommands": zod.array(zod.object({
+  "kind": zod.enum(['STOP']),
+  "target": zod.object({
+  "kind": zod.enum(['execution']),
+  "id": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentAvailableCommandsItemTargetIdMax)
+}),
+  "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
+})),
+  "intervention": zod.object({
+  "required": zod.boolean(),
+  "kind": zod.enum(['none', 'approval', 'review', 'recovery', 'scope', 'delivery']),
+  "reasonCode": zod.union([zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved']),zod.null()])
+}),
+  "autonomy": zod.object({
+  "mode": zod.enum(['assisted', 'autonomous']),
+  "allowAutoContinue": zod.boolean(),
+  "allowAutoApply": zod.boolean(),
+  "allowAutoCommit": zod.boolean(),
+  "allowAutoPush": zod.boolean(),
+  "requireHumanForExternalDelivery": zod.boolean(),
+  "maxAutoReplans": zod.number().int().min(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax)
+}),
+  "missionId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentMissionIdMax),
+  "sessionId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentSessionIdMax).nullable(),
+  "goalId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentGoalIdMax).nullable(),
+  "executionId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentExecutionIdMax).nullable()
+})
+}),
+  "idempotentReplay": zod.boolean(),
+  "operation": zod.object({
+  "goalId": zod.string().optional(),
+  "executionId": zod.string().optional(),
+  "planRevision": zod.string().optional(),
+  "status": zod.string().optional(),
+  "attempt": zod.number().int().min(executeAiMissionAgentActionResponseOperationAttemptMin).optional()
+}).optional(),
+  "run": zod.union([zod.object({
+  "status": zod.string(),
+  "goalId": zod.string(),
+  "taskId": zod.string().nullable(),
+  "executionId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+}),zod.null()]).optional(),
+  "recovery": zod.object({
+  "executionId": zod.string(),
+  "resumeToken": zod.string().min(executeAiMissionAgentActionResponseRecoveryResumeTokenMin).max(executeAiMissionAgentActionResponseRecoveryResumeTokenMax),
+  "attempt": zod.number().int().min(executeAiMissionAgentActionResponseRecoveryAttemptMin)
+}).optional(),
+  "error": zod.object({
+  "code": zod.string(),
+  "message": zod.string()
+}).optional()
 })
 
 
@@ -8650,6 +8841,8 @@ export const continueAiMissionAgentResponseProjectionCountsExecutionsMin = 0;
 export const continueAiMissionAgentResponseProjectionCountsEventsMin = 0;
 
 export const continueAiMissionAgentResponseProjectionEngineeringAgentNextActionTargetOneIdMax = 200;
+
+export const continueAiMissionAgentResponseProjectionEngineeringAgentAvailableCommandsItemTargetIdMax = 200;
 
 export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin = 0;
 export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax = 10;
@@ -8704,7 +8897,7 @@ export const ContinueAiMissionAgentResponse = zod.object({
   "events": zod.number().int().min(continueAiMissionAgentResponseProjectionCountsEventsMin)
 }),
   "engineeringAgent": zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "state": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
   "nextAction": zod.object({
   "kind": zod.enum(['START', 'AUTO_CONTINUE', 'RESUME', 'RETRY', 'APPROVE', 'REPLAN', 'REVIEW', 'STOP', 'NONE']),
@@ -8714,6 +8907,14 @@ export const ContinueAiMissionAgentResponse = zod.object({
 }),zod.null()]),
   "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
 }),
+  "availableCommands": zod.array(zod.object({
+  "kind": zod.enum(['STOP']),
+  "target": zod.object({
+  "kind": zod.enum(['execution']),
+  "id": zod.string().min(1).max(continueAiMissionAgentResponseProjectionEngineeringAgentAvailableCommandsItemTargetIdMax)
+}),
+  "reasonCode": zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved'])
+})),
   "intervention": zod.object({
   "required": zod.boolean(),
   "kind": zod.enum(['none', 'approval', 'review', 'recovery', 'scope', 'delivery']),

@@ -41,6 +41,8 @@ import type {
   AiFallbackDiagnostic,
   AiFallbackDiagnosticInput,
   AiFileContent,
+  AiMissionAgentActionInput,
+  AiMissionAgentActionResponse,
   AiMissionAgentCommandError,
   AiMissionAgentContinuationInput,
   AiMissionAgentContinuationResponse,
@@ -10971,6 +10973,88 @@ export function useGetAiMissionProjection<TData = Awaited<ReturnType<typeof getA
 
 
 
+
+export const getExecuteAiMissionAgentActionUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/agent/action`
+}
+
+/**
+ * Revalidates the current Mission decision, reserves an idempotent action, and dispatches through the existing scoped business services.
+ * @summary Execute the current server-owned Engineering Agent action
+ */
+export const executeAiMissionAgentAction = async (missionId: string,
+    aiMissionAgentActionInput: AiMissionAgentActionInput, options?: Parameters<typeof customFetch>[1]): Promise<AiMissionAgentActionResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<AiMissionAgentActionResponse>(getExecuteAiMissionAgentActionUrl(missionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(aiMissionAgentActionInput)
+  }
+);}
+
+
+
+
+
+export const getExecuteAiMissionAgentActionMutationKey = () => ['executeAiMissionAgentAction'] as const;
+
+export const getExecuteAiMissionAgentActionMutationOptions = <TError = ErrorType<void | AiMissionAgentCommandError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeAiMissionAgentAction>>, TError,ExecuteAiMissionAgentActionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof executeAiMissionAgentAction>>, TError,ExecuteAiMissionAgentActionMutationVariables, TContext> => {
+
+const mutationKey = getExecuteAiMissionAgentActionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof executeAiMissionAgentAction>>, ExecuteAiMissionAgentActionMutationVariables> = (props) => {
+          const {missionId,data} = props ?? {};
+
+          return  executeAiMissionAgentAction(missionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExecuteAiMissionAgentActionMutationResult = NonNullable<Awaited<ReturnType<typeof executeAiMissionAgentAction>>>
+    export type ExecuteAiMissionAgentActionMutationBody = BodyType<AiMissionAgentActionInput>
+    export type ExecuteAiMissionAgentActionMutationError = ErrorType<void | AiMissionAgentCommandError>
+    export type ExecuteAiMissionAgentActionMutationVariables = {missionId: string;data: BodyType<AiMissionAgentActionInput>}
+
+    /**
+ * @summary Execute the current server-owned Engineering Agent action
+ */
+export const useExecuteAiMissionAgentAction = <TError = ErrorType<void | AiMissionAgentCommandError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeAiMissionAgentAction>>, TError,ExecuteAiMissionAgentActionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof executeAiMissionAgentAction>>,
+        TError,
+        ExecuteAiMissionAgentActionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getExecuteAiMissionAgentActionMutationOptions(options));
+    }
 
 export const getContinueAiMissionAgentUrl = (missionId: string,) => {
 
