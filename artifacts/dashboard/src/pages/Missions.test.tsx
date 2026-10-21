@@ -674,13 +674,15 @@ describe('Missions management', () => {
     renderPage();
     expect(await screen.findByTestId(`button-bind-delivery-${deliveryGoal.id}`)).toBeInTheDocument();
     fireEvent.click(screen.getByTestId(`button-bind-delivery-${deliveryGoal.id}`));
+    expect(screen.getByText(/سيبدأ هذا الإجراء دفعه إلى المستودع والفرع المهيأين/u)).toBeInTheDocument();
     fireEvent.change(screen.getByTestId('delivery-proposal-id'), {
       target: { value: 'proposal-1' },
     });
+    expect(screen.getByRole('button', { name: 'اربط وابدأ التسليم' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('button-save-editor'));
 
     await waitFor(() => expect(bindMissionDeliveryMock).toHaveBeenCalledWith(deliveryGoal.id, 'proposal-1'));
-    expect(await screen.findByRole('status')).toHaveTextContent('رُبط مقترح التسليم.');
+    expect(await screen.findByRole('status')).toHaveTextContent('ينتظر بدء التسليم اكتمال الخطوات التابعة.');
   });
 
   it('confirms a server-owned replan and refreshes mission state after success', async () => {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildMissionPlanPreview } from "../mission-planning.js";
+import {
+  buildApplyChangesMissionPlanPreview,
+  buildMissionPlanPreview,
+} from "../mission-planning.js";
 
 describe("buildMissionPlanPreview", () => {
   it("keeps low-risk conversational requests on the chat path", () => {
@@ -31,6 +34,46 @@ describe("buildMissionPlanPreview", () => {
     expect(preview.admissionReason).toBe("multi_step_or_mutating_objective");
     expect(preview.plan.steps.some((step) => step.readOnly === false)).toBe(true);
     expect(preview.plan.steps.some((step) => step.approvalRequired)).toBe(true);
+  });
+
+  it("makes the post-apply report an evidence-backed read-only inspection", () => {
+    const preview = buildApplyChangesMissionPlanPreview({
+      objective: "Apply the approved proposal and report the live result.",
+      requirement: {
+        kind: "apply.changes",
+        version: 1,
+        sourceStepId: "apply-changes",
+        proposalId: "proposal-1",
+        baseRevision: "base-revision",
+        candidateTreeHash: "candidate-tree",
+        changeSetHash: "change-set",
+        from: "candidate",
+        to: "applied",
+      },
+      reportPaths: ["README.md"],
+    });
+    const reportStep = preview.plan.steps.find((step) => step.id === "report-applied");
+    const deliveryStep = preview.plan.steps.find((step) => step.id === "deliver-applied");
+
+    expect(reportStep).toMatchObject({
+      objective: "Report the live applied result; confirm the approved candidate is APPLIED.",
+      kind: "inspect",
+      dependencies: ["apply-changes"],
+      files: ["README.md"],
+      readOnly: true,
+      approvalRequired: false,
+    });
+    expect(deliveryStep).toMatchObject({
+      kind: "deliver",
+      dependencies: ["apply-changes"],
+      files: ["README.md"],
+      readOnly: false,
+      approvalRequired: false,
+      recipe: {
+        recipeId: "delivery.push.github",
+        recipeVersion: 1,
+      },
+    });
   });
 
   it("carries bounded server-owned recovery context into a replan preview", () => {

@@ -44,3 +44,9 @@ To preserve the exact local commit identity through GitHub's REST Git-data API, 
 **Why:** A Git commit hash includes its tree, parent, message, author, committer, and timestamps. Recreating only its tree and parent necessarily produces another hash, making exact delivery proof impossible.
 
 **How to apply:** Append the operation marker when creating an AI-scoped local commit, then mirror that exact commit message and identity through the GitHub commit endpoint. Keep remote after-state verification bound to the exact local hash.
+
+Machine-readable Git porcelain and diff output is protocol data: preserve leading whitespace, which can carry status or patch meaning. Trimming is appropriate only for human-readable Git output.
+
+**Why:** Trimming a porcelain status line can remove its first status byte and make a tracked file appear unmodified, undermining candidate and commit verification.
+
+**How to apply:** Parse machine-readable Git output without trimming each line; trim only when rendering or matching human-readable output. Add regression coverage for filenames and statuses whose first byte is meaningful.

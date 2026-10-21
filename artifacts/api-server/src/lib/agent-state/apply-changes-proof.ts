@@ -68,6 +68,25 @@ function digest(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
+export function isCommittedApplyProposalProofBound(
+  proposal: unknown,
+  candidateTreeHash: unknown,
+): boolean {
+  const value = record(proposal);
+  if (
+    !value
+    || !digest(candidateTreeHash)
+    || value.status !== "applied"
+    || value.lifecycle !== "committed"
+  ) return false;
+  const commitHash = value.commitHash;
+  const committedTreeHash = value.committedTreeHash;
+  return typeof commitHash === "string"
+    && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commitHash)
+    && committedTreeHash === candidateTreeHash
+    && committedTreeHash === value.promotedTreeHash;
+}
+
 /**
  * Reconstruct Apply proof only from the durable action, observed effect, and
  * the exact before/after observations that the effect verifier accepted.
@@ -125,7 +144,11 @@ export async function deriveApplyChangesProof(input: {
   if (
     !proposal
     || proposal.status !== "applied"
-    || (proposal.lifecycle !== "blocked" && proposal.lifecycle !== "applied")
+    || (
+      proposal.lifecycle !== "blocked"
+      && proposal.lifecycle !== "applied"
+      && !isCommittedApplyProposalProofBound(proposal, proposal.candidateTreeHash)
+    )
     || proposal.operationId !== execution.correlationId
     || typeof proposal.baseRevision !== "string"
     || proposal.baseRevision !== sourceRevision

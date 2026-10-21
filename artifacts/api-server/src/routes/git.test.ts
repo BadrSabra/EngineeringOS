@@ -36,7 +36,7 @@ async function git(rootPath: string, args: string[]) {
   return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 1_000_000 });
 }
 
-async function createFixture() {
+async function createFixture(options: { changePath?: string } = {}) {
   const safeRootsPath = path.resolve(process.cwd(), "../..", ".test-roots");
   await mkdir(safeRootsPath, { recursive: true });
   const rootPath = await mkdtemp(path.join(safeRootsPath, "engineeringos-git-"));
@@ -45,16 +45,17 @@ async function createFixture() {
   await writeFile(path.join(rootPath, "README.md"), "fixture\n");
   await git(rootPath, ["add", "README.md"]);
   await git(rootPath, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"]);
+  const changePath = options.changePath ?? "verified.ts";
   const change = {
-    path: "verified.ts",
-    absolutePath: path.join(rootPath, "verified.ts"),
+    path: changePath,
+    absolutePath: path.join(rootPath, changePath),
     newContent: "export const verified = true;\n",
     originalContent: null,
     reason: "Verified implementation change",
     validationProfile: "workspace-typecheck",
   };
   const baseTreeHash = await hashDeliveryTree(rootPath);
-  await writeFile(path.join(rootPath, "verified.ts"), change.newContent);
+  await writeFile(change.absolutePath, change.newContent);
   const promotedTreeHash = await hashDeliveryTree(rootPath);
   const changeSetHash = hashChangeSet([change]);
 
@@ -171,6 +172,76 @@ afterEach(async () => {
 });
 
 describe("AI-scoped Git commits", () => {
+  it("derives a namespaced proposal operation identity for a scoped commit", async () => {
+    const fixture = await createFixture({ changePath: "README.md" });
+    const operationId = `mission-repair-${randomUUID()}`;
+    await db.update(aiChangeProposalsTable)
+      .set({ operationId })
+      .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    await db.update(eventsTable)
+      .set({
+        correlationId: operationId,
+        payload: {
+          proposalId: fixture.proposalId,
+          operationId,
+          applyStatus: "APPLIED",
+          appliedFiles: ["README.md"],
+          baseTreeHash: fixture.baseTreeHash,
+          candidateTreeHash: fixture.promotedTreeHash,
+          promotedTreeHash: fixture.promotedTreeHash,
+          changeSetHash: fixture.changeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+      })
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.type, "AiChangesApplied"),
+      ));
+
+    const mismatchedIdentity = await request(app)
+      .post(`/api/projects/${fixture.projectId}/git/commit`)
+      .send({
+        message: "Commit verified AI changes",
+        proposalId: fixture.proposalId,
+        operationId: "different-operation",
+      });
+    expect(mismatchedIdentity.status).toBe(409);
+    expect(mismatchedIdentity.body.code).toBe("AI_COMMIT_OPERATION_MISMATCH");
+
+    const commit = await request(app)
+      .post(`/api/projects/${fixture.projectId}/git/commit`)
+      .send({
+        message: "Commit verified AI changes",
+        proposalId: fixture.proposalId,
+      });
+    expect(commit.status, JSON.stringify(commit.body)).toBe(200);
+    expect(commit.body).toMatchObject({
+      ok: true,
+      correlationId: operationId,
+      committedPaths: ["README.md"],
+    });
+    const committedMessage = String(
+      (await git(fixture.rootPath, ["show", "-s", "--format=%B", "HEAD"])).stdout,
+    ).trimEnd();
+    expect(committedMessage).toBe(
+      `Commit verified AI changes\n\nEngineeringOS-Operation: ${operationId}`,
+    );
+  });
+
+  it("preserves the leading porcelain column when showing a modified tracked file", async () => {
+    const fixture = await createFixture();
+    await writeFile(path.join(fixture.rootPath, "README.md"), "Modified tracked README.\n");
+
+    const response = await request(app)
+      .get(`/api/projects/${fixture.projectId}/git/status`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.files).toContainEqual({
+      status: "M",
+      path: "README.md",
+    });
+  });
+
   it("rejects an AI commit when successful Apply evidence is missing", async () => {
     const fixture = await createFixture();
     await db.delete(eventsTable).where(and(

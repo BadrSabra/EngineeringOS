@@ -12,6 +12,7 @@ const lifecycleSentence =
 const receiptKeys = new Set(["schemaVersion", "status", "stage", "code", "chain"]);
 const chainKeys = new Set([
   "projectId",
+  "chatStream",
   "sessionId",
   "userMessageId",
   "userMessageHash",
@@ -27,6 +28,7 @@ const chainKeys = new Set([
   "applyMissionId",
   "applyGoalId",
   "applyExecutionId",
+  "deliveryGoalId",
   "commitHash",
   "remoteCommitHash",
   "branch",
@@ -71,6 +73,7 @@ function validateReceipt(value) {
     "applyMissionId",
     "applyGoalId",
     "applyExecutionId",
+    "deliveryGoalId",
     "commitHash",
     "remoteCommitHash",
     "branch",
@@ -94,11 +97,73 @@ function validateReceipt(value) {
     "applyMissionId",
     "applyGoalId",
     "applyExecutionId",
+    "deliveryGoalId",
     "finalMissionId",
     "activeMissionIdAfterReload",
   ]) {
     assert.match(value.chain[key], /^[A-Za-z0-9_-]{1,160}$/, `chain_${key}_invalid`);
   }
+  const chatStream = value.chain.chatStream;
+  const chatStreamKeys = new Set([
+    "eventTypes",
+    "sessionStarted",
+    "sessionStartedSessionId",
+    "doneHasSessionId",
+    "doneSessionId",
+    "sessionIdsMatch",
+    "doneMessageId",
+    "doneMessageRole",
+    "doneMessageContentLength",
+    "doneTurnIntent",
+    "doneTaskResultKind",
+  ]);
+  hasOnlyKeys(chatStream, chatStreamKeys, "chain_chat_stream");
+  assert.ok(
+    Array.isArray(chatStream.eventTypes)
+      && chatStream.eventTypes.every((eventType) => typeof eventType === "string"),
+    "chain_chat_stream_event_types_invalid",
+  );
+  for (const requiredEventType of [
+    "session_started",
+    "stage",
+    "execution_started",
+    "intent",
+    "behavior_progress",
+    "delta",
+    "recipe_terminal",
+    "done",
+  ]) {
+    assert.ok(
+      chatStream.eventTypes.includes(requiredEventType),
+      `chain_chat_stream_missing_event:${requiredEventType}`,
+    );
+  }
+  requireValue(chatStream.sessionStarted, true, "chat_stream_session_started");
+  requireValue(
+    chatStream.sessionStartedSessionId,
+    value.chain.sessionId,
+    "chat_stream_started_session",
+  );
+  requireValue(chatStream.doneHasSessionId, true, "chat_stream_done_session_present");
+  requireValue(chatStream.doneSessionId, value.chain.sessionId, "chat_stream_done_session");
+  requireValue(chatStream.sessionIdsMatch, true, "chat_stream_session_identity");
+  assert.match(
+    chatStream.doneMessageId,
+    /^[A-Za-z0-9_-]{1,160}$/,
+    "chain_chat_stream_done_message_id_invalid",
+  );
+  requireValue(chatStream.doneMessageRole, "assistant", "chat_stream_done_message_role");
+  assert.ok(
+    Number.isSafeInteger(chatStream.doneMessageContentLength)
+      && chatStream.doneMessageContentLength > 0,
+    "chain_chat_stream_done_message_content_length_invalid",
+  );
+  requireValue(chatStream.doneTurnIntent, "DELIVERY", "chat_stream_done_turn_intent");
+  requireValue(
+    chatStream.doneTaskResultKind,
+    "IMPLEMENTATION_PLAN_RESULT",
+    "chat_stream_done_task_result",
+  );
   assert.ok(Number.isSafeInteger(value.chain.sourceAttempt) && value.chain.sourceAttempt >= 0);
   assert.ok(Number.isSafeInteger(value.chain.proposalRevision) && value.chain.proposalRevision >= 0);
   assert.match(value.chain.userMessageHash, /^[a-f0-9]{64}$/);
@@ -298,20 +363,21 @@ function verifyDatabaseSnapshot(snapshot, chain) {
       && typeof proposalValidationEvidence[0] === "object",
     "proposal_validation_binding_missing",
   );
-  requireValue(
-    proposalValidationEvidence[0].candidateIdentity,
-    sourceAcceptance.candidateIdentity,
-    "proposal_source_candidate_identity",
+  const promotedValidation = proposalValidationEvidence.find((entry) =>
+    entry
+    && typeof entry === "object"
+    && !Array.isArray(entry)
+    && entry.status === "passed"
+    && entry.evidence
+    && typeof entry.evidence === "object"
+    && !Array.isArray(entry.evidence)
+    && entry.evidence.candidateHash === chain.candidateTreeHash
+    && entry.evidence.changeSetHash === proposal.change_set_hash
+    && entry.evidence.promotedHash === chain.candidateTreeHash,
   );
-  requireValue(
-    proposalValidationEvidence[0].candidateTreeHash,
-    chain.candidateTreeHash,
-    "proposal_validation_candidate_tree_hash",
-  );
-  requireValue(
-    proposalValidationEvidence[0].changeSetHash,
-    proposal.change_set_hash,
-    "proposal_validation_change_set_hash",
+  assert.ok(
+    promotedValidation,
+    "proposal_validation_does_not_bind_passed_candidate_change_set_and_promotion",
   );
   assert.ok(typeof proposal.applied_changes === "string" && proposal.applied_changes.length > 0);
   requireValue(proposalMessage.session_id, chain.sessionId, "proposal_message_session");

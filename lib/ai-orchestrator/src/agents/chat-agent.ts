@@ -10810,7 +10810,6 @@ export async function chat(opts: {
               recoveredText,
               recoveredCandidate.flowRefs,
             );
-
             if (candidateAccepted) {
               projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
               projectQueryFlowRefs = recoveredCandidate.flowRefs;

@@ -262,6 +262,7 @@ export type FinalizeExecutionAcceptanceParams = {
   retryAfterMs?: number;
   retryAt?: string;
   proposalId?: string | null;
+  deliveryProposalId?: string | null;
   recipeReceipt?: unknown;
   checkpoint?: string;
   /**
@@ -2124,7 +2125,8 @@ export async function finalizeExecutionAcceptance(
     }
 
     const storedRequest = parseStoredExecutionRequest(execution.request);
-    const [proposal] = execution.proposalId
+    const canonicalProposalId = params.deliveryProposalId ?? execution.proposalId;
+    const [proposal] = canonicalProposalId
       ? await tx
         .select({
           candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
@@ -2133,7 +2135,7 @@ export async function finalizeExecutionAcceptance(
         })
         .from(aiChangeProposalsTable)
         .where(and(
-          eq(aiChangeProposalsTable.id, execution.proposalId),
+          eq(aiChangeProposalsTable.id, canonicalProposalId),
           eq(aiChangeProposalsTable.projectId, execution.projectId),
         ))
         .limit(1)
@@ -2262,6 +2264,19 @@ export async function finalizeExecutionAcceptance(
       sourceRevision: canonicalSourceRevision,
       proposal,
     });
+    const persistedRecipeReceipt = params.recipeReceipt === undefined
+      ? undefined
+      : canonicalDeliveryReceipt
+        ? {
+            ...recordValue(params.recipeReceipt),
+            executionId: canonicalDeliveryReceipt.executionId,
+            attempt: canonicalDeliveryReceipt.attempt,
+            operationId: canonicalDeliveryReceipt.operationId,
+            sourceRevision: canonicalDeliveryReceipt.sourceRevision,
+            candidateTreeHash: canonicalDeliveryReceipt.candidateTreeHash,
+            treeHash: canonicalDeliveryReceipt.treeHash,
+          }
+        : params.recipeReceipt;
     if (
       evidenceRequired
       && (
@@ -3084,7 +3099,7 @@ export async function finalizeExecutionAcceptance(
         status: terminalStatus,
         finalMessageId: params.finalMessageId ?? execution.finalMessageId,
         ...(params.proposalId !== undefined ? { proposalId: params.proposalId } : {}),
-        ...(params.recipeReceipt !== undefined ? { recipeReceipt: params.recipeReceipt } : {}),
+        ...(persistedRecipeReceipt !== undefined ? { recipeReceipt: persistedRecipeReceipt } : {}),
         error: outcome === "SUCCEEDED" ? null : safeError(params.error),
         completedAt: now,
         updatedAt: now,

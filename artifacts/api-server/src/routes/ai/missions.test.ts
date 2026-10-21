@@ -38,7 +38,10 @@ import { dispatchPendingMissionChatHandoffs } from "../../lib/mission-chat-hando
 import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
-import { evaluateApplyChangesD2 } from "../../lib/agent-state/apply-changes-mission-gate.js";
+import {
+  applyChangesMissionRequirement,
+  evaluateApplyChangesD2,
+} from "../../lib/agent-state/apply-changes-mission-gate.js";
 import {
   createDeliveryWorkspace,
   DELIVERY_TREE_DIGEST_VERSION,
@@ -1619,12 +1622,45 @@ describe("AI missions and goals", () => {
       proofFreshness: "NOT_REVALIDATED",
     });
     expect(projection.body.goals[0].currentAttempt).toBeNull();
+    expect(projection.body.goals[0].delivery).toEqual({
+      required: false,
+      receiptPresent: false,
+    });
     expect(projection.body.counts).toEqual({
       goals: 1,
       tasks: 0,
       workflows: 0,
       executions: 0,
       events: 1,
+    });
+
+    await db.update(aiGoalsTable).set({
+      outcomeContract: {
+        deliveryRequired: true,
+        acceptance: { verdict: "PROVEN" },
+      },
+    }).where(eq(aiGoalsTable.id, createdGoal.body.id));
+    const waitingForDelivery = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect(waitingForDelivery.body.goals[0].delivery).toEqual({
+      required: true,
+      receiptPresent: false,
+    });
+
+    await db.update(aiGoalsTable).set({
+      outcomeContract: {
+        deliveryRequired: true,
+        acceptance: {
+          verdict: "PROVEN",
+          deliveryReceipt: { executionId: "execution-delivery", treeHash: "tree-hash" },
+        },
+      },
+    }).where(eq(aiGoalsTable.id, createdGoal.body.id));
+    const delivered = await request(app)
+      .get(`/api/ai/missions/${createdMission.body.id}/projection`);
+    expect(delivered.body.goals[0].delivery).toEqual({
+      required: true,
+      receiptPresent: true,
     });
   });
 
@@ -4832,7 +4868,13 @@ describe("AI missions and goals", () => {
       projectId,
       sessionId,
       messageId,
-      changes: "[]",
+      changes: JSON.stringify([{
+        path: "README.md",
+        absolutePath: "/project/README.md",
+        newContent: "# Prepared change\n",
+        originalContent: "# Original\n",
+        reason: "Update the project README",
+      }]),
       status: "pending",
       operationId: `apply-operation:${proposalId}`,
       baseRevision,
@@ -4855,21 +4897,30 @@ describe("AI missions and goals", () => {
       taskId: null,
       dependencies: [],
     });
-    expect(created.body.planGoals).toHaveLength(2);
-    const successor = created.body.planGoals.find(
-      (goal: { stepId: string }) => goal.stepId !== "apply-changes",
+    expect(created.body.planGoals).toHaveLength(3);
+    const reportPlanGoal = created.body.planGoals.find(
+      (goal: { stepId: string }) => goal.stepId === "report-applied",
     );
-    expect(successor?.dependencies).toContain("apply-changes");
-    const [successorDependency] = await db.select()
+    const deliveryPlanGoal = created.body.planGoals.find(
+      (goal: { stepId: string }) => goal.stepId === "deliver-applied",
+    );
+    expect(reportPlanGoal?.dependencies).toEqual(["apply-changes"]);
+    expect(deliveryPlanGoal?.dependencies).toEqual(["apply-changes"]);
+    const [reportDependency] = await db.select()
       .from(aiGoalDependenciesTable)
-      .where(eq(aiGoalDependenciesTable.goalId, successor.goalId));
-    expect(successorDependency?.dependsOnGoalId).toBe(created.body.applyGoal.goalId);
+      .where(eq(aiGoalDependenciesTable.goalId, reportPlanGoal.goalId));
+    expect(reportDependency?.dependsOnGoalId).toBe(created.body.applyGoal.goalId);
+    const [deliveryDependency] = await db.select()
+      .from(aiGoalDependenciesTable)
+      .where(eq(aiGoalDependenciesTable.goalId, deliveryPlanGoal.goalId));
+    expect(deliveryDependency?.dependsOnGoalId).toBe(created.body.applyGoal.goalId);
 
     const [mission] = await db.select().from(aiMissionsTable)
       .where(eq(aiMissionsTable.id, created.body.mission.id));
     const goals = await db.select().from(aiGoalsTable)
       .where(eq(aiGoalsTable.missionId, created.body.mission.id));
     const applyGoal = goals.find((goal) => goal.id === created.body.applyGoal.goalId);
+    const deliveryGoal = goals.find((goal) => goal.id === deliveryPlanGoal.goalId);
     const requirement = {
       kind: "apply.changes",
       version: 1,
@@ -4903,6 +4954,14 @@ describe("AI missions and goals", () => {
     });
     expect(applyGoal?.status).toBe("waiting_for_event");
     expect(applyGoal?.blockedReason).toBe("apply_changes_pending");
+    expect(deliveryGoal?.status).toBe("waiting_for_event");
+    expect(deliveryGoal?.nextAction).toMatchObject({
+      kind: "recipe",
+      recipeId: "delivery.push.github",
+      recipeVersion: 1,
+      approvedPaths: ["README.md"],
+    });
+    expect(deliveryGoal?.outcomeContract).toMatchObject({ deliveryRequired: true });
     expect(await db.select({ id: tasksTable.id }).from(tasksTable)
       .where(eq(tasksTable.goalId, created.body.applyGoal.goalId))).toEqual([]);
 
@@ -5249,6 +5308,27 @@ describe("AI missions and goals", () => {
     expect(accepted.status).toBe(201);
     expect(accepted.body).toMatchObject({
       applyGoal: { stepId: "apply-changes", taskId: null },
+    });
+
+    const [readyMission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, accepted.body.mission.id));
+    const [readyGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, accepted.body.applyGoal.goalId));
+    const activePlanRevision = (readyMission?.autonomyPolicy as Record<string, unknown> | undefined)
+      ?.activePlanRevision;
+    expect(applyChangesMissionRequirement(
+      readyGoal!,
+      readyMission!,
+      typeof activePlanRevision === "string" ? activePlanRevision : undefined,
+    )).toMatchObject({ kind: "valid" });
+    expect({
+      status: readyGoal?.status,
+      blockedReason: readyGoal?.blockedReason,
+      nextAction: readyGoal?.nextAction,
+    }).toMatchObject({
+      status: "waiting_for_event",
+      blockedReason: "apply_changes_pending",
+      nextAction: { kind: "wait", reason: "event" },
     });
 
     const readyToApply = await request(app)

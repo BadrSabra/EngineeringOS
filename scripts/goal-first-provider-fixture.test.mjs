@@ -393,3 +393,181 @@ test("lifecycle fixture stages only manifest-authorized README and validation ca
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+test("lifecycle observer fixture requires an authorized README read and returns its bound claim", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(os.tmpdir(), "engineering-agent-lifecycle-observer-fixture-test-"),
+  );
+  const logPath = join(temporaryRoot, "requests.jsonl");
+  try {
+    const script = `
+      const url = "https://openrouter.ai/api/v1/chat/completions";
+      const tools = [{
+        type: "function",
+        function: {
+          name: "read_file",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      }];
+      const rootMessages = [{
+        role: "user",
+        content: "Server-owned Mission execution.\\\\n\\\\nExecution profile: mission_observe.\\\\n\\\\nClaim applied-result (README.md): Confirm the approved sentence is present after applying the candidate.",
+      }];
+      async function request(messages, allowedTools = tools) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "liquid/lfm-2.5-2.6b:free",
+            messages,
+            tools: allowedTools,
+          }),
+        });
+        return { status: response.status, payload: await response.json() };
+      }
+      const planResponse = await request([
+        { role: "system", content: "You are a planning agent for a code intelligence system." },
+        ...rootMessages,
+      ], []);
+      const blocked = await request(rootMessages, []);
+      const started = await request(rootMessages);
+      const call = started.payload.choices?.[0]?.message?.tool_calls?.[0];
+      if (!call) throw new Error("observer fixture omitted the README read");
+      const final = await request([
+        ...rootMessages,
+        { role: "assistant", tool_calls: [call] },
+        {
+          role: "tool",
+          name: "read_file",
+          tool_call_id: call.id,
+          content: JSON.stringify({
+            path: "README.md",
+            content: "Lifecycle acceptance sentinel: retained after approved delivery.",
+          }),
+        },
+      ]);
+      const summary = JSON.parse(final.payload.choices?.[0]?.message?.content ?? "{}");
+      const synthesis = await request([
+        {
+          role: "system",
+          content: "Synthesize a scoped project answer from the retained evidence below.",
+        },
+        {
+          role: "user",
+          content: [
+            "Server-owned Mission execution.",
+            "Execution profile: mission_observe.",
+            "Objective: Report the live applied result; confirm the approved candidate is APPLIED.",
+            "Server-owned retained evidence:",
+            "Claim applied-result (README.md):",
+            "Lifecycle acceptance sentinel: retained after approved delivery.",
+          ].join("\\\\n"),
+        },
+      ], []);
+      const synthesisPayload = JSON.parse(
+        synthesis.payload.choices?.[0]?.message?.content ?? "{}",
+      );
+      const synthesisArabic = await request([
+        {
+          role: "system",
+          content: "Synthesize a scoped project answer from the retained evidence below.",
+        },
+        {
+          role: "user",
+          content: [
+            "Server-owned Mission execution.",
+            "Execution profile: mission_observe.",
+            "Objective: Report the live applied result; confirm the approved candidate is APPLIED.",
+            "أجب باللغة العربية.",
+            "Server-owned retained evidence:",
+            "Claim applied-result (README.md):",
+            "Lifecycle acceptance sentinel: retained after approved delivery.",
+          ].join("\\\\n"),
+        },
+      ], []);
+      const synthesisArabicPayload = JSON.parse(
+        synthesisArabic.payload.choices?.[0]?.message?.content ?? "{}",
+      );
+      console.log(JSON.stringify({
+        queryPlan: JSON.parse(planResponse.payload.choices?.[0]?.message?.content ?? "{}"),
+        blockedStatus: blocked.status,
+        readStatus: started.status,
+        callName: call.function.name,
+        callArguments: JSON.parse(call.function.arguments),
+        finalStatus: final.status,
+        summary,
+        synthesisStatus: synthesis.status,
+        synthesisPayload,
+        synthesisArabicStatus: synthesisArabic.status,
+        synthesisArabicPayload,
+      }));
+    `;
+    const result = await runFixture(script, {
+      PATH: process.env.PATH ?? "",
+      NODE_ENV: "development",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      MISSION_E2E_PROVIDER_FIXTURE: "1",
+      ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+      ENGINEERING_AGENT_LIFECYCLE_REMOTE: join(temporaryRoot, "remote.git"),
+      ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT: join(temporaryRoot, "project"),
+      ENGINEERING_AGENT_LIFECYCLE_RECEIPT: join(temporaryRoot, "receipt.json"),
+      DASHBOARD_E2E_PROVIDER_FIXTURE_LOG: logPath,
+    });
+    assert.equal(result.signal, null, result.stderr);
+    assert.equal(result.code, 0, result.stderr);
+    const response = JSON.parse(result.stdout.trim());
+    assert.deepEqual(response, {
+      queryPlan: {
+        targetFiles: ["README.md"],
+        targetEntities: [],
+        targetConfidence: 0.95,
+        scopeEstimate: "narrow",
+        suggestedIterations: 8,
+        requiresToolUse: true,
+        subQueries: [],
+        compoundParts: [],
+      },
+      blockedStatus: 403,
+      readStatus: 200,
+      callName: "read_file",
+      callArguments: { path: "README.md" },
+      finalStatus: 200,
+      summary: {
+        response: 'The approved candidate is APPLIED. Its live result is that README.md contains the sentinel sentence: "Lifecycle acceptance sentinel: retained after approved delivery."',
+        sources: ["README.md"],
+        claimRefs: ["applied-result"],
+      },
+      synthesisStatus: 200,
+      synthesisPayload: {
+        response: 'The approved candidate is APPLIED. Its live result is that README.md contains the sentinel sentence: "Lifecycle acceptance sentinel: retained after approved delivery."',
+        sources: ["README.md"],
+        claimRefs: ["applied-result"],
+      },
+      synthesisArabicStatus: 200,
+      synthesisArabicPayload: {
+        response: 'المرشح المعتمد حالته APPLIED. والنتيجة الحية هي أن README.md يحتوي على السطر: "Lifecycle acceptance sentinel: retained after approved delivery."',
+        sources: ["README.md"],
+        claimRefs: ["applied-result"],
+      },
+    });
+    const requests = (await readFile(logPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(requests.map(({ kind }) => kind), [
+      "lifecycle-query-plan",
+      "lifecycle-applied-report-read-not-authorized",
+      "lifecycle-applied-report-read",
+      "lifecycle-applied-report-summary",
+      "lifecycle-applied-report-synthesis",
+      "lifecycle-applied-report-synthesis",
+    ]);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});

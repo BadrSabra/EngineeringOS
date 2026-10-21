@@ -62,3 +62,9 @@ Creating a candidate-bound Apply Mission and applying its candidate are two sepa
 **Why:** Candidate approval and Mission creation do not prove or authorize a completed apply. Combining them would hide the transition between review and filesystem effect; treating a readiness projection as authority could apply a stale or mismatched candidate.
 
 **How to apply:** Keep Apply Mission creation non-mutating. Surface the separate apply action only when the persisted proposal, candidate, Mission, and waiting Goal match; submit through the existing guarded apply path, which remains authoritative. Return D2 transition and Goal-wake status separately from file-apply success; clients must not infer Mission completion from HTTP 2xx.
+
+New Apply Missions make Report and Delivery sibling Goals that both depend directly on Apply; Delivery does not depend on Report. Continue accepting persisted legacy Apply→Report and Apply→Report→Delivery plans. Delivery still waits for a committed proposal and explicit binding before it can run.
+
+**Why:** Report acceptance is not a prerequisite for delivery, and an exact successor check must not reject the new sibling topology. Existing persisted Mission plans are not rewritten when the planner evolves; treating Apply as delivery would still skip the separate commit and user-authorized remote push.
+
+**How to apply:** For new plans, validate the exact direct successor set and each child’s step/revision binding. Retain explicit compatibility for both legacy dependency shapes; keep Delivery non-runnable until the committed proposal is explicitly bound.

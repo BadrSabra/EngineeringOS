@@ -976,10 +976,10 @@ function DeliveryBindingEditor({
       saving={saving}
       onClose={onClose}
       onSubmit={submit}
-      submitLabel="اربط وتابع"
+      submitLabel="اربط وابدأ التسليم"
     >
       <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
-        الربط فقط: تُدخل هنا معرّف المقترح (UUID) لتربطه بخطوة التسليم هذه. الربط ليس موافقة ولا تطبيقًا للتغييرات. يتحقق الخادم من الملكية ويحدد هوية العملية والمستودع البعيد والفرع بنفسه.
+        أدخل معرّف المقترح الذي راجعته وأنشأت له commit. سيبدأ هذا الإجراء دفعه إلى المستودع والفرع المهيأين بعد اكتمال التبعيات؛ لا يعيد تطبيق الملفات. يتحقق الخادم من الملكية وهوية العملية والمستودع والفرع.
       </div>
       <div>
         <FieldLabel htmlFor="delivery-proposal-id">معرّف المقترح المعتمَد (Proposal ID)</FieldLabel>
@@ -1143,8 +1143,8 @@ function GoalCard({
           {isGithubDelivery && !hasProposal && !['completed', 'cancelled'].includes(goal.status) ? (
             <button type="button" onClick={onBindDelivery} data-testid={`button-bind-delivery-${goal.id}`} className="inline-flex items-center gap-1 rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20">
               <GitBranch className="h-3 w-3" />
-              <span className="hidden sm:inline">ربط مقترح</span>
-              <span className="sm:hidden">ربط</span>
+              <span className="hidden sm:inline">ربط وبدء التسليم</span>
+              <span className="sm:hidden">تسليم</span>
             </button>
           ) : null}
           {goal.status === 'waiting_for_approval' && approvalAvailable ? (
@@ -1596,8 +1596,8 @@ export default function Missions() {
       setEditor(null);
       setMutationNotice(
         result.run.status === 'waiting'
-          ? 'رُبط مقترح التسليم. تنتظر الخطوة اكتمال الخطوات التي تعتمد عليها قبل المتابعة.'
-          : 'رُبط مقترح التسليم وأُضيفت الخطوة إلى قائمة انتظار التسليم.',
+          ? 'رُبط المقترح؛ ينتظر بدء التسليم اكتمال الخطوات التابعة.'
+          : 'رُبط المقترح وبدأت خطوة التسليم إلى المستودع المهيأ.',
       );
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {

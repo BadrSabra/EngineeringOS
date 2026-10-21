@@ -566,6 +566,7 @@ export type PrepareRecipeOperationParams = {
   recipeVersion: number;
   approvedPaths?: readonly string[];
   candidateIdentity?: string | null;
+  deliveryProposalId?: string;
   candidateWorkspace?: string | null;
   validationProfiles?: readonly ("workspace-typecheck" | "ai-orchestrator-tests")[];
   deliveryMessage?: string;
@@ -1058,7 +1059,9 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       operationId: params.operationId,
       // Validation and browser profiles operate on a bounded set, even when
       // that set contains one file. "file" is reserved for file-native tools.
-      scope: params.recipeId === "runtime.start"
+      scope: params.recipeId === "delivery.push.github"
+        ? { kind: "none", paths: [] }
+        : params.recipeId === "runtime.start"
         || params.recipeId === "runtime.restart"
         || params.recipeId === "runtime.stop"
         || params.recipeId === "database.inspect.project"
@@ -3854,6 +3857,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       evidence: completionEvidence,
       operationId: params.operationId,
       candidateIdentity: params.candidateIdentity ?? null,
+      ...(params.deliveryProposalId ? { deliveryProposalId: params.deliveryProposalId } : {}),
       ...(taskObjective
         ? {
             taskObjective,

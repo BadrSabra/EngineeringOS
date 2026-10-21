@@ -18,6 +18,7 @@ import {
   type ApplyChangesRequirement,
 } from "@workspace/ai-orchestrator";
 import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
+import { isCommittedApplyProposalProofBound } from "./apply-changes-proof.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Goal = typeof aiGoalsTable.$inferSelect;
@@ -28,6 +29,42 @@ function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as JsonRecord
     : {};
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as JsonRecord)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+export function applyMissionDirectSuccessorStepIds(planSnapshot: unknown): string[] {
+  const plan = record(planSnapshot);
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+  return steps
+    .map(record)
+    .filter((step) =>
+      Array.isArray(step.dependencies)
+      && step.dependencies.includes("apply-changes")
+      && typeof step.id === "string",
+    )
+    .map((step) => step.id as string)
+    .sort();
+}
+
+export function isApplyProposalLifecycleProofBound(
+  proposal: unknown,
+  candidateTreeHash: string,
+): boolean {
+  const value = record(proposal);
+  if (value.status !== "applied") return false;
+  if (value.lifecycle === "applied") return true;
+  return isCommittedApplyProposalProofBound(value, candidateTreeHash);
 }
 
 function sameRequirement(left: unknown, right: ApplyChangesRequirement): boolean {
@@ -160,16 +197,43 @@ export function applyChangesMissionRequirement(
   const stepIds = steps.map((step) => step.id).sort();
   const applyStep = steps.find((step) => step.id === "apply-changes");
   const reportStep = steps.find((step) => step.id === "report-applied");
+  const deliveryStep = steps.find((step) => step.id === "deliver-applied");
   const reportDependencies = Array.isArray(reportStep?.dependencies)
     ? reportStep.dependencies
     : [];
+  const deliveryDependencies = Array.isArray(deliveryStep?.dependencies)
+    ? deliveryStep.dependencies
+    : [];
+  const deliveryRecipe = record(deliveryStep?.recipe);
+  const reportFiles = Array.isArray(reportStep?.files) ? reportStep.files : [];
+  const deliveryFiles = Array.isArray(deliveryStep?.files) ? deliveryStep.files : [];
+  const sameDeliveryScope = reportFiles.length === deliveryFiles.length
+    && reportFiles.every((filePath, index) =>
+      typeof filePath === "string"
+      && filePath.trim().length > 0
+      && filePath === deliveryFiles[index],
+    );
+  const legacyTwoStepPlan = steps.length === 2
+    && stepIds.join(",") === "apply-changes,report-applied";
+  const gatedThreeStepPlan = steps.length === 3
+    && stepIds.join(",") === "apply-changes,deliver-applied,report-applied"
+    && deliveryStep?.kind === "deliver"
+    && deliveryDependencies.length === 1
+    && (deliveryDependencies[0] === "apply-changes"
+      || deliveryDependencies[0] === "report-applied")
+    && Object.keys(deliveryRecipe).length === 2
+    && deliveryRecipe.recipeId === "delivery.push.github"
+    && deliveryRecipe.recipeVersion === 1
+    && deliveryStep.readOnly === false
+    && deliveryStep.approvalRequired === false
+    && sameDeliveryScope;
   const action = GoalNextActionSchema.safeParse(goal.nextAction);
   if (
-    steps.length !== 2
-    || stepIds.join(",") !== "apply-changes,report-applied"
+    (!legacyTwoStepPlan && !gatedThreeStepPlan)
     || !applyStep
     || !reportStep
-    || !reportDependencies.includes("apply-changes")
+    || reportDependencies.length !== 1
+    || reportDependencies[0] !== "apply-changes"
     || !action.success
     || action.data.kind !== "wait"
     || outcome.candidateIdentity !== `${requirement.proposalId}:${requirement.candidateTreeHash}`
@@ -188,24 +252,32 @@ export function applyChangesMissionRequirement(
 }
 
 /**
- * A linked Apply Mission also contains a legitimate report-applied successor.
- * Only its durable dependency on the valid Apply Goal makes that successor
- * exempt from D2; client-editable Goal labels alone never do.
+ * Linked Apply Missions may contain report and delivery successors. They are
+ * not Apply Goals only when their durable dependency chain reaches the bound
+ * Apply Goal and every Goal carries the same active plan snapshot.
  */
 export async function resolveApplyChangesMissionRequirement(
   tx: MissionTransaction,
   goal: Goal,
   mission: Mission,
   activePlanRevision: string | undefined,
+  lockRows = true,
 ): Promise<ApplyChangesMissionRequirement> {
   const criteria = record(goal.successCriteria);
   const outcome = record(goal.outcomeContract);
   const autonomyPolicy = record(mission.autonomyPolicy);
-  const isReportSuccessorShape = criteria.stepId === "report-applied"
-    && outcome.stepId === "report-applied"
-    && !Object.hasOwn(criteria, "applyRequirement")
-    && !Object.hasOwn(outcome, "applyRequirement");
-  if (!isReportSuccessorShape || !Object.hasOwn(autonomyPolicy, "applyMission")) {
+  const successorStepId = criteria.stepId === outcome.stepId
+    && (criteria.stepId === "report-applied" || criteria.stepId === "deliver-applied")
+    ? criteria.stepId
+    : undefined;
+  const isReportSuccessor = successorStepId === "report-applied";
+  const isDeliverySuccessor = successorStepId === "deliver-applied";
+  if (
+    (!isReportSuccessor && !isDeliverySuccessor)
+    || !Object.hasOwn(autonomyPolicy, "applyMission")
+    || Object.hasOwn(criteria, "applyRequirement")
+    || Object.hasOwn(outcome, "applyRequirement")
+  ) {
     return applyChangesMissionRequirement(goal, mission, activePlanRevision);
   }
 
@@ -215,34 +287,129 @@ export async function resolveApplyChangesMissionRequirement(
     !activePlanRevision
     || criteriaPlan.hash !== activePlanRevision
     || outcomePlan.hash !== activePlanRevision
+    || stableJson(criteriaPlan) !== stableJson(outcomePlan)
   ) {
     return applyChangesMissionRequirement(goal, mission, activePlanRevision);
   }
 
-  const dependencies = await tx.select()
+  const planSteps = Array.isArray(criteriaPlan.steps) ? criteriaPlan.steps.map(record) : [];
+  const successorStep = planSteps.find((step) => step.id === successorStepId);
+  const stepDependencies = Array.isArray(successorStep?.dependencies)
+    ? successorStep.dependencies
+    : [];
+  const deliveryPredecessorStepId = isDeliverySuccessor
+    && stepDependencies.length === 1
+    && (stepDependencies[0] === "apply-changes" || stepDependencies[0] === "report-applied")
+    ? stepDependencies[0]
+    : undefined;
+  const expectedPredecessorStepId = isReportSuccessor
+    ? "apply-changes"
+    : deliveryPredecessorStepId;
+  if (
+    !successorStep
+    || stepDependencies.length !== 1
+    || !expectedPredecessorStepId
+    || stepDependencies[0] !== expectedPredecessorStepId
+  ) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  const dependencyQuery = tx.select()
     .from(aiGoalDependenciesTable)
     .where(and(
       eq(aiGoalDependenciesTable.projectId, goal.projectId),
       eq(aiGoalDependenciesTable.missionId, goal.missionId),
       eq(aiGoalDependenciesTable.goalId, goal.id),
       eq(aiGoalDependenciesTable.planRevision, activePlanRevision),
-    ))
-    .for("update");
-  if (dependencies.length !== 1) {
+    ));
+  const dependencies = await (lockRows ? dependencyQuery.for("update") : dependencyQuery);
+  if (dependencies.length !== 1 || dependencies[0].dependsOnGoalId === goal.id) {
     return applyChangesMissionRequirement(goal, mission, activePlanRevision);
   }
 
-  const [applyGoal] = await tx.select()
+  const predecessorGoalQuery = tx.select()
     .from(aiGoalsTable)
     .where(and(
       eq(aiGoalsTable.id, dependencies[0].dependsOnGoalId),
       eq(aiGoalsTable.projectId, goal.projectId),
       eq(aiGoalsTable.missionId, goal.missionId),
-    ))
-    .for("update");
+    ));
+  const [predecessorGoal] = await (
+    lockRows ? predecessorGoalQuery.for("update") : predecessorGoalQuery
+  );
+  if (!predecessorGoal) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  const predecessorCriteria = record(predecessorGoal.successCriteria);
+  const predecessorOutcome = record(predecessorGoal.outcomeContract);
+  const predecessorStepId = expectedPredecessorStepId;
+  if (
+    predecessorCriteria.stepId !== predecessorStepId
+    || predecessorOutcome.stepId !== predecessorStepId
+    || (isDeliverySuccessor
+      && predecessorStepId === "report-applied"
+      && (
+      Object.hasOwn(predecessorCriteria, "applyRequirement")
+      || Object.hasOwn(predecessorOutcome, "applyRequirement")
+      ))
+  ) {
+    return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+  }
+
+  let applyGoal: Goal | undefined;
+  if (predecessorStepId === "apply-changes") {
+    applyGoal = predecessorGoal;
+  } else {
+    const predecessorPlan = record(predecessorCriteria.planRevision);
+    const predecessorOutcomePlan = record(predecessorOutcome.planRevision);
+    const predecessorDependencyQuery = tx.select()
+      .from(aiGoalDependenciesTable)
+      .where(and(
+        eq(aiGoalDependenciesTable.projectId, goal.projectId),
+        eq(aiGoalDependenciesTable.missionId, goal.missionId),
+        eq(aiGoalDependenciesTable.goalId, predecessorGoal.id),
+        eq(aiGoalDependenciesTable.planRevision, activePlanRevision),
+      ));
+    const predecessorDependencies = await (
+      lockRows ? predecessorDependencyQuery.for("update") : predecessorDependencyQuery
+    );
+    if (
+      predecessorPlan.hash !== activePlanRevision
+      || predecessorOutcomePlan.hash !== activePlanRevision
+      || stableJson(predecessorPlan) !== stableJson(criteriaPlan)
+      || stableJson(predecessorOutcomePlan) !== stableJson(criteriaPlan)
+      || predecessorDependencies.length !== 1
+    ) {
+      return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+    }
+    const boundApplyGoalQuery = tx.select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, predecessorDependencies[0].dependsOnGoalId),
+        eq(aiGoalsTable.projectId, goal.projectId),
+        eq(aiGoalsTable.missionId, goal.missionId),
+      ));
+    const [boundApplyGoal] = await (
+      lockRows ? boundApplyGoalQuery.for("update") : boundApplyGoalQuery
+    );
+    if (
+      !boundApplyGoal
+      || record(boundApplyGoal.successCriteria).stepId !== "apply-changes"
+      || record(boundApplyGoal.outcomeContract).stepId !== "apply-changes"
+    ) {
+      return applyChangesMissionRequirement(goal, mission, activePlanRevision);
+    }
+    applyGoal = boundApplyGoal;
+  }
+
+  const applyPlan = applyGoal ? record(record(applyGoal.successCriteria).planRevision) : {};
+  const applyOutcomePlan = applyGoal ? record(record(applyGoal.outcomeContract).planRevision) : {};
   if (
     !applyGoal
     || applyChangesMissionRequirement(applyGoal, mission, activePlanRevision).kind !== "valid"
+    || stableJson(applyPlan) !== stableJson(criteriaPlan)
+    || stableJson(applyOutcomePlan) !== stableJson(criteriaPlan)
   ) {
     return applyChangesMissionRequirement(goal, mission, activePlanRevision);
   }
@@ -328,38 +495,73 @@ export async function evaluateApplyChangesD2(
     goal: Goal;
     mission: Mission;
     activePlanRevision: string | undefined;
+    lockRows?: boolean;
   },
 ): Promise<ApplyChangesD2Evaluation> {
+  const lockRows = input.lockRows !== false;
   const binding = await resolveApplyChangesMissionRequirement(
     tx,
     input.goal,
     input.mission,
     input.activePlanRevision,
+    lockRows,
   );
   if (binding.kind === "none") return { state: "not_applicable" };
   if (binding.kind === "invalid") return { state: "failed", reason: binding.reason };
 
   const { requirement, planRevision, candidateIdentity } = binding;
-  const dependencies = await tx.select()
+  const applyPlan = record(record(input.goal.successCriteria).planRevision);
+  const expectedSuccessorSteps = applyMissionDirectSuccessorStepIds(applyPlan);
+  const dependencyQuery = tx.select()
     .from(aiGoalDependenciesTable)
     .where(and(
       eq(aiGoalDependenciesTable.projectId, input.goal.projectId),
       eq(aiGoalDependenciesTable.missionId, input.goal.missionId),
       eq(aiGoalDependenciesTable.dependsOnGoalId, input.goal.id),
       eq(aiGoalDependenciesTable.planRevision, planRevision),
-    ))
-    .for("update");
-  if (dependencies.length !== 1) {
+    ));
+  const dependencies = await (lockRows ? dependencyQuery.for("update") : dependencyQuery);
+  const successorGoalIds = dependencies.map((dependency) => dependency.goalId);
+  if (
+    expectedSuccessorSteps.length === 0
+    || dependencies.length !== expectedSuccessorSteps.length
+    || new Set(successorGoalIds).size !== successorGoalIds.length
+  ) {
     return { state: "failed", reason: "apply_successor_dependency_invalid" };
   }
-  const [successor] = await tx.select()
+  const successorGoalQuery = tx.select()
     .from(aiGoalsTable)
     .where(and(
-      eq(aiGoalsTable.id, dependencies[0].goalId),
       eq(aiGoalsTable.projectId, input.goal.projectId),
       eq(aiGoalsTable.missionId, input.goal.missionId),
-    ))
-    .for("update");
+      inArray(aiGoalsTable.id, successorGoalIds),
+    ));
+  const successorGoals = await (lockRows ? successorGoalQuery.for("update") : successorGoalQuery);
+  if (successorGoals.length !== successorGoalIds.length) {
+    return { state: "failed", reason: "apply_successor_dependency_invalid" };
+  }
+  const successorSteps = successorGoals.map((successorGoal) =>
+    record(successorGoal.successCriteria).stepId,
+  );
+  if (
+    successorSteps.some((stepId) => typeof stepId !== "string")
+    || stableJson([...successorSteps].sort()) !== stableJson(expectedSuccessorSteps)
+  ) {
+    return { state: "failed", reason: "apply_successor_dependency_invalid" };
+  }
+  const successorBindingIsCurrent = successorGoals.every((successorGoal) => {
+    const criteria = record(successorGoal.successCriteria);
+    const outcome = record(successorGoal.outcomeContract);
+    return criteria.stepId === outcome.stepId
+      && record(criteria.planRevision).hash === planRevision
+      && record(outcome.planRevision).hash === planRevision;
+  });
+  if (!successorBindingIsCurrent) {
+    return { state: "failed", reason: "apply_successor_binding_invalid" };
+  }
+  const [successor] = successorGoals.filter(
+    (successorGoal) => record(successorGoal.successCriteria).stepId === "report-applied",
+  );
   const successorCriteria = record(successor?.successCriteria);
   if (
     !successor
@@ -379,14 +581,14 @@ export async function evaluateApplyChangesD2(
     || successorDependencies[0].dependsOnGoalId !== input.goal.id
   ) return { state: "failed", reason: "apply_successor_dependency_invalid" };
 
-  const executions = await tx.select()
+  const executionQuery = tx.select()
     .from(aiExecutionsTable)
     .where(and(
       eq(aiExecutionsTable.projectId, input.goal.projectId),
       eq(aiExecutionsTable.goalId, input.goal.id),
       eq(aiExecutionsTable.proposalId, requirement.proposalId),
-    ))
-    .for("update");
+    ));
+  const executions = await (lockRows ? executionQuery.for("update") : executionQuery);
   const execution = executions.sort((left, right) =>
     right.createdAt.getTime() - left.createdAt.getTime()
     || right.attempt - left.attempt
@@ -401,17 +603,16 @@ export async function evaluateApplyChangesD2(
     return { state: "failed", reason: "apply_execution_not_accepted" };
   }
 
-  const [proposal] = await tx.select()
+  const proposalQuery = tx.select()
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.id, requirement.proposalId),
       eq(aiChangeProposalsTable.projectId, input.goal.projectId),
-    ))
-    .for("update");
+    ));
+  const [proposal] = await (lockRows ? proposalQuery.for("update") : proposalQuery);
   if (
     !proposal
-    || proposal.status !== "applied"
-    || proposal.lifecycle !== "applied"
+    || !isApplyProposalLifecycleProofBound(proposal, requirement.candidateTreeHash)
     || proposal.baseRevision !== requirement.baseRevision
     || proposal.revision !== binding.proposalRevision
     || proposal.baseTreeHash !== binding.baseTreeHash
@@ -423,14 +624,14 @@ export async function evaluateApplyChangesD2(
     || !/^[a-f0-9]{64}$/.test(proposal.baseTreeHash)
   ) return { state: "failed", reason: "apply_proposal_binding_invalid" };
 
-  const [acceptance] = await tx.select()
+  const acceptanceQuery = tx.select()
     .from(aiExecutionAcceptancesTable)
     .where(and(
       eq(aiExecutionAcceptancesTable.executionId, execution.id),
       eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
       eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
-    ))
-    .for("update");
+    ));
+  const [acceptance] = await (lockRows ? acceptanceQuery.for("update") : acceptanceQuery);
   if (!acceptance) return { state: "failed", reason: "apply_acceptance_missing" };
   if (
     acceptance.terminalStatus !== "completed"
@@ -439,14 +640,14 @@ export async function evaluateApplyChangesD2(
     || !acceptance.effectBundleId
   ) return { state: "failed", reason: "apply_acceptance_binding_invalid" };
 
-  const transitions = await tx.select()
+  const transitionQuery = tx.select()
     .from(aiWorldTransitionsTable)
     .where(and(
       eq(aiWorldTransitionsTable.projectId, input.goal.projectId),
       eq(aiWorldTransitionsTable.executionId, execution.id),
       eq(aiWorldTransitionsTable.attempt, execution.attempt),
-    ))
-    .for("update");
+    ));
+  const transitions = await (lockRows ? transitionQuery.for("update") : transitionQuery);
   const transition = transitions.find((candidate) => {
     const parsed = readApplyBinding(candidate.evidenceRefs);
     return candidate.idempotencyKey.startsWith("apply.changes:")
@@ -474,16 +675,19 @@ export async function evaluateApplyChangesD2(
     || transition.environmentRevisionKey !== `revision:${transition.environmentRevision}`
   ) return { state: "failed", reason: "apply_transition_not_materialized" };
 
-  const [episode] = await tx.select({ id: aiAgentEpisodesTable.id })
+  const episodeQuery = tx.select({ id: aiAgentEpisodesTable.id })
     .from(aiAgentEpisodesTable)
     .where(and(
       eq(aiAgentEpisodesTable.id, transition.episodeId),
       eq(aiAgentEpisodesTable.projectId, input.goal.projectId),
       eq(aiAgentEpisodesTable.executionId, execution.id),
       eq(aiAgentEpisodesTable.attempt, execution.attempt),
-    ))
-    .for("update")
-    .limit(1);
+    ));
+  const [episode] = await (
+    lockRows
+      ? episodeQuery.for("update").limit(1)
+      : episodeQuery.limit(1)
+  );
   if (!episode) {
     return { state: "failed", reason: "apply_transition_episode_invalid" };
   }
@@ -497,13 +701,13 @@ export async function evaluateApplyChangesD2(
     || ![...beforeIds, ...afterIds].every((id) => materializedIds.has(id))
   ) return { state: "failed", reason: "apply_transition_observation_set_invalid" };
   const observationIds = [...new Set([...beforeIds, ...afterIds])];
-  const observations = await tx.select()
+  const observationQuery = tx.select()
     .from(aiAgentObservationsTable)
     .where(and(
       eq(aiAgentObservationsTable.projectId, input.goal.projectId),
       inArray(aiAgentObservationsTable.id, observationIds),
-    ))
-    .for("update");
+    ));
+  const observations = await (lockRows ? observationQuery.for("update") : observationQuery);
   if (
     observations.length !== observationIds.length
     || observations.some((observation) => (
@@ -533,7 +737,7 @@ export async function evaluateApplyChangesD2(
     return { state: "failed", reason: "apply_transition_tree_observations_invalid" };
   }
 
-  const [bundle] = await tx.select()
+  const bundleQuery = tx.select()
     .from(aiAgentEffectBundlesTable)
     .where(and(
       eq(aiAgentEffectBundlesTable.id, acceptance.effectBundleId),
@@ -541,22 +745,32 @@ export async function evaluateApplyChangesD2(
       eq(aiAgentEffectBundlesTable.executionId, execution.id),
       eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
       eq(aiAgentEffectBundlesTable.episodeId, transition.episodeId),
-    ))
-    .for("update");
+    ));
+  const [bundle] = await (lockRows ? bundleQuery.for("update") : bundleQuery);
   const effectIds = Array.isArray(bundle?.effectIds)
     ? bundle.effectIds.filter((id): id is string => typeof id === "string")
     : [];
   const effects = effectIds.length > 0
-    ? await tx.select()
-      .from(aiAgentEffectsTable)
-      .where(and(
-        eq(aiAgentEffectsTable.projectId, input.goal.projectId),
-        eq(aiAgentEffectsTable.executionId, execution.id),
-        eq(aiAgentEffectsTable.attempt, execution.attempt),
-        eq(aiAgentEffectsTable.episodeId, transition.episodeId),
-        inArray(aiAgentEffectsTable.id, effectIds),
-      ))
-      .for("update")
+    ? await (lockRows
+      ? tx.select()
+        .from(aiAgentEffectsTable)
+        .where(and(
+          eq(aiAgentEffectsTable.projectId, input.goal.projectId),
+          eq(aiAgentEffectsTable.executionId, execution.id),
+          eq(aiAgentEffectsTable.attempt, execution.attempt),
+          eq(aiAgentEffectsTable.episodeId, transition.episodeId),
+          inArray(aiAgentEffectsTable.id, effectIds),
+        ))
+        .for("update")
+      : tx.select()
+        .from(aiAgentEffectsTable)
+        .where(and(
+          eq(aiAgentEffectsTable.projectId, input.goal.projectId),
+          eq(aiAgentEffectsTable.executionId, execution.id),
+          eq(aiAgentEffectsTable.attempt, execution.attempt),
+          eq(aiAgentEffectsTable.episodeId, transition.episodeId),
+          inArray(aiAgentEffectsTable.id, effectIds),
+        )))
     : [];
   if (!bundle || !isBoundApplyChangeEffectBundle({
     bundle,

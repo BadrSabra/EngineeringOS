@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { aiGoalsTable, aiMissionsTable } from "@workspace/db";
-import { applyChangesMissionRequirement } from "./apply-changes-mission-gate.js";
+import {
+  applyChangesMissionRequirement,
+  isApplyProposalLifecycleProofBound,
+} from "./apply-changes-mission-gate.js";
 
 const proposalId = "proposal-apply-mission";
 const baseRevision = "a".repeat(40);
@@ -33,17 +36,69 @@ const applyMissionBinding = {
   requirement,
 };
 
+describe("isApplyProposalLifecycleProofBound", () => {
+  const appliedProposal = {
+    status: "applied",
+    lifecycle: "applied",
+    promotedTreeHash: candidateTreeHash,
+  };
+
+  it("accepts a proposal while its exact applied candidate is still active", () => {
+    expect(isApplyProposalLifecycleProofBound(appliedProposal, candidateTreeHash)).toBe(true);
+  });
+
+  it("accepts a committed proposal only when its commit receipt retains the exact candidate tree", () => {
+    expect(isApplyProposalLifecycleProofBound({
+      ...appliedProposal,
+      lifecycle: "committed",
+      commitHash: "a".repeat(40),
+      committedTreeHash: candidateTreeHash,
+    }, candidateTreeHash)).toBe(true);
+  });
+
+  it.each([
+    ["proposal status", { status: "rejected" }],
+    ["proposal lifecycle", { lifecycle: "blocked" }],
+    ["missing commit identity", { commitHash: null, committedTreeHash: candidateTreeHash }],
+    ["malformed commit identity", { commitHash: "not-a-commit", committedTreeHash: candidateTreeHash }],
+    ["committed candidate tree", { commitHash: "a".repeat(40), committedTreeHash: "f".repeat(64) }],
+    ["promoted candidate tree", {
+      commitHash: "a".repeat(40),
+      committedTreeHash: candidateTreeHash,
+      promotedTreeHash: "f".repeat(64),
+    }],
+  ])("rejects committed state with a mismatched %s", (_label, override) => {
+    expect(isApplyProposalLifecycleProofBound({
+      ...appliedProposal,
+      lifecycle: "committed",
+      commitHash: "a".repeat(40),
+      committedTreeHash: candidateTreeHash,
+      ...override,
+    }, candidateTreeHash)).toBe(false);
+  });
+});
+
 function fixtures(overrides: {
   criteria?: Record<string, unknown>;
   outcome?: Record<string, unknown>;
   missionPolicy?: Record<string, unknown>;
+  steps?: Array<Record<string, unknown>>;
 } = {}) {
   const plan = {
     hash: planRevision,
     applyRequirement: requirement,
-    steps: [
+    steps: overrides.steps ?? [
       { id: "apply-changes", dependencies: [] },
-      { id: "report-applied", dependencies: ["apply-changes"] },
+      { id: "report-applied", dependencies: ["apply-changes"], files: ["README.md"] },
+      {
+        id: "deliver-applied",
+        kind: "deliver",
+        dependencies: ["apply-changes"],
+        files: ["README.md"],
+        readOnly: false,
+        approvalRequired: false,
+        recipe: { recipeId: "delivery.push.github", recipeVersion: 1 },
+      },
     ],
   };
   const goal = {
@@ -70,7 +125,7 @@ function fixtures(overrides: {
 }
 
 describe("applyChangesMissionRequirement", () => {
-  it("accepts only the immutable two-step apply/report plan and active Mission binding", () => {
+  it("accepts the immutable apply/report/delivery plan and active Mission binding", () => {
     const { goal, mission } = fixtures();
 
     expect(applyChangesMissionRequirement(goal, mission, planRevision)).toEqual({
@@ -81,6 +136,83 @@ describe("applyChangesMissionRequirement", () => {
       proposalRevision: 3,
       baseTreeHash,
       operationId,
+    });
+  });
+
+  it("continues to accept an already-created two-step Apply Mission", () => {
+    const { goal, mission } = fixtures({
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"] },
+      ],
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "valid",
+      requirement,
+    });
+  });
+
+  it("continues to accept a previously materialized delivery-through-report plan", () => {
+    const { goal, mission } = fixtures({
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"], files: ["README.md"] },
+        {
+          id: "deliver-applied",
+          kind: "deliver",
+          dependencies: ["report-applied"],
+          files: ["README.md"],
+          readOnly: false,
+          approvalRequired: false,
+          recipe: { recipeId: "delivery.push.github", recipeVersion: 1 },
+        },
+      ],
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "valid",
+      requirement,
+    });
+  });
+
+  it.each([
+    {
+      label: "multiple delivery dependencies",
+      delivery: {
+        id: "deliver-applied",
+        kind: "deliver",
+        dependencies: ["apply-changes", "report-applied"],
+        files: ["README.md"],
+        readOnly: false,
+        approvalRequired: false,
+        recipe: { recipeId: "delivery.push.github", recipeVersion: 1 },
+      },
+    },
+    {
+      label: "a different delivery recipe",
+      delivery: {
+        id: "deliver-applied",
+        kind: "deliver",
+        dependencies: ["apply-changes"],
+        files: ["README.md"],
+        readOnly: false,
+        approvalRequired: false,
+        recipe: { recipeId: "delivery.push.other", recipeVersion: 1 },
+      },
+    },
+  ])("rejects $label in a linked Apply Mission plan", ({ delivery }) => {
+    const { goal, mission } = fixtures({
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"], files: ["README.md"] },
+        delivery,
+      ],
+    });
+
+    expect(applyChangesMissionRequirement(goal, mission, planRevision)).toMatchObject({
+      kind: "invalid",
+      reason: "apply_plan_shape_invalid",
     });
   });
 

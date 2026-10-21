@@ -341,6 +341,101 @@ function lifecycleMissionResponse(requestBody, messages, url, method) {
     : fixtureJsonResponse(completionPayload(requestBody.model, content));
 }
 
+function lifecycleAppliedReportToolCalls(messages) {
+  const priorCalls = messages.flatMap((message) =>
+    message?.role === "assistant" && Array.isArray(message.tool_calls)
+      ? message.tool_calls
+      : [],
+  );
+  if (priorCalls.some((call) => requestToolName(call) === "read_file")) return undefined;
+  lifecycleToolCallSequence += 1;
+  return [{
+    id: `call_lifecycle_applied_report_read_${lifecycleToolCallSequence}`,
+    type: "function",
+    function: {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "README.md" }),
+    },
+  }];
+}
+
+function lifecycleAppliedReportSynthesis(messages) {
+  const serializedMessages = JSON.stringify(messages);
+  if (!serializedMessages.includes(LIFECYCLE_SENTENCE)) return undefined;
+  const requestText = messages
+    .filter((message) => message?.role === "user" && typeof message.content === "string")
+    .map((message) => message.content.split("Server-owned retained evidence:")[0])
+    .join("\n");
+  const arabicRequested = /[\u0600-\u06FF]/u.test(requestText);
+  const claimMatches = [...serializedMessages.matchAll(
+    /Claim ([A-Za-z0-9:_-]+) \(([^)]+)\):/gu,
+  )];
+  const claimRefs = [...new Set(claimMatches.map((match) => match[1]))];
+  const sources = [...new Set(claimMatches.map((match) => match[2]))];
+  if (
+    claimRefs.length === 0
+    || !sources.some((source) => source.replaceAll("\\\\", "/").endsWith("README.md"))
+  ) {
+    return undefined;
+  }
+  return JSON.stringify({
+    response: arabicRequested
+      ? `المرشح المعتمد حالته APPLIED. والنتيجة الحية هي أن README.md يحتوي على السطر: "${LIFECYCLE_SENTENCE}"`
+      : `The approved candidate is APPLIED. Its live result is that README.md contains the sentinel sentence: "${LIFECYCLE_SENTENCE}"`,
+    sources,
+    claimRefs,
+  });
+}
+
+function lifecycleAppliedReportSynthesisResponse(requestBody, messages, url, method) {
+  const content = lifecycleAppliedReportSynthesis(messages);
+  if (!content) {
+    recordRequest(url, method, "lifecycle-applied-report-synthesis-evidence-missing");
+    return fixtureJsonResponse({
+      error: {
+        message: "The lifecycle applied-report synthesis requires retained README evidence and its server-bound claim.",
+      },
+    }, 409);
+  }
+  recordRequest(url, method, "lifecycle-applied-report-synthesis");
+  return requestBody.stream === true
+    ? streamResponse(requestBody.model, content)
+    : fixtureJsonResponse(completionPayload(requestBody.model, content));
+}
+
+function lifecycleMissionObserveResponse(requestBody, messages, url, method) {
+  const calls = lifecycleAppliedReportToolCalls(messages);
+  if (calls) {
+    const toolName = calls[0].function.name;
+    if (!lifecycleToolIsAvailable(requestBody, toolName)) {
+      recordRequest(url, method, "lifecycle-applied-report-read-not-authorized");
+      return fixtureJsonResponse({
+        error: {
+          message: "The lifecycle applied-report fixture requires the server-authorized read_file tool.",
+        },
+      }, 403);
+    }
+    recordRequest(url, method, "lifecycle-applied-report-read");
+    return requestBody.stream === true
+      ? streamToolCallsResponse(requestBody.model, calls)
+      : fixtureJsonResponse(toolCallsPayload(requestBody.model, calls));
+  }
+
+  const content = lifecycleAppliedReportSynthesis(messages);
+  if (!content) {
+    recordRequest(url, method, "lifecycle-applied-report-evidence-missing");
+    return fixtureJsonResponse({
+      error: {
+        message: "The lifecycle applied-report fixture requires the approved README sentence and its server-bound claim.",
+      },
+    }, 409);
+  }
+  recordRequest(url, method, "lifecycle-applied-report-summary");
+  return requestBody.stream === true
+    ? streamResponse(requestBody.model, content)
+    : fixtureJsonResponse(completionPayload(requestBody.model, content));
+}
+
 function recordRequest(url, method, kind) {
   const path = url.pathname;
   const logPath = process.env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG;
@@ -431,7 +526,9 @@ globalThis.fetch = async (input, init) => {
     assertLifecycleFixtureMode();
     const isMissionRepairExecution = isMissionExecution
       && serializedMessages.includes("Execution profile: mission_repair.");
-    if (isMissionRepairExecution && isQueryPlannerRequest) {
+    const isMissionObserveExecution = isMissionExecution
+      && serializedMessages.includes("Execution profile: mission_observe.");
+    if ((isMissionRepairExecution || isMissionObserveExecution) && isQueryPlannerRequest) {
       recordRequest(url, method, "lifecycle-query-plan");
       return requestBody.stream === true
         ? streamResponse(requestBody.model, lifecycleQueryPlan)
@@ -439,6 +536,12 @@ globalThis.fetch = async (input, init) => {
     }
     if (isMissionRepairExecution) {
       return lifecycleMissionResponse(requestBody, messages, url, method);
+    }
+    if (isMissionObserveExecution && isProjectQuerySynthesis) {
+      return lifecycleAppliedReportSynthesisResponse(requestBody, messages, url, method);
+    }
+    if (isMissionObserveExecution) {
+      return lifecycleMissionObserveResponse(requestBody, messages, url, method);
     }
     if (isMissionExecution || isQueryPlannerRequest || isProjectQuerySynthesis) {
       recordRequest(url, method, "lifecycle-unsupported-ai-stage");

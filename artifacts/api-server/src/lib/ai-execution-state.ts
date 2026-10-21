@@ -3348,6 +3348,7 @@ export async function completeAiExecution(params: {
   finalMessageId?: string | null;
   finalMessageContent?: string;
   proposalId?: string;
+  deliveryProposalId?: string;
   disposition?: Record<string, unknown>;
   operation?: AutonomousOperationContract;
   taskObjective?: TaskObjectiveContract;
@@ -3768,6 +3769,7 @@ export async function completeAiExecution(params: {
     sourceRevision: request?.workspaceRevision,
     candidateIdentity: params.candidateIdentity,
     proposalId: params.proposalId ?? null,
+    deliveryProposalId: params.deliveryProposalId ?? null,
     recipeReceipt: params.recipeReceipt,
     ...(acceptedClaimRefs.length > 0 ? { acceptedClaimRefs } : {}),
     goalProjection: params.goalProjection,

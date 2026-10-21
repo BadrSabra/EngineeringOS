@@ -286,16 +286,32 @@ async function hasCurrentGoalDependencyProof(
     deliveryRequired: jsonRecord(dependencyGoal.outcomeContract).deliveryRequired === true
       && jsonRecord(dependencyGoal.nextAction).recipeId !== "candidate.verify",
   });
-  if (
-    !canonicalProof.accepted
-    || canonicalProof.contractVersion !== CANONICAL_PROOF_CONTRACT_VERSION
-    || canonicalProof.verdict !== "PROVEN"
-    || canonicalProof.executionId !== execution.id
-    || canonicalProof.attempt !== execution.attempt
-    || canonicalProof.operationId !== execution.operationId
-    || canonicalProof.sourceRevision !== execution.baseRevision
-    || canonicalProof.projection?.contractVersion !== EXECUTION_PROOF_CONTRACT_VERSION
-  ) return false;
+  const canonicalProofChecks = {
+    accepted: canonicalProof.accepted,
+    contractVersion: canonicalProof.contractVersion === CANONICAL_PROOF_CONTRACT_VERSION,
+    verdict: canonicalProof.verdict === "PROVEN",
+    executionId: canonicalProof.executionId === execution.id,
+    attempt: canonicalProof.attempt === execution.attempt,
+    operationId: canonicalProof.operationId === execution.operationId,
+    sourceRevision: canonicalProof.sourceRevision === execution.baseRevision,
+    projectionVersion:
+      canonicalProof.projection?.contractVersion === EXECUTION_PROOF_CONTRACT_VERSION,
+  };
+  const failedCanonicalChecks = Object.entries(canonicalProofChecks)
+    .filter(([, passed]) => !passed)
+    .map(([check]) => check);
+  if (failedCanonicalChecks.length > 0) {
+    if (acceptanceProjection.reasonCode === "APPLY_CHANGES_D2_PROVEN") {
+      logger.warn({
+        missionId: mission.id,
+        dependencyGoalId: dependencyGoal.id,
+        executionId: execution.id,
+        failedChecks: failedCanonicalChecks,
+        failureReasons: canonicalProof.failureReasons,
+      }, "Mission Apply Changes dependency failed Canonical Proof revalidation");
+    }
+    return false;
+  }
 
   if (acceptanceProjection.reasonCode === "APPLY_CHANGES_D2_PROVEN") {
     const applyProof = await evaluateApplyChangesD2(tx, {
@@ -304,17 +320,43 @@ async function hasCurrentGoalDependencyProof(
       activePlanRevision,
     });
     const stateProjection = jsonRecord(acceptanceProjection.stateProjection);
-    return applyProof.state === "proven"
-      && applyProof.executionId === execution.id
-      && applyProof.attempt === execution.attempt
-      && applyProof.acceptanceId === canonicalProof.acceptanceId
-      && applyProof.operationId === execution.operationId
-      && applyProof.planRevision === dependencyPlanRevision
-      && applyProof.requirement.baseRevision === canonicalProof.sourceRevision
-      && applyProof.candidateIdentity === candidateIdentity
-      && stateProjection.transitionId === applyProof.transitionId
-      && stateProjection.worldRevision === applyProof.resultingWorldRevision
-      && stateProjection.environmentRevision === applyProof.environmentRevision;
+    const applyProofChecks = {
+      proven: applyProof.state === "proven",
+      executionId: applyProof.state === "proven" && applyProof.executionId === execution.id,
+      attempt: applyProof.state === "proven" && applyProof.attempt === execution.attempt,
+      acceptanceId: applyProof.state === "proven"
+        && applyProof.acceptanceId === canonicalProof.acceptanceId,
+      operationId: applyProof.state === "proven" && applyProof.operationId === execution.operationId,
+      planRevision: applyProof.state === "proven"
+        && applyProof.planRevision === dependencyPlanRevision,
+      baseRevision: applyProof.state === "proven"
+        && applyProof.requirement.baseRevision === canonicalProof.sourceRevision,
+      candidateIdentity: applyProof.state === "proven"
+        && applyProof.candidateIdentity === candidateIdentity,
+      transitionId: applyProof.state === "proven"
+        && stateProjection.transitionId === applyProof.transitionId,
+      worldRevision: applyProof.state === "proven"
+        && stateProjection.worldRevision === applyProof.resultingWorldRevision,
+      environmentRevision: applyProof.state === "proven"
+        && stateProjection.environmentRevision === applyProof.environmentRevision,
+    };
+    const failedApplyChecks = Object.entries(applyProofChecks)
+      .filter(([, passed]) => !passed)
+      .map(([check]) => check);
+    if (failedApplyChecks.length > 0) {
+      logger.warn({
+        missionId: mission.id,
+        dependencyGoalId: dependencyGoal.id,
+        executionId: execution.id,
+        applyProofState: applyProof.state,
+        applyProofReason: applyProof.state === "pending" || applyProof.state === "failed"
+          ? applyProof.reason
+          : null,
+        failedChecks: failedApplyChecks,
+      }, "Mission Apply Changes dependency proof no longer matches its accepted projection");
+      return false;
+    }
+    return true;
   }
 
   // Transition claimers lock Transition before Episode; only probe Episode identity here.
@@ -1889,6 +1931,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       sourceRevision,
       recipeId: dispatch.action.recipeId,
       recipeVersion: dispatch.action.recipeVersion,
+      ...(delivery ? { deliveryProposalId: delivery.proposalId } : {}),
       approvedPaths: dispatch.action.approvedPaths,
       candidateIdentity: dispatch.action.candidateIdentity ?? null,
       candidateWorkspace: candidate?.candidateWorkspace ?? null,

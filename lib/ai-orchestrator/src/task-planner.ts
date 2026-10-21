@@ -20,6 +20,7 @@ export type GeneralTaskPlanStepKind =
 export type GeneralTaskPlanStep = {
   id: string;
   title: string;
+  objective?: string;
   kind: GeneralTaskPlanStepKind;
   dependencies: string[];
   files: string[];

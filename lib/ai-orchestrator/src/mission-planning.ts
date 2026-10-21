@@ -279,6 +279,7 @@ export type MissionPlanPreview = {
 export function buildApplyChangesMissionPlanPreview(input: {
   objective: string;
   requirement: ApplyChangesRequirement;
+  reportPaths: readonly string[];
 }): MissionPlanPreview {
   const planBody = {
     version: 1 as const,
@@ -298,11 +299,26 @@ export function buildApplyChangesMissionPlanPreview(input: {
       {
         id: "report-applied",
         title: "Report the live applied result",
-        kind: "deliver" as const,
+        objective: "Report the live applied result; confirm the approved candidate is APPLIED.",
+        kind: "inspect" as const,
         dependencies: ["apply-changes"],
-        files: [] as string[],
+        files: [...new Set(input.reportPaths)],
         readOnly: true,
         approvalRequired: false,
+      },
+      {
+        id: "deliver-applied",
+        title: "Deliver the committed change to GitHub",
+        objective: "Push the committed approved candidate for the approved paths to the configured GitHub remote.",
+        kind: "deliver" as const,
+        dependencies: ["apply-changes"],
+        files: [...new Set(input.reportPaths)],
+        readOnly: false,
+        approvalRequired: false,
+        recipe: {
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+        },
       },
     ],
     conflicts: [] as string[],

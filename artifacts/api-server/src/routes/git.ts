@@ -55,14 +55,16 @@ const TEST_FIXTURE_REMOTE = "https://fixture.local/engineeringos.git";
 async function runGit(
   args: string[],
   cwd: string,
-  opts?: { timeout?: number; env?: NodeJS.ProcessEnv },
+  opts?: { timeout?: number; env?: NodeJS.ProcessEnv; trimOutput?: boolean },
 ): Promise<{ stdout: string; stderr: string }> {
   const { stdout, stderr } = await execFileAsync("git", ["-C", cwd, ...args], {
     timeout: opts?.timeout ?? GIT_TIMEOUT_MS,
     maxBuffer: GIT_MAX_BUFFER,
     env: { ...process.env, ...(opts?.env ?? {}) },
   });
-  return { stdout: stdout.trim(), stderr: stderr.trim() };
+  return opts?.trimOutput === false
+    ? { stdout, stderr }
+    : { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
 /**
@@ -223,7 +225,7 @@ router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, 
   const { rootPath } = req.project!;
   try {
     await assertRootPathExists(rootPath);
-    const { stdout } = await runGit(["status", "--short", "-u"], rootPath);
+    const { stdout } = await runGit(["status", "--short", "-u"], rootPath, { trimOutput: false });
     const files = stdout
       .split("\n")
       .filter(Boolean)
@@ -302,17 +304,24 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const proposalId = typeof body.proposalId === "string" ? body.proposalId : undefined;
   const operationId = typeof body.operationId === "string" ? body.operationId : undefined;
+  const operationIdIsUuid = operationId
+    ? /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)
+    : false;
   if (!message) return res.status(400).json({ error: "message is required" });
   if (proposalId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalId)) {
     return res.status(400).json({ error: "proposalId must be a valid UUID" });
   }
-  if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+  if (operationId && (!operationId.trim() || operationId.trim() !== operationId
+    || operationId.length > 256 || /[\r\n\0]/u.test(operationId))) {
+    return res.status(400).json({ error: "operationId must be a bounded single-line identifier" });
+  }
+  if (operationId && !proposalId && !operationIdIsUuid) {
     return res.status(400).json({ error: "operationId must be a valid UUID" });
   }
 
   const { rootPath, id: projectId } = req.project!;
-  const correlationId = operationId ?? proposalId ?? randomUUID();
-  const commitMessage = proposalId
+  let correlationId = operationId ?? proposalId ?? randomUUID();
+  let commitMessage = proposalId
     ? `${message}\n\nEngineeringOS-Operation: ${correlationId}`
     : message;
 
@@ -338,6 +347,28 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       if (!proposal) {
         return res.status(404).json({ error: "AI change proposal not found", code: "AI_PROPOSAL_NOT_FOUND" });
       }
+      if (
+        typeof proposal.operationId !== "string"
+        || !proposal.operationId
+        || proposal.operationId.trim() !== proposal.operationId
+        || proposal.operationId.length > 256
+        || /[\r\n\0]/u.test(proposal.operationId)
+      ) {
+        return res.status(409).json({
+          error: "The AI change proposal has no valid server-owned operation identity",
+          code: "AI_PROPOSAL_OPERATION_INVALID",
+          proposalId,
+        });
+      }
+      if (operationId && operationId !== proposal.operationId) {
+        return res.status(409).json({
+          error: "The supplied operation identity does not match the proposal",
+          code: "AI_COMMIT_OPERATION_MISMATCH",
+          proposalId,
+        });
+      }
+      correlationId = proposal.operationId;
+      commitMessage = `${message}\n\nEngineeringOS-Operation: ${correlationId}`;
       if (
         proposal.lifecycle === "committed"
         && proposal.operationId === correlationId
@@ -490,7 +521,11 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         }
       }
 
-      const { stdout: stagedOutput } = await runGit(["diff", "--cached", "--name-only", "-z"], rootPath);
+      const { stdout: stagedOutput } = await runGit(
+        ["diff", "--cached", "--name-only", "-z"],
+        rootPath,
+        { trimOutput: false },
+      );
       const stagedPaths = stagedOutput.split("\0").filter(Boolean);
       const unrelatedStaged = stagedPaths.filter((candidate) => !scopedPaths!.includes(candidate));
       if (unrelatedStaged.length > 0) {
@@ -509,7 +544,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         "--porcelain=v1",
         "--untracked-files=all",
         "-z",
-      ], rootPath);
+      ], rootPath, { trimOutput: false });
       const workingTreePaths = statusOutput
         .split("\0")
         .filter(Boolean)

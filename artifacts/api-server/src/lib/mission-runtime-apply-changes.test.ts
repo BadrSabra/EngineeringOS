@@ -34,6 +34,7 @@ import { buildExecutionProofProjection } from "./execution-proof.js";
 import { getProjectWorldState } from "./agent-state/world-state.js";
 import * as worldStateModule from "./agent-state/world-state.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
+import { projectMissionGoalProof } from "./mission-completion-gate.js";
 
 const { scheduleTaskExecution } = vi.hoisted(() => ({
   scheduleTaskExecution: vi.fn(),
@@ -1306,6 +1307,57 @@ describe("Apply Changes Mission D2 dispatch", () => {
     }
   });
 
+  it("does not lock D2 dependency rows during read-only Mission proof projection", async () => {
+    const fixture = await createApplyChangesFixture();
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    const [reportGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    if (!mission || !reportGoal) throw new Error("Apply Changes projection fixture is incomplete.");
+
+    let announceDependencyLocked!: () => void;
+    let releaseDependencyLock!: () => void;
+    const dependencyLocked = new Promise<void>((resolve) => {
+      announceDependencyLocked = resolve;
+    });
+    const dependencyLockRelease = new Promise<void>((resolve) => {
+      releaseDependencyLock = resolve;
+    });
+    const blocker = db.transaction(async (tx) => {
+      const locked = await tx.select({ id: aiGoalDependenciesTable.id })
+        .from(aiGoalDependenciesTable)
+        .where(and(
+          eq(aiGoalDependenciesTable.projectId, fixture.projectId),
+          eq(aiGoalDependenciesTable.missionId, fixture.missionId),
+          eq(aiGoalDependenciesTable.goalId, fixture.reportGoalId),
+          eq(aiGoalDependenciesTable.planRevision, fixture.planRevision),
+        ))
+        .for("update");
+      if (locked.length !== 1) throw new Error("Expected one report dependency to lock.");
+      announceDependencyLocked();
+      await dependencyLockRelease;
+    });
+
+    let projection: Promise<unknown> | undefined;
+    try {
+      await dependencyLocked;
+      projection = db.transaction((tx) => projectMissionGoalProof(tx, mission, reportGoal));
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        projection.then(() => "completed" as const),
+        new Promise<"blocked">((resolve) => {
+          timeout = setTimeout(() => resolve("blocked"), 1_000);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      expect(result).toBe("completed");
+    } finally {
+      releaseDependencyLock();
+      await blocker;
+      await projection?.catch(() => undefined);
+    }
+  });
+
   it("rechecks the current Goal state before projecting live proof", async () => {
     const fixture = await createApplyChangesFixture();
 
@@ -1458,6 +1510,40 @@ describe("Apply Changes Mission D2 dispatch", () => {
     expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
     expect(await wakeReadyMissionGoals()).toBe(0);
     expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps D2 proof current after the exact candidate is committed", async () => {
+    const fixture = await createApplyChangesFixture();
+    const [goal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, fixture.missionId));
+    if (!goal || !mission) throw new Error("Apply Changes D2 fixture is incomplete.");
+
+    const evaluate = () => db.transaction((tx) =>
+      applyChangesMissionGate.evaluateApplyChangesD2(tx, {
+        goal,
+        mission,
+        activePlanRevision: fixture.planRevision,
+      }));
+    expect(await evaluate()).toMatchObject({ state: "proven" });
+
+    await db.update(aiChangeProposalsTable)
+      .set({
+        lifecycle: "committed",
+        commitHash: "a".repeat(40),
+        committedTreeHash: fixture.candidateTreeHash,
+      })
+      .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    expect(await evaluate()).toMatchObject({ state: "proven" });
+
+    await db.update(aiChangeProposalsTable)
+      .set({ committedTreeHash: "f".repeat(64) })
+      .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
+    expect(await evaluate()).toMatchObject({
+      state: "failed",
+      reason: "apply_proposal_binding_invalid",
+    });
   });
 
   it("keeps an already-queued report Goal blocked when its predecessor lacks Canonical Proof", async () => {

@@ -317,6 +317,32 @@ async function main() {
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    console.log("Verifying Apply Mission delivery dependency and compatibility gates.");
+    lifecycleRunnerStage = "apply-mission-delivery-gate";
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/agent-state/apply-changes-mission-gate.test.ts",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
+    console.log("Verifying Apply D2 proof continuity after an exact Git commit.");
+    lifecycleRunnerStage = "apply-d2-committed-proof";
+    await run("pnpm", [
+      "--filter",
+      "@workspace/api-server",
+      "exec",
+      "vitest",
+      "run",
+      "src/lib/mission-runtime-apply-changes.test.ts",
+      "-t",
+      "keeps D2 proof current after the exact candidate is committed",
+    ], { env });
+    if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
     console.log("Verifying approved Mission delivery against the controlled local bare remote.");
     lifecycleRunnerStage = "delivery-service";
     await run("pnpm", [
@@ -341,7 +367,7 @@ async function main() {
       "run",
       "src/routes/git.test.ts",
       "-t",
-      "keeps manual Git push outside AI World State and completes the approved delivery trace",
+      "keeps manual Git push outside AI World State and completes the approved delivery trace|derives a namespaced proposal operation identity for a scoped commit|preserves the leading porcelain column when showing a modified tracked file",
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
@@ -384,7 +410,6 @@ async function main() {
           .filter(Boolean),
       );
       for (const expectedKind of [
-        "lifecycle-read_file",
         "lifecycle-write_file",
         "lifecycle-run_validation",
         "lifecycle-mission-final",

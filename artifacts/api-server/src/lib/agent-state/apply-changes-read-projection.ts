@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   aiGoalDependenciesTable,
   aiGoalsTable,
@@ -9,6 +9,7 @@ import {
   type aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import {
+  applyMissionDirectSuccessorStepIds,
   applyChangesMissionRequirement,
   readApplyBinding,
 } from "./apply-changes-mission-gate.js";
@@ -89,6 +90,7 @@ export async function loadApplyMissionLink(
     return blocked(binding.kind === "invalid" ? binding.reason : "apply_requirement_invalid");
   }
   if (binding.requirement.proposalId !== execution.proposalId) return blocked("apply_requirement_invalid");
+  const expectedSuccessorSteps = applyMissionDirectSuccessorStepIds(criteriaPlan);
   const dependencies = await db.select()
     .from(aiGoalDependenciesTable)
     .where(and(
@@ -97,12 +99,38 @@ export async function loadApplyMissionLink(
       eq(aiGoalDependenciesTable.dependsOnGoalId, linked.goal.id),
       eq(aiGoalDependenciesTable.planRevision, binding.planRevision),
     ));
-  if (dependencies.length !== 1) return blocked("apply_successor_dependency_invalid");
-  const [successor] = await db.select().from(aiGoalsTable).where(and(
-    eq(aiGoalsTable.id, dependencies[0].goalId),
+  const successorGoalIds = dependencies.map((dependency) => dependency.goalId);
+  if (
+    expectedSuccessorSteps.length === 0
+    || dependencies.length !== expectedSuccessorSteps.length
+    || new Set(successorGoalIds).size !== successorGoalIds.length
+  ) return blocked("apply_successor_dependency_invalid");
+  const successorGoals = await db.select().from(aiGoalsTable).where(and(
     eq(aiGoalsTable.projectId, execution.projectId),
     eq(aiGoalsTable.missionId, linked.mission.id),
-  )).limit(1);
+    inArray(aiGoalsTable.id, successorGoalIds),
+  ));
+  if (successorGoals.length !== successorGoalIds.length) {
+    return blocked("apply_successor_dependency_invalid");
+  }
+  const successorSteps = successorGoals.map((successorGoal) =>
+    record(successorGoal.successCriteria).stepId,
+  );
+  if (
+    successorSteps.some((stepId) => typeof stepId !== "string")
+    || successorSteps.sort().join("\u0000") !== expectedSuccessorSteps.join("\u0000")
+  ) return blocked("apply_successor_dependency_invalid");
+  const successorBindingIsCurrent = successorGoals.every((successorGoal) => {
+    const successorCriteria = record(successorGoal.successCriteria);
+    const successorOutcome = record(successorGoal.outcomeContract);
+    return successorCriteria.stepId === successorOutcome.stepId
+      && record(successorCriteria.planRevision).hash === binding.planRevision
+      && record(successorOutcome.planRevision).hash === binding.planRevision;
+  });
+  if (!successorBindingIsCurrent) return blocked("apply_successor_binding_invalid");
+  const [successor] = successorGoals.filter(
+    (successorGoal) => record(successorGoal.successCriteria).stepId === "report-applied",
+  );
   const successorCriteria = record(successor?.successCriteria);
   if (
     !successor

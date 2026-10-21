@@ -6103,7 +6103,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const summarizeChatStream = (body: string) => {
       const eventTypes = new Set<string>();
       let sessionStarted = false;
+      let sessionStartedSessionId: string | null = null;
       let doneHasSessionId = false;
+      let doneSessionId: string | null = null;
+      let doneMessageId: string | null = null;
+      let doneMessageRole: string | null = null;
+      let doneMessageContentLength: number | null = null;
+      let doneTurnIntent: string | null = null;
+      let doneTaskResultKind: string | null = null;
       let providerFailure: Record<string, unknown> | null = null;
       const safeCode = (value: unknown, fallback: string) => (
         typeof value === "string" && /^[A-Z][A-Z0-9_]{2,79}$/.test(value)
@@ -6123,9 +6130,38 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         if (typeof event.type === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(event.type)) {
           eventTypes.add(event.type);
         }
-        if (event.type === "session_started") sessionStarted = true;
+        if (event.type === "session_started") {
+          sessionStarted = true;
+          sessionStartedSessionId = typeof event.sessionId === "string"
+            && /^[0-9a-f-]{36}$/i.test(event.sessionId)
+            ? event.sessionId
+            : null;
+        }
         if (event.type === "done" && typeof event.sessionId === "string") {
           doneHasSessionId = true;
+          doneSessionId = /^[0-9a-f-]{36}$/i.test(event.sessionId)
+            ? event.sessionId
+            : null;
+          const message = event.message && typeof event.message === "object"
+            && !Array.isArray(event.message)
+            ? event.message as Record<string, unknown>
+            : null;
+          doneMessageId = typeof message?.id === "string"
+            && /^[0-9a-f-]{36}$/i.test(message.id)
+            ? message.id
+            : null;
+          doneMessageRole = message?.role === "assistant" || message?.role === "user"
+            ? message.role
+            : null;
+          doneMessageContentLength = typeof message?.content === "string"
+            ? Math.min(message.content.length, 100_000)
+            : null;
+          doneTurnIntent = safeCode(message?.turnIntent, "UNKNOWN");
+          const taskResult = message?.taskResult && typeof message.taskResult === "object"
+            && !Array.isArray(message.taskResult)
+            ? message.taskResult as Record<string, unknown>
+            : null;
+          doneTaskResultKind = safeCode(taskResult?.kind, "UNKNOWN");
         }
         if (event.type !== "error") continue;
         const retryAfterMs = typeof event.retryAfterMs === "number"
@@ -6151,7 +6187,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       return {
         eventTypes: [...eventTypes].slice(0, 32),
         sessionStarted,
+        sessionStartedSessionId,
         doneHasSessionId,
+        doneSessionId,
+        sessionIdsMatch: sessionStartedSessionId && doneSessionId
+          ? sessionStartedSessionId === doneSessionId
+          : null,
+        doneMessageId,
+        doneMessageRole,
+        doneMessageContentLength,
+        doneTurnIntent,
+        doneTaskResultKind,
         providerFailure,
       };
     };
@@ -6318,7 +6364,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.chatStream = {
         eventTypes: chatSummary.eventTypes,
         sessionStarted: chatSummary.sessionStarted,
+        sessionStartedSessionId: chatSummary.sessionStartedSessionId,
         doneHasSessionId: chatSummary.doneHasSessionId,
+        doneSessionId: chatSummary.doneSessionId,
+        sessionIdsMatch: chatSummary.sessionIdsMatch,
+        doneMessageId: chatSummary.doneMessageId,
+        doneMessageRole: chatSummary.doneMessageRole,
+        doneMessageContentLength: chatSummary.doneMessageContentLength,
+        doneTurnIntent: chatSummary.doneTurnIntent,
+        doneTaskResultKind: chatSummary.doneTaskResultKind,
         ...(chatSummary.providerFailure
           ? { providerFailure: chatSummary.providerFailure }
           : {}),
@@ -6576,13 +6630,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         return response.json();
       }, sessionId) as {
         proposalId?: string | null;
+        operationId?: string | null;
         missionCandidate?: boolean;
         missionCandidateAccepted?: boolean;
         candidateTreeHash?: string;
+        changes?: Array<{ path?: string }>;
       };
       expect(sourceProposal.missionCandidate).toBe(true);
       expect(sourceProposal.missionCandidateAccepted).toBe(true);
       expect(sourceProposal.proposalId).toBeTruthy();
+      expect(sourceProposal.operationId).toBeTruthy();
       expect(sourceProposal.candidateTreeHash).toMatch(/^[a-f0-9]{64}$/);
       const proposalId = sourceProposal.proposalId!;
       const candidateTreeHash = sourceProposal.candidateTreeHash!;
@@ -6686,29 +6743,80 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         throw new Error(`Apply Mission proof handoff failed: ${JSON.stringify(missionHandoff)}`);
       }
 
-      stage = "apply-commit-push";
+      stage = "apply-report-delivery-gate";
       let finalProjection: Record<string, any> | undefined;
       try {
         await expect.poll(async () => {
           finalProjection = await readMissionProjection(applyMissionId!);
-          return finalProjection.engineeringAgent?.state ?? "missing";
+          const reportGoal = finalProjection.goals?.find(
+            (entry: any) => entry.goal?.outcomeContract?.stepId === "report-applied",
+          );
+          const deliveryGoal = finalProjection.goals?.find(
+            (entry: any) => entry.goal?.outcomeContract?.stepId === "deliver-applied",
+          );
+          return reportGoal?.goal?.status === "completed"
+            && deliveryGoal?.goal?.status === "waiting_for_event"
+            && deliveryGoal?.goal?.nextAction?.recipeId === "delivery.push.github"
+            ? "ready"
+            : `${reportGoal?.goal?.status ?? "missing"}:${deliveryGoal?.goal?.status ?? "missing"}`;
         }, {
           timeout: 90_000,
           intervals: [1_000, 2_000, 3_000],
-        }).toBe("COMPLETE");
+        }).toBe("ready");
       } catch (error) {
         const projectionSummary = {
           missionStatus: finalProjection?.mission?.status ?? finalProjection?.status ?? null,
           engineeringAgentState: finalProjection?.engineeringAgent?.state ?? null,
+          dependencyBlockers,
           goals: finalProjection?.goals?.map((entry: any) => ({
+            id: entry.goal?.id ?? null,
+            title: entry.goal?.title ?? null,
             status: entry.goal?.status ?? null,
             blockedReason: entry.goal?.blockedReason ?? null,
-            attemptStatus: entry.currentAttempt?.status ?? null,
+            nextActionKind: entry.goal?.nextAction?.kind ?? null,
+            stepId: entry.goal?.outcomeContract?.stepId ?? null,
+            executionProfile: entry.goal?.outcomeContract?.executionProfile ?? null,
+            acceptance: entry.goal?.outcomeContract?.acceptance
+              ? {
+                  verdict: entry.goal.outcomeContract.acceptance.verdict ?? null,
+                  reasonCode: entry.goal.outcomeContract.acceptance.reasonCode ?? null,
+                  executionId: entry.goal.outcomeContract.acceptance.executionId ?? null,
+                  acceptanceId: entry.goal.outcomeContract.acceptance.acceptanceId ?? null,
+                  transitionId: entry.goal.outcomeContract.acceptance.stateProjection?.transitionId ?? null,
+                }
+              : null,
+            currentAttempt: entry.currentAttempt
+              ? {
+                  id: entry.currentAttempt.id ?? null,
+                  status: entry.currentAttempt.status ?? null,
+                  attempt: entry.currentAttempt.attempt ?? null,
+                  terminalReason: entry.currentAttempt.terminalReason ?? null,
+                }
+              : null,
+            tasks: entry.tasks?.map((task: any) => ({
+              id: task.id ?? null,
+              title: task.title ?? null,
+              phase: task.phase ?? null,
+              status: task.status ?? null,
+            })) ?? [],
+            statusEvents: entry.events
+              ?.filter((event: any) => [
+                "AiGoalStatusSynced",
+                "AiGoalApplyChangesProofAccepted",
+              ].includes(event.type))
+              .slice(0, 8)
+              .map((event: any) => ({
+                type: event.type,
+                before: event.payload?.before ?? null,
+                after: event.payload?.after ?? null,
+                reasonCode: event.payload?.acceptance?.reasonCode ?? null,
+                verdict: event.payload?.acceptance?.verdict ?? null,
+              })) ?? [],
           })) ?? [],
           missionHandoff,
         };
         throw new Error(
-          `Apply Mission did not complete: ${JSON.stringify(projectionSummary)}. ${
+          `Apply Mission did not reach its explicit delivery handoff: ${JSON.stringify(projectionSummary)}. ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -6716,23 +6824,203 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const appliedGoal = finalProjection!.goals?.find(
         (entry: any) => entry.goal?.id === applyGoalId,
       );
+      const reportGoal = finalProjection!.goals?.find(
+        (entry: any) => entry.goal?.outcomeContract?.stepId === "report-applied",
+      );
+      const deliveryGoal = finalProjection!.goals?.find(
+        (entry: any) => entry.goal?.outcomeContract?.stepId === "deliver-applied",
+      );
       const applyExecutionId = appliedGoal?.currentAttempt?.id;
       expect(appliedGoal?.goal?.status).toBe("completed");
       expect(appliedGoal?.currentAttempt?.status).toBe("completed");
       expect(applyExecutionId).toBeTruthy();
+      expect(reportGoal?.goal).toMatchObject({
+        status: "completed",
+        outcomeContract: {
+          executionProfile: "mission_observe",
+          acceptance: { verdict: "PROVEN" },
+        },
+      });
+      expect(reportGoal?.currentAttempt?.status).toBe("completed");
+      expect(deliveryGoal?.goal).toMatchObject({
+        status: "waiting_for_event",
+        nextAction: {
+          kind: "recipe",
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+        },
+        outcomeContract: { deliveryRequired: true },
+      });
+      const proposalPaths = [...new Set(
+        (sourceProposal.changes ?? [])
+          .map((change) => change.path?.trim().replaceAll("\\", "/"))
+          .filter((filePath): filePath is string => Boolean(filePath)),
+      )];
+      expect(proposalPaths.length).toBeGreaterThan(0);
+      expect(deliveryGoal?.goal?.nextAction?.approvedPaths).toEqual(proposalPaths);
       chain.applyExecutionId = applyExecutionId;
       chain.finalMissionId = applyMissionId;
       chain.engineeringAgentState = finalProjection!.engineeringAgent?.state;
+      chain.deliveryGoalId = deliveryGoal?.goal?.id;
 
       const appliedReadme = await readFile(resolve(projectRoot, "README.md"), "utf8");
       expect(appliedReadme.split("\n")).toContain(ENGINEERING_AGENT_LIFECYCLE_SENTENCE);
+      const baseCommitHash = runLifecycleGit(projectRoot, ["rev-parse", "HEAD"]);
+      const remoteCommitBeforeDelivery = runLifecycleGit(projectRoot, [
+        "--git-dir",
+        bareRemotePath,
+        "rev-parse",
+        "refs/heads/main",
+      ]);
+      expect(remoteCommitBeforeDelivery).toBe(baseCommitHash);
+      const remoteReadmeBeforeDelivery = runLifecycleGit(projectRoot, [
+        "--git-dir",
+        bareRemotePath,
+        "show",
+        "refs/heads/main:README.md",
+      ]);
+      expect(remoteReadmeBeforeDelivery.split("\n")).not.toContain(ENGINEERING_AGENT_LIFECYCLE_SENTENCE);
+
+      stage = "proposal-commit";
+      const commitResult = await page.evaluate(async ({ targetProjectId, targetProposalId, targetOperationId }) => {
+        const response = await fetch(
+          `/api/projects/${encodeURIComponent(targetProjectId)}/git/commit`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: "Commit the reviewed EngineeringOS lifecycle candidate",
+              proposalId: targetProposalId,
+              operationId: targetOperationId,
+            }),
+          },
+        );
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      }, {
+        targetProjectId: projectId,
+        targetProposalId: proposalId,
+        targetOperationId: sourceProposal.operationId!,
+      });
+      expect(commitResult.status, JSON.stringify(commitResult.body)).toBe(200);
+      expect(commitResult.body).toMatchObject({
+        ok: true,
+        committedPaths: proposalPaths,
+      });
       const localCommitHash = runLifecycleGit(projectRoot, ["rev-parse", "HEAD"]);
+      expect(commitResult.body.commitHash).toBe(localCommitHash);
+      expect(runLifecycleGit(projectRoot, [
+        "--git-dir",
+        bareRemotePath,
+        "rev-parse",
+        "refs/heads/main",
+      ])).toBe(remoteCommitBeforeDelivery);
+      expect(localCommitHash).not.toBe(remoteCommitBeforeDelivery);
+      chain.commitHash = localCommitHash;
+      chain.branch = "main";
+
+      stage = "delivery-binding";
+      const deliveryGoalId = deliveryGoal?.goal?.id as string;
+      await page.goto(
+        `${DASHBOARD_PATH}missions?${new URLSearchParams({
+          projectId,
+          missionId: applyMissionId!,
+        }).toString()}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      const bindDeliveryButton = page.getByTestId(`button-bind-delivery-${deliveryGoalId}`);
+      await expect(bindDeliveryButton).toBeVisible();
+      await bindDeliveryButton.click();
+      await expect(page.getByText(
+        /سيبدأ هذا الإجراء دفعه إلى المستودع والفرع المهيأين/u,
+      )).toBeVisible();
+      await page.getByTestId("delivery-proposal-id").fill(proposalId);
+      const deliveryEndpoint = `/api/ai/goals/${encodeURIComponent(deliveryGoalId)}/delivery`;
+      const deliveryBindingResponsePromise = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === deliveryEndpoint
+        && response.request().method() === "POST");
+      await page.getByTestId("button-save-editor").click();
+      const deliveryBindingResponse = await deliveryBindingResponsePromise;
+      expect(deliveryBindingResponse.status()).toBe(202);
+
+      stage = "delivery-execution";
+      const deliveryDeadline = Date.now() + 120_000;
+      let deliveryState = "missing";
+      while (Date.now() < deliveryDeadline) {
+        finalProjection = await readMissionProjection(applyMissionId!);
+        deliveryState = finalProjection.engineeringAgent?.state ?? "missing";
+        const missionStatus = finalProjection.mission?.status ?? finalProjection.status;
+        const deliveryStatus = finalProjection.goals?.find(
+          (entry: any) => entry.goal?.id === deliveryGoalId,
+        )?.goal?.status;
+        if (deliveryState === "COMPLETE") break;
+        if (
+          deliveryState === "NEEDS_ATTENTION"
+          || ["blocked", "needs_replan", "failed", "cancelled"].includes(missionStatus)
+          || ["blocked", "needs_replan", "failed", "cancelled"].includes(deliveryStatus)
+        ) break;
+        await page.waitForTimeout(Math.min(2_000, Math.max(0, deliveryDeadline - Date.now())));
+      }
+      if (deliveryState !== "COMPLETE") {
+        const dependencyBlockers = await page.evaluate(async ({ projectId, goalId }) => {
+          const response = await fetch(
+            `/api/events?projectId=${encodeURIComponent(projectId)}&type=AiGoalDependencyProofBlocked&limit=20`,
+          );
+          if (!response.ok) return [];
+          const body = await response.json() as {
+            events?: Array<{ type?: unknown; goalId?: unknown; payload?: unknown }>;
+          };
+          return (body.events ?? [])
+            .filter((event) => event.goalId === goalId)
+            .map(({ type, goalId: blockedGoalId, payload }) => ({
+              type,
+              goalId: blockedGoalId,
+              payload,
+            }));
+        }, { projectId, goalId: deliveryGoalId });
+        const projectionSummary = {
+          missionStatus: finalProjection?.mission?.status ?? finalProjection?.status ?? null,
+          engineeringAgentState: finalProjection?.engineeringAgent?.state ?? null,
+          dependencyBlockers,
+          goals: finalProjection?.goals?.map((entry: any) => ({
+            id: entry.goal?.id ?? null,
+            title: entry.goal?.title ?? null,
+            dependencies: (entry.goal?.dependencies ?? [])
+              .map((dependency: any) => dependency.dependsOnGoalId ?? null),
+            stepId: entry.goal?.outcomeContract?.stepId ?? null,
+            status: entry.goal?.status ?? null,
+            blockedReason: entry.goal?.blockedReason ?? null,
+            acceptance: entry.goal?.outcomeContract?.acceptance ?? null,
+            delivery: entry.delivery ?? null,
+          })) ?? [],
+        };
+        throw new Error(
+          `Mission delivery did not complete (state=${deliveryState}): ${JSON.stringify(projectionSummary)}.`,
+        );
+      }
+      const completedDeliveryGoal = finalProjection!.goals?.find(
+        (entry: any) => entry.goal?.id === deliveryGoalId,
+      );
+      expect(completedDeliveryGoal?.goal?.status).toBe("completed");
+      expect(completedDeliveryGoal?.currentAttempt?.status).toBe("completed");
+      expect(completedDeliveryGoal?.goal?.outcomeContract?.acceptance?.verdict).toBe("PROVEN");
+      expect(completedDeliveryGoal?.delivery).toMatchObject({
+        required: true,
+        receiptPresent: true,
+      });
+      chain.engineeringAgentState = finalProjection!.engineeringAgent?.state;
+
+      const localCommitHashAfterDelivery = runLifecycleGit(projectRoot, ["rev-parse", "HEAD"]);
       const remoteCommitHash = runLifecycleGit(projectRoot, [
         "--git-dir",
         bareRemotePath,
         "rev-parse",
         "refs/heads/main",
       ]);
+      expect(localCommitHashAfterDelivery).toBe(localCommitHash);
       expect(remoteCommitHash).toBe(localCommitHash);
       const remoteReadme = runLifecycleGit(projectRoot, [
         "--git-dir",
@@ -6741,9 +7029,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         "refs/heads/main:README.md",
       ]);
       expect(remoteReadme.split("\n")).toContain(ENGINEERING_AGENT_LIFECYCLE_SENTENCE);
-      chain.commitHash = localCommitHash;
       chain.remoteCommitHash = remoteCommitHash;
-      chain.branch = "main";
 
       stage = "durable-reload";
       await page.goto(
@@ -6762,6 +7048,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           && entry.currentAttempt?.id === applyExecutionId
           && entry.currentAttempt?.status === "completed",
       )).toBe(true);
+      expect(reloadedProjection.goals?.some(
+        (entry: any) => entry.goal?.id === deliveryGoalId
+          && entry.goal?.status === "completed"
+          && entry.delivery?.receiptPresent === true,
+      )).toBe(true);
 
       await page.goto(
         `${DASHBOARD_PATH}ai?${new URLSearchParams({
@@ -6774,7 +7065,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
       await expect(page.getByTestId("chat-active-engineering-run"))
         .toContainText(handoff.mission?.title ?? projectName);
-      await expect(page.getByText(userRequest, { exact: true })).toBeVisible();
+      expect(userMessageId).toBeTruthy();
+      await expect(page.locator(`[data-chat-message-id="${userMessageId}"]`))
+        .toContainText(userRequest);
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.getByTestId("chat-active-engineering-run"))
         .toContainText(handoff.mission?.title ?? projectName);

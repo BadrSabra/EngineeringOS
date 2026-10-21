@@ -47,6 +47,7 @@ import {
 } from "../../lib/mission-runtime.js";
 import { parseExecutionRequest } from "../../lib/ai-execution-state.js";
 import { executionProfileForMissionStep } from "../../lib/mission-execution-profile.js";
+import { parseMissionProposalPaths } from "../../lib/mission-proposal-paths.js";
 import { createMissionEventEnvelope } from "../../lib/mission-events.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
 import { dispatchMissionChatHandoff } from "../../lib/mission-chat-handoffs.js";
@@ -803,6 +804,16 @@ function engineeringAgentRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function missionGoalDeliveryProjection(outcomeContract: unknown) {
+  const outcome = engineeringAgentRecord(outcomeContract);
+  const acceptance = engineeringAgentRecord(outcome.acceptance);
+  const deliveryReceipt = engineeringAgentRecord(acceptance.deliveryReceipt);
+  return {
+    required: outcome.deliveryRequired === true,
+    receiptPresent: Object.keys(deliveryReceipt).length > 0,
+  };
+}
+
 async function buildEngineeringAgentProjection(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
@@ -923,9 +934,7 @@ async function buildEngineeringAgentProjection(
     const currentProposal = execution?.proposalId
       ? proposalById.get(execution.proposalId)
       : undefined;
-    const outcome = engineeringAgentRecord(goal.outcomeContract);
-    const acceptedOutcome = engineeringAgentRecord(outcome.acceptance);
-    const deliveryReceipt = engineeringAgentRecord(acceptedOutcome.deliveryReceipt);
+    const delivery = missionGoalDeliveryProjection(goal.outcomeContract);
     const approvalPending = goal.status === "waiting_for_approval"
       || (nextAction?.kind === "wait" && nextAction.reason === "approval")
       || Boolean(currentProposal?.status === "pending" && currentProposal.approvalRequired);
@@ -964,10 +973,7 @@ async function buildEngineeringAgentProjection(
           ? currentProposal.id
           : null,
       },
-      delivery: {
-        required: outcome.deliveryRequired === true,
-        receiptPresent: Object.keys(deliveryReceipt).length > 0,
-      },
+      delivery,
       runtimeContinuationAuthorized: runtimeContinuationGoalIds.has(goal.id),
     };
   });
@@ -1105,6 +1111,7 @@ export async function createMissionPlanGoal(
     steps: preview.plan.steps.map((step) => ({
       id: step.id,
       title: step.title,
+      ...(step.objective ? { objective: step.objective } : {}),
       kind: step.kind,
       dependencies: step.dependencies,
       files: step.files,
@@ -1192,19 +1199,24 @@ export async function createMissionPlanGoal(
   }));
   await tx.insert(aiGoalsTable).values(materialized.map(({ step, goalId, taskId }) => {
     const requiresPlanApproval = missionStepRequiresPlanApproval(step);
+    const requiresDeliveryBinding = planStepRequiresDeliveryReceipt(step);
     return {
       id: goalId,
       missionId: mission.id,
       projectId: mission.projectId,
       title: step.title,
       description: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" for mission "${mission.title}".`,
-      status: requiresPlanApproval ? "waiting_for_approval" as const : "queued" as const,
+      status: requiresPlanApproval
+        ? "waiting_for_approval" as const
+        : requiresDeliveryBinding
+          ? "waiting_for_event" as const
+          : "queued" as const,
       priority: "p1",
       successCriteria: {
         kind: planKind,
         missionId: mission.id,
         stepId: step.id,
-        objective: preview.objective,
+        objective: step.objective ?? preview.objective,
         planRevision: planSnapshot,
         ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
           applyRequirement: preview.plan.applyRequirement,
@@ -1679,6 +1691,7 @@ async function buildMissionProjection(
         ...goal,
         dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
       }),
+      delivery: missionGoalDeliveryProjection(goal.outcomeContract),
       currentAttempt: currentPlanGoalIds.has(goal.id)
         ? (() => {
             const execution = currentExecutionByGoalId.get(goal.id);
@@ -2178,8 +2191,14 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       from: "candidate" as const,
       to: "applied" as const,
     };
+    const reportPaths = parseMissionProposalPaths(lockedProposal.changes);
+    if (!reportPaths) return { kind: "not_prepared" as const };
     const objective = body.intent ?? "Apply the approved change proposal and report the live result.";
-    const preview = buildApplyChangesMissionPlanPreview({ objective, requirement });
+    const preview = buildApplyChangesMissionPlanPreview({
+      objective,
+      requirement,
+      reportPaths,
+    });
     const now = new Date();
     const missionId = randomUUID();
     const [mission] = await tx.insert(aiMissionsTable).values({

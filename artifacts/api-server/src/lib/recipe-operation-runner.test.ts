@@ -3837,7 +3837,7 @@ describe("recipe operation preparation", () => {
   });
 
   it("replays GitHub delivery without duplicating it or detaching acceptance proof", async () => {
-    const fixture = await createGateCRecipeFixture("delivery.push.github");
+    const fixture = await createGateCRecipeFixture("delivery.push.github", ["README.md"]);
     let executionId: string | undefined;
     const deliveryCalls: string[] = [];
     const params = {
@@ -4047,7 +4047,15 @@ describe("recipe operation preparation", () => {
 
       await writeFile(path.join(rootPath, "README.md"), "after\n", "utf8");
       await execFileAsync("git", ["-C", rootPath, "add", "README.md"]);
-      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "verified local delivery"]);
+      await execFileAsync("git", [
+        "-C",
+        rootPath,
+        "commit",
+        "-m",
+        "verified local delivery",
+        "-m",
+        `EngineeringOS-Operation: ${deliveryOperationId}`,
+      ]);
       const commitHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
       const gitTreeHash = (await execFileAsync(
         "git",
@@ -4393,6 +4401,7 @@ describe("recipe operation preparation", () => {
       const deliveryParams = {
         ...fixture.params,
         operationId: deliveryOperationId,
+        deliveryProposalId: proposalId,
         idempotencyKey: `${deliveryOperationId}:integrated-real-delivery`,
         sourceRevision,
         proofRequired: true,
@@ -4400,6 +4409,19 @@ describe("recipe operation preparation", () => {
       };
       const deliveryResult = await runRecipeOperation(deliveryParams);
       expect(deliveryResult.status).toBe("completed");
+      const [persistedDeliveryExecution] = await db.select({
+        proposalId: aiExecutionsTable.proposalId,
+        recipeReceipt: aiExecutionsTable.recipeReceipt,
+      }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, deliveryResult.executionId))
+        .limit(1);
+      expect(persistedDeliveryExecution?.proposalId).toBeNull();
+      expect(persistedDeliveryExecution?.recipeReceipt).toMatchObject({
+        executionId: deliveryResult.executionId,
+        operationId: deliveryOperationId,
+        candidateTreeHash: committedTreeHash,
+        treeHash: expect.any(String),
+      });
       expect(deliveryRunnerCalls).toBe(2);
       expect(remoteWrites).toEqual({ blobs: 1, trees: 1, commits: 1, refUpdates: 1 });
       expect(apiProblems).toEqual([]);
@@ -4622,7 +4644,15 @@ describe("recipe operation preparation", () => {
 
       await writeFile(path.join(rootPath, "README.md"), "after\n", "utf8");
       await execFileAsync("git", ["-C", rootPath, "add", "README.md"]);
-      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "verified local delivery"]);
+      await execFileAsync("git", [
+        "-C",
+        rootPath,
+        "commit",
+        "-m",
+        "verified local delivery",
+        "-m",
+        `EngineeringOS-Operation: ${operationId}`,
+      ]);
       const commitHash = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
       const gitTreeHash = (await execFileAsync(
         "git",
@@ -4895,6 +4925,7 @@ describe("recipe operation preparation", () => {
       const deliveryInput = {
         ...fixture.params,
         sourceRevision: commitHash,
+        deliveryProposalId: proposalId,
         proofRequired: true,
       };
       child.stdin?.end(JSON.stringify({ params: deliveryInput, proposalId, remoteUrl, branchName }));

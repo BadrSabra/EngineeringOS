@@ -149,6 +149,7 @@ async function composeGoalProofs(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
+  lockApplyChangesRows = true,
 ): Promise<Array<CanonicalProof & { goalId: string }>> {
   const proofs: Array<CanonicalProof & { goalId: string }> = [];
   for (const goal of goals) {
@@ -193,6 +194,7 @@ async function composeGoalProofs(
       goal,
       mission,
       activePlanRevision(mission) ?? undefined,
+      lockApplyChangesRows,
     );
     const applyD2 = applyRequirement.kind === "none"
       ? { state: "not_applicable" as const }
@@ -200,6 +202,7 @@ async function composeGoalProofs(
           goal,
           mission,
           activePlanRevision: activePlanRevision(mission) ?? undefined,
+          lockRows: lockApplyChangesRows,
         });
     const applyD2Proven = applyRequirement.kind === "none"
       || (applyRequirement.kind === "valid" && applyD2.state === "proven");
@@ -259,6 +262,7 @@ async function evaluateMissionCompletionForRows(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
+  lockApplyChangesRows = true,
 ): Promise<MissionCompletionEvaluation> {
   const active = selectActiveGoals(mission, goals);
   const revision = activePlanRevision(mission);
@@ -270,7 +274,7 @@ async function evaluateMissionCompletionForRows(
       missingGoalIds: [],
     };
   }
-  const proofs = await composeGoalProofs(tx, mission, active);
+  const proofs = await composeGoalProofs(tx, mission, active, lockApplyChangesRows);
   const missingGoalIds = proofs
     .filter((proof) => !proof.accepted)
     .map((proof) => proof.goalId);
@@ -320,7 +324,7 @@ export async function projectMissionCompletion(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
 ): Promise<MissionCompletionEvaluation> {
-  return evaluateMissionCompletionForRows(tx, mission, goals);
+  return evaluateMissionCompletionForRows(tx, mission, goals, false);
 }
 
 /**
@@ -332,7 +336,7 @@ export async function projectMissionGoalProof(
   mission: typeof aiMissionsTable.$inferSelect,
   goal: typeof aiGoalsTable.$inferSelect,
 ): Promise<(CanonicalProof & { goalId: string }) | null> {
-  const [proof] = await composeGoalProofs(tx, mission, [goal]);
+  const [proof] = await composeGoalProofs(tx, mission, [goal], false);
   return proof ?? null;
 }
 
