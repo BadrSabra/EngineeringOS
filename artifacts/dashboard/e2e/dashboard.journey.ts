@@ -6507,26 +6507,74 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(confirmPlanApprovalButton).toBeEnabled();
       const planApprovalResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname.endsWith(
-          `/api/ai/missions/${sourceMissionId}/goals/${sourceGoalId}/approve`,
+          `/api/ai/missions/${sourceMissionId}/agent/action`,
         )
         && response.request().method() === "POST"
       ));
       await confirmPlanApprovalButton.click();
       const planApprovalResponse = await planApprovalResponsePromise;
-      expect(planApprovalResponse.status()).toBe(200);
+      expect(planApprovalResponse.status()).toBe(202);
+      const planApprovalRequest = planApprovalResponse.request().postDataJSON() as {
+        expectedDecision?: {
+          kind?: string;
+          target?: { kind?: string; id?: string } | null;
+          reasonCode?: string;
+        };
+      };
+      expect(planApprovalRequest.expectedDecision).toMatchObject({
+        kind: "APPROVE",
+        target: { kind: "goal", id: sourceGoalId },
+        reasonCode: expect.any(String),
+      });
       const planApprovalResult = await planApprovalResponse.json() as {
-        approvalKind?: string;
-        planRevision?: string;
-        stepId?: string;
+        missionId?: string;
+        outcome?: string;
+        operation?: {
+          goalId?: string;
+          planRevision?: string;
+          status?: string;
+        };
+        projection?: {
+          mission?: { id?: string };
+          goals?: Array<{
+            goal?: {
+              id?: string;
+              outcomeContract?: {
+                planApproval?: {
+                  kind?: string;
+                  state?: string;
+                  planRevision?: string;
+                  stepId?: string;
+                };
+              };
+            };
+          }>;
+        };
         run?: { status?: string; reason?: string; taskId?: string };
       };
       expect(planApprovalResult).toMatchObject({
-        approvalKind: "plan",
-        planRevision: handoff.preview!.plan!.planHash,
-        stepId: "execute",
+        missionId: sourceMissionId,
+        outcome: "accepted",
+        operation: {
+          goalId: sourceGoalId,
+          planRevision: handoff.preview!.plan!.planHash,
+          status: "scheduled",
+        },
+        projection: {
+          mission: { id: sourceMissionId },
+        },
       });
       expect(planApprovalResult.run?.status).toBe("scheduled");
       expect(planApprovalResult.run?.taskId).toBe(handoff.activation!.taskId);
+      const approvedPlanResultGoal = planApprovalResult.projection?.goals?.find(
+        (entry) => entry.goal?.id === sourceGoalId,
+      );
+      expect(approvedPlanResultGoal?.goal?.outcomeContract?.planApproval).toMatchObject({
+        kind: "mission_plan_step",
+        state: "APPROVED",
+        planRevision: handoff.preview!.plan!.planHash,
+        stepId: "execute",
+      });
       const approvedPlanProjection = await readMissionProjection(sourceMissionId);
       const approvedPlanGoal = approvedPlanProjection.goals?.find(
         (entry: any) => entry.goal?.id === sourceGoalId,
