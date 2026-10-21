@@ -482,14 +482,21 @@ function installBrowserErrorMonitor(
     const knownFirefoxCloudflareCookieNoise =
       process.env.DASHBOARD_E2E_BROWSER === "firefox" &&
       /_cfuvid.*rejected for invalid domain/i.test(message.text());
+    const knownFirefoxGoogleFontNetworkNoise =
+      process.env.DASHBOARD_E2E_BROWSER === "firefox" &&
+      message.text().includes("downloadable font: download failed") &&
+      /font-family: "(?:Inter|Outfit|Space Mono)"/.test(message.text()) &&
+      message.text().includes("status=2152398850");
     // The provider-free fixture deliberately returns 428 for AI routes. Firefox
     // also reports Cloudflare's rejected third-party cookie on the local
-    // release origin. Allow only those exact environment diagnostics; all
-    // other console errors remain failures.
+    // release origin, and cannot fetch Google Fonts from the isolated release
+    // origin. Allow only those exact environment diagnostics; all other
+    // console errors remain failures.
     if (
       !knownProviderFixtureNoise &&
       !knownSessionExpiryNoise &&
-      !knownFirefoxCloudflareCookieNoise
+      !knownFirefoxCloudflareCookieNoise &&
+      !knownFirefoxGoogleFontNetworkNoise
     ) {
       record("console.error", message.text());
     }
@@ -5763,6 +5770,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
+    await expect(page.getByTestId("notice-chat-route-mission-unavailable")).toBeHidden();
     const returnedUrl = new URL(page.url());
     expect(returnedUrl.pathname.endsWith("/ai")).toBe(true);
     expect(returnedUrl.searchParams.get("projectId")).toBe(projectId);
@@ -5780,6 +5788,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
+    await expect(page.getByTestId("notice-chat-route-mission-unavailable")).toBeHidden();
     expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
@@ -5843,6 +5852,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
   }) => {
     test.setTimeout(180_000);
+    test.skip(
+      process.env.DASHBOARD_E2E_PROVIDER_FIXTURE !== "1"
+        && process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+      "Goal-first execution needs the local Mission provider fixture or explicit live-provider opt-in.",
+    );
     const browserErrors = installBrowserErrorMonitor(page);
     const projectRoot = resolve(
       process.cwd(),
@@ -7097,6 +7111,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
   }) => {
     test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
+    test.skip(
+      process.env.DASHBOARD_E2E_PROVIDER_FIXTURE !== "1"
+        && process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+      "Goal-first proof execution needs the local Mission provider fixture or explicit live-provider opt-in.",
+    );
     if (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
       if (
         process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1" ||
