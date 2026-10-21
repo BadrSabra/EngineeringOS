@@ -14,3 +14,9 @@ Automatic reconnect may reuse only a resume token already received and held by t
 **Why:** Claiming a missing opaque capability can initiate recovery, so doing that automatically would cross the user's consent boundary.
 
 **How to apply:** Token-bearing stream failures may reconnect automatically. For tokenless recovery, assert no capability request before the button click, then verify one request, persisted token, and the resumed result. Match the current recovery card rather than legacy paused copy.
+
+Provider-backed browser journeys should inspect the completed chat SSE before waiting on downstream controls. Persist only bounded error fields and, when the stream completes without an error, a small UI-state summary if the next action is missing.
+
+**Why:** A terminal provider error or missing handoff control can otherwise surface later as an unrelated UI timeout; raw stream text may contain prompts and provider diagnostics.
+
+**How to apply:** Capture the response before sending, wait for stream completion, extract only error code/category, retryability, rate-limit scope/delay, and session-event presence. Stop immediately on a terminal error, and use a short timeout with sanitized state for missing controls.

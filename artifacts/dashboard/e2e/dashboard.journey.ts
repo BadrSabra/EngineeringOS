@@ -6100,6 +6100,61 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         chain,
       });
     };
+    const summarizeChatStream = (body: string) => {
+      const eventTypes = new Set<string>();
+      let sessionStarted = false;
+      let doneHasSessionId = false;
+      let providerFailure: Record<string, unknown> | null = null;
+      const safeCode = (value: unknown, fallback: string) => (
+        typeof value === "string" && /^[A-Z][A-Z0-9_]{2,79}$/.test(value)
+          ? value
+          : fallback
+      );
+      for (const line of body.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        let event: Record<string, unknown>;
+        try {
+          const parsed: unknown = JSON.parse(line.slice("data:".length).trim());
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+          event = parsed as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (typeof event.type === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(event.type)) {
+          eventTypes.add(event.type);
+        }
+        if (event.type === "session_started") sessionStarted = true;
+        if (event.type === "done" && typeof event.sessionId === "string") {
+          doneHasSessionId = true;
+        }
+        if (event.type !== "error") continue;
+        const retryAfterMs = typeof event.retryAfterMs === "number"
+          && Number.isSafeInteger(event.retryAfterMs)
+          && event.retryAfterMs > 0
+          && event.retryAfterMs <= 86_400_000
+          ? event.retryAfterMs
+          : undefined;
+        providerFailure = {
+          code: safeCode(event.code, "CHAT_PROVIDER_FAILURE"),
+          providerFailureCategory: safeCode(
+            event.providerFailureCategory,
+            event.code === "RATE_LIMITED" ? "RATE_LIMITED" : "UNKNOWN",
+          ),
+          retryable: typeof event.retryable === "boolean" ? event.retryable : null,
+          ...(typeof event.rateLimitScope === "string"
+            && /^[A-Z][A-Z0-9_]{1,49}$/.test(event.rateLimitScope)
+            ? { rateLimitScope: event.rateLimitScope }
+            : {}),
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+        };
+      }
+      return {
+        eventTypes: [...eventTypes].slice(0, 32),
+        sessionStarted,
+        doneHasSessionId,
+        providerFailure,
+      };
+    };
     const readMissionProjection = async (missionId: string) => {
       const result = await page.evaluate(async (id) => {
         const response = await fetch(
@@ -6230,6 +6285,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const projectSelect = page.getByTestId("select-chat-project");
       await expect(projectSelect).toBeVisible();
       await projectSelect.selectOption(projectId);
+      await expect(projectSelect).toHaveValue(projectId);
       const userRequest = [
         "Fix the documentation: add the exact line",
         `"${ENGINEERING_AGENT_LIFECYCLE_SENTENCE}"`,
@@ -6237,16 +6293,56 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         "Do not apply, commit, or push before I approve the exact candidate.",
       ].join(" ");
       await page.getByTestId("input-ai-chat-composer").fill(userRequest);
+      const chatStreamResponsePromise = page.waitForResponse(
+        (response) => (
+          new URL(response.url()).pathname.endsWith("/api/ai/chat/stream")
+          && response.request().method() === "POST"
+        ),
+        { timeout: 120_000 },
+      );
       await page.getByTestId("button-send-ai-message").click();
+      const chatStreamResponse = await chatStreamResponsePromise;
+      if (chatStreamResponse.status() !== 200) {
+        stage = "chat-provider";
+        blockedCode = `CHAT_STREAM_HTTP_${chatStreamResponse.status()}`;
+        chain.chatStreamHttpStatus = chatStreamResponse.status();
+        console.error("[lifecycle] chat-provider-terminal", JSON.stringify({
+          code: blockedCode,
+          httpStatus: chatStreamResponse.status(),
+        }));
+        throw new Error(`Chat stream failed with HTTP ${chatStreamResponse.status()}.`);
+      }
+      await expect(page.locator("#group-assistant-response-progress"))
+        .toHaveCount(0, { timeout: 120_000 });
+      const chatSummary = summarizeChatStream(await chatStreamResponse.text());
+      chain.chatStream = {
+        eventTypes: chatSummary.eventTypes,
+        sessionStarted: chatSummary.sessionStarted,
+        doneHasSessionId: chatSummary.doneHasSessionId,
+        ...(chatSummary.providerFailure
+          ? { providerFailure: chatSummary.providerFailure }
+          : {}),
+      };
+      if (chatSummary.providerFailure) {
+        stage = "chat-provider";
+        blockedCode = String(chatSummary.providerFailure.code);
+        console.error("[lifecycle] chat-provider-terminal", JSON.stringify(chatSummary.providerFailure));
+        throw new Error(`Chat stream ended with provider failure ${blockedCode}.`);
+      }
       const handoffButton = page.locator(
         '[data-testid^="button-mission-handoff-"]',
       ).last();
-      await expect(handoffButton).toBeVisible({ timeout: 120_000 });
+      try {
+        await expect(handoffButton).toBeVisible({ timeout: 15_000 });
+      } catch {
+        stage = "chat-handoff";
+        blockedCode = "CHAT_HANDOFF_ACTION_MISSING";
+        console.error("[lifecycle] chat-handoff-unavailable", JSON.stringify(chain.chatStream));
+        throw new Error("Chat completed without exposing the Mission handoff action.");
+      }
       const handoffTestId = await handoffButton.getAttribute("data-testid");
       const optimisticMessageId = handoffTestId?.replace("button-mission-handoff-", "");
       expect(optimisticMessageId).toBeTruthy();
-      await expect(page.locator("#group-assistant-response-progress"))
-        .toHaveCount(0, { timeout: 120_000 });
 
       stage = "chat-mission-handoff";
       const matchesHandoffRequest = (request: import("@playwright/test").Request) => (
@@ -6258,14 +6354,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
       const handoffRequestPromise = page.waitForRequest(
         matchesHandoffRequest,
-        { timeout: 30_000 },
+        { timeout: 15_000 },
       );
       const handoffResponsePromise = page.waitForResponse(
         matchesHandoffResponse,
-        { timeout: 30_000 },
+        { timeout: 15_000 },
       );
-      await expect(handoffButton).toBeEnabled({ timeout: 30_000 });
-      await handoffButton.click({ timeout: 30_000 });
+      await expect(handoffButton).toBeEnabled({ timeout: 15_000 });
+      await handoffButton.click({ timeout: 15_000 });
       const [handoffRequestObserved, handoffResponse] = await Promise.all([
         handoffRequestPromise,
         handoffResponsePromise,
@@ -6350,8 +6446,26 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await confirmPlanApprovalButton.click();
       const planApprovalResponse = await planApprovalResponsePromise;
       expect(planApprovalResponse.status()).toBe(200);
-      expect(await planApprovalResponse.json()).toMatchObject({
+      const planApprovalResult = await planApprovalResponse.json() as {
+        approvalKind?: string;
+        planRevision?: string;
+        stepId?: string;
+        run?: { status?: string; reason?: string; taskId?: string };
+      };
+      expect(planApprovalResult).toMatchObject({
         approvalKind: "plan",
+        planRevision: handoff.preview!.plan!.planHash,
+        stepId: "execute",
+      });
+      expect(planApprovalResult.run?.status).toBe("scheduled");
+      expect(planApprovalResult.run?.taskId).toBe(handoff.activation!.taskId);
+      const approvedPlanProjection = await readMissionProjection(sourceMissionId);
+      const approvedPlanGoal = approvedPlanProjection.goals?.find(
+        (entry: any) => entry.goal?.id === sourceGoalId,
+      );
+      expect(approvedPlanGoal?.goal?.outcomeContract?.planApproval).toMatchObject({
+        kind: "mission_plan_step",
+        state: "APPROVED",
         planRevision: handoff.preview!.plan!.planHash,
         stepId: "execute",
       });
@@ -6382,6 +6496,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
               ? rawReasonCode
               : "MISSION_CANDIDATE_BLOCKED";
           blockedCode = reasonCode;
+          console.error("[lifecycle] candidate-blocked", JSON.stringify({
+            goalStatus,
+            reasonCode,
+            attemptExists: Boolean(goal?.currentAttempt),
+            attemptStatus: goal?.currentAttempt?.status ?? null,
+            nextActionKind: goal?.goal?.nextAction?.kind ?? null,
+            planApprovalState: goal?.goal?.outcomeContract?.planApproval?.state ?? null,
+            planApprovalRevisionMatches:
+              goal?.goal?.outcomeContract?.planApproval?.planRevision === handoff.preview?.plan?.planHash,
+            acceptanceVerdict: acceptance?.verdict ?? null,
+          }));
           throw new Error(
             `Candidate generation stopped before candidate-bound proof: goalStatus=${goalStatus}; `
             + `reasonCode=${reasonCode}. The separately approved plan step did not produce an `

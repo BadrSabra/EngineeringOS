@@ -36,7 +36,7 @@
 - [Package test root](package-test-root.md) — run Vitest from its owning package and keep optional Vite peers aligned with the workspace major.
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
-- [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
+- [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — assert rendered results; capture allowlisted terminal SSE fields and stop before downstream UI waits.
 - [Dashboard browser route assertions](dashboard-browser-route-assertions.md) — use artifact-prefixed routes and current selectors; use DOMContentLoaded reloads when Firefox load events stall after rendering.
 - [Dashboard Chromium SIGBUS](dashboard-chromium-sigbus.md) — distinguish browser-process failure from app navigation; clean only exact test-created projects through the owner-scoped API.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
