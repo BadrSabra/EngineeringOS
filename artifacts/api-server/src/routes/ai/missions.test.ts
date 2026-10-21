@@ -209,6 +209,16 @@ async function terminateShadowApiDatabaseSessions(applicationName: string): Prom
   throw new Error(`Shadow Replay API PostgreSQL sessions did not close for ${applicationName}.`);
 }
 
+function missionProposalChange(newContent: string) {
+  return {
+    path: "src/index.ts",
+    absolutePath: path.resolve("/tmp/project/src/index.ts"),
+    newContent,
+    originalContent: "previous content",
+    reason: "Apply the approved proposal change.",
+  };
+}
+
 async function insertProject(ownerId = "test-user") {
   const id = randomUUID();
   const now = new Date();
@@ -5483,6 +5493,9 @@ describe("AI missions and goals", () => {
       const messageId = randomUUID();
       const proposalId = randomUUID();
       const now = new Date();
+      const preparedProposalChanges = JSON.stringify([
+        missionProposalChange("prepared"),
+      ]);
       await db.insert(aiChatSessionsTable).values({
         id: sessionId,
         projectId,
@@ -5502,7 +5515,7 @@ describe("AI missions and goals", () => {
         projectId,
         sessionId,
         messageId,
-        changes: '[{"path":"src/index.ts","content":"prepared"}]',
+        changes: preparedProposalChanges,
         status: "pending",
         revision: 1,
         approvalRequired: false,
@@ -5521,7 +5534,7 @@ describe("AI missions and goals", () => {
         createdAt: now,
       });
       const initialProposal = {
-        changes: '[{"path":"src/index.ts","content":"prepared"}]',
+        changes: preparedProposalChanges,
         status: "pending",
         revision: 1,
         approvalRequired: false,
@@ -5607,7 +5620,9 @@ describe("AI missions and goals", () => {
               .where(eq(aiChangeProposalsTable.id, proposalId));
             break;
           case "changes":
-            expectedProposal.changes = '[{"path":"src/index.ts","content":"changed"}]';
+            expectedProposal.changes = JSON.stringify([
+              missionProposalChange("changed"),
+            ]);
             await tx.update(aiChangeProposalsTable)
               .set({ changes: expectedProposal.changes })
               .where(eq(aiChangeProposalsTable.id, proposalId));
@@ -5781,7 +5796,7 @@ describe("AI missions and goals", () => {
       projectId,
       sessionId,
       messageId,
-      changes: "[]",
+      changes: JSON.stringify([missionProposalChange("prepared")]),
       status: "pending",
       revision: 1,
       operationId: `apply-operation:${proposalId}`,
@@ -5856,7 +5871,7 @@ describe("AI missions and goals", () => {
     }
   });
 
-  it("does not deadlock proposal handoff against Mission Goal approval locks", async () => {
+  it("does not deadlock proposal handoff against approval locks and blocks an unaccepted candidate", async () => {
     const projectId = await insertProject();
     const missionId = randomUUID();
     const goalId = randomUUID();
@@ -5926,7 +5941,7 @@ describe("AI missions and goals", () => {
       projectId,
       sessionId,
       messageId,
-      changes: "[]",
+      changes: JSON.stringify([missionProposalChange("prepared")]),
       status: "pending",
       revision: 1,
       approvalRequired: true,
@@ -5992,7 +6007,23 @@ describe("AI missions and goals", () => {
     if (approvalOutcome.status === "fulfilled") {
       expect(approvalOutcome.value.status).toBe("approved");
     }
-    expect(handoffStatus).toBe(201);
+    expect(handoffStatus).toBe(409);
+    if (handoffOutcome.status === "fulfilled" && handoffOutcome.value) {
+      expect(handoffOutcome.value.body).toMatchObject({
+        code: "MISSION_CANDIDATE_NOT_ACCEPTED",
+      });
+    }
+    const [missions, handoffEvents] = await Promise.all([
+      db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, projectId)),
+      db.select({ id: eventsTable.id }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiApplyMissionCreated"),
+        eq(eventsTable.correlationId, proposalId),
+      )),
+    ]);
+    expect(missions).toHaveLength(1);
+    expect(handoffEvents).toHaveLength(0);
   });
 
   it("keeps the server-owned active plan revision unchanged through Mission PATCH", async () => {
