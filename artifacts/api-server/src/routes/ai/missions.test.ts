@@ -2152,6 +2152,128 @@ describe("AI missions and goals", () => {
     expect(actionEvents).toHaveLength(1);
   });
 
+  it("rolls back blocked AUTO_CONTINUE state when its action receipt cannot be written", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Blocked continuation receipt",
+      intent: "Persist a replan decision with the Mission state change.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Goal requiring a replan" });
+    const missionId = mission.body.id as string;
+    const goalId = goal.body.id as string;
+    const now = new Date();
+    await db.update(aiMissionsTable).set({
+      status: "active",
+      autonomyPolicy: { mode: "autonomous", allowAutoContinue: true },
+      updatedAt: now,
+    }).where(eq(aiMissionsTable.id, missionId));
+    await db.update(aiGoalsTable).set({
+      status: "queued",
+      nextAction: { kind: "replan", reason: "dependency_failed" },
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, goalId));
+
+    const identity = {
+      eventId: randomUUID(),
+      projectId,
+      correlationId: randomUUID(),
+      requestHash: randomUUID().replaceAll("-", ""),
+      claimId: randomUUID(),
+    };
+    await db.insert(eventsTable).values({
+      id: identity.eventId,
+      type: "AiMissionAgentActionRequested",
+      projectId,
+      correlationId: identity.correlationId,
+      goalId,
+      severity: "info",
+      message: "Test AUTO_CONTINUE action receipt.",
+      payload: {
+        missionId,
+        requestHash: identity.requestHash,
+        action: "AUTO_CONTINUE",
+        claimId: identity.claimId,
+        status: "processing",
+      },
+    });
+
+    const token = randomUUID().replaceAll("-", "");
+    const functionName = `mission_auto_continue_receipt_failure_${token}`;
+    const triggerName = `mission_auto_continue_receipt_failure_${token}`;
+    await db.execute(sql.raw(`
+      CREATE FUNCTION public."${functionName}"() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '${identity.eventId}'
+          AND NEW.payload ? 'effectReceipt' THEN
+          RAISE EXCEPTION 'forced AUTO_CONTINUE action receipt failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE UPDATE ON public.events
+      FOR EACH ROW
+      EXECUTE FUNCTION public."${functionName}"()
+    `));
+
+    const runParams = {
+      goalId,
+      userId: "test-user",
+      trigger: "resume" as const,
+      actionReceipt: identity,
+    };
+    try {
+      await expect(runMissionGoal(runParams))
+        .rejects.toThrow("forced AUTO_CONTINUE action receipt failure");
+      const [missionAfterFailure] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const [goalAfterFailure] = await db.select({
+        status: aiGoalsTable.status,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      const [eventAfterFailure] = await db.select({
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(eq(eventsTable.id, identity.eventId));
+      expect(missionAfterFailure?.status).toBe("active");
+      expect(goalAfterFailure?.status).toBe("queued");
+      expect(eventAfterFailure?.payload).not.toHaveProperty("effectReceipt");
+
+      await db.execute(sql.raw(`DROP TRIGGER "${triggerName}" ON public.events`));
+      await expect(runMissionGoal(runParams)).resolves.toMatchObject({
+        status: "blocked",
+        goalId,
+        reason: "replan_required",
+      });
+      const [missionAfterRetry] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const [goalAfterRetry] = await db.select({
+        status: aiGoalsTable.status,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      const [eventAfterRetry] = await db.select({
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(eq(eventsTable.id, identity.eventId));
+      expect(missionAfterRetry?.status).toBe("needs_replan");
+      expect(goalAfterRetry?.status).toBe("needs_replan");
+      expect(eventAfterRetry?.payload).toMatchObject({
+        effectReceipt: {
+          outcome: "rejected",
+          operation: { goalId, status: "blocked" },
+          run: { reason: "replan_required" },
+        },
+      });
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));
+    }
+  });
+
   it("routes RESUME through the recovery service and reissues a bound recovery capability on replay", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({

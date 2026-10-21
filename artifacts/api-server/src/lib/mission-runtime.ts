@@ -2202,6 +2202,7 @@ export async function runMissionGoal(params: {
       }
       return run;
     };
+    const decision = await (async (): Promise<MissionGoalRunResult> => {
     const [goalIdentity] = await tx
       .select({
         missionId: aiGoalsTable.missionId,
@@ -3063,6 +3064,33 @@ export async function runMissionGoal(params: {
       taskId: task.id,
       delegation: taskDelegation,
     });
+    })();
+    if (
+      params.actionReceipt
+      && decision.status !== "scheduled"
+      && decision.status !== "completed"
+    ) {
+      await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
+        outcome: "rejected",
+        operation: {
+          goalId: decision.goalId,
+          ...(decision.executionId ? { executionId: decision.executionId } : {}),
+          status: decision.status,
+        },
+        run: {
+          status: decision.status,
+          goalId: decision.goalId,
+          taskId: decision.taskId ?? null,
+          executionId: decision.executionId ?? null,
+          reason: decision.reason ?? null,
+        },
+        error: {
+          code: "MISSION_GOAL_RUN_FAILED",
+          message: decision.reason ?? `Mission Goal run ended as ${decision.status}.`,
+        },
+      });
+    }
+    return decision;
   });
 
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {
