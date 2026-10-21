@@ -755,10 +755,97 @@ describe('Missions management', () => {
     });
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'أُنشئت نسخة خطة جديدة',
+      'اكتملت إعادة التخطيط واستئناف الهدف الرئيسي.',
     );
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });
+
+  it('keeps a replan confirmation open and reuses its key while the action is in progress', async () => {
+    const needsReplanMission = { ...mission, status: 'needs_replan' as const };
+    const actionProjection = {
+      mission: needsReplanMission,
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'NEEDS_ATTENTION',
+        nextAction: {
+          kind: 'REPLAN',
+          target: { kind: 'mission', id: mission.id },
+          reasonCode: 'goal_requires_replan',
+        },
+        availableCommands: [],
+        intervention: { required: true, kind: 'scope', reasonCode: 'goal_requires_replan' },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+        },
+        missionId: mission.id,
+        sessionId: null,
+        goalId: null,
+        executionId: null,
+      },
+      agentControl: null,
+      currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    };
+    const resolvedProjection = {
+      ...actionProjection,
+      mission: { ...needsReplanMission, status: 'active' as const },
+      engineeringAgent: {
+        ...actionProjection.engineeringAgent,
+        state: 'PLANNING',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'mission_not_active' },
+      },
+      currentPlan: { revision: 'plan-revision-2', binding: 'active_revision', goalIds: [] },
+    };
+    fetchMissionsMock.mockResolvedValue([needsReplanMission]);
+    fetchMissionProjectionMock
+      .mockResolvedValueOnce(actionProjection)
+      .mockResolvedValue(resolvedProjection);
+    executeMissionAgentActionMock
+      .mockResolvedValueOnce({
+        missionId: mission.id,
+        outcome: 'in_progress',
+        projection: actionProjection,
+        idempotentReplay: true,
+      })
+      .mockResolvedValueOnce({
+        missionId: mission.id,
+        outcome: 'accepted',
+        projection: resolvedProjection,
+        idempotentReplay: true,
+        operation: { status: 'replanned' },
+      });
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId(`button-replan-mission-${mission.id}`));
+    fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
+
+    expect(await screen.findByTestId('status-mission-action-in-progress')).toHaveTextContent(
+      'نتحقق تلقائيًا',
+    );
+    expect(screen.getByTestId('mission-action-confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('button-confirm-mission-action')).toBeDisabled();
+    expect(screen.queryByText(/قُبل طلب إنشاء نسخة جديدة/u)).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(executeMissionAgentActionMock).toHaveBeenCalledTimes(2);
+    }, { timeout: 10000, interval: 50 });
+
+    expect(executeMissionAgentActionMock.mock.calls[1]?.[1]).toEqual(
+      executeMissionAgentActionMock.mock.calls[0]?.[1],
+    );
+    expect(await screen.findByText(
+      'قُبل طلب إنشاء نسخة جديدة من الخطة؛ يجري استئناف التنفيذ. تابع الحالة المحدّثة.',
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-action-confirm-dialog')).not.toBeInTheDocument();
+    expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2);
+  }, 10000);
 
   it('reviews the linked execution before approving a waiting Goal and resumes through the API gate', async () => {
     const activeMission = { ...mission, status: 'active' as const };
@@ -783,7 +870,7 @@ describe('Missions management', () => {
       dependencies: [],
     };
     fetchMissionsMock.mockResolvedValue([activeMission]);
-    fetchMissionProjectionMock.mockResolvedValue({
+    const waitingProjection = {
       mission: activeMission,
       engineeringAgent: {
         schemaVersion: 2,
@@ -838,7 +925,33 @@ describe('Missions management', () => {
         events: [],
       }],
       counts: { goals: 1, tasks: 0, workflows: 0, executions: 1, events: 0 },
-    });
+    };
+    const resumedProjection = {
+      ...waitingProjection,
+      engineeringAgent: {
+        ...waitingProjection.engineeringAgent,
+        state: 'PLANNING',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'execution_in_progress' },
+      },
+      goals: waitingProjection.goals.map((entry) => ({
+        ...entry,
+        goal: { ...entry.goal, status: 'active' as const },
+      })),
+    };
+    fetchMissionProjectionMock.mockResolvedValueOnce(waitingProjection).mockResolvedValue(resumedProjection);
+    executeMissionAgentActionMock
+      .mockResolvedValueOnce({
+        missionId: activeMission.id,
+        outcome: 'in_progress',
+        projection: waitingProjection,
+        idempotentReplay: true,
+      })
+      .mockResolvedValueOnce({
+        missionId: activeMission.id,
+        outcome: 'completed',
+        projection: resumedProjection,
+        idempotentReplay: true,
+      });
 
     renderPage();
     fireEvent.click(await screen.findByTestId(`button-review-approval-${waitingGoal.id}`));
@@ -863,11 +976,23 @@ describe('Missions management', () => {
       });
     });
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
+    expect(await screen.findByTestId('status-mission-action-in-progress')).toBeInTheDocument();
+    expect(screen.getByTestId('mission-action-confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('button-confirm-mission-action')).toBeDisabled();
+    expect(screen.queryByText(/اكتملت الموافقة/u)).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(executeMissionAgentActionMock).toHaveBeenCalledTimes(2);
+    }, { timeout: 10000, interval: 50 });
+    expect(executeMissionAgentActionMock.mock.calls[1]?.[1]).toEqual(
+      executeMissionAgentActionMock.mock.calls[0]?.[1],
     );
+    expect(await screen.findByText(
+      'اكتملت الموافقة واستئناف الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
+    )).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-action-confirm-dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
-  });
+  }, 10000);
 
   it('routes proposal-step approval through the action gateway', async () => {
     const activeMission = { ...mission, status: 'active' as const };
@@ -973,7 +1098,7 @@ describe('Missions management', () => {
 
     expect(approveMissionGoalMutateMock).not.toHaveBeenCalled();
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
+      'اكتملت الموافقة واستئناف الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.',
     );
     await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });

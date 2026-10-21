@@ -87,6 +87,32 @@ function chatHandoffHref(
   });
 }
 
+type PendingMissionActionRequest = {
+  identity: string;
+  idempotencyKey: string;
+  action: MissionActionConfirmation;
+};
+
+function missionActionOutcomeNotice(
+  action: MissionActionConfirmation,
+  outcome: 'accepted' | 'completed',
+) {
+  if (outcome === 'completed') {
+    if (action.type === 'replan') {
+      return 'اكتملت إعادة التخطيط واستئناف الهدف الرئيسي.';
+    }
+    return action.executionId === null
+      ? 'اكتملت خطوة اعتماد الخطة وبدأ إعداد المرشح. تبقى مراجعة المرشح والتطبيق والتسليم منفصلة.'
+      : 'اكتملت الموافقة واستئناف الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.';
+  }
+  if (action.type === 'replan') {
+    return 'قُبل طلب إنشاء نسخة جديدة من الخطة؛ يجري استئناف التنفيذ. تابع الحالة المحدّثة.';
+  }
+  return action.executionId === null
+    ? 'قُبل اعتماد الخطة وبدأ إعداد المرشح؛ تبقى مراجعته والتطبيق والتسليم خطوات منفصلة.'
+    : 'قُبلت الموافقة وأُرسل الهدف للاستئناف؛ قد يظل التنفيذ جاريًا.';
+}
+
 function compactId(value: string) {
   return value.length > 24 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
@@ -1311,6 +1337,7 @@ export default function Missions() {
   const [mutationError, setMutationError] = useState<unknown>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
   const [pendingMissionAction, setPendingMissionAction] = useState<MissionActionConfirmation | null>(null);
+  const [inProgressMissionAction, setInProgressMissionAction] = useState<PendingMissionActionRequest | null>(null);
   const agentActionKeys = useRef(new Map<string, string>());
   const getAgentActionKey = (identity: string) => {
     const existing = agentActionKeys.current.get(identity);
@@ -1417,16 +1444,88 @@ export default function Missions() {
   useEffect(() => {
     setExpandedGoalId(null);
     setPendingMissionAction(null);
+    setInProgressMissionAction(null);
     setMissionActionError(null);
   }, [activeMissionId]);
 
   useEffect(() => {
-    if (!activeMissionId || activeMission?.status !== 'active') return;
+    if (
+      !activeMissionId
+      || activeMission?.status !== 'active'
+      || inProgressMissionAction?.action.missionId === activeMissionId
+    ) return;
     const interval = window.setInterval(() => {
       setProjectionReload((value) => value + 1);
     }, 3000);
     return () => window.clearInterval(interval);
-  }, [activeMissionId, activeMission?.status]);
+  }, [activeMissionId, activeMission?.status, inProgressMissionAction?.action.missionId]);
+
+  useEffect(() => {
+    if (!inProgressMissionAction) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    let schedulePoll: () => void;
+    const pollActionResult = async () => {
+      try {
+        const { action, identity, idempotencyKey } = inProgressMissionAction;
+        const result = await executeMissionAgentAction(action.missionId, {
+          idempotencyKey,
+          expectedDecision: action.expectedDecision,
+        });
+        const freshProjection = normalizeProjection(
+          await fetchMissionProjection(action.missionId),
+        );
+        if (cancelled) return;
+        setProjection(freshProjection);
+        setMissions((current) => current.map((item) => item.id === freshProjection.mission.id
+          ? freshProjection.mission
+          : item));
+
+        if (result.outcome === 'in_progress') {
+          setMissionActionError(null);
+          schedulePoll();
+          return;
+        }
+
+        agentActionKeys.current.delete(identity);
+        setInProgressMissionAction(null);
+        if (result.outcome === 'accepted' || result.outcome === 'completed') {
+          setPendingMissionAction(null);
+          setMissionActionError(null);
+          setMutationNotice(missionActionOutcomeNotice(action, result.outcome));
+          setMissionsReload((value) => value + 1);
+          return;
+        }
+
+        setMissionActionError(result.error?.message
+          ?? 'لم تُقبل نتيجة الإجراء. راجع الحالة المحدّثة قبل المحاولة مجددًا.');
+        setMissionsReload((value) => value + 1);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const status = error instanceof MissionRequestError ? error.status : Number.NaN;
+        if (Number.isFinite(status) && status < 500) {
+          agentActionKeys.current.delete(inProgressMissionAction.identity);
+          setInProgressMissionAction(null);
+          setMissionActionError(error instanceof Error
+            ? error.message
+            : 'تعذر التحقق من نتيجة الإجراء. راجع الحالة ثم حاول مجددًا.');
+          setMissionsReload((value) => value + 1);
+          setProjectionReload((value) => value + 1);
+          return;
+        }
+        setMissionActionError('تعذر التحقق مؤقتًا من نتيجة الإجراء؛ ستتم إعادة المحاولة تلقائيًا.');
+        schedulePoll();
+      }
+    };
+    schedulePoll = () => {
+      timer = window.setTimeout(() => { void pollActionResult(); }, 3000);
+    };
+    schedulePoll();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [inProgressMissionAction]);
 
   const selectedProject = projects.find((project) => String(project.id) === projectId);
   const projectErrorStatus = typeof projectsQueryError === 'object' && projectsQueryError !== null && 'status' in projectsQueryError
@@ -1479,7 +1578,7 @@ export default function Missions() {
     && missionDecision.target?.kind === 'execution'
     ? missionDecision.target.id
     : null;
-  const missionActionPending = mutationSaving;
+  const missionActionPending = mutationSaving || inProgressMissionAction !== null;
   const acceptedFindingSource = activeMission
     ? readAcceptedProjectQueryHandoffSource(activeMission.autonomyPolicy)
     : null;
@@ -1729,39 +1828,45 @@ export default function Missions() {
   const confirmMissionAction = async () => {
     if (!pendingMissionAction || missionActionPending) return;
     setMissionActionError(null);
-    const actionKind = pendingMissionAction.type === 'replan' ? 'REPLAN' : 'APPROVE';
-    const targetId = pendingMissionAction.type === 'replan'
-      ? pendingMissionAction.expectedDecision.target?.id ?? ''
-      : pendingMissionAction.goalId;
-    const actionIdentity = `mission:${pendingMissionAction.missionId}:${actionKind}:${targetId}`;
+    setMutationNotice(null);
+    const action = pendingMissionAction;
+    const actionKind = action.type === 'replan' ? 'REPLAN' : 'APPROVE';
+    const targetId = action.type === 'replan'
+      ? action.expectedDecision.target?.id ?? ''
+      : action.goalId;
+    const actionIdentity = `mission:${action.missionId}:${actionKind}:${targetId}`;
     const idempotencyKey = getAgentActionKey(actionIdentity);
-    const missionId = pendingMissionAction.missionId;
-    const wasPlanApproval = pendingMissionAction.type === 'approve'
-      && pendingMissionAction.executionId === null;
     setMutationSaving(true);
     try {
-      const result = await executeMissionAgentAction(missionId, {
+      const result = await executeMissionAgentAction(action.missionId, {
         idempotencyKey,
-        expectedDecision: pendingMissionAction.expectedDecision,
+        expectedDecision: action.expectedDecision,
       });
-      clearAgentActionKey(actionIdentity);
       setProjection(result.projection);
       setMissions((current) => current.map((item) => item.id === result.projection.mission.id
         ? result.projection.mission
         : item));
-      setPendingMissionAction(null);
-      setMutationNotice(pendingMissionAction.type === 'replan'
-        ? 'أُنشئت نسخة خطة جديدة وسُجّل استئناف تنفيذ الهدف الرئيسي.'
-        : wasPlanApproval
-          ? 'اعتُمدت نسخة الخطة وبدأت خطوة إعداد المرشح. ستظل موافقة المرشح والتطبيق والتسليم منفصلة.'
-          : 'سُجّلت الموافقة على الخطوة واستئناف تنفيذ الهدف الرئيسي. تطبيق الملفات وتسليمها إجراءان منفصلان.');
       setMissionsReload((value) => value + 1);
+      if (result.outcome === 'in_progress') {
+        setInProgressMissionAction({ identity: actionIdentity, idempotencyKey, action });
+        return;
+      }
+      if (result.outcome === 'accepted' || result.outcome === 'completed') {
+        clearAgentActionKey(actionIdentity);
+        setPendingMissionAction(null);
+        setMutationNotice(missionActionOutcomeNotice(action, result.outcome));
+        setProjectionReload((value) => value + 1);
+        return;
+      }
+      clearAgentActionKey(actionIdentity);
+      setMissionActionError(result.error?.message
+        ?? 'لم تُقبل نتيجة الإجراء. حدّث الحالة قبل المحاولة مجددًا.');
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
       setMissionActionError(errorMessage(
         error,
-        pendingMissionAction.type === 'replan'
+        action.type === 'replan'
           ? 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'
           : 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.',
       ));
@@ -2312,6 +2417,7 @@ export default function Missions() {
       <MissionActionDialog
         action={pendingMissionAction}
         isPending={missionActionPending}
+        isInProgress={inProgressMissionAction !== null}
         error={missionActionError}
         onClose={() => {
           setPendingMissionAction(null);

@@ -33,6 +33,7 @@ export type MissionActionConfirmation =
 type MissionActionDialogProps = {
   action: MissionActionConfirmation | null;
   isPending: boolean;
+  isInProgress: boolean;
   error: string | null;
   onClose: () => void;
   onConfirm: () => void;
@@ -41,6 +42,7 @@ type MissionActionDialogProps = {
 export default function MissionActionDialog({
   action,
   isPending,
+  isInProgress,
   error,
   onClose,
   onConfirm,
@@ -92,6 +94,17 @@ export default function MissionActionDialog({
           </a>
         ) : null}
 
+        {isInProgress ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="rounded-md border border-amber-300/25 bg-amber-300/10 p-3 text-sm text-amber-100"
+            data-testid="status-mission-action-in-progress"
+          >
+            الطلب نفسه قيد التنفيذ بالفعل. نتحقق تلقائيًا من النتيجة، وستظل هذه النافذة مفتوحة حتى يتضح الرد.
+          </p>
+        ) : null}
+
         {error ? <p dir="auto" role="alert" className="text-sm text-destructive">{error}</p> : null}
 
         <AlertDialogFooter>
@@ -107,8 +120,10 @@ export default function MissionActionDialog({
             className="bg-primary text-primary-foreground hover:bg-primary/90"
             data-testid="button-confirm-mission-action"
           >
-            {isPending
-              ? 'جارٍ التنفيذ…'
+            {isInProgress
+              ? 'جارٍ التحقق من النتيجة…'
+              : isPending
+                ? 'جارٍ التنفيذ…'
               : action?.type === 'replan'
                  ? 'إنشاء خطة جديدة'
                  : action?.executionId
