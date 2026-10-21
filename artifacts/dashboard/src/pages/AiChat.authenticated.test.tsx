@@ -2778,6 +2778,7 @@ describe('AiChat authenticated generated mutations', () => {
     const rendered = renderAiChat();
     const queryKey = ['/api/ai/chat/session-1/missions', 'user-1'];
     rendered.queryClient.setQueryData(queryKey, mocks.sessionMissions);
+    const invalidateQueries = vi.spyOn(rendered.queryClient, 'invalidateQueries');
     fireEvent.click(await screen.findByRole('button', {
       name: 'تعيين Historical Mission كمهمة حالية',
     }));
@@ -2790,6 +2791,9 @@ describe('AiChat authenticated generated mutations', () => {
     });
     expect(rendered.queryClient.getQueryData(queryKey)).toMatchObject({
       activeMissionId: 'mission-two',
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['/api/ai/chat/session-1/missions'],
     });
   });
 

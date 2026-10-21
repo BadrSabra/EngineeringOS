@@ -11291,6 +11291,9 @@ export default function AiChat() {
           ? { ...current, activeMissionId: result.activeMissionId }
           : current
       ));
+      await qc.invalidateQueries({
+        queryKey: getListAiChatSessionMissionsQueryKey(targetSessionId),
+      });
     } catch (error) {
       if (showErrorToast) {
         toast({
