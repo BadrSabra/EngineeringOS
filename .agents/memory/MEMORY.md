@@ -21,6 +21,7 @@
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Mission recipe claim transaction](mission-recipe-claim-transaction.md) — keep Mission/Goal authorization, paused-resume token recovery, and recipe execution claim in one transaction.
 - [Engineering Agent control-plane scope](engineering-agent-control-plane.md) — unify product continuity over the existing Mission Runtime; preserve scoped approval and delivery gates.
+- [Mission action replay](mission-action-replay.md) — retries on compatibility routes must reach the unified ledger before mutable lifecycle state is re-evaluated.
 - [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.
 - [Workflow phase ledger](workflow-phase-ledger.md) — phase-local status is bookkeeping, not Canonical Proof; real workflow work needs substantive bound evidence.

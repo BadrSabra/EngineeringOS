@@ -21,6 +21,9 @@ export interface EngineeringAgentActionInput {
     budget?: Record<string, unknown>;
     deadline?: string | null;
   };
+  approve?: {
+    goalId: string;
+  };
   replan?: {
     message?: string;
     objective?: string;

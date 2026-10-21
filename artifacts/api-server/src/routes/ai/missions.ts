@@ -153,6 +153,9 @@ const MissionAgentActionBody = z.object({
   expectedDecision: EngineeringAgentDecisionSchema,
   command: z.literal("STOP").optional(),
   input: z.object({
+    approve: z.object({
+      goalId: z.string().min(1).max(200),
+    }).strict().optional(),
     start: z.object({
       title: z.string().trim().min(1).max(200).optional(),
       intent: z.string().trim().min(1).max(500).optional(),
@@ -2561,6 +2564,19 @@ async function dispatchLegacyMissionActionIfCurrent(
     input?: z.infer<typeof MissionAgentActionBody>["input"];
   },
 ): Promise<boolean> {
+  if (
+    params.expectedDecision
+    && params.expectedDecision.kind === params.action
+    && params.idempotencyKey
+  ) {
+    await handleMissionAgentAction(req, res, {
+      idempotencyKey: params.idempotencyKey,
+      expectedDecision: params.expectedDecision,
+      ...(params.input ? { input: params.input } : {}),
+    }, false);
+    return true;
+  }
+
   const projection = await loadMissionProjection(owned);
   if (
     params.expectedDecision
@@ -2694,6 +2710,7 @@ router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) =>
     expectedDecision: body.expectedDecision,
     idempotencyKey: body.idempotencyKey,
     targetGoalId: req.params.goalId,
+    input: { approve: { goalId: req.params.goalId } },
   })) return;
   const result = await approveMissionGoal({
     missionId: owned.mission.id,
@@ -2821,7 +2838,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
 
   const before = owned.mission;
   const isDraftStart = before.status === "draft" && body.status === "active";
-  if (isDraftStart) {
+  if (body.status === "active" && (isDraftStart || body.expectedDecision || body.idempotencyKey)) {
     const startUpdates = {
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...(body.intent !== undefined ? { intent: body.intent } : {}),
@@ -2834,13 +2851,13 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
     const input = Object.keys(startUpdates).length > 0
       ? { start: startUpdates }
       : undefined;
-    if (await dispatchLegacyMissionActionIfCurrent(req, res, owned, {
+    await dispatchLegacyMissionActionIfCurrent(req, res, owned, {
       action: "START",
       expectedDecision: body.expectedDecision,
       idempotencyKey: body.idempotencyKey,
       required: true,
       input,
-    })) return;
+    });
     return;
   }
   const now = new Date();
@@ -4679,10 +4696,12 @@ async function handleMissionAgentAction(
     body.input
     && (
       selection.action === "START"
-        ? Boolean(body.input.replan)
+        ? Boolean(body.input.approve || body.input.replan)
         : selection.action === "REPLAN"
-          ? Boolean(body.input.start)
-          : true
+          ? Boolean(body.input.approve || body.input.start)
+          : selection.action === "APPROVE"
+            ? Boolean(body.input.replan || body.input.start)
+            : true
     )
   ) {
     res.status(400).json({
@@ -5087,9 +5106,11 @@ async function handleMissionAgentAction(
     },
     APPROVE: async (): Promise<EngineeringAgentActionResult> => {
       const target = actionContext.decision.target;
-      const goalId = currentProjection.engineeringAgent.goalId;
+      const goalId = actionContext.input?.approve?.goalId
+        ?? currentProjection.engineeringAgent.goalId;
       if (
         !goalId
+        || goalId !== currentProjection.engineeringAgent.goalId
         || !target
         || !["goal", "proposal"].includes(target.kind)
         || (target.kind === "goal" && target.id !== goalId)

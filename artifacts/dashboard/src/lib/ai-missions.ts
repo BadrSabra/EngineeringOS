@@ -517,6 +517,9 @@ export interface MissionAgentActionInput {
   expectedDecision: EngineeringAgentDecision;
   command?: 'STOP';
   input?: {
+    approve?: {
+      goalId: string;
+    };
     start?: {
       title?: string;
       intent?: string;

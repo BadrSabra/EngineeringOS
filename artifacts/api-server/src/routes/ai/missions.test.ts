@@ -1804,7 +1804,7 @@ describe("AI missions and goals", () => {
     const replanMission = await request(app).post("/api/ai/missions").send({
       projectId: replanProjectId,
       title: "Compatibility REPLAN",
-      intent: "Require the current decision and idempotency key",
+      intent: "Inspect the source, then fix the blocking issue.",
     });
     const replanGoal = await request(app)
       .post(`/api/ai/missions/${replanMission.body.id}/goals`)
@@ -1830,6 +1830,32 @@ describe("AI missions and goals", () => {
       .send({ expectedDecision: replanDecision });
     expect(missingReplanKey.status).toBe(400);
     expect(missingReplanKey.body.code).toBe("AGENT_IDEMPOTENCY_KEY_REQUIRED");
+    const replanActionBody = {
+      expectedDecision: replanDecision,
+      idempotencyKey: randomUUID(),
+    };
+    const replanned = await request(app)
+      .post(`/api/ai/missions/${replanMission.body.id}/replan`)
+      .send(replanActionBody);
+    expect([200, 202]).toContain(replanned.status);
+    expect(replanned.body).toMatchObject({
+      missionId: replanMission.body.id,
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { status: "replanned" },
+    });
+    const replanReplay = await request(app)
+      .post(`/api/ai/missions/${replanMission.body.id}/replan`)
+      .send(replanActionBody);
+    expect(replanReplay.status).toBe(replanned.status);
+    expect(replanReplay.body.idempotentReplay).toBe(true);
+    const replanActions = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, replanProjectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(replanActions).toHaveLength(1);
 
     const approvalProjectId = await insertProject();
     const approvalMission = await request(app).post("/api/ai/missions").send({
@@ -1864,6 +1890,30 @@ describe("AI missions and goals", () => {
       .send({ expectedDecision: approvalDecision });
     expect(missingApprovalKey.status).toBe(400);
     expect(missingApprovalKey.body.code).toBe("AGENT_IDEMPOTENCY_KEY_REQUIRED");
+    const approvalActionBody = {
+      expectedDecision: approvalDecision,
+      idempotencyKey: randomUUID(),
+    };
+    const approvalAction = await request(app)
+      .post(`/api/ai/missions/${approvalMission.body.id}/goals/${approvalGoal.body.id}/approve`)
+      .send(approvalActionBody);
+    expect([200, 202, 409]).toContain(approvalAction.status);
+    expect(approvalAction.body).toMatchObject({
+      missionId: approvalMission.body.id,
+      idempotentReplay: false,
+    });
+    const approvalReplay = await request(app)
+      .post(`/api/ai/missions/${approvalMission.body.id}/goals/${approvalGoal.body.id}/approve`)
+      .send(approvalActionBody);
+    expect(approvalReplay.status).toBe(approvalAction.status);
+    expect(approvalReplay.body.idempotentReplay).toBe(true);
+    const approvalActions = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, approvalProjectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(approvalActions).toHaveLength(1);
     const [approvalGoalAfter] = await db.select({ status: aiGoalsTable.status })
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.id, approvalGoal.body.id));
