@@ -30,6 +30,10 @@ import {
 } from "./execution-proof.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
 import {
+  persistMissionAgentActionEffectReceipt,
+  type MissionAgentActionReceiptIdentity,
+} from "./mission-agent-action-receipt.js";
+import {
   deriveRuntimeStartGateCProof,
   RUNTIME_START_GATE_C_PROOF_MODE,
   type RuntimeStartGateCProofArtifact,
@@ -276,6 +280,8 @@ export type FinalizeExecutionAcceptanceParams = {
   taskObjective?: TaskObjectiveContract;
   taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
   stateProjection?: Record<string, unknown>;
+  /** Optional gateway receipt committed with a Mission STOP acceptance. */
+  missionAgentActionReceipt?: MissionAgentActionReceiptIdentity;
   /** A mutation-backed acceptance must name the server-owned effect bundle. */
   effectBundleId?: string | null;
   /** Persisted request flag indicating that this execution has a mutation effect gate. */
@@ -2095,6 +2101,19 @@ export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
   return db.transaction(async (tx) => {
+    const persistActionReceipt = async (
+      acceptance: typeof aiExecutionAcceptancesTable.$inferSelect,
+    ) => {
+      if (!params.missionAgentActionReceipt) return;
+      await persistMissionAgentActionEffectReceipt(tx, params.missionAgentActionReceipt, {
+        outcome: params.terminalStatus === "cancelled" ? "completed" : "accepted",
+        operation: {
+          executionId: params.executionId,
+          attempt: params.expectedAttempt,
+          status: params.terminalStatus,
+        },
+      });
+    };
     await lockFinalizationMissionRows(tx, params);
     const [execution] = await tx
       .select()
@@ -2560,6 +2579,7 @@ export async function finalizeExecutionAcceptance(
         acceptance: existingByKey,
         now,
       });
+      await persistActionReceipt(existingByKey);
       return { accepted: true, duplicate: true, acceptance: existingByKey };
     }
 
@@ -2610,6 +2630,7 @@ export async function finalizeExecutionAcceptance(
             acceptance: existing,
             now,
           });
+          await persistActionReceipt(existing);
           return { accepted: true, duplicate: true, acceptance: existing };
         }
         replaceExistingLeasePause = true;
@@ -2682,6 +2703,7 @@ export async function finalizeExecutionAcceptance(
           })
           .where(eq(aiExecutionsTable.id, execution.id));
 
+        await persistActionReceipt(cancelledAcceptance);
         return { accepted: true, duplicate: false, acceptance: cancelledAcceptance };
       }
     }
@@ -2911,6 +2933,7 @@ export async function finalizeExecutionAcceptance(
           reason: "Existing Apply acceptance has no current canonical proof.",
         };
       }
+      await persistActionReceipt(concurrentAcceptance);
       return { accepted: true, duplicate: true, acceptance: concurrentAcceptance };
     }
     await closeEpisodeAfterCanonicalProof({
@@ -3112,6 +3135,7 @@ export async function finalizeExecutionAcceptance(
       })
       .where(and(eq(aiExecutionsTable.id, execution.id), finalMessageFence));
 
+    await persistActionReceipt(acceptance);
     return { accepted: true, duplicate: false, acceptance };
   });
 }

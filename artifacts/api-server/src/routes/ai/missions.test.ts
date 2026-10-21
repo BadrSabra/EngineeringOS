@@ -2673,6 +2673,10 @@ describe("AI missions and goals", () => {
         status: "processing",
         responseStatus: 202,
         result: { outcome: "accepted" },
+        effectReceipt: {
+          outcome: "accepted",
+          operation: { status: "activated" },
+        },
       });
       await db.execute(sql.raw(`DROP TRIGGER "${triggerName}" ON public.events`));
 
@@ -2702,7 +2706,102 @@ describe("AI missions and goals", () => {
           outcome: "accepted",
           operation: { status: "activated" },
         },
+        effectReceipt: {
+          outcome: "accepted",
+          operation: { status: "activated" },
+        },
       });
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));
+    }
+  });
+
+  it("rolls back START when its transaction-bound result receipt cannot be written", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Atomic action receipt",
+      intent: "Do not activate unless its result can be recovered.",
+    });
+    const missionId = mission.body.id as string;
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const token = randomUUID().replaceAll("-", "");
+    const functionName = `mission_action_receipt_failure_${token}`;
+    const triggerName = `mission_action_receipt_failure_${token}`;
+    await db.execute(sql.raw(`
+      CREATE FUNCTION public."${functionName}"() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.type = 'AiMissionAgentActionRequested'
+          AND NEW.payload ? 'effectReceipt' THEN
+          RAISE EXCEPTION 'forced Mission Agent action receipt failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE UPDATE ON public.events
+      FOR EACH ROW
+      EXECUTE FUNCTION public."${functionName}"()
+    `));
+
+    try {
+      const failedResponse = await request(app)
+        .post(`/api/ai/missions/${missionId}/agent/action`)
+        .send(body);
+      expect(failedResponse.status).toBe(500);
+
+      const [missionAfterFailure] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const goalsAfterFailure = await db.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      const [actionAfterFailure] = await db.select({
+        id: eventsTable.id,
+        payload: eventsTable.payload,
+      }).from(eventsTable).where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+      expect(missionAfterFailure?.status).toBe("draft");
+      expect(goalsAfterFailure).toHaveLength(0);
+      expect(actionAfterFailure?.payload).toMatchObject({ status: "processing" });
+      expect(actionAfterFailure?.payload).not.toHaveProperty("effectReceipt");
+
+      await db.execute(sql.raw(`DROP TRIGGER "${triggerName}" ON public.events`));
+      const pendingPayload = actionAfterFailure?.payload as Record<string, unknown>;
+      await db.update(eventsTable)
+        .set({
+          payload: {
+            ...pendingPayload,
+            leaseUntil: new Date(Date.now() - 60_000).toISOString(),
+          },
+        })
+        .where(eq(eventsTable.id, actionAfterFailure!.id));
+
+      const retry = await request(app)
+        .post(`/api/ai/missions/${missionId}/agent/action`)
+        .send(body);
+      expect(retry.status).toBe(202);
+      expect(retry.body).toMatchObject({
+        outcome: "accepted",
+        operation: { status: "activated" },
+      });
+      const [missionAfterRetry] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      const goalsAfterRetry = await db.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      expect(missionAfterRetry?.status).toBe("active");
+      expect(goalsAfterRetry.length).toBeGreaterThan(0);
     } finally {
       await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
       await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));

@@ -43,6 +43,10 @@ import {
   buildExecutionLineage,
   type ExecutionDelegationBudget,
 } from "./execution-lineage.js";
+import {
+  persistMissionAgentActionEffectReceipt,
+  type MissionAgentActionReceiptIdentity,
+} from "./mission-agent-action-receipt.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
 export const AI_EXECUTION_HEARTBEAT_INTERVAL_MS = Math.max(
@@ -4010,6 +4014,7 @@ export async function persistCancelledRecipeReceipt(params: {
 export async function requestAiExecutionCancel(params: {
   executionId: string;
   userId: string;
+  actionReceipt?: MissionAgentActionReceiptIdentity;
 }): Promise<AiExecution | undefined> {
   const now = new Date();
   const current = await getAiExecutionForUser(params.executionId, params.userId);
@@ -4032,25 +4037,54 @@ export async function requestAiExecutionCancel(params: {
       replaceExistingInterruption: true,
       error: "Execution cancelled before a worker started.",
       checkpoint: cancelledCheckpoint,
+      ...(params.actionReceipt
+        ? { missionAgentActionReceipt: params.actionReceipt }
+        : {}),
     });
     return finalized.accepted
       ? await getAiExecutionForUser(current.id, params.userId)
       : undefined;
   }
 
-  const [updated] = await db
-    .update(aiExecutionsTable)
-    .set({
-      status: "cancelling",
-      cancelRequestedAt: now,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(aiExecutionsTable.id, params.executionId),
-      eq(aiExecutionsTable.userId, params.userId),
-      eq(aiExecutionsTable.status, "running"),
-    ))
-    .returning();
+  const [updated] = params.actionReceipt
+    ? await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(aiExecutionsTable)
+          .set({
+            status: "cancelling",
+            cancelRequestedAt: now,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(aiExecutionsTable.id, params.executionId),
+            eq(aiExecutionsTable.userId, params.userId),
+            eq(aiExecutionsTable.status, "running"),
+          ))
+          .returning();
+        if (updated) {
+          await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt!, {
+            outcome: "accepted",
+            operation: {
+              executionId: updated.id,
+              status: updated.status,
+            },
+          });
+        }
+        return [updated] as const;
+      })
+    : await db
+        .update(aiExecutionsTable)
+        .set({
+          status: "cancelling",
+          cancelRequestedAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.userId, params.userId),
+          eq(aiExecutionsTable.status, "running"),
+        ))
+        .returning();
   if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
   return updated;
 }

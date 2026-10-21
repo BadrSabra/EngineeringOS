@@ -10,6 +10,10 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import {
+  persistMissionAgentActionEffectReceipt,
+  type MissionAgentActionReceiptIdentity,
+} from "./mission-agent-action-receipt.js";
 
 export type ApproveMissionGoalResult =
   | {
@@ -57,6 +61,7 @@ export async function approveMissionGoal(params: {
   goalId: string;
   userId: string;
   expectedProposalId?: string;
+  actionReceipt?: MissionAgentActionReceiptIdentity;
 }): Promise<ApproveMissionGoalResult> {
   const prepared = await db.transaction(async (tx) => {
     // Keep the global Mission-before-Goal order used by status/completion
@@ -272,6 +277,16 @@ export async function approveMissionGoal(params: {
           stepId,
         },
       });
+      if (params.actionReceipt) {
+        await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
+          outcome: "accepted",
+          operation: {
+            goalId: goal.id,
+            planRevision: planHash,
+            status: "approved",
+          },
+        });
+      }
 
       return {
         status: "prepared" as const,
@@ -393,6 +408,16 @@ export async function approveMissionGoal(params: {
         revision: proposal.revision,
       },
     });
+    if (params.actionReceipt) {
+      await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
+        outcome: "accepted",
+        operation: {
+          goalId: goal.id,
+          executionId: execution.id,
+          status: "approved",
+        },
+      });
+    }
 
     return {
       status: "prepared" as const,

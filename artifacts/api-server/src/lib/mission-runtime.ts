@@ -70,6 +70,10 @@ import {
   requireActiveSkillRegistry,
   SkillRegistryRuntimeError,
 } from "./skill-registry.js";
+import {
+  persistMissionAgentActionEffectReceipt,
+  type MissionAgentActionReceiptIdentity,
+} from "./mission-agent-action-receipt.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,6 +86,7 @@ export type MissionGoalRunResult = {
   executionId?: string;
   reason?: string;
   delegation?: MissionDelegationBinding;
+  recipeDispatch?: RecipeDispatch;
 };
 
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
@@ -2163,6 +2168,7 @@ export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
   trigger: MissionGoalRunTrigger;
+  actionReceipt?: MissionAgentActionReceiptIdentity;
   delegation?: MissionDelegationBinding;
   expectedHandoffBinding?: {
     handoffId: string;
@@ -2172,7 +2178,30 @@ export async function runMissionGoal(params: {
     dispatchGoalIds: string[];
   };
 }): Promise<MissionGoalRunResult> {
-  const decision = await db.transaction(async (tx) => {
+  const decision = await db.transaction(async (tx): Promise<MissionGoalRunResult> => {
+    const recordActionEffect = async <T extends MissionGoalRunResult>(run: T): Promise<T> => {
+      if (
+        params.actionReceipt
+        && (run.status === "scheduled" || run.status === "completed")
+      ) {
+        await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
+          outcome: run.status === "completed" ? "completed" : "accepted",
+          operation: {
+            goalId: run.goalId,
+            ...(run.executionId ? { executionId: run.executionId } : {}),
+            status: run.status,
+          },
+          run: {
+            status: run.status,
+            goalId: run.goalId,
+            taskId: run.taskId ?? null,
+            executionId: run.executionId ?? null,
+            reason: run.reason ?? null,
+          },
+        });
+      }
+      return run;
+    };
     const [goalIdentity] = await tx
       .select({
         missionId: aiGoalsTable.missionId,
@@ -2816,12 +2845,12 @@ export async function runMissionGoal(params: {
           worldRevision: d2.resultingWorldRevision,
         },
       });
-      return {
+      return recordActionEffect({
         status: "completed" as const,
         goalId: goal.id,
         executionId: d2.executionId,
         reason: "apply_changes_d2_proven",
-      };
+      });
     }
 
     const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
@@ -2890,13 +2919,13 @@ export async function runMissionGoal(params: {
         ))
         .limit(1);
       if (activeExecution) {
-        return {
+        return recordActionEffect({
           status: "scheduled" as const,
           goalId: goal.id,
           executionId: activeExecution.id,
           reason: "execution_already_active",
           delegation,
-        };
+        });
       }
       const now = new Date();
       await tx.update(aiGoalsTable)
@@ -2925,6 +2954,19 @@ export async function runMissionGoal(params: {
           ...(runtimeTransitionProof ? { transitionProof: runtimeTransitionProof } : {}),
         },
       });
+      if (params.actionReceipt) {
+        await persistMissionAgentActionEffectReceipt(tx, params.actionReceipt, {
+          outcome: "accepted",
+          operation: { goalId: goal.id, status: "scheduled" },
+          run: {
+            status: "scheduled",
+            goalId: goal.id,
+            taskId: null,
+            executionId: null,
+            reason: "recipe_dispatch_queued",
+          },
+        });
+      }
       return {
         status: "scheduled" as const,
         goalId: goal.id,
@@ -2940,7 +2982,6 @@ export async function runMissionGoal(params: {
           action,
           delegation,
         } satisfies RecipeDispatch,
-          delegation,
       };
     }
 
@@ -2985,14 +3026,14 @@ export async function runMissionGoal(params: {
       ))
       .limit(1);
     if (activeExecution) {
-      return {
+      return recordActionEffect({
         status: "scheduled" as const,
         goalId: goal.id,
         taskId: task.id,
         executionId: activeExecution.id,
         reason: "execution_already_active",
         delegation: taskDelegation,
-      };
+      });
     }
 
     const now = new Date();
@@ -3016,7 +3057,12 @@ export async function runMissionGoal(params: {
         delegation: taskDelegation,
       },
     });
-    return { status: "scheduled" as const, goalId: goal.id, taskId: task.id, delegation: taskDelegation };
+    return recordActionEffect({
+      status: "scheduled" as const,
+      goalId: goal.id,
+      taskId: task.id,
+      delegation: taskDelegation,
+    });
   });
 
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {

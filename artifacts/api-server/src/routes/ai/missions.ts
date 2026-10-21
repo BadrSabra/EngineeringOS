@@ -68,6 +68,10 @@ import {
   type EngineeringAgentGoalFact,
 } from "../../lib/engineering-agent-projection.js";
 import {
+  persistMissionAgentActionEffectReceipt,
+  type MissionAgentActionReceiptIdentity,
+} from "../../lib/mission-agent-action-receipt.js";
+import {
   dispatchEngineeringAgentAction,
   hashEngineeringAgentActionRequest,
   selectEngineeringAgentAction,
@@ -1497,6 +1501,7 @@ async function activateMissionFromAgent(
   },
   userId: string,
   updates?: EngineeringAgentActionInput["start"],
+  actionReceipt?: MissionAgentActionReceiptIdentity,
 ) {
   const now = new Date();
   const result = await db.transaction(async (tx) => {
@@ -1610,6 +1615,21 @@ async function activateMissionFromAgent(
         changedFields: ["status", ...Object.keys(updates ?? {})],
       },
     });
+    if (actionReceipt) {
+      await persistMissionAgentActionEffectReceipt(tx, actionReceipt, activationPlan
+        ? {
+            outcome: "accepted",
+            operation: {
+              goalId: activationPlan.primary.goalId,
+              planRevision: activationPlan.revision,
+              status: "activated",
+            },
+          }
+        : {
+            outcome: "accepted",
+            operation: { status: "activated_without_plan" },
+          });
+    }
     return { kind: "activated" as const, mission: updated, activationPlan };
   });
   if (result.kind !== "activated") return result;
@@ -2466,6 +2486,7 @@ async function performMissionReplan(
   },
   userId: string,
   body: z.infer<typeof MissionReplanBody>,
+  actionReceipt?: MissionAgentActionReceiptIdentity,
 ) {
   if (["completed", "cancelled"].includes(owned.mission.status)) {
     return { kind: "terminal" as const };
@@ -2534,6 +2555,16 @@ async function performMissionReplan(
         reason: body.reason ?? null,
       },
     });
+    if (actionReceipt) {
+      await persistMissionAgentActionEffectReceipt(tx, actionReceipt, {
+        outcome: "accepted",
+        operation: {
+          goalId: plan.primary.goalId,
+          planRevision: preview.plan.planHash,
+          status: "replanned",
+        },
+      });
+    }
     return { kind: "created" as const, mission, plan };
   });
   if (created.kind !== "created") return created;
@@ -4649,7 +4680,8 @@ async function handleMissionAgentAction(
       payload.status !== "processing"
       || payload.claimId !== expectedClaimId
     ) return null;
-    const result = safeStoredAgentActionResult(payload.result);
+    const result = safeStoredAgentActionResult(payload.result)
+      ?? safeStoredAgentActionResult(payload.effectReceipt);
     if (!result) return null;
     const status = result.outcome === "rejected" ? "rejected" : "completed";
     const responseStatus = typeof payload.responseStatus === "number"
@@ -4664,6 +4696,7 @@ async function handleMissionAgentAction(
       status,
       responseStatus,
       leaseUntil: null,
+      result,
     };
     const [updated] = await tx.update(eventsTable)
       .set({ payload: completedPayload })
@@ -4691,7 +4724,10 @@ async function handleMissionAgentAction(
     if (
       priorPayload?.status === "processing"
       && typeof priorPayload.claimId === "string"
-      && safeStoredAgentActionResult(priorPayload.result)
+      && (
+        safeStoredAgentActionResult(priorPayload.result)
+        || safeStoredAgentActionResult(priorPayload.effectReceipt)
+      )
     ) {
       const finalized = await finalizeStagedActionResult(priorEvent.id, priorPayload.claimId);
       if (finalized) {
@@ -4894,6 +4930,13 @@ async function handleMissionAgentAction(
     return;
   }
 
+  const actionReceipt: MissionAgentActionReceiptIdentity = {
+    eventId: reservation.eventId,
+    projectId: owned.project.id,
+    correlationId: idempotencyCorrelationId,
+    requestHash,
+    claimId,
+  };
   const currentOwned = await loadOwnedMission(missionId, req.userId, res);
   if (!currentOwned) return;
   const currentProjection = await loadMissionProjection(currentOwned);
@@ -4948,8 +4991,14 @@ async function handleMissionAgentAction(
   const runResult = async (
     goalId: string,
     trigger: MissionGoalRunTrigger,
+    receipt?: MissionAgentActionReceiptIdentity,
   ): Promise<EngineeringAgentActionResult> => {
-    const run = await runMissionGoal({ goalId, userId: req.userId, trigger });
+    const run = await runMissionGoal({
+      goalId,
+      userId: req.userId,
+      trigger,
+      ...(receipt ? { actionReceipt: receipt } : {}),
+    });
     const safeRun = safeMissionGoalRun(run);
     const accepted = run.status === "scheduled" || run.status === "completed";
     return {
@@ -4988,6 +5037,7 @@ async function handleMissionAgentAction(
         owned,
         req.userId,
         actionContext.input?.start,
+        actionReceipt,
       );
       if (activated.kind === "policy_error") {
         const error = activated.policyError === "applyMission"
@@ -5043,7 +5093,7 @@ async function handleMissionAgentAction(
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "AUTO_CONTINUE must target a Goal." },
         };
       }
-      return runResult(target.id, "resume");
+      return runResult(target.id, "resume", actionReceipt);
     },
     RESUME: async (): Promise<EngineeringAgentActionResult> => {
       const target = actionContext.decision.target;
@@ -5080,13 +5130,26 @@ async function handleMissionAgentAction(
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
         };
       }
-      const recovered = await db.transaction((tx) => recoverAiExecutionResumeToken({
-        executionId: execution.id,
-        userId: req.userId,
-        linkedTaskId: execution.linkedTaskId ?? undefined,
-        expectedAttempt: execution.attempt,
-        transaction: tx,
-      }));
+      const recovered = await db.transaction(async (tx) => {
+        const recovered = await recoverAiExecutionResumeToken({
+          executionId: execution.id,
+          userId: req.userId,
+          linkedTaskId: execution.linkedTaskId ?? undefined,
+          expectedAttempt: execution.attempt,
+          transaction: tx,
+        });
+        if (recovered) {
+          await persistMissionAgentActionEffectReceipt(tx, actionReceipt, {
+            outcome: "accepted",
+            operation: {
+              executionId: recovered.execution.id,
+              attempt: recovered.execution.attempt,
+              status: "recovery_capability_ready",
+            },
+          });
+        }
+        return recovered;
+      });
       if (!recovered) {
         return {
           outcome: "rejected",
@@ -5142,10 +5205,24 @@ async function handleMissionAgentAction(
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
         };
       }
-      const recovered = await recoverAiExecutionRetryToken({
-        executionId: execution.id,
-        userId: req.userId,
-        expectedAttempt: execution.attempt,
+      const recovered = await db.transaction(async (tx) => {
+        const recovered = await recoverAiExecutionRetryToken({
+          executionId: execution.id,
+          userId: req.userId,
+          expectedAttempt: execution.attempt,
+          transaction: tx,
+        });
+        if (recovered) {
+          await persistMissionAgentActionEffectReceipt(tx, actionReceipt, {
+            outcome: "accepted",
+            operation: {
+              executionId: recovered.execution.id,
+              attempt: recovered.execution.attempt,
+              status: "retry_capability_ready",
+            },
+          });
+        }
+        return recovered;
       });
       if (!recovered) {
         return {
@@ -5188,6 +5265,7 @@ async function handleMissionAgentAction(
         missionId: owned.mission.id,
         goalId,
         userId: req.userId,
+        actionReceipt,
         ...(target.kind === "proposal" ? { expectedProposalId: target.id } : {}),
       });
       if (approved.status !== "approved") {
@@ -5236,7 +5314,7 @@ async function handleMissionAgentAction(
           ? { runtimeStartTargetStepId: replan.runtimeStartTargetStepId }
           : {}),
         expectedDecision: body.expectedDecision,
-      });
+      }, actionReceipt);
       if (result.kind !== "replanned") {
         const code = result.kind === "terminal"
           ? "MISSION_TERMINAL"
@@ -5313,6 +5391,7 @@ async function handleMissionAgentAction(
       const stopped = await requestAiExecutionCancel({
         executionId: execution.id,
         userId: req.userId,
+        actionReceipt,
       });
       if (!stopped) {
         return {
@@ -5351,27 +5430,52 @@ async function handleMissionAgentAction(
     : result.outcome === "accepted" || result.outcome === "in_progress"
       ? 202
       : 200;
-  const stagedPayload = {
-    missionId: owned.mission.id,
-    requestHash,
-    action: currentSelection.action,
-    expectedDecision: body.expectedDecision,
-    ...(body.command ? { command: body.command } : {}),
-    status: "processing",
-    responseStatus,
-    claimId,
-    leaseUntil: new Date(Date.now() + 60_000).toISOString(),
-    result: safeResult,
-  };
-  const [stagedEvent] = await db.update(eventsTable)
-    .set({ payload: stagedPayload })
-    .where(and(
-      eq(eventsTable.id, reservation.eventId),
-      eq(eventsTable.projectId, owned.project.id),
-      sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
-      sql`${eventsTable.payload}->>'status' = 'processing'`,
-    ))
-    .returning({ id: eventsTable.id });
+  const stagedEvent = await db.transaction(async (tx) => {
+    const [current] = await tx.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.id, reservation.eventId),
+        eq(eventsTable.projectId, owned.project.id),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+        eq(eventsTable.correlationId, idempotencyCorrelationId),
+        sql`${eventsTable.payload}->>'requestHash' = ${requestHash}`,
+        sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
+        sql`${eventsTable.payload}->>'status' = 'processing'`,
+      ))
+      .for("update")
+      .limit(1);
+    const currentPayload = current?.payload
+      && typeof current.payload === "object"
+      && !Array.isArray(current.payload)
+      ? current.payload as Record<string, unknown>
+      : null;
+    if (!currentPayload) return undefined;
+    const stagedPayload = {
+      ...currentPayload,
+      missionId: owned.mission.id,
+      requestHash,
+      action: currentSelection.action,
+      expectedDecision: body.expectedDecision,
+      ...(body.command ? { command: body.command } : {}),
+      status: "processing",
+      responseStatus,
+      claimId,
+      leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+      result: safeResult,
+    };
+    const [updated] = await tx.update(eventsTable)
+      .set({ payload: stagedPayload })
+      .where(and(
+        eq(eventsTable.id, reservation.eventId),
+        eq(eventsTable.projectId, owned.project.id),
+        eq(eventsTable.correlationId, idempotencyCorrelationId),
+        sql`${eventsTable.payload}->>'requestHash' = ${requestHash}`,
+        sql`${eventsTable.payload}->>'claimId' = ${claimId}`,
+        sql`${eventsTable.payload}->>'status' = 'processing'`,
+      ))
+      .returning({ id: eventsTable.id });
+    return updated ? { id: updated.id, payload: stagedPayload } : undefined;
+  });
   if (!stagedEvent) {
     res.status(409).json({
       error: "This action reservation is no longer owned by this request.",
@@ -5379,6 +5483,7 @@ async function handleMissionAgentAction(
     });
     return;
   }
+  const stagedPayload = stagedEvent.payload;
   const [updatedEvent] = await db.update(eventsTable)
     .set({
       payload: {
