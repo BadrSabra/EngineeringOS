@@ -1460,6 +1460,39 @@ describe("Apply Changes Mission D2 dispatch", () => {
     expect(scheduleTaskExecution).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an already-queued report Goal blocked when its predecessor lacks Canonical Proof", async () => {
+    const fixture = await createApplyChangesFixture();
+    await db.update(aiGoalsTable)
+      .set({ status: "queued", blockedReason: null })
+      .where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    await db.update(aiGoalsTable)
+      .set({
+        status: "completed",
+        outcomeContract: { planRevision: { hash: fixture.planRevision } },
+      })
+      .where(eq(aiGoalsTable.id, fixture.applyGoalId));
+
+    expect(await wakeReadyMissionGoals()).toBe(0);
+
+    const [reportGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    expect(reportGoal).toEqual({
+      status: "needs_replan",
+      blockedReason: "dependency_proof_unproven",
+    });
+    expect(scheduleTaskExecution).not.toHaveBeenCalled();
+    const dispatches = await db.select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.goalId, fixture.reportGoalId),
+        eq(eventsTable.type, "AiGoalDispatchRequested"),
+      ));
+    expect(dispatches).toHaveLength(0);
+  });
+
   it.each(invalidApplyProofCases)(
     "blocks dispatch and preserves Gate-C acceptance for $name",
     async ({ mutate, expectedReason, expectedAcceptanceOutcome = "SUCCEEDED" }) => {

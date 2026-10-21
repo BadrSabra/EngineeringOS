@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
-import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte, or } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiAgentEpisodesTable,
@@ -2992,8 +2992,10 @@ export async function runMissionGoal(params: {
 }
 
 /**
- * Re-queues Goals that were held on a completion dependency. This uses the
- * existing durable dispatcher; it does not execute a second dependency engine.
+ * Wakes dependent Goals after their prerequisites complete. This handles both
+ * Goals held in waiting_for_event and descendants that plan materialization
+ * left queued, while leaving proof and continuation authorization to the
+ * existing Mission runtime.
  */
 export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
   const candidates = await db
@@ -3003,9 +3005,19 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
       projectId: aiGoalsTable.projectId,
     })
     .from(aiGoalsTable)
-    .where(and(
-      eq(aiGoalsTable.status, "waiting_for_event"),
-      eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+    .where(or(
+      and(
+        eq(aiGoalsTable.status, "waiting_for_event"),
+        eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+      ),
+      and(
+        eq(aiGoalsTable.status, "queued"),
+        inArray(
+          aiGoalsTable.id,
+          db.select({ goalId: aiGoalDependenciesTable.goalId })
+            .from(aiGoalDependenciesTable),
+        ),
+      ),
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3029,11 +3041,15 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
           eq(aiGoalsTable.id, candidate.id),
           eq(aiGoalsTable.missionId, candidate.missionId),
           eq(aiGoalsTable.projectId, candidate.projectId),
-          eq(aiGoalsTable.status, "waiting_for_event"),
-          eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+          inArray(aiGoalsTable.status, ["waiting_for_event", "queued"]),
         ))
         .for("update");
       if (!goal) return undefined;
+      const isWaitingOnDependencies =
+        goal.status === "waiting_for_event"
+        && goal.blockedReason === "dependencies_pending";
+      const isQueuedDependent = goal.status === "queued" && goal.blockedReason === null;
+      if (!isWaitingOnDependencies && !isQueuedDependent) return undefined;
       const dependencyState = await loadGoalDependencyState(tx, mission, goal);
       const unprovenDependency = dependencyState.unprovenDependencies[0];
       if (unprovenDependency) {
@@ -3050,23 +3066,25 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
         && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
         && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
       if (!allDependenciesCompleted) return undefined;
-      await tx.update(aiGoalsTable)
-        .set({
-          status: "queued",
-          blockedReason: null,
-          nextWakeAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(aiGoalsTable.id, goal.id));
-      await tx.insert(eventsTable).values({
-        id: randomUUID(),
-        type: "AiGoalDependencyReady",
-        projectId: goal.projectId,
-        goalId: goal.id,
-        severity: "info",
-        message: `AI goal "${goal.title}" is ready after its dependencies completed`,
-        payload: { missionId: goal.missionId, planRevision: dependencyState.planRevision },
-      });
+      if (isWaitingOnDependencies) {
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "queued",
+            blockedReason: null,
+            nextWakeAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalDependencyReady",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "info",
+          message: `AI goal "${goal.title}" is ready after its dependencies completed`,
+          payload: { missionId: goal.missionId, planRevision: dependencyState.planRevision },
+        });
+      }
       return { userId: mission.userId };
     });
     if (!ready) continue;
