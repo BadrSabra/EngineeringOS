@@ -303,6 +303,20 @@ async function main() {
         "locks linked Mission and Goal before Execution when appending an Episode event",
       ], { env });
       if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+
+      console.log("Verifying legacy Mission lifecycle adapters use the current decision and shared idempotency ledger.");
+      lifecycleRunnerStage = "mission-agent-compatibility-adapters";
+      await run("pnpm", [
+        "--filter",
+        "@workspace/api-server",
+        "exec",
+        "vitest",
+        "run",
+        "src/routes/ai/missions.test.ts",
+        "-t",
+        "routes legacy Agent lifecycle requests through the decision and idempotency gates",
+      ], { env });
+      if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
     }
 
     console.log("Verifying stale Mission plan confirmations against the isolated database.");

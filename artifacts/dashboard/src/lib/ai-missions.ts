@@ -299,6 +299,7 @@ export interface UpdateMissionInput {
   autonomyPolicy?: Record<string, unknown>;
   budget?: Record<string, unknown>;
   deadline?: string | null;
+  idempotencyKey?: string;
   expectedDecision?: EngineeringAgentDecision;
 }
 
@@ -453,6 +454,7 @@ export interface ReplanMissionInput {
   objective?: string;
   expectedPlanHash?: string;
   reason?: string;
+  idempotencyKey?: string;
   expectedDecision?: EngineeringAgentDecision;
 }
 
@@ -515,10 +517,19 @@ export interface MissionAgentActionInput {
   expectedDecision: EngineeringAgentDecision;
   command?: 'STOP';
   input?: {
+    start?: {
+      title?: string;
+      intent?: string;
+      autonomyPolicy?: Record<string, unknown>;
+      budget?: Record<string, unknown>;
+      deadline?: string | null;
+    };
     replan?: {
+      message?: string;
       objective?: string;
       reason?: string;
       expectedPlanHash?: string;
+      runtimeStartTargetStepId?: string | null;
     };
   };
 }
@@ -543,11 +554,12 @@ export function executeMissionAgentAction(
   );
 }
 
-export function updateMission(missionId: string, body: UpdateMissionInput) {
-  return requestJson<Mission>(
+export async function updateMission(missionId: string, body: UpdateMissionInput): Promise<Mission> {
+  const response = await requestJson<Mission | MissionAgentActionResponse>(
     `/api/ai/missions/${encodeURIComponent(missionId)}`,
     jsonRequest('PATCH', body),
   );
+  return 'projection' in response ? response.projection.mission : response;
 }
 
 export function createGoal(missionId: string, body: CreateGoalInput) {

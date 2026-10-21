@@ -1541,6 +1541,7 @@ export default function Missions() {
     if (!editor) return;
     setMutationSaving(true);
     setMutationError(null);
+    let startActionIdentity: string | null = null;
     try {
       if (editor.type === 'mission-create') {
         const created = await createMission(data as CreateMissionInput);
@@ -1555,10 +1556,17 @@ export default function Missions() {
         if (isDraftStart && (!canStartMission || !missionDecisionIdentity)) {
           throw new Error('تعذر البدء لأن قرار الهدف الرئيسي الحالي لا يسمح بذلك. حدّث الحالة ثم حاول مجددًا.');
         }
+        startActionIdentity = isDraftStart ? `mission:${editor.mission.id}:START` : null;
         const updated = await updateMission(editor.mission.id, {
           ...input,
-          ...(isDraftStart ? { expectedDecision: missionDecisionIdentity! } : {}),
+          ...(isDraftStart
+            ? {
+                idempotencyKey: getAgentActionKey(startActionIdentity!),
+                expectedDecision: missionDecisionIdentity!,
+              }
+            : {}),
         });
+        if (startActionIdentity) clearAgentActionKey(startActionIdentity);
         setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
         setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
         setEditor(null);
@@ -1590,6 +1598,13 @@ export default function Missions() {
         setProjectionReload((value) => value + 1);
       }
     } catch (error: unknown) {
+      if (
+        startActionIdentity
+        && error instanceof MissionRequestError
+        && error.status < 500
+      ) {
+        clearAgentActionKey(startActionIdentity);
+      }
       setMutationError(error);
     } finally {
       setMutationSaving(false);

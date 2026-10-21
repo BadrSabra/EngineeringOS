@@ -1742,6 +1742,134 @@ describe("AI missions and goals", () => {
     expect(await snapshot()).toEqual(before);
   });
 
+  it("routes legacy Agent lifecycle requests through the decision and idempotency gates", async () => {
+    const startProjectId = await insertProject();
+    const startMission = await request(app).post("/api/ai/missions").send({
+      projectId: startProjectId,
+      title: "Compatibility START",
+      intent: "Use the same action ledger as the gateway",
+    });
+    expect(startMission.status).toBe(201);
+    const startMissionId = startMission.body.id as string;
+    const startProjection = await request(app)
+      .get(`/api/ai/missions/${startMissionId}/projection`);
+    const startDecision = startProjection.body.engineeringAgent.nextAction;
+    expect(startDecision.kind).toBe("START");
+
+    const missingStartDecision = await request(app)
+      .patch(`/api/ai/missions/${startMissionId}`)
+      .send({ status: "active" });
+    expect(missingStartDecision.status).toBe(400);
+    expect(missingStartDecision.body.code).toBe("AGENT_DECISION_REQUIRED");
+
+    const missingStartKey = await request(app)
+      .patch(`/api/ai/missions/${startMissionId}`)
+      .send({ status: "active", expectedDecision: startDecision });
+    expect(missingStartKey.status).toBe(400);
+    expect(missingStartKey.body.code).toBe("AGENT_IDEMPOTENCY_KEY_REQUIRED");
+
+    const startBody = {
+      status: "active",
+      title: "Started through the compatibility adapter",
+      intent: "Apply submitted updates atomically with activation",
+      expectedDecision: startDecision,
+      idempotencyKey: randomUUID(),
+    };
+    const started = await request(app)
+      .patch(`/api/ai/missions/${startMissionId}`)
+      .send(startBody);
+    expect([200, 202]).toContain(started.status);
+    expect(started.body.projection.mission).toMatchObject({
+      id: startMissionId,
+      status: "active",
+      title: startBody.title,
+      intent: startBody.intent,
+    });
+    expect(started.body.idempotentReplay).toBe(false);
+
+    const startReplay = await request(app)
+      .patch(`/api/ai/missions/${startMissionId}`)
+      .send(startBody);
+    expect(startReplay.status).toBe(started.status);
+    expect(startReplay.body.idempotentReplay).toBe(true);
+    const startActions = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, startProjectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(startActions).toHaveLength(1);
+
+    const replanProjectId = await insertProject();
+    const replanMission = await request(app).post("/api/ai/missions").send({
+      projectId: replanProjectId,
+      title: "Compatibility REPLAN",
+      intent: "Require the current decision and idempotency key",
+    });
+    const replanGoal = await request(app)
+      .post(`/api/ai/missions/${replanMission.body.id}/goals`)
+      .send({ title: "A Goal that needs a new plan" });
+    await db.update(aiMissionsTable)
+      .set({ status: "needs_replan" })
+      .where(eq(aiMissionsTable.id, replanMission.body.id));
+    await db.update(aiGoalsTable)
+      .set({ status: "needs_replan" })
+      .where(eq(aiGoalsTable.id, replanGoal.body.id));
+    const replanProjection = await request(app)
+      .get(`/api/ai/missions/${replanMission.body.id}/projection`);
+    const replanDecision = replanProjection.body.engineeringAgent.nextAction;
+    expect(replanDecision.kind).toBe("REPLAN");
+
+    const missingReplanDecision = await request(app)
+      .post(`/api/ai/missions/${replanMission.body.id}/replan`)
+      .send({});
+    expect(missingReplanDecision.status).toBe(400);
+    expect(missingReplanDecision.body.code).toBe("AGENT_DECISION_REQUIRED");
+    const missingReplanKey = await request(app)
+      .post(`/api/ai/missions/${replanMission.body.id}/replan`)
+      .send({ expectedDecision: replanDecision });
+    expect(missingReplanKey.status).toBe(400);
+    expect(missingReplanKey.body.code).toBe("AGENT_IDEMPOTENCY_KEY_REQUIRED");
+
+    const approvalProjectId = await insertProject();
+    const approvalMission = await request(app).post("/api/ai/missions").send({
+      projectId: approvalProjectId,
+      title: "Compatibility APPROVE",
+      intent: "Require an exact approval decision",
+    });
+    const approvalGoal = await request(app)
+      .post(`/api/ai/missions/${approvalMission.body.id}/goals`)
+      .send({ title: "Wait for approval" });
+    await db.update(aiMissionsTable)
+      .set({ status: "active" })
+      .where(eq(aiMissionsTable.id, approvalMission.body.id));
+    await db.update(aiGoalsTable)
+      .set({
+        status: "waiting_for_approval",
+        nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+      })
+      .where(eq(aiGoalsTable.id, approvalGoal.body.id));
+    const approvalProjection = await request(app)
+      .get(`/api/ai/missions/${approvalMission.body.id}/projection`);
+    const approvalDecision = approvalProjection.body.engineeringAgent.nextAction;
+    expect(approvalDecision.kind).toBe("APPROVE");
+
+    const missingApprovalDecision = await request(app)
+      .post(`/api/ai/missions/${approvalMission.body.id}/goals/${approvalGoal.body.id}/approve`)
+      .send({});
+    expect(missingApprovalDecision.status).toBe(400);
+    expect(missingApprovalDecision.body.code).toBe("AGENT_DECISION_REQUIRED");
+    const missingApprovalKey = await request(app)
+      .post(`/api/ai/missions/${approvalMission.body.id}/goals/${approvalGoal.body.id}/approve`)
+      .send({ expectedDecision: approvalDecision });
+    expect(missingApprovalKey.status).toBe(400);
+    expect(missingApprovalKey.body.code).toBe("AGENT_IDEMPOTENCY_KEY_REQUIRED");
+    const [approvalGoalAfter] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, approvalGoal.body.id));
+    expect(approvalGoalAfter?.status).toBe("waiting_for_approval");
+  });
+
   it("keeps stale, unavailable, and unknown gateway requests side-effect free", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({

@@ -14,10 +14,19 @@ export type EngineeringAgentDecisionIdentity = {
 export type EngineeringAgentOptionalCommand = "STOP";
 
 export interface EngineeringAgentActionInput {
+  start?: {
+    title?: string;
+    intent?: string;
+    autonomyPolicy?: Record<string, unknown>;
+    budget?: Record<string, unknown>;
+    deadline?: string | null;
+  };
   replan?: {
+    message?: string;
     objective?: string;
     reason?: string;
     expectedPlanHash?: string;
+    runtimeStartTargetStepId?: string | null;
   };
 }
 

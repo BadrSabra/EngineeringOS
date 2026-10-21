@@ -153,14 +153,24 @@ const MissionAgentActionBody = z.object({
   expectedDecision: EngineeringAgentDecisionSchema,
   command: z.literal("STOP").optional(),
   input: z.object({
+    start: z.object({
+      title: z.string().trim().min(1).max(200).optional(),
+      intent: z.string().trim().min(1).max(500).optional(),
+      autonomyPolicy: JsonObjectSchema.optional(),
+      budget: JsonObjectSchema.optional(),
+      deadline: z.string().datetime().nullable().optional(),
+    }).strict().optional(),
     replan: z.object({
+      message: z.string().trim().min(1).max(10_000).optional(),
       objective: z.string().trim().min(1).max(2_000).optional(),
       reason: z.string().trim().min(1).max(2_000).optional(),
       expectedPlanHash: z.string().trim().min(1).max(200).optional(),
+      runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
     }).strict().optional(),
   }).strict().optional(),
 }).strict();
 const MissionGoalApprovalBody = z.object({
+  idempotencyKey: z.string().uuid().optional(),
   expectedDecision: EngineeringAgentDecisionSchema.optional(),
 }).strict();
 
@@ -332,6 +342,7 @@ const MissionReplanBody = z.object({
   expectedPlanHash: z.string().trim().min(1).max(200).optional(),
   reason: z.string().trim().min(1).max(2_000).optional(),
   runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
+  idempotencyKey: z.string().uuid().optional(),
   expectedDecision: EngineeringAgentDecisionSchema.optional(),
 }).strict();
 
@@ -578,6 +589,7 @@ const UpdateMissionBody = z.object({
   autonomyPolicy: JsonObjectSchema.optional(),
   budget: JsonObjectSchema.optional(),
   deadline: z.string().datetime().nullable().optional(),
+  idempotencyKey: z.string().uuid().optional(),
   expectedDecision: EngineeringAgentDecisionSchema.optional(),
 }).strict();
 
@@ -1481,6 +1493,7 @@ async function activateMissionFromAgent(
     project: { id: string };
   },
   userId: string,
+  updates?: EngineeringAgentActionInput["start"],
 ) {
   const now = new Date();
   const result = await db.transaction(async (tx) => {
@@ -1496,8 +1509,80 @@ async function activateMissionFromAgent(
     if (!mission) return { kind: "missing" as const };
     if (mission.status !== "draft") return { kind: "stale" as const };
 
+    const existingAutonomyPolicy = readRecord(mission.autonomyPolicy);
+    const hasServerOwnedHandoffSource = Boolean(
+      existingAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "handoffSource"),
+    );
+    const hasServerOwnedActivePlanRevision = Boolean(
+      existingAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "activePlanRevision"),
+    );
+    const hasServerOwnedApplyMission = Boolean(
+      existingAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "applyMission"),
+    );
+    const requestedAutonomyPolicy = updates?.autonomyPolicy;
+    if (
+      requestedAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(requestedAutonomyPolicy, "handoffSource")
+      && !hasServerOwnedHandoffSource
+    ) {
+      return { kind: "policy_error" as const, policyError: "handoffSource" as const };
+    }
+    if (
+      requestedAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(requestedAutonomyPolicy, "activePlanRevision")
+      && (
+        !hasServerOwnedActivePlanRevision
+        || requestedAutonomyPolicy.activePlanRevision !== existingAutonomyPolicy!.activePlanRevision
+      )
+    ) {
+      return { kind: "policy_error" as const, policyError: "activePlanRevision" as const };
+    }
+    if (
+      requestedAutonomyPolicy
+      && Object.prototype.hasOwnProperty.call(requestedAutonomyPolicy, "applyMission")
+      && (
+        !hasServerOwnedApplyMission
+        || !isDeepStrictEqual(
+          requestedAutonomyPolicy.applyMission,
+          existingAutonomyPolicy!.applyMission,
+        )
+      )
+    ) {
+      return { kind: "policy_error" as const, policyError: "applyMission" as const };
+    }
+
+    const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
+      ...(updates?.title !== undefined ? { title: updates.title } : {}),
+      ...(updates?.intent !== undefined ? { intent: updates.intent } : {}),
+      ...(updates?.budget !== undefined ? { budget: updates.budget } : {}),
+      ...(requestedAutonomyPolicy !== undefined
+        ? {
+            autonomyPolicy: {
+              ...requestedAutonomyPolicy,
+              ...(hasServerOwnedHandoffSource
+                ? { handoffSource: existingAutonomyPolicy!.handoffSource }
+                : {}),
+              ...(hasServerOwnedActivePlanRevision
+                ? { activePlanRevision: existingAutonomyPolicy!.activePlanRevision }
+                : {}),
+              ...(hasServerOwnedApplyMission
+                ? { applyMission: existingAutonomyPolicy!.applyMission }
+                : {}),
+            },
+          }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(updates ?? {}, "deadline")
+        ? { deadline: updates?.deadline ? new Date(updates.deadline) : null }
+        : {}),
+      status: "active",
+      completedAt: null,
+      updatedAt: now,
+    };
     const [updated] = await tx.update(aiMissionsTable)
-      .set({ status: "active", completedAt: null, updatedAt: now })
+      .set(updateValues)
       .where(and(
         eq(aiMissionsTable.id, mission.id),
         eq(aiMissionsTable.status, "draft"),
@@ -1515,9 +1600,12 @@ async function activateMissionFromAgent(
       type: "AiMissionUpdated",
       projectId: mission.projectId,
       severity: "info",
-      message: `AI mission "${updated.title}" activated from the Engineering Agent decision`,
+      message: `AI mission "${updated.title}" activated`,
       correlationId: randomUUID(),
-      payload: { missionId: mission.id, changedFields: ["status"] },
+      payload: {
+        missionId: mission.id,
+        changedFields: ["status", ...Object.keys(updates ?? {})],
+      },
     });
     return { kind: "activated" as const, mission: updated, activationPlan };
   });
@@ -2457,23 +2545,104 @@ async function performMissionReplan(
   };
 }
 
+async function dispatchLegacyMissionActionIfCurrent(
+  req: Request,
+  res: Response,
+  owned: {
+    mission: typeof aiMissionsTable.$inferSelect;
+    project: { id: string };
+  },
+  params: {
+    action: "START" | "REPLAN" | "APPROVE";
+    expectedDecision?: EngineeringAgentDecisionIdentity;
+    idempotencyKey?: string;
+    targetGoalId?: string;
+    required?: boolean;
+    input?: z.infer<typeof MissionAgentActionBody>["input"];
+  },
+): Promise<boolean> {
+  const projection = await loadMissionProjection(owned);
+  if (
+    params.expectedDecision
+    && (
+      params.expectedDecision.kind !== params.action
+      || !matchesEngineeringAgentDecision(params.expectedDecision, projection)
+    )
+  ) {
+    res.status(409).json({
+      error: "The Mission decision changed. Review the current state before trying again.",
+      code: "AGENT_DECISION_STALE",
+      projection,
+    });
+    return true;
+  }
+
+  if (projection.engineeringAgent.nextAction.kind !== params.action) {
+    if (!params.required) return false;
+    res.status(409).json({
+      error: "This lifecycle action is not available in the current Mission state.",
+      code: "AGENT_COMMAND_UNAVAILABLE",
+      projection,
+    });
+    return true;
+  }
+
+  if (
+    params.targetGoalId
+    && projection.engineeringAgent.goalId !== params.targetGoalId
+  ) {
+    res.status(409).json({
+      error: "This compatibility route does not target the current approval Goal.",
+      code: "AGENT_ACTION_TARGET_INVALID",
+      projection,
+    });
+    return true;
+  }
+
+  if (!params.expectedDecision) {
+    res.status(400).json({
+      error: "The current Engineering Agent decision is required for this action.",
+      code: "AGENT_DECISION_REQUIRED",
+      projection,
+    });
+    return true;
+  }
+  if (!params.idempotencyKey) {
+    res.status(400).json({
+      error: "An idempotency key is required for this Engineering Agent action.",
+      code: "AGENT_IDEMPOTENCY_KEY_REQUIRED",
+      projection,
+    });
+    return true;
+  }
+
+  await handleMissionAgentAction(req, res, {
+    idempotencyKey: params.idempotencyKey,
+    expectedDecision: params.expectedDecision,
+    ...(params.input ? { input: params.input } : {}),
+  }, false);
+  return true;
+}
+
 router.post("/ai/missions/:missionId/replan", async (req, res) => {
   const body = MissionReplanBody.parse(req.body ?? {});
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
-  if (body.expectedDecision) {
-    const projection = await loadMissionProjection(owned);
-    if (
-      body.expectedDecision.kind !== "REPLAN"
-      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
-    ) {
-      return res.status(409).json({
-        error: "The Mission decision changed. Review the current state before trying again.",
-        code: "AGENT_DECISION_STALE",
-        projection,
-      });
-    }
-  }
+  const replanInput = {
+    ...(body.message ? { message: body.message } : {}),
+    ...(body.objective ? { objective: body.objective } : {}),
+    ...(body.reason ? { reason: body.reason } : {}),
+    ...(body.expectedPlanHash ? { expectedPlanHash: body.expectedPlanHash } : {}),
+    ...(Object.prototype.hasOwnProperty.call(body, "runtimeStartTargetStepId")
+      ? { runtimeStartTargetStepId: body.runtimeStartTargetStepId }
+      : {}),
+  };
+  if (await dispatchLegacyMissionActionIfCurrent(req, res, owned, {
+    action: "REPLAN",
+    expectedDecision: body.expectedDecision,
+    idempotencyKey: body.idempotencyKey,
+    input: { replan: replanInput },
+  })) return;
   const result = await performMissionReplan(owned, req.userId, body);
   if (result.kind === "terminal") {
     return res.status(409).json({
@@ -2520,19 +2689,12 @@ router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) =>
   const body = MissionGoalApprovalBody.parse(req.body ?? {});
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
-  if (body.expectedDecision) {
-    const projection = await loadMissionProjection(owned);
-    if (
-      body.expectedDecision.kind !== "APPROVE"
-      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
-    ) {
-      return res.status(409).json({
-        error: "The Mission decision changed. Review the current state before trying again.",
-        code: "AGENT_DECISION_STALE",
-        projection,
-      });
-    }
-  }
+  if (await dispatchLegacyMissionActionIfCurrent(req, res, owned, {
+    action: "APPROVE",
+    expectedDecision: body.expectedDecision,
+    idempotencyKey: body.idempotencyKey,
+    targetGoalId: req.params.goalId,
+  })) return;
   const result = await approveMissionGoal({
     missionId: owned.mission.id,
     goalId: req.params.goalId,
@@ -2659,31 +2821,45 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
 
   const before = owned.mission;
   const isDraftStart = before.status === "draft" && body.status === "active";
-  if (isDraftStart && body.expectedDecision) {
-    const projection = await loadMissionProjection(owned);
-    if (
-      body.expectedDecision.kind !== "START"
-      || !matchesEngineeringAgentDecision(body.expectedDecision, projection)
-    ) {
-      return res.status(409).json({
-        error: "The Mission decision changed. Review the current state before trying again.",
-        code: "AGENT_DECISION_STALE",
-        projection,
-      });
-    }
+  if (isDraftStart) {
+    const startUpdates = {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.intent !== undefined ? { intent: body.intent } : {}),
+      ...(body.autonomyPolicy !== undefined ? { autonomyPolicy: body.autonomyPolicy } : {}),
+      ...(body.budget !== undefined ? { budget: body.budget } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, "deadline")
+        ? { deadline: body.deadline }
+        : {}),
+    };
+    const input = Object.keys(startUpdates).length > 0
+      ? { start: startUpdates }
+      : undefined;
+    if (await dispatchLegacyMissionActionIfCurrent(req, res, owned, {
+      action: "START",
+      expectedDecision: body.expectedDecision,
+      idempotencyKey: body.idempotencyKey,
+      required: true,
+      input,
+    })) return;
+    return;
   }
   const now = new Date();
   // Keep activation idempotent so missions that were already marked active
   // before activation plans existed can be repaired by saving "active" again.
   const shouldActivate = body.status === "active";
-  const { deadline, autonomyPolicy, expectedDecision, ...rest } = body;
+  const { deadline, autonomyPolicy } = body;
+  const rest = {
+    ...(body.title !== undefined ? { title: body.title } : {}),
+    ...(body.intent !== undefined ? { intent: body.intent } : {}),
+    ...(body.status !== undefined ? { status: body.status } : {}),
+    ...(body.budget !== undefined ? { budget: body.budget } : {}),
+  };
 
   const correlationId = randomUUID();
   let result: {
     updated?: typeof aiMissionsTable.$inferSelect;
     activationPlan?: MissionPlanMaterialization;
     policyError?: "handoffSource" | "activePlanRevision" | "applyMission";
-    decisionConflict?: boolean;
   };
   try {
     result = await db.transaction(async (tx) => {
@@ -2695,14 +2871,6 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         ))
         .for("update");
       if (!current) return { updated: undefined, activationPlan: undefined };
-      if (
-        isDraftStart
-        && expectedDecision
-        && current.status !== "draft"
-      ) {
-        return { decisionConflict: true };
-      }
-
       const existingAutonomyPolicy = readRecord(current.autonomyPolicy);
       const hasServerOwnedHandoffSource = Boolean(
         existingAutonomyPolicy
@@ -2838,16 +3006,6 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         : isActivePlanRevision
           ? "MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED"
           : "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
-    });
-  }
-  if (result.decisionConflict) {
-    const refreshedOwned = await loadOwnedMission(req.params.missionId, req.userId, res);
-    if (!refreshedOwned) return;
-    const projection = await loadMissionProjection(refreshedOwned);
-    return res.status(409).json({
-      error: "The Mission decision changed. Review the current state before trying again.",
-      code: "AGENT_DECISION_STALE",
-      projection,
     });
   }
   if (!result.updated) return res.status(404).json({ error: "Mission not found" });
@@ -4433,8 +4591,13 @@ async function handleMissionAgentAction(
       });
       return;
     }
-    res.status(result?.outcome === "accepted" || result?.outcome === "in_progress" ? 202 : 200)
-      .json({
+    const storedResponseStatus = payload.responseStatus;
+    const responseStatus = typeof storedResponseStatus === "number"
+      ? storedResponseStatus
+      : result?.outcome === "accepted" || result?.outcome === "in_progress"
+        ? 202
+        : 200;
+    res.status(responseStatus).json({
         missionId: owned.mission.id,
         outcome: result?.outcome ?? "in_progress",
         projection,
@@ -4512,9 +4675,18 @@ async function handleMissionAgentAction(
     });
     return;
   }
-  if (body.input && selection.action !== "REPLAN") {
+  if (
+    body.input
+    && (
+      selection.action === "START"
+        ? Boolean(body.input.replan)
+        : selection.action === "REPLAN"
+          ? Boolean(body.input.start)
+          : true
+    )
+  ) {
     res.status(400).json({
-      error: "Action input is only valid for REPLAN.",
+      error: "Action input does not match the selected Mission action.",
       code: "INVALID_AGENT_ACTION_INPUT",
     });
     return;
@@ -4729,7 +4901,28 @@ async function handleMissionAgentAction(
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "START must target this Mission." },
         };
       }
-      const activated = await activateMissionFromAgent(owned, req.userId);
+      const activated = await activateMissionFromAgent(
+        owned,
+        req.userId,
+        actionContext.input?.start,
+      );
+      if (activated.kind === "policy_error") {
+        const error = activated.policyError === "applyMission"
+          ? {
+              code: "MISSION_APPLY_BINDING_SERVER_OWNED",
+              message: "applyMission is server-owned.",
+            }
+          : activated.policyError === "activePlanRevision"
+            ? {
+                code: "MISSION_ACTIVE_PLAN_REVISION_SERVER_OWNED",
+                message: "activePlanRevision is server-owned.",
+              }
+            : {
+                code: "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
+                message: "handoffSource is server-owned.",
+              };
+        return { outcome: "rejected", error };
+      }
       if (activated.kind !== "activated") {
         return {
           outcome: "rejected",
@@ -4950,9 +5143,13 @@ async function handleMissionAgentAction(
       }
       const replan = actionContext.input?.replan;
       const result = await performMissionReplan(owned, req.userId, {
-        ...(replan?.objective ? { objective: replan.objective, message: replan.objective } : {}),
+        ...(replan?.message ? { message: replan.message } : {}),
+        ...(replan?.objective ? { objective: replan.objective } : {}),
         ...(replan?.expectedPlanHash ? { expectedPlanHash: replan.expectedPlanHash } : {}),
         ...(replan?.reason ? { reason: replan.reason } : {}),
+        ...(replan && Object.prototype.hasOwnProperty.call(replan, "runtimeStartTargetStepId")
+          ? { runtimeStartTargetStepId: replan.runtimeStartTargetStepId }
+          : {}),
         expectedDecision: body.expectedDecision,
       });
       if (result.kind !== "replanned") {
@@ -5064,6 +5261,11 @@ async function handleMissionAgentAction(
     ...(result.error ? { error: result.error } : {}),
   };
   const storedStatus = result.outcome === "rejected" ? "rejected" : "completed";
+  const responseStatus = result.outcome === "rejected"
+    ? 409
+    : result.outcome === "accepted" || result.outcome === "in_progress"
+      ? 202
+      : 200;
   const [updatedEvent] = await db.update(eventsTable)
     .set({
       payload: {
@@ -5073,6 +5275,7 @@ async function handleMissionAgentAction(
         expectedDecision: body.expectedDecision,
         ...(body.command ? { command: body.command } : {}),
         status: storedStatus,
+        responseStatus,
         claimId,
         leaseUntil: null,
         result: safeResult,
@@ -5130,8 +5333,7 @@ async function handleMissionAgentAction(
     });
     return;
   }
-  const statusCode = result.outcome === "accepted" || result.outcome === "in_progress" ? 202 : 200;
-  res.status(statusCode).json({
+  res.status(responseStatus).json({
     missionId: owned.mission.id,
     outcome: result.outcome,
     projection: finalProjection,
