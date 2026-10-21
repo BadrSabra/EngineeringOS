@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
@@ -111,6 +111,42 @@ function eventInput(episodeId: string, overrides: Record<string, unknown> = {}) 
   } as Parameters<typeof appendEpisodeEvent>[0];
 }
 
+async function waitForLinkedEpisodeLockWait() {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const result = await db.execute(sql`
+      SELECT waiting.pid, waiting.query, pg_blocking_pids(waiting.pid) AS blockers
+      FROM pg_stat_activity AS waiting
+      WHERE waiting.pid <> pg_backend_pid()
+        AND waiting.datname = current_database()
+        AND waiting.wait_event_type = 'Lock'
+        AND cardinality(pg_blocking_pids(waiting.pid)) > 0
+    `);
+    const rows = (result as unknown as {
+      rows?: Array<{ pid: number; query: string | null; blockers: number[] }>;
+    }).rows ?? [];
+    const matching = rows.filter((row) =>
+      /ai_missions|ai_goals|insert into\s+"?events"?/iu.test(row.query ?? "")
+    );
+    if (matching.length > 0) return matching;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for a linked Episode write to wait on its Mission or Goal.");
+}
+
+function errorCodes(value: unknown): string[] {
+  const codes: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = value;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const error = current as { code?: unknown; cause?: unknown };
+    if (typeof error.code === "string") codes.push(error.code);
+    current = error.cause;
+  }
+  return codes;
+}
+
 async function p75TerminalizationInput() {
   const operationId = `agent-episode-p75-operation-${randomUUID()}`;
   const missionId = `agent-episode-p75-mission-${randomUUID()}`;
@@ -180,6 +216,88 @@ describe("agent episode ledger", () => {
       .rejects.toMatchObject({ code: "not_found" });
     await expect(startEpisode(startInput({ workerId: "stale-worker" })))
       .rejects.toMatchObject({ code: "stale_worker" });
+  });
+
+  it("locks linked Mission and Goal before Execution when appending an Episode event", async () => {
+    const missionId = `agent-episode-mission-${randomUUID()}`;
+    const goalId = `agent-episode-goal-${randomUUID()}`;
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId,
+      title: "Linked episode lock-order fixture",
+      intent: "Preserve Mission lock order for episode events",
+      status: "active",
+      scope: { kind: "project", projectId },
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Append a linked episode event",
+      status: "waiting_for_event",
+    });
+    await db.update(aiExecutionsTable)
+      .set({ goalId })
+      .where(eq(aiExecutionsTable.id, executionId));
+    const episode = await startEpisode(startInput({ missionId, goalId }));
+
+    let announceMissionGoalLocked!: () => void;
+    let continueToExecutionLock!: () => void;
+    const missionGoalLocked = new Promise<void>((resolve) => {
+      announceMissionGoalLocked = resolve;
+    });
+    const canLockExecution = new Promise<void>((resolve) => {
+      continueToExecutionLock = resolve;
+    });
+    const pending: Promise<unknown>[] = [];
+    const missionFinalizer = db.transaction(async (tx) => {
+      await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId))
+        .for("update");
+      await tx.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId))
+        .for("update");
+      announceMissionGoalLocked();
+      await canLockExecution;
+      await tx.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .for("update");
+    });
+    pending.push(missionFinalizer);
+
+    try {
+      await missionGoalLocked;
+      const append = appendEpisodeEvent(eventInput(episode.episodeId, {
+        eventType: "OBSERVATION_REQUESTED",
+        payload: { role: "mission-lock-order" },
+      }));
+      pending.push(append);
+      const lockWaiters = await waitForLinkedEpisodeLockWait();
+      continueToExecutionLock();
+
+      const outcomes = await Promise.allSettled([missionFinalizer, append] as const);
+      const deadlocks = outcomes.filter((outcome) =>
+        outcome.status === "rejected" && errorCodes(outcome.reason).includes("40P01")
+      );
+      expect(deadlocks, JSON.stringify({
+        lockWaiters,
+        outcomes: outcomes.map((outcome) =>
+          outcome.status === "fulfilled" ? "fulfilled" : errorCodes(outcome.reason),
+        ),
+      })).toHaveLength(0);
+      expect(outcomes.map((outcome) => outcome.status)).toEqual(["fulfilled", "fulfilled"]);
+      if (outcomes[1]?.status !== "fulfilled") {
+        throw new Error("Expected the linked Episode event to append after Mission finalization released its locks.");
+      }
+      expect(outcomes[1].value.sequence).toBe(1);
+    } finally {
+      continueToExecutionLock();
+      await Promise.allSettled(pending);
+    }
   });
 
   it("keeps sequence coherent, replays in order, and deduplicates events", async () => {

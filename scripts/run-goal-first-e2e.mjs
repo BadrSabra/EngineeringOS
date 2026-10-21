@@ -289,6 +289,22 @@ async function main() {
     await run("pnpm", ["--filter", "@workspace/db", "run", "schema:apply"], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    if (lifecycleRun) {
+      console.log("Verifying linked Episode writes preserve Mission/Goal-before-Execution lock order.");
+      lifecycleRunnerStage = "episode-mission-execution-lock-order";
+      await run("pnpm", [
+        "--filter",
+        "@workspace/api-server",
+        "exec",
+        "vitest",
+        "run",
+        "src/lib/agent-state/agent-episode-ledger.test.ts",
+        "-t",
+        "locks linked Mission and Goal before Execution when appending an Episode event",
+      ], { env });
+      if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
+    }
+
     console.log("Verifying stale Mission plan confirmations against the isolated database.");
     lifecycleRunnerStage = "mission-plan-confirmation";
     await run("pnpm", [

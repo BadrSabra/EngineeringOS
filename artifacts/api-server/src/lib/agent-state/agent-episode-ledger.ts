@@ -238,6 +238,94 @@ async function lockEpisode(tx: LedgerTransaction, episodeId: string) {
   return episode!;
 }
 
+type EpisodeMissionGoalIdentity = Pick<
+  typeof aiAgentEpisodesTable.$inferSelect,
+  "projectId" | "executionId" | "attempt" | "missionId" | "goalId"
+>;
+
+async function lockMissionGoalRows(
+  tx: LedgerTransaction,
+  scope: { projectId: string; missionId?: string | null; goalId?: string | null },
+): Promise<void> {
+  if (scope.missionId) {
+    const [mission] = await tx
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, scope.missionId),
+        eq(aiMissionsTable.projectId, scope.projectId),
+      ))
+      .for("key share")
+      .limit(1);
+    if (!mission) ledgerError("ownership_mismatch", "episode Mission scope is no longer available");
+  }
+
+  if (scope.goalId) {
+    const goalScope = scope.missionId
+      ? and(
+        eq(aiGoalsTable.id, scope.goalId),
+        eq(aiGoalsTable.projectId, scope.projectId),
+        eq(aiGoalsTable.missionId, scope.missionId),
+      )
+      : and(
+        eq(aiGoalsTable.id, scope.goalId),
+        eq(aiGoalsTable.projectId, scope.projectId),
+      );
+    const [goal] = await tx
+      .select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(goalScope)
+      .for("key share")
+      .limit(1);
+    if (!goal) ledgerError("ownership_mismatch", "episode Goal scope is no longer available");
+  }
+}
+
+async function lockEpisodeMissionGoalScope(
+  tx: LedgerTransaction,
+  input: Pick<AppendEpisodeEventInput, "episodeId" | "projectId" | "executionId" | "attempt">,
+): Promise<EpisodeMissionGoalIdentity | undefined> {
+  const [identity] = await tx
+    .select({
+      projectId: aiAgentEpisodesTable.projectId,
+      executionId: aiAgentEpisodesTable.executionId,
+      attempt: aiAgentEpisodesTable.attempt,
+      missionId: aiAgentEpisodesTable.missionId,
+      goalId: aiAgentEpisodesTable.goalId,
+    })
+    .from(aiAgentEpisodesTable)
+    .where(eq(aiAgentEpisodesTable.id, input.episodeId))
+    .limit(1);
+  if (
+    !identity
+    || identity.projectId !== input.projectId
+    || identity.executionId !== input.executionId
+    || identity.attempt !== input.attempt
+  ) {
+    return undefined;
+  }
+  await lockMissionGoalRows(tx, identity);
+  return identity;
+}
+
+function assertEpisodeMissionGoalScopeUnchanged(
+  episode: typeof aiAgentEpisodesTable.$inferSelect,
+  identity: EpisodeMissionGoalIdentity | undefined,
+): void {
+  if (
+    identity
+    && (
+      episode.projectId !== identity.projectId
+      || episode.executionId !== identity.executionId
+      || episode.attempt !== identity.attempt
+      || episode.missionId !== identity.missionId
+      || episode.goalId !== identity.goalId
+    )
+  ) {
+    ledgerError("ownership_mismatch", "episode Mission or Goal scope changed while acquiring ordered locks");
+  }
+}
+
 function appendUnique(current: unknown, additions: readonly string[] | undefined): string[] {
   const values = Array.isArray(current) ? current.filter((value): value is string => typeof value === "string") : [];
   return [...new Set([...values, ...(additions ?? [])])];
@@ -716,6 +804,7 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
     }
   }
   return db.transaction(async (tx) => {
+    await lockMissionGoalRows(tx, input);
     const execution = await lockExecution(tx, input);
     const [existing] = await tx.select().from(aiAgentEpisodesTable).where(and(
       eq(aiAgentEpisodesTable.executionId, input.executionId),
@@ -839,8 +928,10 @@ export async function startEpisodeShadowWithEpisode(
 
 export async function appendEpisodeEvent(input: AppendEpisodeEventInput): Promise<AgentEpisodeEvent> {
   return db.transaction(async (tx) => {
+    const identity = await lockEpisodeMissionGoalScope(tx, input);
     const execution = await lockExecution(tx, input);
     const episode = await lockEpisode(tx, input.episodeId);
+    assertEpisodeMissionGoalScopeUnchanged(episode, identity);
     return appendLocked(tx, input, execution, episode);
   });
 }
@@ -863,8 +954,10 @@ export async function loadEpisodeForOwner(owner: EpisodeOwner): Promise<AgentEpi
 
 export async function closeEpisode(input: CloseEpisodeInput): Promise<AgentEpisode> {
   return db.transaction(async (tx) => {
+    const identity = await lockEpisodeMissionGoalScope(tx, input);
     const execution = await lockExecution(tx, input);
     const episode = await lockEpisode(tx, input.episodeId);
+    assertEpisodeMissionGoalScopeUnchanged(episode, identity);
     if (episode.closedAt || TERMINAL_STATES.has(episode.state)) {
       if (episode.verdict === input.verdict) return episodeToContract(episode);
       ledgerError("terminal_immutable", "episode terminal outcome is immutable");
