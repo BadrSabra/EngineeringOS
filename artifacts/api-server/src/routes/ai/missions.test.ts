@@ -2058,6 +2058,23 @@ describe("AI missions and goals", () => {
     expect(replay.status).toBe(first.status);
     expect(replay.body.idempotentReplay).toBe(true);
 
+    const nextProjection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    expect(nextProjection.body.engineeringAgent.nextAction.kind).not.toBe("START");
+    const goalsBeforeConflict = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    const conflict = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send({
+        ...requestBody,
+        expectedDecision: nextProjection.body.engineeringAgent.nextAction,
+      });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.code).toBe("AGENT_ACTION_IDEMPOTENCY_CONFLICT");
+    const goalsAfterConflict = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    expect(goalsAfterConflict).toEqual(goalsBeforeConflict);
+
     const actionEvents = await db.select({ id: eventsTable.id }).from(eventsTable)
       .where(and(
         eq(eventsTable.projectId, projectId),
