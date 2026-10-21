@@ -147,13 +147,13 @@ async function main() {
       throw new Error(`Test run interrupted by ${shutdownSignal}.`);
     }
 
-    console.log("Running the owner-scoped Mission Agent projection route tests.");
+    console.log("Running the isolated Mission Agent projection and action-gateway route tests.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",
       "exec", "vitest", "run",
       "src/routes/ai/missions.test.ts",
       "-t",
-      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention|binds handoffs to the exact Chat message and resumes the persisted Agent-control projection|rejects active Mission selection without a handoff to the exact session and project|rolls back the Mission plan and handoff when persisting the session selection fails",
+      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention|binds handoffs to the exact Chat message and resumes the persisted Agent-control projection|rejects active Mission selection without a handoff to the exact session and project|rolls back the Mission plan and handoff when persisting the session selection fails|replays a START action with the same idempotency key after the Mission decision changes|routes AUTO_CONTINUE through Mission Runtime and replays the accepted result|routes RESUME through the recovery service and reissues a bound recovery capability on replay|routes RETRY through the retry service and replays a bound retry capability|routes APPROVE through the plan-approval service and persists its approval boundary|routes REPLAN through the plan service and preserves one result for the same key|routes STOP through the cancellation service and records it idempotently|keeps REVIEW and NONE gateway branches non-mutating while recording their decisions|revalidates the current Mission decision after the action reservation is acquired|does not duplicate a business effect when ledger finalization fails after START is accepted",
     ], {
       env: databaseEnv,
     });

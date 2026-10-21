@@ -236,6 +236,52 @@ async function insertProject(ownerId = "test-user") {
   return id;
 }
 
+async function insertGatewayRecoveryExecution(params: {
+  projectId: string;
+  goalId: string;
+  action: "RESUME" | "RETRY";
+}) {
+  const status = params.action === "RESUME" ? "paused" : "failed";
+  const created = await createAiExecution({
+    userId: "test-user",
+    projectId: params.projectId,
+    goalId: params.goalId,
+    idempotencyKey: `mission-gateway-${params.action.toLowerCase()}-${randomUUID()}`,
+    request: {
+      projectId: params.projectId,
+      turnIntent: "CHAT",
+      message: `Exercise the Mission ${params.action} action.`,
+      modelMessage: `Exercise the Mission ${params.action} action.`,
+      validationTargetPaths: [],
+      proofRequired: false,
+    },
+  });
+  const now = new Date();
+  const nextActionCode = params.action === "RESUME" ? "RESUME_ALLOWED" : "RETRY_AFTER_TIMEOUT";
+  const reasonCode = params.action === "RESUME"
+    ? "MODEL_OUTPUT_INVALID"
+    : "EXECUTION_PROVIDER_FAILURE";
+  await db.update(aiExecutionsTable)
+    .set({ status, updatedAt: now })
+    .where(eq(aiExecutionsTable.id, created.execution.id));
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: randomUUID(),
+    executionId: created.execution.id,
+    projectId: params.projectId,
+    attempt: created.execution.attempt,
+    finalizationKey: `mission-gateway-acceptance-${randomUUID()}`,
+    operationId: created.execution.operationId,
+    terminalStatus: status,
+    outcome: "FAILED",
+    reasonCode,
+    nextActionCode,
+    disposition: { outcome: "FAILED", recoveryState: "REQUIRED", nextActionCode },
+    resumable: params.action === "RESUME" ? 1 : 0,
+    createdAt: now,
+  });
+  return created.execution.id;
+}
+
 async function waitForMissionRowLock(
   replanPromise: Promise<{ status: number; body: unknown }>,
   timeoutMs = 10_000,
@@ -2018,6 +2064,610 @@ describe("AI missions and goals", () => {
         eq(eventsTable.type, "AiMissionAgentActionRequested"),
       ));
     expect(actionEvents).toHaveLength(1);
+  });
+
+  it("routes AUTO_CONTINUE through Mission Runtime and replays the accepted result", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway auto-continue",
+      intent: "Continue the authorized queued Goal.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Authorized queued Goal" });
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.update(aiMissionsTable).set({
+      status: "active",
+      autonomyPolicy: { mode: "autonomous", allowAutoContinue: true },
+      updatedAt: now,
+    }).where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({
+      status: "queued",
+      nextAction: { kind: "task", taskId, purpose: "execution" },
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId: goal.body.id,
+      title: "Execute the authorized Goal",
+      status: "pending",
+      phase: "execute",
+      idempotencyKey: `mission-gateway-auto-${taskId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "AUTO_CONTINUE",
+      target: { kind: "goal", id: goal.body.id },
+    });
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const first = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { goalId: goal.body.id, status: "scheduled" },
+    });
+
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body).toMatchObject({ outcome: "accepted", idempotentReplay: true });
+    const actionEvents = await db.select({ id: eventsTable.id })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(actionEvents).toHaveLength(1);
+  });
+
+  it("routes RESUME through the recovery service and reissues a bound recovery capability on replay", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway resume",
+      intent: "Resume the current paused execution.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Paused recovery Goal" });
+    await db.update(aiMissionsTable).set({ status: "active" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({
+      status: "failed",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+    const executionId = await insertGatewayRecoveryExecution({
+      projectId,
+      goalId: goal.body.id,
+      action: "RESUME",
+    });
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "RESUME",
+      target: { kind: "execution", id: executionId },
+    });
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const first = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { executionId, status: "recovery_capability_ready" },
+      recovery: { executionId },
+    });
+
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: true,
+      operation: { executionId, status: "recovery_capability_ready" },
+      recovery: { executionId },
+    });
+  });
+
+  it("routes RETRY through the retry service and replays a bound retry capability", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway retry",
+      intent: "Retry the current provider-failed execution.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Retryable Goal" });
+    await db.update(aiMissionsTable).set({ status: "active" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({
+      status: "failed",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+    const executionId = await insertGatewayRecoveryExecution({
+      projectId,
+      goalId: goal.body.id,
+      action: "RETRY",
+    });
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "RETRY",
+      target: { kind: "execution", id: executionId },
+    });
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const first = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { executionId, status: "retry_capability_ready" },
+      recovery: { executionId },
+    });
+
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: true,
+      operation: { executionId, status: "retry_capability_ready" },
+      recovery: { executionId },
+    });
+  });
+
+  it("routes APPROVE through the plan-approval service and persists its approval boundary", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway approval",
+      intent: "Approve one exact plan step.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Approved execution step" });
+    const now = new Date();
+    const planRevision = "a".repeat(64);
+    const stepId = "approval-step";
+    const taskId = randomUUID();
+    const planStep = {
+      id: stepId,
+      title: "Apply the bounded change",
+      kind: "execute",
+      dependencies: [],
+      files: ["src/index.ts"],
+      readOnly: false,
+      approvalRequired: true,
+    };
+    await db.update(aiMissionsTable).set({
+      status: "active",
+      autonomyPolicy: { activePlanRevision: planRevision },
+      updatedAt: now,
+    }).where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({
+      status: "waiting_for_approval",
+      successCriteria: {
+        kind: "mission_plan_step",
+        stepId,
+        planRevision: { hash: planRevision },
+      },
+      outcomeContract: {
+        stepId,
+        planRevision: { hash: planRevision, steps: [planStep] },
+        planApproval: {
+          kind: "mission_plan_step",
+          state: "PENDING",
+          planRevision,
+          stepId,
+        },
+      },
+      nextAction: { kind: "wait", reason: "approval", wakeAt: null },
+      updatedAt: now,
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId: goal.body.id,
+      title: "Approved execution step",
+      status: "pending",
+      phase: "execute",
+      idempotencyKey: `mission-gateway-approve-${taskId}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "APPROVE",
+      target: { kind: "goal", id: goal.body.id },
+    });
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const approved = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect([200, 202]).toContain(approved.status);
+    expect(approved.body).toMatchObject({
+      outcome: expect.stringMatching(/^(accepted|completed)$/),
+      idempotentReplay: false,
+      operation: { goalId: goal.body.id, planRevision, status: expect.any(String) },
+    });
+    const [persistedGoal] = await db.select({
+      status: aiGoalsTable.status,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persistedGoal?.status).not.toBe("waiting_for_approval");
+    expect(persistedGoal?.outcomeContract).toMatchObject({
+      planApproval: { kind: "mission_plan_step", state: "APPROVED" },
+    });
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(approved.status);
+    expect(replay.body.idempotentReplay).toBe(true);
+  });
+
+  it("routes REPLAN through the plan service and preserves one result for the same key", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway replan",
+      intent: "Inspect the source, then fix the blocking issue.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Goal requiring a revised plan" });
+    await db.update(aiMissionsTable).set({ status: "needs_replan" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({ status: "needs_replan" })
+      .where(eq(aiGoalsTable.id, goal.body.id));
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction.kind).toBe("REPLAN");
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const first = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { status: "replanned", planRevision: expect.any(String) },
+    });
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(first.status);
+    expect(replay.body).toMatchObject({ outcome: "accepted", idempotentReplay: true });
+  });
+
+  it("routes STOP through the cancellation service and records it idempotently", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Gateway stop",
+      intent: "Stop the active execution.",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Running Goal" });
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      goalId: goal.body.id,
+      idempotencyKey: `mission-gateway-stop-${randomUUID()}`,
+      request: {
+        projectId,
+        message: "Run a task that can be cancelled.",
+        modelMessage: "Run a task that can be cancelled.",
+        validationTargetPaths: [],
+      },
+    });
+    const now = new Date();
+    await db.update(aiMissionsTable).set({ status: "active" })
+      .where(eq(aiMissionsTable.id, mission.body.id));
+    await db.update(aiGoalsTable).set({
+      status: "running",
+      nextAction: { kind: "task", taskId: randomUUID(), purpose: "execution" },
+    }).where(eq(aiGoalsTable.id, goal.body.id));
+    await db.update(aiExecutionsTable).set({
+      status: "running",
+      workerId: "mission-agent-stop-test-worker",
+      leaseUntil: new Date(now.getTime() + 60_000),
+      lastHeartbeatAt: now,
+      startedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.engineeringAgent.nextAction.kind).toBe("NONE");
+    expect(projection.body.engineeringAgent.availableCommands).toContainEqual({
+      kind: "STOP",
+      target: { kind: "execution", id: created.execution.id },
+      reasonCode: "execution_in_progress",
+    });
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+      command: "STOP",
+    };
+    const stopped = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(stopped.status).toBe(202);
+    expect(stopped.body).toMatchObject({
+      outcome: "accepted",
+      idempotentReplay: false,
+      operation: { executionId: created.execution.id, status: "cancelling" },
+    });
+    const replay = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send(body);
+    expect(replay.status).toBe(stopped.status);
+    expect(replay.body).toMatchObject({ outcome: "accepted", idempotentReplay: true });
+  });
+
+  it("keeps REVIEW and NONE gateway branches non-mutating while recording their decisions", async () => {
+    const reviewProjectId = await insertProject();
+    const reviewMission = await request(app).post("/api/ai/missions").send({
+      projectId: reviewProjectId,
+      title: "Gateway review",
+      intent: "Review the unresolved Mission state.",
+    });
+    const reviewGoal = await request(app)
+      .post(`/api/ai/missions/${reviewMission.body.id}/goals`)
+      .send({ title: "Unresolved Goal" });
+    await db.update(aiMissionsTable).set({ status: "active" })
+      .where(eq(aiMissionsTable.id, reviewMission.body.id));
+    await db.update(aiGoalsTable).set({ status: "failed" })
+      .where(eq(aiGoalsTable.id, reviewGoal.body.id));
+    const reviewProjection = await request(app)
+      .get(`/api/ai/missions/${reviewMission.body.id}/projection`);
+    expect(reviewProjection.body.engineeringAgent.nextAction.kind).toBe("REVIEW");
+    const reviewed = await request(app)
+      .post(`/api/ai/missions/${reviewMission.body.id}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: reviewProjection.body.engineeringAgent.nextAction,
+      });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body).toMatchObject({
+      outcome: "review_required",
+      operation: { status: reviewProjection.body.engineeringAgent.nextAction.reasonCode },
+    });
+
+    const noneProjectId = await insertProject();
+    const noneMission = await request(app).post("/api/ai/missions").send({
+      projectId: noneProjectId,
+      title: "Gateway no action",
+      intent: "Preserve the current running work.",
+    });
+    const noneGoal = await request(app)
+      .post(`/api/ai/missions/${noneMission.body.id}/goals`)
+      .send({ title: "Already running Goal" });
+    const execution = await createAiExecution({
+      userId: "test-user",
+      projectId: noneProjectId,
+      goalId: noneGoal.body.id,
+      idempotencyKey: `mission-gateway-none-${randomUUID()}`,
+      request: {
+        projectId: noneProjectId,
+        message: "Keep the current execution untouched.",
+        modelMessage: "Keep the current execution untouched.",
+        validationTargetPaths: [],
+      },
+    });
+    const now = new Date();
+    await db.update(aiMissionsTable).set({ status: "active" })
+      .where(eq(aiMissionsTable.id, noneMission.body.id));
+    await db.update(aiGoalsTable).set({ status: "running" })
+      .where(eq(aiGoalsTable.id, noneGoal.body.id));
+    await db.update(aiExecutionsTable).set({
+      status: "running",
+      workerId: "mission-agent-none-test-worker",
+      leaseUntil: new Date(now.getTime() + 60_000),
+      lastHeartbeatAt: now,
+      startedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, execution.execution.id));
+    const noneProjection = await request(app)
+      .get(`/api/ai/missions/${noneMission.body.id}/projection`);
+    expect(noneProjection.body.engineeringAgent.nextAction).toMatchObject({
+      kind: "NONE",
+      reasonCode: "execution_in_progress",
+    });
+    const beforeNone = await db.select({
+      status: aiExecutionsTable.status,
+      cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.execution.id));
+    const noAction = await request(app)
+      .post(`/api/ai/missions/${noneMission.body.id}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: noneProjection.body.engineeringAgent.nextAction,
+      });
+    expect(noAction.status).toBe(200);
+    expect(noAction.body).toMatchObject({ outcome: "no_action", idempotentReplay: false });
+    const afterNone = await db.select({
+      status: aiExecutionsTable.status,
+      cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+    }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.execution.id));
+    expect(afterNone).toEqual(beforeNone);
+  });
+
+  it("revalidates the current Mission decision after the action reservation is acquired", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Reservation decision race",
+      intent: "Do not activate after the Mission is cancelled.",
+    });
+    const missionId = mission.body.id as string;
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    expect(projection.body.engineeringAgent.nextAction.kind).toBe("START");
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+
+    let releaseLock!: () => void;
+    let announceLock!: () => void;
+    const lockReady = new Promise<void>((resolve) => { announceLock = resolve; });
+    const lockRelease = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const lockHolder = db.transaction(async (tx) => {
+      await tx.select({ id: aiMissionsTable.id })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId))
+        .for("update");
+      announceLock();
+      await lockRelease;
+      await tx.update(aiMissionsTable)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(aiMissionsTable.id, missionId));
+    });
+    await lockReady;
+    const actionPromise = request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send(body)
+      .then((response) => response);
+    let synchronizationError: unknown;
+    try {
+      await waitForMissionRowLock(actionPromise);
+    } catch (error) {
+      synchronizationError = error;
+    } finally {
+      releaseLock();
+    }
+    const [lockResult, actionResult] = await Promise.allSettled([lockHolder, actionPromise]);
+    if (synchronizationError) throw synchronizationError;
+    expect(lockResult.status).toBe("fulfilled");
+    expect(actionResult.status).toBe("fulfilled");
+    if (actionResult.status !== "fulfilled") throw actionResult.reason;
+    expect(actionResult.value.status).toBe(409);
+    expect(actionResult.value.body.code).toBe("AGENT_DECISION_STALE");
+    const [persistedMission] = await db.select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const goals = await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    const [actionEvent] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    expect(persistedMission?.status).toBe("cancelled");
+    expect(goals).toHaveLength(0);
+    expect(actionEvent?.payload).toMatchObject({ status: "stale" });
+  });
+
+  it("does not duplicate a business effect when ledger finalization fails after START is accepted", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Accepted action finalization failure",
+      intent: "Start once even if recording the result fails.",
+    });
+    const missionId = mission.body.id as string;
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    const body = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: projection.body.engineeringAgent.nextAction,
+    };
+    const token = randomUUID().replaceAll("-", "");
+    const functionName = `mission_action_finalize_failure_${token}`;
+    const triggerName = `mission_action_finalize_failure_${token}`;
+    await db.execute(sql.raw(`
+      CREATE FUNCTION public."${functionName}"() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.type = 'AiMissionAgentActionRequested'
+          AND NEW.payload->>'status' = 'completed' THEN
+          RAISE EXCEPTION 'forced Mission Agent action ledger finalization failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE UPDATE ON public.events
+      FOR EACH ROW
+      EXECUTE FUNCTION public."${functionName}"()
+    `));
+
+    try {
+      const failedResponse = await request(app)
+        .post(`/api/ai/missions/${missionId}/agent/action`)
+        .send(body);
+      expect(failedResponse.status).toBe(500);
+      const [missionAfterAcceptance] = await db.select({
+        status: aiMissionsTable.status,
+      }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      expect(missionAfterAcceptance?.status).toBe("active");
+      const goalsAfterAcceptance = await db.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      expect(goalsAfterAcceptance.length).toBeGreaterThan(0);
+
+      const retryAfterFailure = await request(app)
+        .post(`/api/ai/missions/${missionId}/agent/action`)
+        .send(body);
+      expect(retryAfterFailure.status).toBe(202);
+      expect(retryAfterFailure.body).toMatchObject({
+        outcome: "in_progress",
+        idempotentReplay: true,
+      });
+      const goalsAfterReplay = await db.select({ id: aiGoalsTable.id })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.missionId, missionId));
+      expect(goalsAfterReplay).toEqual(goalsAfterAcceptance);
+      const actionEvents = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "AiMissionAgentActionRequested"),
+        ));
+      expect(actionEvents).toHaveLength(1);
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
+      await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));
+    }
   });
 
   it("projects a safe empty-Mission state without creating runtime records", async () => {
