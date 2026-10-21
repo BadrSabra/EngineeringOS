@@ -9,8 +9,8 @@ Agent-aware compatibility routes must route requests with a complete expected-de
 
 **How to apply:** In lifecycle adapters, dispatch a complete action identity before checking the current projection; keep route targets in the hashed input and store response status alongside the durable result.
 
-Mutation transactions must store a safe effect receipt in the owning action event before commit, fenced by request hash and claim identity. The post-commit result stage must lock and merge the current payload so it cannot erase that receipt; retries may promote either stored result under the same identity checks. Never store plaintext recovery capabilities in receipts.
+Mutation transactions must store a safe effect receipt in the owning action event before commit, fenced by request hash and claim identity. AUTO_CONTINUE must receipt every runtime return, including blocked, waiting, and conflict outcomes, because those branches can still persist Goal or Mission state. The post-commit result stage must lock and merge the current payload so it cannot erase the receipt. Never store plaintext recovery capabilities.
 
-**Why:** A process can fail after a business effect commits but before the separate result-stage write. Co-committing the receipt prevents an unrecorded effect, while merging the latest payload preserves it for recovery.
+**Why:** A process can fail after a business effect commits but before the separate result-stage write; even a rejected continuation may have changed lifecycle state. Co-committing the receipt prevents an unrecorded effect, while merging the latest payload preserves it for recovery.
 
-**How to apply:** Each mutating action service writes its normalized result receipt in its business transaction. Then stage the full response under a row lock and terminalize with claim/status predicates; replay prefers the full result and falls back to a validated receipt.
+**How to apply:** Each mutating action service writes its normalized result receipt in its business transaction; wrap Mission Runtime's full decision callback so non-success returns are included too. Then stage the full response under a row lock and terminalize with claim/status predicates; replay prefers the full result and falls back to a validated receipt.

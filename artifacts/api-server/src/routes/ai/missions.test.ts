@@ -236,6 +236,86 @@ async function insertProject(ownerId = "test-user") {
   return id;
 }
 
+async function expectMissionActionReceipt(
+  projectId: string,
+  expected: Record<string, unknown>,
+) {
+  const [event] = await db.select({ payload: eventsTable.payload })
+    .from(eventsTable)
+    .where(and(
+      eq(eventsTable.projectId, projectId),
+      eq(eventsTable.type, "AiMissionAgentActionRequested"),
+    ))
+    .limit(1);
+  const payload = event?.payload as Record<string, unknown> | undefined;
+  expect(payload).toMatchObject({ effectReceipt: expected });
+  expect(payload?.effectReceipt).not.toHaveProperty("recovery");
+}
+
+async function failMissionActionReceiptOnceThenRetry(params: {
+  projectId: string;
+  missionId: string;
+  body: Record<string, unknown>;
+  assertRolledBack?: () => Promise<void>;
+}) {
+  const token = randomUUID().replaceAll("-", "");
+  const functionName = `mission_gateway_receipt_failure_${token}`;
+  const triggerName = `mission_gateway_receipt_failure_${token}`;
+  await db.execute(sql.raw(`
+    CREATE FUNCTION public."${functionName}"() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.project_id = '${params.projectId}'
+        AND NEW.type = 'AiMissionAgentActionRequested'
+        AND NEW.payload ? 'effectReceipt' THEN
+        RAISE EXCEPTION 'forced Mission Agent action receipt failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$
+  `));
+  await db.execute(sql.raw(`
+    CREATE TRIGGER "${triggerName}"
+    BEFORE UPDATE ON public.events
+    FOR EACH ROW
+    EXECUTE FUNCTION public."${functionName}"()
+  `));
+
+  try {
+    const failed = await request(app)
+      .post(`/api/ai/missions/${params.missionId}/agent/action`)
+      .send(params.body);
+    expect(failed.status).toBe(500);
+    const [pendingAction] = await db.select({
+      id: eventsTable.id,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(and(
+      eq(eventsTable.projectId, params.projectId),
+      eq(eventsTable.type, "AiMissionAgentActionRequested"),
+    ));
+    expect(pendingAction?.payload).toMatchObject({ status: "processing" });
+    expect(pendingAction?.payload).not.toHaveProperty("effectReceipt");
+    await params.assertRolledBack?.();
+
+    await db.execute(sql.raw(`DROP TRIGGER "${triggerName}" ON public.events`));
+    const pendingPayload = pendingAction?.payload as Record<string, unknown>;
+    await db.update(eventsTable)
+      .set({
+        payload: {
+          ...pendingPayload,
+          leaseUntil: new Date(0).toISOString(),
+        },
+      })
+      .where(eq(eventsTable.id, pendingAction!.id));
+    return await request(app)
+      .post(`/api/ai/missions/${params.missionId}/agent/action`)
+      .send(params.body);
+  } finally {
+    await db.execute(sql.raw(`DROP TRIGGER IF EXISTS "${triggerName}" ON public.events`));
+    await db.execute(sql.raw(`DROP FUNCTION IF EXISTS public."${functionName}"()`));
+  }
+}
+
 async function insertGatewayRecoveryExecution(params: {
   projectId: string;
   goalId: string;
@@ -2081,6 +2161,10 @@ describe("AI missions and goals", () => {
         eq(eventsTable.type, "AiMissionAgentActionRequested"),
       ));
     expect(actionEvents).toHaveLength(1);
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { status: "activated" },
+    });
   });
 
   it("routes AUTO_CONTINUE through Mission Runtime and replays the accepted result", async () => {
@@ -2150,6 +2234,10 @@ describe("AI missions and goals", () => {
         eq(eventsTable.type, "AiMissionAgentActionRequested"),
       ));
     expect(actionEvents).toHaveLength(1);
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { goalId: goal.body.id, status: "scheduled" },
+    });
   });
 
   it("rolls back blocked AUTO_CONTINUE state when its action receipt cannot be written", async () => {
@@ -2229,8 +2317,15 @@ describe("AI missions and goals", () => {
       actionReceipt: identity,
     };
     try {
-      await expect(runMissionGoal(runParams))
-        .rejects.toThrow("forced AUTO_CONTINUE action receipt failure");
+      let receiptWriteFailure: unknown;
+      try {
+        await runMissionGoal(runParams);
+      } catch (error) {
+        receiptWriteFailure = error;
+      }
+      expect(receiptWriteFailure).toBeInstanceOf(Error);
+      expect((receiptWriteFailure as Error).message).toContain('update "events"');
+      expect((receiptWriteFailure as Error).message).toContain("effectReceipt");
       const [missionAfterFailure] = await db.select({
         status: aiMissionsTable.status,
       }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
@@ -2306,15 +2401,26 @@ describe("AI missions and goals", () => {
       idempotencyKey: randomUUID(),
       expectedDecision: projection.body.engineeringAgent.nextAction,
     };
-    const first = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
-      .send(body);
+    const first = await failMissionActionReceiptOnceThenRetry({
+      projectId,
+      missionId: mission.body.id,
+      body,
+      assertRolledBack: async () => {
+        const [execution] = await db.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        expect(execution?.status).toBe("paused");
+      },
+    });
     expect(first.status).toBe(202);
     expect(first.body).toMatchObject({
       outcome: "accepted",
       idempotentReplay: false,
       operation: { executionId, status: "recovery_capability_ready" },
       recovery: { executionId },
+    });
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { executionId, status: "recovery_capability_ready" },
     });
 
     const replay = await request(app)
@@ -2361,15 +2467,26 @@ describe("AI missions and goals", () => {
       idempotencyKey: randomUUID(),
       expectedDecision: projection.body.engineeringAgent.nextAction,
     };
-    const first = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
-      .send(body);
+    const first = await failMissionActionReceiptOnceThenRetry({
+      projectId,
+      missionId: mission.body.id,
+      body,
+      assertRolledBack: async () => {
+        const [execution] = await db.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+        expect(execution?.status).toBe("failed");
+      },
+    });
     expect(first.status).toBe(202);
     expect(first.body).toMatchObject({
       outcome: "accepted",
       idempotentReplay: false,
       operation: { executionId, status: "retry_capability_ready" },
       recovery: { executionId },
+    });
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { executionId, status: "retry_capability_ready" },
     });
 
     const replay = await request(app)
@@ -2454,9 +2571,16 @@ describe("AI missions and goals", () => {
       idempotencyKey: randomUUID(),
       expectedDecision: projection.body.engineeringAgent.nextAction,
     };
-    const approved = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
-      .send(body);
+    const approved = await failMissionActionReceiptOnceThenRetry({
+      projectId,
+      missionId: mission.body.id,
+      body,
+      assertRolledBack: async () => {
+        const [goalBeforeRetry] = await db.select({ status: aiGoalsTable.status })
+          .from(aiGoalsTable).where(eq(aiGoalsTable.id, goal.body.id));
+        expect(goalBeforeRetry?.status).toBe("waiting_for_approval");
+      },
+    });
     expect([200, 202]).toContain(approved.status);
     expect(approved.body).toMatchObject({
       outcome: expect.stringMatching(/^(accepted|completed)$/),
@@ -2470,6 +2594,10 @@ describe("AI missions and goals", () => {
     expect(persistedGoal?.status).not.toBe("waiting_for_approval");
     expect(persistedGoal?.outcomeContract).toMatchObject({
       planApproval: { kind: "mission_plan_step", state: "APPROVED" },
+    });
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { goalId: goal.body.id, planRevision, status: "approved" },
     });
     const replay = await request(app)
       .post(`/api/ai/missions/${mission.body.id}/agent/action`)
@@ -2500,14 +2628,25 @@ describe("AI missions and goals", () => {
       idempotencyKey: randomUUID(),
       expectedDecision: projection.body.engineeringAgent.nextAction,
     };
-    const first = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
-      .send(body);
+    const first = await failMissionActionReceiptOnceThenRetry({
+      projectId,
+      missionId: mission.body.id,
+      body,
+      assertRolledBack: async () => {
+        const [missionBeforeRetry] = await db.select({ status: aiMissionsTable.status })
+          .from(aiMissionsTable).where(eq(aiMissionsTable.id, mission.body.id));
+        expect(missionBeforeRetry?.status).toBe("needs_replan");
+      },
+    });
     expect(first.status).toBe(202);
     expect(first.body).toMatchObject({
       outcome: "accepted",
       idempotentReplay: false,
       operation: { status: "replanned", planRevision: expect.any(String) },
+    });
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
+      operation: { status: "replanned" },
     });
     const replay = await request(app)
       .post(`/api/ai/missions/${mission.body.id}/agent/action`)
@@ -2567,13 +2706,24 @@ describe("AI missions and goals", () => {
       expectedDecision: projection.body.engineeringAgent.nextAction,
       command: "STOP",
     };
-    const stopped = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
-      .send(body);
+    const stopped = await failMissionActionReceiptOnceThenRetry({
+      projectId,
+      missionId: mission.body.id,
+      body,
+      assertRolledBack: async () => {
+        const [execution] = await db.select({ status: aiExecutionsTable.status })
+          .from(aiExecutionsTable).where(eq(aiExecutionsTable.id, created.execution.id));
+        expect(execution?.status).toBe("running");
+      },
+    });
     expect(stopped.status).toBe(202);
     expect(stopped.body).toMatchObject({
       outcome: "accepted",
       idempotentReplay: false,
+      operation: { executionId: created.execution.id, status: "cancelling" },
+    });
+    await expectMissionActionReceipt(projectId, {
+      outcome: "accepted",
       operation: { executionId: created.execution.id, status: "cancelling" },
     });
     const replay = await request(app)
