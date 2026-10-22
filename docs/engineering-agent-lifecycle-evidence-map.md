@@ -123,3 +123,76 @@ The selected route/action cases in this runner are not proof that each of the
 nine gateway action kinds has its own real integration coverage for execution,
 failure, and concurrency. That remains a separate verification gap; this
 acceptance does not claim all nine branches are proven.
+
+## Canonical Mission identity map (read-only, before implementation)
+
+The user-level lifecycle uses two distinct Mission rows: the Chat-created
+source Mission and the Apply Mission created for the approved proposal. The
+source Mission is the logical root; equating those IDs would be incorrect.
+
+| Link | Authoritative source | What it proves today | Remaining identity gap |
+|---|---|---|---|
+| Chat → canonical Mission | `lib/db/src/schema/ai_chats.ts:12-49` makes `activeMissionId` a nullable FK to `ai_missions`; `ai_mission_handoffs.ts:19-75` stores the durable session/message-to-Mission handoff. `missions.ts:2010-2225` writes the handoff and updates the session pointer. | A server-created Mission can be recovered from its Chat handoff; the session pointer is not itself the handoff record. | No later Apply Mission row directly references this canonical Mission. |
+| Mission → Goal → Execution | `ai_missions.ts:45-110` defines Mission and Goal; each Goal has an FK to Mission. `ai_executions.ts:34-109` has `goalId` as an FK to Goal. `mission-runtime.ts:1931-1964,2073-2095` dispatches recipes using the Mission/Goal scope and recovers queued executions by joining Execution → Goal. | Execution ownership can be re-derived through its Goal; the Proof path binds the execution to the Mission whose Goal owns it. | This identifies the Mission for a given Execution, but does not connect an Apply Mission back to the source Mission. |
+| Execution → Proposal | `chat.ts:12847-12870` inserts the proposal and stores its ID on the producing Execution. `ai_executions.proposalId` is text, without an FK; the Proposal has session/message provenance but no Mission or Execution column (`ai_change_proposals.ts:47-96`). | The standard Mission-run path persists an Execution-to-Proposal pointer, and candidate acceptance checks the Execution, Goal, Mission, acceptance, evidence snapshot, hashes, and Canonical Proof (`mission-candidate-acceptance.ts:49-177`). | The Apply route selects a matching source Execution by project/proposal (`missions.ts:2278-2450`); the relation is not constrained as unique, and a selected ID is not persisted as Apply-Mission lineage. |
+| Proposal → Apply Mission | `missions.ts:2278-2450` creates a separate Mission ID, stores `proposalId` and requirement/hashes inside `autonomyPolicy.applyMission`, and emits an `AiApplyMissionCreated` event. The existing Apply Mission test confirms concurrent requests create one row (`missions.test.ts:6298-6357`). | Proposal preparation, approval, candidate acceptance, duplicate prevention, and transaction rollback are server checked. | There is no FK-backed Proposal → Apply Mission relation, nor a durable canonical/source Execution ID on the new Apply Mission. Existing JSON/event data is insufficient as an independently validated parent link. |
+| Apply Mission → verification | `mission-runtime.ts:1588-1610,1668-1712` reloads the durable Execution by apply Goal, project, user, operation, and idempotency key, then loads Canonical Proof with the executing Mission and Goal IDs. | Verification is bound to the Apply Mission's own Goal/Execution and proof; the child Mission's identity is not substituted for the source Mission. | The proof cannot establish which Chat-canonical Mission authorized this Apply Mission. |
+| Verification → delivery → receipt | `github-delivery-service.ts:474-580` requires the committed proposal and matching operation before delivery and uses operation-scoped delivery events. `mission-runtime.ts:1635-1764` stores the resulting delivery receipt in Goal acceptance, binding Execution, attempt, operation, revision, candidate/tree hashes, and status. | Delivery and receipt remain tied to the proposal operation and the Apply Mission's accepted Execution. | Neither the delivery receipt nor the delivery event independently names the canonical source Mission or the Apply Mission lineage relation. |
+| Refresh/resume | `chat.ts:14846-14910` resolves Missions through owner/project/session-scoped handoffs, then checks the active pointer against those rows. `dashboard.journey.ts:7215-7235` verifies the source Mission survives reload. | The Chat can recover the source Mission after refresh without trusting a stale client-selected Mission ID. | The current E2E verifies source and Apply Mission IDs as separate values connected by a Proposal, but does not verify a persisted canonical-parent relation or include it in the offline receipt. |
+
+### Existing real gateway-action coverage
+
+These are DB-backed route tests through `/agent/action`, not only the
+single-handler dispatcher unit test. They establish branch execution and
+sequential idempotent replay where stated; they do **not** establish canonical
+Mission lineage because no Apply-Mission parent relation exists yet.
+
+| Exact action | Existing route test | Existing failure / replay evidence | Identity-specific gap |
+|---|---|---|---|
+| `START` | `missions.test.ts:2111` — replay after the Mission decision changes | Same-key replay and changed-decision conflict | No canonical parent asserted |
+| `AUTO_CONTINUE` | `missions.test.ts:2170,2243` — Mission Runtime and receipt-write rollback | Accepted-result replay; injected receipt failure rolls back | No canonical parent asserted |
+| `RESUME` | `missions.test.ts:2372` — recovery service | Bound recovery capability is reissued on same-key replay; linked-task conflict is covered by the adjacent recovery restriction case | No canonical parent asserted |
+| `RETRY` | `missions.test.ts:2438` — retry service | Bound retry capability is replayed; linked-task conflict is covered by the adjacent recovery restriction case | No canonical parent asserted |
+| `APPROVE` | `missions.test.ts:2575` — plan-approval service | Persists approval boundary and replays the same result | No canonical parent asserted |
+| `REPLAN` | `missions.test.ts:2680` — plan service | Same-key replay preserves one result | No canonical parent asserted |
+| `REVIEW` | `missions.test.ts:2807` — non-mutating branch | Decision is recorded without lifecycle mutation | No canonical parent asserted; concurrency is not an applicable effect |
+| `STOP` | `missions.test.ts:2729` — cancellation service | Same-key replay is idempotent | No canonical parent asserted |
+| `NONE` | `missions.test.ts:2807` — non-mutating branch | Decision is recorded without lifecycle mutation | No canonical parent asserted; concurrency is not an applicable effect |
+
+The shared reservation test at `missions.test.ts:2895` checks revalidation after
+reservation, but it is not a concurrent-effect test for every individual
+action. Existing Apply-Mission tests also cover duplicate handoff, proposal
+mutation during reservation, and rollback after a later transaction write
+fails (`missions.test.ts:6298-6564, 6990-7230`). Those cases start from a
+proposal without a canonical source Mission, which demonstrates the current
+unlinked-Apply-Mission gap rather than proving continuity.
+
+### Pre-change finding and implementation boundary
+
+**Finding: Partially Proven.** Source handoff, Goal/Execution ownership,
+candidate acceptance, and Apply-Mission delivery proof are individually
+server-bound. The edge from the canonical Chat Mission through the exact source
+Execution and Proposal to the separate Apply Mission is not durably represented
+and checked as one chain; current delivery receipts cannot close that gap.
+
+The first regression was added before production edits and run through
+`node scripts/run-mission-control-tests.mjs`, which creates and tears down a
+loopback-only disposable PostgreSQL cluster. The existing selected route group
+passed 21/21. The new unlinked-proposal case failed as intended: a request
+containing a client-supplied `canonicalMissionId` was rejected with HTTP 400,
+but the same prepared Proposal without that extra field created an Apply
+Mission with HTTP 201 instead of the required HTTP 409
+`MISSION_CANONICAL_IDENTITY_UNRESOLVED`. The test stopped at that assertion, so
+it did not yet measure the post-response row-count assertion. No live provider,
+shared database, or remote delivery was used.
+
+Before any completion, approval, retry/recovery, or delivery transition can be
+credited to the canonical lifecycle, the server must resolve the source from
+persisted Proposal → exact accepted Execution → Goal → source Mission and
+verify that source Mission's Chat handoff is in the same authorized
+project/session. It must create a persisted, FK-backed parent relation in the
+same transaction as the Apply Mission and plan, reject ambiguous or unlinked
+sources, and have proof/delivery projection reload that relation rather than
+accept client-supplied IDs. Historical rows with no provable source remain
+unresolved; do not infer a parent from a request, title, session pointer alone,
+or a receipt's free-form metadata.

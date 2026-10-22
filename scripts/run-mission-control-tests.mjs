@@ -158,6 +158,17 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Running the isolated unlinked Apply-Mission identity rejection test.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/routes/ai/missions.test.ts",
+      "-t",
+      "rejects an unlinked Apply Mission even when the request tries to name its own canonical Mission",
+    ], {
+      env: databaseEnv,
+    });
+
     console.log("Running isolated Mission completion delivery-requirement cases.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",
