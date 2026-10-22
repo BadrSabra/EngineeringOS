@@ -7,6 +7,7 @@ function validReceipt() {
     schemaVersion: 1,
     status: "passed",
     stage: "complete",
+    sourceFingerprint: "e".repeat(64),
     chain: {
       projectId: "project_1",
       chatStream: {
@@ -59,7 +60,14 @@ function validReceipt() {
 
 test("accepts only a complete correlated lifecycle receipt", () => {
   const receipt = validReceipt();
-  assert.equal(validateReceipt(receipt), receipt);
+  assert.equal(validateReceipt(receipt, receipt.sourceFingerprint), receipt);
+});
+
+test("rejects a receipt produced from a different source tree", () => {
+  assert.throws(
+    () => validateReceipt(validReceipt(), "f".repeat(64)),
+    /receipt_source_fingerprint_mismatch/,
+  );
 });
 
 test("rejects extra, missing, and inconsistent receipt fields", () => {

@@ -68,6 +68,9 @@ import {
   type EngineeringAgentGoalFact,
 } from "../../lib/engineering-agent-projection.js";
 import {
+  updateCanonicalMissionAutonomyPolicy,
+} from "../../lib/mission-autonomy-policy.js";
+import {
   persistMissionAgentActionEffectReceipt,
   type MissionAgentActionReceiptIdentity,
 } from "../../lib/mission-agent-action-receipt.js";
@@ -1562,25 +1565,18 @@ async function activateMissionFromAgent(
       return { kind: "policy_error" as const, policyError: "applyMission" as const };
     }
 
+    const canonicalAutonomyPolicy = requestedAutonomyPolicy === undefined
+      ? undefined
+      : updateCanonicalMissionAutonomyPolicy(
+          existingAutonomyPolicy,
+          requestedAutonomyPolicy,
+        );
     const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
       ...(updates?.title !== undefined ? { title: updates.title } : {}),
       ...(updates?.intent !== undefined ? { intent: updates.intent } : {}),
       ...(updates?.budget !== undefined ? { budget: updates.budget } : {}),
-      ...(requestedAutonomyPolicy !== undefined
-        ? {
-            autonomyPolicy: {
-              ...requestedAutonomyPolicy,
-              ...(hasServerOwnedHandoffSource
-                ? { handoffSource: existingAutonomyPolicy!.handoffSource }
-                : {}),
-              ...(hasServerOwnedActivePlanRevision
-                ? { activePlanRevision: existingAutonomyPolicy!.activePlanRevision }
-                : {}),
-              ...(hasServerOwnedApplyMission
-                ? { applyMission: existingAutonomyPolicy!.applyMission }
-                : {}),
-            },
-          }
+      ...(canonicalAutonomyPolicy !== undefined
+        ? { autonomyPolicy: canonicalAutonomyPolicy }
         : {}),
       ...(Object.prototype.hasOwnProperty.call(updates ?? {}, "deadline")
         ? { deadline: updates?.deadline ? new Date(updates.deadline) : null }
@@ -2963,24 +2959,14 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         return { policyError: "applyMission" as const };
       }
 
+      const canonicalAutonomyPolicy = autonomyPolicy === undefined
+        ? undefined
+        : updateCanonicalMissionAutonomyPolicy(existingAutonomyPolicy, autonomyPolicy);
       const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
         ...rest,
         updatedAt: now,
-        ...(autonomyPolicy !== undefined
-          ? {
-              autonomyPolicy: {
-                ...autonomyPolicy,
-                ...(hasServerOwnedHandoffSource
-                  ? { handoffSource: existingAutonomyPolicy!.handoffSource }
-                  : {}),
-                ...(hasServerOwnedActivePlanRevision
-                  ? { activePlanRevision: existingAutonomyPolicy!.activePlanRevision }
-                  : {}),
-                ...(hasServerOwnedApplyMission
-                  ? { applyMission: existingAutonomyPolicy!.applyMission }
-                  : {}),
-              },
-            }
+        ...(canonicalAutonomyPolicy !== undefined
+          ? { autonomyPolicy: canonicalAutonomyPolicy }
           : {}),
         ...(Object.prototype.hasOwnProperty.call(body, "deadline")
           ? { deadline: deadline ? new Date(deadline) : null }

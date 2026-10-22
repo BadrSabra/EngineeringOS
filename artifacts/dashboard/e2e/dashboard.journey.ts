@@ -6102,6 +6102,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const projectRoot = process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
     const bareRemotePath = process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
     const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
+    const sourceFingerprint = process.env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT ?? "";
     let stage = "setup";
     let blockedCode: string | undefined;
     const chain: Record<string, unknown> = {};
@@ -6111,6 +6112,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         status: "blocked",
         stage,
         code: blockedCode ?? `${stage.replaceAll("-", "_").toUpperCase()}_BLOCKED`,
+        sourceFingerprint,
         chain,
       });
     };
@@ -6659,6 +6661,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.acceptanceId = acceptance?.acceptanceId;
 
       stage = "candidate-approval";
+      const sessionMissionsResponsePromise = page.waitForResponse((response) => (
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname.endsWith(`/api/ai/chat/${sessionId}/missions`)
+      ));
       await page.goto(
         `${DASHBOARD_PATH}ai?${new URLSearchParams({
           projectId,
@@ -7120,20 +7126,39 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         `${DASHBOARD_PATH}ai?${new URLSearchParams({
           projectId,
           sessionId,
-          missionId: sourceMissionId,
           messageId: userMessageId!,
         }).toString()}`,
         { waitUntil: "domcontentloaded" },
       );
+      const sessionMissionsResponse = await sessionMissionsResponsePromise;
+      expect(sessionMissionsResponse.ok()).toBe(true);
+      const sessionMissionsAfterReload = await sessionMissionsResponse.json();
+      expect(sessionMissionsAfterReload.sessionId).toBe(sessionId);
+      expect(sessionMissionsAfterReload.activeMissionId).toBe(sourceMissionId);
+      expect(sessionMissionsAfterReload.missions.some(
+        (entry: any) => entry.mission?.id === sourceMissionId,
+      )).toBe(true);
+      expect(new URL(page.url()).searchParams.has("missionId")).toBe(false);
       await expect(page.getByTestId("chat-active-engineering-run"))
         .toContainText(handoff.mission?.title ?? projectName);
+      await expect(page.getByTestId("mission-agent-action-card")).toBeVisible();
       expect(userMessageId).toBeTruthy();
       await expect(page.locator(`[data-chat-message-id="${userMessageId}"]`))
         .toContainText(userRequest);
+      const reloadedMissionsResponse = page.waitForResponse((response) => (
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname.endsWith(`/api/ai/chat/${sessionId}/missions`)
+      ));
       await page.reload({ waitUntil: "domcontentloaded" });
+      const reloadedMissions = await reloadedMissionsResponse;
+      expect(reloadedMissions.ok()).toBe(true);
+      const reloadedSessionMissions = await reloadedMissions.json();
+      expect(reloadedSessionMissions.sessionId).toBe(sessionId);
+      expect(reloadedSessionMissions.activeMissionId).toBe(sourceMissionId);
       await expect(page.getByTestId("chat-active-engineering-run"))
         .toContainText(handoff.mission?.title ?? projectName);
-      chain.activeMissionIdAfterReload = sourceMissionId;
+      await expect(page.getByTestId("mission-agent-action-card")).toBeVisible();
+      chain.activeMissionIdAfterReload = reloadedSessionMissions.activeMissionId;
       browserErrors.assertClean();
 
       stage = "complete";
@@ -7141,6 +7166,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         schemaVersion: 1,
         status: "passed",
         stage,
+        sourceFingerprint,
         chain: {
           ...chain,
           userMessageHash: createHash("sha256").update(userRequest).digest("hex"),

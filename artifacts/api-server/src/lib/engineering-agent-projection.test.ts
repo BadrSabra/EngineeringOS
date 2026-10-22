@@ -421,6 +421,7 @@ describe("reduceEngineeringAgentProjection", () => {
         allowAutoPush: true,
         requireHumanForExternalDelivery: false,
         maxAutoReplans: 99,
+        automaticReplanCount: 2,
       },
     }));
 
@@ -432,6 +433,7 @@ describe("reduceEngineeringAgentProjection", () => {
       allowAutoPush: false,
       requireHumanForExternalDelivery: true,
       maxAutoReplans: 0,
+      automaticReplanCount: 2,
     });
     expect(projection.nextAction.kind).toBe("NONE");
   });

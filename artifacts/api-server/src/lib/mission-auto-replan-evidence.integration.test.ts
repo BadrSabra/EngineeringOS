@@ -118,7 +118,7 @@ async function createReplanEvidenceFixture(): Promise<ReplanEvidenceFixture> {
     intent: MISSION_INTENT,
     status: "needs_replan",
     scope: { kind: "project", projectId },
-    autonomyPolicy: {},
+    autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
     createdAt: now,
     updatedAt: now,
   });

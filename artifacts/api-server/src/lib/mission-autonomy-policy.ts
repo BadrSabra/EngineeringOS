@@ -44,7 +44,7 @@ export function normalizeMissionAutonomyPolicy(
     allowAutoPush: false,
     requireHumanForExternalDelivery: true,
     // An absent or malformed bound cannot enable automatic replanning.
-    maxAutoReplans: parsedLimit ?? 0,
+    maxAutoReplans: mode === "autonomous" ? parsedLimit ?? 0 : 0,
     // A malformed persisted count is treated as exhausted, not reset.
     automaticReplanCount: parsedCount ?? (
       rawCount === undefined ? 0 : MAX_MISSION_AUTO_REPLANS
@@ -74,4 +74,37 @@ export function writeCanonicalMissionAutonomyPolicy(
     maxAutoReplans: normalized.maxAutoReplans,
     automaticReplanCount: preservedReplanCount ?? normalized.automaticReplanCount,
   };
+}
+
+const serverOwnedMissionPolicyKeys = new Set([
+  "activePlanRevision",
+  "applyMission",
+  "automaticReplanCount",
+  "handoffSource",
+  "lastAutomaticReplanRevision",
+]);
+
+export function updateCanonicalMissionAutonomyPolicy(
+  currentValue: unknown,
+  requestedValue: unknown,
+): Record<string, unknown> {
+  const current = isRecord(currentValue) ? currentValue : {};
+  const requested = isRecord(requestedValue) ? requestedValue : {};
+  const merged: Record<string, unknown> = { ...current };
+
+  for (const [key, value] of Object.entries(requested)) {
+    if (!serverOwnedMissionPolicyKeys.has(key)) merged[key] = value;
+  }
+  for (const key of serverOwnedMissionPolicyKeys) {
+    if (Object.prototype.hasOwnProperty.call(current, key)) {
+      merged[key] = current[key];
+    } else {
+      delete merged[key];
+    }
+  }
+
+  return writeCanonicalMissionAutonomyPolicy(
+    merged,
+    normalizeMissionAutonomyPolicy(current).automaticReplanCount,
+  );
 }

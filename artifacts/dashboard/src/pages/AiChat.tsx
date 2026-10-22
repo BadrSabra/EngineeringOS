@@ -11255,6 +11255,7 @@ export default function AiChat() {
     : undefined;
   const routeMissionIsLinked = Boolean(
     routeMissionId
+    && currentSessionMissions !== undefined
     && currentSessionMissions?.sessionId === sessionId
     && currentSessionMissions.missions.some(({ mission }) => mission.id === routeMissionId),
   );
@@ -13350,15 +13351,55 @@ export default function AiChat() {
     });
   }
 
-  function handleMissionHandoffComplete(
+  async function handleMissionHandoffComplete(
     mission: { id: string; title: string },
     projectId: string | undefined,
     linkedSessionId: string | undefined,
-  ) {
+  ): Promise<void> {
     if (linkedSessionId) {
-      void qc.invalidateQueries({
-        queryKey: getListAiChatSessionMissionsQueryKey(linkedSessionId),
-      });
+      const queryKey = [
+        ...getListAiChatSessionMissionsQueryKey(linkedSessionId),
+        user?.id ?? null,
+      ];
+      try {
+        await refetchChatSessionMissions();
+        let sessionMissions = qc.getQueryData<AiChatSessionMissionsResponse>(queryKey);
+        if (
+          sessionMissions?.sessionId !== linkedSessionId
+          || !sessionMissions.missions.some(({ mission: linkedMission }) => (
+            linkedMission.id === mission.id
+          ))
+          || sessionMissions.activeMissionId !== mission.id
+        ) {
+          await selectSessionMission(linkedSessionId, mission.id, false);
+          await refetchChatSessionMissions();
+          sessionMissions = qc.getQueryData<AiChatSessionMissionsResponse>(queryKey);
+        }
+        if (
+          sessionMissions?.sessionId !== linkedSessionId
+          || sessionMissions.activeMissionId !== mission.id
+          || !sessionMissions.missions.some(({ mission: linkedMission }) => (
+            linkedMission.id === mission.id
+          ))
+        ) {
+          throw new Error('لم يؤكد الخادم اختيار المهمة الجديدة لهذه المحادثة بعد.');
+        }
+        if (projectId) {
+          await qc.fetchQuery({
+            queryKey: ['mission-agent-projection', projectId, mission.id],
+            queryFn: () => fetchMissionProjection(mission.id),
+            staleTime: 0,
+          });
+        }
+      } catch (error) {
+        toast({
+          title: 'أُنشئت المهمة، لكن تعذّر عرض حالتها في المحادثة',
+          description: error instanceof Error
+            ? error.message
+            : 'أعد تحميل المهام المرتبطة للمحاولة مجددًا.',
+          variant: 'destructive',
+        });
+      }
       if (projectId) publishAiChatData(projectId, linkedSessionId);
     }
     toast({
@@ -13380,7 +13421,7 @@ export default function AiChat() {
         sessionId: handoffSessionId,
         messageId: message.id,
       });
-      handleMissionHandoffComplete(result.mission, handoffProjectId, handoffSessionId);
+      await handleMissionHandoffComplete(result.mission, handoffProjectId, handoffSessionId);
     } catch (error) {
       toast({
         title: 'Mission handoff unavailable',
@@ -14286,7 +14327,7 @@ export default function AiChat() {
 
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
-          {routeMissionId && (
+          {workspaceMissionId && (
             <div
               data-testid="mission-agent-action-card"
               className="mx-auto mb-4 w-full max-w-3xl rounded-lg border border-cyan-400/20 bg-cyan-950/20 p-3"
@@ -14322,11 +14363,7 @@ export default function AiChat() {
                           size="sm"
                           variant="outline"
                           className="h-8 border-cyan-400/30 px-2.5 text-[11px] text-cyan-100"
-                          disabled={missionAgentActionPending || (
-                            ['RESUME', 'RETRY'].includes(routeMissionAgent.nextAction.kind)
-                            && (activeExecution?.id !== routeMissionAgent.nextAction.target?.id
-                              || Boolean(activeExecution?.linkedTaskId))
-                          )}
+                          disabled={missionAgentActionPending}
                           data-testid={`button-chat-mission-action-${routeMissionAgent.nextAction.kind.toLowerCase()}`}
                           onClick={() => void performRouteMissionAction()}
                         >
@@ -14369,7 +14406,7 @@ export default function AiChat() {
                       <Link
                         href={`/missions?${new URLSearchParams({
                           projectId: selectedProjectId,
-                          missionId: routeMissionId,
+                          missionId: workspaceMissionId,
                         }).toString()}`}
                         className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
                       >

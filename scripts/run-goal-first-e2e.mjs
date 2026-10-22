@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const databaseUser = "goal_first_e2e";
@@ -29,6 +30,7 @@ let socketDirectory = "";
 let lifecycleProjectRoot = "";
 let lifecycleRemotePath = "";
 let lifecycleRunnerStage = "setup";
+let lifecycleSourceFingerprint = "";
 let postgresPort = 0;
 let initialized = false;
 let activeChild;
@@ -142,6 +144,9 @@ async function writeFallbackLifecycleReceipt() {
         status: "blocked",
         stage: lifecycleRunnerStage,
         code: "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
+        ...(lifecycleSourceFingerprint
+          ? { sourceFingerprint: lifecycleSourceFingerprint }
+          : {}),
       };
   await writeFile(
     lifecycleReceiptPath,
@@ -152,6 +157,11 @@ async function writeFallbackLifecycleReceipt() {
 
 async function main() {
   const liveProviderRun = process.env.GOAL_FIRST_LIVE_PROVIDER === "1";
+  if (lifecycleRun) {
+    lifecycleSourceFingerprint = await computeEngineeringAgentSourceFingerprint({
+      cwd: workspaceRoot,
+    });
+  }
   if (lifecycleRun && liveProviderRun) {
     throw new Error("The controlled lifecycle acceptance run cannot use the live provider.");
   }
@@ -254,6 +264,7 @@ async function main() {
       env.ENGINEERING_AGENT_LIFECYCLE_REMOTE = lifecycleRemotePath;
       env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT = lifecycleProjectRoot;
       env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT = lifecycleReceiptPath;
+      env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT = lifecycleSourceFingerprint;
     } else {
       delete env.ENGINEERING_AGENT_LIFECYCLE_E2E;
       delete env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
@@ -421,9 +432,10 @@ async function main() {
         receipt?.schemaVersion !== 1
         || receipt.status !== "passed"
         || receipt.stage !== "complete"
+        || receipt.sourceFingerprint !== lifecycleSourceFingerprint
       ) {
         throw new Error(
-          `Engineering Agent lifecycle did not complete: ${receipt?.stage ?? "receipt"} / ${receipt?.code ?? "invalid_receipt"}.`,
+          `Engineering Agent lifecycle did not complete: ${receipt?.stage ?? "receipt"} / ${receipt?.code ?? "invalid_receipt"} / source_fingerprint_mismatch=${receipt?.sourceFingerprint !== lifecycleSourceFingerprint}.`,
         );
       }
       const lifecycleKinds = new Set(

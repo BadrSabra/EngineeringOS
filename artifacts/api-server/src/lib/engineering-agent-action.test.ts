@@ -37,6 +37,7 @@ function projection(
       allowAutoPush: false,
       requireHumanForExternalDelivery: true,
       maxAutoReplans: 0,
+      automaticReplanCount: 0,
     },
     missionId: "mission-1",
     sessionId: null,

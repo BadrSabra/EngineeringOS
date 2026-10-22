@@ -2501,6 +2501,77 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it.each(["RESUME", "RETRY"] as const)(
+    "keeps Task-owned %s Executions on the Task recovery route",
+    async (action) => {
+      const projectId = await insertProject();
+      const mission = await request(app).post("/api/ai/missions").send({
+        projectId,
+        title: `Task-owned ${action}`,
+        intent: "Keep recovery attached to its owning Task.",
+      });
+      const goal = await request(app)
+        .post(`/api/ai/missions/${mission.body.id}/goals`)
+        .send({ title: `Task-owned ${action} Goal` });
+      const taskId = randomUUID();
+      const now = new Date();
+      await db.update(aiMissionsTable).set({ status: "active" })
+        .where(eq(aiMissionsTable.id, mission.body.id));
+      await db.update(aiGoalsTable).set({
+        status: "failed",
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      }).where(eq(aiGoalsTable.id, goal.body.id));
+      await db.insert(tasksTable).values({
+        id: taskId,
+        projectId,
+        goalId: goal.body.id,
+        title: `Owning Task for ${action}`,
+        status: "verifying",
+        phase: "execute",
+        prompt: `Resume ${action} through the Task route.`,
+        idempotencyKey: `mission-gateway-task-owner-${taskId}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const executionId = await insertGatewayRecoveryExecution({
+        projectId,
+        goalId: goal.body.id,
+        action,
+      });
+      await db.update(aiExecutionsTable)
+        .set({ linkedTaskId: taskId })
+        .where(eq(aiExecutionsTable.id, executionId));
+
+      const projection = await request(app)
+        .get(`/api/ai/missions/${mission.body.id}/projection`);
+      expect(projection.body.engineeringAgent.nextAction).toMatchObject({
+        kind: action,
+        target: { kind: "execution", id: executionId },
+      });
+      const response = await request(app)
+        .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+        .send({
+          idempotencyKey: randomUUID(),
+          expectedDecision: projection.body.engineeringAgent.nextAction,
+        });
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        outcome: "rejected",
+        operation: { executionId },
+        error: {
+          code: "EXECUTION_OWNER_ROUTE_REQUIRED",
+        },
+      });
+      expect(response.body.recovery).toBeUndefined();
+      const [execution] = await db.select({
+        status: aiExecutionsTable.status,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toEqual({ status: action === "RESUME" ? "paused" : "failed", linkedTaskId: taskId });
+    },
+  );
+
   it("routes APPROVE through the plan-approval service and persists its approval boundary", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({
@@ -6316,9 +6387,26 @@ describe("AI missions and goals", () => {
 
     const originalPolicy = mission?.autonomyPolicy as Record<string, unknown>;
     const originalApplyBinding = originalPolicy.applyMission as Record<string, unknown>;
+    const previousReplanRevision = "auto:previous-goal:previous-revision";
+    await db.update(aiMissionsTable).set({
+      autonomyPolicy: {
+        ...originalPolicy,
+        mode: "autonomous",
+        maxAutomaticReplans: 5,
+        automaticReplanCount: 2,
+        lastAutomaticReplanRevision: previousReplanRevision,
+      },
+    }).where(eq(aiMissionsTable.id, created.body.mission.id));
     const safePolicyPatch = await request(app)
       .patch(`/api/ai/missions/${created.body.mission.id}`)
-      .send({ autonomyPolicy: { operatorNote: "safe non-binding setting" } });
+      .send({
+        autonomyPolicy: {
+          operatorNote: "safe non-binding setting",
+          maxAutoReplans: 3,
+          automaticReplanCount: 0,
+          lastAutomaticReplanRevision: "client-selected-revision",
+        },
+      });
     expect(safePolicyPatch.status).toBe(200);
     const [policyAfterSafePatch] = await db.select({
       autonomyPolicy: aiMissionsTable.autonomyPolicy,
@@ -6326,8 +6414,13 @@ describe("AI missions and goals", () => {
     expect(policyAfterSafePatch?.autonomyPolicy).toMatchObject({
       activePlanRevision: originalPolicy.activePlanRevision,
       applyMission: originalApplyBinding,
+      mode: "autonomous",
+      maxAutoReplans: 3,
+      automaticReplanCount: 2,
+      lastAutomaticReplanRevision: previousReplanRevision,
       operatorNote: "safe non-binding setting",
     });
+    expect(policyAfterSafePatch?.autonomyPolicy).not.toHaveProperty("maxAutomaticReplans");
 
     const applyBindingAttacks = [
       { ...originalApplyBinding, proposalId: "other-proposal" },

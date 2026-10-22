@@ -52,7 +52,7 @@ describe("automatic Mission replanning", () => {
       intent: "Inspect the source, then fix the blocking issue.",
       status: "needs_replan",
       scope: { kind: "project", projectId },
-      autonomyPolicy: {},
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
       createdAt: now,
       updatedAt: now,
     });
@@ -80,17 +80,18 @@ describe("automatic Mission replanning", () => {
       updatedAt: now,
     });
 
-    const result = await autoReplanMission(
-      missionId,
-      async ({ goalId }) => ({
-        status: "scheduled",
-        goalId,
-        reason: "scheduled_by_test_fixture",
-      }),
-    );
-
-    expect(result.status).toBe("replanned");
-    if (result.status !== "replanned") return;
+    const runGoal = async ({ goalId }: { goalId: string }) => ({
+      status: "scheduled" as const,
+      goalId,
+      reason: "scheduled_by_test_fixture",
+    });
+    const concurrentResults = await Promise.all([
+      autoReplanMission(missionId, runGoal),
+      autoReplanMission(missionId, runGoal),
+    ]);
+    const result = concurrentResults.find((entry) => entry.status === "replanned");
+    expect(result?.status).toBe("replanned");
+    if (result?.status !== "replanned") return;
     expect(result.plan.goals.length).toBeGreaterThan(1);
     expect(result.plan.revision).toContain(`auto:${failedGoalId}:`);
     expect(result.runs.some((run) => run.status === "scheduled" || run.status === "waiting")).toBe(true);
@@ -108,6 +109,20 @@ describe("automatic Mission replanning", () => {
       ));
     expect(goals.some((goal) => goal.id === failedGoalId && goal.status === "needs_replan")).toBe(true);
     expect(goals.length).toBeGreaterThan(2);
+    const replannedGoals = goals.filter((goal) => {
+      const criteria = goal.successCriteria;
+      if (!criteria || typeof criteria !== "object" || Array.isArray(criteria)) return false;
+      const planRevision = (criteria as { planRevision?: { hash?: unknown } }).planRevision;
+      return planRevision?.hash === result.plan.revision;
+    });
+    expect(replannedGoals).toHaveLength(result.plan.goals.length);
+    const [updatedMission] = await db.select({
+      autonomyPolicy: aiMissionsTable.autonomyPolicy,
+    }).from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    expect(updatedMission?.autonomyPolicy).toMatchObject({
+      automaticReplanCount: 1,
+      lastAutomaticReplanRevision: result.plan.revision,
+    });
     const replannedGoal = goals.find((goal) => goal.id !== failedGoalId);
     expect(replannedGoal?.successCriteria).toMatchObject({
       planRevision: {
@@ -176,7 +191,7 @@ describe("automatic Mission replanning", () => {
       intent: "Inspect the source, then fix the blocking issue.",
       status: "needs_replan",
       scope: { kind: "project", projectId },
-      autonomyPolicy: {},
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
       createdAt: now,
       updatedAt: now,
     });
@@ -467,6 +482,7 @@ describe("automatic Mission replanning", () => {
       status: "needs_replan",
       scope: { kind: "project", projectId },
       autonomyPolicy: {
+        mode: "autonomous",
         automaticReplanCount: 2,
         maxAutomaticReplans: 2,
       },
@@ -555,7 +571,7 @@ describe("automatic Mission replanning", () => {
       intent: "Inspect the source, then fix the blocking issue.",
       status: "needs_replan",
       scope: { kind: "project", projectId },
-      autonomyPolicy: {},
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
       createdAt: now,
       updatedAt: now,
     });
@@ -603,7 +619,7 @@ describe("automatic Mission replanning", () => {
       intent: "Inspect the source, then fix the blocking issue.",
       status: "needs_replan",
       scope: { kind: "project", projectId },
-      autonomyPolicy: {},
+      autonomyPolicy: { mode: "autonomous", maxAutoReplans: 3 },
       createdAt: now,
       updatedAt: now,
     });

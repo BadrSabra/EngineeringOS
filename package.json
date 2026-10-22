@@ -14,7 +14,7 @@
     "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
     "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
     "test:goal-first-provider-fixture": "node --test scripts/goal-first-provider-fixture.test.mjs",
-    "test:engineering-agent-lifecycle-receipt": "node --test scripts/verify-engineering-agent-lifecycle-receipt.test.mjs",
+    "test:engineering-agent-lifecycle-receipt": "node --test scripts/verify-engineering-agent-lifecycle-receipt.test.mjs scripts/engineering-agent-source-fingerprint.test.mjs",
     "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
     "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
     "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",

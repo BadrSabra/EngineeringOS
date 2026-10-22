@@ -5,11 +5,19 @@ import { readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lifecycleSentence =
   "Lifecycle acceptance sentinel: retained after approved delivery.";
-const receiptKeys = new Set(["schemaVersion", "status", "stage", "code", "chain"]);
+const receiptKeys = new Set([
+  "schemaVersion",
+  "status",
+  "stage",
+  "code",
+  "chain",
+  "sourceFingerprint",
+]);
 const chainKeys = new Set([
   "projectId",
   "chatStream",
@@ -44,16 +52,22 @@ function hasOnlyKeys(value, allowedKeys, label) {
   }
 }
 
-function validateReceipt(value) {
+function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerprint) {
   hasOnlyKeys(value, receiptKeys, "receipt");
   for (const required of ["schemaVersion", "status"]) {
     assert.ok(Object.hasOwn(value, required), `receipt_missing_${required}`);
   }
   assert.equal(value.schemaVersion, 1, "receipt_schema_version_invalid");
   assert.equal(value.status, "passed", `receipt_not_passed:${value.stage ?? "unknown"}`);
-  for (const required of ["stage", "chain"]) {
+  for (const required of ["stage", "chain", "sourceFingerprint"]) {
     assert.ok(Object.hasOwn(value, required), `receipt_missing_${required}`);
   }
+  assert.match(value.sourceFingerprint, /^[a-f0-9]{64}$/, "receipt_source_fingerprint_invalid");
+  assert.equal(
+    value.sourceFingerprint,
+    expectedSourceFingerprint,
+    "receipt_source_fingerprint_mismatch",
+  );
   assert.equal(value.stage, "complete", "receipt_stage_not_complete");
   assert.equal(Object.hasOwn(value, "code"), false, "passed_receipt_must_not_have_failure_code");
   hasOnlyKeys(value.chain, chainKeys, "chain");
@@ -424,7 +438,13 @@ async function main() {
     "lifecycle_verifier_requires_loopback_database",
   );
 
-  const receipt = validateReceipt(JSON.parse(await readFile(receiptPath, "utf8")));
+  const currentSourceFingerprint = await computeEngineeringAgentSourceFingerprint({
+    cwd: workspaceRoot,
+  });
+  const receipt = validateReceipt(
+    JSON.parse(await readFile(receiptPath, "utf8")),
+    currentSourceFingerprint,
+  );
   const { chain } = receipt;
   const projectRealPath = await realpath(projectRoot);
   const workspaceRelative = relative(await realpath(workspaceRoot), projectRealPath);

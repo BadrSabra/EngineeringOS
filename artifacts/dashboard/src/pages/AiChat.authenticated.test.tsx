@@ -731,6 +731,7 @@ describe('AiChat Mission action gateway', () => {
           allowAutoPush: false,
           requireHumanForExternalDelivery: true,
           maxAutoReplans: 0,
+          automaticReplanCount: 0,
         },
         missionId: mission.id,
         sessionId: 'session-1',
@@ -741,6 +742,14 @@ describe('AiChat Mission action gateway', () => {
       currentPlan: { revision: null, binding: 'legacy_unversioned', goalIds: [] },
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    };
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: mission.id,
+      missions: [{
+        mission,
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
     };
     mocks.fetchMissionProjection.mockResolvedValue(projection);
     mocks.executeMissionAgentAction.mockResolvedValue({
@@ -764,6 +773,107 @@ describe('AiChat Mission action gateway', () => {
         });
       });
       expect(await screen.findByText(/أُرسل الإجراء عبر بوابة المهمة/)).toBeInTheDocument();
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('recovers a server-authorized Mission execution from chat history without a local execution object', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const mission = {
+      id: 'mission-one',
+      projectId: 'project-1',
+      title: 'Resume the release check',
+      status: 'active',
+    };
+    const expectedDecision = {
+      kind: 'RESUME',
+      target: { kind: 'execution', id: 'execution-resume-from-history' },
+      reasonCode: 'RESUME_ALLOWED',
+    } as const;
+    const projection = {
+      ...currentMissionProjectionFixture(),
+      mission,
+      agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'RECOVERING',
+        nextAction: expectedDecision,
+        availableCommands: [],
+        intervention: { required: true, kind: 'recovery', reasonCode: 'RESUME_ALLOWED' },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+          automaticReplanCount: 0,
+        },
+        missionId: mission.id,
+        sessionId: 'session-1',
+        goalId: 'goal-current',
+        executionId: 'execution-resume-from-history',
+      },
+    };
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages[0] = {
+      id: 'resume-source-user-message',
+      sessionId: 'session-1',
+      role: 'user',
+      content: 'Continue the release validation.',
+    };
+    mocks.proposalMessages.push({
+      id: 'resume-source-assistant-message',
+      sessionId: 'session-1',
+      role: 'assistant',
+      content: 'The validation paused before completion.',
+      executionId: 'execution-resume-from-history',
+    });
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: mission.id,
+      missions: [{
+        mission,
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(projection as never);
+    mocks.executeMissionAgentAction.mockResolvedValue({
+      missionId: mission.id,
+      outcome: 'accepted',
+      projection,
+      idempotentReplay: false,
+      recovery: {
+        executionId: 'execution-resume-from-history',
+        resumeToken: 'opaque-server-recovery-token',
+        attempt: 2,
+      },
+    });
+    window.history.replaceState(
+      {},
+      '',
+      '/ai?projectId=project-1&sessionId=session-1',
+    );
+
+    try {
+      renderAiChat();
+      fireEvent.click(await screen.findByTestId('button-chat-mission-action-resume'));
+      await waitFor(() => {
+        expect(mocks.executeMissionAgentAction).toHaveBeenCalledWith(mission.id, {
+          idempotencyKey: expect.any(String),
+          expectedDecision,
+        });
+        expect(mocks.sentParams).toEqual(expect.objectContaining({
+          message: 'Continue the release validation.',
+          projectId: 'project-1',
+          sessionId: 'session-1',
+          executionId: 'execution-resume-from-history',
+          resumeToken: 'opaque-server-recovery-token',
+        }));
+      });
+      expect(await screen.findByText(/بدأ استئناف التنفيذ/)).toBeInTheDocument();
     } finally {
       window.history.replaceState({}, '', originalPath);
     }
@@ -2734,6 +2844,57 @@ describe('AiChat authenticated generated mutations', () => {
     });
   });
 
+  it('uses the server-selected Mission as the Chat workspace without a Mission URL', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue({
+      ...currentMissionProjectionFixture(),
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'WORKING',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'NO_ACTION_REQUIRED' },
+        availableCommands: [],
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+          automaticReplanCount: 0,
+        },
+        missionId: 'mission-one',
+        sessionId: 'session-1',
+        goalId: null,
+        executionId: null,
+      },
+    } as never);
+
+    try {
+      renderAiChat();
+      expect(await screen.findByTestId('mission-agent-action-card')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(mocks.fetchMissionProjection).toHaveBeenCalledWith('mission-one');
+      });
+      expect(new URL(window.location.href).searchParams.has('missionId')).toBe(false);
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+    }
+  });
+
   it('does not infer the active Mission from history ordering when the server returns no selection', async () => {
     localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
       version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
@@ -3159,8 +3320,58 @@ describe('AiChat authenticated generated mutations', () => {
     mocks.createMissionFromChat.mockResolvedValue({
       mission: { id: 'mission-new', title: 'Requested improvement' },
     });
+    const mission = {
+      id: 'mission-new',
+      projectId: 'project-1',
+      title: 'Requested improvement',
+      status: 'active',
+    };
+    const sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: mission.id,
+      missions: [{
+        mission,
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue({
+      mission,
+      agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'WORKING',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'NO_ACTION_REQUIRED' },
+        availableCommands: [],
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+          automaticReplanCount: 0,
+        },
+        missionId: mission.id,
+        sessionId: 'session-1',
+        goalId: null,
+        executionId: null,
+      },
+    } as never);
     const initialLocation = `${window.location.pathname}${window.location.search}`;
-    const { invalidateQueries } = renderAiChat();
+    const rendered = renderAiChat();
+    const sessionMissionsQueryKey = ['/api/ai/chat/session-1/missions', 'user-1'];
+    rendered.queryClient.setQueryData(sessionMissionsQueryKey, {
+      sessionId: 'session-1',
+      activeMissionId: null,
+      missions: [],
+    });
+    mocks.sessionMissionsRefetch.mockImplementation(async () => {
+      mocks.sessionMissions = sessionMissions;
+      rendered.queryClient.setQueryData(sessionMissionsQueryKey, sessionMissions);
+      return { data: sessionMissions } as never;
+    });
 
     fireEvent.click(await screen.findByTestId('button-mission-handoff-user-handoff'));
 
@@ -3170,10 +3381,15 @@ describe('AiChat authenticated generated mutations', () => {
         sessionId: 'session-1',
         messageId: 'user-handoff',
       }));
-      expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['/api/ai/chat/session-1/missions'],
-      });
+      expect(mocks.sessionMissionsRefetch).toHaveBeenCalledTimes(1);
     });
+    rendered.rerender(
+      <QueryClientProvider client={rendered.queryClient}>
+        <AiChat />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId('mission-agent-action-card')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-active-engineering-run')).toHaveTextContent('Requested improvement');
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Mission started',
       description: expect.stringContaining('Requested improvement'),
