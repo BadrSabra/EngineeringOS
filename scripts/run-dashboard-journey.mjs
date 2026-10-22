@@ -446,29 +446,15 @@ async function waitForPortOpen(port, timeoutMs = 2_500) {
 }
 
 async function ensureReleasePortFree(port) {
-  for (const pid of listeningUsers(port).filter(
+  const remainingPids = listeningUsers(port).filter(
     (item) => item !== process.pid,
-  )) {
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch (error) {
-      if (error?.code !== "ESRCH") throw error;
-    }
-  }
-  try {
-    await waitForPortClosed(port, 2_500);
-    return;
-  } catch {
-    for (const pid of listeningUsers(port).filter(
-      (item) => item !== process.pid,
-    )) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (error) {
-        if (error?.code !== "ESRCH") throw error;
-      }
-    }
-    await waitForPortClosed(port);
+  );
+  if (remainingPids.length > 0) {
+    const error = new Error(
+      `Release port ${port} is occupied; refusing to stop an unowned process.`,
+    );
+    error.remainingPids = remainingPids;
+    throw error;
   }
 }
 

@@ -233,3 +233,28 @@ on a loopback disposable database. Immediately before any Development run,
 recheck actual Goal/task/execution/delivery state and API schema readiness. If
 the shared worker is still unscoped or the run can affect existing work, stop;
 do not restart the dashboard merely to clear an unrelated port collision.
+
+A Development lifecycle receipt can pass while the scoped test project still
+has queued or `needs_replan` Goals and `verifying` Tasks without a live owner.
+The receipt proves its correlated chain, not that every Goal and Task created
+by the run reached a terminal state.
+
+**Why:** A real Development journey completed its source/apply/delivery chain
+but left auxiliary plan-step records open, so the browser test's pass did not
+meet the stronger no-hanging-work acceptance condition.
+
+**How to apply:** After the journey, compare the full scoped-project Goal,
+Task, and Execution census with the receipt; require new work to be terminal
+and confirm pre-existing out-of-scope rows are unchanged. Preserve evidence
+and stop before cleanup or retry when an unexpected nonterminal record remains.
+
+Workflow status alone is not proof that an API process is absent: a process may
+still serve requests while its configured workflow is reported as stopped.
+
+**Why:** The Development preflight observed a live API listener with an
+unscoped environment despite the workflow being marked not started; it later
+disappeared without an agent restart.
+
+**How to apply:** Inspect current process ownership, selected environment,
+loaded build, and listener state alongside workflow status before any
+Development lifecycle run. Never terminate an unowned process to make room.

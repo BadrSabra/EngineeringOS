@@ -86,15 +86,7 @@ function runTeardownFixture(apiPort, dashboardPort) {
     });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
-      if (signal || code !== 0) {
-        reject(
-          new Error(
-            `Teardown fixture exited with ${signal ?? code}.\n${output}`,
-          ),
-        );
-      } else {
-        resolveRun(output);
-      }
+      resolveRun({ code: code ?? 1, signal, output });
     });
   });
 }
@@ -119,19 +111,22 @@ test("release port cleanup supports consecutive runs", async () => {
 test("release journey teardown diagnostics identify a real surviving descendant", async () => {
   const apiPort = 30_000 + Math.floor(Math.random() * 1_000);
   const dashboardPort = apiPort + 1;
-  const output = await runTeardownFixture(apiPort, dashboardPort);
+  try {
+    const { code, output } = await runTeardownFixture(apiPort, dashboardPort);
 
-  assert.match(
-    output,
-    new RegExp(
-      `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
-    ),
-  );
-  assert.match(output, new RegExp(`configured release port ${apiPort}`));
-  assert.match(output, /surviving process IDs: \d+/);
-  assert.match(output, /release process group: \d+/);
-
-  await runCleanup(apiPort);
+    assert.notEqual(code, 0, "surviving unowned descendants must fail teardown");
+    assert.match(
+      output,
+      new RegExp(
+        `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
+      ),
+    );
+    assert.match(output, new RegExp(`configured release port ${apiPort}`));
+    assert.match(output, /surviving process IDs: \d+/);
+    assert.match(output, /release process group: \d+/);
+  } finally {
+    await runCleanup(apiPort);
+  }
 });
 
 test("release journey teardown diagnostics keep both service labels and process-group details", async () => {
