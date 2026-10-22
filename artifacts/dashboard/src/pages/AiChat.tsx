@@ -11253,10 +11253,24 @@ export default function AiChat() {
     && chatRouteTarget.sessionId === sessionId
     ? chatRouteTarget.missionId
     : undefined;
+  const routeMissionIsLinked = Boolean(
+    routeMissionId
+    && currentSessionMissions?.sessionId === sessionId
+    && currentSessionMissions.missions.some(({ mission }) => mission.id === routeMissionId),
+  );
+  const routeMissionIsSelected = routeMissionIsLinked
+    && currentSessionMissions?.activeMissionId === routeMissionId;
+  const workspaceMissionId = routeMissionId
+    ? (routeMissionIsSelected ? routeMissionId : null)
+    : currentSessionMissions?.missions.some(
+        ({ mission }) => mission.id === currentSessionMissions.activeMissionId,
+      )
+      ? currentSessionMissions.activeMissionId
+      : null;
   const missionAgentProjectionQuery = useQuery({
-    queryKey: ['mission-agent-projection', selectedProjectId, routeMissionId],
-    queryFn: () => fetchMissionProjection(routeMissionId!),
-    enabled: Boolean(routeMissionId && selectedProjectId),
+    queryKey: ['mission-agent-projection', selectedProjectId, workspaceMissionId],
+    queryFn: () => fetchMissionProjection(workspaceMissionId!),
+    enabled: Boolean(workspaceMissionId && selectedProjectId && sessionId && user?.id),
     staleTime: 0,
     refetchInterval: (query) => {
       const mission = (query.state.data as { mission?: { status?: string } } | undefined)?.mission;
@@ -11265,10 +11279,14 @@ export default function AiChat() {
   });
   const routeMissionProjection = missionAgentProjectionQuery.data;
   const routeMissionAgent = routeMissionProjection
-    && routeMissionProjection.mission.id === routeMissionId
+    && routeMissionProjection.mission.id === workspaceMissionId
     && String(routeMissionProjection.mission.projectId) === selectedProjectId
     && routeMissionProjection.engineeringAgent?.schemaVersion === 2
-    && routeMissionProjection.engineeringAgent.missionId === routeMissionId
+    && routeMissionProjection.engineeringAgent.missionId === workspaceMissionId
+    && (
+      routeMissionProjection.engineeringAgent.sessionId === sessionId
+      || routeMissionProjection.agentControl?.handoff.sessionId === sessionId
+    )
     ? routeMissionProjection.engineeringAgent
     : null;
 
@@ -12992,16 +13010,52 @@ export default function AiChat() {
     });
   }
 
+  function missionExecutionContextFromChat(executionId: string): ActiveExecution | null {
+    const current = activeExecutionRef.current;
+    if (
+      current?.id === executionId
+      && current.projectId === selectedProjectId
+      && current.sessionId === sessionId
+    ) {
+      return current;
+    }
+
+    let executionMessageIndex = -1;
+    for (let index = localMessages.length - 1; index >= 0; index -= 1) {
+      if (
+        localMessages[index].executionId === executionId
+        && localMessages[index].role === 'assistant'
+      ) {
+        executionMessageIndex = index;
+        break;
+      }
+    }
+    if (executionMessageIndex < 0) return null;
+    const originalUserMessage = [...localMessages.slice(0, executionMessageIndex + 1)]
+      .reverse()
+      .find((message) => message.role === 'user' && message.content.trim());
+    if (!originalUserMessage) return null;
+
+    return {
+      id: executionId,
+      projectId: selectedProjectId ?? '',
+      sessionId: sessionId ?? undefined,
+      message: originalUserMessage.content,
+      resumable: true,
+    };
+  }
+
   async function resumeActiveExecution(
     mode: 'resume' | 'retry' = 'resume',
     recoveryCapability?: { executionId: string; resumeToken: string; attempt: number },
-  ) {
-    const execution = activeExecutionRef.current;
+    executionContext?: ActiveExecution,
+  ): Promise<boolean> {
+    const execution = executionContext ?? activeExecutionRef.current;
     if (
       !execution
       || resumeRecoveryPendingRef.current === execution.id
       || resumeStreamExecutionRef.current === execution.id
-    ) return;
+    ) return false;
     setResumeRecoveryError(null);
     // A manual resume supersedes a queued automatic reconnect. Clearing the
     // timer here also closes the race where the timer fires after the button
@@ -13011,14 +13065,14 @@ export default function AiChat() {
       ?? (activeExecutionStatus?.id === execution.id
         ? activeExecutionStatus.linkedTaskId
         : undefined);
-    if (ownerTaskId) {
+    if (ownerTaskId && !recoveryCapability) {
       setResumeRecoveryError('This Task-linked execution must be resumed from its owning Task.');
-      return;
+      return false;
     }
 
     if (recoveryCapability && recoveryCapability.executionId !== execution.id) {
       setResumeRecoveryError('The Mission recovery capability does not match the active Execution.');
-      return;
+      return false;
     }
     const suppliedResumeToken = recoveryCapability?.resumeToken;
     if (suppliedResumeToken || (mode === 'resume' && execution.resumeToken)) {
@@ -13046,7 +13100,7 @@ export default function AiChat() {
         buildPlanMessageId: execution.buildPlanMessageId,
         sessionId: execution.sessionId,
       });
-      return;
+      return true;
     }
 
     resumeRecoveryPendingRef.current = execution.id;
@@ -13100,12 +13154,14 @@ export default function AiChat() {
         buildPlanMessageId: recovered.buildPlanMessageId,
         sessionId: recovered.sessionId,
       });
+      return true;
     } catch (error: unknown) {
       setResumeRecoveryError(
         error instanceof Error
           ? error.message
           : 'Could not recover the resume capability. Try again.',
       );
+      return false;
     } finally {
       if (resumeRecoveryPendingRef.current === execution.id) {
         resumeRecoveryPendingRef.current = null;
@@ -13116,7 +13172,7 @@ export default function AiChat() {
 
   async function performRouteMissionAction(command?: 'STOP') {
     const agent = routeMissionAgent;
-    const missionId = routeMissionId;
+    const missionId = workspaceMissionId;
     if (!agent || !missionId || missionAgentActionPending) return;
     const action = command ?? agent.nextAction.kind;
     if (action === 'NONE') return;
@@ -13131,21 +13187,16 @@ export default function AiChat() {
     const targetId = command
       ? stopCommand?.target.id ?? ''
       : agent.nextAction.target?.id ?? '';
+    const recoveryExecution = action === 'RESUME' || action === 'RETRY'
+      ? missionExecutionContextFromChat(targetId)
+      : undefined;
+    if ((action === 'RESUME' || action === 'RETRY') && !recoveryExecution) {
+      setMissionAgentActionError('رسالة هذا التنفيذ غير موجودة في المحادثة الحالية. حدّث سجل المحادثة قبل الاسترداد.');
+      return;
+    }
     if (action === 'APPROVE' && !window.confirm('هل تريد اعتماد القرار الحالي لهذه المهمة؟')) return;
     if (action === 'REPLAN' && !window.confirm('هل تريد إنشاء نسخة خطة جديدة لهذه المهمة؟')) return;
     if (action === 'STOP' && !window.confirm('هل تريد إرسال طلب إيقاف التنفيذ الحالي؟')) return;
-    if (action === 'RESUME' || action === 'RETRY') {
-      const activeExecution = activeExecutionRef.current;
-      if (activeExecution?.id !== targetId) {
-        setMissionAgentActionError('افتح المحادثة المرتبطة بهذا التنفيذ قبل استئنافه أو إعادة محاولته.');
-        return;
-      }
-      if (activeExecution.linkedTaskId) {
-        setMissionAgentActionError('هذا التنفيذ مرتبط بمهمة؛ استأنفه من المهمة المالكة.');
-        return;
-      }
-    }
-
     const actionIdentity = `${missionId}:${action}:${targetId}`;
     const idempotencyKey = missionAgentActionKeys.current.get(actionIdentity)
       ?? crypto.randomUUID();
@@ -13163,16 +13214,24 @@ export default function AiChat() {
         },
         ...(command ? { command } : {}),
       });
-      if (result.outcome !== 'in_progress') {
-        missionAgentActionKeys.current.delete(actionIdentity);
-      }
       await missionAgentProjectionQuery.refetch();
       if (result.recovery) {
-        await resumeActiveExecution(action === 'RETRY' ? 'retry' : 'resume', result.recovery);
+        const resumed = await resumeActiveExecution(
+          action === 'RETRY' ? 'retry' : 'resume',
+          result.recovery,
+          recoveryExecution!,
+        );
+        if (!resumed) {
+          throw new Error('لم يبدأ الاسترداد بعد. حدّث حالة المهمة وحاول مرة أخرى.');
+        }
+        missionAgentActionKeys.current.delete(actionIdentity);
         setMissionAgentActionNotice(
           action === 'RETRY' ? 'بدأت إعادة المحاولة عبر مسار الاسترداد الحالي.' : 'بدأ استئناف التنفيذ عبر مسار الاسترداد الحالي.',
         );
       } else {
+        if (result.outcome !== 'in_progress') {
+          missionAgentActionKeys.current.delete(actionIdentity);
+        }
         setMissionAgentActionNotice(result.outcome === 'in_progress'
           ? 'هذا الطلب قيد التنفيذ بالفعل؛ ستُحدّث الحالة تلقائيًا.'
           : 'أُرسل الإجراء عبر بوابة المهمة، وتم تحديث الحالة.');
@@ -13181,11 +13240,18 @@ export default function AiChat() {
       const status = typeof error === 'object' && error !== null && 'status' in error
         ? Number((error as { status?: unknown }).status)
         : Number.NaN;
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
       if (Number.isFinite(status) && status < 500) {
         missionAgentActionKeys.current.delete(actionIdentity);
       }
       setMissionAgentActionError(
-        error instanceof Error ? error.message : 'تعذر تنفيذ إجراء المهمة. حدّث الحالة وحاول مجددًا.',
+        code === 'EXECUTION_OWNER_ROUTE_REQUIRED'
+          ? 'هذا التنفيذ تابع لمهمة أخرى؛ افتح المهمة المالكة لاستئنافه أو إعادة محاولته.'
+          : error instanceof Error
+            ? error.message
+            : 'تعذر تنفيذ إجراء المهمة. حدّث الحالة وحاول مجددًا.',
       );
       void missionAgentProjectionQuery.refetch();
     } finally {

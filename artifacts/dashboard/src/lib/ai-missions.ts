@@ -184,6 +184,7 @@ export interface EngineeringAgentProjection {
     allowAutoPush: boolean;
     requireHumanForExternalDelivery: boolean;
     maxAutoReplans: number;
+    automaticReplanCount: number;
   };
   missionId: string;
   sessionId: string | null;

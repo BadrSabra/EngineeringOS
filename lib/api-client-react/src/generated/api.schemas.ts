@@ -352,6 +352,11 @@ export type AiMissionEngineeringAgentProjectionAutonomy = {
      * @maximum 10
      */
   maxAutoReplans: number;
+  /**
+     * @minimum 0
+     * @maximum 10
+     */
+  automaticReplanCount: number;
 };
 
 export interface AiMissionEngineeringAgentProjection {

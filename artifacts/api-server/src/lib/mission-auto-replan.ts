@@ -7,6 +7,10 @@ import {
   eventsTable,
 } from "@workspace/db";
 import {
+  normalizeMissionAutonomyPolicy,
+  writeCanonicalMissionAutonomyPolicy,
+} from "./mission-autonomy-policy.js";
+import {
   buildMissionPlanPreview,
   type MissionWorldStatePlanningRead,
 } from "@workspace/ai-orchestrator";
@@ -256,6 +260,14 @@ export async function autoReplanMission(
         reason: mission ? "mission_not_ready" : "mission_not_found",
       };
     }
+    const autonomy = normalizeMissionAutonomyPolicy(mission.autonomyPolicy);
+    if (autonomy.mode !== "autonomous") {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "automatic_replan_not_enabled",
+      };
+    }
     const [failedGoal] = await tx
       .select({
         id: aiGoalsTable.id,
@@ -374,20 +386,10 @@ export async function autoReplanMission(
         .digest("hex")
       : preview.plan.planHash;
     const revision = `auto:${failedGoal?.id ?? mission.id}:${planHash}`;
-    const policy = mission.autonomyPolicy ?? {};
-    const automaticReplanCount = typeof policy.automaticReplanCount === "number"
-      && Number.isFinite(policy.automaticReplanCount)
-      ? Math.max(0, Math.floor(policy.automaticReplanCount))
-      : 0;
-    const maxAutomaticReplans = typeof policy.maxAutomaticReplans === "number"
-      && Number.isFinite(policy.maxAutomaticReplans)
-      ? Math.max(0, Math.floor(policy.maxAutomaticReplans))
-      : 3;
-    if (automaticReplanCount >= maxAutomaticReplans) {
+    const alreadyReserved = autonomy.automaticReplanCount > 0
+      && jsonRecord(mission.autonomyPolicy).lastAutomaticReplanRevision === revision;
+    if (!alreadyReserved && autonomy.automaticReplanCount >= autonomy.maxAutoReplans) {
       return { status: "skipped" as const, missionId, reason: "automatic_replan_budget_exhausted" };
-    }
-    if (policy.lastAutomaticReplanRevision === revision) {
-      return { status: "skipped" as const, missionId, reason: "automatic_replan_already_attempted" };
     }
     const plan = await createMissionPlanGoal(
       tx,
@@ -400,6 +402,23 @@ export async function autoReplanMission(
     if (!plan) {
       return { status: "skipped" as const, missionId, reason: "empty_plan" };
     }
+    const nextReplanCount = autonomy.automaticReplanCount + (alreadyReserved ? 0 : 1);
+    await tx.update(aiMissionsTable)
+      .set({
+        autonomyPolicy: {
+          ...writeCanonicalMissionAutonomyPolicy(
+            mission.autonomyPolicy,
+            nextReplanCount,
+          ),
+          activePlanRevision: revision,
+          lastAutomaticReplanRevision: revision,
+        },
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, "needs_replan"),
+      ));
     return {
       status: "prepared" as const,
       missionId,
@@ -446,18 +465,17 @@ export async function autoReplanMission(
       ))
       .for("update");
     if (!current) return;
+    const currentAutonomy = normalizeMissionAutonomyPolicy(current.autonomyPolicy);
     const [updated] = await tx.update(aiMissionsTable)
       .set({
         status: "active",
         autonomyPolicy: {
-          ...current.autonomyPolicy,
+          ...writeCanonicalMissionAutonomyPolicy(
+            current.autonomyPolicy,
+            currentAutonomy.automaticReplanCount,
+          ),
           activePlanRevision: prepared.revision,
           lastAutomaticReplanRevision: prepared.revision,
-          automaticReplanCount: (
-            typeof current.autonomyPolicy.automaticReplanCount === "number"
-              ? Math.max(0, Math.floor(current.autonomyPolicy.automaticReplanCount))
-              : 0
-          ) + 1,
         },
         updatedAt: new Date(),
       })

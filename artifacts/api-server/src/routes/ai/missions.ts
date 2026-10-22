@@ -5130,6 +5130,16 @@ async function handleMissionAgentAction(
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
         };
       }
+      if (execution.linkedTaskId) {
+        return {
+          outcome: "rejected",
+          operation: { executionId: execution.id, attempt: execution.attempt },
+          error: {
+            code: "EXECUTION_OWNER_ROUTE_REQUIRED",
+            message: "This Execution is owned by a Task. Open the owning Task to resume it.",
+          },
+        };
+      }
       const recovered = await db.transaction(async (tx) => {
         const recovered = await recoverAiExecutionResumeToken({
           executionId: execution.id,
@@ -5183,6 +5193,7 @@ async function handleMissionAgentAction(
         id: aiExecutionsTable.id,
         attempt: aiExecutionsTable.attempt,
         goalId: aiExecutionsTable.goalId,
+        linkedTaskId: aiExecutionsTable.linkedTaskId,
       }).from(aiExecutionsTable).where(and(
         eq(aiExecutionsTable.id, target.id),
         eq(aiExecutionsTable.projectId, owned.project.id),
@@ -5203,6 +5214,16 @@ async function handleMissionAgentAction(
         return {
           outcome: "rejected",
           error: { code: "AGENT_ACTION_TARGET_INVALID", message: "The Execution is not part of this Mission." },
+        };
+      }
+      if (execution.linkedTaskId) {
+        return {
+          outcome: "rejected",
+          operation: { executionId: execution.id, attempt: execution.attempt },
+          error: {
+            code: "EXECUTION_OWNER_ROUTE_REQUIRED",
+            message: "This Execution is owned by a Task. Open the owning Task to retry it.",
+          },
         };
       }
       const recovered = await db.transaction(async (tx) => {

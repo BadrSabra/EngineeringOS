@@ -8534,6 +8534,9 @@ export const getAiMissionProjectionResponseEngineeringAgentAvailableCommandsItem
 export const getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMin = 0;
 export const getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMax = 10;
 
+export const getAiMissionProjectionResponseEngineeringAgentAutonomyAutomaticReplanCountMin = 0;
+export const getAiMissionProjectionResponseEngineeringAgentAutonomyAutomaticReplanCountMax = 10;
+
 export const getAiMissionProjectionResponseEngineeringAgentMissionIdMax = 200;
 
 export const getAiMissionProjectionResponseEngineeringAgentSessionIdMax = 200;
@@ -8612,7 +8615,8 @@ export const GetAiMissionProjectionResponse = zod.object({
   "allowAutoCommit": zod.boolean(),
   "allowAutoPush": zod.boolean(),
   "requireHumanForExternalDelivery": zod.boolean(),
-  "maxAutoReplans": zod.number().int().min(getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMin).max(getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMax)
+  "maxAutoReplans": zod.number().int().min(getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMin).max(getAiMissionProjectionResponseEngineeringAgentAutonomyMaxAutoReplansMax),
+  "automaticReplanCount": zod.number().int().min(getAiMissionProjectionResponseEngineeringAgentAutonomyAutomaticReplanCountMin).max(getAiMissionProjectionResponseEngineeringAgentAutonomyAutomaticReplanCountMax)
 }),
   "missionId": zod.string().min(1).max(getAiMissionProjectionResponseEngineeringAgentMissionIdMax),
   "sessionId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentSessionIdMax).nullable(),
@@ -8679,6 +8683,9 @@ export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAvaila
 
 export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin = 0;
 export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax = 10;
+
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMin = 0;
+export const executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMax = 10;
 
 export const executeAiMissionAgentActionResponseProjectionEngineeringAgentMissionIdMax = 200;
 
@@ -8768,7 +8775,8 @@ export const ExecuteAiMissionAgentActionResponse = zod.object({
   "allowAutoCommit": zod.boolean(),
   "allowAutoPush": zod.boolean(),
   "requireHumanForExternalDelivery": zod.boolean(),
-  "maxAutoReplans": zod.number().int().min(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax)
+  "maxAutoReplans": zod.number().int().min(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax),
+  "automaticReplanCount": zod.number().int().min(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMin).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMax)
 }),
   "missionId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionEngineeringAgentMissionIdMax),
   "sessionId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentSessionIdMax).nullable(),
@@ -8846,6 +8854,9 @@ export const continueAiMissionAgentResponseProjectionEngineeringAgentAvailableCo
 
 export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin = 0;
 export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax = 10;
+
+export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMin = 0;
+export const continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMax = 10;
 
 export const continueAiMissionAgentResponseProjectionEngineeringAgentMissionIdMax = 200;
 
@@ -8927,7 +8938,8 @@ export const ContinueAiMissionAgentResponse = zod.object({
   "allowAutoCommit": zod.boolean(),
   "allowAutoPush": zod.boolean(),
   "requireHumanForExternalDelivery": zod.boolean(),
-  "maxAutoReplans": zod.number().int().min(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin).max(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax)
+  "maxAutoReplans": zod.number().int().min(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMin).max(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyMaxAutoReplansMax),
+  "automaticReplanCount": zod.number().int().min(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMin).max(continueAiMissionAgentResponseProjectionEngineeringAgentAutonomyAutomaticReplanCountMax)
 }),
   "missionId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionEngineeringAgentMissionIdMax),
   "sessionId": zod.string().max(continueAiMissionAgentResponseProjectionEngineeringAgentSessionIdMax).nullable(),

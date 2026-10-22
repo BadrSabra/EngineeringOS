@@ -1,3 +1,5 @@
+import { normalizeMissionAutonomyPolicy } from "./mission-autonomy-policy.js";
+
 export const engineeringAgentStates = [
   "PLANNING",
   "WORKING",
@@ -84,6 +86,7 @@ export type EngineeringAgentProjection = {
     allowAutoPush: boolean;
     requireHumanForExternalDelivery: boolean;
     maxAutoReplans: number;
+    automaticReplanCount: number;
   };
   missionId: string;
   sessionId: string | null;
@@ -150,34 +153,12 @@ type Decision = {
   interventionRequired?: boolean;
 };
 
-const MAX_AUTO_REPLANS = 10;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeAutonomyPolicy(value: unknown): EngineeringAgentProjection["autonomy"] {
-  const policy = isRecord(value) ? value : {};
-  const validMode = policy.mode === "assisted" || policy.mode === "autonomous";
-  const mode = policy.mode === "autonomous" ? "autonomous" : "assisted";
-  const automatic = validMode && mode === "autonomous";
-  const rawReplans = policy.maxAutoReplans;
-
-  return {
-    mode,
-    allowAutoContinue: automatic && policy.allowAutoContinue === true,
-    allowAutoApply: automatic && policy.allowAutoApply === true,
-    allowAutoCommit: automatic && policy.allowAutoCommit === true,
-    allowAutoPush: false,
-    requireHumanForExternalDelivery: true,
-    maxAutoReplans: automatic
-      && typeof rawReplans === "number"
-      && Number.isInteger(rawReplans)
-      && rawReplans >= 0
-      && rawReplans <= MAX_AUTO_REPLANS
-      ? rawReplans
-      : 0,
-  };
+  return normalizeMissionAutonomyPolicy(value);
 }
 
 function normalized(value: string | null | undefined): string {

@@ -4915,6 +4915,7 @@ components:
             - allowAutoPush
             - requireHumanForExternalDelivery
             - maxAutoReplans
+            - automaticReplanCount
           properties:
             mode:
               type: string
@@ -4925,6 +4926,7 @@ components:
             allowAutoPush: { type: boolean }
             requireHumanForExternalDelivery: { type: boolean }
             maxAutoReplans: { type: integer, minimum: 0, maximum: 10 }
+            automaticReplanCount: { type: integer, minimum: 0, maximum: 10 }
         missionId: { type: string, minLength: 1, maxLength: 200 }
         sessionId: { type: ["string", "null"], maxLength: 200 }
         goalId: { type: ["string", "null"], maxLength: 200 }
