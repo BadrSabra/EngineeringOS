@@ -3201,6 +3201,30 @@ describe("AI missions and goals", () => {
       goalId: null,
       executionId: null,
     });
+    expect(projection.body.workspaceSummary).toMatchObject({
+      contractVersion: 1,
+      objective: {
+        title: "Empty plan",
+        intent: "Wait for an explicit start",
+      },
+      currentPhase: "PLANNING",
+      progress: {
+        totalGoals: 0,
+        completedGoals: 0,
+        verifiedGoals: 0,
+      },
+      currentGoal: null,
+      evidence: {
+        state: "not_started",
+        required: null,
+        complete: null,
+      },
+      delivery: {
+        state: "not_required",
+        required: false,
+        receiptPresent: false,
+      },
+    });
     expect(await snapshot()).toEqual(before);
   });
 
@@ -6159,13 +6183,17 @@ describe("AI missions and goals", () => {
       .patch(`/api/ai/missions/${mission.body.id}`)
       .send({
         title: "Updated mission",
-        status: "active",
         deadline: "2027-01-15T12:00:00.000Z",
       });
     expect(updatedMission.status).toBe(200);
     expect(updatedMission.body.title).toBe("Updated mission");
-    expect(updatedMission.body.status).toBe("active");
+    expect(updatedMission.body.status).toBe("draft");
     expect(updatedMission.body.deadline).toBe("2027-01-15T12:00:00.000Z");
+
+    const rejectedLegacyActivation = await request(app)
+      .patch(`/api/ai/missions/${mission.body.id}`)
+      .send({ status: "active" });
+    expect(rejectedLegacyActivation.status).toBe(400);
 
     const updatedGoal = await request(app)
       .patch(`/api/ai/goals/${goal.body.id}`)
@@ -6187,7 +6215,7 @@ describe("AI missions and goals", () => {
     const projection = await request(app).get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.body.mission.title).toBe("Updated mission");
     expect(projection.body.goals[0].goal.title).toBe("Updated goal");
-    expect(projection.body.counts.events).toBe(5);
+    expect(projection.body.counts.events).toBe(3);
   });
 
   it("materializes an activation plan into durable steps when a mission becomes active", async () => {
@@ -6198,11 +6226,19 @@ describe("AI missions and goals", () => {
       intent: "Inspect the source, then fix the blocking issue.",
     });
 
+    const draftProjection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(draftProjection.status).toBe(200);
+    expect(draftProjection.body.engineeringAgent.nextAction.kind).toBe("START");
+
     const activated = await request(app)
-      .patch(`/api/ai/missions/${mission.body.id}`)
-      .send({ status: "active" });
-    expect(activated.status).toBe(200);
-    expect(activated.body.status).toBe("active");
+      .post(`/api/ai/missions/${mission.body.id}/agent/action`)
+      .send({
+        idempotencyKey: randomUUID(),
+        expectedDecision: draftProjection.body.engineeringAgent.nextAction,
+      });
+    expect([200, 202]).toContain(activated.status);
+    expect(["accepted", "completed"]).toContain(activated.body.outcome);
 
     const projection = await request(app)
       .get(`/api/ai/missions/${mission.body.id}/projection`);

@@ -105,11 +105,14 @@ export type EngineeringAgentAcceptanceFact = {
 
 export type EngineeringAgentGoalFact = {
   id: string;
+  title?: string;
   status: string;
+  updatedAt?: string | null;
   nextAction?: { kind: string; reason?: string } | null;
   currentExecution?: {
     id: string;
     status: string;
+    updatedAt?: string | null;
     cancelRequested?: boolean;
     acceptance: EngineeringAgentAcceptanceFact | null;
   } | null;
@@ -129,6 +132,40 @@ export type EngineeringAgentGoalFact = {
     receiptPresent: boolean;
   };
   runtimeContinuationAuthorized?: boolean;
+};
+
+export type EngineeringAgentWorkspaceSummary = {
+  contractVersion: 1;
+  objective: {
+    title: string;
+    intent: string;
+  };
+  currentPhase: EngineeringAgentState;
+  progress: {
+    totalGoals: number;
+    completedGoals: number;
+    verifiedGoals: number;
+    inProgressGoals: number;
+    waitingGoals: number;
+    blockedGoals: number;
+  };
+  currentGoal: {
+    id: string;
+    title: string;
+    status: string;
+  } | null;
+  evidence: {
+    state: "not_started" | "pending" | "proven" | "incomplete" | "unavailable";
+    required: boolean | null;
+    complete: boolean | null;
+    reasonCode: EngineeringAgentReasonCode | null;
+  };
+  delivery: {
+    state: "not_required" | "waiting_for_proof" | "pending" | "receipt_recorded";
+    required: boolean;
+    receiptPresent: boolean;
+  };
+  lastActivityAt: string | null;
 };
 
 export type EngineeringAgentProjectionContext = {
@@ -585,5 +622,134 @@ export function reduceEngineeringAgentProjection(
     sessionId: context.sessionId,
     goalId: goal?.id ?? null,
     executionId,
+  };
+}
+
+function summaryEvidenceState(
+  goal: EngineeringAgentGoalFact | undefined,
+): EngineeringAgentWorkspaceSummary["evidence"] {
+  if (!goal) {
+    return {
+      state: "not_started",
+      required: null,
+      complete: null,
+      reasonCode: null,
+    };
+  }
+
+  const acceptance = goal.currentExecution?.acceptance;
+  if (hasCurrentAcceptedProof(goal)) {
+    return {
+      state: "proven",
+      required: acceptance?.evidenceRequired ?? null,
+      complete: acceptance?.evidenceComplete ?? null,
+      reasonCode: null,
+    };
+  }
+
+  let state: EngineeringAgentWorkspaceSummary["evidence"]["state"];
+  if (!goal.currentExecution) {
+    state = isSuccessfulTerminal(goal) ? "unavailable" : "not_started";
+  } else if (!acceptance) {
+    state = isSuccessfulTerminal(goal) ? "unavailable" : "pending";
+  } else if (
+    acceptance.outcome !== "SUCCEEDED"
+    || acceptance.terminalStatus !== "completed"
+  ) {
+    state = "pending";
+  } else if (acceptance.evidenceRequired && !acceptance.evidenceComplete) {
+    state = "incomplete";
+  } else if (!goal.canonicalProof || goal.canonicalProof.verdict === "UNAVAILABLE") {
+    state = "unavailable";
+  } else {
+    state = "incomplete";
+  }
+
+  return {
+    state,
+    required: acceptance?.evidenceRequired ?? null,
+    complete: acceptance?.evidenceComplete ?? null,
+    reasonCode: state === "incomplete" || state === "unavailable"
+      ? evidenceReason(goal)
+      : null,
+  };
+}
+
+export function createEngineeringAgentWorkspaceSummary(params: {
+  title: string;
+  intent: string;
+  missionUpdatedAt: string | null;
+  lastEventAt?: string | null;
+  goals: EngineeringAgentGoalFact[];
+  projection: EngineeringAgentProjection;
+}): EngineeringAgentWorkspaceSummary {
+  const { goals, projection } = params;
+  const currentGoal = projection.goalId
+    ? goals.find((goal) => goal.id === projection.goalId)
+    : undefined;
+  const evidenceGoal = currentGoal
+    ?? goals.find((goal) => !hasCurrentAcceptedProof(goal))
+    ?? goals[0];
+  const deliveryGoals = goals.filter((goal) => goal.delivery?.required === true);
+  const deliveryReceiptPresent = deliveryGoals.length > 0
+    && deliveryGoals.every((goal) => goal.delivery?.receiptPresent === true);
+  const deliveryState: EngineeringAgentWorkspaceSummary["delivery"]["state"] =
+    deliveryGoals.length === 0
+      ? "not_required"
+      : deliveryGoals.some(deliveryPending)
+        ? "pending"
+        : deliveryReceiptPresent
+          ? "receipt_recorded"
+          : "waiting_for_proof";
+
+  const timestamps = [
+    params.missionUpdatedAt,
+    params.lastEventAt ?? null,
+    ...goals.flatMap((goal) => [
+      goal.updatedAt ?? null,
+      goal.currentExecution?.updatedAt ?? null,
+    ]),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => ({ value, time: Date.parse(value) }))
+    .filter((entry) => Number.isFinite(entry.time))
+    .sort((left, right) => right.time - left.time);
+
+  return {
+    contractVersion: 1,
+    objective: {
+      title: params.title,
+      intent: params.intent,
+    },
+    currentPhase: projection.state,
+    progress: {
+      totalGoals: goals.length,
+      completedGoals: goals.filter((goal) => normalized(goal.status) === "completed").length,
+      verifiedGoals: goals.filter(hasCurrentAcceptedProof).length,
+      inProgressGoals: goals.filter((goal) =>
+        ["running", "verifying"].includes(normalized(goal.status))
+        || normalized(goal.currentExecution?.status) === "running",
+      ).length,
+      waitingGoals: goals.filter((goal) =>
+        ["waiting_for_approval", "waiting_for_event"].includes(normalized(goal.status)),
+      ).length,
+      blockedGoals: goals.filter((goal) =>
+        ["blocked", "failed", "needs_replan"].includes(normalized(goal.status)),
+      ).length,
+    },
+    currentGoal: currentGoal
+      ? {
+          id: currentGoal.id,
+          title: currentGoal.title ?? "",
+          status: currentGoal.status,
+        }
+      : null,
+    evidence: summaryEvidenceState(evidenceGoal),
+    delivery: {
+      state: deliveryState,
+      required: deliveryGoals.length > 0,
+      receiptPresent: deliveryReceiptPresent,
+    },
+    lastActivityAt: timestamps[0]?.value ?? null,
   };
 }

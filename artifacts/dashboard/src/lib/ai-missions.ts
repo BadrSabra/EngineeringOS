@@ -1,4 +1,7 @@
-import type { AiMissionEngineeringAgentReasonCode } from '@workspace/api-client-react';
+import type {
+  AiMissionEngineeringAgentReasonCode,
+  AiMissionEngineeringAgentWorkspaceSummary,
+} from '@workspace/api-client-react';
 
 export type MissionStatus =
   | 'draft'
@@ -197,6 +200,7 @@ export type EngineeringAgentDecision = EngineeringAgentProjection['nextAction'];
 export interface MissionProjection {
   mission: Mission;
   engineeringAgent: EngineeringAgentProjection;
+  workspaceSummary?: AiMissionEngineeringAgentWorkspaceSummary;
   agentControl: {
     handoff: {
       kind: 'chat';
@@ -242,6 +246,13 @@ export class MissionRequestError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+export function shouldPollMissionProjection(projection: MissionProjection | undefined): boolean {
+  if (!projection) return false;
+  return projection.mission.status === 'active'
+    || ['WORKING', 'VERIFYING', 'RECOVERING', 'DELIVERING']
+      .includes(projection.engineeringAgent.state);
 }
 
 async function requestJson<T>(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {

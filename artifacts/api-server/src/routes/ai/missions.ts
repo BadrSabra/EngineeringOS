@@ -64,6 +64,7 @@ import {
   projectMissionActivePlan,
 } from "../../lib/mission-completion-gate.js";
 import {
+  createEngineeringAgentWorkspaceSummary,
   reduceEngineeringAgentProjection,
   type EngineeringAgentGoalFact,
 } from "../../lib/engineering-agent-projection.js";
@@ -872,6 +873,7 @@ async function buildEngineeringAgentProjection(
     "id" | "status" | "approvalRequired"
   >>,
   sessionId: string | null,
+  lastEventAt: string | null = null,
 ) {
   const activeGoalIds = new Set(currentPlan.goalIds);
   const activeGoals = goals.filter((goal) => activeGoalIds.has(goal.id));
@@ -989,7 +991,9 @@ async function buildEngineeringAgentProjection(
 
     return {
       id: goal.id,
+      title: goal.title,
       status: goal.status,
+      updatedAt: goal.updatedAt.toISOString(),
       nextAction: nextAction ? {
         kind: nextAction.kind,
         ...("reason" in nextAction ? { reason: nextAction.reason } : {}),
@@ -997,6 +1001,7 @@ async function buildEngineeringAgentProjection(
       currentExecution: execution ? {
         id: execution.id,
         status: execution.status,
+        updatedAt: execution.updatedAt.toISOString(),
         cancelRequested: Boolean(execution.cancelRequestedAt),
         acceptance: acceptance ? {
           outcome: acceptance.outcome,
@@ -1047,7 +1052,7 @@ async function buildEngineeringAgentProjection(
     }),
   );
 
-  return reduceEngineeringAgentProjection({
+  const engineeringAgent = reduceEngineeringAgentProjection({
     missionId: mission.id,
     sessionId,
     missionStatus: mission.status,
@@ -1057,6 +1062,15 @@ async function buildEngineeringAgentProjection(
     missionCompletionAccepted,
     autonomyPolicy: mission.autonomyPolicy,
   });
+  const workspaceSummary = createEngineeringAgentWorkspaceSummary({
+    title: mission.title,
+    intent: mission.intent,
+    missionUpdatedAt: mission.updatedAt.toISOString(),
+    lastEventAt,
+    goals: goalFacts,
+    projection: engineeringAgent,
+  });
+  return { engineeringAgent, workspaceSummary };
 }
 
 function withStoredStatusProjection<T extends { status: unknown }>(value: T) {
@@ -1676,7 +1690,7 @@ async function buildMissionProjection(
     : null;
   const goalIds = goals.map((goal) => goal.id);
   if (goalIds.length === 0) {
-    const engineeringAgent = await buildEngineeringAgentProjection(
+    const { engineeringAgent, workspaceSummary } = await buildEngineeringAgentProjection(
       mission,
       goals,
       currentPlan,
@@ -1689,6 +1703,7 @@ async function buildMissionProjection(
       agentControl,
       currentPlan,
       engineeringAgent,
+      workspaceSummary,
       goals: [],
       counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
     };
@@ -1778,13 +1793,14 @@ async function buildMissionProjection(
     }
   }
   const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
-  const engineeringAgent = await buildEngineeringAgentProjection(
+  const { engineeringAgent, workspaceSummary } = await buildEngineeringAgentProjection(
     mission,
     goals,
     currentPlan,
     currentExecutionByGoalId,
     proposals,
     validatedHandoffSessionId,
+    events[0]?.timestamp.toISOString() ?? null,
   );
   const candidateByGoalId = new Map<string, {
     skillCandidate: {
@@ -1873,6 +1889,7 @@ async function buildMissionProjection(
     agentControl,
     currentPlan,
     engineeringAgent,
+    workspaceSummary,
     goals: goals.map((goal) => ({
       goal: withStoredStatusProjection({
         ...goal,

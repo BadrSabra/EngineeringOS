@@ -2860,6 +2860,39 @@ describe('AiChat authenticated generated mutations', () => {
     };
     mocks.fetchMissionProjection.mockResolvedValue({
       ...currentMissionProjectionFixture(),
+      workspaceSummary: {
+        contractVersion: 1,
+        objective: {
+          title: 'Add workspace search',
+          intent: 'Add search to the project workspace and verify the result.',
+        },
+        currentPhase: 'WORKING',
+        progress: {
+          totalGoals: 2,
+          completedGoals: 1,
+          verifiedGoals: 1,
+          inProgressGoals: 1,
+          waitingGoals: 0,
+          blockedGoals: 0,
+        },
+        currentGoal: {
+          id: 'goal-search',
+          title: 'Implement search',
+          status: 'running',
+        },
+        evidence: {
+          state: 'proven',
+          required: true,
+          complete: true,
+          reasonCode: null,
+        },
+        delivery: {
+          state: 'not_required',
+          required: false,
+          receiptPresent: false,
+        },
+        lastActivityAt: '2026-10-22T10:00:00.000Z',
+      },
       engineeringAgent: {
         schemaVersion: 2,
         state: 'WORKING',
@@ -2886,6 +2919,16 @@ describe('AiChat authenticated generated mutations', () => {
     try {
       renderAiChat();
       expect(await screen.findByTestId('mission-agent-action-card')).toBeInTheDocument();
+      expect(await screen.findByTestId('mission-agent-state')).toHaveTextContent('قيد التنفيذ');
+      expect(screen.getByTestId('mission-agent-objective')).toHaveTextContent(
+        'Add search to the project workspace and verify the result.',
+      );
+      expect(screen.getByTestId('mission-agent-progress')).toHaveTextContent('1 من 2');
+      expect(screen.getByTestId('mission-agent-evidence')).toHaveTextContent('الأدلة مقبولة');
+      expect(screen.getByTestId('mission-agent-delivery')).toHaveTextContent('لا يتطلب تسليمًا خارجيًا');
+      expect(screen.getByTestId('mission-agent-intervention')).toHaveTextContent(
+        'لا يوجد تدخل مطلوب الآن',
+      );
       await waitFor(() => {
         expect(mocks.fetchMissionProjection).toHaveBeenCalledWith('mission-one');
       });

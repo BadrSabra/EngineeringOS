@@ -4786,7 +4786,7 @@ components:
           pattern: "^[a-z0-9][a-z0-9-]*$"
     AiMissionControlProjection:
       type: object
-      required: [mission, agentControl, currentPlan, goals, counts, engineeringAgent]
+      required: [mission, agentControl, currentPlan, goals, counts, engineeringAgent, workspaceSummary]
       properties:
         mission:
           type: object
@@ -4849,6 +4849,8 @@ components:
             events: { type: integer, minimum: 0 }
         engineeringAgent:
           $ref: "#/components/schemas/AiMissionEngineeringAgentProjection"
+        workspaceSummary:
+          $ref: "#/components/schemas/AiMissionEngineeringAgentWorkspaceSummary"
     AiMissionEngineeringAgentProjection:
       type: object
       additionalProperties: false
@@ -4931,6 +4933,72 @@ components:
         sessionId: { type: ["string", "null"], maxLength: 200 }
         goalId: { type: ["string", "null"], maxLength: 200 }
         executionId: { type: ["string", "null"], maxLength: 200 }
+    AiMissionEngineeringAgentWorkspaceSummary:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, objective, currentPhase, progress, currentGoal, evidence, delivery, lastActivityAt]
+      properties:
+        contractVersion:
+          type: integer
+          enum: [1]
+        objective:
+          type: object
+          additionalProperties: false
+          required: [title, intent]
+          properties:
+            title: { type: string }
+            intent: { type: string }
+        currentPhase:
+          type: string
+          enum: [PLANNING, WORKING, VERIFYING, AWAITING_APPROVAL, RECOVERING, DELIVERING, COMPLETE, NEEDS_ATTENTION]
+        progress:
+          type: object
+          additionalProperties: false
+          required: [totalGoals, completedGoals, verifiedGoals, inProgressGoals, waitingGoals, blockedGoals]
+          properties:
+            totalGoals: { type: integer, minimum: 0 }
+            completedGoals: { type: integer, minimum: 0 }
+            verifiedGoals: { type: integer, minimum: 0 }
+            inProgressGoals: { type: integer, minimum: 0 }
+            waitingGoals: { type: integer, minimum: 0 }
+            blockedGoals: { type: integer, minimum: 0 }
+        currentGoal:
+          anyOf:
+            - type: object
+              additionalProperties: false
+              required: [id, title, status]
+              properties:
+                id: { type: string, minLength: 1, maxLength: 200 }
+                title: { type: string }
+                status: { type: string }
+            - type: "null"
+        evidence:
+          type: object
+          additionalProperties: false
+          required: [state, required, complete, reasonCode]
+          properties:
+            state:
+              type: string
+              enum: [not_started, pending, proven, incomplete, unavailable]
+            required: { type: ["boolean", "null"] }
+            complete: { type: ["boolean", "null"] }
+            reasonCode:
+              anyOf:
+                - $ref: "#/components/schemas/AiMissionEngineeringAgentReasonCode"
+                - type: "null"
+        delivery:
+          type: object
+          additionalProperties: false
+          required: [state, required, receiptPresent]
+          properties:
+            state:
+              type: string
+              enum: [not_required, waiting_for_proof, pending, receipt_recorded]
+            required: { type: boolean }
+            receiptPresent: { type: boolean }
+        lastActivityAt:
+          type: ["string", "null"]
+          format: date-time
     AiMissionEngineeringAgentDecision:
       type: object
       additionalProperties: false

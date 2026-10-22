@@ -8545,6 +8545,20 @@ export const getAiMissionProjectionResponseEngineeringAgentGoalIdMax = 200;
 
 export const getAiMissionProjectionResponseEngineeringAgentExecutionIdMax = 200;
 
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressTotalGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressCompletedGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressVerifiedGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressInProgressGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressWaitingGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryProgressBlockedGoalsMin = 0;
+
+export const getAiMissionProjectionResponseWorkspaceSummaryCurrentGoalOneIdMax = 200;
+
 
 
 export const GetAiMissionProjectionResponse = zod.object({
@@ -8622,6 +8636,39 @@ export const GetAiMissionProjectionResponse = zod.object({
   "sessionId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentSessionIdMax).nullable(),
   "goalId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentGoalIdMax).nullable(),
   "executionId": zod.string().max(getAiMissionProjectionResponseEngineeringAgentExecutionIdMax).nullable()
+}),
+  "workspaceSummary": zod.object({
+  "contractVersion": zod.literal(1),
+  "objective": zod.object({
+  "title": zod.string(),
+  "intent": zod.string()
+}),
+  "currentPhase": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
+  "progress": zod.object({
+  "totalGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressTotalGoalsMin),
+  "completedGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressCompletedGoalsMin),
+  "verifiedGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressVerifiedGoalsMin),
+  "inProgressGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressInProgressGoalsMin),
+  "waitingGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressWaitingGoalsMin),
+  "blockedGoals": zod.number().int().min(getAiMissionProjectionResponseWorkspaceSummaryProgressBlockedGoalsMin)
+}),
+  "currentGoal": zod.union([zod.object({
+  "id": zod.string().min(1).max(getAiMissionProjectionResponseWorkspaceSummaryCurrentGoalOneIdMax),
+  "title": zod.string(),
+  "status": zod.string()
+}),zod.null()]),
+  "evidence": zod.object({
+  "state": zod.enum(['not_started', 'pending', 'proven', 'incomplete', 'unavailable']),
+  "required": zod.boolean().nullable(),
+  "complete": zod.boolean().nullable(),
+  "reasonCode": zod.union([zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved']),zod.null()])
+}),
+  "delivery": zod.object({
+  "state": zod.enum(['not_required', 'waiting_for_proof', 'pending', 'receipt_recorded']),
+  "required": zod.boolean(),
+  "receiptPresent": zod.boolean()
+}),
+  "lastActivityAt": zod.coerce.date().nullable()
 })
 })
 
@@ -8694,6 +8741,20 @@ export const executeAiMissionAgentActionResponseProjectionEngineeringAgentSessio
 export const executeAiMissionAgentActionResponseProjectionEngineeringAgentGoalIdMax = 200;
 
 export const executeAiMissionAgentActionResponseProjectionEngineeringAgentExecutionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressTotalGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressCompletedGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressVerifiedGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressInProgressGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressWaitingGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressBlockedGoalsMin = 0;
+
+export const executeAiMissionAgentActionResponseProjectionWorkspaceSummaryCurrentGoalOneIdMax = 200;
 
 export const executeAiMissionAgentActionResponseOperationAttemptMin = 0;
 
@@ -8782,6 +8843,39 @@ export const ExecuteAiMissionAgentActionResponse = zod.object({
   "sessionId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentSessionIdMax).nullable(),
   "goalId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentGoalIdMax).nullable(),
   "executionId": zod.string().max(executeAiMissionAgentActionResponseProjectionEngineeringAgentExecutionIdMax).nullable()
+}),
+  "workspaceSummary": zod.object({
+  "contractVersion": zod.literal(1),
+  "objective": zod.object({
+  "title": zod.string(),
+  "intent": zod.string()
+}),
+  "currentPhase": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
+  "progress": zod.object({
+  "totalGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressTotalGoalsMin),
+  "completedGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressCompletedGoalsMin),
+  "verifiedGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressVerifiedGoalsMin),
+  "inProgressGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressInProgressGoalsMin),
+  "waitingGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressWaitingGoalsMin),
+  "blockedGoals": zod.number().int().min(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryProgressBlockedGoalsMin)
+}),
+  "currentGoal": zod.union([zod.object({
+  "id": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionWorkspaceSummaryCurrentGoalOneIdMax),
+  "title": zod.string(),
+  "status": zod.string()
+}),zod.null()]),
+  "evidence": zod.object({
+  "state": zod.enum(['not_started', 'pending', 'proven', 'incomplete', 'unavailable']),
+  "required": zod.boolean().nullable(),
+  "complete": zod.boolean().nullable(),
+  "reasonCode": zod.union([zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved']),zod.null()])
+}),
+  "delivery": zod.object({
+  "state": zod.enum(['not_required', 'waiting_for_proof', 'pending', 'receipt_recorded']),
+  "required": zod.boolean(),
+  "receiptPresent": zod.boolean()
+}),
+  "lastActivityAt": zod.coerce.date().nullable()
 })
 }),
   "idempotentReplay": zod.boolean(),
@@ -8866,6 +8960,20 @@ export const continueAiMissionAgentResponseProjectionEngineeringAgentGoalIdMax =
 
 export const continueAiMissionAgentResponseProjectionEngineeringAgentExecutionIdMax = 200;
 
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressTotalGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressCompletedGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressVerifiedGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressInProgressGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressWaitingGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressBlockedGoalsMin = 0;
+
+export const continueAiMissionAgentResponseProjectionWorkspaceSummaryCurrentGoalOneIdMax = 200;
+
 
 
 export const ContinueAiMissionAgentResponse = zod.object({
@@ -8945,6 +9053,39 @@ export const ContinueAiMissionAgentResponse = zod.object({
   "sessionId": zod.string().max(continueAiMissionAgentResponseProjectionEngineeringAgentSessionIdMax).nullable(),
   "goalId": zod.string().max(continueAiMissionAgentResponseProjectionEngineeringAgentGoalIdMax).nullable(),
   "executionId": zod.string().max(continueAiMissionAgentResponseProjectionEngineeringAgentExecutionIdMax).nullable()
+}),
+  "workspaceSummary": zod.object({
+  "contractVersion": zod.literal(1),
+  "objective": zod.object({
+  "title": zod.string(),
+  "intent": zod.string()
+}),
+  "currentPhase": zod.enum(['PLANNING', 'WORKING', 'VERIFYING', 'AWAITING_APPROVAL', 'RECOVERING', 'DELIVERING', 'COMPLETE', 'NEEDS_ATTENTION']),
+  "progress": zod.object({
+  "totalGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressTotalGoalsMin),
+  "completedGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressCompletedGoalsMin),
+  "verifiedGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressVerifiedGoalsMin),
+  "inProgressGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressInProgressGoalsMin),
+  "waitingGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressWaitingGoalsMin),
+  "blockedGoals": zod.number().int().min(continueAiMissionAgentResponseProjectionWorkspaceSummaryProgressBlockedGoalsMin)
+}),
+  "currentGoal": zod.union([zod.object({
+  "id": zod.string().min(1).max(continueAiMissionAgentResponseProjectionWorkspaceSummaryCurrentGoalOneIdMax),
+  "title": zod.string(),
+  "status": zod.string()
+}),zod.null()]),
+  "evidence": zod.object({
+  "state": zod.enum(['not_started', 'pending', 'proven', 'incomplete', 'unavailable']),
+  "required": zod.boolean().nullable(),
+  "complete": zod.boolean().nullable(),
+  "reasonCode": zod.union([zod.enum(['mission_draft', 'mission_cancelled', 'mission_blocked', 'mission_not_active', 'plan_revision_mismatch', 'approval_pending', 'required_evidence_incomplete', 'required_evidence_unavailable', 'required_evidence_stale', 'acceptance_blocked', 'verification_in_progress', 'execution_in_progress', 'execution_queued', 'goal_waiting_for_event', 'continuation_authorized', 'execution_resumable', 'execution_retryable', 'delivery_review_required', 'mission_proven_complete', 'no_active_goal', 'goal_requires_replan', 'state_unresolved']),zod.null()])
+}),
+  "delivery": zod.object({
+  "state": zod.enum(['not_required', 'waiting_for_proof', 'pending', 'receipt_recorded']),
+  "required": zod.boolean(),
+  "receiptPresent": zod.boolean()
+}),
+  "lastActivityAt": zod.coerce.date().nullable()
 })
 }),
   "run": zod.union([zod.object({

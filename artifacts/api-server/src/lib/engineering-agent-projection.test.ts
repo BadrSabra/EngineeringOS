@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createEngineeringAgentWorkspaceSummary,
   reduceEngineeringAgentProjection,
   type EngineeringAgentGoalFact,
   type EngineeringAgentProjectionContext,
@@ -436,5 +437,110 @@ describe("reduceEngineeringAgentProjection", () => {
       automaticReplanCount: 2,
     });
     expect(projection.nextAction.kind).toBe("NONE");
+  });
+
+  it("summarizes accepted proof, progress, delivery, and the latest durable activity", () => {
+    const provenGoal = goal({
+      id: "goal-proven",
+      title: "Verify the change",
+      status: "completed",
+      updatedAt: "2026-10-22T10:00:00.000Z",
+      currentExecution: {
+        ...acceptedAttempt,
+        updatedAt: "2026-10-22T10:05:00.000Z",
+      },
+      canonicalProof: acceptedProof,
+      delivery: { required: true, receiptPresent: true },
+    });
+    const agent = reduceEngineeringAgentProjection(context({
+      missionStatus: "completed",
+      goals: [provenGoal],
+      missionCompletionAccepted: true,
+    }));
+    const summary = createEngineeringAgentWorkspaceSummary({
+      title: "Release the project",
+      intent: "Verify the release and record its delivery.",
+      missionUpdatedAt: "2026-10-22T10:01:00.000Z",
+      lastEventAt: "2026-10-22T10:07:00.000Z",
+      goals: [provenGoal],
+      projection: agent,
+    });
+
+    expect(summary).toEqual({
+      contractVersion: 1,
+      objective: {
+        title: "Release the project",
+        intent: "Verify the release and record its delivery.",
+      },
+      currentPhase: "COMPLETE",
+      progress: {
+        totalGoals: 1,
+        completedGoals: 1,
+        verifiedGoals: 1,
+        inProgressGoals: 0,
+        waitingGoals: 0,
+        blockedGoals: 0,
+      },
+      currentGoal: null,
+      evidence: {
+        state: "proven",
+        required: true,
+        complete: true,
+        reasonCode: null,
+      },
+      delivery: {
+        state: "receipt_recorded",
+        required: true,
+        receiptPresent: true,
+      },
+      lastActivityAt: "2026-10-22T10:07:00.000Z",
+    });
+  });
+
+  it("does not count stored completed status as proof and distinguishes pending delivery", () => {
+    const completedButUnproven = goal({
+      id: "goal-unproven",
+      title: "Build the feature",
+      status: "completed",
+      currentExecution: {
+        ...acceptedAttempt,
+        acceptance: {
+          ...acceptedAttempt.acceptance!,
+          evidenceComplete: false,
+        },
+      },
+      canonicalProof: {
+        ...acceptedProof,
+        accepted: false,
+        verdict: "INCOMPLETE",
+      },
+      delivery: { required: true, receiptPresent: false },
+    });
+    const agent = reduceEngineeringAgentProjection(context({
+      goals: [completedButUnproven],
+    }));
+    const summary = createEngineeringAgentWorkspaceSummary({
+      title: "Build the feature",
+      intent: "Build, verify, and deliver the requested feature.",
+      missionUpdatedAt: "2026-10-22T10:00:00.000Z",
+      goals: [completedButUnproven],
+      projection: agent,
+    });
+
+    expect(summary.progress).toMatchObject({
+      totalGoals: 1,
+      completedGoals: 1,
+      verifiedGoals: 0,
+    });
+    expect(summary.evidence).toMatchObject({
+      state: "incomplete",
+      required: true,
+      complete: false,
+    });
+    expect(summary.delivery).toEqual({
+      state: "pending",
+      required: true,
+      receiptPresent: false,
+    });
   });
 });

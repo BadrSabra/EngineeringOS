@@ -388,6 +388,105 @@ export interface AiMissionEngineeringAgentProjection {
   executionId: string | null;
 }
 
+export type AiMissionEngineeringAgentWorkspaceSummaryContractVersion = typeof AiMissionEngineeringAgentWorkspaceSummaryContractVersion[keyof typeof AiMissionEngineeringAgentWorkspaceSummaryContractVersion];
+
+
+export const AiMissionEngineeringAgentWorkspaceSummaryContractVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiMissionEngineeringAgentWorkspaceSummaryCurrentPhase = typeof AiMissionEngineeringAgentWorkspaceSummaryCurrentPhase[keyof typeof AiMissionEngineeringAgentWorkspaceSummaryCurrentPhase];
+
+
+export const AiMissionEngineeringAgentWorkspaceSummaryCurrentPhase = {
+  PLANNING: 'PLANNING',
+  WORKING: 'WORKING',
+  VERIFYING: 'VERIFYING',
+  AWAITING_APPROVAL: 'AWAITING_APPROVAL',
+  RECOVERING: 'RECOVERING',
+  DELIVERING: 'DELIVERING',
+  COMPLETE: 'COMPLETE',
+  NEEDS_ATTENTION: 'NEEDS_ATTENTION',
+} as const;
+
+export type AiMissionEngineeringAgentWorkspaceSummaryEvidenceState = typeof AiMissionEngineeringAgentWorkspaceSummaryEvidenceState[keyof typeof AiMissionEngineeringAgentWorkspaceSummaryEvidenceState];
+
+
+export const AiMissionEngineeringAgentWorkspaceSummaryEvidenceState = {
+  not_started: 'not_started',
+  pending: 'pending',
+  proven: 'proven',
+  incomplete: 'incomplete',
+  unavailable: 'unavailable',
+} as const;
+
+export type AiMissionEngineeringAgentWorkspaceSummaryDeliveryState = typeof AiMissionEngineeringAgentWorkspaceSummaryDeliveryState[keyof typeof AiMissionEngineeringAgentWorkspaceSummaryDeliveryState];
+
+
+export const AiMissionEngineeringAgentWorkspaceSummaryDeliveryState = {
+  not_required: 'not_required',
+  waiting_for_proof: 'waiting_for_proof',
+  pending: 'pending',
+  receipt_recorded: 'receipt_recorded',
+} as const;
+
+export type AiMissionEngineeringAgentWorkspaceSummaryObjective = {
+  title: string;
+  intent: string;
+};
+
+export type AiMissionEngineeringAgentWorkspaceSummaryProgress = {
+  /** @minimum 0 */
+  totalGoals: number;
+  /** @minimum 0 */
+  completedGoals: number;
+  /** @minimum 0 */
+  verifiedGoals: number;
+  /** @minimum 0 */
+  inProgressGoals: number;
+  /** @minimum 0 */
+  waitingGoals: number;
+  /** @minimum 0 */
+  blockedGoals: number;
+};
+
+export type AiMissionEngineeringAgentWorkspaceSummaryCurrentGoal = {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  id: string;
+  title: string;
+  status: string;
+} | null;
+
+export type AiMissionEngineeringAgentWorkspaceSummaryEvidence = {
+  state: AiMissionEngineeringAgentWorkspaceSummaryEvidenceState;
+  /** @nullable */
+  required: boolean | null;
+  /** @nullable */
+  complete: boolean | null;
+  reasonCode: AiMissionEngineeringAgentReasonCode | null;
+};
+
+export type AiMissionEngineeringAgentWorkspaceSummaryDelivery = {
+  state: AiMissionEngineeringAgentWorkspaceSummaryDeliveryState;
+  required: boolean;
+  receiptPresent: boolean;
+};
+
+export interface AiMissionEngineeringAgentWorkspaceSummary {
+  contractVersion: AiMissionEngineeringAgentWorkspaceSummaryContractVersion;
+  objective: AiMissionEngineeringAgentWorkspaceSummaryObjective;
+  currentPhase: AiMissionEngineeringAgentWorkspaceSummaryCurrentPhase;
+  progress: AiMissionEngineeringAgentWorkspaceSummaryProgress;
+  currentGoal: AiMissionEngineeringAgentWorkspaceSummaryCurrentGoal;
+  evidence: AiMissionEngineeringAgentWorkspaceSummaryEvidence;
+  delivery: AiMissionEngineeringAgentWorkspaceSummaryDelivery;
+  /** @nullable */
+  lastActivityAt: string | null;
+}
+
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
   agentControl: AiMissionAgentControl | null;
@@ -395,6 +494,7 @@ export interface AiMissionControlProjection {
   goals: AiMissionControlProjectionGoalsItem[];
   counts: AiMissionControlProjectionCounts;
   engineeringAgent: AiMissionEngineeringAgentProjection;
+  workspaceSummary: AiMissionEngineeringAgentWorkspaceSummary;
 }
 
 export type AiMissionEngineeringAgentDecisionKind = typeof AiMissionEngineeringAgentDecisionKind[keyof typeof AiMissionEngineeringAgentDecisionKind];

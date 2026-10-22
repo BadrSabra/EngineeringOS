@@ -97,6 +97,8 @@ import {
   executeMissionAgentAction,
   fetchMissionProjection,
   previewMissionPlanFromChat,
+  shouldPollMissionProjection,
+  type MissionProjection,
   type MissionPlanPreviewResult,
 } from '@/lib/ai-missions';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
@@ -11274,8 +11276,8 @@ export default function AiChat() {
     enabled: Boolean(workspaceMissionId && selectedProjectId && sessionId && user?.id),
     staleTime: 0,
     refetchInterval: (query) => {
-      const mission = (query.state.data as { mission?: { status?: string } } | undefined)?.mission;
-      return mission?.status === 'active' ? 3_000 : false;
+      const projection = query.state.data as MissionProjection | undefined;
+      return shouldPollMissionProjection(projection) ? 3_000 : false;
     },
   });
   const routeMissionProjection = missionAgentProjectionQuery.data;
@@ -11289,6 +11291,51 @@ export default function AiChat() {
       || routeMissionProjection.agentControl?.handoff.sessionId === sessionId
     )
     ? routeMissionProjection.engineeringAgent
+    : null;
+  const routeMissionWorkspace = routeMissionProjection?.workspaceSummary ?? null;
+  const routeMissionPhaseLabel = routeMissionAgent
+    ? ({
+        PLANNING: 'التخطيط',
+        WORKING: 'قيد التنفيذ',
+        VERIFYING: 'التحقق',
+        AWAITING_APPROVAL: 'بانتظار الموافقة',
+        RECOVERING: 'استعادة التنفيذ',
+        DELIVERING: 'التسليم',
+        COMPLETE: 'مكتملة بإثبات',
+        NEEDS_ATTENTION: 'تحتاج إلى مراجعة',
+      } as const)[routeMissionAgent.state]
+    : null;
+  const routeMissionEvidenceLabel = routeMissionWorkspace
+    ? ({
+        not_started: 'لم يبدأ التحقق',
+        pending: 'التحقق جارٍ أو بانتظار التنفيذ',
+        proven: 'الأدلة مقبولة',
+        incomplete: 'الأدلة غير مكتملة',
+        unavailable: 'تعذر التحقق من الأدلة',
+      } as const)[routeMissionWorkspace.evidence.state]
+    : null;
+  const routeMissionDeliveryLabel = routeMissionWorkspace
+    ? ({
+        not_required: 'لا يتطلب تسليمًا خارجيًا',
+        waiting_for_proof: 'بانتظار إثبات العمل قبل التسليم',
+        pending: 'التسليم بانتظار الإكمال',
+        receipt_recorded: 'سُجل إيصال التسليم',
+      } as const)[routeMissionWorkspace.delivery.state]
+    : null;
+  const routeMissionInterventionLabel = routeMissionAgent
+    ? routeMissionAgent.intervention.required
+      ? ({
+          approval: 'بانتظار موافقتك',
+          review: 'تحتاج المهمة إلى مراجعتك',
+          recovery: 'تحتاج متابعة الاستعادة',
+          scope: 'تحتاج إلى مراجعة نطاق المهمة',
+          delivery: 'تحتاج إلى متابعة التسليم',
+          none: 'تحتاج إلى مراجعتك',
+        } as const)[routeMissionAgent.intervention.kind]
+      : 'لا يوجد تدخل مطلوب الآن'
+    : null;
+  const routeMissionLastActivity = routeMissionWorkspace?.lastActivityAt
+    ? new Date(routeMissionWorkspace.lastActivityAt)
     : null;
 
   const selectSessionMission = useCallback(async (
@@ -14351,12 +14398,20 @@ export default function AiChat() {
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-cyan-200">إجراء المهمة التالي</p>
-                      <p dir="auto" className="mt-1 truncate text-xs text-slate-200">
-                        {routeMissionProjection?.mission.title} · {routeMissionAgent.nextAction.reasonCode}
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-cyan-200">مساحة عمل المهمة</p>
+                      <p dir="auto" className="mt-1 truncate text-xs text-slate-100">
+                        {routeMissionProjection?.mission.title}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      {routeMissionPhaseLabel ? (
+                        <span
+                          data-testid="mission-agent-state"
+                          className="inline-flex h-7 items-center rounded-md border border-cyan-400/30 px-2 text-[11px] text-cyan-100"
+                        >
+                          {routeMissionPhaseLabel}
+                        </span>
+                      ) : null}
                       {routeMissionAgent.nextAction.kind !== 'NONE' ? (
                         <Button
                           type="button"
@@ -14414,6 +14469,49 @@ export default function AiChat() {
                       </Link>
                     </div>
                   </div>
+                  {routeMissionWorkspace ? (
+                    <div className="mt-3 space-y-3 border-t border-cyan-400/10 pt-3">
+                      {routeMissionWorkspace.objective.intent ? (
+                        <p
+                          data-testid="mission-agent-objective"
+                          dir="auto"
+                          className="text-xs leading-5 text-slate-200"
+                        >
+                          {routeMissionWorkspace.objective.intent}
+                        </p>
+                      ) : null}
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div data-testid="mission-agent-progress" className="rounded-md bg-slate-950/35 p-2">
+                          <p className="text-[10px] text-muted-foreground">الأهداف ذات الأدلة المقبولة</p>
+                          <p className="mt-1 text-xs font-medium text-slate-100">
+                            {routeMissionWorkspace.progress.verifiedGoals} من {routeMissionWorkspace.progress.totalGoals}
+                          </p>
+                        </div>
+                        <div data-testid="mission-agent-evidence" className="rounded-md bg-slate-950/35 p-2">
+                          <p className="text-[10px] text-muted-foreground">التحقق</p>
+                          <p className="mt-1 text-xs font-medium text-slate-100">{routeMissionEvidenceLabel}</p>
+                        </div>
+                        <div data-testid="mission-agent-delivery" className="rounded-md bg-slate-950/35 p-2">
+                          <p className="text-[10px] text-muted-foreground">التسليم</p>
+                          <p className="mt-1 text-xs font-medium text-slate-100">{routeMissionDeliveryLabel}</p>
+                        </div>
+                        <div data-testid="mission-agent-intervention" className="rounded-md bg-slate-950/35 p-2">
+                          <p className="text-[10px] text-muted-foreground">حالة التدخل</p>
+                          <p className="mt-1 text-xs font-medium text-slate-100">{routeMissionInterventionLabel}</p>
+                        </div>
+                      </div>
+                      {routeMissionWorkspace.currentGoal?.title ? (
+                        <p data-testid="mission-agent-current-goal" dir="auto" className="text-[11px] text-slate-300">
+                          الهدف الحالي: {routeMissionWorkspace.currentGoal.title}
+                        </p>
+                      ) : null}
+                      {routeMissionLastActivity && Number.isFinite(routeMissionLastActivity.getTime()) ? (
+                        <p data-testid="mission-agent-last-activity" className="text-[10px] text-muted-foreground">
+                          آخر تحديث: {routeMissionLastActivity.toLocaleString('ar-EG')}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {missionAgentActionNotice ? (
                     <p className="mt-2 text-xs text-emerald-200" role="status">{missionAgentActionNotice}</p>
                   ) : null}
