@@ -49,6 +49,7 @@ function validReceipt() {
       userMessageHash: "a".repeat(64),
       handoffPlanHash: "b".repeat(64),
       sourceMissionId: "mission_source",
+      canonicalMissionId: "mission_source",
       sourceGoalId: "goal_source",
       sourceExecutionId: "execution_source",
       sourceAttempt: 1,
@@ -73,6 +74,12 @@ function validReceipt() {
 test("accepts only a complete correlated lifecycle receipt", () => {
   const receipt = validReceipt();
   assert.equal(validateReceipt(receipt, receipt.sourceFingerprint), receipt);
+});
+
+test("rejects a canonical Mission identity that differs from the source Mission", () => {
+  const receipt = validReceipt();
+  receipt.chain.canonicalMissionId = "mission_other";
+  assert.throws(() => validateReceipt(receipt), /canonical_source_mission/);
 });
 
 test("rejects a receipt produced from a different source tree", () => {

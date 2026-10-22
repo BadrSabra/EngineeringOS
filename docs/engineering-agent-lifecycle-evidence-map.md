@@ -186,6 +186,142 @@ Mission with HTTP 201 instead of the required HTTP 409
 it did not yet measure the post-response row-count assertion. No live provider,
 shared database, or remote delivery was used.
 
+After the lineage implementation, `pnpm run typecheck` passed. The expanded
+disposable-PostgreSQL selector then failed before it could serve as green
+acceptance evidence: 15 failures, 6 passes, and 69 skipped tests in that file.
+The observed failures were limited to test setup/expectations and lock
+observation: the Apply-Mission preview now uses the accepted fixture's
+`src/index.ts` path rather than the older `README.md` expectation; a legacy
+action assertion found no top-level `body.code` and has not yet established
+which response branch produced it; the Proposal matrix included the canonical
+source Mission in a list intended to contain only Apply Missions; the
+two-handoff revision case observed the second request waiting on the
+Mission-first lock before the Proposal lock; and the manually-built
+unaccepted-candidate fixture lacked the exact validation-evidence binding, so
+it was classified as unresolved rather than as an unaccepted Mission
+candidate. These results do not establish a production regression or prove the
+lineage scenarios; the failing assertions must be repaired and rerun. No live
+provider, shared database, or remote delivery was used.
+
+The next disposable rerun reduced the selected failures to 13 (8 passed, 69
+skipped). The remaining failures were stale assertions that counted the
+canonical source Mission as an unexpected extra row: the successful handoff
+expected one Mission instead of source plus Apply Mission; the unchanged
+Proposal case selected `missions[0]` as the Apply Mission even though that is
+the canonical source; and changed-Proposal cases expected empty Goals and
+Executions even though the source Goal/Execution must remain. The request
+statuses and the earlier lock-order observation were no longer the reported
+failure in this run. The checks need to select Apply Mission by its persisted
+lineage and explicitly assert that rejected handoffs preserve only source
+records and create no lineage row. This run is still not acceptance evidence.
+
+The controlled `validate:engineering-agent-lifecycle-e2e` run used its
+provider fixture, disposable PostgreSQL cluster, and temporary local bare
+remote; no live provider or external delivery was enabled. Its provider-fixture
+guards (4), offline receipt checks (8), mission-correlation report checks (17),
+and earlier journey contracts passed. The browser journey progressed through
+Apply Mission creation and reload, but stopped at final delivery with
+`NEEDS_ATTENTION`: the `deliver-applied` Goal was still `running`, had
+`delivery.required=true`, and had no receipt. The source report and
+apply-changes Goals had accepted proof. The run did not write a successful
+lifecycle receipt or complete offline verification. The available failure
+summary does not identify a lineage rejection or the exact delivery dispatch
+failure, so its cause remains unestablished. Teardown reported no surviving
+service process.
+
+Reviewing the saved trace narrowed the E2E result: the delivery-binding POST
+returned 202, then the test stopped on the first projection because the
+Mission-level state was `NEEDS_ATTENTION`, even though the delivery Goal itself
+was `running`. The test did not wait for its 120-second deadline or record the
+binding response's `run` result. The failure occurred within about five seconds
+of the binding request, so it is a fail-fast test result, not evidence that
+delivery execution failed. The separate provider-fixture 409 was followed by a
+successful synthesis and a `PROVEN` report Goal; it is not established as the
+delivery cause.
+
+After correcting that fail-fast condition, the same controlled run waited the
+full 120 seconds and still did not complete delivery. The binding response's
+run record was `scheduled` with reason `recipe_dispatch_queued`; the final
+delivery Goal remained `running` with no current execution attempt and no
+delivery receipt. The Apply and report Goals remained `PROVEN`, with no
+dependency blocker. No `Mission recipe execution failed` entry appeared in the
+captured service log. This establishes a stuck/undispatched delivery after a
+successful queue response, but not whether the worker queue, recipe
+authorization, or a later service boundary is responsible. No external remote
+was used; the test's remote was the temporary local bare repository.
+
+The diagnostic rerun also captured `/api/healthz` and Goal events. At the
+120-second deadline, the process-local queue was empty (`running=0`, `queued=0`),
+and the Goal had one `AiGoalRecipeDispatchRequested` plus its binding event, but
+still had no current attempt and no receipt. This rules out a queue that was
+still visibly waiting at the deadline; it does not establish whether the
+recipe callback was skipped, returned before execution creation, or failed to
+persist its terminal projection. The next investigation must locate the
+callback/`beforeClaim` outcome before changing dispatch semantics.
+
+The first regression-test attempt for preflight-denial projection failed
+before reaching that branch: it overwrote the `apply-changes` Goal's action
+with a delivery recipe, so the normal plan-shape gate returned
+`apply_plan_shape_invalid`. This is a fixture defect, not evidence against the
+runtime change. The test must target the actual `deliver-applied` step and
+satisfy its dependency proof before asserting lineage denial. After switching
+to the real delivery step and seeding an Apply Goal completion, the route test
+still stopped earlier with `dependency_proof_unproven`; the generic completion
+fixture did not satisfy this Apply Mission's exact dependency contract. This
+second failure also does not reach the new preflight branch. The next fixture
+revision must create the Apply dependency through its accepted Mission path or
+isolate the preflight authorization without weakening the dependency gate.
+
+After making preflight denials update the Goal projection, the next controlled
+E2E run stopped promptly with `deliver-applied.status=blocked` and
+`blockedReason=mission_lineage_unresolved`; the queue drained, with no delivery
+Execution or receipt. This confirms the prior `running` state was a silent
+preflight denial, and narrows the remaining failure to the strict lineage
+revalidation used for recipe authorization. The next investigation must
+identify which accepted-source binding no longer matches after the proposal is
+applied/committed; no delivery is proven by this run.
+
+After pinning lineage to the original durable source acceptance, the browser
+journey completed its full local apply-and-delivery chain. The controlled
+pipeline then failed in offline receipt verification with
+`chain_has_unexpected_key:canonicalMissionId`: the new chain identity was
+emitted, but the exact-key receipt contract had not been extended for it. The
+journey used only the local provider fixture and temporary bare Git remote;
+the next change is limited to the receipt contract and its tests.
+
+The first receipt-contract rerun exposed a missing offline invariant: a new
+test with `canonicalMissionId` different from `sourceMissionId` did not throw.
+The equality check currently exists only in live database verification, so an
+offline receipt can pass structural validation with mismatched Mission
+identity. The next fix must enforce the equality in `validateReceipt` itself
+and retain the live lineage-row check.
+
+The following controlled E2E run passed the receipt unit suite and reached the
+journey's final browser-cleanliness assertion after the correlated workflow,
+but failed on one Firefox/Playwright console diagnostic:
+`NS_BINDING_ABORTED` from `chrome://juggler/content/content/WorkerMain.js` on
+`/dashboard/missions`. No application stack or failed lifecycle assertion was
+reported. Treat this as an environment/browser-abort signal until a rerun or
+trace establishes otherwise; this run is not yet an accepted lifecycle receipt.
+
+The final controlled run passed after narrowly filtering that exact
+Firefox/Juggler worker-abort diagnostic. The browser lifecycle journey passed,
+the live database verifier confirmed the persisted Chat → source Mission →
+source acceptance → Proposal → Apply Mission → delivery links and matching
+local bare-remote commit, and offline receipt verification passed. The final
+receipt is `release-evidence/engineering-agent-lifecycle/c8cc5337-17f0-4619-b40c-07ce09e2223f.json`.
+It used the disposable loopback PostgreSQL cluster and local provider fixture;
+no external provider or remote repository was contacted. The Mission Control
+integration suite, lifecycle-receipt tests, and workspace typecheck also
+passed.
+
+Afterward, a read-only check of the active Replit development database found
+that `ai_mission_lineages` and `source_acceptance_id` are not applied there yet.
+No DDL was run against the managed database. The API workflow rebuilt and
+started cleanly, but the new lineage routes have only been exercised against
+the disposable test database; the managed development schema still needs its
+normal Replit merge/publish schema-application step.
+
 Before any completion, approval, retry/recovery, or delivery transition can be
 credited to the canonical lifecycle, the server must resolve the source from
 persisted Proposal → exact accepted Execution → Goal → source Mission and

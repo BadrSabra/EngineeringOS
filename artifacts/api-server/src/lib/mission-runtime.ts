@@ -74,6 +74,7 @@ import {
   persistMissionAgentActionEffectReceipt,
   type MissionAgentActionReceiptIdentity,
 } from "./mission-agent-action-receipt.js";
+import { resolveMissionLineage } from "./mission-lineage.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1326,6 +1327,12 @@ async function authorizeMissionRecipeDispatch(
       ))
       .for("update");
     if (!mission) return { allowed: false, reason: "mission_not_found" };
+    const lineageResolution = await resolveMissionLineage(tx, mission, {
+      requireAcceptedSource: true,
+    });
+    if (lineageResolution.kind === "unresolved") {
+      return { allowed: false, reason: "mission_lineage_unresolved" };
+    }
     const [goal] = await tx
       .select()
       .from(aiGoalsTable)
@@ -1555,6 +1562,11 @@ async function syncRecipeObjectiveState(params: {
     sourceRevision?: string | null;
     candidateTreeHash?: string | null;
     treeHash?: string | null;
+    canonicalMissionId?: string | null;
+    applyMissionId?: string | null;
+    sourceExecutionId?: string | null;
+    sourceGoalId?: string | null;
+    proposalId?: string | null;
   };
 }): Promise<void> {
   await db.transaction(async (tx) => {
@@ -1567,6 +1579,9 @@ async function syncRecipeObjectiveState(params: {
       ))
       .for("update");
     if (!mission) return;
+    const lineageResolution = await resolveMissionLineage(tx, mission, {
+      requireAcceptedSource: params.status === "completed" || Boolean(params.deliveryReceipt),
+    });
     const [goal] = await tx
       .select()
       .from(aiGoalsTable)
@@ -1635,6 +1650,23 @@ async function syncRecipeObjectiveState(params: {
     const canonicalDeliveryReceipt = params.deliveryReceipt
       ? {
           ...params.deliveryReceipt,
+          canonicalMissionId: lineageResolution.kind === "verified"
+            ? lineageResolution.lineage.canonicalMissionId
+            : lineageResolution.kind === "not_required"
+              ? mission.id
+              : null,
+          applyMissionId: lineageResolution.kind === "verified"
+            ? lineageResolution.lineage.applyMissionId
+            : null,
+          sourceExecutionId: lineageResolution.kind === "verified"
+            ? lineageResolution.lineage.sourceExecutionId
+            : null,
+          sourceGoalId: lineageResolution.kind === "verified"
+            ? lineageResolution.lineage.sourceGoalId
+            : null,
+          proposalId: lineageResolution.kind === "verified"
+            ? lineageResolution.lineage.proposalId
+            : proposalId,
           executionId: params.deliveryReceipt.executionId
             ?? params.executionId
             ?? null,
@@ -1667,7 +1699,10 @@ async function syncRecipeObjectiveState(params: {
     let canonicalProofAccepted = params.status !== "completed";
     if (params.status === "completed" && params.executionId) {
       const resultAttempt = params.attempt ?? params.expectedAttempt;
+      const lineageAcceptable = lineageResolution.kind !== "unresolved";
       const executionIdentityValid = Boolean(
+        lineageAcceptable
+        &&
         durableExecution
         && durableExecution.status === "completed"
         && durableExecution.goalId === goal.id
@@ -1722,11 +1757,14 @@ async function syncRecipeObjectiveState(params: {
             candidateIdentity: canonicalProof.candidateIdentity,
           });
         }
-        nextGoalStatus = "verifying";
-        if (!continuation.allowed) {
+        if (lineageResolution.kind === "unresolved") {
+          nextGoalStatus = "blocked";
+          completionReason = `mission_lineage_${lineageResolution.reason}`;
+        } else if (!continuation.allowed) {
           nextGoalStatus = "needs_replan";
           completionReason = `mission_goal_continuation_${continuation.reason}`;
         } else {
+          nextGoalStatus = "verifying";
           completionReason = `canonical_proof_${canonicalProof?.failureReasons[0] ?? "incomplete"}`;
         }
       }
@@ -1845,6 +1883,11 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           userId: dispatch.userId,
         }).catch(() => undefined);
       }
+      await syncRecipeObjectiveState({
+        ...dispatch,
+        status: "blocked",
+        reason: preflight.reason,
+      });
       return;
     }
     const [project] = await db

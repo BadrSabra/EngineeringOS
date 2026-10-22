@@ -10,6 +10,7 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
+import { resolveMissionLineage } from "./mission-lineage.js";
 import {
   persistMissionAgentActionEffectReceipt,
   type MissionAgentActionReceiptIdentity,
@@ -81,6 +82,17 @@ export async function approveMissionGoal(params: {
         missionId: params.missionId,
         goalId: params.goalId,
         reason: "mission_not_found",
+      };
+    }
+    const lineageResolution = await resolveMissionLineage(tx, mission, {
+      requireAcceptedSource: true,
+    });
+    if (lineageResolution.kind === "unresolved") {
+      return {
+        status: "conflict" as const,
+        missionId: params.missionId,
+        goalId: params.goalId,
+        reason: "mission_lineage_unresolved",
       };
     }
 

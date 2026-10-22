@@ -9,6 +9,7 @@ import {
   loadCanonicalProof,
   type CanonicalProof,
 } from "./proof-foundation.js";
+import { resolveMissionLineage } from "./mission-lineage.js";
 import {
   evaluateApplyChangesD2,
   resolveApplyChangesMissionRequirement,
@@ -152,6 +153,9 @@ async function composeGoalProofs(
   lockApplyChangesRows = true,
 ): Promise<Array<CanonicalProof & { goalId: string }>> {
   const proofs: Array<CanonicalProof & { goalId: string }> = [];
+  const lineageResolution = await resolveMissionLineage(tx, mission, {
+    requireAcceptedSource: true,
+  });
   for (const goal of goals) {
     const projected = projectedAcceptance(goal);
     const scope = record(projected?.scope);
@@ -206,17 +210,45 @@ async function composeGoalProofs(
         });
     const applyD2Proven = applyRequirement.kind === "none"
       || (applyRequirement.kind === "valid" && applyD2.state === "proven");
+    const deliveryReceipt = record(projected?.deliveryReceipt);
+    const lineageFailure = lineageResolution.kind === "unresolved"
+      ? "mission_lineage_unresolved" as const
+      : lineageResolution.kind === "verified"
+        && record(goal.outcomeContract).deliveryRequired === true
+        && (
+          typeof deliveryReceipt.canonicalMissionId !== "string"
+          || typeof deliveryReceipt.applyMissionId !== "string"
+          || typeof deliveryReceipt.sourceExecutionId !== "string"
+          || typeof deliveryReceipt.sourceGoalId !== "string"
+          || typeof deliveryReceipt.proposalId !== "string"
+        )
+        ? "delivery_identity_missing" as const
+        : lineageResolution.kind === "verified"
+          && record(goal.outcomeContract).deliveryRequired === true
+          && (
+            deliveryReceipt.canonicalMissionId !== lineageResolution.lineage.canonicalMissionId
+            || deliveryReceipt.applyMissionId !== lineageResolution.lineage.applyMissionId
+            || deliveryReceipt.sourceExecutionId !== lineageResolution.lineage.sourceExecutionId
+            || deliveryReceipt.sourceGoalId !== lineageResolution.lineage.sourceGoalId
+            || deliveryReceipt.proposalId !== lineageResolution.lineage.proposalId
+          )
+          ? "delivery_identity_mismatch" as const
+          : null;
+    const additionalFailureReasons = [
+      ...(lineageFailure ? [lineageFailure] : []),
+      ...(!applyD2Proven ? ["apply_changes_transition_unproven" as const] : []),
+    ];
     proofs.push({
       goalId: goal.id,
       ...proof,
-      ...(applyD2Proven ? {} : {
+      ...(additionalFailureReasons.length > 0 ? {
         verdict: "INCOMPLETE" as const,
         accepted: false,
-        failureReasons: [...new Set([
+        failureReasons: [...new Set<CanonicalProof["failureReasons"][number]>([
           ...proof.failureReasons,
-          "apply_changes_transition_unproven" as const,
+          ...additionalFailureReasons,
         ])],
-      }),
+      } : {}),
     });
   }
   return proofs;

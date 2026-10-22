@@ -8371,7 +8371,30 @@ export const CreateApplyMissionFromProposalBody = zod.object({
   "intent": zod.string().min(1).max(createApplyMissionFromProposalBodyIntentMax).optional()
 })
 
-export const CreateApplyMissionFromProposalResponse = zod.void()
+export const createApplyMissionFromProposalResponseLineageApplyMissionIdMax = 200;
+
+export const createApplyMissionFromProposalResponseLineageCanonicalMissionIdMax = 200;
+
+export const createApplyMissionFromProposalResponseLineageSourceExecutionIdMax = 200;
+
+export const createApplyMissionFromProposalResponseLineageSourceGoalIdMax = 200;
+
+export const createApplyMissionFromProposalResponseLineageProposalIdMax = 200;
+
+
+
+export const CreateApplyMissionFromProposalResponse = zod.object({
+  "mission": zod.record(zod.string(), zod.unknown()),
+  "lineage": zod.object({
+  "applyMissionId": zod.string().min(1).max(createApplyMissionFromProposalResponseLineageApplyMissionIdMax),
+  "canonicalMissionId": zod.string().min(1).max(createApplyMissionFromProposalResponseLineageCanonicalMissionIdMax),
+  "sourceExecutionId": zod.string().min(1).max(createApplyMissionFromProposalResponseLineageSourceExecutionIdMax),
+  "sourceGoalId": zod.string().min(1).max(createApplyMissionFromProposalResponseLineageSourceGoalIdMax),
+  "proposalId": zod.string().min(1).max(createApplyMissionFromProposalResponseLineageProposalIdMax)
+}),
+  "applyGoal": zod.record(zod.string(), zod.unknown()),
+  "duplicate": zod.boolean().optional()
+})
 
 
 /**
@@ -8514,6 +8537,16 @@ export const GetAiMissionProjectionParams = zod.object({
   "missionId": zod.coerce.string()
 })
 
+export const getAiMissionProjectionResponseMissionLineageTwoLineageApplyMissionIdMax = 200;
+
+export const getAiMissionProjectionResponseMissionLineageTwoLineageCanonicalMissionIdMax = 200;
+
+export const getAiMissionProjectionResponseMissionLineageTwoLineageSourceExecutionIdMax = 200;
+
+export const getAiMissionProjectionResponseMissionLineageTwoLineageSourceGoalIdMax = 200;
+
+export const getAiMissionProjectionResponseMissionLineageTwoLineageProposalIdMax = 200;
+
 
 export const getAiMissionProjectionResponseGoalsItemCurrentAttemptOneAttemptMin = 0;
 
@@ -8563,6 +8596,21 @@ export const getAiMissionProjectionResponseWorkspaceSummaryCurrentGoalOneIdMax =
 
 export const GetAiMissionProjectionResponse = zod.object({
   "mission": zod.record(zod.string(), zod.unknown()),
+  "missionLineage": zod.union([zod.object({
+  "kind": zod.enum(['not_required'])
+}),zod.object({
+  "kind": zod.enum(['verified']),
+  "lineage": zod.object({
+  "applyMissionId": zod.string().min(1).max(getAiMissionProjectionResponseMissionLineageTwoLineageApplyMissionIdMax),
+  "canonicalMissionId": zod.string().min(1).max(getAiMissionProjectionResponseMissionLineageTwoLineageCanonicalMissionIdMax),
+  "sourceExecutionId": zod.string().min(1).max(getAiMissionProjectionResponseMissionLineageTwoLineageSourceExecutionIdMax),
+  "sourceGoalId": zod.string().min(1).max(getAiMissionProjectionResponseMissionLineageTwoLineageSourceGoalIdMax),
+  "proposalId": zod.string().min(1).max(getAiMissionProjectionResponseMissionLineageTwoLineageProposalIdMax)
+})
+}),zod.object({
+  "kind": zod.enum(['unresolved']),
+  "reason": zod.enum(['lineage_missing', 'lineage_identity_mismatch', 'lineage_source_missing', 'lineage_source_not_accepted'])
+})]),
   "agentControl": zod.union([zod.object({
   "handoff": zod.object({
   "kind": zod.enum(['chat']),
@@ -8711,6 +8759,16 @@ export const ExecuteAiMissionAgentActionBody = zod.object({
 }).optional()
 })
 
+export const executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageApplyMissionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageCanonicalMissionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageSourceExecutionIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageSourceGoalIdMax = 200;
+
+export const executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageProposalIdMax = 200;
+
 
 export const executeAiMissionAgentActionResponseProjectionGoalsItemCurrentAttemptOneAttemptMin = 0;
 
@@ -8770,6 +8828,21 @@ export const ExecuteAiMissionAgentActionResponse = zod.object({
   "outcome": zod.enum(['accepted', 'in_progress', 'completed', 'review_required', 'no_action', 'rejected']),
   "projection": zod.object({
   "mission": zod.record(zod.string(), zod.unknown()),
+  "missionLineage": zod.union([zod.object({
+  "kind": zod.enum(['not_required'])
+}),zod.object({
+  "kind": zod.enum(['verified']),
+  "lineage": zod.object({
+  "applyMissionId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageApplyMissionIdMax),
+  "canonicalMissionId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageCanonicalMissionIdMax),
+  "sourceExecutionId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageSourceExecutionIdMax),
+  "sourceGoalId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageSourceGoalIdMax),
+  "proposalId": zod.string().min(1).max(executeAiMissionAgentActionResponseProjectionMissionLineageTwoLineageProposalIdMax)
+})
+}),zod.object({
+  "kind": zod.enum(['unresolved']),
+  "reason": zod.enum(['lineage_missing', 'lineage_identity_mismatch', 'lineage_source_missing', 'lineage_source_not_accepted'])
+})]),
   "agentControl": zod.union([zod.object({
   "handoff": zod.object({
   "kind": zod.enum(['chat']),
@@ -8929,6 +9002,16 @@ export const ContinueAiMissionAgentBody = zod.object({
 })
 })
 
+export const continueAiMissionAgentResponseProjectionMissionLineageTwoLineageApplyMissionIdMax = 200;
+
+export const continueAiMissionAgentResponseProjectionMissionLineageTwoLineageCanonicalMissionIdMax = 200;
+
+export const continueAiMissionAgentResponseProjectionMissionLineageTwoLineageSourceExecutionIdMax = 200;
+
+export const continueAiMissionAgentResponseProjectionMissionLineageTwoLineageSourceGoalIdMax = 200;
+
+export const continueAiMissionAgentResponseProjectionMissionLineageTwoLineageProposalIdMax = 200;
+
 
 export const continueAiMissionAgentResponseProjectionGoalsItemCurrentAttemptOneAttemptMin = 0;
 
@@ -8980,6 +9063,21 @@ export const ContinueAiMissionAgentResponse = zod.object({
   "missionId": zod.string(),
   "projection": zod.object({
   "mission": zod.record(zod.string(), zod.unknown()),
+  "missionLineage": zod.union([zod.object({
+  "kind": zod.enum(['not_required'])
+}),zod.object({
+  "kind": zod.enum(['verified']),
+  "lineage": zod.object({
+  "applyMissionId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionMissionLineageTwoLineageApplyMissionIdMax),
+  "canonicalMissionId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionMissionLineageTwoLineageCanonicalMissionIdMax),
+  "sourceExecutionId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionMissionLineageTwoLineageSourceExecutionIdMax),
+  "sourceGoalId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionMissionLineageTwoLineageSourceGoalIdMax),
+  "proposalId": zod.string().min(1).max(continueAiMissionAgentResponseProjectionMissionLineageTwoLineageProposalIdMax)
+})
+}),zod.object({
+  "kind": zod.enum(['unresolved']),
+  "reason": zod.enum(['lineage_missing', 'lineage_identity_mismatch', 'lineage_source_missing', 'lineage_source_not_accepted'])
+})]),
   "agentControl": zod.union([zod.object({
   "handoff": zod.object({
   "kind": zod.enum(['chat']),

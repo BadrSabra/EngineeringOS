@@ -62,6 +62,7 @@ export type CanonicalProofFailureReason =
   | "delivery_not_proven"
   | "delivery_identity_missing"
   | "delivery_identity_mismatch"
+  | "mission_lineage_unresolved"
   | "apply_changes_transition_unproven"
   | "apply_changes_proof_mismatch";
 
@@ -123,6 +124,11 @@ export type CanonicalProofDelivery = {
   sourceRevision?: string | null;
   candidateTreeHash?: string | null;
   treeHash?: string | null;
+  canonicalMissionId?: string | null;
+  applyMissionId?: string | null;
+  sourceExecutionId?: string | null;
+  sourceGoalId?: string | null;
+  proposalId?: string | null;
 };
 
 export type CanonicalProofInput = {

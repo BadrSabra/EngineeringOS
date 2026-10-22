@@ -10,11 +10,13 @@ import type { AiMissionControlProjectionCounts } from './aiMissionControlProject
 import type { AiMissionControlProjectionCurrentPlan } from './aiMissionControlProjectionCurrentPlan';
 import type { AiMissionControlProjectionGoalsItem } from './aiMissionControlProjectionGoalsItem';
 import type { AiMissionControlProjectionMission } from './aiMissionControlProjectionMission';
+import type { AiMissionControlProjectionMissionLineage } from './aiMissionControlProjectionMissionLineage';
 import type { AiMissionEngineeringAgentProjection } from './aiMissionEngineeringAgentProjection';
 import type { AiMissionEngineeringAgentWorkspaceSummary } from './aiMissionEngineeringAgentWorkspaceSummary';
 
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
+  missionLineage: AiMissionControlProjectionMissionLineage;
   agentControl: AiMissionAgentControl | null;
   currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];

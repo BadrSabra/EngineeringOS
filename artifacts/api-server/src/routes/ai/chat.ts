@@ -337,6 +337,7 @@ import {
   type CanonicalProof,
 } from "../../lib/proof-foundation.js";
 import { checkMissionCandidateAcceptance } from "../../lib/mission-candidate-acceptance.js";
+import { resolveMissionLineage } from "../../lib/mission-lineage.js";
 import { parseShadowReplayRegistryReceipt } from "../../lib/skill-registry.js";
 import { expectedShadowReplayOperationId } from "../../lib/shadow-replay.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
@@ -15563,6 +15564,11 @@ async function hasReadyApplyMissionForProposal(params: {
   if (linkedMissions.length !== 1) return false;
 
   const [mission] = linkedMissions;
+  const lineage = await db.transaction((tx) =>
+    resolveMissionLineage(tx, mission, { requireAcceptedSource: true }));
+  if (lineage.kind !== "verified" || lineage.lineage.proposalId !== params.proposalId) {
+    return false;
+  }
   if (["blocked", "needs_replan", "failed", "cancelled", "completed"].includes(mission.status)) {
     return false;
   }
@@ -15663,7 +15669,6 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       projectId: session.projectId,
       userId: req.userId,
       proposal,
-      sourceExecution: proposalExecution ?? null,
     }));
   const applyMissionReady = missionCandidateAcceptance.accepted
     && !proposal.approvalRequired

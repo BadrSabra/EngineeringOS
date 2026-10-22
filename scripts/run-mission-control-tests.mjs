@@ -169,6 +169,17 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Running isolated canonical Mission lineage and delivery-receipt tests.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/routes/ai/missions.test.ts",
+      "-t",
+      "creates one server-bound Apply Mission for a prepared proposal and keeps its apply step taskless|fails closed on a legacy Apply Mission whose persisted lineage is missing|fails closed when the persisted Apply Mission link points to a different|rejects a delivery receipt that names a different canonical Mission|blocks a Mission candidate until its current attempt has Canonical Proof|rolls back the Mission and generated plan when a later transaction write fails|revalidates the complete Proposal identity after the handoff waits on its row lock|does not deadlock proposal handoff against approval locks and blocks an unaccepted candidate",
+    ], {
+      env: databaseEnv,
+    });
+
     console.log("Running isolated Mission completion delivery-requirement cases.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",

@@ -71,6 +71,7 @@ import type {
   BrowserValidationProfile,
   BrowserValidationProfileInput,
   CancelAiExecutionById200,
+  CreateApplyMissionFromProposal201,
   CreateProjectInput,
   CreateRuleInput,
   CreateTaskInput,
@@ -10355,7 +10356,7 @@ export const getCreateApplyMissionFromProposalUrl = () => {
 /**
  * @summary Create a server-owned Mission waiting for an approved proposal apply
  */
-export const createApplyMissionFromProposal = async (applyMissionFromProposalInput: ApplyMissionFromProposalInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const createApplyMissionFromProposal = async (applyMissionFromProposalInput: ApplyMissionFromProposalInput, options?: Parameters<typeof customFetch>[1]): Promise<CreateApplyMissionFromProposal201> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -10363,7 +10364,7 @@ export const createApplyMissionFromProposal = async (applyMissionFromProposalInp
     if (Array.isArray(h)) return Object.fromEntries(h);
     return h;
   };
-return customFetch<void>(getCreateApplyMissionFromProposalUrl(),
+return customFetch<CreateApplyMissionFromProposal201>(getCreateApplyMissionFromProposalUrl(),
   {
     ...options,
     method: 'POST',

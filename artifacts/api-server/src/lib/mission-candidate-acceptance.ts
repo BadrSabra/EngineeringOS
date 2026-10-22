@@ -1,9 +1,10 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
+  aiMissionHandoffsTable,
   aiMissionsTable,
   db,
 } from "@workspace/db";
@@ -13,7 +14,14 @@ type MissionCandidateAcceptanceTransaction = Parameters<Parameters<typeof db.tra
 
 type MissionCandidateExecution = Pick<
   typeof aiExecutionsTable.$inferSelect,
-  "id" | "operationId" | "goalId" | "attempt" | "status" | "baseRevision"
+  | "id"
+  | "operationId"
+  | "goalId"
+  | "attempt"
+  | "status"
+  | "baseRevision"
+  | "userId"
+  | "sessionId"
 >;
 
 export type MissionCandidateAcceptance = {
@@ -23,6 +31,7 @@ export type MissionCandidateAcceptance = {
   sourceMissionId: string | null;
   sourceGoalId: string | null;
   sourceOperationId: string | null;
+  sourceAcceptanceId: string | null;
 };
 
 const NOT_MISSION_CANDIDATE: MissionCandidateAcceptance = {
@@ -32,6 +41,7 @@ const NOT_MISSION_CANDIDATE: MissionCandidateAcceptance = {
   sourceMissionId: null,
   sourceGoalId: null,
   sourceOperationId: null,
+  sourceAcceptanceId: null,
 };
 
 function parseSourceBinding(validationEvidence: string | null): Record<string, unknown> | undefined {
@@ -52,10 +62,18 @@ export async function checkMissionCandidateAcceptance(params: {
   userId: string;
   proposal: typeof aiChangeProposalsTable.$inferSelect;
   sourceExecution?: MissionCandidateExecution | null;
+  persistedAcceptanceId?: string;
 }): Promise<MissionCandidateAcceptance> {
+  const binding = params.persistedAcceptanceId
+    ? undefined
+    : parseSourceBinding(params.proposal.validationEvidence);
   let execution = params.sourceExecution;
   if (execution === undefined) {
-    const [linkedExecution] = await params.tx
+    const executionId = typeof binding?.executionId === "string"
+      ? binding.executionId
+      : null;
+    const [linkedExecution] = executionId
+      ? await params.tx
       .select({
         id: aiExecutionsTable.id,
         operationId: aiExecutionsTable.operationId,
@@ -63,14 +81,17 @@ export async function checkMissionCandidateAcceptance(params: {
         attempt: aiExecutionsTable.attempt,
         status: aiExecutionsTable.status,
         baseRevision: aiExecutionsTable.baseRevision,
+        userId: aiExecutionsTable.userId,
+        sessionId: aiExecutionsTable.sessionId,
       })
       .from(aiExecutionsTable)
       .where(and(
+        eq(aiExecutionsTable.id, executionId),
         eq(aiExecutionsTable.projectId, params.projectId),
         eq(aiExecutionsTable.proposalId, params.proposal.id),
       ))
-      .orderBy(desc(aiExecutionsTable.updatedAt))
-      .limit(1);
+      .limit(1)
+      : [];
     execution = linkedExecution;
   }
 
@@ -83,6 +104,7 @@ export async function checkMissionCandidateAcceptance(params: {
     sourceMissionId: null,
     sourceGoalId: execution.goalId,
     sourceOperationId: execution.operationId,
+    sourceAcceptanceId: null,
   };
   const [goal] = await params.tx
     .select({
@@ -100,7 +122,10 @@ export async function checkMissionCandidateAcceptance(params: {
   candidateStatus.sourceMissionId = goal.missionId;
 
   const [mission] = await params.tx
-    .select({ id: aiMissionsTable.id })
+    .select({
+      id: aiMissionsTable.id,
+      userId: aiMissionsTable.userId,
+    })
     .from(aiMissionsTable)
     .where(and(
       eq(aiMissionsTable.id, goal.missionId),
@@ -110,16 +135,33 @@ export async function checkMissionCandidateAcceptance(params: {
     .limit(1);
   if (!mission) return candidateStatus;
 
+  const [handoff] = typeof params.proposal.sessionId === "string"
+    && execution.userId === params.userId
+    && execution.sessionId === params.proposal.sessionId
+    ? await params.tx
+        .select({ id: aiMissionHandoffsTable.id })
+        .from(aiMissionHandoffsTable)
+        .where(and(
+          eq(aiMissionHandoffsTable.missionId, goal.missionId),
+          eq(aiMissionHandoffsTable.projectId, params.projectId),
+          eq(aiMissionHandoffsTable.userId, params.userId),
+          eq(aiMissionHandoffsTable.sessionId, params.proposal.sessionId),
+        ))
+        .limit(1)
+    : [];
+  if (!handoff) return candidateStatus;
+
   const [acceptance] = await params.tx
     .select()
     .from(aiExecutionAcceptancesTable)
     .where(and(
+      ...(params.persistedAcceptanceId
+        ? [eq(aiExecutionAcceptancesTable.id, params.persistedAcceptanceId)]
+        : [eq(aiExecutionAcceptancesTable.attempt, execution.attempt)]),
       eq(aiExecutionAcceptancesTable.executionId, execution.id),
       eq(aiExecutionAcceptancesTable.projectId, params.projectId),
-      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
     ))
     .limit(1);
-  const binding = parseSourceBinding(params.proposal.validationEvidence);
   const operationId = execution.operationId;
   if (
     execution.status !== "completed"
@@ -132,19 +174,24 @@ export async function checkMissionCandidateAcceptance(params: {
     || acceptance.evidenceComplete !== 1
     || !acceptance.evidenceSnapshotId
     || goal.status !== "completed"
-    || binding?.status !== "passed"
-    || binding.executionId !== execution.id
-    || binding.executionOperationId !== operationId
-    || binding.attempt !== execution.attempt
-    || binding.missionId !== goal.missionId
-    || binding.goalId !== goal.id
-    || typeof binding.candidateIdentity !== "string"
-    || binding.candidateIdentity !== acceptance.candidateIdentity
-    || binding.sourceRevision !== acceptance.sourceRevision
-    || binding.sourceRevision !== params.proposal.baseRevision
-    || binding.baseTreeHash !== params.proposal.baseTreeHash
-    || binding.candidateTreeHash !== params.proposal.candidateTreeHash
-    || binding.changeSetHash !== params.proposal.changeSetHash
+    || !acceptance.candidateIdentity
+    || !acceptance.sourceRevision
+    || (params.persistedAcceptanceId
+      ? acceptance.id !== params.persistedAcceptanceId
+        || acceptance.attempt !== execution.attempt
+        || execution.baseRevision !== acceptance.sourceRevision
+      : binding?.status !== "passed"
+        || binding.executionId !== execution.id
+        || binding.executionOperationId !== operationId
+        || binding.attempt !== execution.attempt
+        || binding.missionId !== goal.missionId
+        || binding.goalId !== goal.id
+        || binding.candidateIdentity !== acceptance.candidateIdentity
+        || binding.sourceRevision !== acceptance.sourceRevision
+        || binding.sourceRevision !== params.proposal.baseRevision
+        || binding.baseTreeHash !== params.proposal.baseTreeHash
+        || binding.candidateTreeHash !== params.proposal.candidateTreeHash
+        || binding.changeSetHash !== params.proposal.changeSetHash)
   ) {
     return candidateStatus;
   }
@@ -160,7 +207,7 @@ export async function checkMissionCandidateAcceptance(params: {
       sourceRevisionBinding: "scope",
       candidateIdentityBinding: "required",
       sourceRevision: execution.baseRevision,
-      candidateIdentity: binding.candidateIdentity,
+      candidateIdentity: acceptance.candidateIdentity,
     },
     goalStatus: goal.status,
   });
@@ -169,10 +216,14 @@ export async function checkMissionCandidateAcceptance(params: {
     || canonicalProof.acceptanceId !== acceptance.id
     || canonicalProof.evidenceSnapshotId !== acceptance.evidenceSnapshotId
     || canonicalProof.sourceRevision !== acceptance.sourceRevision
-    || canonicalProof.candidateIdentity !== binding.candidateIdentity
+    || canonicalProof.candidateIdentity !== acceptance.candidateIdentity
   ) {
     return candidateStatus;
   }
 
-  return { ...candidateStatus, accepted: true };
+  return {
+    ...candidateStatus,
+    accepted: true,
+    sourceAcceptanceId: acceptance.id,
+  };
 }

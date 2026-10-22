@@ -16,6 +16,7 @@ import {
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiMissionHandoffsTable,
+  aiMissionLineagesTable,
   aiShadowReplaysTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -34,10 +35,12 @@ import {
   wakeReadyMissionGoals,
 } from "../../lib/mission-runtime.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
+import { resolveMissionLineage } from "../../lib/mission-lineage.js";
 import { dispatchPendingMissionChatHandoffs } from "../../lib/mission-chat-handoffs.js";
 import { seedCanonicalMissionGoalCompletion } from "../../__tests__/mission-dependency-proof-fixture.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
+import { projectMissionGoalProof } from "../../lib/mission-completion-gate.js";
 import {
   applyChangesMissionRequirement,
   evaluateApplyChangesD2,
@@ -6522,48 +6525,14 @@ describe("AI missions and goals", () => {
 
   it("creates one server-bound Apply Mission for a prepared proposal and keeps its apply step taskless", async () => {
     const projectId = await insertProject();
-    const sessionId = randomUUID();
-    const messageId = randomUUID();
-    const proposalId = randomUUID();
-    const now = new Date();
-    const baseRevision = "a".repeat(40);
-    const baseTreeHash = "b".repeat(64);
-    const candidateTreeHash = "c".repeat(64);
-    const changeSetHash = "d".repeat(64);
-    await db.insert(aiChatSessionsTable).values({
-      id: sessionId,
-      projectId,
-      title: "Apply Mission proposal fixture",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(aiChatMessagesTable).values({
-      id: messageId,
-      sessionId,
-      role: "assistant",
-      content: "Prepared change proposal",
-      createdAt: now,
-    });
-    await db.insert(aiChangeProposalsTable).values({
-      id: proposalId,
-      projectId,
-      sessionId,
-      messageId,
-      changes: JSON.stringify([{
-        path: "README.md",
-        absolutePath: "/project/README.md",
-        newContent: "# Prepared change\n",
-        originalContent: "# Original\n",
-        reason: "Update the project README",
-      }]),
-      status: "pending",
-      operationId: `apply-operation:${proposalId}`,
-      baseRevision,
+    const source = await seedAcceptedChatMissionCandidate(projectId, "prepared");
+    const {
+      proposalId,
+      sourceRevision: baseRevision,
       baseTreeHash,
       candidateTreeHash,
       changeSetHash,
-      createdAt: now,
-    });
+    } = source;
 
     const concurrentHandoffs = await Promise.all([
       request(app).post("/api/ai/missions/apply-from-proposal").send({ projectId, proposalId }),
@@ -6573,6 +6542,24 @@ describe("AI missions and goals", () => {
     const created = concurrentHandoffs.find((response) => response.status === 201)!;
     const duplicate = concurrentHandoffs.find((response) => response.status === 409)!;
     expect(created.status).toBe(201);
+    expect(created.body.lineage).toMatchObject({
+      applyMissionId: created.body.mission.id,
+      canonicalMissionId: source.missionId,
+      sourceExecutionId: source.executionId,
+      sourceGoalId: source.goalId,
+      proposalId,
+    });
+    expect(created.body.lineage.applyMissionId).not.toBe(created.body.lineage.canonicalMissionId);
+    const [persistedLineage] = await db.select().from(aiMissionLineagesTable)
+      .where(eq(aiMissionLineagesTable.applyMissionId, created.body.mission.id));
+    expect(persistedLineage).toMatchObject(created.body.lineage);
+    const applyMissionProjection = await request(app)
+      .get(`/api/ai/missions/${created.body.mission.id}/projection`);
+    expect(applyMissionProjection.status).toBe(200);
+    expect(applyMissionProjection.body.missionLineage).toEqual({
+      kind: "verified",
+      lineage: created.body.lineage,
+    });
     expect(created.body.applyGoal).toMatchObject({
       stepId: "apply-changes",
       taskId: null,
@@ -6636,11 +6623,18 @@ describe("AI missions and goals", () => {
     expect(applyGoal?.status).toBe("waiting_for_event");
     expect(applyGoal?.blockedReason).toBe("apply_changes_pending");
     expect(deliveryGoal?.status).toBe("waiting_for_event");
+    const [acceptedSourceProposal] = await db.select({
+      changes: aiChangeProposalsTable.changes,
+    }).from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    const approvedPaths = (
+      JSON.parse(acceptedSourceProposal?.changes ?? "[]") as Array<{ path: string }>
+    ).map((change) => change.path);
     expect(deliveryGoal?.nextAction).toMatchObject({
       kind: "recipe",
       recipeId: "delivery.push.github",
       recipeVersion: 1,
-      approvedPaths: ["README.md"],
+      approvedPaths,
     });
     expect(deliveryGoal?.outcomeContract).toMatchObject({ deliveryRequired: true });
     expect(await db.select({ id: tasksTable.id }).from(tasksTable)
@@ -6785,7 +6779,47 @@ describe("AI missions and goals", () => {
       missionId: created.body.mission.id,
     });
     expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
-      .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(1);
+      .where(eq(aiMissionsTable.projectId, projectId))).toHaveLength(2);
+  });
+
+  it("revalidates the original source acceptance after Apply replaces Proposal validation evidence", async () => {
+    const projectId = await insertProject();
+    const source = await seedAcceptedChatMissionCandidate(projectId, "immutable-lineage-source");
+    const created = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId: source.proposalId });
+    expect(created.status).toBe(201);
+    const applyMissionId = created.body.mission.id as string;
+    const [lineage] = await db.select().from(aiMissionLineagesTable)
+      .where(eq(aiMissionLineagesTable.applyMissionId, applyMissionId));
+    expect(lineage?.sourceAcceptanceId).toEqual(expect.any(String));
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, applyMissionId));
+    expect(mission).toBeDefined();
+
+    await db.update(aiChangeProposalsTable)
+      .set({
+        status: "applied",
+        lifecycle: "committed",
+        validationEvidence: JSON.stringify([{ status: "passed", stage: "post-promotion" }]),
+        baseTreeHash: "f".repeat(64),
+        candidateTreeHash: "e".repeat(64),
+        promotedTreeHash: "e".repeat(64),
+      })
+      .where(eq(aiChangeProposalsTable.id, source.proposalId));
+
+    const resolution = await db.transaction((tx) =>
+      resolveMissionLineage(tx, mission!, { requireAcceptedSource: true }));
+    expect(resolution).toMatchObject({
+      kind: "verified",
+      lineage: {
+        applyMissionId,
+        canonicalMissionId: source.missionId,
+        sourceExecutionId: source.executionId,
+        sourceGoalId: source.goalId,
+        proposalId: source.proposalId,
+      },
+    });
   });
 
   it("rejects an unlinked Apply Mission even when the request tries to name its own canonical Mission", async () => {
@@ -6835,6 +6869,165 @@ describe("AI missions and goals", () => {
     expect(response.body.code).toBe("MISSION_CANONICAL_IDENTITY_UNRESOLVED");
     expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
       .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+  });
+
+  it("fails closed on a legacy Apply Mission whose persisted lineage is missing", async () => {
+    const projectId = await insertProject();
+    const source = await seedAcceptedChatMissionCandidate(projectId, "legacy-lineage");
+    const created = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId: source.proposalId });
+    expect(created.status).toBe(201);
+    const missionId = created.body.mission.id as string;
+    await db.delete(aiMissionLineagesTable)
+      .where(eq(aiMissionLineagesTable.applyMissionId, missionId));
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${missionId}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.missionLineage).toEqual({
+      kind: "unresolved",
+      reason: "lineage_missing",
+    });
+    const pendingProposal = await request(app)
+      .get(`/api/ai/chat/${source.sessionId}/pending-proposal`);
+    expect(pendingProposal.status).toBe(200);
+    expect(pendingProposal.body.applyMissionReady).toBe(false);
+
+    const idempotencyKey = randomUUID();
+    const action = await request(app)
+      .post(`/api/ai/missions/${missionId}/agent/action`)
+      .send({
+        idempotencyKey,
+        expectedDecision: projection.body.engineeringAgent.nextAction,
+      });
+    expect(action.status).toBe(409);
+    const actionEvents = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.type, "AiMissionAgentActionRequested"),
+      ));
+    const recordedRejection = actionEvents.find((event) => {
+      const payload = event.payload && typeof event.payload === "object"
+        ? event.payload as Record<string, unknown>
+        : {};
+      const result = payload.result && typeof payload.result === "object"
+        ? payload.result as Record<string, unknown>
+        : {};
+      const error = result.error && typeof result.error === "object"
+        ? result.error as Record<string, unknown>
+        : {};
+      return payload.missionId === missionId
+        && error.code === "MISSION_CANONICAL_IDENTITY_UNRESOLVED";
+    });
+    expect(recordedRejection).toBeDefined();
+    expect(action.body.projection?.missionLineage).toEqual({
+      kind: "unresolved",
+      reason: "lineage_missing",
+    });
+    expect(await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))).toEqual([
+        { id: source.executionId },
+      ]);
+  });
+
+  it.each(["proposal", "execution", "canonicalMission", "sourceAcceptance"] as const)(
+    "fails closed when the persisted Apply Mission link points to a different %s",
+    async (mismatch) => {
+      const projectId = await insertProject();
+      const source = await seedAcceptedChatMissionCandidate(projectId, "lineage-source");
+      const other = await seedAcceptedChatMissionCandidate(projectId, `lineage-other-${mismatch}`);
+      const [otherSourceAcceptance] = await db.select({
+        id: aiExecutionAcceptancesTable.id,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, other.executionId))
+        .limit(1);
+      const created = await request(app)
+        .post("/api/ai/missions/apply-from-proposal")
+        .send({ projectId, proposalId: source.proposalId });
+      expect(created.status).toBe(201);
+      const applyMissionId = created.body.mission.id as string;
+      const mismatchedIdentity = mismatch === "proposal"
+        ? { proposalId: other.proposalId }
+        : mismatch === "execution"
+          ? { sourceExecutionId: other.executionId }
+          : mismatch === "canonicalMission"
+            ? { canonicalMissionId: other.missionId }
+            : { sourceAcceptanceId: otherSourceAcceptance!.id };
+      await db.update(aiMissionLineagesTable)
+        .set(mismatchedIdentity)
+        .where(eq(aiMissionLineagesTable.applyMissionId, applyMissionId));
+
+      const projection = await request(app)
+        .get(`/api/ai/missions/${applyMissionId}/projection`);
+      expect(projection.status).toBe(200);
+      expect(projection.body.missionLineage.kind).toBe("unresolved");
+    },
+  );
+
+  it("rejects a delivery receipt that names a different canonical Mission", async () => {
+    const projectId = await insertProject();
+    const source = await seedAcceptedChatMissionCandidate(projectId, "wrong-receipt");
+    const created = await request(app)
+      .post("/api/ai/missions/apply-from-proposal")
+      .send({ projectId, proposalId: source.proposalId });
+    expect(created.status).toBe(201);
+    const applyMissionId = created.body.mission.id as string;
+    const [mission] = await db.select().from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, applyMissionId));
+    const missionGoals = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, applyMissionId));
+    const deliveryGoal = missionGoals.find((goal) => {
+      const outcome = goal.outcomeContract && typeof goal.outcomeContract === "object"
+        ? goal.outcomeContract as Record<string, unknown>
+        : {};
+      return outcome.deliveryRequired === true;
+    });
+    expect(deliveryGoal).toBeDefined();
+    const priorOutcome = deliveryGoal?.outcomeContract
+      && typeof deliveryGoal.outcomeContract === "object"
+      ? deliveryGoal.outcomeContract as Record<string, unknown>
+      : {};
+    const priorAcceptance = priorOutcome.acceptance
+      && typeof priorOutcome.acceptance === "object"
+      ? priorOutcome.acceptance as Record<string, unknown>
+      : {};
+    await db.update(aiGoalsTable)
+      .set({
+        status: "completed",
+        outcomeContract: {
+          ...priorOutcome,
+          deliveryRequired: true,
+          acceptance: {
+            ...priorAcceptance,
+            executionId: source.executionId,
+            deliveryReceipt: {
+              kind: "recipe",
+              status: "completed",
+              executionId: source.executionId,
+              attempt: 1,
+              operationId: "wrong-mission-receipt",
+              sourceRevision: "a".repeat(40),
+              candidateTreeHash: "c".repeat(64),
+              treeHash: "c".repeat(64),
+              canonicalMissionId: randomUUID(),
+              applyMissionId,
+              sourceExecutionId: source.executionId,
+              sourceGoalId: source.goalId,
+              proposalId: source.proposalId,
+            },
+          },
+        },
+      })
+      .where(eq(aiGoalsTable.id, deliveryGoal!.id));
+    const [updatedGoal] = await db.select().from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, deliveryGoal!.id));
+    const proof = await db.transaction((tx) =>
+      projectMissionGoalProof(tx, mission!, updatedGoal!));
+    expect(proof?.accepted).toBe(false);
+    expect(proof?.failureReasons).toContain("delivery_identity_mismatch");
   });
 
   it("blocks a Mission candidate until its current attempt has Canonical Proof", async () => {
@@ -6898,6 +7091,7 @@ describe("AI missions and goals", () => {
       id: sessionId,
       projectId,
       title: "Mission candidate review",
+      activeMissionId: missionId,
       createdAt: now,
       updatedAt: now,
     });
@@ -6907,6 +7101,39 @@ describe("AI missions and goals", () => {
       role: "assistant",
       content: "Validated Mission repair candidate awaits approval.",
       createdAt: now,
+    });
+    await db.insert(aiMissionHandoffsTable).values({
+      id: randomUUID(),
+      projectId,
+      userId: "test-user",
+      missionId,
+      sessionId,
+      messageId,
+      assistantMessageId: messageId,
+      idempotencyKey: randomUUID(),
+      requestHash: "e".repeat(64),
+      planHash: "f".repeat(64),
+      preview: {},
+      activationPlan: {
+        revision: `source-plan-${missionId}`,
+        goals: [{
+          stepId: "source",
+          goalId,
+          taskId: null,
+          dependencies: [],
+        }],
+        primary: {
+          stepId: "source",
+          goalId,
+          taskId: null,
+          dependencies: [],
+        },
+      },
+      dispatchGoalIds: [],
+      dispatchStatus: "dispatched",
+      dispatchedAt: now,
+      createdAt: now,
+      updatedAt: now,
     });
     await db.insert(aiChangeProposalsTable).values({
       id: proposalId,
@@ -7058,6 +7285,13 @@ describe("AI missions and goals", () => {
       .post("/api/ai/missions/apply-from-proposal")
       .send({ projectId, proposalId });
     expect(accepted.status).toBe(201);
+    expect(accepted.body.lineage).toMatchObject({
+      applyMissionId: accepted.body.mission.id,
+      canonicalMissionId: missionId,
+      sourceExecutionId: executionId,
+      sourceGoalId: goalId,
+      proposalId,
+    });
     expect(accepted.body).toMatchObject({
       applyGoal: { stepId: "apply-changes", taskId: null },
     });
@@ -7130,50 +7364,25 @@ describe("AI missions and goals", () => {
     "revalidates the complete Proposal identity after the handoff waits on its row lock (%s)",
     async (changedField) => {
       const projectId = await insertProject();
-      const sessionId = randomUUID();
-      const messageId = randomUUID();
-      const proposalId = randomUUID();
-      const now = new Date();
+      const source = await seedAcceptedChatMissionCandidate(projectId, "proposal-lock");
+      const { proposalId } = source;
       const preparedProposalChanges = JSON.stringify([
         missionProposalChange("prepared"),
       ]);
-      await db.insert(aiChatSessionsTable).values({
-        id: sessionId,
-        projectId,
-        title: "Proposal lock revalidation fixture",
-        createdAt: now,
-        updatedAt: now,
-      });
-      await db.insert(aiChatMessagesTable).values({
-        id: messageId,
-        sessionId,
-        role: "assistant",
-        content: "Prepared change proposal",
-        createdAt: now,
-      });
-      await db.insert(aiChangeProposalsTable).values({
-        id: proposalId,
-        projectId,
-        sessionId,
-        messageId,
+      const initialWorkspaceRoot = path.resolve(
+        process.cwd(),
+        "../../.test-roots",
+        `proposal-candidate-${proposalId}`,
+      );
+      await db.update(aiChangeProposalsTable).set({
         changes: preparedProposalChanges,
-        status: "pending",
         revision: 1,
         approvalRequired: false,
         lifecycle: "proposed",
         operationId: `operation:${proposalId}`,
-        workspaceRoot: path.resolve(
-          process.cwd(),
-          "../../.test-roots",
-          `proposal-candidate-${proposalId}`,
-        ),
-        baseRevision: "a".repeat(40),
-        baseTreeHash: "b".repeat(64),
+        workspaceRoot: initialWorkspaceRoot,
         treeDigestVersion: "test-tree-v1",
-        candidateTreeHash: "c".repeat(64),
-        changeSetHash: "d".repeat(64),
-        createdAt: now,
-      });
+      }).where(eq(aiChangeProposalsTable.id, proposalId));
       const initialProposal = {
         changes: preparedProposalChanges,
         status: "pending",
@@ -7181,11 +7390,7 @@ describe("AI missions and goals", () => {
         approvalRequired: false,
         lifecycle: "proposed",
         operationId: `operation:${proposalId}`,
-        workspaceRoot: path.resolve(
-          process.cwd(),
-          "../../.test-roots",
-          `proposal-candidate-${proposalId}`,
-        ),
+        workspaceRoot: initialWorkspaceRoot,
         baseRevision: "a".repeat(40),
         baseTreeHash: "b".repeat(64),
         treeDigestVersion: "test-tree-v1",
@@ -7302,7 +7507,9 @@ describe("AI missions and goals", () => {
             .send({ projectId, proposalId })
             .then((response) => response));
         }
-        await waitForProposalRowLock(handoffs[0]!, 10_000, handoffCount);
+        // With two same-project handoffs, the first waits on Proposal while
+        // the second correctly waits behind the Mission-first lock order.
+        await waitForProposalRowLock(handoffs[0]!, 10_000, 1);
       } catch (error) {
         synchronizationError = error;
       } finally {
@@ -7324,7 +7531,7 @@ describe("AI missions and goals", () => {
         .where(eq(aiChangeProposalsTable.id, proposalId));
       const missions = await db.select().from(aiMissionsTable)
         .where(eq(aiMissionsTable.projectId, projectId));
-      const [goals, tasks, executions, correlatedEvents] = await Promise.all([
+      const [goals, tasks, executions, correlatedEvents, lineages] = await Promise.all([
         db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
           .where(eq(aiGoalsTable.projectId, projectId)),
         db.select({ id: tasksTable.id }).from(tasksTable)
@@ -7336,15 +7543,18 @@ describe("AI missions and goals", () => {
             eq(eventsTable.projectId, projectId),
             eq(eventsTable.correlationId, proposalId),
           )),
+        db.select({ applyMissionId: aiMissionLineagesTable.applyMissionId })
+          .from(aiMissionLineagesTable)
+          .where(eq(aiMissionLineagesTable.projectId, projectId)),
       ]);
-      const missionRequirements = missions.map((mission) => {
+      const missionRequirements = missions.flatMap((mission) => {
         const policy = mission.autonomyPolicy && typeof mission.autonomyPolicy === "object"
           ? mission.autonomyPolicy as Record<string, unknown>
           : {};
         const applyMission = policy.applyMission && typeof policy.applyMission === "object"
           ? policy.applyMission as Record<string, unknown>
           : {};
-        return applyMission.requirement;
+        return applyMission.requirement ? [applyMission.requirement] : [];
       });
       const expectedRequirement = {
         kind: "apply.changes",
@@ -7380,7 +7590,19 @@ describe("AI missions and goals", () => {
       });
 
       if (changedField === "unchanged") {
-        const policy = missions[0]?.autonomyPolicy as Record<string, unknown> | undefined;
+        const applyMission = missions.find((candidate) => {
+          const policy = candidate.autonomyPolicy && typeof candidate.autonomyPolicy === "object"
+            ? candidate.autonomyPolicy as Record<string, unknown>
+            : {};
+          const apply = policy.applyMission && typeof policy.applyMission === "object"
+            ? policy.applyMission as Record<string, unknown>
+            : {};
+          return apply.proposalId === proposalId;
+        });
+        const policy = applyMission?.autonomyPolicy as Record<string, unknown> | undefined;
+        expect(applyMission).toBeDefined();
+        expect(missions).toHaveLength(2);
+        expect(lineages).toEqual([{ applyMissionId: applyMission?.id }]);
         expect(policy?.applyMission).toMatchObject({
           proposalRevision: initialProposal.revision,
           baseTreeHash: initialProposal.baseTreeHash,
@@ -7388,7 +7610,7 @@ describe("AI missions and goals", () => {
           candidateIdentity: `${proposalId}:${initialProposal.candidateTreeHash}`,
         });
         const goals = await db.select().from(aiGoalsTable)
-          .where(eq(aiGoalsTable.missionId, missions[0]?.id ?? ""));
+          .where(eq(aiGoalsTable.missionId, applyMission?.id ?? ""));
         const applyGoal = goals.find((goal) => {
           const criteria = goal.successCriteria as Record<string, unknown> | undefined;
           return criteria?.stepId === "apply-changes";
@@ -7399,11 +7621,13 @@ describe("AI missions and goals", () => {
         expect((criteria?.planRevision as Record<string, unknown> | undefined)?.hash)
           .toBe(activePlanRevision);
       } else {
-        expect({ goals, tasks, executions, correlatedEvents }).toEqual({
-          goals: [],
+        expect(missions.map((mission) => mission.id)).toEqual([source.missionId]);
+        expect({ goals, tasks, executions, correlatedEvents, lineages }).toEqual({
+          goals: [{ id: source.goalId }],
           tasks: [],
-          executions: [],
+          executions: [{ id: source.executionId }],
           correlatedEvents: [],
+          lineages: [],
         });
       }
     },
@@ -7411,42 +7635,11 @@ describe("AI missions and goals", () => {
 
   it("rolls back the Mission and generated plan when a later transaction write fails", async () => {
     const projectId = await insertProject();
-    const sessionId = randomUUID();
-    const messageId = randomUUID();
-    const proposalId = randomUUID();
+    const source = await seedAcceptedChatMissionCandidate(projectId, "rollback");
+    const { proposalId } = source;
     const triggerSuffix = randomUUID().replaceAll("-", "");
     const functionName = `test_fail_apply_handoff_${triggerSuffix}`;
     const triggerName = `test_fail_apply_handoff_${triggerSuffix}`;
-    const now = new Date();
-    await db.insert(aiChatSessionsTable).values({
-      id: sessionId,
-      projectId,
-      title: "Apply Mission rollback fixture",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(aiChatMessagesTable).values({
-      id: messageId,
-      sessionId,
-      role: "assistant",
-      content: "Prepared change proposal",
-      createdAt: now,
-    });
-    await db.insert(aiChangeProposalsTable).values({
-      id: proposalId,
-      projectId,
-      sessionId,
-      messageId,
-      changes: JSON.stringify([missionProposalChange("prepared")]),
-      status: "pending",
-      revision: 1,
-      operationId: `apply-operation:${proposalId}`,
-      baseRevision: "a".repeat(40),
-      baseTreeHash: "b".repeat(64),
-      candidateTreeHash: "c".repeat(64),
-      changeSetHash: "d".repeat(64),
-      createdAt: now,
-    });
 
     try {
       await db.execute(sql.raw(`
@@ -7473,7 +7666,7 @@ describe("AI missions and goals", () => {
         .send({ projectId, proposalId });
 
       expect(response.status).toBe(500);
-      const [missions, goals, dependencies, tasks, executions, correlatedEvents] =
+      const [missions, goals, dependencies, tasks, executions, correlatedEvents, lineages] =
         await Promise.all([
           db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
             .where(eq(aiMissionsTable.projectId, projectId)),
@@ -7490,6 +7683,9 @@ describe("AI missions and goals", () => {
               eq(eventsTable.projectId, projectId),
               eq(eventsTable.correlationId, proposalId),
             )),
+          db.select({ applyMissionId: aiMissionLineagesTable.applyMissionId })
+            .from(aiMissionLineagesTable)
+            .where(eq(aiMissionLineagesTable.projectId, projectId)),
         ]);
       expect({
         missions,
@@ -7498,13 +7694,15 @@ describe("AI missions and goals", () => {
         tasks,
         executions,
         correlatedEvents,
+        lineages,
       }).toEqual({
-        missions: [],
-        goals: [],
+        missions: [{ id: source.missionId }],
+        goals: [{ id: source.goalId }],
         dependencies: [],
         tasks: [],
-        executions: [],
+        executions: [{ id: source.executionId }],
         correlatedEvents: [],
+        lineages: [],
       });
     } finally {
       await db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON events`));
@@ -7574,6 +7772,7 @@ describe("AI missions and goals", () => {
       .set({
         proposalId,
         status: "paused",
+        sessionId,
         updatedAt: now,
       })
       .where(eq(aiExecutionsTable.id, created.execution.id));
@@ -7588,6 +7787,10 @@ describe("AI missions and goals", () => {
       approvalRequired: true,
       lifecycle: "proposed",
       operationId: `apply-operation:${proposalId}`,
+      validationEvidence: JSON.stringify([{
+        executionId: created.execution.id,
+        attempt: created.execution.attempt,
+      }]),
       baseRevision,
       baseTreeHash: "b".repeat(64),
       candidateTreeHash,

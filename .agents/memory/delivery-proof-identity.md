@@ -12,3 +12,9 @@ Keep source candidate identity on the canonical acceptance and its durable execu
 **Why:** Provider or recipe success can be replayed or detached from the candidate that was actually validated, so a status-only receipt could incorrectly complete a Goal. Reusing the review proposal field also changes terminalization semantics, while receipt-shape drift can break idempotent recovery. Source acceptance and post-promotion validation are separate authorities and must be checked at their own durable boundaries.
 
 **How to apply:** Persist the complete server-owned recipe receipt on the execution row using a distinct delivery-proposal binding; retain the `RecipeReceipt` schema while adding execution, attempt, operation, revision, candidate-tree, and delivered-tree identity. Validate source identity through the accepted execution and acceptance row; validate Apply through proposal hashes and nested public validation evidence. Hydrate legacy sparse receipts only through the server-owned Mission path, then call `loadCanonicalProof`; keep public dashboard status derived from its projection.
+
+Apply Mission lineage pins the exact source acceptance ID when the handoff is created. Later delivery checks reload that acceptance and its canonical proof rather than reparsing mutable Proposal validation evidence.
+
+**Why:** Applying a candidate replaces Proposal validation evidence with post-promotion receipts and may update tree hashes. Re-reading those mutable fields loses the source-only binding even though the original accepted Execution and proof remain valid.
+
+**How to apply:** Persist the verified source acceptance ID on the existing lineage edge. On delivery or replay, verify that acceptance belongs to the exact source Execution, attempt, project, then reload Canonical Proof; never relax identity checks or treat post-promotion validation as source acceptance.

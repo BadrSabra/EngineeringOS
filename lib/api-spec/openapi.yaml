@@ -3693,6 +3693,22 @@ paths:
       responses:
         "201":
           description: Created apply Mission
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mission, lineage, applyGoal]
+                properties:
+                  mission:
+                    type: object
+                    additionalProperties: true
+                  lineage:
+                    $ref: "#/components/schemas/AiMissionLineage"
+                  applyGoal:
+                    type: object
+                    additionalProperties: true
+                  duplicate:
+                    type: boolean
         "404":
           description: Proposal not found
         "409":
@@ -4786,11 +4802,37 @@ components:
           pattern: "^[a-z0-9][a-z0-9-]*$"
     AiMissionControlProjection:
       type: object
-      required: [mission, agentControl, currentPlan, goals, counts, engineeringAgent, workspaceSummary]
+      required: [mission, agentControl, currentPlan, goals, counts, engineeringAgent, workspaceSummary, missionLineage]
       properties:
         mission:
           type: object
           additionalProperties: true
+        missionLineage:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [not_required] }
+            - type: object
+              additionalProperties: false
+              required: [kind, lineage]
+              properties:
+                kind: { type: string, enum: [verified] }
+                lineage:
+                  $ref: "#/components/schemas/AiMissionLineage"
+            - type: object
+              additionalProperties: false
+              required: [kind, reason]
+              properties:
+                kind: { type: string, enum: [unresolved] }
+                reason:
+                  type: string
+                  enum:
+                    - lineage_missing
+                    - lineage_identity_mismatch
+                    - lineage_source_missing
+                    - lineage_source_not_accepted
         agentControl:
           anyOf:
             - $ref: "#/components/schemas/AiMissionAgentControl"
@@ -4851,6 +4893,16 @@ components:
           $ref: "#/components/schemas/AiMissionEngineeringAgentProjection"
         workspaceSummary:
           $ref: "#/components/schemas/AiMissionEngineeringAgentWorkspaceSummary"
+    AiMissionLineage:
+      type: object
+      additionalProperties: false
+      required: [applyMissionId, canonicalMissionId, sourceExecutionId, sourceGoalId, proposalId]
+      properties:
+        applyMissionId: { type: string, minLength: 1, maxLength: 200 }
+        canonicalMissionId: { type: string, minLength: 1, maxLength: 200 }
+        sourceExecutionId: { type: string, minLength: 1, maxLength: 200 }
+        sourceGoalId: { type: string, minLength: 1, maxLength: 200 }
+        proposalId: { type: string, minLength: 1, maxLength: 200 }
     AiMissionEngineeringAgentProjection:
       type: object
       additionalProperties: false

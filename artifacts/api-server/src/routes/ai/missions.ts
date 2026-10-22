@@ -18,6 +18,7 @@ import {
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionHandoffsTable,
+  aiMissionLineagesTable,
   aiMissionsTable,
   aiShadowReplaysTable,
   aiSkillRegistryTable,
@@ -100,6 +101,7 @@ import {
 } from "../../lib/skill-registry.js";
 import { validateSkillRegistryAuthority } from "../../lib/skill-registry-authorization.js";
 import { checkMissionCandidateAcceptance } from "../../lib/mission-candidate-acceptance.js";
+import { resolveMissionLineage } from "../../lib/mission-lineage.js";
 import {
   getShadowReplayReceiptProofFreshness,
   getShadowReplayForUser,
@@ -1930,7 +1932,11 @@ async function loadMissionProjection(owned: {
       eq(aiGoalsTable.projectId, owned.project.id),
     ))
     .orderBy(desc(aiGoalsTable.updatedAt), desc(aiGoalsTable.id));
-  return buildMissionProjection(owned.mission, goals);
+  const [projection, missionLineage] = await Promise.all([
+    buildMissionProjection(owned.mission, goals),
+    db.transaction((tx) => resolveMissionLineage(tx, owned.mission)),
+  ]);
+  return { ...projection, missionLineage };
 }
 
 router.get("/ai/missions", async (req, res) => {
@@ -2327,23 +2333,25 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
     ) {
       return { kind: "proposal_changed" as const };
     }
-    const [sourceExecution] = await tx.select()
-      .from(aiExecutionsTable)
-      .where(and(
-        eq(aiExecutionsTable.projectId, project.id),
-        eq(aiExecutionsTable.proposalId, lockedProposal.id),
-      ))
-      .limit(1)
-      .for("update");
     const sourceAcceptance = await checkMissionCandidateAcceptance({
       tx,
       projectId: project.id,
       userId: req.userId,
       proposal: lockedProposal,
-      sourceExecution: sourceExecution ?? null,
     });
+    if (!sourceAcceptance.missionCandidate) {
+      return { kind: "identity_unresolved" as const };
+    }
     if (sourceAcceptance.missionCandidate && !sourceAcceptance.accepted) {
       return { kind: "source_not_accepted" as const };
+    }
+    if (
+      !sourceAcceptance.sourceMissionId
+      || !sourceAcceptance.sourceGoalId
+      || !sourceAcceptance.sourceExecutionId
+      || !sourceAcceptance.sourceAcceptanceId
+    ) {
+      return { kind: "identity_unresolved" as const };
     }
     if (
       lockedProposal.status !== "pending"
@@ -2431,6 +2439,19 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       updatedAt: now,
     }).returning();
     if (!mission) throw new Error("apply_mission_creation_failed");
+    const lineage = {
+      applyMissionId: mission.id,
+      canonicalMissionId: sourceAcceptance.sourceMissionId,
+      sourceExecutionId: sourceAcceptance.sourceExecutionId,
+      sourceGoalId: sourceAcceptance.sourceGoalId,
+      proposalId: lockedProposal.id,
+    };
+    await tx.insert(aiMissionLineagesTable).values({
+      ...lineage,
+      sourceAcceptanceId: sourceAcceptance.sourceAcceptanceId,
+      projectId: project.id,
+      createdAt: now,
+    });
     const activationPlan = await ensureMissionActivationPlan(tx, mission, now, preview);
     if (!activationPlan) throw new Error("apply_mission_plan_missing");
     await tx.insert(eventsTable).values({
@@ -2440,9 +2461,15 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
       severity: "info",
       message: `AI apply Mission "${mission.title}" created`,
       correlationId: proposal.id,
-      payload: { missionId, proposalId: proposal.id, planRevision: activationPlan.revision },
+      payload: {
+        missionId,
+        proposalId: proposal.id,
+        sourceMissionId: lineage.canonicalMissionId,
+        sourceExecutionId: lineage.sourceExecutionId,
+        planRevision: activationPlan.revision,
+      },
     });
-    return { kind: "created" as const, mission, activationPlan, preview };
+    return { kind: "created" as const, mission, activationPlan, preview, lineage };
   });
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
@@ -2469,6 +2496,13 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
     });
     return;
   }
+  if (result.kind === "identity_unresolved") {
+    res.status(409).json({
+      error: "The proposal has no uniquely accepted source Mission in this Chat conversation.",
+      code: "MISSION_CANONICAL_IDENTITY_UNRESOLVED",
+    });
+    return;
+  }
   if (result.kind === "already_exists") {
     res.status(409).json({
       error: "An active Mission is already linked to this proposal.",
@@ -2480,6 +2514,7 @@ router.post("/ai/missions/apply-from-proposal", async (req, res) => {
   const runs = await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
   res.status(201).json({
     mission: result.mission,
+    lineage: result.lineage,
     applyGoal: result.activationPlan.primary,
     planGoals: result.activationPlan.goals,
     runs,
@@ -5437,11 +5472,34 @@ async function handleMissionAgentAction(
     }),
   } satisfies EngineeringAgentActionHandlers;
 
-  const result = await dispatchEngineeringAgentAction(
-    currentSelection.action,
-    actionContext,
-    handlers,
-  );
+  const lineageResolution = await db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, owned.mission.id),
+        eq(aiMissionsTable.projectId, owned.project.id),
+        eq(aiMissionsTable.userId, req.userId),
+      ))
+      .for("update")
+      .limit(1);
+    return mission
+      ? resolveMissionLineage(tx, mission, { requireAcceptedSource: true })
+      : { kind: "unresolved" as const, reason: "lineage_source_missing" as const };
+  });
+  const result: EngineeringAgentActionResult = lineageResolution.kind === "unresolved"
+    ? {
+        outcome: "rejected",
+        error: {
+          code: "MISSION_CANONICAL_IDENTITY_UNRESOLVED",
+          message: "This Apply Mission has no currently verifiable canonical Mission lineage.",
+        },
+      }
+    : await dispatchEngineeringAgentAction(
+        currentSelection.action,
+        actionContext,
+        handlers,
+      );
   const safeResult: EngineeringAgentActionResult = {
     outcome: result.outcome,
     ...(result.operation ? { operation: result.operation } : {}),

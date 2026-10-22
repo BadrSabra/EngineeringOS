@@ -499,16 +499,22 @@ function installBrowserErrorMonitor(
       message.text().includes("downloadable font: download failed") &&
       /font-family: "(?:Inter|Outfit|Space Mono)"/.test(message.text()) &&
       message.text().includes("status=2152398850");
+    const knownFirefoxWorkerAbortNoise =
+      process.env.DASHBOARD_E2E_BROWSER === "firefox" &&
+      message.text().includes("NS_BINDING_ABORTED") &&
+      message.text().includes("chrome://juggler/content/content/WorkerMain.js");
     // The provider-free fixture deliberately returns 428 for AI routes. Firefox
     // also reports Cloudflare's rejected third-party cookie on the local
-    // release origin, and cannot fetch Google Fonts from the isolated release
-    // origin. Allow only those exact environment diagnostics; all other
-    // console errors remain failures.
+    // release origin, cannot fetch Google Fonts from the isolated release
+    // origin, and can report an aborted internal worker during route teardown.
+    // Allow only those exact environment diagnostics; all other console errors
+    // remain failures.
     if (
       !knownProviderFixtureNoise &&
       !knownSessionExpiryNoise &&
       !knownFirefoxCloudflareCookieNoise &&
-      !knownFirefoxGoogleFontNetworkNoise
+      !knownFirefoxGoogleFontNetworkNoise &&
+      !knownFirefoxWorkerAbortNoise
     ) {
       record("console.error", message.text());
     }
@@ -6830,17 +6836,33 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const applyMissionResult = await applyMissionResponse.json() as {
         mission?: { id?: string };
         applyGoal?: { goalId?: string };
+        lineage?: {
+          applyMissionId?: string;
+          canonicalMissionId?: string;
+          sourceExecutionId?: string;
+          sourceGoalId?: string;
+          proposalId?: string;
+        };
       };
       const applyMissionId = applyMissionResult.mission?.id;
       const applyGoalId = applyMissionResult.applyGoal?.goalId;
       expect(applyMissionId).toBeTruthy();
       expect(applyGoalId).toBeTruthy();
+      expect(applyMissionResult.lineage).toMatchObject({
+        applyMissionId,
+        canonicalMissionId: sourceMissionId,
+        sourceGoalId,
+        proposalId,
+      });
+      expect(applyMissionResult.lineage?.sourceExecutionId).toBeTruthy();
       expect(applyMissionResponse.request().postDataJSON()).toMatchObject({
         projectId,
         proposalId,
       });
       chain.applyMissionId = applyMissionId;
       chain.applyGoalId = applyGoalId;
+      chain.canonicalMissionId = applyMissionResult.lineage?.canonicalMissionId;
+      chain.sourceExecutionId = applyMissionResult.lineage?.sourceExecutionId;
 
       stage = "apply-changes";
       const applyApprovedCandidateButton = page.getByRole("button", {
@@ -7091,6 +7113,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.getByTestId("button-save-editor").click();
       const deliveryBindingResponse = await deliveryBindingResponsePromise;
       expect(deliveryBindingResponse.status()).toBe(202);
+      const deliveryBindingBody = await deliveryBindingResponse.json() as {
+        run?: {
+          status?: string;
+          goalId?: string;
+          executionId?: string;
+          reason?: string;
+        };
+      };
+      const deliveryBindingRun = deliveryBindingBody.run;
+      expect(deliveryBindingRun?.goalId).toBe(deliveryGoalId);
 
       stage = "delivery-execution";
       const deliveryDeadline = Date.now() + 120_000;
@@ -7099,38 +7131,70 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         finalProjection = await readMissionProjection(applyMissionId!);
         deliveryState = finalProjection.engineeringAgent?.state ?? "missing";
         const missionStatus = finalProjection.mission?.status ?? finalProjection.status;
-        const deliveryStatus = finalProjection.goals?.find(
+        const deliveryGoalProjection = finalProjection.goals?.find(
           (entry: any) => entry.goal?.id === deliveryGoalId,
-        )?.goal?.status;
+        );
+        const deliveryStatus = deliveryGoalProjection?.goal?.status;
         if (deliveryState === "COMPLETE") break;
         if (
-          deliveryState === "NEEDS_ATTENTION"
-          || ["blocked", "needs_replan", "failed", "cancelled"].includes(missionStatus)
-          || ["blocked", "needs_replan", "failed", "cancelled"].includes(deliveryStatus)
+          ["blocked", "failed", "cancelled"].includes(missionStatus)
+          || ["blocked", "needs_replan", "failed", "cancelled", "waiting_for_approval"]
+            .includes(deliveryStatus)
+          || (
+            deliveryState === "NEEDS_ATTENTION"
+            && !["queued", "running", "verifying"].includes(deliveryStatus)
+          )
         ) break;
         await page.waitForTimeout(Math.min(2_000, Math.max(0, deliveryDeadline - Date.now())));
       }
       if (deliveryState !== "COMPLETE") {
-        const dependencyBlockers = await page.evaluate(async ({ projectId, goalId }) => {
-          const response = await fetch(
-            `/api/events?projectId=${encodeURIComponent(projectId)}&type=AiGoalDependencyProofBlocked&limit=20`,
-          );
-          if (!response.ok) return [];
-          const body = await response.json() as {
-            events?: Array<{ type?: unknown; goalId?: unknown; payload?: unknown }>;
-          };
-          return (body.events ?? [])
+        const runtimeDiagnostics = await page.evaluate(async ({ projectId, goalId }) => {
+          const [healthResponse, eventsResponse] = await Promise.all([
+            fetch("/api/healthz"),
+            fetch(`/api/events?projectId=${encodeURIComponent(projectId)}&limit=100`),
+          ]);
+          const health = healthResponse.ok
+            ? await healthResponse.json() as {
+                jobQueue?: { running?: number; queued?: number; concurrency?: number };
+              }
+            : null;
+          const eventsBody = eventsResponse.ok
+            ? await eventsResponse.json() as {
+                events?: Array<{ type?: unknown; goalId?: unknown; payload?: unknown }>;
+              }
+            : null;
+          const deliveryEvents = (eventsBody?.events ?? [])
             .filter((event) => event.goalId === goalId)
-            .map(({ type, goalId: blockedGoalId, payload }) => ({
-              type,
-              goalId: blockedGoalId,
-              payload,
-            }));
+            .map((event) => {
+              const payload = event.payload && typeof event.payload === "object"
+                && !Array.isArray(event.payload)
+                ? event.payload as Record<string, unknown>
+                : {};
+              return {
+                type: typeof event.type === "string" ? event.type : null,
+                reason: typeof payload.reason === "string" ? payload.reason : null,
+                code: typeof payload.code === "string" ? payload.code : null,
+                recipeId: typeof payload.recipeId === "string" ? payload.recipeId : null,
+                executionId: typeof payload.executionId === "string" ? payload.executionId : null,
+              };
+            });
+          return {
+            jobQueue: health?.jobQueue ?? null,
+            deliveryEvents,
+          };
         }, { projectId, goalId: deliveryGoalId });
         const projectionSummary = {
           missionStatus: finalProjection?.mission?.status ?? finalProjection?.status ?? null,
           engineeringAgentState: finalProjection?.engineeringAgent?.state ?? null,
-          dependencyBlockers,
+          deliveryBindingRun: deliveryBindingRun
+            ? {
+                status: deliveryBindingRun.status ?? null,
+                goalId: deliveryBindingRun.goalId ?? null,
+                executionId: deliveryBindingRun.executionId ?? null,
+                reason: deliveryBindingRun.reason ?? null,
+              }
+            : null,
+          runtimeDiagnostics,
           goals: finalProjection?.goals?.map((entry: any) => ({
             id: entry.goal?.id ?? null,
             title: entry.goal?.title ?? null,
@@ -7139,6 +7203,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             stepId: entry.goal?.outcomeContract?.stepId ?? null,
             status: entry.goal?.status ?? null,
             blockedReason: entry.goal?.blockedReason ?? null,
+            nextAction: entry.goal?.nextAction ?? null,
+            currentAttempt: entry.currentAttempt ?? null,
             acceptance: entry.goal?.outcomeContract?.acceptance ?? null,
             delivery: entry.delivery ?? null,
           })) ?? [],
@@ -7188,6 +7254,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       const reloadedProjection = await readMissionProjection(applyMissionId!);
       expect(reloadedProjection.engineeringAgent?.state).toBe("COMPLETE");
+      expect(reloadedProjection.missionLineage).toMatchObject({
+        kind: "verified",
+        lineage: {
+          applyMissionId,
+          canonicalMissionId: sourceMissionId,
+          sourceExecutionId: applyMissionResult.lineage?.sourceExecutionId,
+          sourceGoalId,
+          proposalId,
+        },
+      });
       expect(reloadedProjection.goals?.some(
         (entry: any) => entry.goal?.id === applyGoalId
           && entry.goal?.status === "completed"

@@ -31,6 +31,7 @@ const chainKeys = new Set([
   "userMessageHash",
   "handoffPlanHash",
   "sourceMissionId",
+  "canonicalMissionId",
   "sourceGoalId",
   "sourceExecutionId",
   "sourceAttempt",
@@ -119,6 +120,7 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
     "userMessageHash",
     "handoffPlanHash",
     "sourceMissionId",
+    "canonicalMissionId",
     "sourceGoalId",
     "sourceExecutionId",
     "acceptanceId",
@@ -144,6 +146,7 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
     "sessionId",
     "userMessageId",
     "sourceMissionId",
+    "canonicalMissionId",
     "sourceGoalId",
     "sourceExecutionId",
     "acceptanceId",
@@ -227,6 +230,11 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
   assert.match(value.chain.remoteCommitHash, /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
   assert.equal(value.chain.branch, "main");
   assert.equal(value.chain.engineeringAgentState, "COMPLETE");
+  assert.equal(
+    value.chain.canonicalMissionId,
+    value.chain.sourceMissionId,
+    "canonical_source_mission",
+  );
   assert.equal(
     value.chain.finalMissionId,
     value.chain.applyMissionId,
@@ -344,6 +352,11 @@ function readDatabaseSnapshot(databaseUrl, chain) {
         )
       ),
       'applyMission', (SELECT to_jsonb(m) FROM ai_missions m WHERE m.id = ${ids.applyMissionId}),
+      'lineage', (
+        SELECT to_jsonb(l)
+        FROM ai_mission_lineages l
+        WHERE l.apply_mission_id = ${ids.applyMissionId}
+      ),
       'applyGoal', (SELECT to_jsonb(g) FROM ai_goals g WHERE g.id = ${ids.applyGoalId}),
       'applyExecution', (SELECT to_jsonb(e) FROM ai_executions e WHERE e.id = ${ids.applyExecutionId})
     )::text;
@@ -384,6 +397,7 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   const proposal = requireRow("proposal");
   const proposalMessage = requireRow("proposalMessage");
   const applyMission = requireRow("applyMission");
+  const lineage = requireRow("lineage");
   const applyGoal = requireRow("applyGoal");
   const applyExecution = requireRow("applyExecution");
 
@@ -487,6 +501,19 @@ function verifyDatabaseSnapshot(snapshot, chain) {
 
   requireValue(applyMission.project_id, chain.projectId, "apply_mission_project");
   requireValue(applyMission.status, "completed", "apply_mission_status");
+  requireValue(chain.canonicalMissionId, chain.sourceMissionId, "canonical_source_mission");
+  requireValue(lineage.apply_mission_id, chain.applyMissionId, "lineage_apply_mission");
+  requireValue(lineage.canonical_mission_id, chain.canonicalMissionId, "lineage_canonical_mission");
+  requireValue(lineage.source_execution_id, chain.sourceExecutionId, "lineage_source_execution");
+  requireValue(lineage.source_goal_id, chain.sourceGoalId, "lineage_source_goal");
+  requireValue(lineage.source_acceptance_id, chain.acceptanceId, "lineage_source_acceptance");
+  requireValue(lineage.proposal_id, chain.proposalId, "lineage_proposal");
+  requireValue(lineage.project_id, chain.projectId, "lineage_project");
+  assert.notEqual(
+    lineage.apply_mission_id,
+    lineage.canonical_mission_id,
+    "apply_and_canonical_mission_ids_must_remain_distinct",
+  );
   const applyRequirement = getAtPath(
     applyMission.autonomy_policy,
     "applyMission",

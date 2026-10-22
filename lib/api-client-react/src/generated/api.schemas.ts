@@ -115,6 +115,44 @@ export type MissionChatHandoffInput = (unknown & ({
 
 export type AiMissionControlProjectionMission = { [key: string]: unknown };
 
+export interface AiMissionLineage {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  applyMissionId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  canonicalMissionId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  sourceExecutionId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  sourceGoalId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  proposalId: string;
+}
+
+export type AiMissionControlProjectionMissionLineage = {
+  kind: 'not_required';
+} | {
+  kind: 'verified';
+  lineage: AiMissionLineage;
+} | {
+  kind: 'unresolved';
+  reason: 'lineage_missing' | 'lineage_identity_mismatch' | 'lineage_source_missing' | 'lineage_source_not_accepted';
+};
+
 export type AiMissionControlProjectionCurrentPlanBinding = typeof AiMissionControlProjectionCurrentPlanBinding[keyof typeof AiMissionControlProjectionCurrentPlanBinding];
 
 
@@ -489,6 +527,7 @@ export interface AiMissionEngineeringAgentWorkspaceSummary {
 
 export interface AiMissionControlProjection {
   mission: AiMissionControlProjectionMission;
+  missionLineage: AiMissionControlProjectionMissionLineage;
   agentControl: AiMissionAgentControl | null;
   currentPlan: AiMissionControlProjectionCurrentPlan;
   goals: AiMissionControlProjectionGoalsItem[];
@@ -7444,6 +7483,17 @@ projectId: string;
 
 export type ListAiMissionsParams = {
 projectId: string;
+};
+
+export type CreateApplyMissionFromProposal201Mission = { [key: string]: unknown };
+
+export type CreateApplyMissionFromProposal201ApplyGoal = { [key: string]: unknown };
+
+export type CreateApplyMissionFromProposal201 = {
+  mission: CreateApplyMissionFromProposal201Mission;
+  lineage: AiMissionLineage;
+  applyGoal: CreateApplyMissionFromProposal201ApplyGoal;
+  duplicate?: boolean;
 };
 
 export type DeleteGroqKey200 = {
