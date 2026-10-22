@@ -2284,7 +2284,6 @@ export default function Missions() {
                               </div>
                               {chatHandoffHref(
                                 String(activeMission.projectId),
-                                activeMission.id,
                                 projection.agentControl.handoff,
                               ) ? (
                                 <Link

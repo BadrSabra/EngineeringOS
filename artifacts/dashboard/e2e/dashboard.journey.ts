@@ -4233,10 +4233,11 @@ async function installChatSessionMissionFixture(
     mission: Record<string, unknown>;
     messageId: string;
     assistantMessageId: string;
+    activeMissionId?: string | null;
   },
 ) {
   const missionId = String(options.mission.id);
-  let activeMissionId: string | null = null;
+  let activeMissionId: string | null = options.activeMissionId ?? null;
   const selectionRequests: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
   const createdAt = String(options.mission.createdAt);
   const updatedAt = String(options.mission.updatedAt);
@@ -5755,16 +5756,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       mission,
       messageId,
       assistantMessageId,
+      activeMissionId: missionId,
     });
     await programmaticSignIn(page);
 
+    const initialSessionMissionsResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname.endsWith(
+        `/api/ai/chat/${sessionId}/missions`,
+      )
+    ));
     await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
       projectId,
       sessionId,
     }).toString()}`, { waitUntil: "domcontentloaded" });
-    const historyMission = page.getByTestId(`chat-session-mission-${missionId}`);
-    await expect(historyMission).toBeVisible();
-    await historyMission.getByTestId(`link-chat-session-mission-${missionId}`).click();
+    const initialSessionMissionsResponse = await initialSessionMissionsResponsePromise;
+    expect(initialSessionMissionsResponse.ok()).toBe(true);
+    expect(await initialSessionMissionsResponse.json()).toMatchObject({
+      sessionId,
+      activeMissionId: missionId,
+    });
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    await page.getByTestId(`link-chat-session-mission-${missionId}`).click();
 
     await expect(page.getByTestId(`mission-source-provenance-${missionId}`)).toBeVisible();
     const findingSourceLink = page.getByTestId("link-mission-source-chat");
@@ -5789,19 +5804,27 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(returnedUrl.searchParams.get("sessionId")).toBe(sessionId);
     expect(returnedUrl.searchParams.has("missionId")).toBe(false);
     expect(returnedUrl.searchParams.get("messageId")).toBe(assistantMessageId);
-    expect(sessionMissionFixture.selectionRequests).toEqual([{
-      method: "PUT",
-      path: `/api/ai/chat/${sessionId}/active-mission`,
-      body: { missionId },
-    }]);
+    expect(sessionMissionFixture.selectionRequests).toEqual([]);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
+    const sessionMissionsAfterReloadResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname.endsWith(
+        `/api/ai/chat/${sessionId}/missions`,
+      )
+    ));
     await page.reload({ waitUntil: "domcontentloaded" });
+    const sessionMissionsAfterReloadResponse = await sessionMissionsAfterReloadResponsePromise;
+    expect(sessionMissionsAfterReloadResponse.ok()).toBe(true);
+    expect(await sessionMissionsAfterReloadResponse.json()).toMatchObject({
+      sessionId,
+      activeMissionId: missionId,
+    });
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
     await expect(page.getByTestId("notice-chat-route-mission-unavailable")).toBeHidden();
-    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
     await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
@@ -5826,7 +5849,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "Original Chat mission",
     );
     expect(new URL(page.url()).searchParams.has("messageId")).toBe(false);
-    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
     await page.goBack({ waitUntil: "domcontentloaded" });
@@ -5837,7 +5860,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(staleSourceUrl.searchParams.get("missionId")).toBe(missionId);
     await page.getByTestId("button-open-latest-chat").click();
     await expect.poll(() => new URL(page.url()).searchParams.has("messageId")).toBe(false);
-    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
     const unlinkedMissionId = "e2e-unlinked-mission";
@@ -5855,7 +5878,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
-    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
 
     await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
@@ -5863,12 +5886,32 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       sessionId,
       missionId,
     }).toString()}`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("notice-chat-route-mission-unavailable"))
-      .toContainText("This Mission is not linked to the requested conversation.");
+    await expect(page.getByText(
+      "The linked AI conversation is unavailable in this project. Choose another session to continue.",
+    )).toBeVisible();
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    const restoredSessionMissionsResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname.endsWith(
+        `/api/ai/chat/${sessionId}/missions`,
+      )
+    ));
+    await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
+      projectId,
+      sessionId,
+    }).toString()}`, { waitUntil: "domcontentloaded" });
+    const restoredSessionMissionsResponse = await restoredSessionMissionsResponsePromise;
+    expect(restoredSessionMissionsResponse.ok()).toBe(true);
+    expect(await restoredSessionMissionsResponse.json()).toMatchObject({
+      sessionId,
+      activeMissionId: missionId,
+    });
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
-    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(0);
     expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
     browserErrors.assertClean();
   });

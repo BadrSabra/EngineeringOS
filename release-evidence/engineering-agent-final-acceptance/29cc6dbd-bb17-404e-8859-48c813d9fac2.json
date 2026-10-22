@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "runId": "29cc6dbd-bb17-404e-8859-48c813d9fac2",
+  "startedAt": "2026-10-22T01:33:43.664Z",
+  "sourceRevision": "5104bcf70e170c028e7de1e4b2e3a8d4d1a6a4f5",
+  "sourceFingerprint": "1f2e58abeb36fcbdf05d2092f96859e6214348c57d947b1266a20f19d8bc0e8c",
+  "status": "PASSED",
+  "deploymentStatus": "NOT_DEPLOYED",
+  "gates": {
+    "ownerMissionNavigation": {
+      "status": "PASS",
+      "testId": "authenticated owner-Mission link preserves active Mission across Chat navigation and reload",
+      "command": "pnpm run validate:dashboard-journey",
+      "exitCode": 0
+    },
+    "apiMissionHandoffAuthorization": {
+      "status": "PASS",
+      "testId": "missions.test.ts cross-project and cross-session active-Mission selection",
+      "command": "pnpm run test:mission-control",
+      "exitCode": 0
+    },
+    "lifecycleJourney": {
+      "status": "PASS",
+      "command": "pnpm run validate:engineering-agent-lifecycle-e2e",
+      "exitCode": 0
+    },
+    "lifecycleReceiptOfflineVerification": {
+      "status": "PASS",
+      "receiptFile": "release-evidence/engineering-agent-lifecycle/29cc6dbd-bb17-404e-8859-48c813d9fac2.json",
+      "verificationFile": "release-evidence/engineering-agent-lifecycle/29cc6dbd-bb17-404e-8859-48c813d9fac2.acceptance-offline-verification.json",
+      "receiptSha256": "0d596a76f976b45b37094e60826f1874936648fe5da285003946e0220eb0cd6f",
+      "sourceFingerprint": "1f2e58abeb36fcbdf05d2092f96859e6214348c57d947b1266a20f19d8bc0e8c",
+      "runId": "29cc6dbd-bb17-404e-8859-48c813d9fac2",
+      "testId": "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain"
+    },
+    "apiTypecheck": {
+      "status": "PASS",
+      "command": "pnpm --filter @workspace/api-server run typecheck",
+      "exitCode": 0
+    },
+    "dashboardTypecheck": {
+      "status": "PASS",
+      "command": "pnpm --filter @workspace/dashboard run typecheck",
+      "exitCode": 0
+    },
+    "openApiGeneratedDrift": {
+      "status": "PASS",
+      "command": "pnpm run codegen:check",
+      "exitCode": 0
+    },
+    "openRouterFreePath": {
+      "provider": "openrouter",
+      "actualModel": "liquid/lfm-2.5-2.6b:free",
+      "selectedModel": "liquid/lfm-2.5-2.6b:free",
+      "freePolicy": true,
+      "actualModelFreeVerified": true,
+      "responseValidation": "passed",
+      "paidFallbackEnabled": false,
+      "attemptCount": 1,
+      "maxAttempts": 1,
+      "failureCategory": null,
+      "rateLimitScope": null,
+      "retryAfterMs": null,
+      "status": "PASS",
+      "commandExitCode": 0,
+      "startedAt": "2026-10-22T01:40:08.793Z",
+      "finishedAt": "2026-10-22T01:40:32.020Z",
+      "correlationId": "29cc6dbd-bb17-404e-8859-48c813d9fac2"
+    }
+  },
+  "finishedAt": "2026-10-22T01:40:32.020Z",
+  "sourceFingerprintAfter": "1f2e58abeb36fcbdf05d2092f96859e6214348c57d947b1266a20f19d8bc0e8c"
+}

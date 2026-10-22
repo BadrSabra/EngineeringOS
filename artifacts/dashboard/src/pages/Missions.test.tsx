@@ -621,7 +621,7 @@ describe('Missions management', () => {
     expect(screen.getByText('This Mission is the Agent run')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Return to originating conversation/ })).toHaveAttribute(
       'href',
-      '/ai?projectId=project-1&sessionId=session-accepted-1&missionId=mission-1&messageId=assistant-message-1',
+      '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
     );
     expect(screen.getByTestId('link-mission-source-chat')).toHaveAttribute(
       'href',

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,8 +12,18 @@ const databaseUser = "goal_first_e2e";
 const databaseName = "postgres";
 const dashboardPort = Number(process.env.DASHBOARD_E2E_DASHBOARD_PORT ?? 23184);
 const lifecycleRun = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
-const lifecycleRunId = lifecycleRun ? randomUUID() : null;
-const lifecycleStartedAt = new Date().toISOString();
+const requestedLifecycleRunId = process.env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID;
+const lifecycleRunId = lifecycleRun
+  ? /^[a-f0-9-]{36}$/i.test(requestedLifecycleRunId ?? "")
+    ? requestedLifecycleRunId
+    : randomUUID()
+  : null;
+const requestedLifecycleStartedAt = process.env.ENGINEERING_AGENT_LIFECYCLE_STARTED_AT;
+const lifecycleStartedAt = lifecycleRun
+  && typeof requestedLifecycleStartedAt === "string"
+  && Number.isFinite(Date.parse(requestedLifecycleStartedAt))
+  ? new Date(requestedLifecycleStartedAt).toISOString()
+  : new Date().toISOString();
 const lifecycleResultsRoot = resolve(
   workspaceRoot,
   "test-results/engineering-agent-lifecycle",
@@ -264,7 +274,7 @@ async function main() {
       ? "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain"
       : liveProviderRun
         ? "goal-first: cross-checks a read-only Mission across five files and reloads Canonical Proof"
-        : "goal-first|signs in and traverses the authenticated operational shell|returns from Mission details to the original Chat session with its active Mission restored";
+        : "goal-first|signs in and traverses the authenticated operational shell|authenticated owner-Mission link preserves active Mission across Chat navigation and reload";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS

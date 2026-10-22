@@ -118,6 +118,11 @@ test("binds the chat terminal event to the lifecycle session and result", () => 
 test("does not accept blocked journey receipts as successful completion", () => {
   const blocked = {
     schemaVersion: 1,
+    runId: "123e4567-e89b-12d3-a456-426614174000",
+    startedAt: "2026-10-22T00:00:00.000Z",
+    finishedAt: "2026-10-22T00:01:00.000Z",
+    environmentIdentity: "replit-disposable-postgres-local-provider-fixture",
+    testId: "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
     status: "blocked",
     stage: "candidate-execution",
     code: "CANDIDATE_EXECUTION_BLOCKED",

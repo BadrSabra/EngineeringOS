@@ -12,6 +12,8 @@ test("source fingerprint is stable and changes with exact source bytes", async (
     execFileSync("git", ["init", "-q"], { cwd: root, stdio: "ignore" });
     await writeFile(join(root, "app.ts"), "export const value = 1;\n");
     await writeFile(join(root, "README.md"), "docs are outside the source contract\n");
+    await mkdir(join(root, "release-evidence"), { recursive: true });
+    await writeFile(join(root, "release-evidence", "receipt.json"), "{\"status\":\"passed\"}\n");
     await mkdir(join(root, "node_modules"), { recursive: true });
     await writeFile(join(root, "node_modules", "ignored.ts"), "ignored\n");
 
@@ -26,6 +28,7 @@ test("source fingerprint is stable and changes with exact source bytes", async (
     const changed = await computeEngineeringAgentSourceFingerprint({ cwd: root });
     assert.notEqual(changed, first);
     await writeFile(join(root, "README.md"), "new docs only\n");
+    await writeFile(join(root, "release-evidence", "receipt.json"), "{\"status\":\"blocked\"}\n");
     assert.equal(
       await computeEngineeringAgentSourceFingerprint({ cwd: root }),
       changed,

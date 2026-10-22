@@ -23,8 +23,16 @@ const SAFE_FAILURE_CATEGORIES = new Set([
   "server",
   "request",
   "capability",
+  "routing",
   "unknown",
 ]);
+const SAFE_RATE_LIMIT_SCOPES = new Set([
+  "upstream_shared_pool",
+  "provider_credential",
+  "account_quota",
+  "unknown",
+]);
+const MAX_SAFE_RETRY_AFTER_MS = 24 * 60 * 60 * 1_000;
 const SUPPRESSED_CONSOLE_METHODS = [
   "assert",
   "clear",
@@ -75,6 +83,23 @@ function safeFailureCategory(value) {
   return SAFE_FAILURE_CATEGORIES.has(value) ? value : "unknown";
 }
 
+function safeRateLimitScope(value) {
+  return SAFE_RATE_LIMIT_SCOPES.has(value) ? value : null;
+}
+
+function safeRetryAfterMs(value) {
+  return Number.isSafeInteger(value) && value > 0
+    ? Math.min(value, MAX_SAFE_RETRY_AFTER_MS)
+    : null;
+}
+
+function safeModelId(value) {
+  return typeof value === "string"
+    && /^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$/.test(value)
+    ? value
+    : null;
+}
+
 function baseResult({
   status = "unavailable",
   catalogUsable = false,
@@ -87,9 +112,14 @@ function baseResult({
   healthStatus = "unavailable",
   failureCategory = "unknown",
   reason = "provider_unavailable",
+  rateLimitScope = null,
+  retryAfterMs = null,
+  responseValidation = "not_attempted",
+  actualModelFreeVerified = null,
 }) {
   const attempted = attemptedModels.slice(0, maxAttempts);
   return {
+    provider: "openrouter",
     status,
     capability: "tool_calling",
     catalog: {
@@ -98,12 +128,17 @@ function baseResult({
     },
     catalogStatus: safeCatalogStatus(catalogStatus),
     selectedModel: typeof selectedModel === "string" ? selectedModel : null,
-    actualModel: typeof actualModel === "string" ? actualModel : null,
+    actualModel: safeModelId(actualModel),
     attemptedModels: attempted,
     attemptCount: attempted.length,
     maxAttempts,
-    freePolicy: attempted.length > 0,
+    freePolicy: attempted.length > 0 && actualModelFreeVerified !== false,
+    paidFallbackEnabled: false,
+    actualModelFreeVerified,
     healthStatus: healthStatus === "usable" ? "usable" : "unavailable",
+    responseValidation,
+    rateLimitScope: safeRateLimitScope(rateLimitScope),
+    retryAfterMs: safeRetryAfterMs(retryAfterMs),
     failureCategory: failureCategory === null ? null : safeFailureCategory(failureCategory),
     reason: reason === null ? null : (
       reason === "catalog_unavailable" ||
@@ -111,6 +146,8 @@ function baseResult({
       reason === "malformed_capability_output" ||
       reason === "provider_authentication_failure" ||
       reason === "provider_transport_failure" ||
+              reason === "actual_model_unreported" ||
+              reason === "actual_model_not_free_allowlisted" ||
       reason === "provider_unavailable"
         ? reason
         : "provider_unavailable"
@@ -225,6 +262,9 @@ export async function runOpenRouterFreeSmoke({
       const failureCategories = [];
       let healthStatus = "unavailable";
       let actualModel = null;
+      let rateLimitScope = null;
+      let retryAfterMs = null;
+      let actualModelFreeVerified = null;
 
       for (const model of chain) {
         attempted.push(model);
@@ -243,11 +283,18 @@ export async function runOpenRouterFreeSmoke({
           health = { status: "unavailable", report: { failureCategory: "network" } };
         }
         healthStatus = health?.status === "usable" ? "usable" : "unavailable";
+        const report = health?.report;
+        rateLimitScope = safeRateLimitScope(report?.rateLimitScope) ?? rateLimitScope;
+        retryAfterMs = safeRetryAfterMs(report?.retryAfterMs) ?? retryAfterMs;
 
         if (healthStatus === "usable") {
-          // Only echo a provider-reported model when it is still an allowlisted
-          // live free/tool-capable ID. Otherwise use the server-owned candidate.
-          actualModel = isFreeToolCapableLiveModel(health?.model) ? health.model : model;
+          // Never report the requested candidate as the actual model. The
+          // provider must identify the response model and it must be allowlisted.
+          const reportedModel = safeModelId(health?.model);
+          actualModelFreeVerified = reportedModel
+            ? isFreeToolCapableLiveModel(reportedModel)
+            : false;
+          actualModel = reportedModel;
           break;
         }
 
@@ -258,26 +305,37 @@ export async function runOpenRouterFreeSmoke({
         attempted.length > 0 &&
         failureCategories.length === attempted.length &&
         failureCategories.every((category) => category === "capability");
-      const failureCategory = actualModel
+      const actualModelAllowed = Boolean(
+        healthStatus === "usable"
+        && actualModel
+        && actualModelFreeVerified,
+      );
+      const failureCategory = actualModelAllowed
         ? null
         : allCapabilityFailures
           ? "capability"
+          : healthStatus === "usable"
+            ? "routing"
           : failureCategories.includes("authentication")
             ? "authentication"
             : failureCategories.includes("network")
               ? "network"
               : failureCategories[0] ?? "unknown";
-      const reason = actualModel
+      const reason = actualModelAllowed
         ? null
         : allCapabilityFailures
           ? "malformed_capability_output"
+          : healthStatus === "usable"
+            ? actualModel
+              ? "actual_model_not_free_allowlisted"
+              : "actual_model_unreported"
           : failureCategories.includes("authentication")
             ? "provider_authentication_failure"
             : failureCategories.includes("network")
               ? "provider_transport_failure"
               : "provider_unavailable";
       const passed = healthStatus === "usable" &&
-        Boolean(actualModel) &&
+        actualModelAllowed &&
         attempted.every(isFreeToolCapableLiveModel);
 
       return baseResult({
@@ -291,6 +349,12 @@ export async function runOpenRouterFreeSmoke({
         healthStatus,
         failureCategory,
         reason,
+        rateLimitScope,
+        retryAfterMs,
+        responseValidation: healthStatus === "usable"
+          ? passed ? "passed" : "failed"
+          : "not_verified",
+        actualModelFreeVerified,
       });
     } catch {
       return baseResult({
