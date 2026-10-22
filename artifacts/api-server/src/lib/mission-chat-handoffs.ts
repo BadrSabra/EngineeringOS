@@ -85,11 +85,17 @@ export async function dispatchMissionChatHandoff(handoffId: string) {
  * Replays handoffs committed before their in-process dispatch completed.
  * The Mission Runtime remains the only execution and recovery owner.
  */
-export async function dispatchPendingMissionChatHandoffs(limit = 32): Promise<number> {
+export async function dispatchPendingMissionChatHandoffs(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const pending = await db
     .select({ id: aiMissionHandoffsTable.id })
     .from(aiMissionHandoffsTable)
-    .where(eq(aiMissionHandoffsTable.dispatchStatus, "pending"))
+    .where(and(
+      eq(aiMissionHandoffsTable.dispatchStatus, "pending"),
+      scopeProjectId ? eq(aiMissionHandoffsTable.projectId, scopeProjectId) : undefined,
+    ))
     .orderBy(asc(aiMissionHandoffsTable.createdAt), asc(aiMissionHandoffsTable.id))
     .limit(limit);
 

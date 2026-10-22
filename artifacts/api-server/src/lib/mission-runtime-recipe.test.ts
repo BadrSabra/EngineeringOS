@@ -506,7 +506,75 @@ describe("Mission recipe dispatch", () => {
       })
       .where(eq(aiGoalsTable.id, deliveryGoalId));
 
-    expect(await wakeReadyMissionGoals()).toBe(1);
+    const foreignProjectId = randomUUID();
+    const foreignMissionId = randomUUID();
+    const foreignDependencyGoalId = randomUUID();
+    const foreignWaitingGoalId = randomUUID();
+    const foreignTaskId = randomUUID();
+    const foreignPlanRevision = createHash("sha256")
+      .update(randomUUID())
+      .digest("hex");
+    const foreignRoot = await createTestRoot("scope-foreign");
+    projectIds.push(foreignProjectId);
+    await db.insert(projectsTable).values({
+      id: foreignProjectId,
+      ownerId: "other-user",
+      name: `scope-foreign-${foreignProjectId.slice(0, 8)}`,
+      rootPath: foreignRoot,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: foreignMissionId,
+      projectId: foreignProjectId,
+      userId: "other-user",
+      title: "Unassigned user Mission",
+      intent: "Remain untouched by the project-scoped worker",
+      status: "active",
+      scope: { kind: "project", projectId: foreignProjectId },
+      autonomyPolicy: { activePlanRevision: foreignPlanRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: foreignDependencyGoalId,
+        missionId: foreignMissionId,
+        projectId: foreignProjectId,
+        title: "Completed dependency without accepted proof",
+        status: "completed",
+        successCriteria: { stepId: "foreign-prerequisite" },
+        outcomeContract: { planRevision: { hash: foreignPlanRevision } },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: foreignWaitingGoalId,
+        missionId: foreignMissionId,
+        projectId: foreignProjectId,
+        title: "Other user's waiting Goal",
+        status: "waiting_for_event",
+        blockedReason: "dependencies_pending",
+        successCriteria: { stepId: "foreign-successor" },
+        outcomeContract: { planRevision: { hash: foreignPlanRevision } },
+        nextAction: { kind: "task", taskId: foreignTaskId },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId: foreignMissionId,
+      projectId: foreignProjectId,
+      goalId: foreignWaitingGoalId,
+      dependsOnGoalId: foreignDependencyGoalId,
+      planRevision: foreignPlanRevision,
+      createdAt: now,
+    });
+
+    expect(await wakeReadyMissionGoals(32, projectId)).toBe(1);
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();
     expect(scheduleTaskExecution).toHaveBeenCalledWith(
       successorTaskId,
@@ -532,7 +600,29 @@ describe("Mission recipe dispatch", () => {
       ));
     expect(successorDispatches).toHaveLength(1);
 
+    const [foreignAfterScopedDispatch] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, foreignWaitingGoalId));
+    expect(foreignAfterScopedDispatch).toEqual({
+      status: "waiting_for_event",
+      blockedReason: "dependencies_pending",
+    });
+
+    // A normal, unscoped worker retains its prior behavior and evaluates the
+    // other project; this fixture is deliberately missing canonical proof.
     expect(await wakeReadyMissionGoals()).toBe(0);
+    const [foreignAfterNormalDispatch] = await db
+      .select({
+        status: aiGoalsTable.status,
+        blockedReason: aiGoalsTable.blockedReason,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, foreignWaitingGoalId));
+    expect(foreignAfterNormalDispatch?.status).not.toBe("waiting_for_event");
     expect(scheduleTaskExecution).toHaveBeenCalledOnce();
     const repeatedSuccessorDispatches = await db
       .select({ id: eventsTable.id })

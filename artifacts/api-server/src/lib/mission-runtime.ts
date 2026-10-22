@@ -75,6 +75,7 @@ import {
   type MissionAgentActionReceiptIdentity,
 } from "./mission-agent-action-receipt.js";
 import { resolveMissionLineage } from "./mission-lineage.js";
+import { getLifecycleWorkerScopeProjectId } from "./worker-scope.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -2113,7 +2114,10 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
  * are intentionally excluded: the shared AI execution reconciler owns those
  * uncertain leases and external-effect recovery.
  */
-export async function dispatchPendingMissionRecipes(limit = 32): Promise<number> {
+export async function dispatchPendingMissionRecipes(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const pending = await db
     .select({
       executionId: aiExecutionsTable.id,
@@ -2133,6 +2137,7 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
     .where(and(
       eq(aiExecutionsTable.status, "queued"),
       isNotNull(aiExecutionsTable.goalId),
+      scopeProjectId ? eq(aiExecutionsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiExecutionsTable.createdAt, aiExecutionsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -2256,6 +2261,14 @@ export async function runMissionGoal(params: {
       .limit(1);
     if (!goalIdentity) {
       return { status: "conflict" as const, goalId: params.goalId, reason: "goal_not_found" };
+    }
+    const workerScopeProjectId = getLifecycleWorkerScopeProjectId();
+    if (workerScopeProjectId && goalIdentity.projectId !== workerScopeProjectId) {
+      return {
+        status: "conflict" as const,
+        goalId: params.goalId,
+        reason: "worker_project_scope_mismatch",
+      };
     }
 
     const [mission] = await tx
@@ -3146,7 +3159,7 @@ export async function runMissionGoal(params: {
     });
   }
   if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
-    await wakeReadyMissionGoals();
+    await wakeReadyMissionGoals(32, getLifecycleWorkerScopeProjectId());
   }
   return decision;
 }
@@ -3157,7 +3170,10 @@ export async function runMissionGoal(params: {
  * left queued, while leaving proof and continuation authorization to the
  * existing Mission runtime.
  */
-export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
+export async function wakeReadyMissionGoals(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const candidates = await db
     .select({
       id: aiGoalsTable.id,
@@ -3165,19 +3181,22 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
       projectId: aiGoalsTable.projectId,
     })
     .from(aiGoalsTable)
-    .where(or(
-      and(
-        eq(aiGoalsTable.status, "waiting_for_event"),
-        eq(aiGoalsTable.blockedReason, "dependencies_pending"),
-      ),
-      and(
-        eq(aiGoalsTable.status, "queued"),
-        inArray(
-          aiGoalsTable.id,
-          db.select({ goalId: aiGoalDependenciesTable.goalId })
-            .from(aiGoalDependenciesTable),
+    .where(and(
+      or(
+        and(
+          eq(aiGoalsTable.status, "waiting_for_event"),
+          eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+        ),
+        and(
+          eq(aiGoalsTable.status, "queued"),
+          inArray(
+            aiGoalsTable.id,
+            db.select({ goalId: aiGoalDependenciesTable.goalId })
+              .from(aiGoalDependenciesTable),
+          ),
         ),
       ),
+      scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3263,7 +3282,10 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
  * has run. This never repeats the filesystem apply; it only evaluates stored
  * acceptance, observation, and World State proof.
  */
-export async function wakeApplyChangesMissionGoals(limit = 32): Promise<number> {
+export async function wakeApplyChangesMissionGoals(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const candidates = await db.select({
     goalId: aiGoalsTable.id,
     userId: aiMissionsTable.userId,
@@ -3275,6 +3297,7 @@ export async function wakeApplyChangesMissionGoals(limit = 32): Promise<number> 
     .where(and(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "apply_changes_pending"),
+      scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3300,7 +3323,10 @@ export async function wakeApplyChangesMissionGoals(limit = 32): Promise<number> 
  * The durable World Transition is rechecked under Goal/Mission locks before
  * the target is queued; runMissionGoal repeats that gate before dispatch.
  */
-export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<number> {
+export async function wakeRuntimeTransitionMissionGoals(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const candidates = await db
     .select({
       id: aiGoalsTable.id,
@@ -3311,6 +3337,7 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
     .where(and(
       eq(aiGoalsTable.status, "waiting_for_event"),
       eq(aiGoalsTable.blockedReason, "runtime_transition_pending"),
+      scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3462,7 +3489,10 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
  * external approval event, not a timer. The row lock makes overlapping
  * sweepers claim a Goal only once.
  */
-export async function wakeDueMissionGoals(limit = 32): Promise<number> {
+export async function wakeDueMissionGoals(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const now = new Date();
   const dueGoals = await db
     .select({
@@ -3475,6 +3505,7 @@ export async function wakeDueMissionGoals(limit = 32): Promise<number> {
       eq(aiGoalsTable.status, "waiting_for_event"),
       isNotNull(aiGoalsTable.nextWakeAt),
       lte(aiGoalsTable.nextWakeAt, now),
+      scopeProjectId ? eq(aiGoalsTable.projectId, scopeProjectId) : undefined,
     ))
     .orderBy(aiGoalsTable.nextWakeAt, aiGoalsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
@@ -3735,14 +3766,20 @@ export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<
  * event-wait state. Replay is bounded and safe because Goal wake is row-locked
  * and the inbox event remains idempotent by eventId.
  */
-export async function replayPendingMissionEvents(limit = 32): Promise<number> {
+export async function replayPendingMissionEvents(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const rows = await db
     .select({
       id: eventsTable.id,
       payload: eventsTable.payload,
     })
     .from(eventsTable)
-    .where(eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE))
+    .where(and(
+      eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+      scopeProjectId ? eq(eventsTable.projectId, scopeProjectId) : undefined,
+    ))
     .orderBy(eventsTable.timestamp, eventsTable.id)
     .limit(Math.max(1, Math.min(limit, 100)));
 
@@ -3750,6 +3787,7 @@ export async function replayPendingMissionEvents(limit = 32): Promise<number> {
   for (const row of rows) {
     const stored = storedMissionEvent(row.payload);
     if (!stored?.envelope || stored.processedAt) continue;
+    if (scopeProjectId && stored.envelope.projectId !== scopeProjectId) continue;
     const woken = await wakeMissionGoalsForEvent(stored.envelope);
     if (woken === 0) continue;
     await db.update(eventsTable)

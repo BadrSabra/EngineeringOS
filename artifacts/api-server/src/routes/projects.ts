@@ -30,6 +30,10 @@ import { recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runScanJob } from "../lib/scan-runner.js";
 import { establishProjectRoot } from "../lib/project-root.js";
+import {
+  getLifecycleWorkerScopeProjectId,
+  LIFECYCLE_WORKER_SCOPE_PROJECT_HEADER,
+} from "../lib/worker-scope.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { getProjectWorldState } from "../lib/agent-state/world-state.js";
@@ -97,10 +101,14 @@ router.get("/projects", async (req, res) => {
 
   try {
     const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
+    const scopeProjectId = getLifecycleWorkerScopeProjectId();
     const projects = await db
       .select()
       .from(projectsTable)
-      .where(eq(projectsTable.ownerId, req.userId))
+      .where(and(
+        eq(projectsTable.ownerId, req.userId),
+        scopeProjectId ? eq(projectsTable.id, scopeProjectId) : undefined,
+      ))
       .orderBy(desc(projectsTable.createdAt), desc(projectsTable.id))
       .limit(pagination.pageSize)
       .offset(pagination.offset);
@@ -224,6 +232,17 @@ router.get("/projects/:projectId/world-state", requireProjectAccess, async (req,
 // never from the client body (CreateProjectBody has no ownerId field).
 router.post("/projects", async (req, res) => {
   const body = CreateProjectBody.parse(req.body);
+  const scopeProjectId = getLifecycleWorkerScopeProjectId();
+  const requestedScopeProjectId = req.get(LIFECYCLE_WORKER_SCOPE_PROJECT_HEADER);
+  if (
+    (scopeProjectId && requestedScopeProjectId !== scopeProjectId)
+    || (!scopeProjectId && requestedScopeProjectId)
+  ) {
+    return res.status(409).json({
+      error: "Project creation does not match the active lifecycle worker scope.",
+      reason: "worker_project_scope_mismatch",
+    });
+  }
 
   // Establish a trustworthy canonical root BEFORE anything is persisted.
   // The client-supplied rootPath is only a candidate — it must exist, be a
@@ -244,7 +263,7 @@ router.post("/projects", async (req, res) => {
   const correlationId = randomUUID();
   const project = await db.transaction(async (tx) => {
     const [created] = await tx.insert(projectsTable).values({
-      id: randomUUID(), ownerId: req.userId, ...body,
+      id: scopeProjectId ?? randomUUID(), ownerId: req.userId, ...body,
       rootPath: rootResult.canonicalPath, status: "active",
       createdAt: now, updatedAt: now,
     }).returning();

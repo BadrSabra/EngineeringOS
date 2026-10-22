@@ -4,9 +4,11 @@ import { logger } from "./lib/logger";
 import { getPort } from "./config";
 import {
   reconcileStuckJobs,
+  startScopedMissionLifecycleDispatcher,
   startDurableJobDispatcher,
   startStaleJobSweep,
 } from "./lib/job-reconciliation";
+import { getLifecycleWorkerScopeProjectId } from "./lib/worker-scope";
 import {
   reportDeadRootPaths,
   ensureEncryptionKey,
@@ -63,6 +65,7 @@ async function assertDatabaseSchema(): Promise<void> {
 }
 
 const port = getPort();
+const workerScopeProjectId = getLifecycleWorkerScopeProjectId();
 let httpServer: Server | undefined;
 let staleJobSweep: NodeJS.Timeout | undefined;
 let durableJobDispatcher: NodeJS.Timeout | undefined;
@@ -101,7 +104,9 @@ async function shutdown(signal: string): Promise<void> {
   if (durableJobDispatcher) clearInterval(durableJobDispatcher);
   if (workspaceRuntimeSweep) clearInterval(workspaceRuntimeSweep);
   memorySweep?.stop();
-  await workspaceRuntime.shutdown({ preserveProcesses: true });
+  if (!workerScopeProjectId) {
+    await workspaceRuntime.shutdown({ preserveProcesses: true });
+  }
   await new Promise<void>((resolve) => {
     if (!httpServer) return resolve();
     httpServer.close(() => resolve());
@@ -153,72 +158,79 @@ try {
   process.exit(1);
 }
 
-// Ensure the AI credential encryption key is available before any background
-// job can decrypt stored provider credentials. Auto-generates and persists one
-// if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
-await ensureEncryptionKey();
+if (!workerScopeProjectId) {
+  // Ensure the AI credential encryption key is available before any background
+  // job can decrypt stored provider credentials. Auto-generates and persists one
+  // if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
+  await ensureEncryptionKey();
+}
 
 // Start the background free-model catalog refresh scheduler.  Runs every 5
 // minutes so the resolver always has a fresh live list of free-tier models —
 // even when the server is idle between user sessions.  The first refresh
 // fires immediately (before traffic arrives) so the catalog is pre-warmed.
-const { stop: stopCatalogRefresh } = startCatalogRefreshScheduler();
+const { stop: stopCatalogRefresh } = workerScopeProjectId
+  ? { stop: () => undefined }
+  : startCatalogRefreshScheduler();
 
 // PR-006: validate AI providers before accepting traffic — checks key presence,
 // verifies Groq's configured defaults against its live catalog, and refreshes
 // the dynamic OpenRouter catalog. The validator returns actionable provider
 // results instead of throwing for expected provider failures.
-try {
-  await validateAiProvidersAtStartup({
-    onGroqModelCatalogDrift: ({ role, modelId }) =>
-      recordGroqModelCatalogDrift(role, modelId),
-    onGroqModelCatalogUnavailable: () => recordGroqModelCatalogUnavailable(),
-    onGroqModelCatalogHealthy: () => resolveGroqModelCatalogAlerts(),
-    onGroqModelCatalogNotConfigured: () => resolveGroqModelCatalogAlerts(),
-  });
-} catch (err: unknown) {
-  logger.warn(
-    { err },
-    "AI provider startup validation failed — continuing without AI validation",
+if (!workerScopeProjectId) {
+  try {
+    await validateAiProvidersAtStartup({
+      onGroqModelCatalogDrift: ({ role, modelId }) =>
+        recordGroqModelCatalogDrift(role, modelId),
+      onGroqModelCatalogUnavailable: () => recordGroqModelCatalogUnavailable(),
+      onGroqModelCatalogHealthy: () => resolveGroqModelCatalogAlerts(),
+      onGroqModelCatalogNotConfigured: () => resolveGroqModelCatalogAlerts(),
+    });
+  } catch (err: unknown) {
+    logger.warn(
+      { err },
+      "AI provider startup validation failed — continuing without AI validation",
+    );
+  }
+}
+
+if (!workerScopeProjectId) {
+  // Reconcile any scan/discovery jobs orphaned by a previous process (crash,
+  // deploy, kill) before accepting traffic — see job-reconciliation.ts. This
+  // never throws, so a reconciliation bug can't block startup.
+  await reconcileStuckJobs();
+
+  // Recover project-owned Preview processes whose previous API worker exited.
+  // The durable runtime row owns the lease; the detached process is adopted only
+  // when its recorded PID and port are both still reachable.
+  try {
+    await workspaceRuntime.recover();
+  } catch (err) {
+    logger.warn({ err }, "workspace runtime recovery failed; runtime controls remain available");
+  }
+
+  // Report (read-only) any projects whose root_path points to a dead temp
+  // directory (e.g. a legacy GitHub import clone under /tmp/eos-git-*). Roots
+  // are never rewritten — scans of such projects fail with root_unavailable
+  // until the project is re-imported via discovery. Never throws.
+  await reportDeadRootPaths();
+
+  // These maintenance operations are deliberately omitted from the
+  // project-scoped lifecycle test process.
+  await scrubHistoricalValidationDetails();
+  await pruneHistoricalAiDiagnostics();
+  await pruneTaskExecutionHistory();
+  await pruneExpiredAiUsage();
+
+  // Reload audit writes that failed in a previous process before accepting
+  // traffic, then let the normal retry worker drain them in the background.
+  await loadPendingAudits();
+} else {
+  logger.info(
+    { projectId: workerScopeProjectId },
+    "starting release lifecycle API with project-scoped work only",
   );
 }
-
-// Reconcile any scan/discovery jobs orphaned by a previous process (crash,
-// deploy, kill) before accepting traffic — see job-reconciliation.ts. This
-// never throws, so a reconciliation bug can't block startup.
-await reconcileStuckJobs();
-
-// Recover project-owned Preview processes whose previous API worker exited.
-// The durable runtime row owns the lease; the detached process is adopted only
-// when its recorded PID and port are both still reachable.
-try {
-  await workspaceRuntime.recover();
-} catch (err) {
-  logger.warn({ err }, "workspace runtime recovery failed; runtime controls remain available");
-}
-
-// Report (read-only) any projects whose root_path points to a dead temp
-// directory (e.g. a legacy GitHub import clone under /tmp/eos-git-*). Roots
-// are never rewritten — scans of such projects fail with root_unavailable
-// until the project is re-imported via discovery. Never throws.
-await reportDeadRootPaths();
-
-// Remove raw validation commands, output, failed-test details, and changed
-// files from records written by older server builds. The migration is
-// idempotent and preserves proof/exit metadata.
-await scrubHistoricalValidationDetails();
-// Compact old terminal traces while preserving proof status and exit codes.
-await pruneHistoricalAiDiagnostics();
-// Keep compact task history bounded without touching audit logs/events or
-// active and resumable executions. The sweep is batched and retryable.
-await pruneTaskExecutionHistory();
-// Keep provider-attempt telemetry bounded across restarts. This sweep is
-// retry-safe and independent from durable execution/audit retention.
-await pruneExpiredAiUsage();
-
-// Reload audit writes that failed in a previous process before accepting
-// traffic, then let the normal retry worker drain them in the background.
-await loadPendingAudits();
 
 httpServer = app.listen(port, (err) => {
   if (err) {
@@ -237,24 +249,18 @@ httpServer = app.listen(port, (err) => {
   // PR-02: start the periodic stale-job sweep now that the server is up.
   // Handles scan jobs that get stuck while the process is running (not just
   // crash-recovery, which is covered by reconcileStuckJobs above).
-  staleJobSweep = startStaleJobSweep();
-
-  // Durable dispatch is separate from the slow stale-job sweep. It scans the
-  // persisted queue rows frequently so another instance can recover work that
-  // was committed just before the original process disappeared.
-  durableJobDispatcher = startDurableJobDispatcher();
-  workspaceRuntimeSweep = setInterval(() => {
-    void workspaceRuntime.recover().catch((err) => {
-      logger.warn({ err }, "workspace runtime recovery sweep failed");
-    });
-  }, 10_000);
-
-  // Start the session-memory maintenance worker — it recovers durable memory
-  // writes and prunes/decays rows. Retention runs every 6 hours, while the
-  // outbox is polled more frequently for prompt delivery recovery.
-  memorySweep = startMemorySweep();
-
-  // Audit rows that failed after a successful business mutation are retried
-  // in the background; the worker keeps them visible through /healthz.
-  void drainPendingAudits();
+  if (workerScopeProjectId) {
+    durableJobDispatcher =
+      startScopedMissionLifecycleDispatcher(workerScopeProjectId);
+  } else {
+    staleJobSweep = startStaleJobSweep();
+    durableJobDispatcher = startDurableJobDispatcher();
+    workspaceRuntimeSweep = setInterval(() => {
+      void workspaceRuntime.recover().catch((err) => {
+        logger.warn({ err }, "workspace runtime recovery sweep failed");
+      });
+    }, 10_000);
+    memorySweep = startMemorySweep();
+    void drainPendingAudits();
+  }
 });

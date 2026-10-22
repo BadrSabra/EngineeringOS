@@ -216,3 +216,20 @@ client can claim it.
 **How to apply:** Keep this choreography inside the opt-in recovery harness,
 using a loopback disposable database and an isolated receipt. Never shorten the
 production lease or change the managed API workflow to make this test pass.
+
+## Shared Development Mission lifecycle E2E
+
+A controlled lifecycle API child must be pinned to one explicit project UUID,
+skip global recovery and maintenance at startup, and enforce that scope in
+project access and Mission dispatch. Do not run the Development journey while a
+shared unscoped API worker can race the test provider fixture or active Goals.
+
+**Why:** Shared Development may contain active user Goals and task leases; an
+extra global dispatcher can claim unrelated work, while a competing unscoped
+worker can make a fixture journey nondeterministic.
+
+**How to apply:** Prove scoped selection and unchanged ordinary-worker behavior
+on a loopback disposable database. Immediately before any Development run,
+recheck actual Goal/task/execution/delivery state and API schema readiness. If
+the shared worker is still unscoped or the run can affect existing work, stop;
+do not restart the dashboard merely to clear an unrelated port collision.

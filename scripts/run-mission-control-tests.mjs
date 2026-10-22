@@ -158,6 +158,18 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Proving the scoped lifecycle worker leaves another user's ready Goal untouched.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/worker-scope.test.ts",
+      "src/lib/mission-runtime-recipe.test.ts",
+      "-t",
+      "lifecycle worker project scope|releases a dependent Goal only after the GitHub delivery proof is current",
+    ], {
+      env: databaseEnv,
+    });
+
     console.log("Running the isolated unlinked Apply-Mission identity rejection test.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",

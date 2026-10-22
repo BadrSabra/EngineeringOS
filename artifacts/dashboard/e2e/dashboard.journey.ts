@@ -6174,6 +6174,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     const browserErrors = installBrowserErrorMonitor(page);
     const projectRoot = process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+    const workerScopeProjectId =
+      process.env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID ?? "";
+    expect(workerScopeProjectId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
     const bareRemotePath = process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
     const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
     const sourceFingerprint = process.env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT ?? "";
@@ -6388,17 +6393,23 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const projectResponse = await page.evaluate(async (input) => {
         const response = await fetch("/api/projects", {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
+          headers: {
+            "content-type": "application/json",
+            "x-engineeringos-lifecycle-worker-project-id": input.workerScopeProjectId,
+          },
+          body: JSON.stringify(input.body),
         });
         return {
           status: response.status,
           body: await response.json().catch(() => null),
         };
       }, {
-        name: projectName,
-        rootPath: projectRoot,
-        language: "TypeScript",
+        workerScopeProjectId,
+        body: {
+          name: projectName,
+          rootPath: projectRoot,
+          language: "TypeScript",
+        },
       });
       expect(
         projectResponse.status,
@@ -6407,6 +6418,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const project = projectResponse.body as { id?: unknown } | null;
       expect(typeof project?.id).toBe("string");
       const projectId = project!.id as string;
+      expect(projectId).toBe(workerScopeProjectId);
       chain.projectId = projectId;
 
       const gitConfigResponse = await page.evaluate(async ({ id, remoteUrl }) => {

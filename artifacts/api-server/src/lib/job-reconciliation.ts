@@ -1089,6 +1089,42 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
 
+/**
+ * Release-test worker that is pinned to one explicitly assigned project.
+ * It intentionally avoids the general scan/discovery/runtime/stale-job
+ * sweepers; only Mission lifecycle work for this project is dispatched.
+ */
+export function startScopedMissionLifecycleDispatcher(
+  projectId: string,
+): NodeJS.Timeout {
+  const dispatch = async () => {
+    try {
+      await dispatchAutonomousTaskRecoveries({ projectId });
+      await reconcileAutomaticMissionReplans(16, projectId);
+      await dispatchPendingMissionRecipes(32, projectId);
+      await replayPendingMissionEvents(32, projectId);
+      await dispatchPendingShadowReplays(32, projectId);
+      await dispatchPendingMissionChatHandoffs(32, projectId);
+      await wakeDueMissionGoals(32, projectId);
+      await wakeReadyMissionGoals(32, projectId);
+      await wakeRuntimeTransitionMissionGoals(32, projectId);
+      await wakeApplyChangesMissionGoals(32, projectId);
+    } catch (err) {
+      logger.error(
+        { err, projectId },
+        "scoped lifecycle worker dispatch failed",
+      );
+    }
+  };
+
+  logger.info(
+    { projectId, intervalMs: DURABLE_JOB_DISPATCH_INTERVAL_MS },
+    "project-scoped lifecycle dispatcher scheduled",
+  );
+  void dispatch();
+  return setInterval(() => void dispatch(), DURABLE_JOB_DISPATCH_INTERVAL_MS);
+}
+
 async function retryTransitionsAndReconcileApplyGoals(): Promise<void> {
   try {
     await retryPendingRuntimeStartTransitions();

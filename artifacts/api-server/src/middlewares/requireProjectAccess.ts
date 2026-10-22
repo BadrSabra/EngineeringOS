@@ -27,6 +27,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { db, projectsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { isProjectInLifecycleWorkerScope } from "../lib/worker-scope.js";
 
 export async function requireProjectAccess(
   req: Request,
@@ -96,6 +97,10 @@ async function loadOwnedProject(
     res.status(404).json({ error: "Project not found" });
     return undefined;
   }
+  if (!isProjectInLifecycleWorkerScope(project.id)) {
+    res.status(404).json({ error: "Project not found" });
+    return undefined;
+  }
 
   if (project.ownerId !== req.userId) {
     res.status(403).json({ error: "You do not have access to this project" });
@@ -129,6 +134,10 @@ export async function loadProjectByIdForUser(
     .limit(1);
   const project = rows[0];
   if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return undefined;
+  }
+  if (!isProjectInLifecycleWorkerScope(project.id)) {
     res.status(404).json({ error: "Project not found" });
     return undefined;
   }

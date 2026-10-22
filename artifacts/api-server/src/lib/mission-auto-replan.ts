@@ -511,11 +511,17 @@ export async function autoReplanMission(
   };
 }
 
-export async function reconcileAutomaticMissionReplans(limit = 16): Promise<number> {
+export async function reconcileAutomaticMissionReplans(
+  limit = 16,
+  scopeProjectId?: string,
+): Promise<number> {
   const candidates = await db
     .select({ id: aiMissionsTable.id })
     .from(aiMissionsTable)
-    .where(eq(aiMissionsTable.status, "needs_replan"))
+    .where(and(
+      eq(aiMissionsTable.status, "needs_replan"),
+      scopeProjectId ? eq(aiMissionsTable.projectId, scopeProjectId) : undefined,
+    ))
     .orderBy(asc(aiMissionsTable.updatedAt), asc(aiMissionsTable.id))
     .limit(Math.max(1, Math.min(limit, 64)));
   let replanned = 0;

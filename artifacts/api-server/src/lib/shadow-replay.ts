@@ -1530,13 +1530,17 @@ export async function runShadowReplayAttempt(
   }
 }
 
-export async function dispatchPendingShadowReplays(limit = 32): Promise<number> {
+export async function dispatchPendingShadowReplays(
+  limit = 32,
+  scopeProjectId?: string,
+): Promise<number> {
   const pending = await db
     .select({ id: aiShadowReplaysTable.id, userId: aiShadowReplaysTable.userId })
     .from(aiShadowReplaysTable)
-    .where(
+    .where(and(
       inArray(aiShadowReplaysTable.status, ["queued", "running"]),
-    )
+      scopeProjectId ? eq(aiShadowReplaysTable.projectId, scopeProjectId) : undefined,
+    ))
     .limit(Math.max(1, Math.min(limit, 100)));
   let dispatched = 0;
   for (const replay of pending) {

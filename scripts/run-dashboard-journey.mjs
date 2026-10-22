@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -20,6 +21,18 @@ if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
     "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
   );
   process.exit(2);
+}
+
+if (process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1") {
+  const scopeProjectId =
+    process.env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID ?? randomUUID();
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(scopeProjectId)
+  ) {
+    throw new Error("Lifecycle worker scope must be a UUID project id.");
+  }
+  process.env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID = scopeProjectId;
 }
 
 const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
