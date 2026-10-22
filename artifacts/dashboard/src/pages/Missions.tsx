@@ -76,12 +76,10 @@ type ChatHandoffProjection = NonNullable<MissionProjection['agentControl']>['han
 
 function chatHandoffHref(
   projectId: string,
-  missionId: string,
   handoff: ChatHandoffProjection,
 ): string | null {
   return buildMissionOriginChatHref({
     projectId,
-    missionId,
     sessionId: handoff.sessionId,
     messageId: handoff.assistantMessageId ?? handoff.messageId,
   });
@@ -2292,7 +2290,6 @@ export default function Missions() {
                                 <Link
                                   href={chatHandoffHref(
                                     String(activeMission.projectId),
-                                    activeMission.id,
                                     projection.agentControl.handoff,
                                   )!}
                                   data-testid="link-mission-handoff-chat"

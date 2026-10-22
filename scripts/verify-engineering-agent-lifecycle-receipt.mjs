@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,6 +12,11 @@ const lifecycleSentence =
   "Lifecycle acceptance sentinel: retained after approved delivery.";
 const receiptKeys = new Set([
   "schemaVersion",
+  "runId",
+  "startedAt",
+  "finishedAt",
+  "environmentIdentity",
+  "testId",
   "status",
   "stage",
   "code",
@@ -54,10 +59,45 @@ function hasOnlyKeys(value, allowedKeys, label) {
 
 function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerprint) {
   hasOnlyKeys(value, receiptKeys, "receipt");
-  for (const required of ["schemaVersion", "status"]) {
+  for (const required of [
+    "schemaVersion",
+    "runId",
+    "startedAt",
+    "finishedAt",
+    "environmentIdentity",
+    "testId",
+    "status",
+  ]) {
     assert.ok(Object.hasOwn(value, required), `receipt_missing_${required}`);
   }
   assert.equal(value.schemaVersion, 1, "receipt_schema_version_invalid");
+  assert.match(
+    typeof value.runId === "string" ? value.runId : "",
+    /^[a-f0-9-]{36}$/i,
+    "receipt_run_id_invalid",
+  );
+  assert.ok(
+    typeof value.startedAt === "string" && Number.isFinite(Date.parse(value.startedAt)),
+    "receipt_started_at_invalid",
+  );
+  assert.ok(
+    typeof value.finishedAt === "string" && Number.isFinite(Date.parse(value.finishedAt)),
+    "receipt_finished_at_invalid",
+  );
+  assert.ok(
+    Date.parse(value.finishedAt) >= Date.parse(value.startedAt),
+    "receipt_finished_before_started",
+  );
+  assert.equal(
+    value.environmentIdentity,
+    "replit-disposable-postgres-local-provider-fixture",
+    "receipt_environment_identity_invalid",
+  );
+  assert.equal(
+    value.testId,
+    "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
+    "receipt_test_id_invalid",
+  );
   assert.equal(value.status, "passed", `receipt_not_passed:${value.stage ?? "unknown"}`);
   for (const required of ["stage", "chain", "sourceFingerprint"]) {
     assert.ok(Object.hasOwn(value, required), `receipt_missing_${required}`);
@@ -198,6 +238,54 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
     "reloaded_chat_must_retain_source_mission",
   );
   return value;
+}
+
+async function writeJsonAtomically(filePath, value) {
+  await mkdir(dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
+  const contents = `${JSON.stringify(value, null, 2)}\n`;
+  JSON.parse(contents);
+  try {
+    await writeFile(temporaryPath, contents, "utf8");
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function verifyOfflineReceipt(receiptPath, reportPath) {
+  assert.ok(receiptPath, "lifecycle_receipt_path_required");
+  const resolvedReceiptPath = resolve(receiptPath);
+  const currentSourceFingerprint = await computeEngineeringAgentSourceFingerprint({
+    cwd: workspaceRoot,
+  });
+  const receiptText = await readFile(resolvedReceiptPath, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") throw new Error("lifecycle_receipt_missing");
+    throw error;
+  });
+  const receipt = validateReceipt(
+    JSON.parse(receiptText),
+    currentSourceFingerprint,
+  );
+  const report = {
+    schemaVersion: 1,
+    status: "passed",
+    mode: "offline",
+    verifiedAt: new Date().toISOString(),
+    runId: receipt.runId,
+    testId: receipt.testId,
+    receiptFile: relative(workspaceRoot, resolvedReceiptPath).split(sep).join("/"),
+    receiptSha256: createHash("sha256").update(receiptText).digest("hex"),
+    sourceFingerprint: currentSourceFingerprint,
+  };
+  if (reportPath) {
+    await writeJsonAtomically(resolve(reportPath), report);
+  }
+  console.log(
+    `Lifecycle receipt offline verification passed: ${report.receiptFile} ${report.sourceFingerprint}.`,
+  );
+  return report;
 }
 
 function idSql(value, label) {
@@ -426,7 +514,7 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   requireValue(applyAcceptance?.verdict, "PROVEN", "apply_acceptance_verdict");
 }
 
-async function main() {
+async function verifyLiveReceipt() {
   const databaseUrl = process.env.DATABASE_URL;
   const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
   const projectRoot = process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
@@ -497,7 +585,16 @@ async function main() {
   );
 }
 
-export { validateReceipt };
+async function main(args = process.argv.slice(2)) {
+  if (args[0] === "--offline") {
+    await verifyOfflineReceipt(args[1], args[2]);
+    return;
+  }
+  assert.equal(args[0], "--live", "lifecycle_verifier_mode_required:--offline|--live");
+  await verifyLiveReceipt();
+}
+
+export { validateReceipt, verifyOfflineReceipt };
 
 if (
   process.argv[1]

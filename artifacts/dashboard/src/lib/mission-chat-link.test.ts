@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildMissionOriginChatHref } from './mission-chat-link';
 
 describe('buildMissionOriginChatHref', () => {
-  it('encodes the explicit project, origin session, Mission, and trusted message', () => {
+  it('encodes the project, origin session, optional Mission selection, and trusted message', () => {
     expect(buildMissionOriginChatHref({
       projectId: 'project / one',
       sessionId: 'session?two',
@@ -22,10 +22,17 @@ describe('buildMissionOriginChatHref', () => {
     })).toBe('/ai?projectId=project-1&sessionId=session-1&missionId=mission-1');
   });
 
+  it('returns to the persisted session without adding a Mission selection to the URL', () => {
+    expect(buildMissionOriginChatHref({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      messageId: 'assistant-message-1',
+    })).toBe('/ai?projectId=project-1&sessionId=session-1&messageId=assistant-message-1');
+  });
+
   it.each([
-    { projectId: '', sessionId: 'session-1', missionId: 'mission-1' },
-    { projectId: 'project-1', sessionId: ' ', missionId: 'mission-1' },
-    { projectId: 'project-1', sessionId: 'session-1', missionId: undefined },
+    { projectId: '', sessionId: 'session-1' },
+    { projectId: 'project-1', sessionId: ' ' },
   ])('does not invent an origin link when required identity is missing', (input) => {
     expect(buildMissionOriginChatHref(input)).toBeNull();
   });

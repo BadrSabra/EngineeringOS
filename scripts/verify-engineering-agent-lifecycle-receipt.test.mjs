@@ -1,10 +1,22 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
-import { validateReceipt } from "./verify-engineering-agent-lifecycle-receipt.mjs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
+import {
+  validateReceipt,
+  verifyOfflineReceipt,
+} from "./verify-engineering-agent-lifecycle-receipt.mjs";
 
 function validReceipt() {
   return {
     schemaVersion: 1,
+    runId: "123e4567-e89b-12d3-a456-426614174000",
+    startedAt: "2026-10-22T00:00:00.000Z",
+    finishedAt: "2026-10-22T00:01:00.000Z",
+    environmentIdentity: "replit-disposable-postgres-local-provider-fixture",
+    testId: "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
     status: "passed",
     stage: "complete",
     sourceFingerprint: "e".repeat(64),
@@ -86,6 +98,10 @@ test("rejects extra, missing, and inconsistent receipt fields", () => {
   const mismatchedFinalMission = validReceipt();
   mismatchedFinalMission.chain.finalMissionId = "another_mission";
   assert.throws(() => validateReceipt(mismatchedFinalMission), /final_mission_id_must_match_apply_mission/);
+
+  const missingRunId = validReceipt();
+  delete missingRunId.runId;
+  assert.throws(() => validateReceipt(missingRunId), /receipt_missing_runId/);
 });
 
 test("binds the chat terminal event to the lifecycle session and result", () => {
@@ -107,4 +123,37 @@ test("does not accept blocked journey receipts as successful completion", () => 
     code: "CANDIDATE_EXECUTION_BLOCKED",
   };
   assert.throws(() => validateReceipt(blocked), /receipt_not_passed/);
+});
+
+test("offline verifier validates a retained receipt without a database or temporary project", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "lifecycle-offline-receipt-"));
+  const receiptPath = join(temporaryRoot, "receipt.json");
+  const reportPath = join(temporaryRoot, "offline-verification.json");
+  try {
+    const receipt = validReceipt();
+    receipt.sourceFingerprint = await computeEngineeringAgentSourceFingerprint();
+    await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+
+    const report = await verifyOfflineReceipt(receiptPath, reportPath);
+    const savedReport = JSON.parse(await readFile(reportPath, "utf8"));
+    assert.equal(report.status, "passed");
+    assert.equal(report.mode, "offline");
+    assert.equal(report.runId, receipt.runId);
+    assert.equal(report.sourceFingerprint, receipt.sourceFingerprint);
+    assert.equal(savedReport.receiptSha256, report.receiptSha256);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("offline verifier returns a typed result when the receipt is missing", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "lifecycle-offline-missing-"));
+  try {
+    await assert.rejects(
+      verifyOfflineReceipt(join(temporaryRoot, "missing.json")),
+      /lifecycle_receipt_missing/,
+    );
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });

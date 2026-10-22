@@ -8,7 +8,7 @@ import {
 } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
   isClerkHandoffNavigationAbort,
@@ -99,7 +99,19 @@ async function writeEngineeringAgentLifecycleReceipt(
   const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
   if (!receiptPath) throw new Error("Lifecycle receipt path is not configured.");
   await mkdir(dirname(receiptPath), { recursive: true });
-  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  const temporaryPath = `${receiptPath}.${process.pid}.tmp`;
+  const contents = `${JSON.stringify({
+    ...receipt,
+    finishedAt: new Date().toISOString(),
+  }, null, 2)}\n`;
+  JSON.parse(contents);
+  try {
+    await writeFile(temporaryPath, contents, "utf8");
+    await rename(temporaryPath, receiptPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 function liveCampaignScenario(): string | undefined {
@@ -5683,7 +5695,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     browserErrors.assertClean();
   });
 
-  test("returns from Mission details to the original Chat session with its active Mission restored", async ({
+  test("authenticated owner-Mission link preserves active Mission across Chat navigation and reload", async ({
     page,
   }) => {
     const browserErrors = installBrowserErrorMonitor(page);
@@ -5763,7 +5775,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const returnLink = page.getByTestId("link-mission-handoff-chat");
     await expect(returnLink).toHaveAttribute(
       "href",
-      `${DASHBOARD_PATH}ai?projectId=${projectId}&sessionId=${sessionId}&missionId=${missionId}&messageId=${assistantMessageId}`,
+      `${DASHBOARD_PATH}ai?projectId=${projectId}&sessionId=${sessionId}&messageId=${assistantMessageId}`,
     );
     await returnLink.click();
 
@@ -5775,7 +5787,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(returnedUrl.pathname.endsWith("/ai")).toBe(true);
     expect(returnedUrl.searchParams.get("projectId")).toBe(projectId);
     expect(returnedUrl.searchParams.get("sessionId")).toBe(sessionId);
-    expect(returnedUrl.searchParams.get("missionId")).toBe(missionId);
+    expect(returnedUrl.searchParams.has("missionId")).toBe(false);
     expect(returnedUrl.searchParams.get("messageId")).toBe(assistantMessageId);
     expect(sessionMissionFixture.selectionRequests).toEqual([{
       method: "PUT",
@@ -5840,6 +5852,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(rejectedMissionUrl.searchParams.get("projectId")).toBe(projectId);
     expect(rejectedMissionUrl.searchParams.get("sessionId")).toBe(sessionId);
     expect(rejectedMissionUrl.searchParams.get("missionId")).toBe(unlinkedMissionId);
+    await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
+      "Original Chat mission",
+    );
+    expect(sessionMissionFixture.selectionRequests).toHaveLength(1);
+    expect(sessionMissionFixture.getActiveMissionId()).toBe(missionId);
+
+    await page.goto(`${DASHBOARD_PATH}ai?${new URLSearchParams({
+      projectId: "e2e-other-project",
+      sessionId,
+      missionId,
+    }).toString()}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("notice-chat-route-mission-unavailable"))
+      .toContainText("This Mission is not linked to the requested conversation.");
     await expect(page.getByTestId("chat-active-engineering-run")).toContainText(
       "Original Chat mission",
     );
@@ -6103,12 +6128,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const bareRemotePath = process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
     const receiptPath = process.env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
     const sourceFingerprint = process.env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT ?? "";
+    const runId = process.env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID ?? "";
+    const startedAt = process.env.ENGINEERING_AGENT_LIFECYCLE_STARTED_AT ?? "";
+    const environmentIdentity =
+      process.env.ENGINEERING_AGENT_LIFECYCLE_ENVIRONMENT_IDENTITY ?? "";
+    const testId =
+      "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain";
     let stage = "setup";
     let blockedCode: string | undefined;
     const chain: Record<string, unknown> = {};
     const recordBlocked = async () => {
       await writeEngineeringAgentLifecycleReceipt({
         schemaVersion: 1,
+        runId,
+        startedAt,
+        environmentIdentity,
+        testId,
         status: "blocked",
         stage,
         code: blockedCode ?? `${stage.replaceAll("-", "_").toUpperCase()}_BLOCKED`,
@@ -7164,6 +7199,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       stage = "complete";
       await writeEngineeringAgentLifecycleReceipt({
         schemaVersion: 1,
+        runId,
+        startedAt,
+        environmentIdentity,
+        testId,
         status: "passed",
         stage,
         sourceFingerprint,

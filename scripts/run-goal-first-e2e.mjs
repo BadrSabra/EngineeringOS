@@ -12,11 +12,25 @@ const databaseUser = "goal_first_e2e";
 const databaseName = "postgres";
 const dashboardPort = Number(process.env.DASHBOARD_E2E_DASHBOARD_PORT ?? 23184);
 const lifecycleRun = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
+const lifecycleRunId = lifecycleRun ? randomUUID() : null;
+const lifecycleStartedAt = new Date().toISOString();
 const lifecycleResultsRoot = resolve(
   workspaceRoot,
   "test-results/engineering-agent-lifecycle",
 );
-const lifecycleReceiptPath = resolve(lifecycleResultsRoot, "receipt.json");
+const lifecycleEvidenceRoot = resolve(
+  workspaceRoot,
+  "release-evidence/engineering-agent-lifecycle",
+);
+const lifecycleReceiptPath = lifecycleRun
+  ? resolve(lifecycleEvidenceRoot, `${lifecycleRunId}.json`)
+  : resolve(lifecycleResultsRoot, "receipt.json");
+const lifecycleOfflineVerificationPath = lifecycleRun
+  ? resolve(lifecycleEvidenceRoot, `${lifecycleRunId}.offline-verification.json`)
+  : "";
+const lifecycleEnvironmentIdentity = "replit-disposable-postgres-local-provider-fixture";
+const lifecycleTestId =
+  "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain";
 const providerLogPath = resolve(
   workspaceRoot,
   lifecycleRun
@@ -120,6 +134,20 @@ async function stopPostgres() {
   }
 }
 
+async function writeJsonAtomically(filePath, value) {
+  await mkdir(dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
+  const contents = `${JSON.stringify(value, null, 2)}\n`;
+  JSON.parse(contents);
+  try {
+    await writeFile(temporaryPath, contents, "utf8");
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 async function writeFallbackLifecycleReceipt() {
   if (!lifecycleRun) return;
   const existingText = await readFile(lifecycleReceiptPath, "utf8").catch(() => "");
@@ -130,28 +158,28 @@ async function writeFallbackLifecycleReceipt() {
     existing = undefined;
   }
   if (existing?.status === "blocked") return;
-  await mkdir(lifecycleResultsRoot, { recursive: true });
   const failedStage = lifecycleRunnerStage.replaceAll("-", "_").toUpperCase();
-  const receipt = existing?.status === "passed"
-    ? {
-        ...existing,
-        status: "blocked",
-        stage: lifecycleRunnerStage,
-        code: `${failedStage}_FAILED_AFTER_JOURNEY`,
-      }
-    : {
-        schemaVersion: 1,
-        status: "blocked",
-        stage: lifecycleRunnerStage,
-        code: "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
-        ...(lifecycleSourceFingerprint
-          ? { sourceFingerprint: lifecycleSourceFingerprint }
-          : {}),
-      };
-  await writeFile(
-    lifecycleReceiptPath,
-    `${JSON.stringify(receipt, null, 2)}\n`,
-    "utf8",
+  const receipt = {
+    schemaVersion: 1,
+    runId: lifecycleRunId,
+    startedAt: lifecycleStartedAt,
+    finishedAt: new Date().toISOString(),
+    environmentIdentity: lifecycleEnvironmentIdentity,
+    testId: lifecycleTestId,
+    status: "blocked",
+    stage: lifecycleRunnerStage,
+    code: existing?.status === "passed"
+      ? `${failedStage}_FAILED_AFTER_JOURNEY`
+      : "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
+    ...(lifecycleSourceFingerprint
+      ? { sourceFingerprint: lifecycleSourceFingerprint }
+      : {}),
+  };
+  await writeJsonAtomically(
+    existing?.status === "passed"
+      ? `${lifecycleReceiptPath}.runner-failure.json`
+      : lifecycleReceiptPath,
+    receipt,
   );
 }
 
@@ -265,11 +293,17 @@ async function main() {
       env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT = lifecycleProjectRoot;
       env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT = lifecycleReceiptPath;
       env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT = lifecycleSourceFingerprint;
+      env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID = lifecycleRunId;
+      env.ENGINEERING_AGENT_LIFECYCLE_STARTED_AT = lifecycleStartedAt;
+      env.ENGINEERING_AGENT_LIFECYCLE_ENVIRONMENT_IDENTITY = lifecycleEnvironmentIdentity;
     } else {
       delete env.ENGINEERING_AGENT_LIFECYCLE_E2E;
       delete env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
       delete env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
       delete env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_STARTED_AT;
+      delete env.ENGINEERING_AGENT_LIFECYCLE_ENVIRONMENT_IDENTITY;
     }
     delete env.AI_PROVIDER_EGRESS_DISABLED;
 
@@ -461,7 +495,11 @@ async function main() {
         }
       }
       lifecycleRunnerStage = "independent-verifier";
-      await run("node", ["scripts/verify-engineering-agent-lifecycle-receipt.mjs"], { env });
+      await run(
+        "node",
+        ["scripts/verify-engineering-agent-lifecycle-receipt.mjs", "--live"],
+        { env },
+      );
       return;
     }
 
@@ -594,6 +632,25 @@ async function main() {
     }
     if (temporaryRoot) {
       await rm(temporaryRoot, { recursive: true, force: true });
+    }
+    if (lifecycleRun) {
+      const receipt = JSON.parse(await readFile(lifecycleReceiptPath, "utf8").catch(() => "null"));
+      if (receipt?.status === "passed") {
+        lifecycleRunnerStage = "offline-verifier";
+        const offlineEnv = isolatedDatabaseEnvironment();
+        delete offlineEnv.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+        delete offlineEnv.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
+        await run(
+          "node",
+          [
+            "scripts/verify-engineering-agent-lifecycle-receipt.mjs",
+            "--offline",
+            lifecycleReceiptPath,
+            lifecycleOfflineVerificationPath,
+          ],
+          { env: offlineEnv },
+        );
+      }
     }
   }
 }

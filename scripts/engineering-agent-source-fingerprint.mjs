@@ -36,6 +36,7 @@ const excludedDirectories = new Set([
   "dist",
   "generated-artifacts",
   "node_modules",
+  "release-evidence",
   "test-results",
 ]);
 
