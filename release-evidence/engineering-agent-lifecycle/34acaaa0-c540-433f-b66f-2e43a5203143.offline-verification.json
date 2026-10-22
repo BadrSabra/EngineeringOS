@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "mode": "offline",
+  "verifiedAt": "2026-10-22T03:11:08.629Z",
+  "runId": "34acaaa0-c540-433f-b66f-2e43a5203143",
+  "testId": "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
+  "receiptFile": "release-evidence/engineering-agent-lifecycle/34acaaa0-c540-433f-b66f-2e43a5203143.json",
+  "receiptSha256": "dead88768156b6dfcd1ae2cb865941462558f74b7cb654173304c6ff72f6c1ca",
+  "sourceFingerprint": "01443c2f55b3f3b0834bca1753d1fc3f91f5c3969ae5d0daacfa2ddbcbcdcc20"
+}

@@ -621,6 +621,80 @@ async function insertCanonicalGoalProof(
   }).where(eq(aiGoalsTable.id, goalId));
 }
 
+type TestDeliveryReceiptOverrides = Partial<{
+  status: string;
+  executionId: string;
+  attempt: number;
+  operationId: string;
+  sourceRevision: string;
+  candidateTreeHash: string;
+  treeHash: string;
+}>;
+
+async function configureGoalDeliveryRequirement(
+  fixture: Awaited<ReturnType<typeof createDependencyProofFixture>>,
+  goalId: string,
+  required: boolean,
+  receiptOverrides: TestDeliveryReceiptOverrides | null,
+): Promise<void> {
+  const [goal] = await db.select({
+    outcomeContract: aiGoalsTable.outcomeContract,
+  }).from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+  const outcomeContract = goal?.outcomeContract;
+  if (!outcomeContract || typeof outcomeContract !== "object" || Array.isArray(outcomeContract)) {
+    throw new Error("Goal outcome contract was not persisted");
+  }
+  const contract = outcomeContract as Record<string, unknown>;
+  const acceptance = contract.acceptance;
+  if (!acceptance || typeof acceptance !== "object" || Array.isArray(acceptance)) {
+    throw new Error("Goal acceptance was not persisted");
+  }
+  const acceptanceRecord = acceptance as Record<string, unknown>;
+  const executionId = acceptanceRecord.executionId;
+  if (typeof executionId !== "string") {
+    throw new Error("Goal acceptance did not bind an Execution");
+  }
+  const [execution] = await db.select({
+    id: aiExecutionsTable.id,
+    attempt: aiExecutionsTable.attempt,
+    operationId: aiExecutionsTable.operationId,
+    baseRevision: aiExecutionsTable.baseRevision,
+  }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+  if (!execution) throw new Error("Goal's accepted Execution was not persisted");
+
+  const receipt = receiptOverrides === null
+    ? null
+    : {
+        status: receiptOverrides.status ?? "PROVEN",
+        executionId: receiptOverrides.executionId ?? execution.id,
+        attempt: receiptOverrides.attempt ?? execution.attempt,
+        operationId: receiptOverrides.operationId
+          ?? execution.operationId
+          ?? `operation:${execution.id}`,
+        sourceRevision: receiptOverrides.sourceRevision
+          ?? execution.baseRevision
+          ?? fixture.sourceRevision,
+        candidateTreeHash: receiptOverrides.candidateTreeHash ?? "candidate-tree",
+        treeHash: receiptOverrides.treeHash ?? "delivered-tree",
+      };
+
+  await db.update(aiExecutionsTable)
+    .set({ recipeReceipt: receipt })
+    .where(eq(aiExecutionsTable.id, execution.id));
+  await db.update(aiGoalsTable)
+    .set({
+      outcomeContract: {
+        ...contract,
+        deliveryRequired: required,
+        acceptance: {
+          ...acceptanceRecord,
+          deliveryReceipt: receipt,
+        },
+      },
+    })
+    .where(eq(aiGoalsTable.id, goalId));
+}
+
 async function expectDependencyProofBlocked(fixture: {
   goalId: string;
 }): Promise<void> {
@@ -913,6 +987,68 @@ describe("Mission goal runtime", () => {
       expect(missionEvaluation.missingGoalIds).toContain(fixture.sourceGoalId);
     },
   );
+
+  it.each([
+    ["missing", null, "delivery_not_proven"],
+    ["pending", { status: "pending" }, "delivery_not_proven"],
+    ["failed", { status: "failed" }, "delivery_not_proven"],
+    ["unknown", { status: "unknown" }, "delivery_not_proven"],
+    ["wrong Execution", { executionId: "another-execution" }, "delivery_identity_mismatch"],
+    ["wrong attempt", { attempt: 9 }, "delivery_identity_mismatch"],
+    ["wrong operation", { operationId: "another-operation" }, "delivery_identity_mismatch"],
+  ] as Array<[string, TestDeliveryReceiptOverrides | null, string]>)(
+    "blocks Mission completion for a required delivery receipt that is %s",
+    async (_label, receiptOverrides, failureReason) => {
+      const fixture = await createDependencyProofFixture();
+      await insertCanonicalGoalProof(fixture, fixture.goalId);
+      await configureGoalDeliveryRequirement(
+        fixture,
+        fixture.goalId,
+        true,
+        receiptOverrides,
+      );
+
+      const missionEvaluation = await db.transaction((tx) => evaluateMissionCompletion(tx, {
+        missionId: fixture.missionId,
+        projectId: fixture.projectId,
+      }));
+
+      expect(missionEvaluation.allowed).toBe(false);
+      expect(missionEvaluation.missingGoalIds).toContain(fixture.goalId);
+      expect(
+        missionEvaluation.proofs?.find((proof) => proof.goalId === fixture.goalId)
+          ?.failureReasons ?? [],
+      ).toContain(failureReason);
+    },
+  );
+
+  it("allows Mission completion with a matching required delivery receipt", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+    await configureGoalDeliveryRequirement(fixture, fixture.goalId, true, {});
+
+    const missionEvaluation = await db.transaction((tx) => evaluateMissionCompletion(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+
+    expect(missionEvaluation.allowed).toBe(true);
+    expect(missionEvaluation.missingGoalIds).toEqual([]);
+  });
+
+  it("allows Mission completion without a receipt when delivery is not required", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertCanonicalGoalProof(fixture, fixture.goalId);
+    await configureGoalDeliveryRequirement(fixture, fixture.goalId, false, null);
+
+    const missionEvaluation = await db.transaction((tx) => evaluateMissionCompletion(tx, {
+      missionId: fixture.missionId,
+      projectId: fixture.projectId,
+    }));
+
+    expect(missionEvaluation.allowed).toBe(true);
+    expect(missionEvaluation.missingGoalIds).toEqual([]);
+  });
 
   it("serializes Mission completion against a concurrent Canonical Proof attempt rotation", async () => {
     const fixture = await createDependencyProofFixture();

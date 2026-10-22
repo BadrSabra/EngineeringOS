@@ -11306,7 +11306,10 @@ export default function AiChat() {
       } as const)[routeMissionAgent.state]
     : null;
   const routeMissionEvidenceLabel = routeMissionWorkspace
-    ? ({
+    ? routeMissionWorkspace.evidence.required === false
+      && routeMissionWorkspace.evidence.state !== 'proven'
+      ? 'لم تكن الأدلة مطلوبة وفق سياسة المهمة'
+      : ({
         not_started: 'لم يبدأ التحقق',
         pending: 'التحقق جارٍ أو بانتظار التنفيذ',
         proven: 'الأدلة مقبولة',

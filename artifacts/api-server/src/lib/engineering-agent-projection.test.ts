@@ -55,6 +55,19 @@ function context(
   };
 }
 
+function workspaceSummaryFor(goalFact: EngineeringAgentGoalFact) {
+  const projection = reduceEngineeringAgentProjection(context({
+    goals: [goalFact],
+  }));
+  return createEngineeringAgentWorkspaceSummary({
+    title: "Complete the goal",
+    intent: "Complete and verify the requested work.",
+    missionUpdatedAt: null,
+    goals: [goalFact],
+    projection,
+  });
+}
+
 describe("reduceEngineeringAgentProjection", () => {
   it("exposes START for a draft Mission and targets that Mission", () => {
     const projection = reduceEngineeringAgentProjection(context({
@@ -541,6 +554,91 @@ describe("reduceEngineeringAgentProjection", () => {
       state: "pending",
       required: true,
       receiptPresent: false,
+    });
+  });
+
+  it("does not present a terminally failed current attempt as verification still pending", () => {
+    const failedGoal = goal({
+      id: "goal-failed",
+      title: "Verify the change",
+      status: "failed",
+      currentExecution: {
+        ...acceptedAttempt,
+        status: "failed",
+        acceptance: {
+          ...acceptedAttempt.acceptance!,
+          outcome: "FAILED",
+          terminalStatus: "failed",
+          evidenceComplete: false,
+          resumable: true,
+        },
+      },
+      canonicalProof: {
+        ...acceptedProof,
+        accepted: false,
+        verdict: "INCOMPLETE",
+        failureReasons: ["acceptance_not_succeeded"],
+      },
+    });
+
+    const summary = workspaceSummaryFor(failedGoal);
+
+    expect(summary.currentPhase).toBe("NEEDS_ATTENTION");
+    expect(summary.currentGoal).toMatchObject({
+      id: "goal-failed",
+      status: "failed",
+    });
+    expect(summary.evidence).toMatchObject({
+      state: "incomplete",
+      required: true,
+      complete: false,
+      reasonCode: "acceptance_blocked",
+    });
+  });
+
+  it("keeps not-run, active, unknown, and policy-exempt evidence states distinct", () => {
+    const notStarted = workspaceSummaryFor(goal({
+      status: "queued",
+      currentExecution: null,
+    }));
+    const active = workspaceSummaryFor(goal());
+    const unknown = workspaceSummaryFor(goal({
+      status: "completed",
+      currentExecution: acceptedAttempt,
+      canonicalProof: {
+        ...acceptedProof,
+        accepted: false,
+        verdict: "UNAVAILABLE",
+        failureReasons: ["canonical_proof_unavailable"],
+      },
+    }));
+    const policyExempt = workspaceSummaryFor(goal({
+      status: "completed",
+      currentExecution: {
+        ...acceptedAttempt,
+        acceptance: {
+          ...acceptedAttempt.acceptance!,
+          evidenceRequired: false,
+          evidenceComplete: false,
+        },
+      },
+      canonicalProof: {
+        ...acceptedProof,
+        accepted: false,
+        verdict: "UNAVAILABLE",
+        failureReasons: ["required_evidence_unavailable"],
+      },
+    }));
+
+    expect(notStarted.evidence.state).toBe("not_started");
+    expect(active.evidence.state).toBe("pending");
+    expect(unknown.evidence).toMatchObject({
+      state: "unavailable",
+      required: true,
+    });
+    expect(policyExempt.evidence).toMatchObject({
+      state: "unavailable",
+      required: false,
     });
   });
 });

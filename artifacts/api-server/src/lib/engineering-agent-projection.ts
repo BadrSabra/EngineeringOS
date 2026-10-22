@@ -253,7 +253,18 @@ function hasCanonicalProofBlocker(goal: EngineeringAgentGoalFact): boolean {
   return isSuccessfulTerminal(goal) && !hasCurrentAcceptedProof(goal);
 }
 
+function isFailedEvidenceOutcome(goal: EngineeringAgentGoalFact): boolean {
+  const acceptance = goal.currentExecution?.acceptance;
+  return normalized(goal.status) === "failed"
+    || normalized(goal.currentExecution?.status) === "failed"
+    || normalized(acceptance?.outcome) === "failed"
+    || normalized(acceptance?.terminalStatus) === "failed";
+}
+
 function evidenceReason(goal: EngineeringAgentGoalFact): EngineeringAgentReasonCode {
+  if (isFailedEvidenceOutcome(goal) && goal.currentExecution?.acceptance) {
+    return "acceptance_blocked";
+  }
   if (!goal.currentExecution?.acceptance || !goal.canonicalProof) {
     return "required_evidence_unavailable";
   }
@@ -489,6 +500,7 @@ export function reduceEngineeringAgentProjection(
           const replanGoal = activeGoals.find((goal) =>
             ["blocked", "needs_replan"].includes(normalized(goal.status)),
           );
+          const failedGoal = activeGoals.find(isFailedEvidenceOutcome);
           const resumable = activeGoals
             .map(recoveryDecision)
             .find((candidate): candidate is Decision => candidate !== null);
@@ -534,6 +546,18 @@ export function reduceEngineeringAgentProjection(
               "goal_requires_replan",
               goalTarget(replanGoal),
               { interventionKind: "review", interventionRequired: true, goal: replanGoal },
+            );
+          } else if (failedGoal) {
+            result = decision(
+              "NEEDS_ATTENTION",
+              "REVIEW",
+              "acceptance_blocked",
+              goalTarget(failedGoal),
+              {
+                interventionKind: "review",
+                interventionRequired: true,
+                goal: failedGoal,
+              },
             );
           } else if (waitingEventGoal) {
             result = decision(
@@ -648,7 +672,9 @@ function summaryEvidenceState(
   }
 
   let state: EngineeringAgentWorkspaceSummary["evidence"]["state"];
-  if (!goal.currentExecution) {
+  if (isFailedEvidenceOutcome(goal)) {
+    state = "incomplete";
+  } else if (!goal.currentExecution) {
     state = isSuccessfulTerminal(goal) ? "unavailable" : "not_started";
   } else if (!acceptance) {
     state = isSuccessfulTerminal(goal) ? "unavailable" : "pending";

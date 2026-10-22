@@ -2938,6 +2938,91 @@ describe('AiChat authenticated generated mutations', () => {
     }
   });
 
+  it('labels policy-exempt evidence separately from an unknown verification result', async () => {
+    const previousLocation = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState({}, '', '/ai?projectId=project-1&sessionId=session-1');
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',
+    }));
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: 'mission-one',
+      missions: [{
+        mission: { id: 'mission-one', title: 'Add workspace search', status: 'active' },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue({
+      ...currentMissionProjectionFixture(),
+      workspaceSummary: {
+        contractVersion: 1,
+        objective: {
+          title: 'Add workspace search',
+          intent: 'Add search to the project workspace.',
+        },
+        currentPhase: 'NEEDS_ATTENTION',
+        progress: {
+          totalGoals: 1,
+          completedGoals: 0,
+          verifiedGoals: 0,
+          inProgressGoals: 0,
+          waitingGoals: 0,
+          blockedGoals: 1,
+        },
+        currentGoal: {
+          id: 'goal-search',
+          title: 'Implement search',
+          status: 'failed',
+        },
+        evidence: {
+          state: 'unavailable',
+          required: false,
+          complete: false,
+          reasonCode: 'required_evidence_unavailable',
+        },
+        delivery: {
+          state: 'not_required',
+          required: false,
+          receiptPresent: false,
+        },
+        lastActivityAt: null,
+      },
+      engineeringAgent: {
+        schemaVersion: 2,
+        state: 'NEEDS_ATTENTION',
+        nextAction: { kind: 'NONE', target: null, reasonCode: 'NO_ACTION_REQUIRED' },
+        availableCommands: [],
+        intervention: { required: false, kind: 'none', reasonCode: null },
+        autonomy: {
+          mode: 'assisted',
+          allowAutoContinue: false,
+          allowAutoApply: false,
+          allowAutoCommit: false,
+          allowAutoPush: false,
+          requireHumanForExternalDelivery: true,
+          maxAutoReplans: 0,
+          automaticReplanCount: 0,
+        },
+        missionId: 'mission-one',
+        sessionId: 'session-1',
+        goalId: 'goal-search',
+        executionId: null,
+      },
+    } as never);
+
+    try {
+      renderAiChat();
+      expect(await screen.findByTestId('mission-agent-evidence')).toHaveTextContent(
+        'لم تكن الأدلة مطلوبة وفق سياسة المهمة',
+      );
+      expect(screen.getByTestId('mission-agent-current-goal')).toHaveTextContent(
+        'Implement search',
+      );
+    } finally {
+      window.history.replaceState({}, '', previousLocation);
+    }
+  });
+
   it('does not infer the active Mission from history ordering when the server returns no selection', async () => {
     localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
       version: 1, projectId: 'project-1', kind: 'session', sessionId: 'session-1',

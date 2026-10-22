@@ -158,6 +158,29 @@ async function main() {
       env: databaseEnv,
     });
 
+    console.log("Running isolated Mission completion delivery-requirement cases.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/mission-runtime.test.ts",
+      "-t",
+      "required delivery receipt|when delivery is not required",
+    ], {
+      env: databaseEnv,
+    });
+
+    console.log("Running delivery ambiguity and exact-retry recovery cases.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/github-delivery-races.integration.test.ts",
+    ], {
+      env: {
+        ...databaseEnv,
+        RUN_E2_GITHUB_DELIVERY_RACES: "1",
+      },
+    });
+
     console.log("Running isolated automatic-Mission-replan budget and concurrency tests.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",

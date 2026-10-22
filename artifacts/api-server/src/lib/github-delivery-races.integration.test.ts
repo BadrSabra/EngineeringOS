@@ -83,7 +83,9 @@ async function createFixture(): Promise<DeliveryFixture> {
     await git(rootPath, [
       "-c", "user.name=Fixture",
       "-c", "user.email=fixture@example.com",
-      "commit", "-qm", "verified local delivery",
+      "commit",
+      "-qm",
+      `verified local delivery\n\nEngineeringOS-Operation: ${fixture.operationId}`,
     ]);
     fixture.commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
     fixture.gitTreeHash = (await git(rootPath, [
@@ -556,6 +558,8 @@ describe("E2 verified GitHub delivery race and failure contracts", () => {
         );
         expect(failedFinalization.status).toBe("unavailable");
         expect(github.branchCommitHash).toBe(fixture.commitHash);
+        expect(github.calls).toMatchObject({ commitCreates: 1, refUpdates: 1 });
+        const firstMutationCalls = { ...github.calls };
         expect(await countEvents(fixture, "GitPushAttemptStarted")).toBe(1);
         expect(await countEvents(fixture, "GitPushed")).toBe(0);
 
@@ -570,6 +574,7 @@ describe("E2 verified GitHub delivery race and failure contracts", () => {
         expect(await countEvents(fixture, "GitPushAttemptStarted")).toBe(1);
         expect(await countEvents(fixture, "GitPushed")).toBe(1);
         expect(await countEvents(fixture, "GitPushRecoveryRequired")).toBe(1);
+        expect(github.calls).toEqual(firstMutationCalls);
         const [marker] = await db.select({ payload: eventsTable.payload })
           .from(eventsTable)
           .where(and(
