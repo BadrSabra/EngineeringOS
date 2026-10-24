@@ -13,8 +13,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
 
-function fakeReq(): Request {
-  return {} as Request;
+function fakeReq(overrides: Partial<Request> = {}): Request {
+  return overrides as Request;
 }
 
 function fakeRes(): Response {
@@ -174,5 +174,18 @@ describe("requireAuth — NODE_ENV=test bypass (documented synthetic-user path)"
     expect(getAuth).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledOnce();
     expect(req.userId).toBe("test-user");
+  });
+
+  it("ignores a client-supplied identity header and retains the fixed server identity", async () => {
+    vi.resetModules();
+    const { requireAuth } = await import("./requireAuth.js");
+    const req = fakeReq({ headers: { "x-user-id": "forged-user" } });
+    const next = vi.fn();
+
+    requireAuth(req, fakeRes(), next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.userId).toBe("test-user");
+    expect(req.authContext?.userId).toBe("test-user");
   });
 });

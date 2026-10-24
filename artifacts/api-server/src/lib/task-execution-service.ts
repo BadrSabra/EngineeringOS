@@ -110,6 +110,7 @@ import {
   discardDeliveryWorkspace,
   hashChangeSet,
   hashDeliveryTree,
+  resolveWorkspaceTreeRevision as missionWorkspaceRevision,
 } from "./delivery-workspace.js";
 import {
   buildMissionReadScopeHash,
@@ -1014,6 +1015,7 @@ type MissionToolLoopExecution = {
   proof: {
     taskObjective?: TaskObjectiveContract;
     status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+    objectiveValidationCodes?: string[];
     answerProofStatus?: "PROVEN" | "INCOMPLETE";
     answerProof?: AiTaskExecutionReceipt["answerProof"];
     validatorReceipts: TaskObjectiveValidatorReceipt[];
@@ -1028,6 +1030,7 @@ type MissionToolLoopExecution = {
     effectBundleId?: string;
     candidateProposalDraft?: MissionRepairCandidateProposalDraft;
     candidateProposal?: { proposalId: string; sessionId: string; operationId: string };
+    candidateProposalFailureCode?: string;
     refs: string[];
     stateProjection: MissionStateProjection;
   };
@@ -1139,15 +1142,23 @@ async function persistMissionRepairCandidateProposal(params: {
         }),
       },
     );
-    if (
-      validation.status !== "passed"
-      || !validation.evidence.evidenceId
-      || !validation.evidence.artifactRef
-      || validation.evidence.validatorProfile !== params.draft.validationProfile
-      || await hashDeliveryTree(deliveryWorkspace.workspaceRoot) !== deliveryWorkspace.candidateTreeHash
-      || await hashDeliveryTree(params.rootPath) !== deliveryWorkspace.baseTreeHash
-    ) {
-      throw new Error("mission_candidate_delivery_validation_not_proven");
+    if (validation.status !== "passed") {
+      throw new Error(`mission_candidate_delivery_validation_status_${validation.status}`);
+    }
+    if (!validation.evidence.evidenceId) {
+      throw new Error("mission_candidate_delivery_validation_evidence_id_missing");
+    }
+    if (!validation.evidence.artifactRef) {
+      throw new Error("mission_candidate_delivery_validation_artifact_missing");
+    }
+    if (validation.evidence.validatorProfile !== params.draft.validationProfile) {
+      throw new Error("mission_candidate_delivery_validation_profile_mismatch");
+    }
+    if (await hashDeliveryTree(deliveryWorkspace.workspaceRoot) !== deliveryWorkspace.candidateTreeHash) {
+      throw new Error("mission_candidate_delivery_validation_candidate_tree_changed");
+    }
+    if (await hashDeliveryTree(params.rootPath) !== deliveryWorkspace.baseTreeHash) {
+      throw new Error("mission_candidate_delivery_validation_source_tree_changed");
     }
 
     const [handoff] = await db
@@ -1959,7 +1970,7 @@ async function startMissionRepairEpisode(params: {
   rootPath: string;
 }) {
   const planRevision = missionPlanRevisionHash(params.goal);
-  return startEpisode({
+  const episode = await startEpisode({
     projectId: params.task.projectId,
     executionId: params.executionId,
     attempt: params.attempt,
@@ -1967,6 +1978,7 @@ async function startMissionRepairEpisode(params: {
     idempotencyKey: `${params.task.id}:episode:${params.attempt}`,
     projectRevision: params.sourceRevision,
     environmentRootPath: params.rootPath,
+    captureWorldRevision: true,
     intentKind: "TASK_EXECUTION",
     scope: {
       kind: "mission-task",
@@ -1978,6 +1990,10 @@ async function startMissionRepairEpisode(params: {
     goalId: params.goal.id,
     ...(planRevision ? { planRevision } : {}),
   });
+  if (!episode.worldRevision) {
+    throw new Error("mission_repair_episode_world_revision_missing");
+  }
+  return episode;
 }
 
 async function beginMissionRepairCandidateEffect(params: {
@@ -2450,12 +2466,6 @@ async function rebindRotatedMissionRepairRecoveryManifest(params: {
     actionId: `mission-repair:${params.executionId}:${params.attempt}`,
     phase: "candidate_ready",
   };
-}
-
-const MISSION_WORKSPACE_REVISION_PREFIX = "workspace-tree-v1:";
-
-async function missionWorkspaceRevision(rootPath: string): Promise<string> {
-  return `${MISSION_WORKSPACE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
 }
 
 const MISSION_OBSERVATION_FILE_MAX_BYTES = 256 * 1024;
@@ -3521,6 +3531,7 @@ async function executeMissionToolLoop(params: {
   let proofStatus: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" = candidateGenerationRejected
     ? "UNAVAILABLE"
     : "INCOMPLETE";
+  let objectiveValidationCodes: string[] | undefined;
   let evidence: EvidenceSnapshotInput | undefined;
   let missionAnswerProofStatus: "PROVEN" | "INCOMPLETE" | undefined;
   let missionAnswerProofReceipt: AiTaskExecutionReceipt["answerProof"] | undefined;
@@ -3763,6 +3774,7 @@ async function executeMissionToolLoop(params: {
         targetPaths: policy.targetPaths,
         validatorReceipts,
       });
+      objectiveValidationCodes = objectiveValidation.codes;
       proofStatus = objectiveValidation.allowed
         ? "PROVEN"
         : receiptStatus === "UNAVAILABLE"
@@ -4055,6 +4067,7 @@ async function executeMissionToolLoop(params: {
       targetPaths: policy.targetPaths,
       validatorReceipts,
     });
+    objectiveValidationCodes = objectiveValidation.codes;
     const graph = output.evidenceGraph;
     const outputObjective = output.objective;
     const expectedClaimIds = objective.requiredClaims.map((claim) => claim.claimId);
@@ -4198,6 +4211,7 @@ async function executeMissionToolLoop(params: {
     proof: {
       taskObjective,
       status: proofStatus,
+      ...(objectiveValidationCodes ? { objectiveValidationCodes } : {}),
       ...(missionAnswerProofStatus
         ? { answerProofStatus: missionAnswerProofStatus }
         : {}),
@@ -4643,6 +4657,12 @@ export async function executeTaskLifecycle(params: {
     workerId,
     idempotencyKey: `${before.id}:episode:${executionAttempt}`,
     projectRevision: executionRevision ?? "unknown",
+    ...(missionGoal && before.goalId && executionWorkspaceRoot
+      ? {
+          environmentRootPath: executionWorkspaceRoot,
+          captureWorldRevision: true,
+        }
+      : {}),
     intentKind: "TASK_EXECUTION",
     scope: episodeScope,
     ...(missionGoal ? { missionId: missionGoal.missionId } : {}),
@@ -4860,6 +4880,10 @@ export async function executeTaskLifecycle(params: {
       } catch (error) {
         missionExecution.proof.status = "INCOMPLETE";
         delete missionExecution.proof.candidateProposalDraft;
+        missionExecution.proof.candidateProposalFailureCode =
+          error instanceof Error && /^mission_[a-z0-9_]+$/u.test(error.message)
+            ? error.message
+            : "mission_candidate_proposal_persistence_failed";
         logger.warn(
           {
             scope: "task-execution",
@@ -5134,6 +5158,12 @@ export async function executeTaskLifecycle(params: {
         trigger: params.trigger,
         ...(missionExecution ? {
           objectiveProof: missionExecution.proof.status,
+          ...(missionExecution.proof.objectiveValidationCodes
+            ? { objectiveValidationCodes: missionExecution.proof.objectiveValidationCodes }
+            : {}),
+          ...(missionExecution.proof.candidateProposalFailureCode
+            ? { candidateProposalFailureCode: missionExecution.proof.candidateProposalFailureCode }
+            : {}),
           validatorReceipts: missionExecution.proof.validatorReceipts,
         } : {}),
       },
@@ -5148,7 +5178,11 @@ export async function executeTaskLifecycle(params: {
     if (!finalized.accepted) {
       throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
     }
-    void materializeServerOwnedObservations({
+    // Mission Episodes already contain the direct observations used by their
+    // accepted proof. Late receipt/validator rows would alter the closed
+    // Episode's World State revision and invalidate its dependency proof.
+    if (!missionExecution?.proof.episodeId) {
+      void materializeServerOwnedObservations({
       projectId: before.projectId,
       executionId,
       attempt: taskReceipt.attempt,
@@ -5157,6 +5191,12 @@ export async function executeTaskLifecycle(params: {
         : {}),
       ...(executionWorkspaceRoot ? { environmentRootPath: executionWorkspaceRoot } : {}),
       projectRevision: taskReceipt.revision,
+      // Candidate workspace evidence is retained on the Episode, but it must
+      // not mutate the live project's World State baseline captured at start.
+      ...(missionExecution?.proof.episodeId ? { materializeWorldState: false } : {}),
+      // Canonical Proof owns acceptance. Late receipt/validator summaries remain
+      // queryable by Episode identity, but must not expand its proof refs.
+      ...(missionExecution?.proof.episodeId ? { appendToEpisodeRefs: false } : {}),
       sources: [
         {
           kind: "acceptance",
@@ -5194,12 +5234,13 @@ export async function executeTaskLifecycle(params: {
         })),
         ...(missionExecution?.proof.validatorProcessObservations ?? []),
       ],
-    }).catch((error: unknown) => {
-      logger.warn(
-        { scope: "task-execution", code: "observation_materialization_failed", executionId, error },
-        "Server-owned observation materialization failed after acceptance",
-      );
-    });
+      }).catch((error: unknown) => {
+        logger.warn(
+          { scope: "task-execution", code: "observation_materialization_failed", executionId, error },
+          "Server-owned observation materialization failed after acceptance",
+        );
+      });
+    }
     await emitAcceptedTaskTerminalProgress({
       progress,
       executionId,

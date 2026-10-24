@@ -33,6 +33,7 @@ export const aiWorldTransitionsTable = pgTable("ai_world_transitions", {
   effectBundleId: text("effect_bundle_id").references(() => aiAgentEffectBundlesTable.id, { onDelete: "set null" }),
   parentWorldRevision: text("parent_world_revision").notNull(),
   resultingWorldRevision: text("resulting_world_revision"),
+  resultingScopedWorldRevision: text("resulting_scoped_world_revision"),
   taskScope: text("task_scope").notNull().default("project"),
   environmentRevisionKey: text("environment_revision_key").notNull().default("unknown"),
   environmentRevision: text("environment_revision"),

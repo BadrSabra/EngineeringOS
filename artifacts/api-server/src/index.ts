@@ -24,6 +24,7 @@ import {
   assertOperatorAlertSchema,
   pool,
 } from "@workspace/db";
+
 import {
   setInvalidationNotifier,
   startContextInvalidationChannel,
@@ -41,6 +42,21 @@ import {
   recordGroqModelCatalogUnavailable,
   resolveGroqModelCatalogAlerts,
 } from "./lib/operator-alerts";
+
+const localLifecycleAuthFixtureRequested =
+  process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === "1";
+const localLifecycleAuthFixture =
+  localLifecycleAuthFixtureRequested
+  && process.env.NODE_ENV === "test"
+  && process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1"
+  && process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1"
+  && process.env.DASHBOARD_E2E_TEST_MODE === "fixture";
+
+if (localLifecycleAuthFixtureRequested && !localLifecycleAuthFixture) {
+  throw new Error(
+    "The local lifecycle auth fixture requires the isolated NODE_ENV=test fixture runner.",
+  );
+}
 
 /**
  * DB-07: Bootstrap guard — verify the release-critical task contract before
@@ -232,7 +248,7 @@ if (!workerScopeProjectId) {
   );
 }
 
-httpServer = app.listen(port, (err) => {
+const onListening = (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -263,4 +279,7 @@ httpServer = app.listen(port, (err) => {
     memorySweep = startMemorySweep();
     void drainPendingAudits();
   }
-});
+};
+httpServer = localLifecycleAuthFixture
+  ? app.listen(port, "127.0.0.1", onListening)
+  : app.listen(port, onListening);

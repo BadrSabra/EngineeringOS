@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "dev:local-e2e": "node ./scripts/start-local-lifecycle-vite.mjs",
     "smoke:restart": "node ./scripts/smoke-restart.mjs",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts",
     "test:clerk-handoff": "vitest run src/lib/clerk-handoff.test.ts",

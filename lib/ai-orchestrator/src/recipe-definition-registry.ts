@@ -30,6 +30,16 @@ export type RecipeDefinition = {
   buildRecipe: (request: RecipeRequest) => CapabilityRecipe;
 };
 
+const CANDIDATE_VERIFICATION_RECIPE_IDS = new Set([
+  "candidate.verify",
+  "candidate.verify.workspace-typecheck",
+]);
+
+export function isCandidateVerificationRecipeId(recipeId: unknown): recipeId is
+  "candidate.verify" | "candidate.verify.workspace-typecheck" {
+  return typeof recipeId === "string" && CANDIDATE_VERIFICATION_RECIPE_IDS.has(recipeId);
+}
+
 function targetPaths(request: RecipeRequest): string[] {
   return [...request.approvedPaths];
 }
@@ -198,6 +208,38 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
         },
         outputs: [],
       }),
+      CANDIDATE_VERIFY_POLICY,
+    ),
+    definition(
+      "candidate.verify.workspace-typecheck",
+      "artifact_only",
+      (request) => [{
+        id: "workspace-typecheck",
+        title: "Typecheck the approved candidate workspace",
+        capabilityId: "validation.run.workspace-typecheck",
+        recipeVersion: 1,
+        input: { targetPaths: targetPaths(request) },
+        dependsOn: [],
+        declaredOutputs: ["status", "evidence"],
+      }],
+      {
+        success: {
+          kind: "all",
+          predicates: [
+            {
+              kind: "node_status",
+              nodeId: "workspace-typecheck",
+              status: "passed",
+            },
+            {
+              kind: "evidence",
+              nodeId: "workspace-typecheck",
+              evidenceType: "validation_passed",
+            },
+          ],
+        },
+        outputs: [],
+      },
       CANDIDATE_VERIFY_POLICY,
     ),
     definition(

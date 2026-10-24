@@ -385,6 +385,59 @@ export function ExecutionProjectionPanel({
     }
   }
 
+  const hasTechnicalIdentityDetails = Boolean(
+    resolvedMissionId || executionId || operationId || taskId || resolvedProposalId,
+  );
+  const technicalIdentityContent = (
+    <>
+      {hasTechnicalIdentityDetails && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid="execution-identities">
+          {resolvedMissionId && (
+            <span>
+              <span className="font-semibold text-primary">الهدف الرئيسي</span>{' '}
+              <code dir="ltr" className="inline-block max-w-full break-all text-foreground" title={resolvedMissionId}>{resolvedMissionId}</code>
+            </span>
+          )}
+          {executionId && executionId !== resolvedMissionId && <span>التنفيذ <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{executionId}</code></span>}
+          {operationId && operationId !== resolvedMissionId && <span>العملية <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{operationId}</code></span>}
+          {taskId && <span>المهمة <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{taskId}</code></span>}
+          {resolvedProposalId && <span>المقترح <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{resolvedProposalId}</code></span>}
+        </div>
+      )}
+
+      {(executionId || taskId) && (
+        <nav className="flex flex-wrap items-center gap-2" aria-label="صفحات تفاصيل التنفيذ" data-testid="execution-destinations">
+          {executionId && (
+            <>
+              <Link
+                href={`/flight-deck?executionId=${encodeURIComponent(executionId)}`}
+                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-primary/25 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <span>فتح لوحة التشغيل</span>
+                <span className="text-[11px] font-normal text-muted-foreground">خطوات التنفيذ والأدلة</span>
+              </Link>
+              <Link
+                href={`/mission-control?executionId=${encodeURIComponent(executionId)}`}
+                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <span>فتح متابعة الأهداف</span>
+                <span className="text-[11px] font-normal text-muted-foreground">الحالة والاسترداد والتحقق</span>
+              </Link>
+            </>
+          )}
+          {taskId && (
+            <Link
+              href={`/tasks?taskId=${encodeURIComponent(taskId)}`}
+              className="inline-flex min-h-10 items-center rounded border border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              فتح المهمة
+            </Link>
+          )}
+        </nav>
+      )}
+    </>
+  );
+
   return (
     <section
       dir="rtl"
@@ -419,53 +472,29 @@ export function ExecutionProjectionPanel({
         {missionState.detail}
       </div>
 
-      {(resolvedMissionId || executionId || operationId || taskId || resolvedProposalId) && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid="execution-identities">
-          {resolvedMissionId && (
-            <span>
-              <span className="font-semibold text-primary">الهدف الرئيسي</span>{' '}
-              <code dir="ltr" className="inline-block max-w-full break-all text-foreground" title={resolvedMissionId}>{resolvedMissionId}</code>
-            </span>
-          )}
-          {executionId && executionId !== resolvedMissionId && <span>التنفيذ <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{executionId}</code></span>}
-          {operationId && operationId !== resolvedMissionId && <span>العملية <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{operationId}</code></span>}
-          {taskId && <span>المهمة <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{taskId}</code></span>}
-          {resolvedProposalId && <span>المقترح <code dir="ltr" className="inline-block max-w-full break-all text-foreground">{resolvedProposalId}</code></span>}
-        </div>
-      )}
-
       <ResultDetailsSummary input={{ kind: 'execution', projection, executionStatus, evidenceVerdict }} />
 
-      {(executionId || taskId) && (
-        <nav className="mt-2 flex flex-wrap items-center gap-2" aria-label="صفحات تفاصيل التنفيذ" data-testid="execution-destinations">
-          {executionId && (
-            <>
-              <Link
-                href={`/flight-deck?executionId=${encodeURIComponent(executionId)}`}
-                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-primary/25 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <span>فتح لوحة التشغيل</span>
-                <span className="text-[11px] font-normal text-muted-foreground">خطوات التنفيذ والأدلة</span>
-              </Link>
-              <Link
-                href={`/mission-control?executionId=${encodeURIComponent(executionId)}`}
-                className="inline-flex min-h-10 min-w-40 flex-col items-start justify-center rounded border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <span>فتح متابعة الأهداف</span>
-                <span className="text-[11px] font-normal text-muted-foreground">الحالة والاسترداد والتحقق</span>
-              </Link>
-            </>
-          )}
-          {taskId && (
-            <Link
-              href={`/tasks?taskId=${encodeURIComponent(taskId)}`}
-              className="inline-flex min-h-10 items-center rounded border border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              فتح المهمة
-            </Link>
-          )}
-        </nav>
-      )}
+      {hasTechnicalIdentityDetails && (compact ? (
+        <details
+          className="mt-2 rounded-md border border-border/45 bg-background/20"
+          data-testid="execution-technical-details"
+          aria-label="تفاصيل تقنية للتنفيذ"
+        >
+          <summary
+            className="cursor-pointer px-3 py-2 text-[10px] font-semibold text-muted-foreground"
+            data-testid="toggle-technical-details"
+          >
+            تفاصيل تقنية
+          </summary>
+          <div className="space-y-2 border-t border-border/40 p-3">
+            {technicalIdentityContent}
+          </div>
+        </details>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {technicalIdentityContent}
+        </div>
+      ))}
 
       {projection.timeline?.length > 0 && (
         <details
@@ -517,7 +546,7 @@ export function ExecutionProjectionPanel({
         <div className="rounded-md border border-border/45 bg-background/25 px-2.5 py-2" data-testid="status-run">
           <div className="text-muted-foreground">حالة التنفيذ</div>
           <div className="mt-1 font-medium text-foreground">{titleCase(executionStatus)}</div>
-          {executionId && <code dir="ltr" className="mt-0.5 block truncate text-muted-foreground" title={executionId}>ID {executionId}</code>}
+          {executionId && !compact && <code dir="ltr" className="mt-0.5 block truncate text-muted-foreground" title={executionId}>ID {executionId}</code>}
         </div>
         <div className="rounded-md border border-border/45 bg-background/25 px-2.5 py-2" data-testid="status-flight">
           <div className="text-muted-foreground">حالة التسليم</div>

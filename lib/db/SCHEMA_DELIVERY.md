@@ -7,6 +7,12 @@ The supported delivery command is:
 pnpm --filter @workspace/db run schema:apply
 ```
 
+Mission lineage is release-critical. The API uses `ai_mission_lineages` to
+validate the relationship between the canonical Chat Mission and its distinct
+Apply Mission, including the source execution, Goal, acceptance, Proposal, and
+Project. A successful build without this table and its declared constraints is
+not sufficient evidence that the Mission API schema is ready.
+
 `schema:apply` runs `drizzle-kit push` against the `DATABASE_URL` selected by
 the invoking environment, then runs the read-only application contract check.
 Drizzle's push operation is idempotent for the existing schema and preserves

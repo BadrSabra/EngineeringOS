@@ -220,6 +220,21 @@ describe("composeCanonicalProof", () => {
     expect(missingCandidateIdentity.failureReasons).toContain("missing_evidence_candidate_identity");
   });
 
+  it("rejects a missing evidence snapshot or one linked to another execution", () => {
+    const missingSnapshot = fixture({
+      acceptance: { evidenceSnapshotId: null },
+      evidence: null,
+    });
+    expect(missingSnapshot.accepted).toBe(false);
+    expect(missingSnapshot.failureReasons).toContain("missing_evidence_snapshot");
+
+    const wrongExecution = fixture({
+      evidence: { executionId: "other-execution" },
+    });
+    expect(wrongExecution.accepted).toBe(false);
+    expect(wrongExecution.failureReasons).toContain("evidence_snapshot_mismatch");
+  });
+
   it("requires callers to name the source and candidate identity policies explicitly", () => {
     const missingScopeRevision = fixture({
       scope: {

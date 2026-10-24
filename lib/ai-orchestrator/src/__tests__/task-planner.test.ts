@@ -188,7 +188,7 @@ describe("buildGeneralTaskPlan", () => {
 
   it("binds validation in a new delivery plan to the server-owned validation recipe", () => {
     const plan = buildGeneralTaskPlan({
-      message: "Apply the approved fix",
+      message: "Apply the approved fix in README.md",
       turnIntent: intent({
         kind: "DELIVERY",
         executionTaskType: "task_execution",
@@ -199,9 +199,10 @@ describe("buildGeneralTaskPlan", () => {
 
     const validate = plan.steps.find((step) => step.kind === "validate");
     expect(validate?.recipe).toEqual({
-      recipeId: "validation.recover",
+      recipeId: "candidate.verify.workspace-typecheck",
       recipeVersion: 1,
     });
+    expect(validate?.files).toEqual(["README.md"]);
     expect(validate?.readOnly).toBe(true);
     expect(validate?.approvalRequired).toBe(false);
   });

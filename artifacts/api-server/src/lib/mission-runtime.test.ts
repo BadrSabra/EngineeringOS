@@ -265,7 +265,13 @@ type DependencyProofFixtureOptions = {
   proofExecutionId?: string;
   proofContractVersion?: number;
   evidenceSnapshot?: "complete" | "incomplete";
-  episode?: "missing" | "wrong_goal" | "wrong_project_revision" | "wrong_plan_revision" | "running";
+  episode?:
+    | "missing"
+    | "missing_world_revision"
+    | "wrong_goal"
+    | "wrong_project_revision"
+    | "wrong_plan_revision"
+    | "running";
   observation?:
     | "valid"
     | "missing"
@@ -437,7 +443,9 @@ async function createDependencyProofFixture(
       projectRevision: episodeKind === "wrong_project_revision"
         ? "c".repeat(40)
         : sourceRevision,
-      worldRevision: worldState.worldRevision,
+      worldRevision: episodeKind === "missing_world_revision"
+        ? null
+        : worldState.worldRevision,
       planRevision: episodeKind === "wrong_plan_revision" ? "stale-plan" : planRevision,
       intentKind: "recipe",
       scope,
@@ -518,6 +526,7 @@ async function createDependencyProofFixture(
     operationId,
     planRevision,
     sourceRevision,
+    attempt,
     taskScope,
     initialWorldRevision: worldState.worldRevision,
   };
@@ -697,7 +706,7 @@ async function configureGoalDeliveryRequirement(
 
 async function expectDependencyProofBlocked(fixture: {
   goalId: string;
-}): Promise<void> {
+}, expectedFailedCheck?: string): Promise<void> {
   await expect(runMissionGoal({
     goalId: fixture.goalId,
     userId: "test-user",
@@ -715,6 +724,27 @@ async function expectDependencyProofBlocked(fixture: {
     status: "needs_replan",
     blockedReason: "dependency_proof_unproven",
   });
+  const payload = await readDependencyProofBlockedPayload(fixture.goalId);
+  expect(payload).toMatchObject({
+    reasonCode: "dependency_proof_unproven",
+  });
+  if (expectedFailedCheck) {
+    expect(payload?.failedChecks).toContain(expectedFailedCheck);
+  }
+}
+
+async function readDependencyProofBlockedPayload(
+  goalId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const [proofBlockedEvent] = await db
+    .select({ payload: eventsTable.payload })
+    .from(eventsTable)
+    .where(and(
+      eq(eventsTable.goalId, goalId),
+      eq(eventsTable.type, "AiGoalDependencyProofBlocked"),
+    ))
+    .limit(1);
+  return proofBlockedEvent?.payload ?? undefined;
 }
 
 afterEach(async () => {
@@ -791,6 +821,54 @@ async function contendWithMissionThenGoalLock(params: {
 }
 
 describe("Mission goal runtime", () => {
+  async function insertMaterializedDependencyTransition(
+    fixture: Awaited<ReturnType<typeof createDependencyProofFixture>>,
+    options: {
+      resultingScopedWorldRevision?: string | null;
+      taskScope?: string;
+      environmentRevision?: string | null;
+    } = {},
+  ) {
+    const transitionId = randomUUID();
+    const globalState = await getProjectWorldState(fixture.projectId);
+    const environmentRevision = options.environmentRevision ?? null;
+    const scopedState = await getProjectWorldState(fixture.projectId, {
+      taskScope: options.taskScope ?? fixture.taskScope,
+      environmentRevision,
+    });
+    await db.insert(aiWorldTransitionsTable).values({
+      id: transitionId,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: fixture.attempt,
+      episodeId: fixture.episodeId,
+      actionId: `action:${fixture.executionId}`,
+      parentWorldRevision: globalState.worldRevision,
+      resultingWorldRevision: globalState.worldRevision,
+      resultingScopedWorldRevision: options.resultingScopedWorldRevision === undefined
+        ? scopedState.worldRevision
+        : options.resultingScopedWorldRevision,
+      taskScope: options.taskScope ?? fixture.taskScope,
+      environmentRevisionKey: environmentRevision
+        ? `revision:${environmentRevision}`
+        : "unknown",
+      environmentRevision,
+      freshness: "fresh",
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      materializedObservationIds: [],
+      parentFactRefs: [],
+      changedFactRefs: [],
+      evidenceRefs: [],
+      status: "materialized",
+      idempotencyKey: `transition:${transitionId}`,
+      retryCount: 0,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    return { transitionId, globalRevision: globalState.worldRevision, scopedRevision: scopedState.worldRevision };
+  }
+
   it("releases a dependent Goal only from the matching current-attempt Canonical Proof", async () => {
     const fixture = await createDependencyProofFixture();
 
@@ -811,6 +889,7 @@ describe("Mission goal runtime", () => {
   });
 
   it.each([
+    ["a missing Episode World State revision", { episode: "missing_world_revision" }],
     ["a stored PROVEN projection without durable acceptance", { proof: false }],
     ["an unknown execution pointer", { proofExecutionId: "missing-execution" }],
     ["a rotated execution attempt", { rotateToAttempt: 1 }],
@@ -832,7 +911,12 @@ describe("Mission goal runtime", () => {
     "blocks dependency release when the proof has %s",
     async (_description, options) => {
       const fixture = await createDependencyProofFixture(options);
-      await expectDependencyProofBlocked(fixture);
+      await expectDependencyProofBlocked(
+        fixture,
+        options.episode === "missing_world_revision"
+          ? "episode_world_revision_present"
+          : undefined,
+      );
     },
   );
 
@@ -857,6 +941,200 @@ describe("Mission goal runtime", () => {
       userId: "test-user",
       trigger: "resume",
     })).resolves.toMatchObject({ status: "waiting", goalId: fixture.goalId });
+  });
+
+  it("accepts a matching Transition scoped revision despite unrelated project-wide changes", async () => {
+    const fixture = await createDependencyProofFixture();
+    const transition = await insertMaterializedDependencyTransition(fixture);
+    expect(transition.globalRevision).not.toBe(transition.scopedRevision);
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId: fixture.projectId,
+      taskScope: "unrelated-task-scope",
+      subject: `unrelated:${fixture.projectId}`,
+      predicate: "status",
+      value: "changed-after-transition",
+      valueHash: createHash("sha256").update("changed-after-transition").digest("hex"),
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: fixture.sourceRevision,
+    });
+
+    await expect(runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({ status: "waiting", goalId: fixture.goalId });
+  });
+
+  it("rejects a same-scope change made after Transition materialization", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertMaterializedDependencyTransition(fixture);
+    const changed = "changed-after-transition";
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId: fixture.projectId,
+      taskScope: fixture.taskScope,
+      subject: `dependency:${fixture.projectId}`,
+      predicate: "verification.state",
+      value: changed,
+      valueHash: createHash("sha256").update(changed).digest("hex"),
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: fixture.sourceRevision,
+    });
+
+    await expectDependencyProofBlocked(fixture, "world_state_revision_mismatch");
+  });
+
+  it("rejects a legacy Transition without its scoped result instead of falling back to the global digest", async () => {
+    const fixture = await createDependencyProofFixture();
+    await insertMaterializedDependencyTransition(fixture, {
+      resultingScopedWorldRevision: null,
+    });
+
+    await expectDependencyProofBlocked(fixture, "world_transition_scoped_result_missing");
+  });
+
+  it.each([
+    ["task-scope", { taskScope: "different-task-scope" }, "world_transition_task_scope_mismatch"],
+    ["environment-revision", {
+      environmentRevision: "different-environment-revision",
+    }, "world_transition_environment_revision_mismatch"],
+  ] as const)(
+    "rejects a Transition whose %s differs from the Episode",
+    async (_label, options, failure) => {
+      const fixture = await createDependencyProofFixture();
+      await insertMaterializedDependencyTransition(fixture, options);
+      await expectDependencyProofBlocked(fixture, failure);
+    },
+  );
+
+  it("persists the exact World State revisions and source when same-scope proof is rejected", async () => {
+    const fixture = await createDependencyProofFixture({ staleWorldState: true });
+    const actualWorldRevision = (await getProjectWorldState(fixture.projectId, {
+      taskScope: fixture.taskScope,
+      environmentRevision: null,
+      excludeEpisodeIds: [fixture.episodeId],
+    })).worldRevision;
+    expect(actualWorldRevision).not.toBe(fixture.initialWorldRevision);
+
+    await expectDependencyProofBlocked(fixture, "world_state_revision_mismatch");
+
+    const payload = await readDependencyProofBlockedPayload(fixture.goalId);
+    expect(payload).toMatchObject({
+      missionId: fixture.missionId,
+      dependencyGoalId: fixture.sourceGoalId,
+      planRevision: fixture.planRevision,
+      failedChecks: ["world_state_revision_mismatch"],
+      worldStateRevisionMismatch: {
+        expectedWorldRevision: fixture.initialWorldRevision,
+        actualWorldRevision,
+        expectedRevisionSource: "episode",
+        transitionId: null,
+        transitionStatus: null,
+        projectId: fixture.projectId,
+        missionId: fixture.missionId,
+        dependencyGoalId: fixture.sourceGoalId,
+        executionId: fixture.executionId,
+        episodeId: fixture.episodeId,
+        attempt: fixture.attempt,
+        planRevision: fixture.planRevision,
+        taskScopeIdentity: fixture.taskScope,
+        environmentRevisionAvailable: false,
+      },
+    });
+  });
+
+  it("persists the Transition identity and resulting revision used by a rejected proof", async () => {
+    const fixture = await createDependencyProofFixture();
+    const transitionId = randomUUID();
+    const globalWorldRevision = (await getProjectWorldState(fixture.projectId)).worldRevision;
+    const resultingScopedWorldRevision = "d".repeat(64);
+    await db.insert(aiWorldTransitionsTable).values({
+      id: transitionId,
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: fixture.attempt,
+      episodeId: fixture.episodeId,
+      actionId: `action:${fixture.executionId}`,
+      parentWorldRevision: globalWorldRevision,
+      resultingWorldRevision: globalWorldRevision,
+      resultingScopedWorldRevision,
+      taskScope: fixture.taskScope,
+      environmentRevisionKey: "unknown",
+      environmentRevision: null,
+      freshness: "fresh",
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      materializedObservationIds: [],
+      parentFactRefs: [],
+      changedFactRefs: [],
+      evidenceRefs: [],
+      status: "materialized",
+      idempotencyKey: `transition:${transitionId}`,
+      retryCount: 0,
+      createdAt: fixture.now,
+      updatedAt: fixture.now,
+    });
+    const actualWorldRevision = (await getProjectWorldState(fixture.projectId, {
+      taskScope: fixture.taskScope,
+      environmentRevision: null,
+    })).worldRevision;
+    expect(actualWorldRevision).not.toBe(resultingScopedWorldRevision);
+
+    await expectDependencyProofBlocked(fixture, "world_state_revision_mismatch");
+
+    const payload = await readDependencyProofBlockedPayload(fixture.goalId);
+    expect(payload?.worldStateRevisionMismatch).toMatchObject({
+      expectedWorldRevision: resultingScopedWorldRevision,
+      actualWorldRevision,
+      expectedRevisionSource: "transition",
+      transitionId,
+      transitionStatus: "materialized",
+      executionId: fixture.executionId,
+      episodeId: fixture.episodeId,
+      attempt: fixture.attempt,
+    });
+  });
+
+  it("records environment revision availability without persisting its value", async () => {
+    const fixture = await createDependencyProofFixture();
+    const environmentRevision = "env-revision-value-not-to-log";
+    await db.update(aiAgentEpisodesTable)
+      .set({ environmentRevision })
+      .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    const actualWorldRevision = (await getProjectWorldState(fixture.projectId, {
+      taskScope: fixture.taskScope,
+      environmentRevision,
+      excludeEpisodeIds: [fixture.episodeId],
+    })).worldRevision;
+
+    await expectDependencyProofBlocked(fixture, "world_state_revision_mismatch");
+
+    const payload = await readDependencyProofBlockedPayload(fixture.goalId);
+    const diagnostic = payload?.worldStateRevisionMismatch as Record<string, unknown>;
+    expect(diagnostic).toMatchObject({
+      expectedWorldRevision: fixture.initialWorldRevision,
+      actualWorldRevision,
+      expectedRevisionSource: "episode",
+      environmentRevisionAvailable: true,
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain(environmentRevision);
+  });
+
+  it("keeps a missing Episode World State revision fail-closed without inventing mismatch details", async () => {
+    const fixture = await createDependencyProofFixture({
+      episode: "missing_world_revision",
+    });
+
+    await expectDependencyProofBlocked(fixture, "episode_world_revision_present");
+
+    const payload = await readDependencyProofBlockedPayload(fixture.goalId);
+    expect(payload?.worldStateRevisionMismatch).toBeUndefined();
+    expect(payload?.failedChecks).toContain("episode_world_revision_present");
   });
 
   it("requires every transitive ancestor proof before releasing a dependent Goal", async () => {

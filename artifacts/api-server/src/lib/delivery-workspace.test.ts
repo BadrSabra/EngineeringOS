@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import {
   createDeliveryWorkspace,
   discardDeliveryWorkspace,
   hashChangeSet,
   hashDeliveryTree,
+  materializeDisposableCandidateWorkspace,
+  resolveWorkspaceTreeRevision,
   DELIVERY_TREE_DIGEST_VERSION,
   transitionDeliveryLifecycle,
   atomicallyPromoteFile,
@@ -52,6 +55,7 @@ describe("delivery workspaces", () => {
     await writeFile(join(fixture, ".gitignore"), "ignored\n");
     try {
       const baseHash = await hashDeliveryTree(fixture);
+      const workspaceRevision = await resolveWorkspaceTreeRevision(fixture);
       const workspace = await createDeliveryWorkspace({
         rootPath: fixture,
         operationId,
@@ -60,11 +64,61 @@ describe("delivery workspaces", () => {
       });
       expect(workspace.baseTreeHash).toBe(baseHash);
       expect(workspace.candidateTreeHash).toBe(baseHash);
+      expect(workspaceRevision).toBe(`workspace-tree-v1:${baseHash}`);
+      expect(await resolveWorkspaceTreeRevision(fixture)).toBe(workspaceRevision);
       expect(DELIVERY_TREE_DIGEST_VERSION).toBe("delivery-tree-v1");
       await writeFile(join(fixture, ".engineeringos-delivery-runtime.sock"), "ignored");
       expect(await hashDeliveryTree(fixture)).toBe(baseHash);
       await expect(discardDeliveryWorkspace(workspace.workspaceRoot, operationId)).resolves.toBe(true);
     } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes only the exact managed candidate under the host disposable root", async () => {
+    const fixture = `/tmp/delivery-candidate-source-${randomUUID()}`;
+    const operationId = randomUUID();
+    const proposalId = randomUUID();
+    await mkdir(fixture, { recursive: true });
+    await writeFile(join(fixture, "README.md"), "candidate source\n");
+    let workspace: Awaited<ReturnType<typeof createDeliveryWorkspace>> | undefined;
+    let disposableCandidateRoot: string | undefined;
+    try {
+      workspace = await createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "workspace-tree-v1:test",
+        changes: [{ path: "README.md", newContent: "validated candidate\n" }],
+      });
+      disposableCandidateRoot = await materializeDisposableCandidateWorkspace({
+        proposalId,
+        operationId,
+        workspaceRoot: workspace.workspaceRoot,
+        candidateTreeHash: workspace.candidateTreeHash,
+      });
+      expect(disposableCandidateRoot).toBeDefined();
+      const relativeCandidate = relative(HOST_DISPOSABLE_TEMP_ROOT, disposableCandidateRoot!);
+      expect(relativeCandidate).not.toBe("");
+      expect(relativeCandidate).not.toBe("..");
+      expect(relativeCandidate.startsWith(`..${sep}`)).toBe(false);
+      expect(await hashDeliveryTree(disposableCandidateRoot!)).toBe(workspace.candidateTreeHash);
+      expect(await materializeDisposableCandidateWorkspace({
+        proposalId,
+        operationId,
+        workspaceRoot: workspace.workspaceRoot,
+        candidateTreeHash: workspace.candidateTreeHash,
+      })).toBe(disposableCandidateRoot);
+      await expect(materializeDisposableCandidateWorkspace({
+        proposalId,
+        operationId,
+        workspaceRoot: workspace.workspaceRoot,
+        candidateTreeHash: "f".repeat(64),
+      })).resolves.toBeUndefined();
+    } finally {
+      if (disposableCandidateRoot) {
+        await rm(disposableCandidateRoot, { recursive: true, force: true });
+      }
+      if (workspace) await discardDeliveryWorkspace(workspace.workspaceRoot, operationId);
       await rm(fixture, { recursive: true, force: true });
     }
   });

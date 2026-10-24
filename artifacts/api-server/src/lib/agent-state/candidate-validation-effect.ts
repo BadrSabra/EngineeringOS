@@ -2,6 +2,7 @@ import type {
   AgentAction,
   EffectContract,
 } from "@workspace/ai-orchestrator";
+import { isCandidateVerificationRecipeId } from "@workspace/ai-orchestrator";
 
 export const CANDIDATE_VALIDATION_CAPABILITY_ID = "candidate.validation";
 export const CANDIDATE_VALIDATION_EFFECT_ID = "candidate.validation.observed";
@@ -14,14 +15,19 @@ export function buildCandidateValidationAction(input: {
   sourceRevision: string;
   candidateIdentity: string;
   approvedPaths: readonly string[];
+  recipeId?: string;
 }): AgentAction {
+  const recipeId = input.recipeId ?? "candidate.verify";
+  if (!isCandidateVerificationRecipeId(recipeId)) {
+    throw new Error("Candidate validation effect must bind to a registered candidate verification recipe.");
+  }
   return {
     schemaVersion: "1",
     actionId: input.actionId,
     episodeId: input.episodeId,
     capabilityId: CANDIDATE_VALIDATION_CAPABILITY_ID,
     intent: "Validate the immutable candidate against the server-owned validation profile.",
-    triggerConditions: [{ kind: "server_recipe", recipeId: "candidate.verify" }],
+    triggerConditions: [{ kind: "server_recipe", recipeId }],
     scope: {
       projectId: input.projectId,
       operationId: input.operationId,

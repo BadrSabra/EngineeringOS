@@ -116,3 +116,16 @@ Mission/Goal metadata after transition creation can hide a wrong-scope row.
 change acceptance authority, or treat a materialized transition as execution
 proof. Create Mission-bound test Episodes and their transitions with the
 Mission/Goal identity already present.
+
+A local Gate C runtime fixture must compute the exact `workspace-tree-v1`
+revision from its actual fixture root and return it with the fresh
+`ENGINEERINGOS_CHILD_ATTESTATION` marker. Do not echo an expected revision or
+use a static response that omits either binding.
+
+**Why:** Gate C binds the observed workspace revision and child marker; a
+runtime process can launch while recipe acceptance still blocks if the fixture
+does not return those independently checked values.
+
+**How to apply:** Use the production hashing and exclusion contract in the
+fixture, return the supervisor-provided marker, and leave the Gate C verifier
+unchanged.

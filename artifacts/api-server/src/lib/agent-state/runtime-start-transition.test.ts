@@ -558,6 +558,14 @@ async function transitionFixture(options: {
     excludeEpisodeIds: [episode.episodeId],
   });
   const environmentRevision = `env-v1:${"c".repeat(64)}`;
+  const episodeScopedState = await getProjectWorldState(projectId, {
+    taskScope,
+    environmentRevision,
+  });
+  await db.update(aiAgentEpisodesTable).set({
+    environmentRevision,
+    worldRevision: episodeScopedState.worldRevision,
+  }).where(eq(aiAgentEpisodesTable.id, episode.episodeId));
   const sourceRevision = "a".repeat(64);
   const beforeObservationId = crypto.randomUUID();
   const afterObservationId = crypto.randomUUID();
@@ -861,7 +869,10 @@ describe("runtime.start transition retry scheduling", () => {
       status: "blocked",
       nextAction: { kind: "wait", reason: "event", wakeAt: null },
       successCriteria: { stepId: "report-applied", planRevision: { hash: planRevision } },
-      outcomeContract: { planRevision: { hash: planRevision } },
+      outcomeContract: {
+        stepId: "report-applied",
+        planRevision: { hash: planRevision },
+      },
       createdAt: now,
       updatedAt: now,
     });
@@ -1231,9 +1242,26 @@ describe("runtime.start transition retry scheduling", () => {
     expect(concurrentReplays.some((result) => result.status === "materialized")).toBe(true);
     expect(materializer).toHaveBeenCalledTimes(1);
     const [materializedTransition] = await db.select({
+      status: aiWorldTransitionsTable.status,
       changedFactRefs: aiWorldTransitionsTable.changedFactRefs,
+      taskScope: aiWorldTransitionsTable.taskScope,
+      environmentRevision: aiWorldTransitionsTable.environmentRevision,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      resultingScopedWorldRevision: aiWorldTransitionsTable.resultingScopedWorldRevision,
     }).from(aiWorldTransitionsTable)
       .where(eq(aiWorldTransitionsTable.id, id));
+    const applyGlobalState = await getProjectWorldState(fixture.projectId);
+    const applyScopedState = await getProjectWorldState(fixture.projectId, {
+      taskScope: "project",
+      environmentRevision: fixture.environmentRevision,
+    });
+    expect(materializedTransition).toMatchObject({
+      status: "materialized",
+      taskScope: "project",
+      environmentRevision: fixture.environmentRevision,
+      resultingWorldRevision: applyGlobalState.worldRevision,
+      resultingScopedWorldRevision: applyScopedState.worldRevision,
+    });
     const materializedFacts = await db.select({
       id: aiWorldFactsTable.id,
       sourceObservationIds: aiWorldFactsTable.sourceObservationIds,
@@ -1300,6 +1328,17 @@ describe("runtime.start transition retry scheduling", () => {
     await expect(finalizeApplyChangesTransition(finalizeInput)).resolves.toMatchObject({
       status: "materialized",
       worldRevision: finalized.worldRevision,
+    });
+    const [replayedTransition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      resultingScopedWorldRevision: aiWorldTransitionsTable.resultingScopedWorldRevision,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, id));
+    expect(replayedTransition).toEqual({
+      status: "materialized",
+      resultingWorldRevision: materializedTransition?.resultingWorldRevision,
+      resultingScopedWorldRevision: materializedTransition?.resultingScopedWorldRevision,
     });
     const factsAfterRetry = await db.select({ id: aiWorldFactsTable.id })
       .from(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, fixture.projectId));
@@ -2173,6 +2212,7 @@ describe("runtime.start transition retry scheduling", () => {
       taskScope: fixture.taskScope,
       parentWorldRevision: fixture.transitionInput.parentWorldRevision,
       resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      resultingScopedWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
       beforeObservationIds: [fixture.beforeObservationId],
       afterObservationIds: [
         fixture.afterObservationId,
@@ -2180,6 +2220,29 @@ describe("runtime.start transition retry scheduling", () => {
         fixture.childProcessObservationId,
       ],
     });
+    const globalProjection = await getProjectWorldState(fixture.projectId);
+    const scopedProjection = await getProjectWorldState(fixture.projectId, {
+      taskScope: fixture.taskScope,
+      environmentRevision: fixture.environmentRevision,
+    });
+    expect(transition?.resultingWorldRevision).toBe(globalProjection.worldRevision);
+    expect(transition?.resultingScopedWorldRevision).toBe(scopedProjection.worldRevision);
+    expect(transition?.resultingScopedWorldRevision).not.toBe(transition?.resultingWorldRevision);
+    await expect(finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    })).resolves.toEqual({
+      status: "materialized",
+      worldRevision: globalProjection.worldRevision,
+    });
+    const [replayedTransition] = await db.select().from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(replayedTransition?.resultingWorldRevision).toBe(globalProjection.worldRevision);
+    expect(replayedTransition?.resultingScopedWorldRevision).toBe(scopedProjection.worldRevision);
     const runtimeTransitionObservationIds = new Set<string>([
       fixture.beforeObservationId,
       fixture.afterObservationId,

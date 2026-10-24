@@ -22,6 +22,7 @@ function makeTransition(overrides: Partial<AiWorldTransition> = {}): AiWorldTran
     effectBundleId: "effect-1",
     parentWorldRevision: "world-before",
     resultingWorldRevision: "world-after",
+    resultingScopedWorldRevision: "scoped-world-after",
     taskScope: "runtime",
     environmentRevisionKey: "environment-1",
     environmentRevision: "environment-revision-1",

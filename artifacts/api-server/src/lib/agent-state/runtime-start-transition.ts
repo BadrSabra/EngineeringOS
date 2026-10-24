@@ -19,6 +19,7 @@ import { invalidateContextSlice } from "@workspace/ai-orchestrator";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
 import { isBoundApplyChangeEffectBundle } from "./apply-change-effect.js";
+import { taskScopeIdentity } from "./observation-materializer.js";
 import { logger } from "../logger.js";
 import { establishProjectRoot } from "../project-root.js";
 import { hashDeliveryTree } from "../delivery-workspace.js";
@@ -54,6 +55,7 @@ export type GitHubDeliveryTransitionIntent = {
   parentWorldRevision: string;
   parentFactRefs: readonly string[];
   taskScope: string;
+  environmentRevision?: string | null;
   beforeObservationIds: readonly string[];
 };
 
@@ -81,6 +83,36 @@ const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cance
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function environmentRevisionKey(revision: string | null): string {
+  return revision ? `revision:${revision}` : "unknown";
+}
+
+function transitionRevisionScope(transition: typeof aiWorldTransitionsTable.$inferSelect) {
+  if (
+    !transition.taskScope.trim()
+    || transition.taskScope.startsWith("unscoped:")
+    || transition.environmentRevisionKey !== environmentRevisionKey(transition.environmentRevision)
+  ) return undefined;
+  return {
+    taskScope: transition.taskScope,
+    environmentRevision: transition.environmentRevision,
+  };
+}
+
+function episodeTransitionRevisionScope(
+  transition: typeof aiWorldTransitionsTable.$inferSelect,
+  episode: Pick<typeof aiAgentEpisodesTable.$inferSelect,
+    "id" | "projectId" | "missionId" | "goalId" | "scope" | "environmentRevision">,
+) {
+  const scope = transitionRevisionScope(transition);
+  if (
+    !scope
+    || scope.taskScope !== taskScopeIdentity(episode)
+    || scope.environmentRevision !== episode.environmentRevision
+  ) return undefined;
+  return scope;
 }
 
 function transitionIdempotencyKey(input: RuntimeStartTransitionIntent): string {
@@ -294,6 +326,7 @@ export async function createPendingGitHubDeliveryTransition(
   const idempotencyKey = githubDeliveryTransitionKey(input);
   const bindingRef = githubDeliveryBindingRef(input);
   const beforeObservationIds = unique(input.beforeObservationIds);
+  const environmentRevision = input.environmentRevision ?? null;
   if (
     !/^[a-f0-9]{64}$/.test(input.parentWorldRevision)
     || beforeObservationIds.length !== 1
@@ -324,6 +357,13 @@ export async function createPendingGitHubDeliveryTransition(
       const binding = parseGitHubDeliveryBinding(existing.evidenceRefs);
       if (
         existing.executionId !== input.executionId
+        || existing.attempt !== input.attempt
+        || existing.episodeId !== input.episodeId
+        || existing.actionId !== input.actionId
+        || existing.parentWorldRevision !== input.parentWorldRevision
+        || existing.taskScope !== input.taskScope
+        || existing.environmentRevision !== environmentRevision
+        || existing.environmentRevisionKey !== environmentRevisionKey(environmentRevision)
         || !binding
         || JSON.stringify(binding) !== JSON.stringify({
           operationId: input.operationId,
@@ -350,8 +390,8 @@ export async function createPendingGitHubDeliveryTransition(
       effectBundleId: null,
       parentWorldRevision: input.parentWorldRevision,
       taskScope: input.taskScope,
-      environmentRevisionKey: "unknown",
-      environmentRevision: null,
+      environmentRevisionKey: environmentRevisionKey(environmentRevision),
+      environmentRevision,
       freshness: "unknown",
       beforeObservationIds,
       afterObservationIds: [],
@@ -757,6 +797,9 @@ export async function finalizeGitHubDeliveryTransition(input: {
       || observation.completeness !== "complete"
       || observation.freshness !== "fresh"
       || observation.environmentFreshness === "stale"
+      || observation.taskScope !== transition.taskScope
+      || observation.environmentRevision !== transition.environmentRevision
+      || observation.environmentRevisionKey !== transition.environmentRevisionKey
     ))) throw new Error("github_delivery_transition_observations_incomplete");
 
     const beforeObservation = observations.find((observation) => beforeObservationIds.includes(observation.id));
@@ -765,12 +808,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
       throw new Error("github_delivery_transition_observations_missing");
     }
     const episodeIds = unique([beforeObservation.episodeId, afterObservation.episodeId]);
-    const episodes = await db.select({
-      id: aiAgentEpisodesTable.id,
-      projectId: aiAgentEpisodesTable.projectId,
-      executionId: aiAgentEpisodesTable.executionId,
-      attempt: aiAgentEpisodesTable.attempt,
-    }).from(aiAgentEpisodesTable).where(and(
+    const episodes = await db.select().from(aiAgentEpisodesTable).where(and(
       eq(aiAgentEpisodesTable.projectId, input.projectId),
       inArray(aiAgentEpisodesTable.id, episodeIds),
     ));
@@ -786,6 +824,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
       || afterEpisode.id !== input.episodeId
       || transition.episodeId !== input.episodeId
     ) throw new Error("github_delivery_transition_episode_binding_mismatch");
+    const resultingRevisionScope = episodeTransitionRevisionScope(transition, afterEpisode);
 
     const before = githubDeliveryRecord(beforeObservation.value);
     const after = githubDeliveryRecord(afterObservation.value);
@@ -836,6 +875,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
       observationIds,
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: episodeIds,
+      ...(resultingRevisionScope ? { resultingRevisionScope } : {}),
     }, async (tx, result) => {
       const selected = new Set(observationIds);
       const facts = await tx.select({
@@ -848,6 +888,7 @@ export async function finalizeGitHubDeliveryTransition(input: {
       ).map((fact) => fact.id).sort((left, right) => left.localeCompare(right));
       const updated = await tx.update(aiWorldTransitionsTable).set({
         resultingWorldRevision: result.worldRevision,
+        resultingScopedWorldRevision: result.scopedWorldRevision ?? null,
         materializedObservationIds: observationIds,
         changedFactRefs,
         freshness: "fresh",
@@ -1048,8 +1089,7 @@ export async function finalizeRuntimeStartTransition(input: {
     if (acceptance?.effectBundleId !== input.effectBundleId) {
       throw new Error("runtime_start_transition_acceptance_missing");
     }
-    const [episode] = await db.select({ id: aiAgentEpisodesTable.id })
-      .from(aiAgentEpisodesTable)
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
       .where(and(
         eq(aiAgentEpisodesTable.id, input.episodeId),
         eq(aiAgentEpisodesTable.projectId, input.projectId),
@@ -1058,6 +1098,7 @@ export async function finalizeRuntimeStartTransition(input: {
       ))
       .limit(1);
     if (!episode) throw new Error("runtime_start_transition_episode_binding_missing");
+    const resultingRevisionScope = episodeTransitionRevisionScope(transition, episode);
     if (
       !/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)
       || !transition.environmentRevision
@@ -1178,6 +1219,7 @@ export async function finalizeRuntimeStartTransition(input: {
       observationIds,
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: [input.episodeId],
+      ...(resultingRevisionScope ? { resultingRevisionScope } : {}),
     }, async (tx, result) => {
       const selected = new Set(observationIds);
       const facts = await tx.select({
@@ -1195,6 +1237,7 @@ export async function finalizeRuntimeStartTransition(input: {
       const updated = await tx.update(aiWorldTransitionsTable)
         .set({
           resultingWorldRevision: result.worldRevision,
+          resultingScopedWorldRevision: result.scopedWorldRevision ?? null,
           materializedObservationIds: observationIds,
           changedFactRefs,
           freshness: "fresh",
@@ -1597,10 +1640,12 @@ export async function finalizeApplyChangesTransition(input: {
       || treeValue(after) !== binding.promotedTreeHash) {
       throw new Error("apply_transition_tree_observations_unproven");
     }
+    const resultingRevisionScope = transitionRevisionScope(transition);
     const materialized = await materializeWorldStateForProject(input.projectId, {
       observationIds: unique([...beforeIds, ...afterIds]),
       expectedWorldRevision: transition.parentWorldRevision,
       expectedRevisionExcludeEpisodeIds: [input.episodeId],
+      ...(resultingRevisionScope ? { resultingRevisionScope } : {}),
     }, async (tx, result) => {
       // Acceptance proof replay locks Execution before Acceptance, Episode, and
       // the effect bundle. Match that order so replay cannot deadlock against
@@ -1679,6 +1724,7 @@ export async function finalizeApplyChangesTransition(input: {
         .sort((left, right) => left.localeCompare(right));
       const changed = await tx.update(aiWorldTransitionsTable).set({
         resultingWorldRevision: result.worldRevision,
+        resultingScopedWorldRevision: result.scopedWorldRevision ?? null,
         materializedObservationIds,
         changedFactRefs,
         freshness: "fresh",

@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { isCandidateVerificationRecipeId } from "@workspace/ai-orchestrator";
 import {
   db,
   aiApplyJournalTable,
@@ -418,7 +419,7 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
     },
     goalStatus: goal?.status ?? execution.status,
     deliveryRequired: outcomeContract.deliveryRequired === true
-      && nextAction.recipeId !== "candidate.verify",
+      && !isCandidateVerificationRecipeId(nextAction.recipeId),
     deliveryReceipt: Object.keys(delivery).length > 0
       ? {
           status: delivery.status,

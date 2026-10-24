@@ -2,14 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   RecipeDefinitionRegistry,
   createServerRecipeDefinitionRegistry,
+  isCandidateVerificationRecipeId,
 } from "../recipe-definition-registry.js";
 
 describe("server recipe definition registry", () => {
+  it("recognizes both the legacy and workspace-typecheck candidate verification recipes", () => {
+    expect(isCandidateVerificationRecipeId("candidate.verify")).toBe(true);
+    expect(isCandidateVerificationRecipeId("candidate.verify.workspace-typecheck")).toBe(true);
+    expect(isCandidateVerificationRecipeId("delivery.push.github")).toBe(false);
+    expect(isCandidateVerificationRecipeId(undefined)).toBe(false);
+  });
+
   it("registers deterministic server-owned baseline recipes", () => {
     const registry = createServerRecipeDefinitionRegistry();
     expect(registry.listIds()).toEqual([
       "browser.verify",
       "candidate.verify",
+      "candidate.verify.workspace-typecheck",
       "database.inspect.project",
       "delivery.push.github",
       "runtime.restart",
@@ -35,6 +44,7 @@ describe("server recipe definition registry", () => {
     )).toEqual({
       "browser.verify": "artifact_only",
       "candidate.verify": "artifact_only",
+      "candidate.verify.workspace-typecheck": "artifact_only",
       "database.inspect.project": "artifact_only",
       "delivery.push.github": "artifact_only",
       "runtime.restart": "operational_only",
@@ -98,6 +108,26 @@ describe("server recipe definition registry", () => {
       dependsOn: ["workspace-typecheck"],
     });
     expect(recipe.nodes[0]).not.toHaveProperty("timeoutMs");
+  });
+
+  it("keeps Mission workspace validation to the server-selected typecheck profile", () => {
+    const registry = createServerRecipeDefinitionRegistry();
+    const recipe = registry.build({
+      recipeId: "candidate.verify.workspace-typecheck",
+      recipeVersion: 1,
+      approvedPaths: ["README.md"],
+      candidateIdentity: "a".repeat(64),
+    });
+
+    expect(recipe.nodes).toEqual([expect.objectContaining({
+      id: "workspace-typecheck",
+      capabilityId: "validation.run.workspace-typecheck",
+      input: { targetPaths: ["README.md"] },
+      dependsOn: [],
+    })]);
+    expect(recipe.nodes.some((node) =>
+      node.capabilityId === "validation.run.ai-orchestrator-tests",
+    )).toBe(false);
   });
 
   it("rejects unknown IDs and model-supplied graph controls", () => {

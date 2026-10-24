@@ -29,6 +29,8 @@ async function runProcessRecovery({
   fixtureScript,
   partialTeardownKey,
   captureOutput = false,
+  environment = process.env,
+  providerCredential = "fixture-provider-key",
 }) {
   const fakePnpmPath = path.join(binDirectory, "pnpm");
   await mkdir(binDirectory, { recursive: true });
@@ -42,12 +44,12 @@ async function runProcessRecovery({
     const childProcess = spawn(process.execPath, [scriptPath], {
       cwd: workspaceRoot,
       env: {
-        ...process.env,
-        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+        ...environment,
+        PATH: `${binDirectory}:${environment.PATH ?? ""}`,
         RUN_REAL_API_PROCESS_RECOVERY: "1",
         LIVE_RECOVERY_PROVIDER: "gemini",
         DATABASE_URL: "fixture-database-url",
-        GEMINI_API_KEY: "fixture-provider-key",
+        GEMINI_API_KEY: providerCredential,
         LIVE_RECOVERY_RECEIPT_PATH: receiptPath,
         ...(timeoutMs === undefined
           ? {}
@@ -230,6 +232,87 @@ test("process-recovery script keeps the last passing receipt when the child time
     });
     assert.deepEqual(child, { code: 1, signal: null });
     assert.equal(await readFile(receiptPath, "utf8"), previous);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("successful receipts keep the provider credential out of evidence and logs", async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "process-recovery-receipt-test-"),
+  );
+  const receiptPath = path.join(directory, "receipt.json");
+  const providerCredential = "fixture-process-recovery-secret-sentinel";
+  const environment = Object.fromEntries(
+    ["PATH", "HOME", "TMPDIR", "TEMP", "LANG", "LC_ALL"]
+      .flatMap((name) => process.env[name] ? [[name, process.env[name]]] : []),
+  );
+  const fixtureScript = `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+const secret = process.env.GEMINI_API_KEY;
+process.stdout.write(secret + "\\n");
+process.stderr.write(secret + "\\n");
+const reportArgument = process.argv.find((argument) => argument.startsWith("--outputFile="));
+if (!reportArgument) process.exit(2);
+writeFileSync(process.env.LIVE_RECOVERY_RESULT_PATH, JSON.stringify({
+  provider: {
+    id: "gemini",
+    model: "fixture-model",
+    supportsTools: false,
+    credential: secret
+  },
+  milestones: {
+    initialHealth: "passed",
+    checkpointPersistedBeforeStop: "passed",
+    checkpointSequence: "non-zero",
+    firstProcessStopped: "passed",
+    restartHealthyWithinBound: "passed",
+    sameExecutionRecoveredOnSameExecutionIdentity: "passed",
+    forensicResponse: "successful",
+    expectedSourcePath: "src/process-recovery.ts",
+    writeOperations: "none",
+    sourceBytesUnchanged: true
+  },
+  teardown: {
+    disposableProjectRetired: true,
+    generatedRootRetired: true,
+    apiDescendantsSurviving: false,
+    recoveryListenerOccupied: false,
+    secretsRetained: false
+  },
+  diagnostics: secret
+}));
+writeFileSync(reportArgument.slice("--outputFile=".length), JSON.stringify({
+  numFailedTests: 0,
+  numPassedTests: 1,
+  numPendingTests: 0,
+  testResults: [{ status: "passed" }]
+}));
+`;
+  try {
+    const result = await runProcessRecovery({
+      receiptPath,
+      binDirectory: path.join(directory, "bin"),
+      fixtureScript,
+      captureOutput: true,
+      environment,
+      providerCredential,
+    });
+    assert.equal(result.code, 0);
+    assert.equal(result.signal, null);
+
+    const receiptText = await readFile(receiptPath, "utf8");
+    const receipt = JSON.parse(receiptText);
+    assert.deepEqual(receipt.provider, {
+      id: "gemini",
+      model: "fixture-model",
+      supportsTools: false,
+      credential: "environment-only",
+      fixtureProviderCredentialsForwarded: false,
+    });
+    assert.equal(receiptText.includes(providerCredential), false);
+    assert.equal(result.stdout.includes(providerCredential), false);
+    assert.equal(result.stderr.includes(providerCredential), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

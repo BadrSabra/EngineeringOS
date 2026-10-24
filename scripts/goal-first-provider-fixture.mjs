@@ -72,6 +72,22 @@ const providerHosts = new Set([
   "openrouter.ai",
 ]);
 
+function localLifecycleEgressGuardEnabled() {
+  return process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === "1"
+    && process.env.NODE_ENV === "test"
+    && process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1"
+    && process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1"
+    && process.env.DASHBOARD_E2E_TEST_MODE === "fixture"
+    && process.env.MISSION_E2E_PROVIDER_FIXTURE === "1";
+}
+
+function isLoopbackHost(hostname) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
+  return normalized === "localhost"
+    || normalized === "127.0.0.1"
+    || normalized === "::1";
+}
+
 function assertFixtureMode() {
   if (
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1"
@@ -467,6 +483,19 @@ globalThis.fetch = async (input, init) => {
   const requestUrl = input instanceof Request ? input.url : String(input);
   const url = new URL(requestUrl);
   if (!providerHosts.has(url.hostname.toLowerCase())) {
+    if (
+      localLifecycleEgressGuardEnabled()
+      && ["http:", "https:"].includes(url.protocol)
+      && !isLoopbackHost(url.hostname)
+    ) {
+      const method = (
+        init?.method ?? (input instanceof Request ? input.method : "GET")
+      ).toUpperCase();
+      recordRequest(url, method, "blocked-nonlocal-egress");
+      throw new Error(
+        `Blocked non-local E2E network request to ${url.hostname}.`,
+      );
+    }
     return realFetch(input, init);
   }
 

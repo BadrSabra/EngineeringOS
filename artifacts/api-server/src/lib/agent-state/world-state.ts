@@ -46,6 +46,7 @@ export type WorldStateMaterializationResult = {
   skipped: number;
   contradictions: number;
   worldRevision: string;
+  scopedWorldRevision?: string;
 };
 
 export type WorldStateMaterializationOptions = {
@@ -58,6 +59,11 @@ export type WorldStateMaterializationOptions = {
   expectedWorldRevision?: string;
   /** Exclude only new evidence from this transition's own Episode during the parent check. */
   expectedRevisionExcludeEpisodeIds?: readonly string[];
+  /** Capture the post-materialization revision in one exact scope/environment. */
+  resultingRevisionScope?: {
+    taskScope: string;
+    environmentRevision: string | null;
+  };
 };
 
 function asString(value: Date | string): string {
@@ -417,12 +423,23 @@ export async function materializeWorldStateForProject(
       )
       .limit(MAX_FACTS);
     const facts = rows.map(projectFact);
+    const scope = options.resultingRevisionScope;
+    const scopedWorldRevision = scope
+      && scope.taskScope.trim().length > 0
+      && !scope.taskScope.startsWith("unscoped:")
+      && (scope.environmentRevision === null || scope.environmentRevision.trim().length > 0)
+      ? (await getProjectWorldState(projectId, {
+          taskScope: scope.taskScope,
+          environmentRevision: scope.environmentRevision,
+        }, tx)).worldRevision
+      : undefined;
     const result = {
       projectId,
       inserted,
       skipped,
       contradictions,
       worldRevision: worldRevision(projectId, undefined, undefined, facts, revisionObservations),
+      ...(scopedWorldRevision ? { scopedWorldRevision } : {}),
     };
     await beforeCommit?.(tx, result);
     return result;

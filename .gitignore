@@ -73,3 +73,5 @@ attached_assets/*
 .test-roots/
 .engineeringos-projects/
 .engineeringos-delivery/
+# Generated root-level Mission correlation reports; checked-in fixtures live elsewhere.
+/mission-correlation-report-*.json

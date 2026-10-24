@@ -1,5 +1,14 @@
 # Engineering Agent lifecycle and delivery-gate evidence map
 
+> **Sanitized candidate scope:** This document contains historical observations,
+> not a passing verification of this candidate. Saved `release-evidence` receipts
+> and the root Mission Correlation report are excluded; originals remain in the
+> owner's local evidence and are not published with this snapshot. References to
+> those paths below describe historical evidence, not files shipped here.
+> The latest isolated attempt stopped at `runtime-start-proof` with
+> `RUNTIME_START_GOAL_NOT_COMPLETED` and `recipe_acceptance_blocked`; no complete
+> lifecycle or delivery acceptance is claimed for this candidate.
+
 This note records the source-first audit and baseline before implementation
 changes for `EngineeringOS-Lifecycle-Continuity-Delivery-Gates-PR`.
 
@@ -124,13 +133,34 @@ nine gateway action kinds has its own real integration coverage for execution,
 failure, and concurrency. That remains a separate verification gap; this
 acceptance does not claim all nine branches are proven.
 
-## Canonical Mission identity map (read-only, before implementation)
+## Canonical Mission identity map
+
+### Current implementation and verification boundary
+
+The current source includes the FK-backed `ai_mission_lineages` relation, and
+the application schema contract now requires its declared columns, primary
+key, three indexes, and seven foreign keys with their delete rules. The
+read-only contract tests passed 27/27 using schema snapshots; this is not a
+query against the managed Development database.
+
+The recorded passing lifecycle receipt in this document is isolated evidence
+only: it used
+a disposable loopback PostgreSQL cluster, a local provider fixture, and a
+temporary local bare Git remote. It does not prove that a managed database is
+currently ready or that an external repository was contacted.
+
+Current managed Development readiness remains unverified; see the historical
+schema observation below. Re-run the read-only schema checker before any
+Development lifecycle run. No DDL against Development or Production is
+authorized by this evidence map.
+
+### Historical identity map (before lineage implementation)
 
 The user-level lifecycle uses two distinct Mission rows: the Chat-created
 source Mission and the Apply Mission created for the approved proposal. The
 source Mission is the logical root; equating those IDs would be incorrect.
 
-| Link | Authoritative source | What it proves today | Remaining identity gap |
+| Link | Authoritative source | What it proved at the time | Gap at that time |
 |---|---|---|---|
 | Chat → canonical Mission | `lib/db/src/schema/ai_chats.ts:12-49` makes `activeMissionId` a nullable FK to `ai_missions`; `ai_mission_handoffs.ts:19-75` stores the durable session/message-to-Mission handoff. `missions.ts:2010-2225` writes the handoff and updates the session pointer. | A server-created Mission can be recovered from its Chat handoff; the session pointer is not itself the handoff record. | No later Apply Mission row directly references this canonical Mission. |
 | Mission → Goal → Execution | `ai_missions.ts:45-110` defines Mission and Goal; each Goal has an FK to Mission. `ai_executions.ts:34-109` has `goalId` as an FK to Goal. `mission-runtime.ts:1931-1964,2073-2095` dispatches recipes using the Mission/Goal scope and recovers queued executions by joining Execution → Goal. | Execution ownership can be re-derived through its Goal; the Proof path binds the execution to the Mission whose Goal owns it. | This identifies the Mission for a given Execution, but does not connect an Apply Mission back to the source Mission. |
@@ -140,14 +170,15 @@ source Mission is the logical root; equating those IDs would be incorrect.
 | Verification → delivery → receipt | `github-delivery-service.ts:474-580` requires the committed proposal and matching operation before delivery and uses operation-scoped delivery events. `mission-runtime.ts:1635-1764` stores the resulting delivery receipt in Goal acceptance, binding Execution, attempt, operation, revision, candidate/tree hashes, and status. | Delivery and receipt remain tied to the proposal operation and the Apply Mission's accepted Execution. | Neither the delivery receipt nor the delivery event independently names the canonical source Mission or the Apply Mission lineage relation. |
 | Refresh/resume | `chat.ts:14846-14910` resolves Missions through owner/project/session-scoped handoffs, then checks the active pointer against those rows. `dashboard.journey.ts:7215-7235` verifies the source Mission survives reload. | The Chat can recover the source Mission after refresh without trusting a stale client-selected Mission ID. | The current E2E verifies source and Apply Mission IDs as separate values connected by a Proposal, but does not verify a persisted canonical-parent relation or include it in the offline receipt. |
 
-### Existing real gateway-action coverage
+### Historical real gateway-action coverage (before lineage integration additions)
 
 These are DB-backed route tests through `/agent/action`, not only the
 single-handler dispatcher unit test. They establish branch execution and
-sequential idempotent replay where stated; they do **not** establish canonical
-Mission lineage because no Apply-Mission parent relation exists yet.
+sequential idempotent replay where stated. This is a pre-lineage test inventory;
+its identity-gap column is historical and must not be read as the current
+implementation status.
 
-| Exact action | Existing route test | Existing failure / replay evidence | Identity-specific gap |
+| Exact action | Route test at audit time | Failure / replay evidence at audit time | Identity gap at audit time |
 |---|---|---|---|
 | `START` | `missions.test.ts:2111` — replay after the Mission decision changes | Same-key replay and changed-decision conflict | No canonical parent asserted |
 | `AUTO_CONTINUE` | `missions.test.ts:2170,2243` — Mission Runtime and receipt-write rollback | Accepted-result replay; injected receipt failure rolls back | No canonical parent asserted |
@@ -167,7 +198,7 @@ fails (`missions.test.ts:6298-6564, 6990-7230`). Those cases start from a
 proposal without a canonical source Mission, which demonstrates the current
 unlinked-Apply-Mission gap rather than proving continuity.
 
-### Pre-change finding and implementation boundary
+### Historical pre-change finding and implementation boundary
 
 **Finding: Partially Proven.** Source handoff, Goal/Execution ownership,
 candidate acceptance, and Apply-Mission delivery proof are individually
@@ -304,7 +335,7 @@ but failed on one Firefox/Playwright console diagnostic:
 reported. Treat this as an environment/browser-abort signal until a rerun or
 trace establishes otherwise; this run is not yet an accepted lifecycle receipt.
 
-The final controlled run passed after narrowly filtering that exact
+One final controlled run passed after narrowly filtering that exact
 Firefox/Juggler worker-abort diagnostic. The browser lifecycle journey passed,
 the live database verifier confirmed the persisted Chat → source Mission →
 source acceptance → Proposal → Apply Mission → delivery links and matching
@@ -315,12 +346,15 @@ no external provider or remote repository was contacted. The Mission Control
 integration suite, lifecycle-receipt tests, and workspace typecheck also
 passed.
 
-Afterward, a read-only check of the active Replit development database found
-that `ai_mission_lineages` and `source_acceptance_id` are not applied there yet.
-No DDL was run against the managed database. The API workflow rebuilt and
-started cleanly, but the new lineage routes have only been exercised against
-the disposable test database; the managed development schema still needs its
-normal Replit merge/publish schema-application step.
+### Historical managed-Development schema observation
+
+A prior read-only check of the managed Development database reported that
+`ai_mission_lineages` and `source_acceptance_id` were absent. The check's
+timestamp and original observation source were not recorded. No DDL was run against the managed database in that
+check. This observation is not a statement about the current schema and must
+not be used as readiness evidence; re-run the read-only schema checker before
+any Development lifecycle test. The lifecycle routes and receipt described
+above were exercised against the disposable test database only.
 
 Before any completion, approval, retry/recovery, or delivery transition can be
 credited to the canonical lifecycle, the server must resolve the source from

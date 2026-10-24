@@ -270,11 +270,11 @@ async function createApplyChangesFixture() {
       nextAction: { kind: "task", taskId: reportTaskId, purpose: "execution" },
       successCriteria: {
         stepId: "report-applied",
-        planRevision: { hash: planRevision },
+        planRevision: plan,
       },
       outcomeContract: {
         stepId: "report-applied",
-        planRevision: { hash: planRevision },
+        planRevision: plan,
       },
       createdAt: now,
       updatedAt: now,
@@ -555,9 +555,20 @@ async function createApplyChangesFixture() {
     updatedAt: now,
   });
   const resultingWorldState = await getProjectWorldState(projectId);
+  const resultingScopedWorldState = await getProjectWorldState(projectId, {
+    taskScope,
+    environmentRevision,
+  });
   await db.update(aiWorldTransitionsTable)
-    .set({ resultingWorldRevision: resultingWorldState.worldRevision, updatedAt: now })
+    .set({
+      resultingWorldRevision: resultingWorldState.worldRevision,
+      resultingScopedWorldRevision: resultingScopedWorldState.worldRevision,
+      updatedAt: now,
+    })
     .where(eq(aiWorldTransitionsTable.id, transitionId));
+  await db.update(aiAgentEpisodesTable)
+    .set({ worldRevision: resultingWorldState.worldRevision, updatedAt: now })
+    .where(eq(aiAgentEpisodesTable.id, episodeId));
 
   return {
     projectId,
@@ -578,6 +589,7 @@ async function createApplyChangesFixture() {
     candidateTreeHash,
     candidateIdentity,
     parentWorldRevision,
+    environmentRevision,
     planRevision,
   };
 }
@@ -586,6 +598,30 @@ type ApplyChangesFixture = Awaited<ReturnType<typeof createApplyChangesFixture>>
 type ApplyChangesTransaction = Parameters<
   typeof applyChangesMissionGate.evaluateApplyChangesD2
 >[0];
+
+async function expectApplyTransitionWorldRevisions(fixture: ApplyChangesFixture) {
+  const [transition] = await db.select({
+    status: aiWorldTransitionsTable.status,
+    taskScope: aiWorldTransitionsTable.taskScope,
+    environmentRevision: aiWorldTransitionsTable.environmentRevision,
+    resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+    resultingScopedWorldRevision: aiWorldTransitionsTable.resultingScopedWorldRevision,
+  }).from(aiWorldTransitionsTable)
+    .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+  if (!transition) throw new Error("Apply Changes Transition fixture is missing.");
+  const globalState = await getProjectWorldState(fixture.projectId);
+  const scopedState = await getProjectWorldState(fixture.projectId, {
+    taskScope: transition.taskScope,
+    environmentRevision: transition.environmentRevision,
+  });
+  expect(transition).toMatchObject({
+    status: "materialized",
+    taskScope: "project",
+    environmentRevision: fixture.environmentRevision,
+    resultingWorldRevision: globalState.worldRevision,
+    resultingScopedWorldRevision: scopedState.worldRevision,
+  });
+}
 
 async function runApplyGoalAfterD2Mutation(
   fixture: ApplyChangesFixture,
@@ -1415,6 +1451,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
 
   it("dispatches the report-applied task once after live proof, including on repeated wake", async () => {
     const fixture = await createApplyChangesFixture();
+    await expectApplyTransitionWorldRevisions(fixture);
 
     const concurrentWakes = await Promise.all([
       wakeApplyChangesMissionGoals(),
@@ -1428,8 +1465,17 @@ describe("Apply Changes Mission D2 dispatch", () => {
       status: aiGoalsTable.status,
       outcomeContract: aiGoalsTable.outcomeContract,
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.applyGoalId));
-    const [reportGoal] = await db.select({ status: aiGoalsTable.status })
+    const [reportGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      nextAction: aiGoalsTable.nextAction,
+    })
       .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    const dependencyProofBlocks = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(and(
+        eq(eventsTable.goalId, fixture.reportGoalId),
+        eq(eventsTable.type, "AiGoalDependencyProofBlocked"),
+      ));
     expect(applyGoal?.status).toBe("completed");
     expect(applyGoal?.outcomeContract).toMatchObject({
       acceptance: {
@@ -1440,7 +1486,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
         },
       },
     });
-    expect(reportGoal?.status).toBe("running");
+    expect(reportGoal?.status, JSON.stringify({ reportGoal, dependencyProofBlocks })).toBe("running");
 
     const events = await db.select({
       type: eventsTable.type,
@@ -1479,6 +1525,7 @@ describe("Apply Changes Mission D2 dispatch", () => {
 
   it("wakes an already-queued report Goal after direct D2 completion", async () => {
     const fixture = await createApplyChangesFixture();
+    await expectApplyTransitionWorldRevisions(fixture);
     await db.update(aiGoalsTable)
       .set({ status: "queued", blockedReason: null })
       .where(eq(aiGoalsTable.id, fixture.reportGoalId));
@@ -1492,12 +1539,19 @@ describe("Apply Changes Mission D2 dispatch", () => {
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.applyGoalId));
     const [reportGoal] = await db.select({
       status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      nextAction: aiGoalsTable.nextAction,
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.reportGoalId));
+    const dependencyProofBlocks = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable).where(and(
+        eq(eventsTable.goalId, fixture.reportGoalId),
+        eq(eventsTable.type, "AiGoalDependencyProofBlocked"),
+      ));
     expect(applyGoal?.status).toBe("completed");
     expect(applyGoal?.outcomeContract).toMatchObject({
       acceptance: { verdict: "PROVEN", reasonCode: "APPLY_CHANGES_D2_PROVEN" },
     });
-    expect(reportGoal?.status).toBe("running");
+    expect(reportGoal?.status, JSON.stringify({ reportGoal, dependencyProofBlocks })).toBe("running");
 
     const dispatches = await db.select({
       type: eventsTable.type,

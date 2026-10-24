@@ -398,7 +398,15 @@ export function reduceEngineeringAgentProjection(
   } else if (context.missionStatus === "cancelled") {
     result = decision("NEEDS_ATTENTION", "NONE", "mission_cancelled", null);
   } else {
-    const approvalGoal = activeGoals.find(isApprovalPending);
+    const approvalBlockedByMissionState = [
+      "blocked",
+      "completed",
+      "failed",
+      "needs_replan",
+    ].includes(context.missionStatus);
+    const approvalGoal = approvalBlockedByMissionState
+      ? undefined
+      : activeGoals.find(isApprovalPending);
     if (approvalGoal) {
       const proposalId = approvalGoal.approval?.pending
         ? approvalGoal.approval.proposalId

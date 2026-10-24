@@ -378,6 +378,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "effect_bundle_id", dataType: "text", udtName: "text", nullable: true },
       { name: "parent_world_revision", dataType: "text", udtName: "text", nullable: false },
       { name: "resulting_world_revision", dataType: "text", udtName: "text", nullable: true },
+      { name: "resulting_scoped_world_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "task_scope", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'project'::text/ },
       { name: "environment_revision_key", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'unknown'::text/ },
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
@@ -840,12 +841,34 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /(?:now\(\)|current_timestamp)/,
       },
     ] satisfies readonly ColumnContract[],
+    ai_mission_lineages: [
+      { name: "apply_mission_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "canonical_mission_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "source_execution_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "source_goal_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "source_acceptance_id", dataType: "text", udtName: "text", nullable: true },
+      { name: "proposal_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
   },
+  primaryKeys: {
+    openrouter_model_cooldowns: ["provider", "model"],
+    ai_general_chat_rate_limits: ["owner_id", "window_bucket"],
+    ai_mission_lineages: ["apply_mission_id"],
+  } satisfies Record<string, readonly string[]>,
   indexes: [
     {
       name: "openrouter_model_cooldowns_provider_model_pk",
       tableName: "openrouter_model_cooldowns",
       columns: ["provider", "model"],
+      unique: true,
     },
     {
       name: "idx_openrouter_model_cooldowns_expiry",
@@ -856,11 +879,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_project_plugin_bindings_project_plugin",
       tableName: "project_plugin_bindings",
       columns: ["project_id", "plugin_id"],
+      unique: true,
     },
     {
       name: "uq_project_bootstrap_jobs_owner_idempotency",
       tableName: "project_bootstrap_jobs",
       columns: ["owner_id", "idempotency_key"],
+      unique: true,
     },
     {
       name: "idx_project_bootstrap_jobs_status_created",
@@ -891,6 +916,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_general_chat_messages_session_turn_role",
       tableName: "ai_general_chat_messages",
       columns: ["session_id", "turn_id", "role"],
+      unique: true,
     },
     {
       name: "idx_ai_general_chat_messages_session_created",
@@ -964,11 +990,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_session_memories_dedupe_key",
       tableName: "ai_session_memories",
       columns: ["dedupe_key"],
+      unique: true,
     },
     {
       name: "uq_ai_session_memory_outbox_session_turn",
       tableName: "ai_session_memory_outbox",
       columns: ["session_id", "turn_id"],
+      unique: true,
     },
     {
       name: "idx_ai_session_memory_outbox_next_attempt_at",
@@ -1017,11 +1045,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_episodes_execution_attempt",
       tableName: "ai_agent_episodes",
       columns: ["execution_id", "attempt"],
+      unique: true,
     },
     {
       name: "uq_ai_agent_episodes_idempotency",
       tableName: "ai_agent_episodes",
       columns: ["execution_id", "idempotency_key"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_episodes_project_created",
@@ -1037,11 +1067,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_episode_events_sequence",
       tableName: "ai_agent_episode_events",
       columns: ["episode_id", "sequence"],
+      unique: true,
     },
     {
       name: "uq_ai_agent_episode_events_idempotency",
       tableName: "ai_agent_episode_events",
       columns: ["episode_id", "event_type", "payload_hash"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_episode_events_execution",
@@ -1052,6 +1084,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_observations_identity",
       tableName: "ai_agent_observations",
       columns: ["project_id", "task_scope", "environment_revision_key", "environment_freshness", "source_type", "source_id", "source_version", "predicate", "value_hash"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_observations_episode_sequence",
@@ -1067,6 +1100,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_effects_execution_attempt_action",
       tableName: "ai_agent_effects",
       columns: ["execution_id", "attempt", "action_id", "effect_contract_hash"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_effects_episode",
@@ -1082,6 +1116,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_effect_bundles_execution_attempt",
       tableName: "ai_agent_effect_bundles",
       columns: ["execution_id", "attempt"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_effect_bundles_project_created",
@@ -1092,6 +1127,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_agent_shadow_campaign_event_identity",
       tableName: "ai_agent_shadow_campaign_events",
       columns: ["campaign_id", "execution_id", "attempt", "idempotency_key_hash"],
+      unique: true,
     },
     {
       name: "idx_ai_agent_shadow_campaign_events_campaign_time",
@@ -1107,6 +1143,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_world_facts_project_key_version",
       tableName: "ai_world_facts",
       columns: ["project_id", "task_scope", "environment_revision_key", "subject", "predicate", "version"],
+      unique: true,
     },
     {
       name: "idx_ai_world_facts_project_key",
@@ -1117,11 +1154,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_world_transitions_action",
       tableName: "ai_world_transitions",
       columns: ["project_id", "execution_id", "attempt", "episode_id", "action_id"],
+      unique: true,
     },
     {
       name: "uq_ai_world_transitions_idempotency",
       tableName: "ai_world_transitions",
       columns: ["project_id", "idempotency_key"],
+      unique: true,
     },
     {
       name: "idx_ai_world_transitions_recovery",
@@ -1132,6 +1171,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_strategy_candidates_project_key_version",
       tableName: "ai_strategy_candidates",
       columns: ["project_id", "strategy_key", "version"],
+      unique: true,
     },
     {
       name: "idx_ai_strategy_candidates_project_status",
@@ -1142,6 +1182,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_strategy_replay_cases_candidate_episode",
       tableName: "ai_strategy_replay_cases",
       columns: ["candidate_id", "source_episode_id"],
+      unique: true,
     },
     {
       name: "idx_ai_strategy_replay_cases_project_candidate",
@@ -1152,11 +1193,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_strategy_replay_case_runs_case_attempt",
       tableName: "ai_strategy_replay_case_runs",
       columns: ["case_registration_id", "attempt_number"],
+      unique: true,
     },
     {
       name: "uq_ai_strategy_replay_case_runs_operation",
       tableName: "ai_strategy_replay_case_runs",
       columns: ["operation_id"],
+      unique: true,
     },
     {
       name: "idx_ai_strategy_replay_case_runs_project_candidate_status",
@@ -1167,6 +1210,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_usage_events_attempt_id",
       tableName: "ai_usage_events",
       columns: ["attempt_id"],
+      unique: true,
     },
     {
       name: "idx_ai_usage_events_project_occurred",
@@ -1192,11 +1236,13 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "uq_ai_mission_handoffs_mission_id",
       tableName: "ai_mission_handoffs",
       columns: ["mission_id"],
+      unique: true,
     },
     {
       name: "uq_ai_mission_handoffs_user_idempotency",
       tableName: "ai_mission_handoffs",
       columns: ["user_id", "idempotency_key"],
+      unique: true,
     },
     {
       name: "idx_ai_mission_handoffs_session_id",
@@ -1207,6 +1253,21 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       name: "idx_ai_mission_handoffs_dispatch",
       tableName: "ai_mission_handoffs",
       columns: ["dispatch_status", "created_at"],
+    },
+    {
+      name: "idx_ai_mission_lineages_canonical",
+      tableName: "ai_mission_lineages",
+      columns: ["canonical_mission_id", "created_at"],
+    },
+    {
+      name: "idx_ai_mission_lineages_proposal",
+      tableName: "ai_mission_lineages",
+      columns: ["proposal_id"],
+    },
+    {
+      name: "idx_ai_mission_lineages_source_execution",
+      tableName: "ai_mission_lineages",
+      columns: ["source_execution_id"],
     },
   ] satisfies readonly IndexContract[],
   foreignKeys: [
@@ -1265,6 +1326,55 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       foreignTableName: "ai_chat_messages",
       foreignColumnName: "id",
       deleteRule: "SET NULL",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "apply_mission_id",
+      foreignTableName: "ai_missions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "canonical_mission_id",
+      foreignTableName: "ai_missions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "source_execution_id",
+      foreignTableName: "ai_executions",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "source_goal_id",
+      foreignTableName: "ai_goals",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "source_acceptance_id",
+      foreignTableName: "ai_execution_acceptances",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "proposal_id",
+      foreignTableName: "ai_change_proposals",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_mission_lineages",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
     },
     {
       tableName: "project_plugin_bindings",
@@ -1833,11 +1943,10 @@ export function findApplicationSchemaIssues(
   }
 
   for (const tableName of REQUIRED_TABLES) {
-    const expectedColumns = tableName === "openrouter_model_cooldowns"
-      ? ["provider", "model"]
-      : tableName === "ai_general_chat_rate_limits"
-        ? ["owner_id", "window_bucket"]
-        : ["id"];
+    const expectedColumns =
+      (APPLICATION_SCHEMA_CONTRACT.primaryKeys as Record<string, readonly string[]>)[
+        tableName
+      ] ?? ["id"];
     const actualColumns = snapshot.primaryKeys
       .filter((row) => row.table_name === tableName)
       .map((row) => row.column_name);
@@ -1875,20 +1984,22 @@ export function findApplicationSchemaIssues(
     }
     // pg_indexes quotes reserved identifiers such as "timestamp". Compare
     // normalized identifier text rather than requiring one exact formatter.
-    const definition = normalized(actual.indexdef).replace(/"/g, "");
-    const expectedColumns = `(${expected.columns.join(", ")})`;
-    const uniquenessMismatch = expected.unique
-      && (
-        !/^CREATE UNIQUE INDEX\b/i.test(actual.indexdef.trim())
-        || /\bWHERE\b/i.test(actual.indexdef)
-      );
-    if (!definition.includes(normalized(expectedColumns)) || uniquenessMismatch) {
+    const actualColumns = actual.indexdef.match(/\bUSING\s+btree\s*\(([^)]+)\)/i)?.[1];
+    const columnsMismatch =
+      !actualColumns ||
+      normalized(actualColumns.replace(/"/g, "")) !==
+        normalized(expected.columns.join(", "));
+    const tableMismatch = actual.tablename !== expected.tableName;
+    const actualUnique = /^CREATE UNIQUE INDEX\b/i.test(actual.indexdef.trim());
+    const uniquenessMismatch = actualUnique !== Boolean(expected.unique);
+    const partialIndex = /\bWHERE\b/i.test(actual.indexdef);
+    if (tableMismatch || columnsMismatch || uniquenessMismatch || partialIndex) {
       issues.push(
         issue(
           "incompatible_index",
           actual.tablename,
           expected.name,
-          `${expected.unique ? "unique non-partial " : ""}index on ${expectedColumns}`,
+          `${expected.unique ? "unique " : ""}non-partial btree index on ${expected.tableName} (${expected.columns.join(", ")})`,
           actual.indexdef,
         ),
       );

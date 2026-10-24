@@ -537,6 +537,70 @@ function currentMissionProjectionFixture({
   };
 }
 
+function missionActionProjectionFixture({
+  missionId = 'mission-action',
+  missionStatus = 'draft',
+  state = 'PLANNING',
+  nextAction,
+  interventionRequired = false,
+  interventionKind = 'none',
+}: {
+  missionId?: string;
+  missionStatus?: string;
+  state?: string;
+  nextAction?: {
+    kind: string;
+    target: { kind: string; id: string } | null;
+    reasonCode: string;
+  };
+  interventionRequired?: boolean;
+  interventionKind?: string;
+} = {}) {
+  const mission = {
+    id: missionId,
+    projectId: 'project-1',
+    title: 'Continuity verification',
+    status: missionStatus,
+  };
+  const decision = nextAction ?? {
+    kind: 'START',
+    target: { kind: 'mission', id: missionId },
+    reasonCode: 'mission_draft',
+  };
+  return {
+    ...currentMissionProjectionFixture({ missionId }),
+    mission,
+    agentControl: {
+      handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' },
+    },
+    engineeringAgent: {
+      schemaVersion: 2,
+      state,
+      nextAction: decision,
+      availableCommands: [],
+      intervention: {
+        required: interventionRequired,
+        kind: interventionKind,
+        reasonCode: interventionRequired ? decision.reasonCode : null,
+      },
+      autonomy: {
+        mode: 'assisted',
+        allowAutoContinue: false,
+        allowAutoApply: false,
+        allowAutoCommit: false,
+        allowAutoPush: false,
+        requireHumanForExternalDelivery: true,
+        maxAutoReplans: 0,
+        automaticReplanCount: 0,
+      },
+      missionId,
+      sessionId: 'session-1',
+      goalId: null,
+      executionId: null,
+    },
+  } as never;
+}
+
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -773,6 +837,164 @@ describe('AiChat Mission action gateway', () => {
         });
       });
       expect(await screen.findByText(/أُرسل الإجراء عبر بوابة المهمة/)).toBeInTheDocument();
+      expect(window.location.pathname).toBe('/ai');
+      expect(new URL(window.location.href).searchParams.get('missionId')).toBe(mission.id);
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('requires explicit confirmation before executing the server-projected approval', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const missionId = 'mission-approval';
+    const expectedDecision = {
+      kind: 'APPROVE',
+      target: { kind: 'proposal', id: 'proposal-approval' },
+      reasonCode: 'approval_pending',
+    } as const;
+    const projection = missionActionProjectionFixture({
+      missionId,
+      missionStatus: 'active',
+      state: 'AWAITING_APPROVAL',
+      nextAction: expectedDecision,
+      interventionRequired: true,
+      interventionKind: 'approval',
+    });
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: missionId,
+      missions: [{
+        mission: {
+          id: missionId,
+          projectId: 'project-1',
+          title: 'Continuity verification',
+          status: 'active',
+        },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockResolvedValue(projection);
+    mocks.executeMissionAgentAction.mockResolvedValue({
+      missionId,
+      outcome: 'accepted',
+      projection,
+      idempotentReplay: false,
+    });
+    window.history.replaceState(
+      {},
+      '',
+      `/ai?projectId=project-1&sessionId=session-1&missionId=${missionId}`,
+    );
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    try {
+      renderAiChat();
+      const approveButton = await screen.findByTestId('button-chat-mission-action-approve');
+      fireEvent.click(approveButton);
+
+      expect(confirm).toHaveBeenCalledWith('هل تريد اعتماد القرار الحالي لهذه المهمة؟');
+      expect(mocks.executeMissionAgentAction).not.toHaveBeenCalled();
+
+      confirm.mockReturnValue(true);
+      fireEvent.click(approveButton);
+      await waitFor(() => {
+        expect(mocks.executeMissionAgentAction).toHaveBeenCalledWith(missionId, {
+          idempotencyKey: expect.any(String),
+          expectedDecision,
+        });
+      });
+    } finally {
+      confirm.mockRestore();
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('refreshes the server projection after a stale decision is rejected', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const missionId = 'mission-stale-decision';
+    const staleProjection = missionActionProjectionFixture({ missionId });
+    const refreshedProjection = missionActionProjectionFixture({
+      missionId,
+      missionStatus: 'active',
+      state: 'WORKING',
+      nextAction: {
+        kind: 'NONE',
+        target: null,
+        reasonCode: 'NO_ACTION_REQUIRED',
+      },
+    });
+    const staleDecision = Object.assign(
+      new Error('The server decision changed. The Mission projection was refreshed.'),
+      { status: 409, code: 'STALE_DECISION' },
+    );
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: missionId,
+      missions: [{
+        mission: {
+          id: missionId,
+          projectId: 'project-1',
+          title: 'Continuity verification',
+          status: 'draft',
+        },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection
+      .mockResolvedValueOnce(staleProjection)
+      .mockResolvedValueOnce(refreshedProjection);
+    mocks.executeMissionAgentAction.mockRejectedValueOnce(staleDecision);
+    window.history.replaceState(
+      {},
+      '',
+      `/ai?projectId=project-1&sessionId=session-1&missionId=${missionId}`,
+    );
+
+    try {
+      renderAiChat();
+      fireEvent.click(await screen.findByTestId('button-chat-mission-action-start'));
+
+      expect(await screen.findByText(
+        'The server decision changed. The Mission projection was refreshed.',
+      )).toBeInTheDocument();
+      await waitFor(() => {
+        expect(mocks.fetchMissionProjection).toHaveBeenCalledTimes(2);
+        expect(screen.queryByTestId('button-chat-mission-action-start')).not.toBeInTheDocument();
+      });
+      expect(mocks.executeMissionAgentAction).toHaveBeenCalledTimes(1);
+    } finally {
+      window.history.replaceState({}, '', originalPath);
+    }
+  });
+
+  it('does not submit an action when the current Mission projection fails to load', async () => {
+    const originalPath = window.location.pathname + window.location.search;
+    const missionId = 'mission-projection-unavailable';
+    mocks.sessionMissions = {
+      sessionId: 'session-1',
+      activeMissionId: missionId,
+      missions: [{
+        mission: {
+          id: missionId,
+          projectId: 'project-1',
+          title: 'Continuity verification',
+          status: 'draft',
+        },
+        agentControl: { handoff: { sessionId: 'session-1', dispatchStatus: 'dispatched' } },
+      }],
+    };
+    mocks.fetchMissionProjection.mockRejectedValueOnce(new Error('Projection unavailable.'));
+    window.history.replaceState(
+      {},
+      '',
+      `/ai?projectId=project-1&sessionId=session-1&missionId=${missionId}`,
+    );
+
+    try {
+      renderAiChat();
+      expect(await screen.findByText('تعذر تحميل قرار المهمة؛ لم يُرسل أي إجراء.'))
+        .toBeInTheDocument();
+      expect(screen.queryByTestId(/^button-chat-mission-action-/)).not.toBeInTheDocument();
+      expect(mocks.executeMissionAgentAction).not.toHaveBeenCalled();
     } finally {
       window.history.replaceState({}, '', originalPath);
     }
@@ -2929,6 +3151,8 @@ describe('AiChat authenticated generated mutations', () => {
       expect(screen.getByTestId('mission-agent-intervention')).toHaveTextContent(
         'لا يوجد تدخل مطلوب الآن',
       );
+      expect(screen.queryByTestId(/^button-chat-mission-action-/)).not.toBeInTheDocument();
+      expect(mocks.executeMissionAgentAction).not.toHaveBeenCalled();
       await waitFor(() => {
         expect(mocks.fetchMissionProjection).toHaveBeenCalledWith('mission-one');
       });

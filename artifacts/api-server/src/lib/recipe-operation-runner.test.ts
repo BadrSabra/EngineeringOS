@@ -14,6 +14,7 @@ import {
   aiAgentObservationsTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -84,7 +85,11 @@ import {
 } from "./agent-state/strategy-replay-case-runner.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
-import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-workspace.js";
+import {
+  DELIVERY_TREE_DIGEST_VERSION,
+  hashDeliveryTree,
+  resolveWorkspaceTreeRevision,
+} from "./delivery-workspace.js";
 
 const validationCalls: string[] = [];
 const validationEvidenceContexts: unknown[] = [];
@@ -960,12 +965,12 @@ describe("recipe operation preparation", () => {
       operationId: "operation-1",
       rootPath: process.cwd(),
       sourceRevision: "revision-1",
-      recipeId: "candidate.verify",
+      recipeId: "candidate.verify.workspace-typecheck",
       recipeVersion: 1,
       approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
       candidateIdentity: "candidate-1",
     });
-    expect(prepared.plan.nodes).toHaveLength(2);
+    expect(prepared.plan.nodes).toHaveLength(1);
     expect(prepared.plan.nodes[0]?.executionContext?.scope).toMatchObject({
       kind: "paths",
       paths: ["lib/ai-orchestrator/src/index.ts"],
@@ -3179,10 +3184,7 @@ describe("recipe operation preparation", () => {
       await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
       await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "package.json", "server.mjs"]);
       await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "runtime start mission loop"]);
-      const sourceRevision = (await execFileAsync(
-        "git",
-        ["-C", rootPath, "rev-parse", "HEAD"],
-      )).stdout.trim();
+      const sourceRevision = await resolveWorkspaceTreeRevision(rootPath);
       await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
       await writeFile(
         path.join(rootPath, "node_modules/.cache/revision.txt"),
@@ -3471,6 +3473,9 @@ describe("recipe operation preparation", () => {
         attempt: aiExecutionAcceptancesTable.attempt,
         outcome: aiExecutionAcceptancesTable.outcome,
         effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
         sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
       }).from(aiExecutionAcceptancesTable).where(and(
         eq(aiExecutionAcceptancesTable.executionId, executionId),
@@ -3481,6 +3486,40 @@ describe("recipe operation preparation", () => {
         outcome: "SUCCEEDED",
         sourceRevision,
         effectBundleId: expect.any(String),
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+      });
+      const [evidenceSnapshot] = acceptance?.evidenceSnapshotId
+        ? await db.select().from(aiExecutionEvidenceSnapshotsTable)
+          .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance.evidenceSnapshotId))
+          .limit(1)
+        : [];
+      expect(evidenceSnapshot).toMatchObject({
+        id: acceptance?.evidenceSnapshotId,
+        projectId,
+        executionId,
+        attempt: acceptance?.attempt,
+        sourceRevision,
+        complete: 1,
+        verdict: "PROVEN",
+      });
+      const gateCArtifact = Array.isArray(evidenceSnapshot?.artifactRefs)
+        ? evidenceSnapshot.artifactRefs.find((artifact) =>
+            Boolean(artifact)
+            && typeof artifact === "object"
+            && !Array.isArray(artifact)
+            && (artifact as Record<string, unknown>).kind === "runtime_start_gate_c",
+          )
+        : undefined;
+      expect(gateCArtifact).toMatchObject({
+        kind: "runtime_start_gate_c",
+        version: 2,
+        executionId,
+        attempt: acceptance?.attempt,
+        sourceRevision,
+        sourceRevisionKind: "workspace_tree",
+        sourceRevisionSource: "delivery_tree_digest_v1",
       });
       const [transition] = await db.select().from(aiWorldTransitionsTable)
         .where(eq(aiWorldTransitionsTable.executionId, executionId))
@@ -3954,6 +3993,8 @@ describe("recipe operation preparation", () => {
         effectBundleId: bundleId,
       });
       expect(deliveryTransition?.attempt).toBe(0);
+      expect(deliveryTransition?.resultingWorldRevision).toMatch(/^[a-f0-9]{64}$/);
+      expect(deliveryTransition?.resultingScopedWorldRevision).toMatch(/^[a-f0-9]{64}$/);
       const transitionObservationIds = [
         ...(deliveryTransition?.beforeObservationIds as string[] ?? []),
         ...(deliveryTransition?.afterObservationIds as string[] ?? []),
@@ -3963,6 +4004,18 @@ describe("recipe operation preparation", () => {
       expect(transitionObservations).toHaveLength(2);
       expect(transitionObservations.map((observation) => observation.predicate).sort())
         .toEqual(["delivery.remote_branch_state", "delivery.remote_branch_state"]);
+      expect(transitionObservations.every((observation) => (
+        observation.taskScope === deliveryTransition?.taskScope
+        && observation.environmentRevision === deliveryTransition?.environmentRevision
+        && observation.environmentRevisionKey === deliveryTransition?.environmentRevisionKey
+      ))).toBe(true);
+      const deliveryGlobalState = await worldState.getProjectWorldState(fixture.params.projectId);
+      const deliveryScopedState = await worldState.getProjectWorldState(fixture.params.projectId, {
+        taskScope: deliveryTransition!.taskScope,
+        environmentRevision: deliveryTransition!.environmentRevision,
+      });
+      expect(deliveryTransition?.resultingWorldRevision).toBe(deliveryGlobalState.worldRevision);
+      expect(deliveryTransition?.resultingScopedWorldRevision).toBe(deliveryScopedState.worldRevision);
       const changedFacts = await db.select().from(aiWorldFactsTable).where(inArray(
         aiWorldFactsTable.id,
         deliveryTransition?.changedFactRefs as string[],
@@ -3988,6 +4041,15 @@ describe("recipe operation preparation", () => {
       });
       expect(await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit", 5)).toBe(bundleId);
       expect(deliveryCalls).toHaveLength(1);
+      const [replayedTransition] = await db.select({
+        resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+        resultingScopedWorldRevision: aiWorldTransitionsTable.resultingScopedWorldRevision,
+      }).from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.id, deliveryTransition!.id));
+      expect(replayedTransition).toEqual({
+        resultingWorldRevision: deliveryTransition?.resultingWorldRevision,
+        resultingScopedWorldRevision: deliveryTransition?.resultingScopedWorldRevision,
+      });
     } finally {
       await fixture.cleanup(executionId);
     }

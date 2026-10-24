@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
 import {
+  validateApplyMissionCompletion,
   validateReceipt,
   verifyOfflineReceipt,
 } from "./verify-engineering-agent-lifecycle-receipt.mjs";
@@ -51,16 +52,95 @@ function validReceipt() {
       sourceMissionId: "mission_source",
       canonicalMissionId: "mission_source",
       sourceGoalId: "goal_source",
+      runtimeStartGoalId: "goal_runtime_start",
       sourceExecutionId: "execution_source",
       sourceAttempt: 1,
       acceptanceId: "acceptance_source",
+      sourceMissionStatus: "completed",
+      sourceMissionGoals: [
+        {
+          goalId: "goal_runtime_start",
+          stepId: "runtime-start",
+          status: "completed",
+          acceptanceVerdict: "PROVEN",
+          approvalState: "NOT_REQUIRED",
+        },
+        {
+          goalId: "goal_source",
+          stepId: "execute",
+          status: "completed",
+          acceptanceVerdict: "PROVEN",
+          approvalState: "APPROVED",
+        },
+        {
+          goalId: "goal_validate",
+          stepId: "validate",
+          status: "completed",
+          acceptanceVerdict: "PROVEN",
+          approvalState: "NOT_REQUIRED",
+        },
+      ],
+      runtimeTransition: {
+        missionId: "mission_source",
+        planRevision: "b".repeat(64),
+        runtimeStartGoalId: "goal_runtime_start",
+        executionId: "execution_runtime",
+        attempt: 1,
+        acceptanceId: "acceptance_runtime",
+        evidenceSnapshotId: "snapshot_runtime",
+        transitionId: "transition_runtime",
+        targetGoalId: "goal_source",
+        outcome: "SUCCEEDED",
+        verdict: "PROVEN",
+        sourceRevision: "c".repeat(64),
+        effectBundleId: "effect_runtime",
+        episodeId: "episode_runtime",
+        actionId: "action_runtime",
+        dispatchType: "AiGoalRecipeDispatchRequested",
+        gateCAttestation: {
+          kind: "runtime_start_gate_c",
+          version: 2,
+          executionId: "execution_runtime",
+          attempt: 1,
+          sourceRevision: "c".repeat(64),
+          sourceRevisionKind: "workspace_tree",
+          sourceRevisionSource: "delivery_tree_digest_v1",
+        },
+        transitionProof: {
+          transitionId: "transition_runtime",
+          executionId: "execution_runtime",
+          attempt: 1,
+          episodeId: "episode_runtime",
+          actionId: "action_runtime",
+          effectBundleId: "effect_runtime",
+          parentWorldRevision: "d".repeat(64),
+          resultingWorldRevision: "e".repeat(64),
+          projectRevision: "c".repeat(64),
+          environmentRevision: "env-v1:runtime",
+          sourceStepId: "runtime-start",
+          targetStepId: "execute",
+          activePlanHash: "b".repeat(64),
+        },
+        d2DispatchEventId: "event_d2_runtime",
+        taskScope: `scope:${"f".repeat(64)}`,
+        parentWorldRevision: "d".repeat(64),
+        resultingWorldRevision: "e".repeat(64),
+        resultingScopedWorldRevision: "f".repeat(64),
+        environmentRevision: "env-v1:runtime",
+      },
       proposalId: "proposal_1",
       proposalRevision: 2,
       candidateTreeHash: "c".repeat(64),
       applyMissionId: "mission_apply",
+      applyMissionStatus: "completed",
       applyGoalId: "goal_apply",
+      applyGoalStatus: "completed",
+      applyAcceptanceVerdict: "PROVEN",
       applyExecutionId: "execution_apply",
       deliveryGoalId: "goal_delivery",
+      deliveryExecutionId: "execution_delivery",
+      applyDeliveryGoalStatus: "completed",
+      applyDeliveryReceiptPresent: true,
       commitHash: "d".repeat(40),
       remoteCommitHash: "d".repeat(40),
       branch: "main",
@@ -76,10 +156,53 @@ test("accepts only a complete correlated lifecycle receipt", () => {
   assert.equal(validateReceipt(receipt, receipt.sourceFingerprint), receipt);
 });
 
+test("does not accept Apply Mission completion as full lifecycle completion when source work is unfinished", () => {
+  const chain = validReceipt().chain;
+  chain.sourceMissionStatus = "needs_replan";
+  chain.sourceMissionGoals[0].status = "needs_replan";
+  assert.equal(validateApplyMissionCompletion(chain), true);
+  assert.throws(
+    () => validateReceipt({ ...validReceipt(), chain }),
+    /source_mission_not_completed/,
+  );
+});
+
+test("rejects a full journey while any required source Mission Goal is unfinished or unproven", () => {
+  const unfinished = validReceipt();
+  unfinished.chain.sourceMissionGoals[1].status = "queued";
+  assert.throws(() => validateReceipt(unfinished), /source_mission_goal_not_completed/);
+
+  const unproven = validReceipt();
+  unproven.chain.sourceMissionGoals[1].acceptanceVerdict = "INCOMPLETE";
+  assert.throws(() => validateReceipt(unproven), /source_mission_goal_not_proven/);
+});
+
+test("requires at least one assisted source Mission approval in the full lifecycle receipt", () => {
+  const receipt = validReceipt();
+  for (const goal of receipt.chain.sourceMissionGoals) {
+    goal.approvalState = "NOT_REQUIRED";
+  }
+  assert.throws(() => validateReceipt(receipt), /assisted_approval_missing/);
+});
+
 test("rejects a canonical Mission identity that differs from the source Mission", () => {
   const receipt = validReceipt();
   receipt.chain.canonicalMissionId = "mission_other";
   assert.throws(() => validateReceipt(receipt), /canonical_source_mission/);
+});
+
+test("rejects runtime Gate C, transition, or D2 evidence bound to a different Mission identity", () => {
+  const missionMismatch = validReceipt();
+  missionMismatch.chain.runtimeTransition.missionId = "mission_other";
+  assert.throws(() => validateReceipt(missionMismatch), /runtime_transition_mission_mismatch/);
+
+  const goalMismatch = validReceipt();
+  goalMismatch.chain.runtimeTransition.targetGoalId = "goal_other";
+  assert.throws(() => validateReceipt(goalMismatch), /runtime_transition_target_goal_mismatch/);
+
+  const executionMismatch = validReceipt();
+  executionMismatch.chain.runtimeTransition.transitionProof.executionId = "execution_other";
+  assert.throws(() => validateReceipt(executionMismatch), /runtime_transition_d2_executionId_mismatch/);
 });
 
 test("rejects a receipt produced from a different source tree", () => {
@@ -101,6 +224,10 @@ test("rejects extra, missing, and inconsistent receipt fields", () => {
   const missingDeliveryGoal = validReceipt();
   delete missingDeliveryGoal.chain.deliveryGoalId;
   assert.throws(() => validateReceipt(missingDeliveryGoal), /chain_deliveryGoalId_must_be_string/);
+
+  const missingSourceGoals = validReceipt();
+  delete missingSourceGoals.chain.sourceMissionGoals;
+  assert.throws(() => validateReceipt(missingSourceGoals), /source_mission_goals_required/);
 
   const mismatchedFinalMission = validReceipt();
   mismatchedFinalMission.chain.finalMissionId = "another_mission";

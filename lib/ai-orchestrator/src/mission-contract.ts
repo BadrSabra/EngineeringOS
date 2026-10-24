@@ -26,6 +26,8 @@ const GoalRecipeActionSchema = z.object({
   recipeVersion: RecipeVersionSchema,
   approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
   candidateIdentity: z.string().min(1).max(160).nullable().optional(),
+  /** Exact source Proposal selected by the server for candidate validation. */
+  candidateProposalId: z.string().uuid().optional(),
   /**
    * A proof-backed skill selected by the server-owned mission plan. Runtime
    * dispatch resolves this identity against the project registry; the model

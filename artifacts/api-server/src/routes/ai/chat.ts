@@ -15687,6 +15687,8 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       changes,
       missionCandidate: missionCandidateAcceptance.missionCandidate,
       missionCandidateAccepted: missionCandidateAcceptance.accepted,
+      sourceExecutionId: missionCandidateAcceptance.sourceExecutionId,
+      sourceAcceptanceId: missionCandidateAcceptance.sourceAcceptanceId,
       sourceMissionId: missionCandidateAcceptance.sourceMissionId,
       sourceGoalId: missionCandidateAcceptance.sourceGoalId,
       applyMissionReady,
