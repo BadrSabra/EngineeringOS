@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -62,8 +70,20 @@ async function browserJavaScript(directory) {
 }
 
 test("root build works without workflow variables", async () => {
+  // Root codegen rewrites generated API files; isolate it from source-fingerprint tests running in parallel.
   const generatedRoot = await mkdtemp(join(tmpdir(), "root-build-codegen-"));
   try {
+    const generatedClientSource = join(
+      generatedRoot,
+      "lib",
+      "api-client-react",
+      "src",
+    );
+    await mkdir(generatedClientSource, { recursive: true });
+    await copyFile(
+      join(root, "lib", "api-client-react", "src", "custom-fetch.ts"),
+      join(generatedClientSource, "custom-fetch.ts"),
+    );
     const result = runPnpm(
       ["run", "build"],
       { env: cleanWorkflowEnvironment({ CODEGEN_OUTPUT_ROOT: generatedRoot }) },
