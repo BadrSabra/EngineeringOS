@@ -16,6 +16,7 @@ import { test } from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const dashboard = join(root, "artifacts", "dashboard");
 const mockup = join(root, "artifacts", "mockup-sandbox");
+const runRootBuildContract = process.env.RUN_ROOT_BUILD_CONTRACT_TEST === "1";
 
 function cleanWorkflowEnvironment(overrides = {}) {
   const env = { ...process.env, ...overrides };
@@ -69,7 +70,7 @@ async function browserJavaScript(directory) {
   );
 }
 
-test("root build works without workflow variables", async () => {
+test("root build works without workflow variables", { skip: !runRootBuildContract }, async () => {
   // Root codegen rewrites generated API files; isolate it from source-fingerprint tests running in parallel.
   const generatedRoot = await mkdtemp(join(tmpdir(), "root-build-codegen-"));
   try {
@@ -101,7 +102,7 @@ test("root build works without workflow variables", async () => {
   }
 });
 
-test("Dashboard build embeds only the public Clerk override", async () => {
+test("Dashboard build embeds only the public Clerk override", { skip: !runRootBuildContract }, async () => {
   const publicKey = "pk_test_build_contract_public";
   const serverSecret = "server_secret_must_not_reach_browser";
   const result = runPnpm(
@@ -126,7 +127,7 @@ test("Dashboard build embeds only the public Clerk override", async () => {
   assert.doesNotMatch(javascript, new RegExp(serverSecret));
 });
 
-test("Dashboard release validation rejects the build-only Clerk placeholder", () => {
+test("Dashboard release validation rejects the build-only Clerk placeholder", { skip: !runRootBuildContract }, () => {
   const placeholder = "pk_test_build_only_placeholder";
   const result = runPnpm(
     ["run", "validate:dashboard-clerk"],
@@ -145,7 +146,7 @@ test("Dashboard release validation rejects the build-only Clerk placeholder", ()
   );
 });
 
-test("Dashboard release validation accepts a real-looking public Clerk key", () => {
+test("Dashboard release validation accepts a real-looking public Clerk key", { skip: !runRootBuildContract }, () => {
   const result = runPnpm(
     ["run", "validate:dashboard-clerk"],
     {
@@ -158,7 +159,7 @@ test("Dashboard release validation accepts a real-looking public Clerk key", () 
   assert.equal(result.status, 0, failureText(result));
 });
 
-test("runtime commands remain fail-fast when required variables are absent", () => {
+test("runtime commands remain fail-fast when required variables are absent", { skip: !runRootBuildContract }, () => {
   for (const [name, cwd] of [
     ["Dashboard", dashboard],
     ["mockup sandbox", mockup],

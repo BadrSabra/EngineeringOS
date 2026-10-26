@@ -34,7 +34,7 @@
     "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
     "deployment:post-build": "pnpm run db:schema:apply && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs && pnpm store prune",
     "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
-    "validate:root-build-contract": "node --test scripts/root-build-contract.test.mjs",
+    "validate:root-build-contract": "RUN_ROOT_BUILD_CONTRACT_TEST=1 node --test scripts/root-build-contract.test.mjs",
     "validate": "pnpm run security:reject-private-keys && pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
     "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
     "security:reject-private-keys": "node scripts/reject-private-key-files.mjs",
