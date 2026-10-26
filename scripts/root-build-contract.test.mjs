@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
@@ -60,9 +61,24 @@ async function browserJavaScript(directory) {
   );
 }
 
-test("root build works without workflow variables", () => {
-  const result = runPnpm(["run", "build"]);
-  assert.equal(result.status, 0, failureText(result));
+test("root build works without workflow variables", async () => {
+  const generatedRoot = await mkdtemp(join(tmpdir(), "root-build-codegen-"));
+  try {
+    const result = runPnpm(
+      ["run", "build"],
+      { env: cleanWorkflowEnvironment({ CODEGEN_OUTPUT_ROOT: generatedRoot }) },
+    );
+    assert.equal(result.status, 0, failureText(result));
+    const generatedApi = await stat(
+      join(generatedRoot, "lib", "api-zod", "src", "generated", "api.ts"),
+    );
+    assert.ok(
+      generatedApi.size > 0,
+      "root build must generate the API client in its isolated output root",
+    );
+  } finally {
+    await rm(generatedRoot, { recursive: true, force: true });
+  }
 });
 
 test("Dashboard build embeds only the public Clerk override", async () => {
