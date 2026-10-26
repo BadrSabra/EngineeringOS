@@ -1,17 +1,26 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
+import {
+  findOwnedRuntimeProcessGroups,
+  stopOwnedRuntimeProcessGroup,
+} from "./owned-runtime-cleanup.mjs";
+import { assertLoopbackOnlyNetworkNamespace } from "./loopback-only-network-namespace.mjs";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const databaseUser = "goal_first_e2e";
 const databaseName = "postgres";
-const dashboardPort = Number(process.env.DASHBOARD_E2E_DASHBOARD_PORT ?? 23184);
 const lifecycleRun = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
+let dashboardPort = Number(process.env.DASHBOARD_E2E_DASHBOARD_PORT ?? 23184);
+let apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+let controlPort = Number(process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1);
+const lifecycleReservedPorts = new Set();
+const lifecycleWorkerScopeProjectId = lifecycleRun ? randomUUID() : "";
 const requestedLifecycleRunId = process.env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID;
 const lifecycleRunId = lifecycleRun
   ? /^[a-f0-9-]{36}$/i.test(requestedLifecycleRunId ?? "")
@@ -24,10 +33,13 @@ const lifecycleStartedAt = lifecycleRun
   && Number.isFinite(Date.parse(requestedLifecycleStartedAt))
   ? new Date(requestedLifecycleStartedAt).toISOString()
   : new Date().toISOString();
-const lifecycleResultsRoot = resolve(
-  workspaceRoot,
-  "test-results/engineering-agent-lifecycle",
-);
+const lifecycleResultsRoot = lifecycleRun
+  ? resolve(
+      workspaceRoot,
+      "test-results/engineering-agent-lifecycle",
+      lifecycleRunId,
+    )
+  : resolve(workspaceRoot, "test-results/engineering-agent-lifecycle");
 const lifecycleEvidenceRoot = resolve(
   workspaceRoot,
   "release-evidence/engineering-agent-lifecycle",
@@ -42,16 +54,41 @@ const lifecycleEnvironmentIdentity = "replit-disposable-postgres-local-provider-
 const lifecycleTestId =
   "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain";
 const providerLogPath = resolve(
-  workspaceRoot,
+  lifecycleRun ? lifecycleResultsRoot : workspaceRoot,
   lifecycleRun
-    ? "test-results/engineering-agent-lifecycle/provider-fixture-requests.jsonl"
+    ? "provider-fixture-requests.jsonl"
     : "test-results/goal-first-e2e/provider-fixture-requests.jsonl",
 );
+const lifecycleReportPath = lifecycleRun
+  ? resolve(lifecycleResultsRoot, "mission-correlation.json")
+  : "";
+const lifecycleLiveVerificationPath = lifecycleRun
+  ? resolve(lifecycleResultsRoot, "database-verification.json")
+  : "";
+const lifecycleRuntimeCleanupPath = lifecycleRun
+  ? resolve(lifecycleResultsRoot, "runtime-cleanup.json")
+  : "";
+const lifecycleEntityTables = [
+  "projects",
+  "ai_chat_sessions",
+  "ai_chat_messages",
+  "ai_mission_handoffs",
+  "ai_missions",
+  "ai_goals",
+  "ai_executions",
+  "ai_execution_acceptances",
+  "tasks",
+  "ai_change_proposals",
+  "ai_mission_lineages",
+];
 
 let temporaryRoot = "";
 let dataDirectory = "";
 let socketDirectory = "";
-let lifecycleProjectRoot = "";
+let lifecycleProjectRoot = lifecycleRun
+  ? resolve(lifecycleResultsRoot, "project")
+  : "";
+let lifecycleResultsRealPath = "";
 let lifecycleRemotePath = "";
 let lifecycleRunnerStage = "setup";
 let lifecycleSourceFingerprint = "";
@@ -59,6 +96,54 @@ let postgresPort = 0;
 let initialized = false;
 let activeChild;
 let shutdownSignal;
+let lifecycleRuntimeCleanupFailure;
+
+async function assertPathDoesNotExist(path, label) {
+  try {
+    await realpath(path);
+    throw new Error(`Refusing to overwrite existing ${label}: ${path}`);
+  } catch (error) {
+    if (
+      error
+      && typeof error === "object"
+      && "code" in error
+      && error.code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function assertPathWithinRoot(rootPath, candidatePath, label) {
+  const relativePath = relative(rootPath, candidatePath);
+  if (
+    !relativePath
+    || relativePath === ".."
+    || relativePath.startsWith(`..${sep}`)
+  ) {
+    throw new Error(`${label} resolved outside the approved workspace root.`);
+  }
+}
+
+async function readLifecycleEntityCounts(databaseUrl, env) {
+  const fields = lifecycleEntityTables
+    .map((table) => `'${table}', (SELECT COUNT(*) FROM public."${table}")`)
+    .join(", ");
+  const result = await run(
+    "psql",
+    [
+      databaseUrl,
+      "-XAt",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      `SELECT json_build_object(${fields})::text`,
+    ],
+    { env, capture: true },
+  );
+  return JSON.parse(result.stdout.trim());
+}
 
 function isolatedDatabaseEnvironment(databaseUrl = "") {
   const env = { ...process.env };
@@ -107,21 +192,60 @@ function run(command, args, options = {}) {
   });
 }
 
-async function reserveLoopbackPort() {
+async function reserveLoopbackPort(excludedPorts = new Set()) {
   const server = createServer();
-  await new Promise((resolveListen, rejectListen) => {
-    server.once("error", rejectListen);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    throw new Error("Could not reserve a loopback port for the isolated database.");
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    await new Promise((resolveListen, rejectListen) => {
+      server.removeAllListeners("error");
+      server.once("error", rejectListen);
+      server.listen(0, "127.0.0.1", resolveListen);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Could not reserve a loopback port for an isolated service.");
+    }
+    const port = address.port;
+    await new Promise((resolveClose, rejectClose) => {
+      server.close((error) => error ? rejectClose(error) : resolveClose());
+    });
+    if (!excludedPorts.has(port)) return port;
   }
-  const port = address.port;
-  await new Promise((resolveClose, rejectClose) => {
-    server.close((error) => error ? rejectClose(error) : resolveClose());
-  });
-  return port;
+  throw new Error("Could not reserve a distinct loopback port after 32 attempts.");
+}
+
+async function cleanupLifecycleRuntime() {
+  if (!lifecycleRun || !lifecycleProjectRoot) return { status: "not_applicable" };
+  let projectRealPath;
+  try {
+    projectRealPath = await realpath(lifecycleProjectRoot);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { status: "no_project_root", groups: [] };
+    }
+    throw error;
+  }
+  assertPathWithinRoot(lifecycleResultsRealPath, projectRealPath, "Runtime cleanup project");
+  const groupsBefore = await findOwnedRuntimeProcessGroups(projectRealPath);
+  const stoppedGroups = [];
+  for (const group of groupsBefore) {
+    stoppedGroups.push(await stopOwnedRuntimeProcessGroup({
+      pid: group.processGroupId,
+      projectRoot: projectRealPath,
+    }));
+  }
+  const remainingGroups = await findOwnedRuntimeProcessGroups(projectRealPath);
+  if (remainingGroups.length > 0) {
+    throw new Error(
+      `Lifecycle runtime groups remain after cleanup: ${remainingGroups.map((group) => group.processGroupId).join(",")}.`,
+    );
+  }
+  return {
+    status: "clean",
+    projectRoot: projectRealPath,
+    initialGroups: groupsBefore,
+    stoppedGroups,
+    remainingGroups,
+  };
 }
 
 async function stopPostgres() {
@@ -196,6 +320,13 @@ async function writeFallbackLifecycleReceipt() {
 async function main() {
   const liveProviderRun = process.env.GOAL_FIRST_LIVE_PROVIDER === "1";
   if (lifecycleRun) {
+    // Fail before creating the temporary root, starting PostgreSQL, or
+    // initializing the local Git fixture if OS-level egress isolation is not
+    // verifiably loopback-only. The dashboard runner repeats this check before
+    // API startup as defense in depth.
+    await assertLoopbackOnlyNetworkNamespace();
+  }
+  if (lifecycleRun) {
     lifecycleSourceFingerprint = await computeEngineeringAgentSourceFingerprint({
       cwd: workspaceRoot,
     });
@@ -203,26 +334,82 @@ async function main() {
   if (lifecycleRun && liveProviderRun) {
     throw new Error("The controlled lifecycle acceptance run cannot use the live provider.");
   }
+  if (lifecycleRun) {
+    const workspaceRealPath = await realpath(workspaceRoot);
+    await mkdir(lifecycleResultsRoot, { recursive: true });
+    await mkdir(lifecycleEvidenceRoot, { recursive: true });
+    lifecycleResultsRealPath = await realpath(lifecycleResultsRoot);
+    const expectedResultsPath = resolve(
+      workspaceRealPath,
+      relative(workspaceRoot, lifecycleResultsRoot),
+    );
+    if (lifecycleResultsRealPath !== expectedResultsPath) {
+      throw new Error(
+        "Lifecycle results realpath does not match the unique workspace results directory.",
+      );
+    }
+    await assertPathDoesNotExist(lifecycleProjectRoot, "lifecycle project root");
+    await assertPathDoesNotExist(providerLogPath, "provider fixture log");
+    await assertPathDoesNotExist(lifecycleReceiptPath, "lifecycle receipt");
+    await assertPathDoesNotExist(
+      `${lifecycleReceiptPath}.runner-failure.json`,
+      "runner failure receipt",
+    );
+    await assertPathDoesNotExist(
+      lifecycleOfflineVerificationPath,
+      "offline lifecycle verification",
+    );
+    await assertPathDoesNotExist(lifecycleReportPath, "lifecycle report");
+    await assertPathDoesNotExist(
+      lifecycleLiveVerificationPath,
+      "live lifecycle database verification",
+    );
+    await assertPathDoesNotExist(
+      lifecycleRuntimeCleanupPath,
+      "lifecycle runtime cleanup report",
+    );
+    await assertPathDoesNotExist(
+      resolve(lifecycleResultsRoot, "entity-counts.json"),
+      "lifecycle entity count report",
+    );
+    await assertPathDoesNotExist(
+      resolve(lifecycleResultsRoot, "postgres.log"),
+      "temporary PostgreSQL log",
+    );
+    await assertPathDoesNotExist(
+      resolve(lifecycleResultsRoot, "playwright"),
+      "Playwright result directory",
+    );
+    assertPathWithinRoot(workspaceRealPath, lifecycleResultsRealPath, "Lifecycle results");
+    assertPathWithinRoot(
+      workspaceRealPath,
+      resolve(lifecycleProjectRoot),
+      "Lifecycle project",
+    );
+  }
   if (os.userInfo().uid === 0) {
     throw new Error("Refusing to initialize the temporary PostgreSQL cluster as root.");
   }
 
+  if (lifecycleRun) {
+    for (const port of [23183, 23184, 8099]) lifecycleReservedPorts.add(port);
+    apiPort = await reserveLoopbackPort(lifecycleReservedPorts);
+    lifecycleReservedPorts.add(apiPort);
+    dashboardPort = await reserveLoopbackPort(lifecycleReservedPorts);
+    lifecycleReservedPorts.add(dashboardPort);
+    controlPort = await reserveLoopbackPort(lifecycleReservedPorts);
+    lifecycleReservedPorts.add(controlPort);
+  }
   temporaryRoot = await mkdtemp(join(os.tmpdir(), "engineeringos-goal-first-e2e-"));
   dataDirectory = join(temporaryRoot, "pgdata");
   socketDirectory = join(temporaryRoot, "socket");
-  postgresPort = await reserveLoopbackPort();
+  postgresPort = await reserveLoopbackPort(lifecycleReservedPorts);
   const databaseUrl = `postgresql://${databaseUser}@127.0.0.1:${postgresPort}/${databaseName}`;
   await mkdir(socketDirectory, { recursive: true });
 
   try {
     if (lifecycleRun) {
       lifecycleRemotePath = join(temporaryRoot, "engineering-agent-lifecycle-remote.git");
-      lifecycleProjectRoot = resolve(
-        workspaceRoot,
-        "test-results",
-        "engineering-agent-lifecycle",
-        `project-${randomUUID()}`,
-      );
       const remoteRelativePath = relative(
         await realpath(temporaryRoot),
         resolve(lifecycleRemotePath),
@@ -234,10 +421,18 @@ async function main() {
       ) {
         throw new Error("The disposable bare remote must remain inside the isolated runner root.");
       }
-      await rm(lifecycleReceiptPath, { force: true });
-      await rm(providerLogPath, { force: true });
-      await mkdir(dirname(lifecycleProjectRoot), { recursive: true });
-      await rm(lifecycleProjectRoot, { recursive: true, force: true });
+      await mkdir(lifecycleProjectRoot, { recursive: false });
+      const projectRealPath = await realpath(lifecycleProjectRoot);
+      assertPathWithinRoot(
+        lifecycleResultsRealPath,
+        projectRealPath,
+        "Lifecycle project",
+      );
+      if (projectRealPath !== resolve(lifecycleResultsRealPath, "project")) {
+        throw new Error(
+          "Lifecycle project realpath does not match its unique results directory.",
+        );
+      }
       await run("git", ["init", "--bare", lifecycleRemotePath]);
       await run("git", [
         "--git-dir",
@@ -268,6 +463,7 @@ async function main() {
     ]);
 
     const env = isolatedDatabaseEnvironment(databaseUrl);
+    delete env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID;
     env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
     env.DASHBOARD_E2E_TEST_MODE = liveProviderRun ? "live-provider" : "fixture";
     env.DASHBOARD_E2E_GREP = lifecycleRun
@@ -277,6 +473,13 @@ async function main() {
         : "goal-first|signs in and traverses the authenticated operational shell|authenticated owner-Mission link preserves active Mission across Chat navigation and reload";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
+    if (lifecycleRun) {
+      env.DASHBOARD_E2E_API_PORT = String(apiPort);
+      env.DASHBOARD_E2E_PORT = String(dashboardPort);
+      env.DASHBOARD_E2E_DASHBOARD_PORT = String(dashboardPort);
+      env.DASHBOARD_E2E_CONTROL_PORT = String(controlPort);
+      env.DASHBOARD_E2E_BASE_URL = `http://127.0.0.1:${dashboardPort}/dashboard/`;
+    }
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS
       ?? (lifecycleRun ? "600000" : "240000");
     if (liveProviderRun) {
@@ -291,6 +494,34 @@ async function main() {
     } else {
       env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
       env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG = providerLogPath;
+      if (lifecycleRun) {
+        for (const credentialName of [
+          "ANTHROPIC_API_KEY",
+          "DEEPSEEK_API_KEY",
+          "FIREWORKS_API_KEY",
+          "GEMINI_API_KEY",
+          "GOOGLE_API_KEY",
+          "GROQ_API_KEY",
+          "MISTRAL_API_KEY",
+          "OPENAI_API_KEY",
+          "OPENROUTER_API_KEY",
+          "PERPLEXITY_API_KEY",
+          "TOGETHER_API_KEY",
+          "CLERK_SECRET_KEY",
+          "CLERK_PUBLISHABLE_KEY",
+          "VITE_CLERK_PUBLISHABLE_KEY",
+        ]) {
+          delete env[credentialName];
+        }
+        env.CLERK_PUBLISHABLE_KEY = "pk_test_local_lifecycle_fixture";
+        env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE = "1";
+        env.PLAYWRIGHT_OUTPUT_DIR = resolve(lifecycleResultsRoot, "playwright");
+        env.DASHBOARD_E2E_LIVE_REPORT_PATH = lifecycleReportPath;
+        env.ENGINEERING_AGENT_LIFECYCLE_LIVE_VERIFICATION = lifecycleLiveVerificationPath;
+      } else {
+        delete env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE;
+        delete env.ENGINEERING_AGENT_LIFECYCLE_LIVE_VERIFICATION;
+      }
       env.OPENROUTER_API_KEY = "engineering-agent-lifecycle-local-fixture";
       delete env.DASHBOARD_E2E_LIVE_PROVIDER;
       delete env.DASHBOARD_E2E_LIVE_DISPOSABLE;
@@ -317,15 +548,18 @@ async function main() {
     }
     delete env.AI_PROVIDER_EGRESS_DISABLED;
 
-    const origins = new Set(
-      (env.APP_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
-    );
-    if (env.REPLIT_DEV_DOMAIN) origins.add(`https://${env.REPLIT_DEV_DOMAIN}`);
+    const origins = lifecycleRun
+      ? new Set()
+      : new Set(
+          (env.APP_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
+        );
+    if (!lifecycleRun && env.REPLIT_DEV_DOMAIN) {
+      origins.add(`https://${env.REPLIT_DEV_DOMAIN}`);
+    }
     origins.add(`http://127.0.0.1:${dashboardPort}`);
     env.APP_ORIGINS = [...origins].join(",");
 
     await mkdir(dirname(providerLogPath), { recursive: true });
-    await rm(providerLogPath, { force: true });
 
     console.log("Checking local provider fixture guards and response contracts.");
     lifecycleRunnerStage = "provider-fixture";
@@ -345,6 +579,31 @@ async function main() {
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
     if (lifecycleRun) {
+      const afterSchemaApply = await readLifecycleEntityCounts(databaseUrl, env);
+      const nonZeroCounts = Object.entries(afterSchemaApply)
+        .filter(([, count]) => Number(count) !== 0);
+      if (nonZeroCounts.length > 0) {
+        throw new Error(
+          `Fresh temporary database contains lifecycle entities after schema apply: ${JSON.stringify(afterSchemaApply)}.`,
+        );
+      }
+      await writeFile(
+        resolve(lifecycleResultsRoot, "entity-counts.json"),
+        `${JSON.stringify({ afterSchemaApply }, null, 2)}\n`,
+        "utf8",
+      );
+      console.log("Verifying the fixed local auth identity and project ownership denial.");
+      lifecycleRunnerStage = "local-auth-fixture";
+      await run("pnpm", [
+        "--filter",
+        "@workspace/api-server",
+        "exec",
+        "vitest",
+        "run",
+        "src/middlewares/requireAuth.test.ts",
+        "src/middlewares/requireProjectAccess.test.ts",
+      ], { env });
+      if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
       console.log("Verifying linked Episode writes preserve Mission/Goal-before-Execution lock order.");
       lifecycleRunnerStage = "episode-mission-execution-lock-order";
       await run("pnpm", [
@@ -456,6 +715,26 @@ async function main() {
     ], { env });
     if (shutdownSignal) throw new Error(`Interrupted by ${shutdownSignal}.`);
 
+    if (lifecycleRun) {
+      const beforeBrowser = await readLifecycleEntityCounts(databaseUrl, env);
+      const nonZeroCounts = Object.entries(beforeBrowser)
+        .filter(([, count]) => Number(count) !== 0);
+      if (nonZeroCounts.length > 0) {
+        throw new Error(
+          `Pre-browser route checks left lifecycle entities behind: ${JSON.stringify(beforeBrowser)}.`,
+        );
+      }
+      const countReport = JSON.parse(
+        await readFile(resolve(lifecycleResultsRoot, "entity-counts.json"), "utf8"),
+      );
+      countReport.beforeBrowser = beforeBrowser;
+      await writeFile(
+        resolve(lifecycleResultsRoot, "entity-counts.json"),
+        `${JSON.stringify(countReport, null, 2)}\n`,
+        "utf8",
+      );
+    }
+
     console.log(
       lifecycleRun
         ? "Running the authenticated correlated Engineering Agent lifecycle journey with a disposable local remote."
@@ -464,6 +743,9 @@ async function main() {
         : "Running the goal-first browser journey against the real API and isolated database.",
     );
     lifecycleRunnerStage = "browser-journey";
+    if (lifecycleRun) {
+      env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID = lifecycleWorkerScopeProjectId;
+    }
     const journeyLogs = await run(
       "pnpm",
       ["run", "validate:dashboard-journey"],
@@ -509,6 +791,16 @@ async function main() {
         "node",
         ["scripts/verify-engineering-agent-lifecycle-receipt.mjs", "--live"],
         { env },
+      );
+      const afterBrowserCounts = await readLifecycleEntityCounts(databaseUrl, env);
+      const countReport = JSON.parse(
+        await readFile(resolve(lifecycleResultsRoot, "entity-counts.json"), "utf8"),
+      );
+      countReport.afterBrowser = afterBrowserCounts;
+      await writeFile(
+        resolve(lifecycleResultsRoot, "entity-counts.json"),
+        `${JSON.stringify(countReport, null, 2)}\n`,
+        "utf8",
       );
       return;
     }
@@ -636,14 +928,40 @@ async function main() {
       );
     }
   } finally {
-    await stopPostgres();
-    if (lifecycleProjectRoot) {
-      await rm(lifecycleProjectRoot, { recursive: true, force: true }).catch(() => {});
-    }
-    if (temporaryRoot) {
-      await rm(temporaryRoot, { recursive: true, force: true });
+    let cleanupReport;
+    try {
+      cleanupReport = await cleanupLifecycleRuntime();
+    } catch (error) {
+      lifecycleRuntimeCleanupFailure = error instanceof Error ? error.message : String(error);
+      cleanupReport = {
+        status: "failed",
+        error: lifecycleRuntimeCleanupFailure,
+        projectRoot: lifecycleProjectRoot || null,
+        preservedTemporaryRoot: temporaryRoot || null,
+      };
     }
     if (lifecycleRun) {
+      await mkdir(lifecycleResultsRoot, { recursive: true });
+      await writeFile(
+        lifecycleRuntimeCleanupPath,
+        `${JSON.stringify(cleanupReport, null, 2)}\n`,
+        "utf8",
+      );
+    }
+    await stopPostgres();
+    if (lifecycleRun && temporaryRoot) {
+      await copyFile(
+        join(temporaryRoot, "postgres.log"),
+        resolve(lifecycleResultsRoot, "postgres.log"),
+      ).catch(() => {});
+    }
+    if (lifecycleProjectRoot && !lifecycleRuntimeCleanupFailure) {
+      await rm(lifecycleProjectRoot, { recursive: true, force: true }).catch(() => {});
+    }
+    if (temporaryRoot && !lifecycleRuntimeCleanupFailure) {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+    if (lifecycleRun && !lifecycleRuntimeCleanupFailure) {
       const receipt = JSON.parse(await readFile(lifecycleReceiptPath, "utf8").catch(() => "null"));
       if (receipt?.status === "passed") {
         lifecycleRunnerStage = "offline-verifier";
@@ -661,6 +979,9 @@ async function main() {
           { env: offlineEnv },
         );
       }
+    }
+    if (lifecycleRuntimeCleanupFailure) {
+      throw new Error(`Lifecycle runtime cleanup failed; temporary roots were preserved: ${lifecycleRuntimeCleanupFailure}`);
     }
   }
 }

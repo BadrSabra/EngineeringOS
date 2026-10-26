@@ -29,6 +29,7 @@ import { getProjectWorldState } from "./agent-state/world-state.js";
 import { taskScopeIdentity } from "./agent-state/observation-materializer.js";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import { dispatchMissionChatHandoff } from "./mission-chat-handoffs.js";
+import { resolveWorkspaceTreeRevision } from "./delivery-workspace.js";
 
 const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
@@ -890,7 +891,7 @@ describe("Mission recipe dispatch", () => {
       goalId: finalGoal.id,
       operationId,
       recipeId: "delivery.push.github",
-      sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
+      sourceRevision: expect.stringMatching(/^workspace-tree-v1:[0-9a-f]{64}$/i),
       rootPath,
     }));
     expect(githubDeliveryRunner).toHaveBeenCalledWith(expect.objectContaining({
@@ -1139,7 +1140,7 @@ describe("Mission recipe dispatch", () => {
         contractVersion: 1,
         executionId: "recipe-execution-1",
         operationId: "mission-recipe-operation-1",
-        recipeId: "candidate.verify",
+        recipeId: "candidate.verify.workspace-typecheck",
         recipeVersion: 1,
         status: "completed",
         completedNodeIds: ["verify"],
@@ -1193,7 +1194,7 @@ describe("Mission recipe dispatch", () => {
       outcomeContract: { deliveryRequired: true },
       nextAction: {
         kind: "recipe",
-        recipeId: "candidate.verify",
+        recipeId: "candidate.verify.workspace-typecheck",
         recipeVersion: 1,
         approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
         candidateIdentity: null,
@@ -1239,11 +1240,179 @@ describe("Mission recipe dispatch", () => {
     expect(recipeRunner).toHaveBeenCalledWith(expect.objectContaining({
       goalId,
       projectId,
-      recipeId: "candidate.verify",
+      recipeId: "candidate.verify.workspace-typecheck",
       recipeVersion: 1,
-      sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
+      sourceRevision: expect.stringMatching(/^workspace-tree-v1:[0-9a-f]{64}$/i),
       rootPath,
     }));
+  });
+
+  it("records dependency proof failures when a recipe finishes after its prerequisite proof becomes stale", async () => {
+    const rootPath = await createTestRoot("recipe-dependency-proof");
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const prerequisiteGoalId = randomUUID();
+    const recipeGoalId = randomUUID();
+    const planRevision = createHash("sha256")
+      .update(`recipe-dependency-proof:${missionId}`)
+      .digest("hex");
+    const sourceRevision = await resolveWorkspaceTreeRevision(rootPath);
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `recipe-dependency-proof-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Dependency proof diagnostic fixture",
+      intent: "Verify completion-time dependency proof diagnostics",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values([
+      {
+        id: prerequisiteGoalId,
+        missionId,
+        projectId,
+        title: "Accepted prerequisite",
+        status: "queued",
+        successCriteria: {
+          stepId: "prerequisite",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          deliveryRequired: false,
+          planRevision: { hash: planRevision },
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: recipeGoalId,
+        missionId,
+        projectId,
+        title: "Candidate verification",
+        status: "queued",
+        successCriteria: {
+          stepId: "verify",
+          planRevision: { hash: planRevision },
+        },
+        outcomeContract: {
+          deliveryRequired: false,
+          planRevision: { hash: planRevision },
+        },
+        nextAction: {
+          kind: "recipe",
+          recipeId: "candidate.verify.workspace-typecheck",
+          recipeVersion: 1,
+          approvedPaths: ["lib/ai-orchestrator/src/index.ts"],
+          candidateIdentity: null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiGoalDependenciesTable).values({
+      id: randomUUID(),
+      missionId,
+      projectId,
+      goalId: recipeGoalId,
+      dependsOnGoalId: prerequisiteGoalId,
+      planRevision,
+      createdAt: now,
+    });
+
+    const prerequisiteProof = await seedCanonicalMissionGoalCompletion({
+      projectId,
+      missionId,
+      goalId: prerequisiteGoalId,
+      planRevision,
+      sourceRevision,
+    });
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      await db.update(aiExecutionsTable)
+        .set({ status: "running" })
+        .where(eq(aiExecutionsTable.id, prerequisiteProof.executionId));
+      const executionId = await seedSuccessfulRecipeProof(
+        params,
+        "recipe-dependency-proof-execution",
+      );
+      return {
+        executionId,
+        status: "completed",
+        completedNodeIds: ["verify"],
+        receipt: {
+          contractVersion: 1,
+          executionId,
+          operationId: String(params.operationId),
+          recipeId: "candidate.verify.workspace-typecheck",
+          recipeVersion: 1,
+          status: "completed",
+          completedNodeIds: ["verify"],
+          nodes: [{
+            nodeId: "verify",
+            status: "passed",
+            attempts: 1,
+            elapsedMs: 10,
+            evidenceId: "recipe-dependency-proof-evidence",
+            excerpt: "Candidate verification passed.",
+          }],
+          evidenceRefs: ["recipe-dependency-proof-evidence"],
+          createdAt: now.toISOString(),
+          completedAt: new Date(now.getTime() + 10).toISOString(),
+        },
+      };
+    });
+
+    await expect(runMissionGoal({
+      goalId: recipeGoalId,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({
+      status: "scheduled",
+      goalId: recipeGoalId,
+      reason: "recipe_dispatch_queued",
+    });
+
+    await vi.waitFor(async () => {
+      const [goal] = await db.select({
+        status: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      }).from(aiGoalsTable).where(eq(aiGoalsTable.id, recipeGoalId));
+      expect(goal?.status).toBe("needs_replan");
+      expect(goal?.outcomeContract).toMatchObject({
+        acceptance: { verdict: "INCOMPLETE" },
+      });
+    });
+
+    const [blockedEvent] = await db.select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, projectId),
+        eq(eventsTable.goalId, recipeGoalId),
+        eq(eventsTable.type, "AiGoalDependencyProofBlocked"),
+      ))
+      .limit(1);
+    expect(blockedEvent?.payload).toMatchObject({
+      missionId,
+      planRevision,
+      dependencyGoalId: prerequisiteGoalId,
+      reasonCode: "dependency_proof_unproven",
+      failedChecks: ["execution_not_completed"],
+    });
   });
 
   it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {
@@ -1552,8 +1721,7 @@ describe("Mission recipe dispatch", () => {
       candidateIdentity: null,
     })).digest("hex");
     const operationId = `mission-goal-${goalId}-${digest.slice(0, 16)}`;
-    const sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"]))
-      .stdout.trim();
+    const sourceRevision = await resolveWorkspaceTreeRevision(rootPath);
     const binding = {
       projectId,
       operationId,

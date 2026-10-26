@@ -33,22 +33,32 @@ const chainKeys = new Set([
   "sourceMissionId",
   "canonicalMissionId",
   "sourceGoalId",
+  "runtimeStartGoalId",
   "sourceExecutionId",
   "sourceAttempt",
   "acceptanceId",
+  "sourceMissionStatus",
+  "sourceMissionGoals",
   "proposalId",
   "proposalRevision",
   "candidateTreeHash",
   "applyMissionId",
+  "applyMissionStatus",
   "applyGoalId",
+  "applyGoalStatus",
+  "applyAcceptanceVerdict",
   "applyExecutionId",
   "deliveryGoalId",
+  "deliveryExecutionId",
+  "applyDeliveryGoalStatus",
+  "applyDeliveryReceiptPresent",
   "commitHash",
   "remoteCommitHash",
   "branch",
   "finalMissionId",
   "engineeringAgentState",
   "activeMissionIdAfterReload",
+  "runtimeTransition",
 ]);
 
 function hasOnlyKeys(value, allowedKeys, label) {
@@ -56,6 +66,142 @@ function hasOnlyKeys(value, allowedKeys, label) {
   for (const key of Object.keys(value)) {
     assert.ok(allowedKeys.has(key), `${label}_has_unexpected_key:${key}`);
   }
+}
+
+function validateApplyMissionCompletion(chain) {
+  assert.equal(chain.applyMissionStatus, "completed", "apply_mission_not_completed");
+  assert.equal(chain.applyGoalStatus, "completed", "apply_goal_not_completed");
+  assert.equal(chain.applyAcceptanceVerdict, "PROVEN", "apply_goal_not_proven");
+  assert.equal(chain.applyDeliveryGoalStatus, "completed", "apply_delivery_goal_not_completed");
+  assert.equal(chain.applyDeliveryReceiptPresent, true, "apply_delivery_receipt_missing");
+  assert.equal(chain.engineeringAgentState, "COMPLETE", "apply_mission_state_not_complete");
+  assert.equal(
+    chain.finalMissionId,
+    chain.applyMissionId,
+    "final_mission_id_must_match_apply_mission",
+  );
+  assert.equal(chain.commitHash, chain.remoteCommitHash, "apply_delivery_commit_mismatch");
+  return true;
+}
+
+function validateRuntimeTransition(chain) {
+  const runtime = chain.runtimeTransition;
+  const runtimeKeys = new Set([
+    "missionId",
+    "planRevision",
+    "runtimeStartGoalId",
+    "executionId",
+    "attempt",
+    "acceptanceId",
+    "evidenceSnapshotId",
+    "transitionId",
+    "targetGoalId",
+    "outcome",
+    "verdict",
+    "sourceRevision",
+    "effectBundleId",
+    "episodeId",
+    "actionId",
+    "dispatchType",
+    "gateCAttestation",
+    "transitionProof",
+    "d2DispatchEventId",
+    "taskScope",
+    "parentWorldRevision",
+    "resultingWorldRevision",
+    "resultingScopedWorldRevision",
+    "environmentRevision",
+  ]);
+  hasOnlyKeys(runtime, runtimeKeys, "runtime_transition");
+  for (const key of [
+    "missionId",
+    "planRevision",
+    "runtimeStartGoalId",
+    "executionId",
+    "acceptanceId",
+    "evidenceSnapshotId",
+    "transitionId",
+    "targetGoalId",
+    "sourceRevision",
+    "effectBundleId",
+    "episodeId",
+    "actionId",
+    "dispatchType",
+    "d2DispatchEventId",
+    "taskScope",
+    "parentWorldRevision",
+    "resultingWorldRevision",
+    "environmentRevision",
+  ]) {
+    assert.equal(typeof runtime[key], "string", `runtime_transition_${key}_must_be_string`);
+    assert.ok(runtime[key].length > 0, `runtime_transition_${key}_must_not_be_empty`);
+  }
+  assert.equal(runtime.missionId, chain.sourceMissionId, "runtime_transition_mission_mismatch");
+  assert.equal(runtime.planRevision, chain.handoffPlanHash, "runtime_transition_plan_mismatch");
+  assert.equal(
+    runtime.runtimeStartGoalId,
+    chain.runtimeStartGoalId,
+    "runtime_transition_source_goal_mismatch",
+  );
+  assert.equal(runtime.targetGoalId, chain.sourceGoalId, "runtime_transition_target_goal_mismatch");
+  assert.equal(runtime.outcome, "SUCCEEDED", "runtime_transition_acceptance_not_succeeded");
+  assert.equal(runtime.verdict, "PROVEN", "runtime_transition_gate_c_not_proven");
+  assert.ok(Number.isInteger(runtime.attempt) && runtime.attempt >= 0, "runtime_transition_attempt_invalid");
+  for (const key of ["planRevision", "sourceRevision", "parentWorldRevision", "resultingWorldRevision"]) {
+    assert.match(runtime[key], /^[a-f0-9]{64}$/i, `runtime_transition_${key}_invalid`);
+  }
+  assert.equal(
+    runtime.resultingScopedWorldRevision === null
+      || /^[a-f0-9]{64}$/i.test(runtime.resultingScopedWorldRevision),
+    true,
+    "runtime_transition_scoped_revision_invalid",
+  );
+  assert.equal(
+    runtime.dispatchType.startsWith("AiGoal") && runtime.dispatchType.endsWith("DispatchRequested"),
+    true,
+    "runtime_transition_d2_dispatch_type_invalid",
+  );
+
+  const attestation = runtime.gateCAttestation;
+  hasOnlyKeys(attestation, new Set([
+    "kind",
+    "version",
+    "executionId",
+    "attempt",
+    "sourceRevision",
+    "sourceRevisionKind",
+    "sourceRevisionSource",
+  ]), "runtime_transition_gate_c_attestation");
+  assert.deepEqual(attestation, {
+    kind: "runtime_start_gate_c",
+    version: 2,
+    executionId: runtime.executionId,
+    attempt: runtime.attempt,
+    sourceRevision: runtime.sourceRevision,
+    sourceRevisionKind: "workspace_tree",
+    sourceRevisionSource: "delivery_tree_digest_v1",
+  }, "runtime_transition_gate_c_binding_invalid");
+
+  const proof = runtime.transitionProof;
+  assert.ok(proof && typeof proof === "object" && !Array.isArray(proof), "runtime_transition_d2_proof_missing");
+  for (const [proofKey, runtimeKey] of [
+    ["transitionId", "transitionId"],
+    ["executionId", "executionId"],
+    ["attempt", "attempt"],
+    ["episodeId", "episodeId"],
+    ["actionId", "actionId"],
+    ["effectBundleId", "effectBundleId"],
+    ["parentWorldRevision", "parentWorldRevision"],
+    ["resultingWorldRevision", "resultingWorldRevision"],
+    ["projectRevision", "sourceRevision"],
+    ["environmentRevision", "environmentRevision"],
+  ]) {
+    assert.equal(proof[proofKey], runtime[runtimeKey], `runtime_transition_d2_${proofKey}_mismatch`);
+  }
+  assert.equal(proof.sourceStepId, "runtime-start", "runtime_transition_d2_source_step_invalid");
+  assert.equal(proof.targetStepId, "execute", "runtime_transition_d2_target_step_invalid");
+  assert.equal(proof.activePlanHash, runtime.planRevision, "runtime_transition_d2_plan_mismatch");
+  return true;
 }
 
 function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerprint) {
@@ -112,6 +258,8 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
   assert.equal(value.stage, "complete", "receipt_stage_not_complete");
   assert.equal(Object.hasOwn(value, "code"), false, "passed_receipt_must_not_have_failure_code");
   hasOnlyKeys(value.chain, chainKeys, "chain");
+  validateApplyMissionCompletion(value.chain);
+  validateRuntimeTransition(value.chain);
 
   const requiredStringKeys = [
     "projectId",
@@ -122,14 +270,21 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
     "sourceMissionId",
     "canonicalMissionId",
     "sourceGoalId",
+    "runtimeStartGoalId",
     "sourceExecutionId",
     "acceptanceId",
+    "sourceMissionStatus",
     "proposalId",
     "candidateTreeHash",
     "applyMissionId",
+    "applyMissionStatus",
     "applyGoalId",
+    "applyGoalStatus",
+    "applyAcceptanceVerdict",
     "applyExecutionId",
     "deliveryGoalId",
+    "deliveryExecutionId",
+    "applyDeliveryGoalStatus",
     "commitHash",
     "remoteCommitHash",
     "branch",
@@ -155,11 +310,58 @@ function validateReceipt(value, expectedSourceFingerprint = value?.sourceFingerp
     "applyGoalId",
     "applyExecutionId",
     "deliveryGoalId",
+    "deliveryExecutionId",
     "finalMissionId",
     "activeMissionIdAfterReload",
   ]) {
     assert.match(value.chain[key], /^[A-Za-z0-9_-]{1,160}$/, `chain_${key}_invalid`);
   }
+  assert.equal(value.chain.sourceMissionStatus, "completed", "source_mission_not_completed");
+  assert.equal(value.chain.applyMissionStatus, "completed", "apply_mission_not_completed");
+  assert.equal(value.chain.applyGoalStatus, "completed", "apply_goal_not_completed");
+  assert.equal(value.chain.applyAcceptanceVerdict, "PROVEN", "apply_goal_not_proven");
+  assert.equal(
+    value.chain.applyDeliveryGoalStatus,
+    "completed",
+    "apply_delivery_goal_not_completed",
+  );
+  assert.equal(value.chain.applyDeliveryReceiptPresent, true, "apply_delivery_receipt_missing");
+  assert.ok(
+    Array.isArray(value.chain.sourceMissionGoals)
+      && value.chain.sourceMissionGoals.length > 0
+      && value.chain.sourceMissionGoals.length <= 32,
+    "source_mission_goals_required",
+  );
+  const sourceGoalIds = new Set();
+  for (const sourceGoal of value.chain.sourceMissionGoals) {
+    hasOnlyKeys(
+      sourceGoal,
+      new Set(["goalId", "stepId", "status", "acceptanceVerdict", "approvalState"]),
+      "source_mission_goal",
+    );
+    for (const key of ["goalId", "stepId", "status", "acceptanceVerdict", "approvalState"]) {
+      assert.equal(typeof sourceGoal[key], "string", `source_mission_goal_${key}_invalid`);
+      assert.ok(sourceGoal[key].length > 0, `source_mission_goal_${key}_empty`);
+    }
+    assert.ok(!sourceGoalIds.has(sourceGoal.goalId), "source_mission_goal_duplicate");
+    sourceGoalIds.add(sourceGoal.goalId);
+    assert.equal(sourceGoal.status, "completed", "source_mission_goal_not_completed");
+    assert.equal(sourceGoal.acceptanceVerdict, "PROVEN", "source_mission_goal_not_proven");
+    assert.ok(
+      ["APPROVED", "NOT_REQUIRED"].includes(sourceGoal.approvalState),
+      "source_mission_goal_approval_not_satisfied",
+    );
+  }
+  assert.ok(
+    sourceGoalIds.has(value.chain.runtimeStartGoalId),
+    "runtime_start_goal_missing_from_source_goal_states",
+  );
+  assert.ok(
+    value.chain.sourceMissionGoals.some(
+      (sourceGoal) => sourceGoal.approvalState === "APPROVED",
+    ),
+    "assisted_approval_missing",
+  );
   const chatStream = value.chain.chatStream;
   const chatStreamKeys = new Set([
     "eventTypes",
@@ -336,12 +538,38 @@ function readDatabaseSnapshot(databaseUrl, chain) {
       'handoff', (SELECT to_jsonb(h) FROM ai_mission_handoffs h WHERE h.mission_id = ${ids.sourceMissionId}),
       'sourceMission', (SELECT to_jsonb(m) FROM ai_missions m WHERE m.id = ${ids.sourceMissionId}),
       'sourceGoal', (SELECT to_jsonb(g) FROM ai_goals g WHERE g.id = ${ids.sourceGoalId}),
+      'sourceGoals', COALESCE((
+        SELECT json_agg(to_jsonb(g) ORDER BY g.created_at, g.id)
+        FROM ai_goals g
+        WHERE g.mission_id = ${ids.sourceMissionId}
+      ), '[]'::json),
+      'sourceTasks', COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', t.id,
+          'goalId', t.goal_id,
+          'projectId', t.project_id,
+          'status', t.status
+        ) ORDER BY t.created_at, t.id)
+        FROM tasks t
+        JOIN ai_goals g ON g.id = t.goal_id
+        WHERE g.mission_id = ${ids.sourceMissionId}
+      ), '[]'::json),
       'sourceExecution', (SELECT to_jsonb(e) FROM ai_executions e WHERE e.id = ${ids.sourceExecutionId}),
       'sourceAcceptances', COALESCE((
         SELECT json_agg(to_jsonb(a))
         FROM ai_execution_acceptances a
         WHERE a.execution_id = ${ids.sourceExecutionId}
           AND a.attempt = ${Number(chain.sourceAttempt)}
+      ), '[]'::json),
+      'applyAcceptances', COALESCE((
+        SELECT json_agg(to_jsonb(a))
+        FROM ai_execution_acceptances a
+        WHERE a.execution_id = ${ids.applyExecutionId}
+      ), '[]'::json),
+      'deliveryAcceptances', COALESCE((
+        SELECT json_agg(to_jsonb(a))
+        FROM ai_execution_acceptances a
+        WHERE a.execution_id = ${ids.deliveryExecutionId}
       ), '[]'::json),
       'proposal', (SELECT to_jsonb(p) FROM ai_change_proposals p WHERE p.id = ${ids.proposalId}),
       'proposalMessage', (
@@ -352,13 +580,31 @@ function readDatabaseSnapshot(databaseUrl, chain) {
         )
       ),
       'applyMission', (SELECT to_jsonb(m) FROM ai_missions m WHERE m.id = ${ids.applyMissionId}),
+      'applyGoals', COALESCE((
+        SELECT json_agg(to_jsonb(g) ORDER BY g.created_at, g.id)
+        FROM ai_goals g
+        WHERE g.mission_id = ${ids.applyMissionId}
+      ), '[]'::json),
+      'applyTasks', COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', t.id,
+          'goalId', t.goal_id,
+          'projectId', t.project_id,
+          'status', t.status
+        ) ORDER BY t.created_at, t.id)
+        FROM tasks t
+        JOIN ai_goals g ON g.id = t.goal_id
+        WHERE g.mission_id = ${ids.applyMissionId}
+      ), '[]'::json),
       'lineage', (
         SELECT to_jsonb(l)
         FROM ai_mission_lineages l
         WHERE l.apply_mission_id = ${ids.applyMissionId}
       ),
       'applyGoal', (SELECT to_jsonb(g) FROM ai_goals g WHERE g.id = ${ids.applyGoalId}),
-      'applyExecution', (SELECT to_jsonb(e) FROM ai_executions e WHERE e.id = ${ids.applyExecutionId})
+      'applyExecution', (SELECT to_jsonb(e) FROM ai_executions e WHERE e.id = ${ids.applyExecutionId}),
+      'deliveryGoal', (SELECT to_jsonb(g) FROM ai_goals g WHERE g.id = ${ids.deliveryGoalId}),
+      'deliveryExecution', (SELECT to_jsonb(e) FROM ai_executions e WHERE e.id = ${ids.deliveryExecutionId})
     )::text;
   `;
   const output = execFileSync("psql", [
@@ -393,6 +639,12 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   const handoff = requireRow("handoff");
   const sourceMission = requireRow("sourceMission");
   const sourceGoal = requireRow("sourceGoal");
+  assert.ok(Array.isArray(snapshot.sourceGoals), "source_mission_goals_invalid");
+  assert.ok(Array.isArray(snapshot.sourceTasks), "source_mission_tasks_invalid");
+  assert.ok(Array.isArray(snapshot.applyGoals), "apply_mission_goals_invalid");
+  assert.ok(Array.isArray(snapshot.applyTasks), "apply_mission_tasks_invalid");
+  assert.ok(Array.isArray(snapshot.applyAcceptances), "apply_acceptance_rows_invalid");
+  assert.ok(Array.isArray(snapshot.deliveryAcceptances), "delivery_acceptance_rows_invalid");
   const sourceExecution = requireRow("sourceExecution");
   const proposal = requireRow("proposal");
   const proposalMessage = requireRow("proposalMessage");
@@ -400,6 +652,8 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   const lineage = requireRow("lineage");
   const applyGoal = requireRow("applyGoal");
   const applyExecution = requireRow("applyExecution");
+  const deliveryGoal = requireRow("deliveryGoal");
+  const deliveryExecution = requireRow("deliveryExecution");
 
   requireValue(project.id, chain.projectId, "project_id");
   requireValue(session.project_id, chain.projectId, "chat_session_project");
@@ -426,6 +680,42 @@ function verifyDatabaseSnapshot(snapshot, chain) {
 
   requireValue(sourceMission.project_id, chain.projectId, "source_mission_project");
   requireValue(getAtPath(sourceMission.scope, "projectId"), chain.projectId, "source_mission_scope");
+  requireValue(sourceMission.status, chain.sourceMissionStatus, "source_mission_status_receipt");
+  requireValue(sourceMission.status, "completed", "source_mission_status");
+  assert.equal(snapshot.sourceGoals.length, chain.sourceMissionGoals.length, "source_mission_goal_count");
+  const sourceGoalsById = new Map(snapshot.sourceGoals.map((goal) => [goal.id, goal]));
+  for (const sourceGoalReceipt of chain.sourceMissionGoals) {
+    const sourceGoalRow = sourceGoalsById.get(sourceGoalReceipt.goalId);
+    assert.ok(sourceGoalRow, `source_mission_goal_missing:${sourceGoalReceipt.goalId}`);
+    requireValue(sourceGoalRow.status, sourceGoalReceipt.status, "source_mission_goal_status_receipt");
+    requireValue(sourceGoalRow.status, "completed", "source_mission_goal_status");
+    requireValue(
+      getAtPath(sourceGoalRow.outcome_contract, "stepId")
+        ?? getAtPath(sourceGoalRow.success_criteria, "stepId"),
+      sourceGoalReceipt.stepId,
+      "source_mission_goal_step_id",
+    );
+    requireValue(
+      getAtPath(sourceGoalRow.outcome_contract, "acceptance.verdict"),
+      sourceGoalReceipt.acceptanceVerdict,
+      "source_mission_goal_acceptance_verdict",
+    );
+    requireValue(
+      getAtPath(sourceGoalRow.outcome_contract, "planApproval.state") ?? "NOT_REQUIRED",
+      sourceGoalReceipt.approvalState,
+      "source_mission_goal_approval_state",
+    );
+  }
+  assert.ok(snapshot.sourceTasks.length > 0, "source_mission_tasks_missing");
+  const sourceGoalIds = new Set(snapshot.sourceGoals.map((goal) => goal.id));
+  const sourceTaskIds = new Set();
+  for (const task of snapshot.sourceTasks) {
+    assert.ok(!sourceTaskIds.has(task.id), "source_mission_task_duplicate");
+    sourceTaskIds.add(task.id);
+    requireValue(task.projectId, chain.projectId, "source_task_project");
+    assert.ok(sourceGoalIds.has(task.goalId), "source_task_goal_mission_mismatch");
+    requireValue(task.status, "completed", "source_task_not_completed");
+  }
   requireValue(sourceGoal.mission_id, chain.sourceMissionId, "source_goal_mission");
   requireValue(sourceGoal.project_id, chain.projectId, "source_goal_project");
   requireValue(sourceGoal.status, "completed", "source_goal_status");
@@ -500,6 +790,7 @@ function verifyDatabaseSnapshot(snapshot, chain) {
   requireValue(proposalMessage.role, "assistant", "proposal_message_role");
 
   requireValue(applyMission.project_id, chain.projectId, "apply_mission_project");
+  requireValue(applyMission.status, chain.applyMissionStatus, "apply_mission_status_receipt");
   requireValue(applyMission.status, "completed", "apply_mission_status");
   requireValue(chain.canonicalMissionId, chain.sourceMissionId, "canonical_source_mission");
   requireValue(lineage.apply_mission_id, chain.applyMissionId, "lineage_apply_mission");
@@ -530,15 +821,170 @@ function verifyDatabaseSnapshot(snapshot, chain) {
     `${chain.proposalId}:${chain.candidateTreeHash}`,
     "apply_mission_candidate_identity",
   );
+  assert.ok(snapshot.applyGoals.length > 0, "apply_mission_goals_missing");
+  const applyGoalIds = new Set();
+  for (const goal of snapshot.applyGoals) {
+    assert.ok(!applyGoalIds.has(goal.id), "apply_mission_goal_duplicate");
+    applyGoalIds.add(goal.id);
+    requireValue(goal.mission_id, chain.applyMissionId, "apply_goal_mission_membership");
+    requireValue(goal.project_id, chain.projectId, "apply_goal_project_membership");
+    requireValue(goal.status, "completed", "apply_mission_goal_not_completed");
+    requireValue(
+      getAtPath(goal.outcome_contract, "acceptance.verdict"),
+      "PROVEN",
+      "apply_mission_goal_not_proven",
+    );
+  }
+  assert.ok(applyGoalIds.has(chain.applyGoalId), "apply_goal_missing_from_mission");
+  assert.ok(applyGoalIds.has(chain.deliveryGoalId), "delivery_goal_missing_from_mission");
+  assert.ok(snapshot.applyTasks.length > 0, "apply_mission_tasks_missing");
+  const applyTaskIds = new Set();
+  for (const task of snapshot.applyTasks) {
+    assert.ok(!applyTaskIds.has(task.id), "apply_mission_task_duplicate");
+    applyTaskIds.add(task.id);
+    requireValue(task.projectId, chain.projectId, "apply_task_project");
+    assert.ok(applyGoalIds.has(task.goalId), "apply_task_goal_mission_mismatch");
+    requireValue(task.status, "completed", "apply_task_not_completed");
+  }
   requireValue(applyGoal.mission_id, chain.applyMissionId, "apply_goal_mission");
   requireValue(applyGoal.project_id, chain.projectId, "apply_goal_project");
+  requireValue(applyGoal.status, chain.applyGoalStatus, "apply_goal_status_receipt");
   requireValue(applyGoal.status, "completed", "apply_goal_status");
   requireValue(applyExecution.project_id, chain.projectId, "apply_execution_project");
   requireValue(applyExecution.goal_id, chain.applyGoalId, "apply_execution_goal");
   requireValue(applyExecution.status, "completed", "apply_execution_status");
   const applyAcceptance = getAtPath(applyGoal.outcome_contract, "acceptance");
   requireValue(applyAcceptance?.executionId, chain.applyExecutionId, "apply_acceptance_execution");
+  requireValue(
+    applyAcceptance?.verdict,
+    chain.applyAcceptanceVerdict,
+    "apply_acceptance_verdict_receipt",
+  );
   requireValue(applyAcceptance?.verdict, "PROVEN", "apply_acceptance_verdict");
+  assert.ok(
+    typeof applyAcceptance?.acceptanceId === "string",
+    "apply_acceptance_id_missing",
+  );
+  const applyAcceptanceRow = snapshot.applyAcceptances.find(
+    (row) => row.id === applyAcceptance.acceptanceId,
+  );
+  assert.ok(applyAcceptanceRow, "apply_acceptance_row_missing");
+  requireValue(
+    applyAcceptanceRow.execution_id,
+    chain.applyExecutionId,
+    "apply_acceptance_execution_row",
+  );
+  requireValue(
+    applyAcceptanceRow.terminal_status,
+    "completed",
+    "apply_acceptance_terminal_status",
+  );
+  requireValue(
+    applyAcceptanceRow.attempt,
+    applyExecution.attempt,
+    "apply_acceptance_attempt",
+  );
+
+  requireValue(deliveryGoal.mission_id, chain.applyMissionId, "delivery_goal_mission");
+  requireValue(deliveryGoal.status, chain.applyDeliveryGoalStatus, "delivery_goal_status_receipt");
+  requireValue(deliveryGoal.status, "completed", "delivery_goal_status");
+  requireValue(deliveryExecution.project_id, chain.projectId, "delivery_execution_project");
+  requireValue(deliveryExecution.goal_id, chain.deliveryGoalId, "delivery_execution_goal");
+  requireValue(deliveryExecution.id, chain.deliveryExecutionId, "delivery_execution_identity");
+  requireValue(deliveryExecution.status, "completed", "delivery_execution_status");
+  const deliveryAcceptance = getAtPath(deliveryGoal.outcome_contract, "acceptance");
+  assert.ok(
+    typeof deliveryAcceptance?.acceptanceId === "string",
+    "delivery_acceptance_id_missing",
+  );
+  const deliveryAcceptanceRow = snapshot.deliveryAcceptances.find(
+    (row) => row.id === deliveryAcceptance.acceptanceId,
+  );
+  assert.ok(deliveryAcceptanceRow, "delivery_acceptance_row_missing");
+  requireValue(
+    deliveryAcceptanceRow.execution_id,
+    chain.deliveryExecutionId,
+    "delivery_acceptance_execution_row",
+  );
+  requireValue(
+    deliveryAcceptanceRow.terminal_status,
+    "completed",
+    "delivery_acceptance_terminal_status",
+  );
+  requireValue(
+    deliveryAcceptanceRow.attempt,
+    deliveryExecution.attempt,
+    "delivery_acceptance_attempt",
+  );
+  requireValue(
+    deliveryAcceptance?.executionId,
+    chain.deliveryExecutionId,
+    "delivery_acceptance_execution",
+  );
+  requireValue(deliveryAcceptance?.verdict, "PROVEN", "delivery_acceptance_verdict");
+  const deliveryReceipt = deliveryAcceptance?.deliveryReceipt;
+  assert.ok(deliveryReceipt && typeof deliveryReceipt === "object", "delivery_receipt_missing");
+  requireValue(deliveryReceipt.executionId, chain.deliveryExecutionId, "delivery_receipt_execution");
+  requireValue(deliveryReceipt.status, "completed", "delivery_receipt_status");
+
+  return {
+    project: { id: chain.projectId },
+    missions: [
+      { id: sourceMission.id, role: "canonical", status: sourceMission.status },
+      { id: applyMission.id, role: "apply", status: applyMission.status },
+    ],
+    goals: [
+      ...snapshot.sourceGoals.map((goal) => ({
+        id: goal.id,
+        missionId: goal.mission_id,
+        status: goal.status,
+        acceptanceVerdict: getAtPath(goal.outcome_contract, "acceptance.verdict") ?? null,
+      })),
+      ...snapshot.applyGoals.map((goal) => ({
+        id: goal.id,
+        missionId: goal.mission_id,
+        status: goal.status,
+        acceptanceVerdict: getAtPath(goal.outcome_contract, "acceptance.verdict") ?? null,
+      })),
+    ],
+    tasks: {
+      sourceMission: snapshot.sourceTasks,
+      applyMission: snapshot.applyTasks,
+    },
+    executions: [
+      { id: sourceExecution.id, goalId: sourceExecution.goal_id, status: sourceExecution.status },
+      { id: applyExecution.id, goalId: applyExecution.goal_id, status: applyExecution.status },
+      { id: deliveryExecution.id, goalId: deliveryExecution.goal_id, status: deliveryExecution.status },
+    ],
+    acceptances: [
+      {
+        id: sourceAcceptance?.acceptanceId ?? chain.acceptanceId,
+        executionId: sourceAcceptance?.executionId ?? null,
+        verdict: sourceAcceptance?.verdict ?? null,
+      },
+      {
+        id: applyAcceptance?.acceptanceId ?? null,
+        executionId: applyAcceptance?.executionId ?? null,
+        verdict: applyAcceptance?.verdict ?? null,
+      },
+      {
+        id: deliveryAcceptance?.acceptanceId ?? null,
+        executionId: deliveryAcceptance?.executionId ?? null,
+        verdict: deliveryAcceptance?.verdict ?? null,
+      },
+    ],
+    proposal: { id: proposal.id, status: proposal.status },
+    deliveryReceipt: {
+      id: deliveryReceipt.receiptId ?? deliveryReceipt.id ?? null,
+      executionId: deliveryReceipt.executionId,
+      status: deliveryReceipt.status,
+    },
+    delivery: {
+      commitHash: chain.commitHash,
+      remoteCommitHash: chain.remoteCommitHash,
+      branch: chain.branch,
+    },
+  };
 }
 
 async function verifyLiveReceipt() {
@@ -556,8 +1002,9 @@ async function verifyLiveReceipt() {
   const currentSourceFingerprint = await computeEngineeringAgentSourceFingerprint({
     cwd: workspaceRoot,
   });
+  const receiptText = await readFile(receiptPath, "utf8");
   const receipt = validateReceipt(
-    JSON.parse(await readFile(receiptPath, "utf8")),
+    JSON.parse(receiptText),
     currentSourceFingerprint,
   );
   const { chain } = receipt;
@@ -606,7 +1053,39 @@ async function verifyLiveReceipt() {
   assert.ok(remoteReadme.split("\n").includes(lifecycleSentence), "remote_delivery_content_missing");
 
   const snapshot = readDatabaseSnapshot(databaseUrl, chain);
-  verifyDatabaseSnapshot(snapshot, chain);
+  const databaseSummary = verifyDatabaseSnapshot(snapshot, chain);
+  const liveVerificationPath =
+    process.env.ENGINEERING_AGENT_LIFECYCLE_LIVE_VERIFICATION;
+  const liveVerification = {
+    schemaVersion: 1,
+    status: "passed",
+    mode: "live",
+    verifiedAt: new Date().toISOString(),
+    runId: receipt.runId,
+    receipt: {
+      path: relative(workspaceRoot, resolve(receiptPath)).split(sep).join("/"),
+      sha256: createHash("sha256").update(receiptText).digest("hex"),
+      sourceFingerprint: receipt.sourceFingerprint,
+    },
+    identities: {
+      sourceMissionId: chain.sourceMissionId,
+      canonicalMissionId: chain.canonicalMissionId,
+      sourceGoalId: chain.sourceGoalId,
+      sourceExecutionId: chain.sourceExecutionId,
+      sourceAcceptanceId: chain.acceptanceId,
+      proposalId: chain.proposalId,
+      applyMissionId: chain.applyMissionId,
+      applyGoalId: chain.applyGoalId,
+      applyExecutionId: chain.applyExecutionId,
+      deliveryGoalId: chain.deliveryGoalId,
+      deliveryExecutionId: chain.deliveryExecutionId,
+    },
+    database: databaseSummary,
+  };
+  if (liveVerificationPath) {
+    await writeJsonAtomically(liveVerificationPath, liveVerification);
+  }
+  console.log(JSON.stringify(liveVerification));
   console.log(
     "Lifecycle receipt verified: durable Chat/Mission/proof/approval/apply links and the local bare-remote commit match.",
   );
@@ -621,7 +1100,7 @@ async function main(args = process.argv.slice(2)) {
   await verifyLiveReceipt();
 }
 
-export { validateReceipt, verifyOfflineReceipt };
+export { validateApplyMissionCompletion, validateReceipt, verifyOfflineReceipt };
 
 if (
   process.argv[1]

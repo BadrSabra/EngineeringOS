@@ -3803,6 +3803,14 @@ async function expectDashboardPath(
     .toBe(expectedPath);
 }
 
+function localLifecycleAuthFixtureEnabled() {
+  return process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === "1"
+    && process.env.NODE_ENV === "test"
+    && process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1"
+    && process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1"
+    && process.env.DASHBOARD_E2E_TEST_MODE === "fixture";
+}
+
 async function navigateBrowserHistory(
   page: Page,
   direction: "back" | "forward",
@@ -3824,6 +3832,18 @@ async function programmaticSignIn(
     handoffTimeoutMs?: number;
   } = {},
 ) {
+  if (process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === "1") {
+    if (!localLifecycleAuthFixtureEnabled()) {
+      throw new Error(
+        "The local auth fixture is restricted to the isolated NODE_ENV=test lifecycle journey.",
+      );
+    }
+    await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
+    await expectDashboardPath(page, options.handoffTimeoutMs ?? 30_000);
+    await completeReadinessHandshake(page, options);
+    return;
+  }
+
   const signInLink = page.getByRole("link", {
     name: "تسجيل الدخول",
     exact: true,
@@ -6322,16 +6342,59 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       return result.body as Record<string, any>;
     };
 
+    const blockedNonLocalRequests: string[] = [];
+    let injectedRuntimeStartTarget: Record<string, unknown> | null = null;
     try {
       if (
         process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1"
         || process.env.DASHBOARD_E2E_TEST_MODE !== "fixture"
+        || !localLifecycleAuthFixtureEnabled()
         || !projectRoot
         || !bareRemotePath
         || !receiptPath
       ) {
         throw new Error("The controlled lifecycle runner is not configured.");
       }
+
+      await page.context().route("**/*", async (route) => {
+        let requestUrl: URL;
+        try {
+          requestUrl = new URL(route.request().url());
+        } catch {
+          blockedNonLocalRequests.push("invalid-url");
+          await route.abort("blockedbyclient");
+          return;
+        }
+        const isNetworkRequest = ["http:", "https:", "ws:", "wss:"]
+          .includes(requestUrl.protocol);
+        const isLoopback =
+          requestUrl.hostname.toLowerCase() === "localhost"
+          || requestUrl.hostname === "127.0.0.1"
+          || requestUrl.hostname === "[::1]";
+        if (isNetworkRequest && !isLoopback) {
+          blockedNonLocalRequests.push(
+            `${requestUrl.protocol}//${requestUrl.host}${requestUrl.pathname}`,
+          );
+          await route.abort("blockedbyclient");
+          return;
+        }
+        if (
+          requestUrl.pathname.endsWith("/api/ai/missions/from-chat")
+          && route.request().method() === "POST"
+        ) {
+          const body = route.request().postDataJSON() as Record<string, unknown>;
+          expect(body.runtimeStartTargetStepId).toBeUndefined();
+          injectedRuntimeStartTarget = {
+            ...body,
+            runtimeStartTargetStepId: "execute",
+          };
+          await route.continue({
+            postData: JSON.stringify(injectedRuntimeStartTarget),
+          });
+          return;
+        }
+        await route.continue();
+      });
 
       await mkdir(resolve(projectRoot, "test"), { recursive: true });
       await writeFile(
@@ -6341,8 +6404,79 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           private: true,
           version: "1.0.0",
           type: "module",
-          scripts: { typecheck: "node --test" },
+          scripts: {
+            typecheck: "node --test",
+            dev: "node --import ../../../../scripts/runtime-egress-guard.mjs ./runtime-server.mjs",
+          },
         }, null, 2),
+        "utf8",
+      );
+      await writeFile(
+        resolve(projectRoot, "pnpm-workspace.yaml"),
+        "packages: []\n",
+        "utf8",
+      );
+      await writeFile(
+        resolve(projectRoot, "runtime-server.mjs"),
+        [
+          'import http from "node:http";',
+          'import { createHash } from "node:crypto";',
+          'import { lstat, readFile, readdir, readlink } from "node:fs/promises";',
+          'import path from "node:path";',
+          'if (globalThis[Symbol.for("engineeringos.runtime-egress-guard")]?.installed !== true) {',
+          '  throw new Error("local runtime egress guard was not installed");',
+          "}",
+          "const port = Number(process.env.PORT);",
+          "const root = process.cwd();",
+          'const attestationMarker = process.env.ENGINEERINGOS_CHILD_ATTESTATION;',
+          'if (!attestationMarker) throw new Error("local runtime attestation marker is missing");',
+          'const excludedBasenames = new Set([".git", "node_modules", ".engineeringos-delivery", ".engineeringos-projects", ".agents", ".local", ".X11-unix"]);',
+          "async function workspaceTreeDigest() {",
+          "  const entries = [];",
+          "  async function visit(directory) {",
+          "    const children = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));",
+          "    for (const child of children) {",
+          "      const absolute = path.join(directory, child.name);",
+          '      const relative = path.relative(root, absolute).replaceAll("\\\\", "/");',
+          "      const basename = path.basename(absolute);",
+          "      if (absolute.endsWith(\".pipe\") || absolute.endsWith(\".sock\") || basename.startsWith(\".org.chromium.\")",
+          "        || /^(?:SingletonSocket|SingletonCookie|SingletonLock)$/.test(basename)",
+          "        || relative === \".engineeringos-delivery\" || relative.startsWith(\".engineeringos-delivery/\")",
+          '        || excludedBasenames.has(basename) || (directory === root && child.name === ".engineeringos-delivery-workspace")) continue;',
+          "      const stat = await lstat(absolute);",
+          "      if (stat.isDirectory()) {",
+          '        entries.push({ path: relative, kind: "directory" });',
+          "        await visit(absolute);",
+          "      } else if (stat.isFile()) {",
+          '        entries.push({ path: relative, kind: "file", bytes: (await readFile(absolute)).toString("base64") });',
+          "      } else if (stat.isSymbolicLink()) {",
+          '        entries.push({ path: relative, kind: "symlink", bytes: Buffer.from(await readlink(absolute), "utf8").toString("base64") });',
+          "      } else {",
+          '        entries.push({ path: relative, kind: "other" });',
+          "      }",
+          "    }",
+          "  }",
+          "  await visit(root);",
+          '  const canonical = JSON.stringify({ version: "delivery-tree-v1", entries });',
+          '  return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");',
+          "}",
+          'const server = http.createServer(async (_request, response) => {',
+          "  try {",
+          '    const revision = `workspace-tree-v1:${await workspaceTreeDigest()}`;',
+          '    response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-engineeringos-revision": revision, "x-engineeringos-marker": attestationMarker });',
+          '    response.end("EngineeringOS local lifecycle runtime");',
+          "  } catch {",
+          '    response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });',
+          '    response.end("runtime workspace revision unavailable");',
+          "  }",
+          "});",
+          'server.listen(port, "127.0.0.1", () => {',
+          '  console.log("local-lifecycle-runtime=ready");',
+          "});",
+          'process.on("SIGTERM", () => server.close(() => process.exit(0)));',
+          'process.on("SIGINT", () => server.close(() => process.exit(0)));',
+          "",
+        ].join("\n"),
         "utf8",
       );
       await writeFile(
@@ -6374,7 +6508,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       runLifecycleGit(projectRoot, ["init", "--initial-branch=main"]);
       runLifecycleGit(projectRoot, ["config", "user.name", "EngineeringOS Lifecycle E2E"]);
       runLifecycleGit(projectRoot, ["config", "user.email", "engineeringos-e2e@example.invalid"]);
-      runLifecycleGit(projectRoot, ["add", "package.json", "README.md", "test/lifecycle.test.mjs"]);
+      runLifecycleGit(projectRoot, [
+        "add",
+        "package.json",
+        "pnpm-workspace.yaml",
+        "runtime-server.mjs",
+        "README.md",
+        "test/lifecycle.test.mjs",
+      ]);
       runLifecycleGit(projectRoot, ["commit", "-m", "Create isolated lifecycle fixture"]);
       runLifecycleGit(projectRoot, [
         "push",
@@ -6539,11 +6680,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         message?: string;
         messageId?: string;
         sessionId?: string;
+        runtimeStartTargetStepId?: string;
       };
       const handoff = await handoffResponse.json() as {
         mission?: { id?: string; title?: string };
-        activation?: { goalId?: string; taskId?: string };
-        preview?: { plan?: { planHash?: string; steps?: Array<Record<string, unknown>> } };
+        activation?: { goalId?: string; taskId?: string | null };
+        planGoals?: Array<{
+          stepId?: string;
+          goalId?: string;
+          taskId?: string | null;
+          dependencies?: string[];
+        }>;
+        preview?: {
+          plan?: {
+            planHash?: string;
+            steps?: Array<Record<string, unknown>>;
+          transitionRequirements?: Array<Record<string, unknown>>;
+          };
+        };
       };
       expect(handoffRequest).toMatchObject({
         projectId,
@@ -6553,9 +6707,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
       expect(handoffRequest.sessionId).toBeTruthy();
+      expect(injectedRuntimeStartTarget).toMatchObject({
+        projectId,
+        runtimeStartTargetStepId: "execute",
+      });
       expect(handoff.mission?.id).toBeTruthy();
-      expect(handoff.activation?.goalId).toBeTruthy();
+      expect(handoff.planGoals).toEqual(expect.arrayContaining([
+        expect.objectContaining({ stepId: "runtime-start" }),
+        expect.objectContaining({ stepId: "execute" }),
+      ]));
       expect(handoff.preview?.plan?.planHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(handoff.preview?.plan?.transitionRequirements).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          sourceStepId: "runtime-start",
+          targetStepId: "execute",
+          from: "stopped",
+          to: "running",
+        }),
+      ]));
       expect(handoff.preview?.plan?.steps).toEqual(expect.arrayContaining([
         expect.objectContaining({
           kind: "execute",
@@ -6567,16 +6736,98 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const userMessageId = handoffRequest.messageId!;
       const sessionId = handoffRequest.sessionId!;
       const sourceMissionId = handoff.mission!.id!;
-      const sourceGoalId = handoff.activation!.goalId!;
+      const runtimeStartGoalId = handoff.planGoals!.find(
+        (goal) => goal.stepId === "runtime-start",
+      )!.goalId!;
+      const sourceGoalId = handoff.planGoals!.find(
+        (goal) => goal.stepId === "execute",
+      )!.goalId!;
       chain.sessionId = sessionId;
       chain.userMessageId = userMessageId;
       chain.userMessageHash = createHash("sha256").update(userRequest).digest("hex");
       chain.handoffPlanHash = handoff.preview!.plan!.planHash;
       chain.sourceMissionId = sourceMissionId;
       chain.sourceGoalId = sourceGoalId;
+      chain.runtimeStartGoalId = runtimeStartGoalId;
 
-      stage = "plan-approval";
+      stage = "runtime-start-proof";
+      blockedCode = "RUNTIME_START_GOAL_TIMEOUT";
+      await expect.poll(async () => {
+        const projection = await readMissionProjection(sourceMissionId);
+        const status = projection.goals?.find(
+          (entry: any) => entry.goal?.id === runtimeStartGoalId,
+        )?.goal?.status;
+        return typeof status === "string"
+          && ["completed", "blocked", "failed", "cancelled", "needs_replan", "waiting_for_approval"].includes(status)
+          ? status
+          : "pending";
+      }, {
+        timeout: 60_000,
+        message: "The runtime-start Goal must reach a terminal state before plan approval.",
+      }).toMatch(/^(completed|blocked|failed|cancelled|needs_replan|waiting_for_approval)$/);
+      blockedCode = null;
       const preApprovalProjection = await readMissionProjection(sourceMissionId);
+      const runtimeStartGoal = preApprovalProjection.goals?.find(
+        (entry: any) => entry.goal?.id === runtimeStartGoalId,
+      );
+      if (runtimeStartGoal?.goal?.status !== "completed") {
+        const failureEvidence = {
+          missionStatus: preApprovalProjection.mission?.status ?? null,
+          runtimeStartGoal: {
+            id: runtimeStartGoal?.goal?.id ?? runtimeStartGoalId,
+            status: runtimeStartGoal?.goal?.status ?? null,
+            blockedReason: runtimeStartGoal?.goal?.blockedReason ?? null,
+            attemptId: runtimeStartGoal?.currentAttempt?.id ?? null,
+            attemptStatus: runtimeStartGoal?.currentAttempt?.status ?? null,
+            acceptance: runtimeStartGoal?.goal?.outcomeContract?.acceptance ?? null,
+            worldStateFailureReason:
+              runtimeStartGoal?.goal?.outcomeContract?.worldStateFailureDiagnosis?.reasonCode ?? null,
+          },
+        };
+        chain.runtimeStartFailure = failureEvidence;
+        blockedCode = "RUNTIME_START_GOAL_NOT_COMPLETED";
+        console.error("[lifecycle] runtime-start-goal-not-completed", JSON.stringify(failureEvidence));
+      }
+      expect(runtimeStartGoal?.goal?.status).toBe("completed");
+      stage = "plan-approval";
+      const currentDecision = preApprovalProjection.engineeringAgent?.nextAction;
+      const currentMissionStatus = preApprovalProjection.mission?.status;
+      if (
+        !["active", "waiting"].includes(currentMissionStatus)
+        || currentDecision?.kind !== "APPROVE"
+        || currentDecision?.target?.kind !== "goal"
+        || currentDecision?.target?.id !== sourceGoalId
+        || currentDecision?.reasonCode !== "approval_pending"
+      ) {
+        const failureEvidence = {
+          missionStatus: currentMissionStatus ?? null,
+          currentDecision: currentDecision ?? null,
+          goals: (preApprovalProjection.goals ?? [])
+            .filter((entry: any) => [runtimeStartGoalId, sourceGoalId].includes(entry.goal?.id))
+            .map((entry: any) => ({
+              id: entry.goal?.id ?? null,
+              stepId: entry.goal?.successCriteria?.stepId ?? null,
+              status: entry.goal?.status ?? null,
+              blockedReason: entry.goal?.blockedReason ?? null,
+              attemptId: entry.currentAttempt?.id ?? null,
+              attemptStatus: entry.currentAttempt?.status ?? null,
+              worldStateFailureReason:
+                entry.goal?.outcomeContract?.worldStateFailureDiagnosis?.reasonCode ?? null,
+            })),
+        };
+        chain.planApprovalFailure = failureEvidence;
+        blockedCode = "PLAN_APPROVAL_PROJECTION_NOT_APPROVABLE";
+        console.error(
+          "[lifecycle] plan-approval-projection-not-approvable",
+          JSON.stringify(failureEvidence),
+        );
+      }
+      expect(["active", "waiting"]).toContain(currentMissionStatus);
+      expect(currentDecision).toMatchObject({
+        kind: "APPROVE",
+        target: { kind: "goal", id: sourceGoalId },
+        reasonCode: "approval_pending",
+      });
       const preApprovalGoal = preApprovalProjection.goals?.find(
         (entry: any) => entry.goal?.id === sourceGoalId,
       );
@@ -6611,7 +6862,46 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       ));
       await confirmPlanApprovalButton.click();
       const planApprovalResponse = await planApprovalResponsePromise;
-      expect(planApprovalResponse.status()).toBe(202);
+      const planApprovalBody = await planApprovalResponse.json().catch(() => null) as Record<string, any> | null;
+      if (planApprovalResponse.status() !== 202) {
+        const nestedError = planApprovalBody?.error && typeof planApprovalBody.error === "object"
+          ? planApprovalBody.error
+          : null;
+        const code = typeof planApprovalBody?.code === "string"
+          ? planApprovalBody.code
+          : typeof nestedError?.code === "string"
+            ? nestedError.code
+            : null;
+        const failureEvidence = {
+          httpStatus: planApprovalResponse.status(),
+          ...(code ? { code } : {}),
+          ...(typeof planApprovalBody?.error === "string"
+            ? { message: planApprovalBody.error }
+            : typeof nestedError?.message === "string"
+              ? { message: nestedError.message }
+              : {}),
+          missionStatus: planApprovalBody?.projection?.mission?.status ?? null,
+          currentDecision: planApprovalBody?.projection?.engineeringAgent?.nextAction ?? null,
+          goals: Array.isArray(planApprovalBody?.projection?.goals)
+            ? planApprovalBody.projection.goals.map((entry: any) => ({
+                id: entry.goal?.id ?? null,
+                status: entry.goal?.status ?? null,
+                blockedReason: entry.goal?.blockedReason ?? null,
+                attemptId: entry.currentAttempt?.id ?? null,
+                attemptStatus: entry.currentAttempt?.status ?? null,
+                worldStateFailureReason:
+                  entry.goal?.outcomeContract?.worldStateFailureDiagnosis?.reasonCode ?? null,
+              }))
+            : [],
+        };
+        chain.planApprovalFailure = failureEvidence;
+        blockedCode = code ?? `PLAN_APPROVAL_HTTP_${planApprovalResponse.status()}`;
+        console.error("[lifecycle] plan-approval-rejected", JSON.stringify(failureEvidence));
+      }
+      expect(
+        planApprovalResponse.status(),
+        JSON.stringify(chain.planApprovalFailure ?? {}),
+      ).toBe(202);
       const planApprovalRequest = planApprovalResponse.request().postDataJSON() as {
         expectedDecision?: {
           kind?: string;
@@ -6624,7 +6914,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         target: { kind: "goal", id: sourceGoalId },
         reasonCode: expect.any(String),
       });
-      const planApprovalResult = await planApprovalResponse.json() as {
+      const planApprovalResult = planApprovalBody as {
         missionId?: string;
         outcome?: string;
         operation?: {
@@ -6637,6 +6927,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           goals?: Array<{
             goal?: {
               id?: string;
+              nextAction?: {
+                kind?: string;
+                taskId?: string;
+                purpose?: string;
+              };
               outcomeContract?: {
                 planApproval?: {
                   kind?: string;
@@ -6646,9 +6941,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 };
               };
             };
+            tasks?: Array<{ id?: string; goalId?: string }>;
           }>;
         };
-        run?: { status?: string; reason?: string; taskId?: string };
+        run?: {
+          status?: string;
+          reason?: string;
+          goalId?: string;
+          taskId?: string | null;
+        };
       };
       expect(planApprovalResult).toMatchObject({
         missionId: sourceMissionId,
@@ -6663,10 +6964,23 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         },
       });
       expect(planApprovalResult.run?.status).toBe("scheduled");
-      expect(planApprovalResult.run?.taskId).toBe(handoff.activation!.taskId);
+      expect(planApprovalResult.run?.goalId).toBe(sourceGoalId);
+      expect(planApprovalResult.run?.taskId).toBeTruthy();
       const approvedPlanResultGoal = planApprovalResult.projection?.goals?.find(
         (entry) => entry.goal?.id === sourceGoalId,
       );
+      const planApprovalTaskId = planApprovalResult.run!.taskId!;
+      expect(approvedPlanResultGoal?.goal?.nextAction).toMatchObject({
+        kind: "task",
+        taskId: planApprovalTaskId,
+        purpose: "activation",
+      });
+      expect(approvedPlanResultGoal?.tasks).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: planApprovalTaskId,
+          goalId: sourceGoalId,
+        }),
+      ]));
       expect(approvedPlanResultGoal?.goal?.outcomeContract?.planApproval).toMatchObject({
         kind: "mission_plan_step",
         state: "APPROVED",
@@ -6677,6 +6991,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const approvedPlanGoal = approvedPlanProjection.goals?.find(
         (entry: any) => entry.goal?.id === sourceGoalId,
       );
+      expect(approvedPlanGoal?.goal?.nextAction).toMatchObject({
+        kind: "task",
+        taskId: planApprovalTaskId,
+        purpose: "activation",
+      });
+      expect(approvedPlanGoal?.tasks).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: planApprovalTaskId,
+          goalId: sourceGoalId,
+        }),
+      ]));
       expect(approvedPlanGoal?.goal?.outcomeContract?.planApproval).toMatchObject({
         kind: "mission_plan_step",
         state: "APPROVED",
@@ -6752,6 +7077,128 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         planRevision: handoff.preview!.plan!.planHash,
         stepId: "execute",
       });
+      const { readRuntimeTransitionEvidence } = await import(
+        "../../../scripts/read-runtime-transition-evidence.mjs"
+      );
+      const runtimeTransitionEvidence = readRuntimeTransitionEvidence({
+        databaseUrl: process.env.DATABASE_URL,
+        missionId: sourceMissionId,
+        projectId,
+        runtimeStartGoalId,
+        targetGoalId: sourceGoalId,
+      }) as Record<string, any>;
+      const gateCArtifact = runtimeTransitionEvidence.evidenceSnapshot?.artifactRefs?.find(
+        (artifact: any) => artifact?.kind === "runtime_start_gate_c",
+      );
+      expect(runtimeTransitionEvidence).toMatchObject({
+        mission: {
+          id: sourceMissionId,
+          projectId,
+          activePlanRevision: handoff.preview!.plan!.planHash,
+        },
+        runtimeGoal: {
+          id: runtimeStartGoalId,
+          status: "completed",
+          stepId: "runtime-start",
+        },
+        execution: {
+          status: "completed",
+        },
+        acceptance: {
+          executionId: runtimeTransitionEvidence.execution.id,
+          outcome: "SUCCEEDED",
+          evidenceRequired: 1,
+          evidenceComplete: 1,
+          evidenceSnapshotId: runtimeTransitionEvidence.evidenceSnapshot.id,
+          effectBundleId: runtimeTransitionEvidence.transition.effectBundleId,
+        },
+        evidenceSnapshot: {
+          complete: 1,
+          verdict: "PROVEN",
+          executionId: runtimeTransitionEvidence.execution.id,
+          attempt: runtimeTransitionEvidence.acceptance.attempt,
+        },
+        transition: {
+          executionId: runtimeTransitionEvidence.execution.id,
+          attempt: runtimeTransitionEvidence.acceptance.attempt,
+          episodeId: expect.any(String),
+          status: "materialized",
+          freshness: "fresh",
+          effectBundleId: runtimeTransitionEvidence.acceptance.effectBundleId,
+          parentWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+          resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+          environmentRevision: expect.any(String),
+        },
+        targetGoal: {
+          id: sourceGoalId,
+          stepId: "execute",
+        },
+        d2Dispatch: {
+          type: expect.stringMatching(/^AiGoal.*DispatchRequested$/),
+          transitionProof: {
+            transitionId: runtimeTransitionEvidence.transition.id,
+            executionId: runtimeTransitionEvidence.execution.id,
+            attempt: runtimeTransitionEvidence.acceptance.attempt,
+            episodeId: runtimeTransitionEvidence.transition.episodeId,
+            actionId: runtimeTransitionEvidence.transition.actionId,
+            effectBundleId: runtimeTransitionEvidence.acceptance.effectBundleId,
+            parentWorldRevision: runtimeTransitionEvidence.transition.parentWorldRevision,
+            resultingWorldRevision: runtimeTransitionEvidence.transition.resultingWorldRevision,
+            projectRevision: runtimeTransitionEvidence.acceptance.sourceRevision,
+            environmentRevision: runtimeTransitionEvidence.transition.environmentRevision,
+            sourceStepId: "runtime-start",
+            targetStepId: "execute",
+            activePlanHash: handoff.preview!.plan!.planHash,
+          },
+        },
+      });
+      expect(gateCArtifact).toMatchObject({
+        kind: "runtime_start_gate_c",
+        version: 2,
+        executionId: runtimeTransitionEvidence.execution.id,
+        attempt: runtimeTransitionEvidence.acceptance.attempt,
+        sourceRevision: runtimeTransitionEvidence.acceptance.sourceRevision,
+        sourceRevisionKind: "workspace_tree",
+        sourceRevisionSource: "delivery_tree_digest_v1",
+      });
+      expect(runtimeTransitionEvidence.transition.resultingWorldRevision)
+        .not.toBe(runtimeTransitionEvidence.transition.parentWorldRevision);
+      chain.runtimeTransition = {
+        missionId: sourceMissionId,
+        planRevision: handoff.preview!.plan!.planHash,
+        runtimeStartGoalId,
+        executionId: runtimeTransitionEvidence.execution.id,
+        attempt: runtimeTransitionEvidence.acceptance.attempt,
+        acceptanceId: runtimeTransitionEvidence.acceptance.id,
+        evidenceSnapshotId: runtimeTransitionEvidence.evidenceSnapshot.id,
+        transitionId: runtimeTransitionEvidence.transition.id,
+        targetGoalId: sourceGoalId,
+        outcome: runtimeTransitionEvidence.acceptance.outcome,
+        verdict: runtimeTransitionEvidence.evidenceSnapshot.verdict,
+        sourceRevision: runtimeTransitionEvidence.acceptance.sourceRevision,
+        effectBundleId: runtimeTransitionEvidence.acceptance.effectBundleId,
+        episodeId: runtimeTransitionEvidence.transition.episodeId,
+        actionId: runtimeTransitionEvidence.transition.actionId,
+        dispatchType: runtimeTransitionEvidence.d2Dispatch.type,
+        gateCAttestation: {
+          kind: gateCArtifact.kind,
+          version: gateCArtifact.version,
+          executionId: gateCArtifact.executionId,
+          attempt: gateCArtifact.attempt,
+          sourceRevision: gateCArtifact.sourceRevision,
+          sourceRevisionKind: gateCArtifact.sourceRevisionKind,
+          sourceRevisionSource: gateCArtifact.sourceRevisionSource,
+        },
+        transitionProof: runtimeTransitionEvidence.d2Dispatch.transitionProof,
+        d2DispatchEventId: runtimeTransitionEvidence.d2Dispatch.id,
+        taskScope: runtimeTransitionEvidence.transition.taskScope,
+        parentWorldRevision: runtimeTransitionEvidence.transition.parentWorldRevision,
+        resultingWorldRevision: runtimeTransitionEvidence.transition.resultingWorldRevision,
+        resultingScopedWorldRevision:
+          runtimeTransitionEvidence.transition.resultingScopedWorldRevision ?? null,
+        environmentRevision: runtimeTransitionEvidence.transition.environmentRevision,
+      };
+      chain.runtimeStartGoalId = runtimeStartGoalId;
       chain.sourceExecutionId = sourceExecutionId;
       chain.sourceAttempt = sourceAttempt;
       chain.acceptanceId = acceptance?.acceptanceId;
@@ -6797,7 +7244,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         operationId?: string | null;
         missionCandidate?: boolean;
         missionCandidateAccepted?: boolean;
+          sourceExecutionId?: string | null;
+          sourceAcceptanceId?: string | null;
+          sourceMissionId?: string | null;
+          sourceGoalId?: string | null;
         candidateTreeHash?: string;
+          baseRevision?: string | null;
+          lifecycle?: string | null;
         changes?: Array<{ path?: string }>;
       };
       expect(sourceProposal.missionCandidate).toBe(true);
@@ -6809,6 +7262,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       const candidateTreeHash = sourceProposal.candidateTreeHash!;
       const candidateIdentity = acceptance?.candidateIdentity;
       expect(candidateIdentity).toMatch(/^mission-candidate:[a-f0-9]{64}$/);
+      expect(sourceProposal.sourceExecutionId).toBe(sourceExecutionId);
+      expect(sourceProposal.sourceAcceptanceId).toBe(acceptance?.acceptanceId);
+      expect(sourceProposal.sourceMissionId).toBe(sourceMissionId);
+      expect(sourceProposal.sourceGoalId).toBe(sourceGoalId);
+      expect(sourceProposal.baseRevision).toBe(acceptance?.sourceRevision);
+      expect(["validated", "committed"]).toContain(sourceProposal.lifecycle);
       const candidateApprovalResponsePromise = page.waitForResponse((response) => {
         const pathname = new URL(response.url()).pathname;
         return pathname.includes("/proposals/")
@@ -6831,6 +7290,112 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.proposalId = proposalId;
       chain.proposalRevision = candidateApprovalRequest.revision;
       chain.candidateTreeHash = candidateTreeHash;
+      chain.sourceCandidateIdentity = candidateIdentity;
+      chain.sourceCandidateBaseRevision = sourceProposal.baseRevision ?? null;
+      chain.sourceCandidateLifecycle = sourceProposal.lifecycle ?? null;
+
+      // Validate the source Mission against the candidate before Apply Mission
+      // changes the live project revision and makes the source proof stale.
+      stage = "source-validation-before-apply";
+      const sourceValidationDeadline = Date.now() + 90_000;
+      let sourceValidationReady = false;
+      let sourceValidationState: Record<string, unknown> = { status: "missing" };
+      while (Date.now() < sourceValidationDeadline) {
+        const validationProjection = await readMissionProjection(sourceMissionId!);
+        const validationGoal = validationProjection.goals?.find(
+          (entry: any) => entry.goal?.outcomeContract?.stepId === "validate",
+        );
+        const validationGoalRecord = validationGoal?.goal ?? {};
+        const validationAcceptance = validationGoalRecord.outcomeContract?.acceptance ?? {};
+        sourceValidationState = {
+          status: validationGoalRecord.status ?? "missing",
+          acceptanceVerdict: validationAcceptance.verdict ?? "UNKNOWN",
+          candidateProposalId: validationGoalRecord.nextAction?.candidateProposalId ?? null,
+          candidateIdentity: validationAcceptance.scope?.candidateIdentity
+            ?? validationAcceptance.candidateIdentity
+            ?? null,
+          blockedReason: validationGoalRecord.blockedReason ?? null,
+          reasonCode: validationAcceptance.reasonCode ?? null,
+        };
+        if (
+          validationGoalRecord.status === "completed"
+          && validationAcceptance.verdict === "PROVEN"
+        ) {
+          sourceValidationReady = true;
+          break;
+        }
+        if ([
+          "blocked",
+          "failed",
+          "cancelled",
+          "needs_replan",
+          "waiting_for_approval",
+        ].includes(validationGoalRecord.status)) {
+          const dependencyProofDiagnostics = await page.evaluate(
+            async ({ projectId, goalId }) => {
+              const response = await fetch(
+                `/api/events?projectId=${encodeURIComponent(projectId)}&limit=100`,
+                { credentials: "include" },
+              );
+              if (!response.ok) return [{ readStatus: response.status }];
+              const body = await response.json() as {
+                events?: Array<{ type?: unknown; goalId?: unknown; payload?: unknown }>;
+              };
+              const safeCode = (value: unknown) =>
+                typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/.test(value)
+                  ? value
+                  : null;
+              return (body.events ?? [])
+                .filter((event) => event.type === "AiGoalDependencyProofBlocked"
+                  && event.goalId === goalId)
+                .map((event) => {
+                  const payload = event.payload && typeof event.payload === "object"
+                    && !Array.isArray(event.payload)
+                    ? event.payload as Record<string, unknown>
+                    : {};
+                  return {
+                    dependencyGoalId: safeCode(payload.dependencyGoalId),
+                    failedChecks: Array.isArray(payload.failedChecks)
+                      ? payload.failedChecks.map(safeCode).filter(Boolean).slice(0, 16)
+                      : [],
+                  };
+                });
+            },
+            {
+              projectId,
+              goalId: typeof validationGoalRecord.id === "string"
+                ? validationGoalRecord.id
+                : "",
+            },
+          );
+          sourceValidationState = {
+            ...sourceValidationState,
+            dependencyProofDiagnostics,
+          };
+          throw new Error(
+            `Source Mission validation did not complete before Apply Mission: `
+            + JSON.stringify(sourceValidationState),
+          );
+        }
+        await page.waitForTimeout(1_000);
+      }
+      expect(
+        sourceValidationReady,
+        `Source Mission validation did not become PROVEN before Apply Mission: `
+        + JSON.stringify(sourceValidationState),
+      ).toBe(true);
+      expect(
+        sourceValidationState.candidateIdentity,
+        "Source validation must prove the exact candidate produced by its dependency Goal.",
+      ).toBe(candidateTreeHash);
+      expect(
+        sourceValidationState.candidateProposalId,
+        "Source validation must retain the exact Proposal linked to its dependency Execution.",
+      ).toBe(proposalId);
+      chain.sourceValidationStatus = sourceValidationState.status;
+      chain.sourceValidationVerdict = sourceValidationState.acceptanceVerdict;
+      chain.sourceValidationCandidateProposalId = sourceValidationState.candidateProposalId;
+      chain.sourceValidationCandidateIdentity = sourceValidationState.candidateIdentity;
 
       const createApplyMissionButton = page.getByRole("button", {
         name: "إنشاء هدف تطبيق وتسليم",
@@ -7235,7 +7800,224 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         required: true,
         receiptPresent: true,
       });
+      const completedApplyGoal = finalProjection!.goals?.find(
+        (entry: any) => entry.goal?.id === applyGoalId,
+      );
+      expect(completedApplyGoal?.goal?.status).toBe("completed");
+      const applyGoalStates = (finalProjection!.goals ?? []).map((entry: any) => ({
+        goalId: typeof entry.goal?.id === "string" ? entry.goal.id : "unknown",
+        status: typeof entry.goal?.status === "string" ? entry.goal.status : "unknown",
+      }));
+      const applyTaskStates = (finalProjection!.goals ?? []).flatMap((entry: any) => {
+        const goalId = typeof entry.goal?.id === "string" ? entry.goal.id : "unknown";
+        return (Array.isArray(entry.tasks) ? entry.tasks : []).map((task: any) => ({
+          taskId: typeof task?.id === "string" ? task.id : "unknown",
+          goalId,
+          status: typeof task?.status === "string" ? task.status : "unknown",
+        }));
+      });
+      expect(applyGoalStates.length).toBeGreaterThan(0);
+      expect(
+        applyGoalStates.every((goal: any) => goal.status === "completed"),
+        `Apply Mission has non-completed Goals: ${JSON.stringify(applyGoalStates)}`,
+      ).toBe(true);
+      expect(applyTaskStates.length).toBeGreaterThan(0);
+      expect(
+        applyTaskStates.every((task: any) => task.status === "completed"),
+        `Apply Mission has non-completed Tasks: ${JSON.stringify(applyTaskStates)}`,
+      ).toBe(true);
+      console.log(
+        "[lifecycle] apply-final-states",
+        JSON.stringify({ goals: applyGoalStates, tasks: applyTaskStates }),
+      );
       chain.engineeringAgentState = finalProjection!.engineeringAgent?.state;
+      chain.applyMissionStatus =
+        finalProjection!.mission?.status ?? finalProjection!.status ?? "unknown";
+      chain.applyGoalStatus = completedApplyGoal?.goal?.status ?? "unknown";
+      chain.applyAcceptanceVerdict =
+        completedApplyGoal?.goal?.outcomeContract?.acceptance?.verdict ?? "unknown";
+      chain.applyDeliveryGoalStatus = completedDeliveryGoal?.goal?.status ?? "unknown";
+      chain.applyDeliveryReceiptPresent =
+        completedDeliveryGoal?.delivery?.receiptPresent === true;
+      chain.deliveryExecutionId = completedDeliveryGoal?.currentAttempt?.id ?? "unknown";
+
+      stage = "source-mission-completion";
+      const sourceMissionDeadline = Date.now() + 90_000;
+      let sourceCompletionProjection = await readMissionProjection(sourceMissionId!);
+      const summarizeSourceMission = (projection: Record<string, any>) => {
+        const missionStatus = projection.mission?.status ?? projection.status ?? "unknown";
+        const goals = Array.isArray(projection.goals) ? projection.goals : [];
+        const sourceGoals = goals.map((entry: any) => {
+          const goal = entry?.goal ?? {};
+          const contract = goal.outcomeContract && typeof goal.outcomeContract === "object"
+            ? goal.outcomeContract
+            : {};
+          const successCriteria = goal.successCriteria
+            && typeof goal.successCriteria === "object"
+            ? goal.successCriteria
+            : {};
+          const approval = contract.planApproval
+            && typeof contract.planApproval === "object"
+            ? contract.planApproval
+            : null;
+          return {
+            goalId: typeof goal.id === "string" ? goal.id : "unknown",
+            stepId: typeof contract.stepId === "string"
+              ? contract.stepId
+              : typeof successCriteria.stepId === "string"
+                ? successCriteria.stepId
+                : "unknown",
+            status: typeof goal.status === "string" ? goal.status : "unknown",
+            acceptanceVerdict:
+              typeof contract.acceptance?.verdict === "string"
+                ? contract.acceptance.verdict
+                : "UNKNOWN",
+            approvalState: approval?.state === "APPROVED"
+              ? "APPROVED"
+              : approval
+                ? "PENDING"
+                : "NOT_REQUIRED",
+          };
+        });
+        const sourceTasks = goals.flatMap((entry: any) => {
+          const goalId = typeof entry?.goal?.id === "string"
+            ? entry.goal.id
+            : "unknown";
+          return (Array.isArray(entry?.tasks) ? entry.tasks : []).map((task: any) => ({
+            taskId: typeof task?.id === "string" ? task.id : "unknown",
+            goalId,
+            status: typeof task?.status === "string" ? task.status : "unknown",
+          }));
+        });
+        return { missionStatus, sourceGoals, sourceTasks };
+      };
+      while (Date.now() < sourceMissionDeadline) {
+        const sourceState = summarizeSourceMission(sourceCompletionProjection);
+        chain.sourceMissionStatus = sourceState.missionStatus;
+        chain.sourceMissionGoals = sourceState.sourceGoals;
+        const fullSourceMissionComplete =
+          sourceState.missionStatus === "completed"
+          && sourceState.sourceGoals.length > 0
+          && sourceState.sourceTasks.length > 0
+          && sourceState.sourceGoals.every((goal) =>
+            goal.status === "completed"
+            && goal.acceptanceVerdict === "PROVEN"
+            && ["APPROVED", "NOT_REQUIRED"].includes(goal.approvalState),
+          )
+          && sourceState.sourceTasks.every((task) => task.status === "completed");
+        const terminalIntervention =
+          ["blocked", "failed", "cancelled", "needs_replan"].includes(sourceState.missionStatus)
+          || sourceState.sourceGoals.some((goal) =>
+            ["blocked", "failed", "cancelled", "needs_replan", "waiting_for_approval"]
+              .includes(goal.status),
+          )
+          || sourceState.sourceTasks.some((task) =>
+            ["failed", "cancelled"].includes(task.status),
+          );
+        if (fullSourceMissionComplete || terminalIntervention) break;
+        await page.waitForTimeout(
+          Math.min(1_000, Math.max(0, sourceMissionDeadline - Date.now())),
+        );
+        sourceCompletionProjection = await readMissionProjection(sourceMissionId!);
+      }
+      const finalSourceState = summarizeSourceMission(sourceCompletionProjection);
+      chain.sourceMissionStatus = finalSourceState.missionStatus;
+      chain.sourceMissionGoals = finalSourceState.sourceGoals;
+      const safeDiagnosticCode = (value: unknown) =>
+        typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/.test(value)
+          ? value
+          : null;
+      const sourceGoalDiagnostics = (sourceCompletionProjection.goals ?? []).map(
+        (entry: any) => {
+          const goal = entry?.goal ?? {};
+          const contract = goal.outcomeContract ?? {};
+          const attempt = entry?.currentAttempt ?? {};
+          const acceptance = contract.acceptance ?? {};
+          const nextAction = goal.nextAction ?? {};
+          const blockedReason = goal.blockedReason;
+          return {
+            goalId: safeDiagnosticCode(goal.id),
+            stepId: safeDiagnosticCode(contract.stepId ?? goal.successCriteria?.stepId),
+            status: safeDiagnosticCode(goal.status),
+            blockedReasonCode: safeDiagnosticCode(
+              typeof blockedReason === "string" ? blockedReason : blockedReason?.code,
+            ),
+            nextActionKind: safeDiagnosticCode(
+              typeof nextAction === "string" ? nextAction : nextAction.kind,
+            ),
+            nextActionReasonCode: safeDiagnosticCode(nextAction.reasonCode),
+            attemptStatus: safeDiagnosticCode(attempt.status),
+            attemptFailureCode: safeDiagnosticCode(
+              attempt.failureCode ?? attempt.failureKind ?? attempt.reasonCode,
+            ),
+            acceptanceVerdict: safeDiagnosticCode(acceptance.verdict),
+            acceptanceReasonCode: safeDiagnosticCode(acceptance.reasonCode),
+          };
+        },
+      );
+      const sourceDependencyProofEvents = finalSourceState.missionStatus === "completed"
+        ? []
+        : await page.evaluate(async ({ projectId, goalIds }) => {
+            const response = await fetch(
+              `/api/events?projectId=${encodeURIComponent(projectId)}&limit=100`,
+              { credentials: "include" },
+            );
+            if (!response.ok) return [{ readStatus: response.status }];
+            const body = await response.json() as {
+              events?: Array<{ type?: unknown; goalId?: unknown; payload?: unknown }>;
+            };
+            const safeCode = (value: unknown) =>
+              typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/.test(value)
+                ? value
+                : null;
+            return (body.events ?? [])
+              .filter((event) => event.type === "AiGoalDependencyProofBlocked"
+                && typeof event.goalId === "string"
+                && goalIds.includes(event.goalId))
+              .map((event) => {
+                const payload = event.payload && typeof event.payload === "object"
+                  && !Array.isArray(event.payload)
+                  ? event.payload as Record<string, unknown>
+                  : {};
+                return {
+                  goalId: safeCode(event.goalId),
+                  dependencyGoalId: safeCode(payload.dependencyGoalId),
+                  reasonCode: safeCode(payload.reasonCode),
+                  failedChecks: Array.isArray(payload.failedChecks)
+                    ? payload.failedChecks.map(safeCode).filter(Boolean).slice(0, 16)
+                    : [],
+                };
+              });
+          }, {
+            projectId,
+            goalIds: finalSourceState.sourceGoals.map((goal) => goal.goalId),
+          });
+      expect(
+        finalSourceState.missionStatus,
+        `Source Mission did not complete: ${JSON.stringify({
+          ...finalSourceState,
+          goalDiagnostics: sourceGoalDiagnostics,
+          dependencyProofEvents: sourceDependencyProofEvents,
+        })}`,
+      ).toBe("completed");
+      expect(finalSourceState.sourceGoals.length).toBeGreaterThan(0);
+      expect(finalSourceState.sourceGoals.every((goal) =>
+        goal.status === "completed"
+        && goal.acceptanceVerdict === "PROVEN"
+        && ["APPROVED", "NOT_REQUIRED"].includes(goal.approvalState),
+      )).toBe(true);
+      expect(finalSourceState.sourceGoals.some(
+        (goal) => goal.approvalState === "APPROVED",
+      )).toBe(true);
+      expect(finalSourceState.sourceTasks.length).toBeGreaterThan(0);
+      expect(
+        finalSourceState.sourceTasks.every((task) => task.status === "completed"),
+        `Source Mission has non-completed Tasks: ${JSON.stringify(finalSourceState.sourceTasks)}`,
+      ).toBe(true);
+      console.log(
+        "[lifecycle] source-task-states",
+        JSON.stringify(finalSourceState.sourceTasks),
+      );
 
       const localCommitHashAfterDelivery = runLifecycleGit(projectRoot, ["rev-parse", "HEAD"]);
       const remoteCommitHash = runLifecycleGit(projectRoot, [
@@ -7327,6 +8109,14 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       chain.activeMissionIdAfterReload = reloadedSessionMissions.activeMissionId;
       browserErrors.assertClean();
 
+      expect(
+        blockedNonLocalRequests,
+        "The isolated lifecycle browser must not attempt any non-local network request.",
+      ).toEqual([]);
+      console.log(
+        "[lifecycle] browser-egress-guard",
+        JSON.stringify({ blockedCount: blockedNonLocalRequests.length }),
+      );
       stage = "complete";
       await writeEngineeringAgentLifecycleReceipt({
         schemaVersion: 1,
@@ -7346,6 +8136,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         },
       });
     } catch (error) {
+      console.error(
+        "[lifecycle] browser-egress-guard",
+        JSON.stringify({ blockedNonLocalRequests }),
+      );
       await recordBlocked();
       throw error;
     }

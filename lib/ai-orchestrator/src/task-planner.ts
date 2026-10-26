@@ -226,7 +226,10 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
       "Validate the resulting workspace",
       "validate",
       ["execute"],
-      { recipe: { recipeId: "validation.recover", recipeVersion: 1 } },
+      {
+        files: explicitFiles,
+        recipe: { recipeId: "candidate.verify.workspace-typecheck", recipeVersion: 1 },
+      },
     );
     return [
       ...(inspect ? [inspect] : []),

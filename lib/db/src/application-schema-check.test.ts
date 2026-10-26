@@ -196,11 +196,13 @@ function completeSnapshot() {
     ),
     indexes,
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
-      (table_name) => table_name === "openrouter_model_cooldowns"
-        ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
-        : table_name === "ai_general_chat_rate_limits"
-          ? ["owner_id", "window_bucket"].map((column_name) => ({ table_name, column_name }))
-          : [{ table_name, column_name: "id" }],
+      (table_name) => {
+        const columns =
+          (APPLICATION_SCHEMA_CONTRACT.primaryKeys as Record<string, readonly string[]>)[
+            table_name
+          ] ?? ["id"];
+        return columns.map((column_name) => ({ table_name, column_name }));
+      },
     ),
     foreignKeys: APPLICATION_SCHEMA_CONTRACT.foreignKeys.map((key) => ({
       table_name: key.tableName,
@@ -269,6 +271,334 @@ describe("application schema contract", () => {
     await assert.doesNotReject(
       assertApplicationSchemaWithClient(clientFor(snapshot)),
     );
+  });
+
+  it("declares named unique indexes as unique in the application contract", () => {
+    const namedUniqueIndexes = APPLICATION_SCHEMA_CONTRACT.indexes.filter(
+      ({ name }) => name.startsWith("uq_") || name.endsWith("_pk"),
+    );
+    assert.ok(namedUniqueIndexes.length > 0);
+    assert.deepEqual(
+      namedUniqueIndexes.filter((index) => index.unique !== true).map((index) => index.name),
+      [],
+    );
+  });
+
+  it("declares the canonical Mission lineage contract from the Drizzle model", () => {
+    const columns = APPLICATION_SCHEMA_CONTRACT.tables.ai_mission_lineages;
+    assert.deepEqual(
+      columns.map(({ name, dataType, udtName, nullable }) => ({
+        name,
+        dataType,
+        udtName,
+        nullable,
+      })),
+      [
+        { name: "apply_mission_id", dataType: "text", udtName: "text", nullable: false },
+        { name: "canonical_mission_id", dataType: "text", udtName: "text", nullable: false },
+        { name: "source_execution_id", dataType: "text", udtName: "text", nullable: false },
+        { name: "source_goal_id", dataType: "text", udtName: "text", nullable: false },
+        { name: "source_acceptance_id", dataType: "text", udtName: "text", nullable: true },
+        { name: "proposal_id", dataType: "text", udtName: "text", nullable: false },
+        { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+        {
+          name: "created_at",
+          dataType: "timestamp without time zone",
+          udtName: "timestamp",
+          nullable: false,
+        },
+      ],
+    );
+    assert.match(columns.at(-1)?.defaultExpression?.source ?? "", /now\(\)|current_timestamp/);
+    assert.deepEqual(APPLICATION_SCHEMA_CONTRACT.primaryKeys.ai_mission_lineages, [
+      "apply_mission_id",
+    ]);
+    assert.deepEqual(
+      APPLICATION_SCHEMA_CONTRACT.indexes.filter(
+        (index) => index.tableName === "ai_mission_lineages",
+      ),
+      [
+        {
+          name: "idx_ai_mission_lineages_canonical",
+          tableName: "ai_mission_lineages",
+          columns: ["canonical_mission_id", "created_at"],
+        },
+        {
+          name: "idx_ai_mission_lineages_proposal",
+          tableName: "ai_mission_lineages",
+          columns: ["proposal_id"],
+        },
+        {
+          name: "idx_ai_mission_lineages_source_execution",
+          tableName: "ai_mission_lineages",
+          columns: ["source_execution_id"],
+        },
+      ],
+    );
+    assert.deepEqual(
+      APPLICATION_SCHEMA_CONTRACT.foreignKeys.filter(
+        (key) => key.tableName === "ai_mission_lineages",
+      ),
+      [
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "apply_mission_id",
+          foreignTableName: "ai_missions",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "canonical_mission_id",
+          foreignTableName: "ai_missions",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "source_execution_id",
+          foreignTableName: "ai_executions",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "source_goal_id",
+          foreignTableName: "ai_goals",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "source_acceptance_id",
+          foreignTableName: "ai_execution_acceptances",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "proposal_id",
+          foreignTableName: "ai_change_proposals",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+        {
+          tableName: "ai_mission_lineages",
+          columnName: "project_id",
+          foreignTableName: "projects",
+          foreignColumnName: "id",
+          deleteRule: "CASCADE",
+        },
+      ],
+    );
+  });
+
+  it("rejects a missing canonical Mission lineage table", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      tables: snapshot.tables.filter(
+        (table) => table.table_name !== "ai_mission_lineages",
+      ),
+    });
+    assert.ok(
+      issues.some(
+        (item) =>
+          item.kind === "missing_table" &&
+          item.tableName === "public" &&
+          item.objectName === "ai_mission_lineages",
+      ),
+    );
+  });
+
+  it("rejects a missing or incompatible source acceptance column", () => {
+    const snapshot = completeSnapshot();
+    const withoutColumn = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.filter(
+        (column) =>
+          !(
+            column.table_name === "ai_mission_lineages" &&
+            column.column_name === "source_acceptance_id"
+          ),
+      ),
+    });
+    assert.ok(
+      withoutColumn.some(
+        (item) =>
+          item.kind === "missing_column" &&
+          item.tableName === "ai_mission_lineages" &&
+          item.objectName === "source_acceptance_id",
+      ),
+    );
+
+    const incompatibleColumn = findApplicationSchemaIssues({
+      ...snapshot,
+      columns: snapshot.columns.map((column) =>
+        column.table_name === "ai_mission_lineages" &&
+        column.column_name === "source_acceptance_id"
+          ? {
+              ...column,
+              data_type: "uuid",
+              udt_name: "uuid",
+              is_nullable: "NO" as const,
+            }
+          : column,
+      ),
+    });
+    assert.ok(
+      incompatibleColumn.some(
+        (item) =>
+          item.kind === "incompatible_column" &&
+          item.tableName === "ai_mission_lineages" &&
+          item.objectName === "source_acceptance_id",
+      ),
+    );
+  });
+
+  it("requires apply_mission_id as the lineage primary key", () => {
+    const snapshot = completeSnapshot();
+    const issues = findApplicationSchemaIssues({
+      ...snapshot,
+      primaryKeys: [
+        ...snapshot.primaryKeys.filter(
+          (key) => key.table_name !== "ai_mission_lineages",
+        ),
+        { table_name: "ai_mission_lineages", column_name: "id" },
+      ],
+    });
+    assert.ok(
+      issues.some(
+        (item) =>
+          item.kind === "missing_primary_key" &&
+          item.tableName === "ai_mission_lineages" &&
+          item.objectName === "apply_mission_id",
+      ),
+    );
+  });
+
+  it("requires all lineage indexes with their declared table and columns", () => {
+    const snapshot = completeSnapshot();
+    const lineageIndexNames = new Set([
+      "idx_ai_mission_lineages_canonical",
+      "idx_ai_mission_lineages_proposal",
+      "idx_ai_mission_lineages_source_execution",
+    ]);
+    const missing = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.filter(
+        (index) => !lineageIndexNames.has(index.indexname),
+      ),
+    }).filter((item) => item.kind === "missing_index");
+    assert.deepEqual(
+      missing.map((item) => item.objectName),
+      [...lineageIndexNames],
+    );
+
+    const incompatible = findApplicationSchemaIssues({
+      ...snapshot,
+      indexes: snapshot.indexes.map((index) =>
+        index.indexname === "idx_ai_mission_lineages_proposal"
+          ? {
+              ...index,
+              tablename: "ai_missions",
+              indexdef:
+                "CREATE INDEX idx_ai_mission_lineages_proposal ON public.ai_missions USING btree (proposal_id)",
+            }
+          : index,
+      ),
+    });
+    assert.ok(
+      incompatible.some(
+        (item) =>
+          item.kind === "incompatible_index" &&
+          item.objectName === "idx_ai_mission_lineages_proposal",
+      ),
+    );
+  });
+
+  it("requires every lineage foreign key and its CASCADE delete rule", () => {
+    const snapshot = completeSnapshot();
+    const withoutAcceptance = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.filter(
+        (key) =>
+          !(
+            key.table_name === "ai_mission_lineages" &&
+            key.column_name === "source_acceptance_id"
+          ),
+      ),
+    });
+    assert.ok(
+      withoutAcceptance.some(
+        (item) =>
+          item.kind === "missing_foreign_key" &&
+          item.tableName === "ai_mission_lineages" &&
+          item.objectName === "source_acceptance_id",
+      ),
+    );
+
+    const incompatibleRule = findApplicationSchemaIssues({
+      ...snapshot,
+      foreignKeys: snapshot.foreignKeys.map((key) =>
+        key.table_name === "ai_mission_lineages" &&
+        key.column_name === "source_goal_id"
+          ? { ...key, delete_rule: "RESTRICT" }
+          : key,
+      ),
+    });
+    assert.ok(
+      incompatibleRule.some(
+        (item) =>
+          item.kind === "missing_foreign_key" &&
+          item.tableName === "ai_mission_lineages" &&
+          item.objectName === "source_goal_id",
+      ),
+    );
+  });
+
+  it("requires a nullable text scoped result revision on World Transitions", () => {
+    const snapshot = completeSnapshot();
+    const column = snapshot.columns.find((item) =>
+      item.table_name === "ai_world_transitions"
+      && item.column_name === "resulting_scoped_world_revision",
+    );
+    assert.equal(column?.data_type, "text");
+    assert.equal(column?.udt_name, "text");
+    assert.equal(column?.is_nullable, "YES");
+
+    const withoutColumn = {
+      ...snapshot,
+      columns: snapshot.columns.filter((item) => !(
+        item.table_name === "ai_world_transitions"
+        && item.column_name === "resulting_scoped_world_revision"
+      )),
+    };
+    assert.ok(findApplicationSchemaIssues(withoutColumn).some((item) =>
+      item.kind === "missing_column"
+      && item.tableName === "ai_world_transitions"
+      && item.objectName === "resulting_scoped_world_revision",
+    ));
+
+    const incompatibleColumn = {
+      ...snapshot,
+      columns: snapshot.columns.map((item) =>
+        item.table_name === "ai_world_transitions"
+        && item.column_name === "resulting_scoped_world_revision"
+          ? {
+              ...item,
+              data_type: "jsonb" as const,
+              udt_name: "jsonb" as const,
+              is_nullable: "NO" as const,
+            }
+          : item,
+      ),
+    };
+    assert.ok(findApplicationSchemaIssues(incompatibleColumn).some((item) =>
+      item.kind === "incompatible_column"
+      && item.tableName === "ai_world_transitions"
+      && item.objectName === "resulting_scoped_world_revision",
+    ));
   });
 
   it("explicitly permits NULL remediation plans and preserves their JSONB type", () => {

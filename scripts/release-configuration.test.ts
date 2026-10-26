@@ -477,6 +477,7 @@ exec "${realPnpm}" "$@"
         env: {
           ...process.env,
           APP_ORIGINS: "https://dashboard.example.com",
+          CLERK_PUBLISHABLE_KEY: "pk_test_release_configuration_fixture",
           PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
           RELEASE_VALIDATION_TRACE: tracePath,
         },

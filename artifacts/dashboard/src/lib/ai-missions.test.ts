@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MissionProjection } from './ai-missions';
-import { shouldPollMissionProjection } from './ai-missions';
+import {
+  executeMissionAgentAction,
+  MissionRequestError,
+  shouldPollMissionProjection,
+} from './ai-missions';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function projection(
   missionStatus: MissionProjection['mission']['status'],
@@ -31,5 +39,33 @@ describe('shouldPollMissionProjection', () => {
 
   it('does not start polling before a projection has loaded', () => {
     expect(shouldPollMissionProjection(undefined)).toBe(false);
+  });
+});
+
+describe('executeMissionAgentAction errors', () => {
+  it('preserves a nested rejection message and code from the API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: {
+        code: 'mission_requires_replan',
+        message: 'The current Mission requires a replan.',
+      },
+    }), {
+      status: 409,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    await expect(executeMissionAgentAction('mission-1', {
+      idempotencyKey: 'test-key',
+      expectedDecision: {
+        kind: 'APPROVE',
+        target: { kind: 'goal', id: 'goal-1' },
+        reasonCode: 'approval_pending',
+      },
+    })).rejects.toMatchObject({
+      name: 'MissionRequestError',
+      status: 409,
+      code: 'mission_requires_replan',
+      message: 'The current Mission requires a replan.',
+    } satisfies Partial<MissionRequestError>);
   });
 });

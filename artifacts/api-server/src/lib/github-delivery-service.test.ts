@@ -93,7 +93,7 @@ describe("verified GitHub delivery service", () => {
       await git(rootPath, ["add", "README.md"]);
       await git(rootPath, [
         "-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
-        "commit", "-qm", "verified change",
+        "commit", "-qm", `verified change\n\nEngineeringOS-Operation: ${operationId}`,
       ]);
       const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
       const committedTreeHash = await hashDeliveryTree(rootPath);

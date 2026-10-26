@@ -1862,12 +1862,19 @@ export default function Missions() {
       setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       if (error instanceof MissionRequestError && error.status < 500) clearAgentActionKey(actionIdentity);
-      setMissionActionError(errorMessage(
-        error,
-        action.type === 'replan'
-          ? 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'
-          : 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.',
-      ));
+      const actionFailureMessage = error instanceof MissionRequestError
+        && error.code === 'AGENT_DECISION_STALE'
+        ? 'تغيّر قرار المهمة أثناء المراجعة. حدّث الحالة، ثم أغلق النافذة وأعد فتحها لمراجعة القرار الحالي.'
+        : error instanceof MissionRequestError
+          && error.code === 'mission_requires_replan'
+          ? 'تتطلب حالة المهمة إعادة تخطيط. راجع الهدف المتعثر قبل اعتماد الخطة.'
+          : errorMessage(
+            error,
+            action.type === 'replan'
+              ? 'تعذر إنشاء خطة جديدة للهدف. حدّث البيانات ثم حاول مجددًا.'
+              : 'تعذرت الموافقة على الخطوة. حدّث البيانات ثم حاول مجددًا.',
+          );
+      setMissionActionError(actionFailureMessage);
       setMissionsReload((value) => value + 1);
       setProjectionReload((value) => value + 1);
     } finally {

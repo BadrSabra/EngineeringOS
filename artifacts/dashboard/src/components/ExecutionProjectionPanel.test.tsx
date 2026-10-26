@@ -182,6 +182,37 @@ describe('ExecutionProjectionPanel', () => {
     expect(identities).toHaveTextContent('العملية operation-1');
   });
 
+  it('keeps compact identifiers and technical destinations behind explicit disclosure', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={projection}
+        missionId="mission-compact"
+        executionId="execution-compact"
+        operationId="operation-compact"
+        compact
+      />,
+    );
+
+    const technicalDetails = screen.getByTestId('execution-technical-details');
+    expect(technicalDetails).not.toHaveAttribute('open');
+    const identities = screen.getByTestId('execution-identities');
+    const destinations = screen.getByTestId('execution-destinations');
+    expect(identities.closest('details')).toBe(technicalDetails);
+    expect(destinations.closest('details')).toBe(technicalDetails);
+    expect(identities).not.toBeVisible();
+    expect(destinations).not.toBeVisible();
+    expect(screen.getByTestId('status-run')).not.toHaveTextContent('execution-compact');
+
+    fireEvent.click(screen.getByTestId('toggle-technical-details'));
+
+    expect(technicalDetails).toHaveAttribute('open');
+    expect(identities).toBeVisible();
+    expect(identities).toHaveTextContent('execution-compact');
+    expect(identities).toHaveTextContent('operation-compact');
+    expect(screen.getByRole('navigation', { name: 'صفحات تفاصيل التنفيذ' }))
+      .toHaveTextContent('فتح لوحة التشغيل');
+  });
+
   it('keeps delivery gates and recorded apply/commit/push progress visible in compact chat capsules', () => {
     const deliveryProjection: AiExecutionProjection = {
       ...projection,

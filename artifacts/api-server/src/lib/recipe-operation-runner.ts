@@ -10,6 +10,7 @@ import {
   evaluateRecipeEvidencePredicate,
   executeExecutionNodePlan,
   canonicalJsonHash,
+  isCandidateVerificationRecipeId,
   type ActiveTaskExecutionPlan,
   type ExecutionNode,
   type BrowserValidationRunner,
@@ -1913,7 +1914,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     };
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
-  const candidateValidation = params.recipeId === "candidate.verify";
+  const candidateValidation = isCandidateVerificationRecipeId(params.recipeId);
   const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
   const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
   const tracksReadOnlyRecipeInvocation = !authoritativeEffectRecipe
@@ -2091,6 +2092,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       sourceRevision: params.sourceRevision,
       candidateIdentity: params.candidateIdentity,
       approvedPaths: normalizedPaths(params.approvedPaths),
+      recipeId: params.recipeId,
     });
     const actionContract = strategyActionContract(action);
     candidateValidationAction = action;
@@ -2357,7 +2359,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 kind: "direct_observation",
                 sourceId: `github-delivery:${claimed.id}:${params.operationId}:${claimed.attempt}:before`,
                 sourceRevision: state.remoteCommitHash,
-                environmentRevision: null,
+                environmentRevision: episode.environmentRevision,
                 subject: `github:${state.remoteUrl}:${state.branch}`,
                 predicate: "delivery.remote_branch_state",
                 value: { ...state },
@@ -2382,6 +2384,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               parentWorldRevision: parent.worldRevision,
               parentFactRefs: parent.currentFacts.map((fact) => fact.id),
               taskScope: taskScopeIdentity(episode),
+              environmentRevision: episode.environmentRevision,
               beforeObservationIds: before.observationIds,
             });
           },
@@ -2935,7 +2938,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                       kind: "direct_observation",
                       sourceId: `github-delivery:${claimed.id}:${params.operationId}:${claimed.attempt}:after`,
                       sourceRevision: remoteCommitHash,
-                      environmentRevision: null,
+                      environmentRevision: episode.environmentRevision,
                       subject: `github:${String(deliveryAfterObservation.facts.remoteUrl)}:${String(deliveryAfterObservation.facts.branch)}`,
                       predicate: "delivery.remote_branch_state",
                       value: deliveryAfterObservation.facts,

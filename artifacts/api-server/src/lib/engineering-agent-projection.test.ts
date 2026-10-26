@@ -159,6 +159,37 @@ describe("reduceEngineeringAgentProjection", () => {
     });
   });
 
+  it("does not offer approval after the Mission requires a replan", () => {
+    const projection = reduceEngineeringAgentProjection(context({
+      missionStatus: "needs_replan",
+      goals: [goal({
+        status: "waiting_for_approval",
+        nextAction: { kind: "wait", reason: "approval" },
+      })],
+    }));
+
+    expect(projection.nextAction).toMatchObject({
+      kind: "REPLAN",
+      reasonCode: "goal_requires_replan",
+    });
+  });
+
+  it("does not offer approval for a blocked Mission", () => {
+    const projection = reduceEngineeringAgentProjection(context({
+      missionStatus: "blocked",
+      goals: [goal({
+        status: "waiting_for_approval",
+        nextAction: { kind: "wait", reason: "approval" },
+      })],
+    }));
+
+    expect(projection.nextAction).toMatchObject({
+      kind: "REVIEW",
+      target: { kind: "mission", id: "mission-1" },
+      reasonCode: "mission_blocked",
+    });
+  });
+
   it("does not accept a completed attempt while required evidence is incomplete", () => {
     const projection = reduceEngineeringAgentProjection(context({
       goals: [goal({

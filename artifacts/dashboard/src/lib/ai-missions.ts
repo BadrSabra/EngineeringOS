@@ -268,9 +268,26 @@ async function requestJson<T>(url: string, init: RequestInit = {}, signal?: Abor
     let detail = '';
     let code: string | null = null;
     try {
-      const body = (await response.json()) as { message?: string; error?: string; code?: string };
-      detail = body.message ?? body.error ?? '';
-      code = typeof body.code === 'string' ? body.code : null;
+      const body = (await response.json()) as {
+        message?: unknown;
+        error?: unknown;
+        code?: unknown;
+      };
+      const nestedError = body.error && typeof body.error === 'object'
+        ? body.error as { message?: unknown; code?: unknown }
+        : null;
+      detail = typeof body.message === 'string'
+        ? body.message
+        : typeof body.error === 'string'
+          ? body.error
+          : typeof nestedError?.message === 'string'
+            ? nestedError.message
+            : '';
+      code = typeof body.code === 'string'
+        ? body.code
+        : typeof nestedError?.code === 'string'
+          ? nestedError.code
+          : null;
     } catch {
       detail = '';
     }

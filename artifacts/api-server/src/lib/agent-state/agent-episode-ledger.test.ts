@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
@@ -10,6 +12,7 @@ import {
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiWorldFactsTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -31,12 +34,19 @@ import {
 } from "./agent-episode-shadow-campaign.js";
 import { resetOperationalCounters } from "../operational-counters.js";
 import { materializeServerOwnedObservations } from "./observation-materializer.js";
+import { getProjectWorldState } from "./world-state.js";
+import { taskScopeIdentity } from "./observation-materializer.js";
+import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "./environment-attestation.js";
 
 const userId = "agent-episode-ledger-test-user";
 let projectId = "";
 let executionId = "";
 let workerId = "";
 let idempotencyKey = "";
+let episodeRootPath = "";
 
 async function createFixture() {
   projectId = `agent-episode-project-${randomUUID()}`;
@@ -69,6 +79,7 @@ async function removeFixture() {
   await db.delete(aiAgentShadowCampaignEventsTable)
     .where(eq(aiAgentShadowCampaignEventsTable.executionId, executionId));
   if (projectId) {
+    await db.delete(aiWorldFactsTable).where(eq(aiWorldFactsTable.projectId, projectId));
     await db.delete(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
     await db.delete(aiAgentEpisodeEventsTable)
@@ -81,6 +92,10 @@ async function removeFixture() {
     await db.delete(aiGoalsTable).where(eq(aiGoalsTable.projectId, projectId));
     await db.delete(aiMissionsTable).where(eq(aiMissionsTable.projectId, projectId));
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+  }
+  if (episodeRootPath) {
+    await rm(episodeRootPath, { recursive: true, force: true });
+    episodeRootPath = "";
   }
 }
 
@@ -207,6 +222,91 @@ describe("agent episode ledger", () => {
     expect(retry.episodeId).toBe(first.episodeId);
     await expect(startEpisode(startInput({ idempotencyKey: `${idempotencyKey}-conflict` })))
       .rejects.toMatchObject({ code: "invalid_contract" });
+  });
+
+  it("captures the scoped World State and environment revision before creating the Episode", async () => {
+    const missionId = `agent-episode-mission-${randomUUID()}`;
+    const goalId = `agent-episode-goal-${randomUUID()}`;
+    const operationId = `agent-episode-operation-${randomUUID()}`;
+    const taskId = `agent-episode-task-${randomUUID()}`;
+    const planRevision = "mission-plan-baseline";
+    const scope = { kind: "mission-task", taskId };
+    episodeRootPath = await mkdtemp(join(process.cwd(), "agent-episode-baseline-"));
+    await writeFile(
+      join(episodeRootPath, "package.json"),
+      JSON.stringify({ name: "agent-episode-baseline-fixture", version: "1.0.0" }),
+      "utf8",
+    );
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId,
+      title: "World State baseline fixture",
+      intent: "Bind the Episode to the state observed before execution",
+      status: "active",
+      scope: { kind: "project", projectId },
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Capture the pre-execution state",
+      status: "running",
+    });
+    await db.update(aiExecutionsTable)
+      .set({ goalId, operationId })
+      .where(eq(aiExecutionsTable.id, executionId));
+
+    const profile = serverEnvironmentProfile("TASK_EXECUTION", scope);
+    const attestation = await captureEnvironmentAttestation({
+      rootPath: episodeRootPath,
+      profile,
+    });
+    expect(attestation.status).toBe("known");
+    if (attestation.status !== "known") {
+      throw new Error("Mission task fixture could not attest its environment.");
+    }
+    const episode = await startEpisode(startInput({
+      missionId,
+      goalId,
+      planRevision,
+      intentKind: "TASK_EXECUTION",
+      scope,
+      environmentRootPath: episodeRootPath,
+      captureWorldRevision: true,
+    }));
+
+    const taskScope = taskScopeIdentity(episode);
+    const before = await getProjectWorldState(projectId, {
+      taskScope,
+      environmentRevision: attestation.environmentRevision,
+    });
+    expect(episode).toMatchObject({
+      worldRevision: before.worldRevision,
+      environmentRevision: attestation.environmentRevision,
+      planRevision,
+    });
+
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId,
+      taskScope,
+      environmentRevisionKey: `revision:${attestation.environmentRevision}`,
+      subject: "mission:baseline-fixture",
+      predicate: "verification.state",
+      value: "changed-after-episode-start",
+      valueHash: "changed-after-episode-start",
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: "revision-1",
+      environmentRevision: attestation.environmentRevision,
+    });
+    const after = await getProjectWorldState(projectId, {
+      taskScope,
+      environmentRevision: attestation.environmentRevision,
+    });
+    expect(after.worldRevision).not.toBe(episode.worldRevision);
   });
 
   it("rejects attempt mismatch, cross-project access, and stale workers", async () => {

@@ -224,6 +224,53 @@ test("local catalog and completion fixtures support the real provider contract w
   }
 });
 
+test("local lifecycle fixture blocks unknown external fetches before network access", async () => {
+  const temporaryRoot = await mkdtemp(
+    join(os.tmpdir(), "goal-first-provider-egress-test-"),
+  );
+  const logPath = join(temporaryRoot, "requests.jsonl");
+  try {
+    const result = await runFixture(
+      `
+        let blocked = "";
+        try {
+          await fetch("https://api.clerk.com/v1/users");
+        } catch (error) {
+          blocked = error instanceof Error ? error.message : String(error);
+        }
+        console.log(JSON.stringify({ blocked }));
+      `,
+      {
+        PATH: process.env.PATH ?? "",
+        NODE_ENV: "test",
+        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+        ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+        ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE: "1",
+        DASHBOARD_E2E_TEST_MODE: "fixture",
+        MISSION_E2E_PROVIDER_FIXTURE: "1",
+        DASHBOARD_E2E_PROVIDER_FIXTURE_LOG: logPath,
+      },
+    );
+    assert.equal(result.signal, null, result.stderr);
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      blocked: "Blocked non-local E2E network request to api.clerk.com.",
+    });
+    const requests = (await readFile(logPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.deepEqual(requests, [{
+      host: "api.clerk.com",
+      method: "GET",
+      path: "/v1/users",
+      kind: "blocked-nonlocal-egress",
+    }]);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("provider interception fails closed outside controlled non-production fixture mode", async () => {
   const result = await runFixture(
     `

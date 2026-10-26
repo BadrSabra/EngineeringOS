@@ -482,9 +482,7 @@ describe("classifyRequest — task-aware output contracts", () => {
   it("routes report regeneration requests to the forensic report contract", () => {
     for (const message of [
       "أعد توليد التقرير",
-      "أعد المحاولة",
       "Regenerate the report",
-      "Try again",
     ]) {
       const result = classifyRequest(message);
       expect(result.taskType, message).toBe("FULL_FORENSIC_AUDIT");
@@ -504,6 +502,14 @@ describe("classifyRequest — task-aware output contracts", () => {
       expect(result.taskType, message).toBe("FULL_FORENSIC_AUDIT");
       expect(result.analysisMode, message).toBe("FORENSIC");
       expect(result.outputContract, message).toBe("FORENSIC_REPORT");
+    }
+  });
+
+  it("keeps an unqualified retry request outside the forensic-report contract", () => {
+    for (const message of ["أعد المحاولة", "Try again"]) {
+      const result = classifyRequest(message);
+      expect(result.taskType, message).toBe("BEHAVIOR_QUERY");
+      expect(result.outputContract, message).toBe("BEHAVIOR_ANSWER");
     }
   });
 });

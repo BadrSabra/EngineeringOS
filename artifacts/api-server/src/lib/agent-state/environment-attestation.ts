@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { isCandidateVerificationRecipeId } from "@workspace/ai-orchestrator";
 import { establishProjectRoot } from "../project-root.js";
 
 const PROFILE_VERSION = 1;
@@ -70,7 +71,7 @@ function episodeProfileDetails(scope: unknown): Record<string, unknown> | null {
   if (record.kind === "mission-task") {
     return { id: "mission-repair", version: PROFILE_VERSION, runner: "mission-tool-loop" };
   }
-  if (recipeId === "candidate.verify") {
+  if (isCandidateVerificationRecipeId(recipeId)) {
     const rawProfiles = record.validationProfiles;
     if (rawProfiles !== undefined && !Array.isArray(rawProfiles)) return null;
     const profiles = (rawProfiles ?? []) as unknown[];

@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
+import {
+  stripGoogleFontsImports,
+  stripGoogleFontsLinks,
+} from './scripts/local-lifecycle-network-sanitizer.mjs';
 
 const buildDefaults = {
   port: '4173',
@@ -13,8 +17,25 @@ const buildDefaults = {
   clerkPublishableKey: 'pk_test_build_only_placeholder',
 } as const;
 
+const localLifecycleAuthFixtureRequested =
+  process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === '1';
+const localLifecycleAuthFixture =
+  localLifecycleAuthFixtureRequested
+  && process.env.NODE_ENV === 'test'
+  && process.env.RUN_CONTROLLED_RELEASE_VALIDATION === '1'
+  && process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === '1'
+  && process.env.DASHBOARD_E2E_TEST_MODE === 'fixture';
+
+if (localLifecycleAuthFixtureRequested && !localLifecycleAuthFixture) {
+  throw new Error(
+    'The local lifecycle auth fixture requires the isolated NODE_ENV=test fixture runner.',
+  );
+}
+
 const developmentPlugins =
-  process.env.NODE_ENV !== 'production' && process.env.REPL_ID !== undefined
+  !localLifecycleAuthFixture
+  && process.env.NODE_ENV !== 'production'
+  && process.env.REPL_ID !== undefined
     ? [
         await import('@replit/vite-plugin-cartographer').then((m) =>
           m.cartographer({
@@ -53,10 +74,11 @@ export default defineConfig(({ command }) => {
   // only exposes VITE_* variables by default, so explicitly bridge the public
   // key when the workflow provides the canonical CLERK_PUBLISHABLE_KEY name.
   // Never bridge CLERK_SECRET_KEY or any other server-only credential.
-  const clerkPublishableKey =
-    process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
-    process.env.CLERK_PUBLISHABLE_KEY?.trim() ||
-    (isBuild ? buildDefaults.clerkPublishableKey : undefined);
+  const clerkPublishableKey = localLifecycleAuthFixture
+    ? 'pk_test_local_lifecycle_fixture'
+    : process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
+      process.env.CLERK_PUBLISHABLE_KEY?.trim() ||
+      (isBuild ? buildDefaults.clerkPublishableKey : undefined);
 
   if (!basePath) {
     throw new Error(
@@ -77,21 +99,56 @@ export default defineConfig(({ command }) => {
         JSON.stringify(clerkPublishableKey),
     },
     plugins: [
+      ...(localLifecycleAuthFixture
+        ? [{
+            name: 'local-lifecycle-network-sanitizer',
+            enforce: 'pre' as const,
+            transformIndexHtml(html: string) {
+              return stripGoogleFontsLinks(html);
+            },
+            transform(code: string, id: string) {
+              if (!id.split('?', 1)[0]?.endsWith('.css')) return null;
+              const sanitized = stripGoogleFontsImports(code);
+              return sanitized === code ? null : sanitized;
+            },
+          }]
+        : []),
       react(),
       tailwindcss({ optimize: false }),
       runtimeErrorOverlay(),
       ...developmentPlugins,
     ],
     resolve: {
-      alias: {
-        '@': path.resolve(import.meta.dirname, 'src'),
-        '@assets': path.resolve(
-          import.meta.dirname,
-          '..',
-          '..',
-          'attached_assets',
-        ),
-      },
+      alias: [
+        ...(localLifecycleAuthFixture
+          ? [
+              {
+                find: /^@clerk\/react\/internal$/,
+                replacement: path.resolve(
+                  import.meta.dirname,
+                  'src/test/local-e2e-clerk-fixture.tsx',
+                ),
+              },
+              {
+                find: /^@clerk\/react$/,
+                replacement: path.resolve(
+                  import.meta.dirname,
+                  'src/test/local-e2e-clerk-fixture.tsx',
+                ),
+              },
+            ]
+          : []),
+        {
+          find: '@assets',
+          replacement: path.resolve(
+            import.meta.dirname,
+            '..',
+            '..',
+            'attached_assets',
+          ),
+        },
+        { find: '@', replacement: path.resolve(import.meta.dirname, 'src') },
+      ],
       dedupe: ['react', 'react-dom'],
     },
     root: path.resolve(import.meta.dirname),
@@ -102,7 +159,7 @@ export default defineConfig(({ command }) => {
     server: {
       port,
       strictPort: true,
-      host: '0.0.0.0',
+      host: localLifecycleAuthFixture ? '127.0.0.1' : '0.0.0.0',
       allowedHosts: true,
       ...(apiProxyTarget
         ? {
@@ -120,7 +177,7 @@ export default defineConfig(({ command }) => {
     },
     preview: {
       port,
-      host: '0.0.0.0',
+      host: localLifecycleAuthFixture ? '127.0.0.1' : '0.0.0.0',
       allowedHosts: true,
     },
   };

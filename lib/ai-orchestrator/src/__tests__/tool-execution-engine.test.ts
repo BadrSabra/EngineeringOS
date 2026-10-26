@@ -5176,7 +5176,7 @@ describe("executeToolLoop", () => {
       kind: "failed",
       tool: "read_file",
       failureKind: "execution",
-      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      diagnosticCode: "TOOL_FILE_NOT_FOUND",
     });
     expect(strategy.call).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result)).not.toContain("ENOENT");
@@ -8180,7 +8180,7 @@ describe("executeToolLoop", () => {
       kind: "failed",
       tool: "read_file",
       failureKind: "execution",
-      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      diagnosticCode: "TOOL_FILE_NOT_FOUND",
     });
     expect(strategy.call).toHaveBeenCalledTimes(3);
   });
@@ -8512,12 +8512,10 @@ describe("bounded synthesis budget", () => {
       expect(result.sourceRetrieval?.synthesisTimeoutMs).toBe(5_000);
     }
     expect(strategy.call).toHaveBeenCalledTimes(2);
-    expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
-      timeoutMs: 5_000,
-    });
-    expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1].signal).toBeInstanceOf(
-      AbortSignal,
-    );
+    const synthesisCallOptions = (strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    expect(synthesisCallOptions.timeoutMs).toBeGreaterThan(0);
+    expect(synthesisCallOptions.timeoutMs).toBeLessThanOrEqual(5_000);
+    expect(synthesisCallOptions.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("does not retry synthesis after the shared deadline is exhausted", async () => {

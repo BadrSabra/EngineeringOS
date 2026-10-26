@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
+import { buildProjectQueryIncompleteResponse } from "../agents/chat-agent.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -79,8 +80,7 @@ describe("ChatOutputSchema — runtime validation (unit)", () => {
 });
 
 describe("project-query incomplete evidence projection", () => {
-  it("ranks bounded line-range excerpts from complete retained reads and stays incomplete", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+  it("ranks bounded line-range excerpts from complete retained reads and stays incomplete", () => {
     const fileContents = new Map([
       ["src/complete.ts", "export function handleRequest() { return 'source excerpt'; }\n"],
       ["src/targeted.ts", "export function partialWindow() { return 'not a full read'; }\n"],
@@ -123,8 +123,7 @@ describe("project-query incomplete evidence projection", () => {
     expect(arabicResponse).toContain("source excerpt");
   });
 
-  it("prioritizes exact query-term matches over unrelated structural excerpts", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+  it("prioritizes exact query-term matches over unrelated structural excerpts", () => {
     const fileContents = new Map([
       ["src/a-unrelated.ts", "export function initializeCache() {\n  return true;\n}\n"],
       [
@@ -162,8 +161,7 @@ describe("project-query incomplete evidence projection", () => {
     expect(response).toContain("ANALYSIS_INCOMPLETE");
   });
 
-  it("bounds evidence excerpts to three files and a fixed total source-text budget", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+  it("bounds evidence excerpts to three files and a fixed total source-text budget", () => {
     const fileContents = new Map(
       Array.from({ length: 5 }, (_, index) => [
         `src/file-${index}.ts`,

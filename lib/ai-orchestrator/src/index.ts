@@ -711,6 +711,7 @@ export type {
 export {
   RecipeDefinitionRegistry,
   createServerRecipeDefinitionRegistry,
+  isCandidateVerificationRecipeId,
 } from "./recipe-definition-registry.js";
 export type { RecipeDefinition } from "./recipe-definition-registry.js";
 

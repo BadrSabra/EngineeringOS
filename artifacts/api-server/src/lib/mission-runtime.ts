@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { promisify } from "node:util";
 import { and, desc, eq, inArray, isNotNull, lte, or } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
@@ -21,6 +19,7 @@ import {
 } from "@workspace/db";
 import {
   GoalNextActionSchema,
+  isCandidateVerificationRecipeId,
   RecipeReceiptSchema,
   type GoalNextAction,
 } from "@workspace/ai-orchestrator";
@@ -38,7 +37,11 @@ import {
   evaluateApplyChangesD2,
   resolveApplyChangesMissionRequirement,
 } from "./agent-state/apply-changes-mission-gate.js";
-import { deliveryWorkspaceExists } from "./delivery-workspace.js";
+import {
+  deliveryWorkspaceExists,
+  materializeDisposableCandidateWorkspace,
+  resolveWorkspaceTreeRevision,
+} from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
 import {
   createRuntimeStartRunner,
@@ -75,9 +78,8 @@ import {
   type MissionAgentActionReceiptIdentity,
 } from "./mission-agent-action-receipt.js";
 import { resolveMissionLineage } from "./mission-lineage.js";
+import { checkMissionCandidateAcceptance } from "./mission-candidate-acceptance.js";
 import { getLifecycleWorkerScopeProjectId } from "./worker-scope.js";
-
-const execFileAsync = promisify(execFile);
 
 export type MissionGoalRunTrigger = "activation" | "wake" | "resume" | "replan";
 
@@ -96,11 +98,36 @@ const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] 
 const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type WorldStateRevisionMismatchDiagnostic = {
+  expectedWorldRevision: string;
+  actualWorldRevision: string;
+  expectedRevisionSource: "episode" | "transition";
+  transitionId: string | null;
+  transitionStatus: string | null;
+  projectId: string;
+  missionId: string;
+  dependencyGoalId: string;
+  executionId: string;
+  episodeId: string;
+  attempt: number;
+  planRevision: string | null;
+  taskScopeIdentity: string;
+  environmentRevisionAvailable: boolean;
+};
+type GoalDependencyProofDiagnostics = {
+  worldStateRevisionMismatch?: WorldStateRevisionMismatchDiagnostic;
+};
+type UnprovenGoalDependency = {
+  id: string;
+  title: string;
+  failedChecks?: string[];
+  worldStateRevisionMismatch?: WorldStateRevisionMismatchDiagnostic;
+};
 export type GoalDependencyState = {
   planRevision?: string;
   dependencies: Array<{ dependsOnGoalId: string }>;
   dependencyGoals: Array<typeof aiGoalsTable.$inferSelect>;
-  unprovenDependencies: Array<{ id: string; title: string }>;
+  unprovenDependencies: UnprovenGoalDependency[];
 };
 export type MissionGoalContinuationDenial =
   | "mission_operator_owned"
@@ -120,7 +147,7 @@ export type MissionGoalContinuationAuthorization =
       allowed: false;
       reason: MissionGoalContinuationDenial;
       dependencyState?: GoalDependencyState;
-      dependency?: { id: string; title: string };
+      dependency?: UnprovenGoalDependency;
     };
 
 async function findGoalDependencyGraphIssue(
@@ -212,12 +239,137 @@ function goalCandidateIdentity(goal: typeof aiGoalsTable.$inferSelect): string |
       : null;
 }
 
+async function candidateTreeHashForDependency(params: {
+  tx: MissionTransaction;
+  mission: typeof aiMissionsTable.$inferSelect;
+  dependencyGoal: typeof aiGoalsTable.$inferSelect;
+}): Promise<{ candidateTreeHash: string; proposalId: string } | { reason: string } | undefined> {
+  if (!goalCandidateIdentity(params.dependencyGoal)) return undefined;
+  const acceptance = jsonRecord(jsonRecord(params.dependencyGoal.outcomeContract).acceptance);
+  const executionId = typeof acceptance.executionId === "string" ? acceptance.executionId : null;
+  const acceptanceId = typeof acceptance.acceptanceId === "string" ? acceptance.acceptanceId : null;
+  if (!executionId || !acceptanceId) {
+    return { reason: "dependency_candidate_acceptance_missing" };
+  }
+
+  const [execution] = await params.tx
+    .select({
+      id: aiExecutionsTable.id,
+      operationId: aiExecutionsTable.operationId,
+      goalId: aiExecutionsTable.goalId,
+      attempt: aiExecutionsTable.attempt,
+      status: aiExecutionsTable.status,
+      baseRevision: aiExecutionsTable.baseRevision,
+      userId: aiExecutionsTable.userId,
+      sessionId: aiExecutionsTable.sessionId,
+      proposalId: aiExecutionsTable.proposalId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.projectId, params.dependencyGoal.projectId),
+      eq(aiExecutionsTable.goalId, params.dependencyGoal.id),
+      eq(aiExecutionsTable.status, "completed"),
+    ))
+    .for("update")
+    .limit(1);
+  if (!execution?.proposalId) {
+    return { reason: "dependency_candidate_proposal_link_missing" };
+  }
+
+  const [proposal] = await params.tx
+    .select()
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, execution.proposalId),
+      eq(aiChangeProposalsTable.projectId, params.dependencyGoal.projectId),
+    ))
+    .for("update")
+    .limit(1);
+  if (!proposal || !proposal.candidateTreeHash) {
+    return { reason: "dependency_candidate_proposal_missing" };
+  }
+  if (!["validated", "committed"].includes(proposal.lifecycle)) {
+    return { reason: "dependency_candidate_not_validated" };
+  }
+
+  const verifiedCandidate = await checkMissionCandidateAcceptance({
+    tx: params.tx,
+    projectId: params.dependencyGoal.projectId,
+    userId: params.mission.userId,
+    proposal,
+    sourceExecution: execution,
+  });
+  if (
+    !verifiedCandidate.accepted
+    || verifiedCandidate.sourceExecutionId !== execution.id
+    || verifiedCandidate.sourceMissionId !== params.mission.id
+    || verifiedCandidate.sourceGoalId !== params.dependencyGoal.id
+    || verifiedCandidate.sourceAcceptanceId !== acceptanceId
+  ) {
+    return { reason: "dependency_candidate_proof_unavailable" };
+  }
+  return { candidateTreeHash: proposal.candidateTreeHash, proposalId: proposal.id };
+}
+
+async function bindCandidateVerifyActionToDependencies(params: {
+  tx: MissionTransaction;
+  mission: typeof aiMissionsTable.$inferSelect;
+  action: RecipeGoalAction,
+  dependencies: readonly (typeof aiGoalsTable.$inferSelect)[];
+}): Promise<{ ok: true; action: RecipeGoalAction } | { ok: false; reason: string }> {
+  if (!isCandidateVerificationRecipeId(params.action.recipeId)) {
+    return { ok: true, action: params.action };
+  }
+  const dependencyCandidates: Array<{ candidateTreeHash: string; proposalId: string }> = [];
+  for (const dependencyGoal of params.dependencies) {
+    const candidate = await candidateTreeHashForDependency({
+      tx: params.tx,
+      mission: params.mission,
+      dependencyGoal,
+    });
+    if (candidate && "reason" in candidate) {
+      return { ok: false, reason: candidate.reason };
+    }
+    if (candidate) dependencyCandidates.push(candidate);
+  }
+  if (dependencyCandidates.length === 0) return { ok: true, action: params.action };
+  const distinctTreeHashes = [...new Set(dependencyCandidates.map((candidate) => candidate.candidateTreeHash))];
+  const distinctProposalIds = [...new Set(dependencyCandidates.map((candidate) => candidate.proposalId))];
+  if (distinctTreeHashes.length !== 1 || distinctProposalIds.length !== 1) {
+    return { ok: false, reason: "dependency_candidate_identity_ambiguous" };
+  }
+  const candidateTreeHash = distinctTreeHashes[0]!;
+  const candidateProposalId = distinctProposalIds[0]!;
+  if (
+    params.action.candidateIdentity
+    && params.action.candidateIdentity !== candidateTreeHash
+  ) {
+    return { ok: false, reason: "dependency_candidate_identity_mismatch" };
+  }
+  if (
+    params.action.candidateProposalId
+    && params.action.candidateProposalId !== candidateProposalId
+  ) {
+    return { ok: false, reason: "dependency_candidate_proposal_mismatch" };
+  }
+  return {
+    ok: true,
+    action: {
+      ...params.action,
+      candidateIdentity: candidateTreeHash,
+      candidateProposalId,
+    },
+  };
+}
+
 async function hasCurrentGoalDependencyProof(
   tx: MissionTransaction,
   mission: typeof aiMissionsTable.$inferSelect,
   dependencyGoal: typeof aiGoalsTable.$inferSelect,
   dependencyPlanRevision: string | undefined,
-): Promise<boolean> {
+  diagnostics?: GoalDependencyProofDiagnostics,
+): Promise<string[]> {
   const contract = jsonRecord(dependencyGoal.outcomeContract);
   const acceptanceProjection = jsonRecord(contract.acceptance);
   const acceptanceScope = jsonRecord(acceptanceProjection.scope);
@@ -229,17 +381,22 @@ async function hasCurrentGoalDependencyProof(
       ? mission.autonomyPolicy.activePlanRevision
       : undefined;
 
-  if (
-    dependencyGoal.status !== "completed"
-    || !dependencyPlanRevision
-    || goalPlanRevision(dependencyGoal) !== dependencyPlanRevision
-    || (activePlanRevision && activePlanRevision !== dependencyPlanRevision)
-    || !executionId
-    || acceptanceProjection.outcome !== "SUCCEEDED"
-    || acceptanceProjection.verdict !== "PROVEN"
-  ) return false;
+  const initialChecks = {
+    goal_completed: dependencyGoal.status === "completed",
+    plan_revision_present: Boolean(dependencyPlanRevision),
+    goal_plan_revision_matches: goalPlanRevision(dependencyGoal) === dependencyPlanRevision,
+    active_plan_revision_matches:
+      !activePlanRevision || activePlanRevision === dependencyPlanRevision,
+    acceptance_execution_id_present: Boolean(executionId),
+    acceptance_succeeded: acceptanceProjection.outcome === "SUCCEEDED",
+    acceptance_proven: acceptanceProjection.verdict === "PROVEN",
+  };
+  const failedInitialChecks = Object.entries(initialChecks)
+    .filter(([, passed]) => !passed)
+    .map(([check]) => check);
+  if (failedInitialChecks.length > 0) return failedInitialChecks;
 
-  const expectedProjectionScope: Record<string, string> = {
+  const expectedProjectionScope: Record<string, string | undefined> = {
     projectId: dependencyGoal.projectId,
     missionId: mission.id,
     goalId: dependencyGoal.id,
@@ -249,7 +406,7 @@ async function hasCurrentGoalDependencyProof(
     if (acceptanceScope[key] !== undefined
       && acceptanceScope[key] !== null
       && acceptanceScope[key] !== expectedValue
-    ) return false;
+    ) return [`acceptance_scope_${key}_mismatch`];
   }
 
   const [execution] = await tx
@@ -266,12 +423,19 @@ async function hasCurrentGoalDependencyProof(
     || execution.status !== "completed"
     || !execution.operationId
     || !execution.baseRevision
-  ) return false;
+  ) {
+    return [
+      ...(!execution ? ["execution_missing"] : []),
+      ...(execution && execution.status !== "completed" ? ["execution_not_completed"] : []),
+      ...(execution && !execution.operationId ? ["execution_operation_id_missing"] : []),
+      ...(execution && !execution.baseRevision ? ["execution_base_revision_missing"] : []),
+    ];
+  }
   if (
     acceptanceScope.operationId !== undefined
     && acceptanceScope.operationId !== null
     && acceptanceScope.operationId !== execution.operationId
-  ) return false;
+  ) return ["acceptance_scope_operation_id_mismatch"];
 
   const candidateIdentity = goalCandidateIdentity(dependencyGoal);
   const canonicalProof = await loadCanonicalProof({
@@ -291,7 +455,7 @@ async function hasCurrentGoalDependencyProof(
     },
     goalStatus: dependencyGoal.status,
     deliveryRequired: jsonRecord(dependencyGoal.outcomeContract).deliveryRequired === true
-      && jsonRecord(dependencyGoal.nextAction).recipeId !== "candidate.verify",
+      && !isCandidateVerificationRecipeId(jsonRecord(dependencyGoal.nextAction).recipeId),
   });
   const canonicalProofChecks = {
     accepted: canonicalProof.accepted,
@@ -317,7 +481,7 @@ async function hasCurrentGoalDependencyProof(
         failureReasons: canonicalProof.failureReasons,
       }, "Mission Apply Changes dependency failed Canonical Proof revalidation");
     }
-    return false;
+    return failedCanonicalChecks.map((check) => `canonical_proof_${check}`);
   }
 
   if (acceptanceProjection.reasonCode === "APPLY_CHANGES_D2_PROVEN") {
@@ -361,9 +525,9 @@ async function hasCurrentGoalDependencyProof(
           : null,
         failedChecks: failedApplyChecks,
       }, "Mission Apply Changes dependency proof no longer matches its accepted projection");
-      return false;
+      return failedApplyChecks.map((check) => `apply_proof_${check}`);
     }
-    return true;
+    return [];
   }
 
   // Transition claimers lock Transition before Episode; only probe Episode identity here.
@@ -376,13 +540,18 @@ async function hasCurrentGoalDependencyProof(
       eq(aiAgentEpisodesTable.attempt, execution.attempt),
     ))
     .limit(1);
-  if (!episodeIdentity) return false;
+  if (!episodeIdentity) return ["episode_missing"];
 
   const [transition] = await tx
     .select({
+      id: aiWorldTransitionsTable.id,
       status: aiWorldTransitionsTable.status,
       parentWorldRevision: aiWorldTransitionsTable.parentWorldRevision,
       resultingWorldRevision: aiWorldTransitionsTable.resultingWorldRevision,
+      resultingScopedWorldRevision: aiWorldTransitionsTable.resultingScopedWorldRevision,
+      taskScope: aiWorldTransitionsTable.taskScope,
+      environmentRevisionKey: aiWorldTransitionsTable.environmentRevisionKey,
+      environmentRevision: aiWorldTransitionsTable.environmentRevision,
     })
     .from(aiWorldTransitionsTable)
     .where(and(
@@ -406,32 +575,40 @@ async function hasCurrentGoalDependencyProof(
     ))
     .for("update")
     .limit(1);
-  if (
-    !episode
-    || episode.projectId !== dependencyGoal.projectId
-    || episode.missionId !== mission.id
-    || episode.goalId !== dependencyGoal.id
-    || episode.executionId !== execution.id
-    || episode.attempt !== execution.attempt
-    || episode.state !== "completed"
-    || episode.verdict !== "achieved"
-    || !episode.closedAt
-    || episode.planRevision !== dependencyPlanRevision
-    || episode.projectRevision !== execution.baseRevision
-    || !episode.worldRevision
-  ) return false;
+  if (!episode) return ["episode_missing"];
+  const episodeChecks = {
+    project_id_matches: episode.projectId === dependencyGoal.projectId,
+    mission_id_matches: episode.missionId === mission.id,
+    goal_id_matches: episode.goalId === dependencyGoal.id,
+    execution_id_matches: episode.executionId === execution.id,
+    attempt_matches: episode.attempt === execution.attempt,
+    completed: episode.state === "completed",
+    achieved: episode.verdict === "achieved",
+    closed: Boolean(episode.closedAt),
+    plan_revision_matches: episode.planRevision === dependencyPlanRevision,
+    project_revision_matches: episode.projectRevision === execution.baseRevision,
+    // A Transition has its own scoped-result requirement below. Do not let a
+    // legacy null scoped result collapse into the Episode-level diagnostic.
+    world_revision_present: transition ? true : Boolean(episode.worldRevision),
+  };
+  const failedEpisodeChecks = Object.entries(episodeChecks)
+    .filter(([, passed]) => !passed)
+    .map(([check]) => `episode_${check}`);
+  if (failedEpisodeChecks.length > 0) return failedEpisodeChecks;
 
   const taskScope = taskScopeIdentity(episode);
-  if (taskScope.startsWith("unscoped:")) return false;
+  if (taskScope.startsWith("unscoped:")) return ["episode_task_scope_unscoped"];
   const rawObservationRefs = episode.observationRefs;
-  if (!Array.isArray(rawObservationRefs) || rawObservationRefs.length > 128) return false;
+  if (!Array.isArray(rawObservationRefs) || rawObservationRefs.length > 128) {
+    return ["episode_observation_refs_invalid"];
+  }
   const observationRefs = rawObservationRefs.filter(
     (value): value is string => typeof value === "string" && value.trim().length > 0,
   );
   if (
     observationRefs.length !== rawObservationRefs.length
     || new Set(observationRefs).size !== observationRefs.length
-  ) return false;
+  ) return ["episode_observation_refs_invalid"];
   if (observationRefs.length > 0) {
     const expectedEnvironmentRevisionKey = episode.environmentRevision
       ? `revision:${episode.environmentRevision}`
@@ -446,30 +623,67 @@ async function hasCurrentGoalDependencyProof(
         inArray(aiAgentObservationsTable.id, observationRefs),
       ))
       .for("update");
-    if (
-      observations.length !== observationRefs.length
-      || observations.some((observation) => (
-        observation.taskScope !== taskScope
-        || observation.environmentRevisionKey !== expectedEnvironmentRevisionKey
-        || observation.projectRevision !== episode.projectRevision
-        || observation.environmentRevision !== episode.environmentRevision
-        || observation.completeness !== "complete"
-        || observation.freshness !== "fresh"
-        || observation.environmentFreshness === "stale"
-      ))
-    ) return false;
+    const failedObservationChecks = [
+      ...(observations.length !== observationRefs.length ? ["observation_refs_resolve"] : []),
+      ...(observations.some((observation) => observation.taskScope !== taskScope)
+        ? ["observation_task_scope_matches"] : []),
+      ...(observations.some((observation) =>
+        observation.environmentRevisionKey !== expectedEnvironmentRevisionKey)
+        ? ["observation_environment_revision_key_matches"] : []),
+      ...(observations.some((observation) =>
+        observation.projectRevision !== episode.projectRevision)
+        ? ["observation_project_revision_matches"] : []),
+      ...(observations.some((observation) =>
+        observation.environmentRevision !== episode.environmentRevision)
+        ? ["observation_environment_revision_matches"] : []),
+      ...(observations.some((observation) => observation.completeness !== "complete")
+        ? ["observation_complete"] : []),
+      ...(observations.some((observation) => observation.freshness !== "fresh")
+        ? ["observation_fresh"] : []),
+      ...(observations.some((observation) => observation.environmentFreshness === "stale")
+        ? ["observation_environment_not_stale"] : []),
+    ].map((check) => `episode_${check}`);
+    if (failedObservationChecks.length > 0) return failedObservationChecks;
   }
 
-  if (
-    transition
-    && (
-      transition.status !== "materialized"
-      || !transition.resultingWorldRevision
-      || transition.parentWorldRevision !== episode.worldRevision
-    )
-  ) return false;
+  if (transition) {
+    const transitionFailures: string[] = [];
+    if (transition.status !== "materialized") {
+      transitionFailures.push("world_transition_not_materialized");
+    }
+    if (!transition.resultingWorldRevision) {
+      transitionFailures.push("world_transition_result_missing");
+    } else if (!/^[a-f0-9]{64}$/.test(transition.resultingWorldRevision)) {
+      transitionFailures.push("world_transition_result_invalid");
+    }
+    if (!transition.resultingScopedWorldRevision) {
+      transitionFailures.push("world_transition_scoped_result_missing");
+    } else if (!/^[a-f0-9]{64}$/.test(transition.resultingScopedWorldRevision)) {
+      transitionFailures.push("world_transition_scoped_result_invalid");
+    }
+    // The parent is project-wide and is validated while materializing. It must
+    // not be compared with the Episode's scope-bound revision.
+    if (!/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)) {
+      transitionFailures.push("world_transition_parent_revision_invalid");
+    }
+    if (transition.taskScope !== taskScope) {
+      transitionFailures.push("world_transition_task_scope_mismatch");
+    }
+    if (
+      transition.environmentRevision !== episode.environmentRevision
+      || transition.environmentRevisionKey !== (episode.environmentRevision
+        ? `revision:${episode.environmentRevision}`
+        : "unknown")
+    ) {
+      transitionFailures.push("world_transition_environment_revision_mismatch");
+    }
+    if (transitionFailures.length > 0) return transitionFailures;
+  }
 
-  const expectedWorldRevision = transition?.resultingWorldRevision ?? episode.worldRevision;
+  const expectedWorldRevision = transition
+    ? transition.resultingScopedWorldRevision
+    : episode.worldRevision;
+  if (!expectedWorldRevision) return ["episode_world_revision_present"];
   const currentWorldState = await getProjectWorldState(
     episode.projectId,
     {
@@ -479,7 +693,27 @@ async function hasCurrentGoalDependencyProof(
     },
     tx,
   );
-  return currentWorldState.worldRevision === expectedWorldRevision;
+  const actualWorldRevision = currentWorldState.worldRevision;
+  if (actualWorldRevision === expectedWorldRevision) return [];
+  if (diagnostics) {
+    diagnostics.worldStateRevisionMismatch = {
+      expectedWorldRevision,
+      actualWorldRevision,
+      expectedRevisionSource: transition ? "transition" : "episode",
+      transitionId: transition?.id ?? null,
+      transitionStatus: transition?.status ?? null,
+      projectId: episode.projectId,
+      missionId: mission.id,
+      dependencyGoalId: dependencyGoal.id,
+      executionId: episode.executionId,
+      episodeId: episode.id,
+      attempt: episode.attempt,
+      planRevision: dependencyPlanRevision ?? null,
+      taskScopeIdentity: taskScope,
+      environmentRevisionAvailable: episode.environmentRevision !== null,
+    };
+  }
+  return ["world_state_revision_mismatch"];
 }
 
 async function loadGoalDependencyState(
@@ -538,6 +772,7 @@ async function loadGoalDependencyState(
       unprovenDependencies.push({
         id: dependency.dependsOnGoalId,
         title: "Missing dependency Goal",
+        failedChecks: ["dependency_goal_missing"],
       });
     }
   }
@@ -557,13 +792,32 @@ async function loadGoalDependencyState(
       .for("update")
     : [];
   if (options.targetExecutionId && !targetExecution) {
-    unprovenDependencies.push({ id: goal.id, title: goal.title });
+    unprovenDependencies.push({
+      id: goal.id,
+      title: goal.title,
+      failedChecks: ["target_execution_missing"],
+    });
   }
 
   for (const dependencyGoal of dependencyGoals) {
     if (dependencyGoal.status !== "completed") continue;
-    if (!await hasCurrentGoalDependencyProof(tx, mission, dependencyGoal, planRevision)) {
-      unprovenDependencies.push({ id: dependencyGoal.id, title: dependencyGoal.title });
+    const proofDiagnostics: GoalDependencyProofDiagnostics = {};
+    const failedChecks = await hasCurrentGoalDependencyProof(
+      tx,
+      mission,
+      dependencyGoal,
+      planRevision,
+      proofDiagnostics,
+    );
+    if (failedChecks.length > 0) {
+      unprovenDependencies.push({
+        id: dependencyGoal.id,
+        title: dependencyGoal.title,
+        failedChecks,
+        ...(proofDiagnostics.worldStateRevisionMismatch
+          ? { worldStateRevisionMismatch: proofDiagnostics.worldStateRevisionMismatch }
+          : {}),
+      });
       continue;
     }
 
@@ -610,7 +864,11 @@ async function loadGoalDependencyState(
     if (ancestorPending || ancestorState.unprovenDependencies.length > 0) {
       unprovenDependencies.push(
         ancestorState.unprovenDependencies[0]
-        ?? { id: dependencyGoal.id, title: dependencyGoal.title },
+        ?? {
+          id: dependencyGoal.id,
+          title: dependencyGoal.title,
+          failedChecks: ["ancestor_dependency_unproven"],
+        },
       );
     }
   }
@@ -751,7 +1009,7 @@ export async function persistGoalDependencyProofBlocked(
     goal: typeof aiGoalsTable.$inferSelect;
     mission: typeof aiMissionsTable.$inferSelect;
     planRevision?: string;
-    dependency: { id: string; title: string };
+    dependency: UnprovenGoalDependency;
   },
 ): Promise<void> {
   const now = new Date();
@@ -766,6 +1024,18 @@ export async function persistGoalDependencyProofBlocked(
   await tx.update(aiMissionsTable)
     .set({ status: "needs_replan", updatedAt: now })
     .where(eq(aiMissionsTable.id, input.mission.id));
+  await persistGoalDependencyProofBlockedEvent(tx, input);
+}
+
+async function persistGoalDependencyProofBlockedEvent(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    mission: typeof aiMissionsTable.$inferSelect;
+    planRevision?: string;
+    dependency: UnprovenGoalDependency;
+  },
+): Promise<void> {
   await tx.insert(eventsTable).values({
     id: randomUUID(),
     type: "AiGoalDependencyProofBlocked",
@@ -778,6 +1048,12 @@ export async function persistGoalDependencyProofBlocked(
       planRevision: input.planRevision,
       dependencyGoalId: input.dependency.id,
       reasonCode: "dependency_proof_unproven",
+      ...(input.dependency.failedChecks?.length
+        ? { failedChecks: [...new Set(input.dependency.failedChecks)].slice(0, 32) }
+        : {}),
+      ...(input.dependency.worldStateRevisionMismatch
+        ? { worldStateRevisionMismatch: input.dependency.worldStateRevisionMismatch }
+        : {}),
     },
   });
 }
@@ -1246,19 +1522,6 @@ type RecipeDispatch = {
   delegation: MissionDelegationBinding;
 };
 
-async function resolveGitRevision(rootPath: string): Promise<string> {
-  const result = await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"], {
-    timeout: 8_000,
-    maxBuffer: 16 * 1024,
-    encoding: "utf8",
-  });
-  const revision = String(result.stdout).trim();
-  if (!/^[0-9a-f]{40}$/i.test(revision)) {
-    throw new Error("Project source revision is unavailable.");
-  }
-  return revision;
-}
-
 type MissionQueryExecutor = Pick<typeof db, "select">;
 
 async function recipeOperationIdentity(
@@ -1297,6 +1560,7 @@ async function recipeOperationIdentity(
     recipeVersion: action.recipeVersion,
     approvedPaths: action.approvedPaths,
     candidateIdentity: action.candidateIdentity ?? null,
+    ...(action.candidateProposalId ? { candidateProposalId: action.candidateProposalId } : {}),
     ...(action.skill ? { skill: action.skill } : {}),
   })).digest("hex");
   return {
@@ -1508,33 +1772,71 @@ async function loadRecipeCandidate(
   projectId: string,
   action: RecipeGoalAction,
   sourceRevision: string,
-): Promise<{ candidateWorkspace: string; operationId: string } | undefined> {
-  if (!action.candidateIdentity) return undefined;
+): Promise<
+  | { available: true; candidateWorkspace: string; operationId: string }
+  | {
+      available: false;
+      reasonCode:
+        | "candidate_proposal_not_found"
+        | "candidate_proposal_identity_mismatch"
+        | "candidate_not_validated"
+        | "candidate_revision_mismatch"
+        | "candidate_workspace_unavailable";
+    }
+  | undefined
+> {
+  if (!action.candidateIdentity) {
+    return action.candidateProposalId
+      ? { available: false, reasonCode: "candidate_proposal_identity_mismatch" }
+      : undefined;
+  }
   const [proposal] = await db
     .select({
+      id: aiChangeProposalsTable.id,
       operationId: aiChangeProposalsTable.operationId,
       workspaceRoot: aiChangeProposalsTable.workspaceRoot,
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      lifecycle: aiChangeProposalsTable.lifecycle,
     })
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.projectId, projectId),
-      eq(aiChangeProposalsTable.candidateTreeHash, action.candidateIdentity),
-      inArray(aiChangeProposalsTable.lifecycle, ["validated", "committed"]),
+      action.candidateProposalId
+        ? eq(aiChangeProposalsTable.id, action.candidateProposalId)
+        : eq(aiChangeProposalsTable.candidateTreeHash, action.candidateIdentity),
     ))
     .limit(1);
+  if (!proposal) return { available: false, reasonCode: "candidate_proposal_not_found" };
+  if (!["validated", "committed"].includes(proposal.lifecycle)) {
+    return { available: false, reasonCode: "candidate_not_validated" };
+  }
+  if (proposal.baseRevision !== sourceRevision) {
+    return { available: false, reasonCode: "candidate_revision_mismatch" };
+  }
   if (
-    !proposal?.operationId
+    !proposal.operationId
     || !proposal.workspaceRoot
     || proposal.candidateTreeHash !== action.candidateIdentity
-    || proposal.baseRevision !== sourceRevision
     || !await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
   ) {
-    return undefined;
+    return {
+      available: false,
+      reasonCode: proposal.candidateTreeHash !== action.candidateIdentity
+        ? "candidate_proposal_identity_mismatch"
+        : "candidate_workspace_unavailable",
+    };
   }
+  const candidateWorkspace = await materializeDisposableCandidateWorkspace({
+    proposalId: proposal.id,
+    operationId: proposal.operationId,
+    workspaceRoot: proposal.workspaceRoot,
+    candidateTreeHash: proposal.candidateTreeHash,
+  });
+  if (!candidateWorkspace) return { available: false, reasonCode: "candidate_workspace_unavailable" };
   return {
-    candidateWorkspace: proposal.workspaceRoot,
+    available: true,
+    candidateWorkspace,
     operationId: proposal.operationId,
   };
 }
@@ -1631,7 +1933,7 @@ async function syncRecipeObjectiveState(params: {
     const nextAction = jsonRecord(goal.nextAction);
     const recipeId = typeof nextAction.recipeId === "string" ? nextAction.recipeId : null;
     const requiresExternalDeliveryIdentity = outcome.deliveryRequired === true
-      && recipeId !== "candidate.verify";
+      && !isCandidateVerificationRecipeId(recipeId);
     const proposalId = typeof nextAction.proposalId === "string" ? nextAction.proposalId : null;
     const [proposal] = proposalId
       ? await tx
@@ -1764,6 +2066,18 @@ async function syncRecipeObjectiveState(params: {
         } else if (!continuation.allowed) {
           nextGoalStatus = "needs_replan";
           completionReason = `mission_goal_continuation_${continuation.reason}`;
+          if (
+            continuation.reason === "dependency_proof_unproven"
+            && "dependency" in continuation
+            && continuation.dependency
+          ) {
+            await persistGoalDependencyProofBlockedEvent(tx, {
+              goal,
+              mission,
+              planRevision: goalPlanRevision(goal),
+              dependency: continuation.dependency,
+            });
+          }
         } else {
           nextGoalStatus = "verifying";
           completionReason = `canonical_proof_${canonicalProof?.failureReasons[0] ?? "incomplete"}`;
@@ -1916,7 +2230,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       });
       return;
     }
-    const sourceRevision = await resolveGitRevision(rootResult.canonicalPath);
+    const sourceRevision = await resolveWorkspaceTreeRevision(rootResult.canonicalPath);
     const delivery = await loadGitHubDeliveryContext(dispatch.projectId, dispatch.action);
     if (dispatch.action.recipeId === "delivery.push.github") {
       if (
@@ -1940,11 +2254,16 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       }
     }
     const candidate = await loadRecipeCandidate(dispatch.projectId, dispatch.action, sourceRevision);
-    if (dispatch.action.candidateIdentity && !candidate) {
+    if (
+      dispatch.action.candidateIdentity
+      && (!candidate || !candidate.available)
+    ) {
       await syncRecipeObjectiveState({
         ...dispatch,
         status: "blocked",
-        reason: "candidate_not_available_for_current_revision",
+        reason: candidate && !candidate.available
+          ? candidate.reasonCode
+          : "candidate_proposal_not_found",
       });
       return;
     }
@@ -1983,7 +2302,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       ...(delivery ? { deliveryProposalId: delivery.proposalId } : {}),
       approvedPaths: dispatch.action.approvedPaths,
       candidateIdentity: dispatch.action.candidateIdentity ?? null,
-      candidateWorkspace: candidate?.candidateWorkspace ?? null,
+      candidateWorkspace: candidate?.available ? candidate.candidateWorkspace : null,
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
       missionId: dispatch.missionId,
@@ -2003,7 +2322,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           id: executionId,
           attempt,
           sourceRevision,
-          candidateWorkspace: candidate?.candidateWorkspace ?? null,
+          candidateWorkspace: candidate?.available ? candidate.candidateWorkspace : null,
         }, transaction);
         return authorization.allowed;
       },
@@ -2507,6 +2826,59 @@ export async function runMissionGoal(params: {
       return { status: "conflict" as const, goalId: goal.id, reason: continuation.reason };
     }
     const dependencyState = continuation.dependencyState;
+    let nextActionForDispatch: unknown = goal.nextAction;
+    const parsedNextAction = GoalNextActionSchema.safeParse(nextActionForDispatch);
+    if (parsedNextAction.success && parsedNextAction.data.kind === "recipe") {
+      const candidateBinding = await bindCandidateVerifyActionToDependencies({
+        tx,
+        mission,
+        action: parsedNextAction.data,
+        dependencies: dependencyState.dependencyGoals,
+      });
+      if (!candidateBinding.ok) {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: candidateBinding.reason,
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(aiGoalsTable.id, goal.id),
+            eq(aiGoalsTable.missionId, mission.id),
+            eq(aiGoalsTable.projectId, goal.projectId),
+          ));
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        return {
+          status: "blocked" as const,
+          goalId: goal.id,
+          reason: candidateBinding.reason,
+        };
+      }
+      if (
+        candidateBinding.action.candidateIdentity
+        !== parsedNextAction.data.candidateIdentity
+      ) {
+        const [boundGoal] = await tx.update(aiGoalsTable)
+          .set({
+            nextAction: candidateBinding.action,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(aiGoalsTable.id, goal.id),
+            eq(aiGoalsTable.missionId, mission.id),
+            eq(aiGoalsTable.projectId, goal.projectId),
+          ))
+          .returning({ id: aiGoalsTable.id });
+        if (!boundGoal) {
+          return { status: "conflict" as const, goalId: goal.id, reason: "goal_disappeared" };
+        }
+      }
+      nextActionForDispatch = candidateBinding.action;
+    }
     if (
       dependencyState.dependencies.length > 0
       && goal.status === "waiting_for_event"
@@ -2910,7 +3282,7 @@ export async function runMissionGoal(params: {
       });
     }
 
-    const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
+    const parsedAction = GoalNextActionSchema.safeParse(nextActionForDispatch);
     if (!parsedAction.success) {
       return { status: "blocked" as const, goalId: goal.id, reason: "invalid_next_action" };
     }

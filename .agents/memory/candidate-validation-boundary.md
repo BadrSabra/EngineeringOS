@@ -20,3 +20,9 @@ Intermediate delivery states are not direct apply permissions: `isolated`, `aban
 **Why:** A pending proposal can survive a process crash after live-root promotion has started, and replaying it without durable stage evidence can duplicate or overwrite an uncertain delivery.
 
 **How to apply:** Gate every apply retry on the persisted lifecycle and latest proposal-scoped journal stage; keep no-promotion blocked results retryable, but fail closed for missing, promoted, or rollback-failed evidence.
+
+Mission candidate verification uses the `workspace-tree-v1` revision contract. A `mission-candidate:` identity is provenance, not the candidate tree hash; bridge them through the exact accepted Execution's Proposal ID and that Proposal's validation evidence. Run validation only on a hash-verified copy inside the host disposable root.
+
+**Why:** These identifiers refer to different hash domains and lifecycle stages. Git HEAD or a hash-only Proposal lookup can bind proof to the wrong state, while the recipe runner intentionally rejects candidate workspaces outside its disposable root.
+
+**How to apply:** Keep source revision, composite Mission identity, Proposal ID, and candidate tree hash separate; revalidate their linkage before dispatch and validate only the isolated copy.

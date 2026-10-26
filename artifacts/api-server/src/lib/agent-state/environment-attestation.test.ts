@@ -88,7 +88,7 @@ describe("server-owned environment attestation", () => {
     expect(serverEnvironmentProfile("CANDIDATE_VALIDATION", {
       kind: "recipe",
       operationId: "candidate-validation-operation",
-      recipeId: "candidate.verify",
+      recipeId: "candidate.verify.workspace-typecheck",
       candidateIdentity: "candidate-validation-profile-test",
       validationProfiles: ["api-repair-validation-tests"],
     })).toMatchObject({

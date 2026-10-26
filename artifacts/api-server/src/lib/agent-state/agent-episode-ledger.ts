@@ -36,6 +36,8 @@ import {
   recordAgentEpisodeShadowSuccess,
 } from "../operational-counters.js";
 import { persistAgentEpisodeShadowAttempt } from "./agent-episode-shadow-campaign.js";
+import { getProjectWorldState } from "./world-state.js";
+import { taskScopeIdentity } from "./observation-materializer.js";
 
 type LedgerTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -74,6 +76,8 @@ export type StartEpisodeInput = {
   goalId?: string;
   parentEpisodeId?: string;
   worldRevision?: string;
+  /** Capture the server-owned scoped World State before the Episode can execute. */
+  captureWorldRevision?: boolean;
   beliefRevision?: string;
   planRevision?: string;
   objectiveContractId?: string;
@@ -780,6 +784,15 @@ async function terminalizeRelatedP75Episode(
 }
 
 export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpisode> {
+  if (
+    input.captureWorldRevision
+    && (!input.missionId || !input.goalId || input.worldRevision)
+  ) {
+    ledgerError(
+      "invalid_contract",
+      "captured Episode World State requires a Mission and Goal and cannot be caller-supplied",
+    );
+  }
   let environmentRevision: string | undefined;
   if (input.environmentRootPath) {
     const profile = serverEnvironmentProfile(input.intentKind, input.scope);
@@ -814,13 +827,20 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
       if (existing.idempotencyKey !== input.idempotencyKey) {
         ledgerError("invalid_contract", "episode idempotency key conflicts with existing episode");
       }
+      if (input.captureWorldRevision && !existing.worldRevision) {
+        ledgerError(
+          "invalid_contract",
+          "existing Episode is missing its required captured World State identity",
+        );
+      }
       return episodeToContract(existing);
     }
 
     const scope = parseBoundedJson(input.scope, 16 * 1024);
+    const newEpisodeId = randomUUID();
     const now = new Date();
     const [inserted] = await tx.insert(aiAgentEpisodesTable).values({
-      id: randomUUID(),
+      id: newEpisodeId,
       projectId: input.projectId,
       executionId: input.executionId,
       attempt: input.attempt,
@@ -829,7 +849,7 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
       parentEpisodeId: input.parentEpisodeId,
       projectRevision: input.projectRevision,
       environmentRevision,
-      worldRevision: input.worldRevision,
+      worldRevision: input.captureWorldRevision ? null : input.worldRevision,
       beliefRevision: input.beliefRevision,
       planRevision: input.planRevision,
       intentKind: input.intentKind,
@@ -842,9 +862,34 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
       createdAt: now,
       updatedAt: now,
     }).returning();
+    if (!inserted) {
+      ledgerError("invalid_contract", "could not create Episode");
+    }
+    let episodeForAppend = inserted;
+    if (input.captureWorldRevision) {
+      const taskScope = taskScopeIdentity(episodeForAppend);
+      if (taskScope.startsWith("unscoped:")) {
+        ledgerError("invalid_contract", "captured Episode World State requires a persisted task scope");
+      }
+      const capturedWorldState = await getProjectWorldState(input.projectId, {
+        taskScope,
+        environmentRevision: episodeForAppend.environmentRevision,
+      }, tx);
+      if (!capturedWorldState.worldRevision) {
+        ledgerError("invalid_contract", "could not capture Episode World State identity");
+      }
+      const [revisionBoundEpisode] = await tx.update(aiAgentEpisodesTable).set({
+        worldRevision: capturedWorldState.worldRevision,
+        updatedAt: now,
+      }).where(eq(aiAgentEpisodesTable.id, episodeForAppend.id)).returning();
+      if (!revisionBoundEpisode) {
+        ledgerError("invalid_contract", "could not bind Episode World State identity");
+      }
+      episodeForAppend = revisionBoundEpisode;
+    }
 
     await appendLocked(tx, {
-      episodeId: inserted!.id,
+      episodeId: episodeForAppend.id,
       projectId: input.projectId,
       executionId: input.executionId,
       attempt: input.attempt,
@@ -852,8 +897,8 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
       eventType: "EPISODE_CREATED",
       payload: { intentKind: input.intentKind, projectRevision: input.projectRevision },
       actorType: "worker",
-    }, execution, inserted!);
-    const [updated] = await tx.select().from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.id, inserted!.id));
+    }, execution, episodeForAppend);
+    const [updated] = await tx.select().from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.id, episodeForAppend.id));
     return episodeToContract(updated!);
   });
 }

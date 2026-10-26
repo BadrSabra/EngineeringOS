@@ -3298,6 +3298,26 @@ describe("real durable task execution lifecycle", () => {
         },
       };
     });
+    runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => {
+      const deliveryEvidenceContext = args[5] as {
+        operationId: string;
+        projectRevision?: string;
+        candidateHash?: string;
+      };
+      expect(deliveryEvidenceContext.operationId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      );
+      expect(deliveryEvidenceContext.projectRevision).toMatch(/^workspace-tree-v1:[a-f0-9]{64}$/u);
+      expect(deliveryEvidenceContext.candidateHash).toMatch(/^[a-f0-9]{64}$/u);
+      return {
+        status: "passed",
+        evidence: {
+          evidenceId: "mission-repair-delivery-validator-evidence",
+          artifactRef: "mission-repair-delivery-validator-pass",
+          validatorProfile: String(args[1]),
+        },
+      };
+    });
 
     try {
       const outcome = await executeTaskLifecycle({
@@ -3313,7 +3333,7 @@ describe("real durable task execution lifecycle", () => {
       expect(outcome.status).toBe("completed");
       expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
         .toBe("export const value = 'base';\n");
-      expect(runRepairValidation).toHaveBeenCalledTimes(1);
+      expect(runRepairValidation).toHaveBeenCalledTimes(2);
       expect(runRepairValidation.mock.calls[0]?.[4]).toEqual([
         { path: "src/target.ts", newContent: candidateContent },
       ]);
@@ -3369,6 +3389,31 @@ describe("real durable task execution lifecycle", () => {
         })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, outcome.executionId!));
+      const [missionEpisode] = await db
+        .select({
+          missionId: aiAgentEpisodesTable.missionId,
+          goalId: aiAgentEpisodesTable.goalId,
+          projectRevision: aiAgentEpisodesTable.projectRevision,
+          planRevision: aiAgentEpisodesTable.planRevision,
+          environmentRevision: aiAgentEpisodesTable.environmentRevision,
+          worldRevision: aiAgentEpisodesTable.worldRevision,
+        })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, outcome.executionId!))
+        .limit(1);
+      const [episodeExecution] = await db
+        .select({ baseRevision: aiExecutionsTable.baseRevision })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, outcome.executionId!))
+        .limit(1);
+      expect(missionEpisode).toMatchObject({
+        missionId: fixture.missionId,
+        goalId: fixture.goalId,
+        planRevision: `mission-plan-${fixture.goalId}`,
+      });
+      expect(missionEpisode?.projectRevision).toBe(episodeExecution?.baseRevision);
+      expect(typeof missionEpisode?.worldRevision).toBe("string");
+      expect(missionEpisode?.worldRevision).toMatch(/^[a-f0-9]{64}$/);
       const eventTypes = episodeEvents.map((event) => event.eventType);
       expect(eventTypes).toContain("ACTION_REQUESTED");
       expect(eventTypes).toContain("ACTION_COMMITTED");

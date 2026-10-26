@@ -91,6 +91,7 @@
 - [GitHub delivery recovery](github-delivery-recovery.md) — require exact remote proof; crash tests check startup after acknowledged mutation and explicit replay.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
+- [Runtime test egress guard](runtime-egress-test-guard.md) — project runtime subprocesses need their own test-only network guard; API-side NODE_OPTIONS does not establish their egress boundary.
 - [Runtime oracle command boundary](runtime-oracle-command-boundary.md) — production runtime validation needs a fixed server-owned command and existing proof bindings; it never grants write approval.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — distinguish checkpoint proof projections from Canonical Proof reloaded from durable acceptance and evidence.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
@@ -134,7 +135,7 @@
 - [Disposable PostgreSQL tests](disposable-postgres-tests.md) — DB-backed integration tests must use a loopback-only temporary cluster and explicit DATABASE_URL, never inherited development or production settings.
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Episode/Execution lock order](episode-execution-lock-order.md) — lock linked Mission/Goal rows before Execution, then Episode; World Transition also precedes Episode.
-- [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable lifecycle proof-bound; live World Delta needs separate post-promotion scope, revision, and Mission-read contracts.
+- [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — D2 binds global revision and direct live observations; downstream Mission dependency authorization separately requires the scoped digest.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Keep scoped reads advisory; Transition materialization validates an all-scope project revision.
 - [World State advisory planning](world-state-advisory-planning.md) — replan context is non-authoritative; bind the Goal's exact acceptance ID/current attempt and retain source, scope, and revision checks.
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
@@ -152,3 +153,6 @@
 - [Arabic UI direction tests](arabic-ui-direction-tests.md) — assert translated labels and isolated technical values separately when bidi markup splits rendered text.
 - [Goal draft continuity](goal-draft-continuity.md) — closing creation stops UI continuation, not the durable job; a send attempt is never an acceptance receipt.
 - [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.
+- [Isolated browser E2E containment](isolated-browser-e2e-containment.md) — use a loopback-effective Vite command and verify Playwright output resolves inside the unique run root.
+- [Isolated CI container namespaces](isolated-ci-container-netns.md) — `/proc/1` inside Docker is container init; compare against host namespace metadata without weakening in-container topology checks.
+- [Manual workflow dispatch boundary](manual-workflow-dispatch-boundary.md) — confirm the workflow and ref exist remotely before dispatch; run authorization does not grant permission to push local commits.

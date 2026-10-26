@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename } from "node:fs/promises";
 import path from "node:path";
+import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 
 export type DeliveryLifecycle =
   | "proposed" | "isolated" | "validated" | "applied" | "conflicted"
@@ -251,6 +252,12 @@ export async function hashDeliveryTree(rootPath: string): Promise<string> {
   return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
 }
 
+export const WORKSPACE_TREE_REVISION_PREFIX = "workspace-tree-v1:";
+
+export async function resolveWorkspaceTreeRevision(rootPath: string): Promise<string> {
+  return `${WORKSPACE_TREE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
+}
+
 /** Backward-compatible name used by benchmark and recovery callers. */
 export const hashDeliveryWorkspace = hashDeliveryTree;
 
@@ -438,6 +445,107 @@ export async function deliveryWorkspaceExists(workspaceRoot: string | null, oper
     return (await readFile(path.join(candidate, MARKER), "utf8")) === `${operationId}\n`;
   } catch {
     return false;
+  }
+}
+
+export async function materializeDisposableCandidateWorkspace(params: {
+  proposalId: string;
+  operationId: string;
+  workspaceRoot: string;
+  candidateTreeHash: string;
+}): Promise<string | undefined> {
+  if (
+    !/^[0-9a-f]{64}$/i.test(params.candidateTreeHash)
+    || !/^[0-9a-f-]{36}$/i.test(params.proposalId)
+    || !await deliveryWorkspaceExists(params.workspaceRoot, params.operationId)
+  ) return undefined;
+
+  let sourceRoot: string;
+  try {
+    sourceRoot = await realpath(params.workspaceRoot);
+    const markerInfo = await lstat(path.join(sourceRoot, MARKER));
+    if (
+      sourceRoot !== path.resolve(params.workspaceRoot)
+      || !markerInfo.isFile()
+      || markerInfo.isSymbolicLink()
+      || (await readFile(path.join(sourceRoot, MARKER), "utf8")) !== `${params.operationId}\n`
+      || await hashDeliveryTree(sourceRoot) !== params.candidateTreeHash
+    ) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const snapshotIdentity = createHash("sha256")
+    .update(`${params.proposalId}:${params.operationId}:${params.candidateTreeHash}`)
+    .digest("hex");
+  const snapshotRoot = path.join(
+    HOST_DISPOSABLE_TEMP_ROOT,
+    `engineeringos-candidate-${snapshotIdentity}`,
+  );
+  const snapshotMarker = `${params.proposalId}\n${params.operationId}\n${params.candidateTreeHash}\n`;
+  const isExactSnapshot = async (): Promise<boolean> => {
+    try {
+      const snapshotInfo = await lstat(snapshotRoot);
+      if (!snapshotInfo.isDirectory() || snapshotInfo.isSymbolicLink()) return false;
+      const [canonicalRoot, canonicalDisposableRoot] = await Promise.all([
+        realpath(snapshotRoot),
+        realpath(HOST_DISPOSABLE_TEMP_ROOT),
+      ]);
+      const relative = path.relative(canonicalDisposableRoot, canonicalRoot);
+      if (
+        !relative
+        || relative === ".."
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative)
+      ) return false;
+      return (await readFile(path.join(canonicalRoot, MARKER), "utf8")) === snapshotMarker
+        && await hashDeliveryTree(canonicalRoot) === params.candidateTreeHash;
+    } catch {
+      return false;
+    }
+  };
+
+  try {
+    await lstat(snapshotRoot);
+    return await isExactSnapshot() ? snapshotRoot : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+  }
+
+  const stagingRoot = await mkdtemp(path.join(
+    HOST_DISPOSABLE_TEMP_ROOT,
+    "engineeringos-candidate-stage-",
+  ));
+  const stagedWorkspace = path.join(stagingRoot, "workspace");
+  try {
+    await cp(sourceRoot, stagedWorkspace, {
+      recursive: true,
+      dereference: false,
+      verbatimSymlinks: true,
+      filter: (sourcePath) => {
+        const absolute = path.resolve(sourcePath);
+        return absolute === sourceRoot || !shouldExcludeDeliveryEntry(absolute, sourceRoot);
+      },
+    });
+    await writeFile(path.join(stagedWorkspace, MARKER), snapshotMarker, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    if (
+      await hashDeliveryTree(stagedWorkspace) !== params.candidateTreeHash
+      || await hashDeliveryTree(sourceRoot) !== params.candidateTreeHash
+    ) return undefined;
+    try {
+      await rename(stagedWorkspace, snapshotRoot);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "ENOTEMPTY") return undefined;
+    }
+    return await isExactSnapshot() ? snapshotRoot : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 

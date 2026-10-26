@@ -56,3 +56,9 @@ Startup reconciliation must not terminalize a `running` execution while its leas
 **Why:** Multiple API instances can overlap during startup, so an instance starting now cannot infer that another worker's unexpired lease is abandoned.
 
 **How to apply:** Make expired-only selection the default, pass it explicitly at startup, and require any broader reconciliation to opt in deliberately.
+
+Mission-linked shadow Episodes share the same execution/attempt identity as authoritative Mission Episodes. A shadow start that can win that identity must capture the trusted Mission World State and environment before the authoritative path can reuse it.
+
+**Why:** An incomplete shadow Episode can win the idempotency race and cause the later proof-bearing path to find missing provenance; the correct response is to fail closed, not infer a snapshot later.
+
+**How to apply:** When a Mission Goal and established root are present, pass the root and enable World State capture on the shadow start. Keep non-Mission shadow behavior unchanged, and reject reuse of a Mission Episode that lacks its required snapshot.

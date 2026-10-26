@@ -147,13 +147,102 @@ async function main() {
       throw new Error(`Test run interrupted by ${shutdownSignal}.`);
     }
 
+    const focusedCase = process.env.MISSION_CONTINUITY_FOCUSED_CASE;
+    if (focusedCase) {
+      const cases = {
+        "episode-world-revision": {
+          file: "src/lib/agent-state/agent-episode-ledger.test.ts",
+          test: "captures the scoped World State and environment revision before creating the Episode",
+        },
+        "mission-repair-episode-world-revision": {
+          file: "src/lib/task-execution-lifecycle.integration.test.ts",
+          test: "requires a directly observed candidate effect for an approved Mission repair",
+        },
+        "dependency-proof-diagnostics": {
+          file: "src/lib/mission-runtime.test.ts",
+          test: "releases a dependent Goal only from the matching current-attempt Canonical Proof|blocks dependency release when the proof has",
+        },
+        "recipe-dependency-proof-diagnostics": {
+          file: "src/lib/mission-runtime-recipe.test.ts",
+          test: "records dependency proof failures when a recipe finishes after its prerequisite proof becomes stale",
+        },
+        "recipe-taskless-materialization": {
+          file: "src/routes/ai/missions.test.ts",
+          test: "materializes an activation plan into durable steps when a mission becomes active",
+        },
+      };
+      const selected = cases[focusedCase];
+      if (!selected) {
+        throw new Error(`Unknown Mission continuity focused test: ${focusedCase}`);
+      }
+      console.log(`Running isolated Mission continuity regression: ${focusedCase}.`);
+      await run("pnpm", [
+        "--filter", "@workspace/api-server",
+        "exec", "vitest", "run",
+        selected.file,
+        "-t", selected.test,
+      ], {
+        env: databaseEnv,
+      });
+      return;
+    }
+
     console.log("Running the isolated Mission Agent projection and action-gateway route tests.");
     await run("pnpm", [
       "--filter", "@workspace/api-server",
       "exec", "vitest", "run",
       "src/routes/ai/missions.test.ts",
       "-t",
-      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention|binds handoffs to the exact Chat message and resumes the persisted Agent-control projection|rejects active Mission selection without a handoff to the exact session and project|rolls back the Mission plan and handoff when persisting the session selection fails|replays a START action with the same idempotency key after the Mission decision changes|routes AUTO_CONTINUE through Mission Runtime and replays the accepted result|rolls back blocked AUTO_CONTINUE state when its action receipt cannot be written|routes RESUME through the recovery service and reissues a bound recovery capability on replay|routes RETRY through the retry service and replays a bound retry capability|keeps Task-owned (RESUME|RETRY) Executions on the Task recovery route|routes APPROVE through the plan-approval service and persists its approval boundary|routes REPLAN through the plan service and preserves one result for the same key|routes STOP through the cancellation service and records it idempotently|keeps REVIEW and NONE gateway branches non-mutating while recording their decisions|revalidates the current Mission decision after the action reservation is acquired|does not duplicate a business effect when ledger finalization fails after START is accepted|updates owned missions and goals while preserving project ownership|materializes an activation plan into durable steps when a mission becomes active",
+      "projects a safe empty-Mission state without creating runtime records|does not return an Engineering Agent projection to a non-owner|projects a pending Goal approval as the Mission's primary intervention|binds handoffs to the exact Chat message and resumes the persisted Agent-control projection|rejects active Mission selection without a handoff to the exact session and project|rolls back the Mission plan and handoff when persisting the session selection fails|replays a START action with the same idempotency key after the Mission decision changes|routes AUTO_CONTINUE through Mission Runtime and replays the accepted result|rolls back blocked AUTO_CONTINUE state when its action receipt cannot be written|routes RESUME through the recovery service and reissues a bound recovery capability on replay|routes RETRY through the retry service and replays a bound retry capability|keeps Task-owned (RESUME|RETRY) Executions on the Task recovery route|routes APPROVE through the plan-approval service and persists its approval boundary|routes REPLAN through the plan service and preserves one result for the same key|routes STOP through the cancellation service and records it idempotently|keeps REVIEW and NONE gateway branches non-mutating while recording their decisions|revalidates the current Mission decision after the action reservation is acquired|does not duplicate a business effect when ledger finalization fails after START is accepted|updates owned missions and goals while preserving project ownership|materializes an activation plan into durable steps when a mission becomes active|starts the activation plan during one active mission creation request",
+    ], {
+      env: databaseEnv,
+    });
+
+    console.log("Verifying Mission Episode World State capture and failed-check diagnostics.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/agent-state/agent-episode-ledger.test.ts",
+      "-t", "captures the scoped World State and environment revision before creating the Episode",
+    ], {
+      env: databaseEnv,
+    });
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/mission-runtime.test.ts",
+      "-t", "blocks dependency release when the proof has a missing Episode World State revision",
+    ], {
+      env: databaseEnv,
+    });
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/task-execution-lifecycle.integration.test.ts",
+      "-t", "requires a directly observed candidate effect for an approved Mission repair",
+    ], {
+      env: databaseEnv,
+    });
+    console.log("Verifying Task and Recipe completion, retry, failure, and delivery boundaries.");
+    await run("pnpm", [
+      "--filter", "@workspace/api-server",
+      "exec", "vitest", "run",
+      "src/lib/task-execution-lifecycle.integration.test.ts",
+      "src/lib/mission-runtime-recipe.test.ts",
+      "src/lib/recipe-operation-runner.test.ts",
+      "src/routes/tasks.test.ts",
+      "-t",
+      "persists execution, checkpoint, task completion, and terminal acceptance"
+        + "|rejects a stale retry generation or execution pointer before creating an execution"
+        + "|rolls back task success projections when finalization fails after acceptance insert"
+        + "|persists provider failure as retryable terminal acceptance"
+        + "|records local task completion without completing the delivery Goal or Mission"
+        + "|does not start a linked task when its completed Goal dependency has no current proof"
+        + "|keeps Mission plan admission locked through a linked Task execution claim"
+        + "|re-dispatches a queued Mission recipe after a process restart without duplicating its execution"
+        + "|binds a typed recipe action to the existing recipe runner and projects completion"
+        + "|prepares a candidate verification recipe with exactly one approved path"
+        + "|returns an AI Task receipt only for the pointer-bound execution and exact attempt",
     ], {
       env: databaseEnv,
     });

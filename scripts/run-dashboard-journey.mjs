@@ -15,6 +15,7 @@ import {
   formatMissionCorrelationSummary,
   parseMissionCorrelationReportOutput,
 } from "./mission-correlation-report.mjs";
+import { assertLoopbackOnlyNetworkNamespace } from "./loopback-only-network-namespace.mjs";
 
 if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   console.error(
@@ -33,6 +34,27 @@ if (process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1") {
     throw new Error("Lifecycle worker scope must be a UUID project id.");
   }
   process.env.ENGINEERING_AGENT_WORKER_SCOPE_PROJECT_ID = scopeProjectId;
+  for (const key of [
+    "ALL_PROXY",
+    "all_proxy",
+    "GLOBAL_AGENT_HTTP_PROXY",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "NODE_USE_ENV_PROXY",
+    "NO_PROXY",
+    "no_proxy",
+    "npm_config_http_proxy",
+    "npm_config_https_proxy",
+    "npm_config_noproxy",
+    "npm_config_proxy",
+    "NPM_CONFIG_PROXY",
+    "PNPM_CONFIG_PROXY",
+    "UNDICI_PROXY",
+  ]) {
+    delete process.env[key];
+  }
 }
 
 const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
@@ -111,6 +133,9 @@ const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
 const outputDir = resolve(
   process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
 );
+// Playwright clears its --output directory before a run; keep the API guard
+// audit beside that directory so the startup proof survives until teardown.
+const apiEgressAuditPath = resolve(`${outputDir}.api-egress-audit.jsonl`);
 const teardownArtifactPath = resolve(
   process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
     resolve(outputDir, "release-teardown.json"),
@@ -126,10 +151,10 @@ const groqCatalogEvidencePath = resolve(
 const services = [];
 let releaseLockCleanup;
 let validationLockCleanup;
-const releasePorts = [apiPort, dashboardPort];
 const controlPort = Number(
   process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
 );
+const releasePorts = [apiPort, dashboardPort, controlPort];
 let apiService;
 let campaignControlServer;
 
@@ -141,6 +166,17 @@ function groqCatalogFixtureEnvironment() {
     };
   }
   if (missionProviderFixtureEnabled) {
+    const lifecycleMode = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
+    const guardRoots = [
+      process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT,
+      process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE,
+    ].filter((value) => typeof value === "string" && value.length > 0);
+    if (lifecycleMode && guardRoots.length !== 2) {
+      throw new Error("The lifecycle API egress guard requires its unique project and bare-remote roots.");
+    }
+    const egressGuardModule = pathToFileURL(
+      resolve(workspaceRoot, "scripts/runtime-egress-guard.mjs"),
+    ).href;
     const fixtureModule = pathToFileURL(
       resolve(workspaceRoot, "scripts/goal-first-provider-fixture.mjs"),
     ).href;
@@ -152,10 +188,22 @@ function groqCatalogFixtureEnvironment() {
       // A non-secret dummy value ensures model selection can reach the local
       // fixture without ever using a configured provider credential.
       OPENROUTER_API_KEY: "goal-first-local-provider-fixture",
+      ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE: lifecycleMode
+        ? "lifecycle-local"
+        : "blocked",
+      ...(lifecycleMode
+        ? {
+            ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON: JSON.stringify(guardRoots),
+            ENGINEERINGOS_RUNTIME_EGRESS_AUDIT_PATH: apiEgressAuditPath,
+          }
+        : {}),
+      // The guard is installed before the local provider fixture. The fixture
+      // may replace fetch only for its fixed local model responses; the guard
+      // continues to cover raw Node transports and process creation.
       NODE_OPTIONS: [
-        process.env.NODE_OPTIONS,
+        `--import=${egressGuardModule}`,
         `--import=${fixtureModule}`,
-      ].filter(Boolean).join(" "),
+      ].join(" "),
     };
   }
   return {
@@ -164,6 +212,56 @@ function groqCatalogFixtureEnvironment() {
     AI_PROVIDER_EGRESS_DISABLED: "1",
     DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
   };
+}
+
+async function assertLifecycleApiEgressClean(stage) {
+  if (process.env.ENGINEERING_AGENT_LIFECYCLE_E2E !== "1") return;
+  const logPaths = [
+    { path: apiEgressAuditPath, source: "api-guard" },
+    {
+      path: process.env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG,
+      source: "provider-fixture",
+    },
+  ].filter((entry) => entry.path);
+  const events = [];
+  for (const entry of logPaths) {
+    let content;
+    try {
+      content = await readFile(entry.path, "utf8");
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw new Error(`Unable to read ${entry.source} egress audit during ${stage}.`);
+    }
+    for (const [index, line] of content.split(/\r?\n/u).entries()) {
+      if (!line.trim()) continue;
+      try {
+        events.push({ ...JSON.parse(line), source: entry.source });
+      } catch {
+        throw new Error(
+          `Malformed ${entry.source} egress audit at line ${index + 1} during ${stage}.`,
+        );
+      }
+    }
+  }
+  const blocked = events.filter((event) =>
+    event.kind === "blocked-egress"
+    || event.kind === "blocked-child-process"
+    || event.kind === "child-output-limit"
+    || event.kind === "blocked-nonlocal-egress",
+  );
+  if (blocked.length > 0) {
+    const summary = blocked
+      .map((event) => `${event.source}:${event.kind}:${event.host ?? event.command ?? "unknown"}`)
+      .join(", ");
+    throw new Error(`Lifecycle egress/process guard rejected activity during ${stage}: ${summary}.`);
+  }
+  if (apiService?.pid && !events.some((event) =>
+    event.source === "api-guard"
+    && event.kind === "guard-installed"
+    && event.pid === apiService.pid,
+  )) {
+    throw new Error(`Lifecycle API egress guard was not confirmed in the API process during ${stage}.`);
+  }
 }
 
 function redact(value) {
@@ -710,7 +808,44 @@ async function readOriginDiagnostics() {
   }
 }
 
+const localAuthFixtureRequested =
+  process.env.ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE === "1";
+const localAuthFixtureEnabled =
+  localAuthFixtureRequested
+  && process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1"
+  && process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1"
+  && process.env.DASHBOARD_E2E_TEST_MODE === "fixture";
+
+if (localAuthFixtureRequested && !localAuthFixtureEnabled) {
+  throw new Error(
+    "The local lifecycle auth fixture requires the controlled isolated lifecycle fixture run.",
+  );
+}
+
+if (localAuthFixtureEnabled) {
+  const runId = process.env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID ?? "";
+  const expectedOutputDir = resolve(
+    workspaceRoot,
+    "test-results/engineering-agent-lifecycle",
+    runId,
+    "playwright",
+  );
+  if (
+    !/^[a-f0-9-]{36}$/i.test(runId)
+    || !process.env.PLAYWRIGHT_OUTPUT_DIR
+    || !process.env.PLAYWRIGHT_OUTPUT_DIR.startsWith("/")
+    || outputDir !== expectedOutputDir
+  ) {
+    throw new Error(
+      "The isolated lifecycle run requires an absolute Playwright output path under its unique runId.",
+    );
+  }
+}
+
 async function startReleaseServices() {
+  if (process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1") {
+    await assertLoopbackOnlyNetworkNamespace();
+  }
   if (process.env.DATABASE_URL) {
     if (process.env.RELEASE_VALIDATION_LOCK_HELD !== "1") {
       validationLockCleanup = await acquireReleaseLock(validationLockPath);
@@ -765,7 +900,7 @@ async function startReleaseServices() {
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
     {
-      NODE_ENV: "development",
+      NODE_ENV: localAuthFixtureEnabled ? "test" : "development",
       PORT: String(apiPort),
       APP_ORIGINS: approvedDashboardOrigins.join(","),
       ...groqCatalogFixtureEnvironment(),
@@ -779,15 +914,30 @@ async function startReleaseServices() {
   startService(
     "Dashboard release service",
     "pnpm",
-    ["--filter", "@workspace/dashboard", "run", "dev"],
+    [
+      "--filter",
+      "@workspace/dashboard",
+      "run",
+      localAuthFixtureEnabled ? "dev:local-e2e" : "dev",
+    ],
     {
+      NODE_ENV: localAuthFixtureEnabled ? "test" : "development",
       PORT: String(dashboardPort),
       BASE_PATH: "/dashboard/",
       API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
+      ...(localAuthFixtureEnabled
+        ? {
+            ENGINEERINGOS_LOCAL_E2E_AUTH_FIXTURE: "1",
+            RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+            ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+            DASHBOARD_E2E_TEST_MODE: "fixture",
+          }
+        : {}),
     },
     dashboardPort,
   );
   await waitFor(apiHealthUrl, "API workflow");
+  await assertLifecycleApiEgressClean("API startup");
   await startCampaignControl();
   const dashboardResponse = await waitFor(
     dashboardBaseUrl,
@@ -1077,7 +1227,11 @@ try {
     await performReleaseReadinessHandshake();
     console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
     console.log(`API workflow healthy at ${apiHealthUrl}`);
-    console.log(`Using isolated Clerk journey user ${testEmail}`);
+    console.log(
+      localAuthFixtureEnabled
+        ? "Using the fixed local test identity; no Clerk account or token is created."
+        : `Using isolated Clerk journey user ${testEmail}`,
+    );
     const journey = spawn(
       "pnpm",
       [
@@ -1087,6 +1241,8 @@ try {
         "playwright",
         "test",
         "--config=e2e/playwright.config.ts",
+        "--output",
+        outputDir,
         ...(process.env.DASHBOARD_E2E_GREP
           ? ["--grep", process.env.DASHBOARD_E2E_GREP]
           : []),
@@ -1096,6 +1252,7 @@ try {
         env: {
           ...process.env,
           CI: "true",
+          ...(localAuthFixtureEnabled ? { NODE_ENV: "test" } : {}),
           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
           DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
           DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
@@ -1109,7 +1266,9 @@ try {
             "readiness.json",
           ),
           DASHBOARD_E2E_LIVE_PROJECT_ID: dashboardFixtureProjectId,
-          DASHBOARD_E2E_EMAIL: testEmail,
+          DASHBOARD_E2E_EMAIL: localAuthFixtureEnabled
+            ? "engineeringos-lifecycle@example.invalid"
+            : testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
           DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH: groqCatalogEvidencePath,
@@ -1140,6 +1299,7 @@ try {
         (clearTimeout(timer), resolveResult(signal ? 1 : (code ?? 1))),
       );
     });
+    await assertLifecycleApiEgressClean("Playwright completion");
     if (result !== 0) process.exitCode = result;
     if (
       result === 0 &&

@@ -3049,16 +3049,25 @@ describe("AI missions and goals", () => {
     const reviewProjection = await request(app)
       .get(`/api/ai/missions/${reviewMission.body.id}/projection`);
     expect(reviewProjection.body.engineeringAgent.nextAction.kind).toBe("REVIEW");
+    const reviewActionBody = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: reviewProjection.body.engineeringAgent.nextAction,
+    };
     const reviewed = await request(app)
       .post(`/api/ai/missions/${reviewMission.body.id}/agent/action`)
-      .send({
-        idempotencyKey: randomUUID(),
-        expectedDecision: reviewProjection.body.engineeringAgent.nextAction,
-      });
+      .send(reviewActionBody);
     expect(reviewed.status).toBe(200);
     expect(reviewed.body).toMatchObject({
       outcome: "review_required",
       operation: { status: reviewProjection.body.engineeringAgent.nextAction.reasonCode },
+    });
+    const reviewReplay = await request(app)
+      .post(`/api/ai/missions/${reviewMission.body.id}/agent/action`)
+      .send(reviewActionBody);
+    expect(reviewReplay.status).toBe(reviewed.status);
+    expect(reviewReplay.body).toMatchObject({
+      outcome: "review_required",
+      idempotentReplay: true,
     });
 
     const noneProjectId = await insertProject();
@@ -3105,14 +3114,23 @@ describe("AI missions and goals", () => {
       status: aiExecutionsTable.status,
       cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
     }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, execution.execution.id));
+    const noActionBody = {
+      idempotencyKey: randomUUID(),
+      expectedDecision: noneProjection.body.engineeringAgent.nextAction,
+    };
     const noAction = await request(app)
       .post(`/api/ai/missions/${noneMission.body.id}/agent/action`)
-      .send({
-        idempotencyKey: randomUUID(),
-        expectedDecision: noneProjection.body.engineeringAgent.nextAction,
-      });
+      .send(noActionBody);
     expect(noAction.status).toBe(200);
     expect(noAction.body).toMatchObject({ outcome: "no_action", idempotentReplay: false });
+    const noActionReplay = await request(app)
+      .post(`/api/ai/missions/${noneMission.body.id}/agent/action`)
+      .send(noActionBody);
+    expect(noActionReplay.status).toBe(noAction.status);
+    expect(noActionReplay.body).toMatchObject({
+      outcome: "no_action",
+      idempotentReplay: true,
+    });
     const afterNone = await db.select({
       status: aiExecutionsTable.status,
       cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
@@ -6472,13 +6490,24 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.goals.length).toBeGreaterThan(1);
-    expect(projection.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
+    expect(projection.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "recipe",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 0))
+      .toBe(true);
+    expect(projection.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "task",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 1))
+      .toBe(true);
     const validationGoal = projection.body.goals.find((item: { goal: { title: string } }) =>
       item.goal.title === "Validate the resulting workspace",
     );
     expect(validationGoal?.goal.nextAction).toMatchObject({
       kind: "recipe",
-      recipeId: "validation.recover",
+      recipeId: "candidate.verify.workspace-typecheck",
       recipeVersion: 1,
       candidateIdentity: null,
     });
@@ -6501,7 +6530,18 @@ describe("AI missions and goals", () => {
     const afterRepeat = await request(app)
       .get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(afterRepeat.body.goals).toHaveLength(projection.body.goals.length);
-    expect(afterRepeat.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
+    expect(afterRepeat.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "recipe",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 0))
+      .toBe(true);
+    expect(afterRepeat.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "task",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 1))
+      .toBe(true);
   });
 
   it("starts the activation plan during one active mission creation request", async () => {
@@ -6520,7 +6560,18 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/missions/${created.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.goals.length).toBeGreaterThan(1);
-    expect(projection.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
+    expect(projection.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "recipe",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 0))
+      .toBe(true);
+    expect(projection.body.goals
+      .filter((item: { goal: { nextAction?: { kind?: string } } }) =>
+        item.goal.nextAction?.kind === "task",
+      )
+      .every((item: { tasks: unknown[] }) => item.tasks.length === 1))
+      .toBe(true);
   });
 
   it("creates one server-bound Apply Mission for a prepared proposal and keeps its apply step taskless", async () => {
