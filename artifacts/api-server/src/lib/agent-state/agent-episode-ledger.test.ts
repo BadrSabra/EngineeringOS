@@ -375,6 +375,59 @@ describe("agent episode ledger", () => {
     expect(JSON.stringify(toolEvents)).not.toContain("src/private.ts");
   });
 
+  it("rejects a stale validation receipt but lets the replacement worker finish the same attempt", async () => {
+    const episode = await startEpisode(startInput());
+    const originalWorkerId = workerId;
+    const replacementWorkerId = `agent-episode-worker-recovery-${randomUUID()}`;
+    const invocation = {
+      toolCallId: "auto-validation-call",
+      executionId: "tool-loop-execution",
+      scopeHash: "c".repeat(64),
+      toolName: "run_validation",
+      inputHash: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+    };
+    const input = (
+      phase: "requested" | "started" | "completed",
+      eventWorkerId: string,
+    ) => createToolInvocationEpisodeEventInput({
+      episodeId: episode.episodeId,
+      projectId,
+      executionId,
+      attempt: 0,
+      workerId: eventWorkerId,
+      projectRevision: "revision-1",
+      invocation: {
+        ...invocation,
+        phase,
+        ...(phase === "completed" ? { outputHash: "d".repeat(64) } : {}),
+      },
+    });
+
+    await appendEpisodeEvent(input("requested", originalWorkerId));
+    await appendEpisodeEvent(input("started", originalWorkerId));
+    await db.update(aiExecutionsTable)
+      .set({
+        workerId: replacementWorkerId,
+        leaseUntil: new Date(Date.now() + 300_000),
+      })
+      .where(eq(aiExecutionsTable.id, executionId));
+
+    await expect(appendEpisodeEvent(input("completed", originalWorkerId)))
+      .rejects.toMatchObject({ code: "stale_worker" });
+    const completed = await appendEpisodeEvent(input("completed", replacementWorkerId));
+    const replay = await replayEpisode({ userId, projectId, episodeId: episode.episodeId });
+    const toolEvents = replay.events.filter((event) =>
+      event.eventType === "TOOL_INVOCATION_RECORDED",
+    );
+
+    expect(completed.actorId).toBe(replacementWorkerId);
+    expect(toolEvents.map((event) =>
+      (event.payload as unknown as Record<string, unknown>).phase,
+    )).toEqual(["requested", "started", "completed"]);
+    expect(toolEvents.at(-1)?.actorId).toBe(replacementWorkerId);
+  });
+
   it("requires canonical actions on request events and records their episode references", async () => {
     const episode = await startEpisode(startInput());
     await expect(appendEpisodeEvent(eventInput(episode.episodeId, {

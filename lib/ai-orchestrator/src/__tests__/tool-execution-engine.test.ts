@@ -295,6 +295,48 @@ describe("executeSingleTool", () => {
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
+  it("rechecks validation approval after the requested lifecycle callback", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const approvedValidationProfiles = ["workspace-typecheck"];
+    const lifecycleEvents: Array<{ phase: string; diagnosticCode?: string }> = [];
+    const validationRunner = vi.fn(async () => ({
+      status: "passed" as const,
+      profile: "workspace-typecheck",
+      command: "pnpm run typecheck",
+      exitCode: 0,
+    }));
+
+    const result = await executeSingleTool({
+      name: "run_validation",
+      args: { profile: "workspace-typecheck" },
+      rootPath: "/project",
+      pendingChanges: [],
+      validationRunner,
+      validationTargetPaths: ["src/example.ts"],
+      allowExecutionTools: true,
+      approvalState: "APPROVED",
+      approvedValidationProfiles,
+      allowedToolNames: new Set(["run_validation"]),
+      executionId: "test-execution",
+      toolCallId: "c".repeat(64),
+      scopeHash: "a".repeat(64),
+      toolManifestHash: "b".repeat(64),
+      onToolInvocation: async (event) => {
+        lifecycleEvents.push(event);
+        if (event.phase === "requested") approvedValidationProfiles.splice(0);
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+    });
+    expect(validationRunner).not.toHaveBeenCalled();
+    expect(lifecycleEvents.map((event) => event.phase)).toEqual(["requested", "failed"]);
+    expect(lifecycleEvents.at(-1)?.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+  });
+
   it("rejects malformed and oversized arguments before hooks or handlers run", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const readCallback = vi.fn(async () => undefined);
