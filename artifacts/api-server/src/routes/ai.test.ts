@@ -3887,6 +3887,10 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
         proof: {
           required: true,
           verdict: "PROVEN",
+          statusProjection: {
+            authority: "STORED_STATUS_ONLY",
+            proofFreshness: "NOT_REVALIDATED",
+          },
         },
       },
       operationEvidence: {
@@ -3936,7 +3940,16 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
     const rawExportText = (rawExport.body as Buffer).toString("utf8");
     expect(JSON.parse(rawExportText)).toMatchObject({
       format: "engineeringos.execution-audit.v1",
-      execution: { id: created.execution.id, status: "completed" },
+      execution: {
+        id: created.execution.id,
+        status: "completed",
+        proof: {
+          statusProjection: {
+            authority: "STORED_STATUS_ONLY",
+            proofFreshness: "NOT_REVALIDATED",
+          },
+        },
+      },
     });
     expect(rawExportText).not.toContain("sk-live-do-not-export");
     expect(rawExportText).not.toContain("MODEL_PREVIEW_SHOULD_NOT_EXPORT");

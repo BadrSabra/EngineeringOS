@@ -5,5 +5,9 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { ExportAiExecutionAudit200ExecutionProof } from './exportAiExecutionAudit200ExecutionProof';
 
-export type ExportAiExecutionAudit200Execution = { [key: string]: unknown };
+export type ExportAiExecutionAudit200Execution = {
+  proof?: ExportAiExecutionAudit200ExecutionProof;
+  [key: string]: unknown;
+ };

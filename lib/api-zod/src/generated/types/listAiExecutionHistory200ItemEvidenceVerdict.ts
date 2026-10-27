@@ -6,6 +6,9 @@
  * OpenAPI spec version: 1.0.0
  */
 
+/**
+ * Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
+ */
 export type ListAiExecutionHistory200ItemEvidenceVerdict = typeof ListAiExecutionHistory200ItemEvidenceVerdict[keyof typeof ListAiExecutionHistory200ItemEvidenceVerdict];
 
 

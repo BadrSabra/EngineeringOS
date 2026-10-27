@@ -4660,7 +4660,11 @@ export const GetAiExecutionResponse = zod.object({
   "projectRevision": zod.string().nullish().describe('Workspace revision captured when this execution began'),
   "status": zod.enum(['queued', 'running', 'paused', 'cancelling', 'cancelled', 'completed', 'failed']),
   "flightState": zod.enum(['BUILDING', 'VALIDATING', 'REPAIRING', 'READY_FOR_REVIEW', 'BLOCKED', 'APPLIED', 'COMMITTED', 'PUSHED', 'CANCELLED', 'COMPLETED']).describe('Unified server-derived Code Flight Deck lifecycle state'),
-  "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']).describe('Evidence confidence for the durable execution; absence of proof never implies success'),
+  "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']).describe('Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.'),
+  "evidenceStatusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.'),
   "proofRequired": zod.boolean(),
   "recipeReceipt": zod.object({
   "contractVersion": zod.literal(1),
@@ -5074,7 +5078,11 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "sessionId": zod.string().nullish(),
   "status": zod.enum(['paused', 'cancelled', 'failed']),
   "objective": zod.string(),
-  "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']),
+  "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']).describe('Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.'),
+  "evidenceStatusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.'),
   "evidenceReason": zod.string().nullish(),
   "terminalReason": zod.string().nullish(),
   "acceptanceDisposition": zod.union([zod.object({
@@ -5238,7 +5246,7 @@ export const ApproveAiExecutionProposalResponse = zod.object({
 
 
 /**
- * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+ * Returns the selected execution's portable timeline, terminal state, revision, stored checkpoint verdict, validation checkpoints, and affected files. The stored verdict is explicitly status-only and is not current Canonical Proof. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
  * @summary Preview or download a redacted durable AI execution audit
  */
 export const ExportAiExecutionAuditParams = zod.object({
@@ -5299,7 +5307,17 @@ export const exportAiExecutionAuditResponseExecutionDiagnosticsRateLimitAttempts
 export const ExportAiExecutionAuditResponse = zod.object({
   "format": zod.string(),
   "exportedAt": zod.coerce.date(),
-  "execution": zod.record(zod.string(), zod.unknown()),
+  "execution": zod.object({
+  "proof": zod.object({
+  "required": zod.boolean(),
+  "verdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.'),
+  "reason": zod.string().nullable()
+}).optional()
+}),
   "operationEvidence": zod.object({
   "version": zod.literal(1),
   "redacted": zod.literal(true),

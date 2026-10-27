@@ -7,7 +7,7 @@
  */
 
 /**
- * Evidence confidence for the durable execution; absence of proof never implies success
+ * Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
  */
 export type GetAiExecution200EvidenceVerdict = typeof GetAiExecution200EvidenceVerdict[keyof typeof GetAiExecution200EvidenceVerdict];
 

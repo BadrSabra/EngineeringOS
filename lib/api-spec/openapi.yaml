@@ -1854,7 +1854,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, correlationId, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection, worldTransitions]
+                required: [id, correlationId, status, flightState, evidenceVerdict, evidenceStatusProjection, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection, worldTransitions]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
                   correlationId:
@@ -1885,7 +1885,9 @@ paths:
                   evidenceVerdict:
                     type: string
                     enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED]
-                    description: Evidence confidence for the durable execution; absence of proof never implies success
+                    description: Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
+                  evidenceStatusProjection:
+                    $ref: "#/components/schemas/AiExecutionEvidenceStatusProjection"
                   proofRequired:
                     type: boolean
                   recipeReceipt:
@@ -1999,14 +2001,19 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [id, projectId, status, objective, evidenceVerdict, proofRequired, disposition, recommendedAction, resumable, checkpointVersion, createdAt, updatedAt]
+                  required: [id, projectId, status, objective, evidenceVerdict, evidenceStatusProjection, proofRequired, disposition, recommendedAction, resumable, checkpointVersion, createdAt, updatedAt]
                   properties:
                     id: { type: string }
                     projectId: { type: string }
                     sessionId: { type: string, nullable: true }
                     status: { type: string, enum: [paused, cancelled, failed] }
                     objective: { type: string }
-                    evidenceVerdict: { type: string, enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED] }
+                    evidenceVerdict:
+                      type: string
+                      enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED]
+                      description: Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
+                    evidenceStatusProjection:
+                      $ref: "#/components/schemas/AiExecutionEvidenceStatusProjection"
                     evidenceReason: { type: string, nullable: true }
                     terminalReason: { type: string, nullable: true }
                     acceptanceDisposition:
@@ -2117,7 +2124,7 @@ paths:
     get:
       operationId: exportAiExecutionAudit
       summary: Preview or download a redacted durable AI execution audit
-      description: Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+      description: Returns the selected execution's portable timeline, terminal state, revision, stored checkpoint verdict, validation checkpoints, and affected files. The stored verdict is explicitly status-only and is not current Canonical Proof. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
       tags: [AI]
       parameters:
         - name: executionId
@@ -2141,7 +2148,20 @@ paths:
                 properties:
                   format: { type: string, example: engineeringos.execution-audit.v1 }
                   exportedAt: { type: string, format: date-time }
-                  execution: { type: object, additionalProperties: true }
+                  execution:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      proof:
+                        type: object
+                        additionalProperties: false
+                        required: [required, verdict, statusProjection, reason]
+                        properties:
+                          required: { type: boolean }
+                          verdict: { type: string, enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED] }
+                          statusProjection:
+                            $ref: "#/components/schemas/AiExecutionEvidenceStatusProjection"
+                          reason: { type: string, nullable: true }
                   operationEvidence:
                     $ref: "#/components/schemas/OperationEvidenceProjection"
                   executionDiagnostics:
@@ -8099,6 +8119,18 @@ components:
                 minimum: 1
                 maximum: 9007199254740991
 
+    AiExecutionEvidenceStatusProjection:
+      type: object
+      additionalProperties: false
+      description: Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
+      required: [authority, proofFreshness]
+      properties:
+        authority:
+          type: string
+          enum: [STORED_STATUS_ONLY]
+        proofFreshness:
+          type: string
+          enum: [NOT_REVALIDATED]
     AiExecutionProjection:
       type: object
       additionalProperties: false
@@ -8172,16 +8204,7 @@ components:
             proofRequired: { type: boolean }
             statusProjection:
               description: Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
-              type: object
-              additionalProperties: false
-              required: [authority, proofFreshness]
-              properties:
-                authority:
-                  type: string
-                  enum: [STORED_STATUS_ONLY]
-                proofFreshness:
-                  type: string
-                  enum: [NOT_REVALIDATED]
+              $ref: "#/components/schemas/AiExecutionEvidenceStatusProjection"
         orientation:
           nullable: true
           description: Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.

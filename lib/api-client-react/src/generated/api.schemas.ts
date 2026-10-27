@@ -3674,19 +3674,27 @@ export const AiExecutionProjectionVerificationStatus = {
   unavailable: 'unavailable',
 } as const;
 
-export type AiExecutionProjectionVerificationStatusProjectionAuthority = typeof AiExecutionProjectionVerificationStatusProjectionAuthority[keyof typeof AiExecutionProjectionVerificationStatusProjectionAuthority];
+export type AiExecutionEvidenceStatusProjectionAuthority = typeof AiExecutionEvidenceStatusProjectionAuthority[keyof typeof AiExecutionEvidenceStatusProjectionAuthority];
 
 
-export const AiExecutionProjectionVerificationStatusProjectionAuthority = {
+export const AiExecutionEvidenceStatusProjectionAuthority = {
   STORED_STATUS_ONLY: 'STORED_STATUS_ONLY',
 } as const;
 
-export type AiExecutionProjectionVerificationStatusProjectionProofFreshness = typeof AiExecutionProjectionVerificationStatusProjectionProofFreshness[keyof typeof AiExecutionProjectionVerificationStatusProjectionProofFreshness];
+export type AiExecutionEvidenceStatusProjectionProofFreshness = typeof AiExecutionEvidenceStatusProjectionProofFreshness[keyof typeof AiExecutionEvidenceStatusProjectionProofFreshness];
 
 
-export const AiExecutionProjectionVerificationStatusProjectionProofFreshness = {
+export const AiExecutionEvidenceStatusProjectionProofFreshness = {
   NOT_REVALIDATED: 'NOT_REVALIDATED',
 } as const;
+
+/**
+ * Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
+ */
+export interface AiExecutionEvidenceStatusProjection {
+  authority: AiExecutionEvidenceStatusProjectionAuthority;
+  proofFreshness: AiExecutionEvidenceStatusProjectionProofFreshness;
+}
 
 export type AiExecutionProjectionOrientationMissingRolesItem = typeof AiExecutionProjectionOrientationMissingRolesItem[keyof typeof AiExecutionProjectionOrientationMissingRolesItem];
 
@@ -3822,21 +3830,13 @@ export type AiExecutionProjectionWorkspace = {
   diffStatus: AiExecutionProjectionWorkspaceDiffStatus;
 };
 
-/**
- * Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
- */
-export type AiExecutionProjectionVerificationStatusProjection = {
-  authority: AiExecutionProjectionVerificationStatusProjectionAuthority;
-  proofFreshness: AiExecutionProjectionVerificationStatusProjectionProofFreshness;
-};
-
 export type AiExecutionProjectionVerification = {
   status: AiExecutionProjectionVerificationStatus;
   /** @maxLength 40 */
   evidenceVerdict: string;
   proofRequired: boolean;
   /** Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof. */
-  statusProjection?: AiExecutionProjectionVerificationStatusProjection;
+  statusProjection?: AiExecutionEvidenceStatusProjection;
 };
 
 /**
@@ -7147,7 +7147,7 @@ export const GetAiExecution200FlightState = {
 } as const;
 
 /**
- * Evidence confidence for the durable execution; absence of proof never implies success
+ * Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
  */
 export type GetAiExecution200EvidenceVerdict = typeof GetAiExecution200EvidenceVerdict[keyof typeof GetAiExecution200EvidenceVerdict];
 
@@ -7223,8 +7223,9 @@ export type GetAiExecution200 = {
   status: GetAiExecution200Status;
   /** Unified server-derived Code Flight Deck lifecycle state */
   flightState: GetAiExecution200FlightState;
-  /** Evidence confidence for the durable execution; absence of proof never implies success */
+  /** Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection. */
   evidenceVerdict: GetAiExecution200EvidenceVerdict;
+  evidenceStatusProjection: AiExecutionEvidenceStatusProjection;
   proofRequired: boolean;
   /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
   recipeReceipt?: RecipeReceipt | null;
@@ -7277,6 +7278,9 @@ export const ListAiExecutionHistory200ItemStatus = {
   failed: 'failed',
 } as const;
 
+/**
+ * Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection.
+ */
 export type ListAiExecutionHistory200ItemEvidenceVerdict = typeof ListAiExecutionHistory200ItemEvidenceVerdict[keyof typeof ListAiExecutionHistory200ItemEvidenceVerdict];
 
 
@@ -7311,7 +7315,9 @@ export type ListAiExecutionHistory200Item = {
   sessionId?: string | null;
   status: ListAiExecutionHistory200ItemStatus;
   objective: string;
+  /** Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection. */
   evidenceVerdict: ListAiExecutionHistory200ItemEvidenceVerdict;
+  evidenceStatusProjection: AiExecutionEvidenceStatusProjection;
   evidenceReason?: string | null;
   terminalReason?: string | null;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
@@ -7355,7 +7361,28 @@ export type ApproveAiExecutionProposal200 = {
   revision: string;
 };
 
-export type ExportAiExecutionAudit200Execution = { [key: string]: unknown };
+export type ExportAiExecutionAudit200ExecutionProofVerdict = typeof ExportAiExecutionAudit200ExecutionProofVerdict[keyof typeof ExportAiExecutionAudit200ExecutionProofVerdict];
+
+
+export const ExportAiExecutionAudit200ExecutionProofVerdict = {
+  PROVEN: 'PROVEN',
+  PARTIAL: 'PARTIAL',
+  UNAVAILABLE: 'UNAVAILABLE',
+  BLOCKED: 'BLOCKED',
+  NOT_RECORDED: 'NOT_RECORDED',
+} as const;
+
+export type ExportAiExecutionAudit200ExecutionProof = {
+  required: boolean;
+  verdict: ExportAiExecutionAudit200ExecutionProofVerdict;
+  statusProjection: AiExecutionEvidenceStatusProjection;
+  reason: string | null;
+};
+
+export type ExportAiExecutionAudit200Execution = {
+  proof?: ExportAiExecutionAudit200ExecutionProof;
+  [key: string]: unknown;
+ };
 
 export type ExportAiExecutionAudit200TimelineItem = { [key: string]: unknown };
 

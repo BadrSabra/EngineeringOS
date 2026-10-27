@@ -7,6 +7,7 @@
  */
 import type { AiAcceptanceDisposition } from './aiAcceptanceDisposition';
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
+import type { AiExecutionEvidenceStatusProjection } from './aiExecutionEvidenceStatusProjection';
 import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { ListAiExecutionHistory200ItemDisposition } from './listAiExecutionHistory200ItemDisposition';
@@ -20,7 +21,9 @@ export type ListAiExecutionHistory200Item = {
   sessionId?: string | null;
   status: ListAiExecutionHistory200ItemStatus;
   objective: string;
+  /** Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection. */
   evidenceVerdict: ListAiExecutionHistory200ItemEvidenceVerdict;
+  evidenceStatusProjection: AiExecutionEvidenceStatusProjection;
   evidenceReason?: string | null;
   terminalReason?: string | null;
   acceptanceDisposition?: AiAcceptanceDisposition | null;

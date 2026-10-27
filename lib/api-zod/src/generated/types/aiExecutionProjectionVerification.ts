@@ -5,8 +5,8 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiExecutionEvidenceStatusProjection } from './aiExecutionEvidenceStatusProjection';
 import type { AiExecutionProjectionVerificationStatus } from './aiExecutionProjectionVerificationStatus';
-import type { AiExecutionProjectionVerificationStatusProjection } from './aiExecutionProjectionVerificationStatusProjection';
 
 export type AiExecutionProjectionVerification = {
   status: AiExecutionProjectionVerificationStatus;
@@ -14,5 +14,5 @@ export type AiExecutionProjectionVerification = {
   evidenceVerdict: string;
   proofRequired: boolean;
   /** Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof. */
-  statusProjection?: AiExecutionProjectionVerificationStatusProjection;
+  statusProjection?: AiExecutionEvidenceStatusProjection;
 };

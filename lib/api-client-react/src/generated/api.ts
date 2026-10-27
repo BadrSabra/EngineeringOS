@@ -6377,7 +6377,7 @@ export const getExportAiExecutionAuditUrl = (executionId: string,) => {
 }
 
 /**
- * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+ * Returns the selected execution's portable timeline, terminal state, revision, stored checkpoint verdict, validation checkpoints, and affected files. The stored verdict is explicitly status-only and is not current Canonical Proof. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
  * @summary Preview or download a redacted durable AI execution audit
  */
 export const exportAiExecutionAudit = async (executionId: string, options?: Parameters<typeof customFetch>[1]): Promise<ExportAiExecutionAudit200> => {

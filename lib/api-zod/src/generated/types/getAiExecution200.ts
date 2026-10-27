@@ -8,6 +8,7 @@
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
 import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
 import type { AiExecutionEvidenceBraid } from './aiExecutionEvidenceBraid';
+import type { AiExecutionEvidenceStatusProjection } from './aiExecutionEvidenceStatusProjection';
 import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { GetAiExecution200ApplyMission } from './getAiExecution200ApplyMission';
@@ -40,8 +41,9 @@ export type GetAiExecution200 = {
   status: GetAiExecution200Status;
   /** Unified server-derived Code Flight Deck lifecycle state */
   flightState: GetAiExecution200FlightState;
-  /** Evidence confidence for the durable execution; absence of proof never implies success */
+  /** Stored checkpoint evidence status only; does not revalidate current Canonical Proof. See evidenceStatusProjection. */
   evidenceVerdict: GetAiExecution200EvidenceVerdict;
+  evidenceStatusProjection: AiExecutionEvidenceStatusProjection;
   proofRequired: boolean;
   /** Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence */
   recipeReceipt?: RecipeReceipt | null;

@@ -1177,7 +1177,17 @@ describe("AI execution resume-capability recovery", () => {
       sessionId,
     });
     await db.update(aiExecutionsTable)
-      .set({ status: "completed", updatedAt: new Date() })
+      .set({
+        status: "completed",
+        checkpoint: JSON.stringify({
+          stage: "completed",
+          sequence: 1,
+          updatedAt: new Date().toISOString(),
+          evidenceVerdict: "PROVEN",
+          proofRequired: true,
+        }),
+        updatedAt: new Date(),
+      })
       .where(eq(aiExecutionsTable.id, created.execution.id));
 
     const acceptances = await db
@@ -1196,7 +1206,53 @@ describe("AI execution resume-capability recovery", () => {
       reasonCode: "ACCEPTANCE_MISSING",
       acceptanceId: null,
     });
+    expect(detail.body.evidenceVerdict).toBe("PROVEN");
+    expect(detail.body.evidenceStatusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
     expect(detail.body.projection.stopped.outcome).toBe("UNKNOWN");
+
+    const failedExecution = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "Review the stored checkpoint",
+        modelMessage: "Review the stored checkpoint",
+        validationTargetPaths: [],
+        proofRequired: true,
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "failed",
+        checkpoint: JSON.stringify({
+          stage: "failed",
+          sequence: 1,
+          updatedAt: new Date().toISOString(),
+          evidenceVerdict: "PROVEN",
+          proofRequired: true,
+        }),
+        updatedAt: new Date(),
+      })
+      .where(eq(aiExecutionsTable.id, failedExecution.execution.id));
+    const history = await request(app)
+      .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)
+      .expect(200);
+    expect(history.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: failedExecution.execution.id,
+        evidenceVerdict: "PROVEN",
+        evidenceStatusProjection: {
+          authority: "STORED_STATUS_ONLY",
+          proofFreshness: "NOT_REVALIDATED",
+        },
+      }),
+    ]));
   });
 
   it("linearizes concurrent capability refreshes and reconnect streams into one identity-preserving resume", async () => {

@@ -2848,6 +2848,11 @@ const EVIDENCE_GRAPH_STATUS_PROJECTION: NonNullable<ApiEvidenceGraph["statusProj
   proofFreshness: "NOT_REVALIDATED",
 };
 
+const AI_EXECUTION_EVIDENCE_STATUS_PROJECTION = {
+  authority: "STORED_STATUS_ONLY",
+  proofFreshness: "NOT_REVALIDATED",
+} as const;
+
 function projectEvidenceGraphStatus(graph: EvidenceGraph): ApiEvidenceGraph {
   return {
     ...graph,
@@ -13865,6 +13870,7 @@ router.get("/ai/executions/history", async (req, res) => {
         500,
       ),
       evidenceVerdict,
+      evidenceStatusProjection: AI_EXECUTION_EVIDENCE_STATUS_PROJECTION,
       evidenceReason: acceptanceDisposition
         ? "Required acceptance evidence was not proven for this run."
         : typeof checkpointRecord.evidenceReason === "string"
@@ -14127,6 +14133,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     }),
     proofRequired,
     evidenceVerdict,
+    evidenceStatusProjection: AI_EXECUTION_EVIDENCE_STATUS_PROJECTION,
     evidenceReason: acceptanceDisposition
       ? "Required acceptance evidence was not proven for this run."
       : typeof checkpointRecord.evidenceReason === "string"
@@ -14504,6 +14511,7 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
       proof: {
         required: checkpoint.proofRequired === true,
         verdict: safeText(checkpoint.evidenceVerdict, 80) ?? "NOT_RECORDED",
+        statusProjection: AI_EXECUTION_EVIDENCE_STATUS_PROJECTION,
         reason: safeText(checkpoint.evidenceReason, 500) ?? null,
       },
       checkpointVersion: execution.checkpointVersion,
