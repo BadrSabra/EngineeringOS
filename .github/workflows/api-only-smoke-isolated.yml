@@ -1,0 +1,243 @@
+name: EngineeringOS API-only smoke (OS isolated)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_isolated_smoke:
+        description: "Confirm a manually approved API-only smoke run"
+        required: true
+        type: boolean
+        default: false
+      allow_dependency_bootstrap_egress:
+        description: "Allow runner-side Docker Hub, Debian/PGDG, and npm fetches during image preparation; the API smoke container still runs with --network none."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  api-only-smoke:
+    if: ${{ inputs.confirm_isolated_smoke && inputs.allow_dependency_bootstrap_egress && github.ref == 'refs/heads/main' }}
+    name: API-only smoke in loopback-only container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Record dependency-bootstrap network approval
+        shell: bash
+        env:
+          DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED: ${{ inputs.allow_dependency_bootstrap_egress }}
+        run: |
+          set -Eeuo pipefail
+          results_dir="${RUNNER_TEMP}/engineeringos-api-only-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$results_dir"
+          if [[ "$DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED" != "true" ]]; then
+            echo "Refusing external image preparation without explicit approval." >&2
+            exit 1
+          fi
+          printf '{"runId":"%s","runAttempt":%s,"dependencyBootstrapEgressApproved":%s,"apiSmokeContainerNetwork":"none","scope":"runner-and-image-preparation"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$DEPENDENCY_BOOTSTRAP_EGRESS_APPROVED" \
+            > "$results_dir/bootstrap-network-policy.json"
+
+      - name: Fail closed unless Docker network isolation works
+        id: os-isolation
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          results_dir="${RUNNER_TEMP}/engineeringos-api-only-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$results_dir"
+          {
+            docker info >/dev/null
+            docker pull node:20.20.0-bookworm
+            host_net_namespace="$(readlink /proc/self/ns/net)"
+            [[ "$host_net_namespace" =~ ^net:\[[0-9]+\]$ ]]
+
+            docker run --rm \
+              --pull=never \
+              --network none \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+              --pids-limit 32 \
+              --memory 512m \
+              --cpus 1 \
+              --cap-drop ALL \
+              --security-opt no-new-privileges:true \
+              --user 1000:1000 \
+              --env "ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE=${host_net_namespace}" \
+              node:20.20.0-bookworm \
+              node -e '
+                const fs = require("node:fs");
+                const host = process.env.ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE;
+                const self = fs.readlinkSync("/proc/self/ns/net");
+                const interfaces = fs.readdirSync("/sys/class/net").sort();
+                const ipv4Text = fs.readFileSync("/proc/net/route", "utf8");
+                const ipv6Text = fs.readFileSync("/proc/net/ipv6_route", "utf8");
+                const ipv4Routes = ipv4Text.trim().split(/\r?\n/).slice(1).filter(Boolean).map((line) => {
+                  const fields = line.trim().split(/\s+/);
+                  return { iface: fields[0], isDefault: fields[1] === "00000000" };
+                });
+                const ipv6Routes = ipv6Text.trim().split(/\r?\n/).filter(Boolean).map((line) => {
+                  const fields = line.trim().split(/\s+/);
+                  return {
+                    iface: fields.at(-1),
+                    isDefault: fields[0] === "00000000000000000000000000000000" && fields[1] === "00",
+                  };
+                });
+                const status = fs.readFileSync("/proc/self/status", "utf8");
+                const capValues = ["CapEff", "CapPrm", "CapBnd", "CapAmb"].map((key) => {
+                  const value = status.match(new RegExp(`^${key}:\\s*([a-f0-9]+)$`, "mu"))?.[1];
+                  return value === undefined ? null : BigInt(`0x${value}`);
+                });
+                const noNewPrivileges = status.match(/^NoNewPrivs:\s*(\d+)$/mu)?.[1] === "1";
+                const evidence = {
+                  hostNetNamespace: host,
+                  selfNetNamespace: self,
+                  interfaces,
+                  ipv4Routes,
+                  ipv6Routes,
+                  uid: process.getuid(),
+                  capabilitiesDropped: capValues.length === 4 && capValues.every((value) => value === 0n),
+                  noNewPrivileges,
+                };
+                const routesAreLoopback = [...ipv4Routes, ...ipv6Routes]
+                  .every((route) => route.iface === "lo" && !route.isDefault);
+                const ok =
+                  /^net:\[\d+\]$/.test(host ?? "") &&
+                  /^net:\[\d+\]$/.test(self) &&
+                  host !== self &&
+                  interfaces.length === 1 &&
+                  interfaces[0] === "lo" &&
+                  routesAreLoopback &&
+                  process.getuid() !== 0 &&
+                  evidence.capabilitiesDropped &&
+                  noNewPrivileges;
+                console.log(JSON.stringify({ ok, ...evidence }));
+                if (!ok) process.exit(1);
+              '
+
+            printf 'host_net_namespace=%s\n' "$host_net_namespace" >> "$GITHUB_OUTPUT"
+          } 2>&1 | tee "$results_dir/host-docker-preflight.log"
+
+      - name: Check out a temporary workspace
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          clean: true
+          path: source
+
+      - name: Build dependency image and run the isolated API-only smoke
+        timeout-minutes: 50
+        shell: bash
+        env:
+          EXPECTED_HOST_NET_NAMESPACE: ${{ steps.os-isolation.outputs.host_net_namespace }}
+          ALLOW_DEPENDENCY_BOOTSTRAP_EGRESS: ${{ inputs.allow_dependency_bootstrap_egress }}
+        run: |
+          set -Eeuo pipefail
+          run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image_tag="engineeringos-api-only-smoke:${run_key}"
+          container_name="engineeringos-api-only-smoke-${run_key}"
+          results_dir="${RUNNER_TEMP}/engineeringos-api-only-smoke-${run_key}"
+          source_root="${GITHUB_WORKSPACE}/source"
+          smoke_uid="$(id -u)"
+          smoke_gid="$(id -g)"
+
+          mkdir -p "$results_dir"
+          exec > >(tee -a "$results_dir/build-and-run.log") 2>&1
+          if [[ "$ALLOW_DEPENDENCY_BOOTSTRAP_EGRESS" != "true" ]]; then
+            echo "Refusing image preparation without explicit dependency-bootstrap network approval." >&2
+            exit 1
+          fi
+          expected_source_sha="${GITHUB_SHA}"
+          checked_out_source_sha="$(git -C "$source_root" rev-parse --verify HEAD)"
+          if [[ ! "$expected_source_sha" =~ ^[0-9a-f]{40}$ ]] \
+            || [[ ! "$checked_out_source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to run without full commit SHA evidence." >&2
+            exit 1
+          fi
+          printf '{"ref":"%s","expectedSha":"%s","checkedOutSha":"%s","dependencyBootstrapEgressApproved":true,"apiSmokeContainerNetwork":"none"}\n' \
+            "$GITHUB_REF" "$expected_source_sha" "$checked_out_source_sha" \
+            > "$results_dir/source-revision.json"
+          if [[ "$checked_out_source_sha" != "$expected_source_sha" ]]; then
+            echo "Checked-out source does not match the workflow event SHA." >&2
+            exit 1
+          fi
+          if docker container inspect "$container_name" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing container name: $container_name" >&2
+            exit 1
+          fi
+          if docker image inspect "$image_tag" >/dev/null 2>&1; then
+            echo "Refusing to reuse an existing image tag: $image_tag" >&2
+            exit 1
+          fi
+
+          cleanup_owned_container() {
+            status=$?
+            trap - EXIT INT TERM
+            if docker container inspect "$container_name" >/dev/null 2>&1; then
+              owner="$(docker container inspect \
+                --format '{{ index .Config.Labels "com.engineeringos.api-only-smoke.run" }}' \
+                "$container_name" 2>/dev/null || true)"
+              if [[ "$owner" == "$run_key" ]]; then
+                docker container rm --force "$container_name" >/dev/null 2>&1 || true
+              fi
+            fi
+            if docker image inspect "$image_tag" >/dev/null 2>&1; then
+              docker image rm "$image_tag" >/dev/null 2>&1 || true
+            fi
+            exit "$status"
+          }
+          trap cleanup_owned_container EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          docker build \
+            --pull=false \
+            --file "$source_root/.github/api-only-smoke.Dockerfile" \
+            --tag "$image_tag" \
+            --build-arg "SMOKE_UID=${smoke_uid}" \
+            --build-arg "SMOKE_GID=${smoke_gid}" \
+            "$source_root"
+          docker image inspect "$image_tag" \
+            --format '{"id":"{{.Id}}","tags":{{json .RepoTags}}}' \
+            > "$results_dir/container-image.json"
+
+          docker run --rm \
+            --name "$container_name" \
+            --label "com.engineeringos.api-only-smoke.run=${run_key}" \
+            --network none \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=2g \
+            --pids-limit 512 \
+            --memory 6g \
+            --cpus 2 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --user "${smoke_uid}:${smoke_gid}" \
+            --mount "type=bind,source=${source_root},target=/workspace" \
+            --mount "type=bind,source=${results_dir},target=/workspace/test-results/api-only-smoke" \
+            --workdir /workspace \
+            --env "ENGINEERINGOS_EXPECTED_HOST_NET_NAMESPACE=${EXPECTED_HOST_NET_NAMESPACE}" \
+            --env ENGINEERINGOS_API_ONLY_SMOKE_RESULTS_DIR=/workspace/test-results/api-only-smoke \
+            --env HOME=/tmp/home \
+            --env TMPDIR=/tmp \
+            --env COREPACK_ENABLE_NETWORK=0 \
+            --env PNPM_OFFLINE=1 \
+            --env npm_config_offline=true \
+            --env npm_config_cache=/tmp/npm-cache \
+            --entrypoint /bin/bash \
+            "$image_tag" \
+            scripts/run-api-only-smoke-container.sh
+
+      - name: Upload isolated smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engineeringos-api-only-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/engineeringos-api-only-smoke-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,14 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!artifacts/
+!artifacts/**/
+!artifacts/**/package.json
+!lib/
+!lib/**/
+!lib/**/package.json
+!scripts/
+!scripts/**/
+!scripts/**/package.json

@@ -29,6 +29,8 @@
     "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
     "validate:goal-first-e2e": "node scripts/run-goal-first-e2e.mjs",
     "validate:engineering-agent-lifecycle-e2e": "ENGINEERING_AGENT_LIFECYCLE_E2E=1 node scripts/run-goal-first-e2e.mjs",
+    "test:api-only-smoke": "node --test scripts/api-only-smoke.test.mjs scripts/api-only-smoke-container-preflight.test.mjs scripts/api-only-smoke-workflow.test.mjs scripts/loopback-only-network-namespace.test.mjs scripts/runtime-egress-guard.test.mjs scripts/isolated-child-process-policy.test.mjs",
+    "validate:api-only-smoke": "node scripts/run-api-only-smoke.mjs",
     "validate:live-goal-first-e2e": "GOAL_FIRST_LIVE_PROVIDER=1 node scripts/run-goal-first-e2e.mjs",
     "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
     "validate:live-provider-review": "pnpm --filter @workspace/api-server run validate:live-provider-review",
