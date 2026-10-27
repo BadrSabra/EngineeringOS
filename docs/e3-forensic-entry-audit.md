@@ -490,3 +490,9 @@ and API-operation status are recorded in
 [`mission-proposal-lock-coverage.md`](mission-proposal-lock-coverage.md). The
 matrix does not close E4, P7.5, learning measurement, or independent evaluator
 qualification.
+
+### 2026-10-27 — execution-history stored verdict label, recorded before repair
+
+A focused Mission Control page regression supplied a history-list row with stored `evidenceStatus=PROVEN` and recorder verdict `PROVEN`, without a current Canonical Proof projection. The assertion requiring the UI to identify this as “Recorded evidence” and explain that the history list does not revalidate Canonical Proof failed: the current row label is “Evidence: PROVEN”. This demonstrates an ambiguous historical-status presentation in the mocked list projection, not stale or invalid proof data, an API authority bypass, or a completion decision. The test made no API request and used no database, provider, recovery, replay, or mutation.
+
+Resolution: the ledger now labels the row “Recorded evidence” and states that evidence/acceptance values are saved records whose Canonical Proof is not revalidated in this view. The Mission Control page suite passed 31/31, Dashboard TypeScript passed, and `git diff --check` passed. Preview loaded only the unauthenticated public landing page, so the signed-in ledger was not visually verified. No API workflow restart, database, or provider test was run. This closes the identified history-label ambiguity only; E3 and E3.2 remain open.

@@ -856,7 +856,7 @@ describe('Mission Control', () => {
     expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
     expect(screen.getByText('Failure: RATE_LIMIT')).toBeInTheDocument();
     expect(screen.getByText('Action: Switch provider')).toBeInTheDocument();
-    expect(screen.getByText('Evidence: INCOMPLETE')).toBeInTheDocument();
+    expect(screen.getByText('Recorded evidence: INCOMPLETE')).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
       target: { value: 'quota' },
@@ -869,6 +869,22 @@ describe('Mission Control', () => {
       target: { value: 'READY_FOR_REVIEW' },
     });
     expect(screen.getByText('No executions match this search or state filter.')).toBeInTheDocument();
+  });
+
+  it('labels execution-history evidence as recorded rather than current Canonical Proof', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        evidenceStatus: 'PROVEN',
+        evidence: { verdict: 'PROVEN' },
+      }],
+    };
+    renderPage();
+
+    expect(await screen.findByText('1 of 1 runs')).toBeInTheDocument();
+    expect(screen.getByText('Recorded evidence: PROVEN')).toBeInTheDocument();
+    expect(screen.getByText(/current Canonical Proof is not revalidated in this ledger/i)).toBeInTheDocument();
   });
 
   it('exports every filtered execution with recovery and benchmark context, not just the current page', async () => {

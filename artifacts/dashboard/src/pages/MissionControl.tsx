@@ -1560,6 +1560,7 @@ export default function MissionControl() {
             <div>
               <h2 className="font-semibold">Execution ledger</h2>
                <p className="mt-0.5 text-[11px] text-muted-foreground">Scan the persisted history, then select a run to inspect its recorder output.</p>
+               <p className="mt-1 text-[11px] text-muted-foreground">Evidence and acceptance values are saved records; current Canonical Proof is not revalidated in this ledger.</p>
             </div>
              <span className="rounded-full border border-border/70 bg-background/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">{filteredExecutions.length} of {executions.length} runs</span>
              </div>
@@ -1668,7 +1669,7 @@ export default function MissionControl() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3 text-[10px]">
                       <span className={`inline-flex items-center gap-1 ${evidenceTone(execution.evidence)}`}>
                         <EvidenceIcon evidence={execution.evidence} />
-                         Evidence: {evidenceStatus ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
+                          Recorded evidence: {evidenceStatus ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
                       </span>
                        {runAcceptanceStatus !== 'NOT_RECORDED' && (
                          <span
