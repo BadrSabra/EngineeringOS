@@ -185,9 +185,11 @@ import {
 } from "../task-planner.js";
 import {
   toolCacheKey,
+  executeSingleTool,
   executeToolLoop,
   executeScopedReadTool,
   hashProviderToolManifest,
+  hashToolLoopScope,
   objectiveEvidenceManifestCompleteForPaths,
   _compactSynthesisMessages,
   BUDGET_BY_SCOPE,
@@ -218,7 +220,6 @@ import {
   toFailureDiagnosisSummary,
 } from "../agent-state/index.js";
 import {
-  executeValidationTool,
   MAX_REPAIR_ATTEMPTS,
   type RepairLoopState,
   type ValidationRunner,
@@ -9284,7 +9285,7 @@ export async function chat(opts: {
           },
         ];
 
-        const childLoop = await executeToolLoop({
+        const childLoopOptions = {
           messages: nodeMessages,
           strategy,
           model,
@@ -9334,9 +9335,15 @@ export async function chat(opts: {
           // consumed count is returned on the node outcome for the next retry.
           maxValidationAttempts: remainingValidationAttempts,
           signal,
+          executionLedger,
            onStep: recordNodeStep,
            assertExecutionOwned,
-        });
+        };
+        const childLoopScopeHash = hashToolLoopScope(childLoopOptions);
+        const childLoopManifestHash = hashProviderToolManifest(
+          childLoopOptions.toolManifest ?? childLoopOptions.tools,
+        );
+        const childLoop = await executeToolLoop(childLoopOptions);
 
         nodeToolSources.push(...childLoop.toolSources);
         for (const [file, content] of childLoop.fileContents ?? []) {
@@ -9392,16 +9399,73 @@ export async function chat(opts: {
             detail: `Running registered validation profile "${node.validationProfile}".`,
           });
           let automaticValidation: ValidationResult | undefined;
+          const automaticValidationToolCallId = createHash("sha256")
+            .update([
+              executionLedger.id,
+              node.id,
+              String(node.attempts),
+              String(validationAttemptsConsumed),
+              node.validationProfile,
+              "server-owned-automatic-validation",
+            ].join("\0"), "utf8")
+            .digest("hex");
+          const toolCallStartedAt = Date.now();
+          const toolCallAdmitted = executionLedger.admit("tool", {
+            provider: providerId,
+            model,
+            operation: "run_validation",
+          });
+          let validationDispatch: Awaited<ReturnType<typeof executeSingleTool>> | undefined;
           try {
-            const output = await executeValidationTool(
-              "run_validation",
-              { profile: node.validationProfile },
-              allowedPaths,
+            const toolManifest = childLoopOptions.toolManifest ?? childLoopOptions.tools ?? [];
+            validationDispatch = await executeSingleTool({
+              name: "run_validation",
+              args: { profile: node.validationProfile },
+              rootPath,
+              pendingChanges: nodePendingChanges,
               validationRunner,
-              signal,
-              nodePendingChanges,
-            );
-            const parsed = JSON.parse(output) as Partial<ValidationResult>;
+              validationTargetPaths: allowedPaths,
+              allowExecutionTools: allowValidationTools,
+              approvalState,
+              approvedValidationProfiles,
+              allowedToolNames: new Set(
+                childLoopOptions.allowedToolNames
+                  ?? toolManifest.map((tool) => tool.function.name),
+              ),
+              signal: executionLedger.signal,
+              assertExecutionOwned: opts.assertExecutionOwned,
+              executionId: executionLedger.id,
+              toolCallId: automaticValidationToolCallId,
+              scopeHash: childLoopScopeHash,
+              toolManifestHash: childLoopManifestHash ?? "",
+              onToolInvocation: opts.onToolInvocation,
+              analysisCorrelation,
+              ...(!toolCallAdmitted ? {
+                preflightFailure: {
+                  failureKind: "unavailable" as const,
+                  diagnosticCode: "TOOL_UNAVAILABLE" as const,
+                  safeMessage: "The request budget does not permit another validation tool call.",
+                },
+              } : {}),
+            });
+          } catch {
+            // The unavailable result below preserves the distinction between
+            // a blocked dispatch and a validation pass.
+          } finally {
+            if (toolCallAdmitted) {
+              executionLedger.complete("tool", {
+                provider: providerId,
+                model,
+                operation: "run_validation",
+                startedAt: toolCallStartedAt,
+                status: validationDispatch?.kind === "ok" ? "completed" : "failed",
+              });
+            }
+          }
+          try {
+            const parsed = validationDispatch?.kind === "ok"
+              ? JSON.parse(validationDispatch.output) as Partial<ValidationResult>
+              : undefined;
             if (
               parsed &&
               typeof parsed === "object" &&

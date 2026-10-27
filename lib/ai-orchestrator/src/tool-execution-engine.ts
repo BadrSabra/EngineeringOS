@@ -2946,6 +2946,11 @@ function toolCacheContextHash(opts: ToolLoopOpts): string {
   } as unknown as JsonValue);
 }
 
+/** Stable server-side scope binding reused by post-loop server dispatches. */
+export function hashToolLoopScope(opts: ToolLoopOpts): string {
+  return toolCacheContextHash(opts);
+}
+
 function migrateLegacyToolCache(
   cache: Map<string, string>,
   contextHash: string,

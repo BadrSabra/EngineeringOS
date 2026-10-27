@@ -549,23 +549,6 @@ describe("chat agent — recovered Repair Plan execution", () => {
         usage: {},
       })
       .mockResolvedValueOnce({
-        choices: [{
-          message: {
-            content: "",
-            tool_calls: [{
-              id: "validate-1",
-              type: "function",
-              function: {
-                name: "run_validation",
-                arguments: JSON.stringify({ profile: "workspace-typecheck" }),
-              },
-            }],
-          },
-        }],
-        model: "handoff-model",
-        usage: {},
-      })
-      .mockResolvedValueOnce({
         choices: [{ message: { content: '{"response":"Validated change queued for review.","sources":[]}' } }],
         model: "handoff-model",
         usage: {},
@@ -602,6 +585,14 @@ describe("chat agent — recovered Repair Plan execution", () => {
         command: "pnpm typecheck",
         exitCode: 0,
       }));
+      const lifecycleEvents: Array<{
+        phase: string;
+        toolCallId?: string;
+        executionId?: string;
+        scopeHash?: string;
+        toolName: string;
+        manifestHash: string;
+      }> = [];
       const now = new Date().toISOString();
       const result = await chat({
         message: "Execute Repair Plan",
@@ -626,6 +617,9 @@ describe("chat agent — recovered Repair Plan execution", () => {
         approvedValidationProfiles: ["workspace-typecheck"],
         validationRunner,
         validationTargetPaths: [relativePath],
+        onToolInvocation: async (event) => {
+          lifecycleEvents.push(event);
+        },
         onExecutionNodes: (nodes) => {
           executionNodes.push(nodes.map((node) => `${node.id}:${node.status}:${node.attempts}`));
         },
@@ -642,6 +636,15 @@ describe("chat agent — recovered Repair Plan execution", () => {
       expect(executionNodes).toContainEqual([`${nodeId}:running:1`]);
       expect(executionNodes).toContainEqual([`${nodeId}:passed:1`]);
       expect(executionNodes.at(-1)).toEqual([`${nodeId}:passed:1`]);
+      const automaticValidationEvents = lifecycleEvents.filter(
+        (event) => event.toolName === "run_validation",
+      );
+      expect(automaticValidationEvents.map((event) => event.phase))
+        .toEqual(["requested", "started", "completed"]);
+      expect(new Set(automaticValidationEvents.map((event) => event.toolCallId)).size).toBe(1);
+      expect(automaticValidationEvents[0]?.executionId).toBeTruthy();
+      expect(automaticValidationEvents[0]?.scopeHash).toMatch(/^[a-f0-9]{64}$/u);
+      expect(automaticValidationEvents[0]?.manifestHash).toMatch(/^[a-f0-9]{64}$/u);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
