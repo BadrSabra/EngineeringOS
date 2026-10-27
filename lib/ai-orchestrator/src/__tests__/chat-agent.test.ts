@@ -6,7 +6,7 @@
  * invalid-absolutePath test we mock file-tools to inject a malformed
  * PendingChange and confirm the agent drops it via ChatOutputSchema validation.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { loadChatWithTestLifecycleSinks } from "./chat-test-support.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -79,8 +79,16 @@ describe("ChatOutputSchema — runtime validation (unit)", () => {
 });
 
 describe("project-query incomplete evidence projection", () => {
-  it("ranks bounded line-range excerpts from complete retained reads and stays incomplete", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+  let buildProjectQueryIncompleteResponse:
+    | typeof import("../agents/chat-agent.js").buildProjectQueryIncompleteResponse
+    | undefined;
+
+  beforeAll(async () => {
+    const chatAgent = await import("../agents/chat-agent.js");
+    buildProjectQueryIncompleteResponse = chatAgent.buildProjectQueryIncompleteResponse;
+  }, 30_000);
+
+  it("ranks bounded line-range excerpts from complete retained reads and stays incomplete", () => {
     const fileContents = new Map([
       ["src/complete.ts", "export function handleRequest() { return 'source excerpt'; }\n"],
       ["src/targeted.ts", "export function partialWindow() { return 'not a full read'; }\n"],
@@ -94,7 +102,7 @@ describe("project-query incomplete evidence projection", () => {
       [".env", "READ_COMPLETE"],
     ]);
 
-    const response = buildProjectQueryIncompleteResponse(
+    const response = buildProjectQueryIncompleteResponse!(
       "Explain the project architecture.",
       fileContents,
       "en",
@@ -112,7 +120,7 @@ describe("project-query incomplete evidence projection", () => {
     expect(response).toContain("L1-L1");
     expect(response).toContain("structural context only; no exact question-term match");
 
-    const arabicResponse = buildProjectQueryIncompleteResponse(
+    const arabicResponse = buildProjectQueryIncompleteResponse!(
       "اشرح بنية المشروع.",
       fileContents,
       "ar",
@@ -124,7 +132,6 @@ describe("project-query incomplete evidence projection", () => {
   });
 
   it("prioritizes exact query-term matches over unrelated structural excerpts", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
     const fileContents = new Map([
       ["src/a-unrelated.ts", "export function initializeCache() {\n  return true;\n}\n"],
       [
@@ -147,7 +154,7 @@ describe("project-query incomplete evidence projection", () => {
       ["src/z-session.ts", "READ_COMPLETE"],
     ]);
 
-    const response = buildProjectQueryIncompleteResponse(
+    const response = buildProjectQueryIncompleteResponse!(
       "Where does createUserSession persist user session state?",
       fileContents,
       "en",
@@ -162,8 +169,7 @@ describe("project-query incomplete evidence projection", () => {
     expect(response).toContain("ANALYSIS_INCOMPLETE");
   });
 
-  it("bounds evidence excerpts to three files and a fixed total source-text budget", async () => {
-    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+  it("bounds evidence excerpts to three files and a fixed total source-text budget", () => {
     const fileContents = new Map(
       Array.from({ length: 5 }, (_, index) => [
         `src/file-${index}.ts`,
@@ -174,7 +180,7 @@ describe("project-query incomplete evidence projection", () => {
       Array.from({ length: 5 }, (_, index) => [`src/file-${index}.ts`, "READ_COMPLETE"]),
     );
 
-    const response = buildProjectQueryIncompleteResponse(
+    const response = buildProjectQueryIncompleteResponse!(
       "Explain the project.",
       fileContents,
       "en",

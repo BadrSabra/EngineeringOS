@@ -370,7 +370,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   const primaryModel = FREE_MODELS[0]!.id;
 
   it("accepts a free model for its requested capability instead of defaulting to chat", async () => {
-    const codingOnlyModel = "cohere/north-mini-code:free";
+    const codingModel = "poolside/laguna-s-2.1:free";
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return jsonResponse({
@@ -383,7 +383,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
       apiKey: "test-key",
-      model: codingOnlyModel,
+      model: codingModel,
       capability: "coding",
       quality: "powerful",
     });
@@ -391,7 +391,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(result.content).toBe('{"response":"ok"}');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
-    expect(requestBody.model).toBe(codingOnlyModel);
+    expect(requestBody.model).toBe(codingModel);
   });
 
   it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {

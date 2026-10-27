@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
 import {
   validateReceipt,
   verifyOfflineReceipt,
 } from "./verify-engineering-agent-lifecycle-receipt.mjs";
+
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function validReceipt() {
   return {
@@ -143,7 +146,9 @@ test("offline verifier validates a retained receipt without a database or tempor
   const reportPath = join(temporaryRoot, "offline-verification.json");
   try {
     const receipt = validReceipt();
-    receipt.sourceFingerprint = await computeEngineeringAgentSourceFingerprint();
+    receipt.sourceFingerprint = await computeEngineeringAgentSourceFingerprint({
+      cwd: workspaceRoot,
+    });
     await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 
     const report = await verifyOfflineReceipt(receiptPath, reportPath);

@@ -5176,7 +5176,7 @@ describe("executeToolLoop", () => {
       kind: "failed",
       tool: "read_file",
       failureKind: "execution",
-      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      diagnosticCode: "TOOL_FILE_NOT_FOUND",
     });
     expect(strategy.call).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result)).not.toContain("ENOENT");
@@ -8180,7 +8180,7 @@ describe("executeToolLoop", () => {
       kind: "failed",
       tool: "read_file",
       failureKind: "execution",
-      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      diagnosticCode: "TOOL_FILE_NOT_FOUND",
     });
     expect(strategy.call).toHaveBeenCalledTimes(3);
   });
