@@ -16,8 +16,8 @@ import {
 import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 import {
   deriveRuntimeStartGateCProof,
+  normalizeStoredRuntimeStartGateCProofArtifact,
   RUNTIME_START_GATE_C_PROOF_MODE,
-  type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
 import {
   APPLY_CHANGES_PROOF_MODE,
@@ -722,7 +722,7 @@ export async function loadCanonicalProof(
       })
     : undefined;
   const storedArtifact = runtimeArtifacts.length === 1
-    ? runtimeArtifacts[0] as RuntimeStartGateCProofArtifact
+    ? normalizeStoredRuntimeStartGateCProofArtifact(runtimeArtifacts[0])
     : undefined;
   if (
     !proof.accepted

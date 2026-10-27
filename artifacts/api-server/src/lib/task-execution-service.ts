@@ -110,6 +110,7 @@ import {
   discardDeliveryWorkspace,
   hashChangeSet,
   hashDeliveryTree,
+  resolveWorkspaceTreeRevision as missionWorkspaceRevision,
 } from "./delivery-workspace.js";
 import {
   buildMissionReadScopeHash,
@@ -2450,12 +2451,6 @@ async function rebindRotatedMissionRepairRecoveryManifest(params: {
     actionId: `mission-repair:${params.executionId}:${params.attempt}`,
     phase: "candidate_ready",
   };
-}
-
-const MISSION_WORKSPACE_REVISION_PREFIX = "workspace-tree-v1:";
-
-async function missionWorkspaceRevision(rootPath: string): Promise<string> {
-  return `${MISSION_WORKSPACE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
 }
 
 const MISSION_OBSERVATION_FILE_MAX_BYTES = 256 * 1024;

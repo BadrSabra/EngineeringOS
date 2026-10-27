@@ -34,8 +34,10 @@ import {
   type MissionAgentActionReceiptIdentity,
 } from "./mission-agent-action-receipt.js";
 import {
+  classifyRuntimeStartGateCSourceRevision,
   deriveRuntimeStartGateCProof,
   RUNTIME_START_GATE_C_PROOF_MODE,
+  type RuntimeStartGateCSourceRevisionIdentity,
   type RuntimeStartGateCProofArtifact,
 } from "./runtime-start-gate-c-proof.js";
 import {
@@ -94,9 +96,9 @@ export type EvidenceReadInput = {
   truncated?: boolean;
 };
 
-export type EvidenceArtifactInput = {
+export type EvidenceArtifactInput = ({
   kind: "runtime_start_gate_c";
-  version: 1;
+  version: 2;
   executionId: string;
   attempt: number;
   operationId: string;
@@ -114,7 +116,7 @@ export type EvidenceArtifactInput = {
   environmentRevision: string;
   beforeObservationIds: string[];
   afterObservationIds: string[];
-} | {
+} & RuntimeStartGateCSourceRevisionIdentity) | {
   kind: "apply_changes";
   version: 1;
   executionId: string;
@@ -1699,6 +1701,9 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       }];
     }
     if (artifact.kind === "runtime_start_gate_c") {
+      const sourceRevisionIdentity = classifyRuntimeStartGateCSourceRevision(
+        artifact.sourceRevision,
+      );
       const requiredIds = [
         artifact.executionId,
         artifact.operationId,
@@ -1715,11 +1720,13 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       const beforeObservationIds = artifact.beforeObservationIds;
       const afterObservationIds = artifact.afterObservationIds;
       if (
-        artifact.version !== 1
+        artifact.version !== 2
         || !Number.isSafeInteger(artifact.attempt)
         || artifact.attempt < 0
         || requiredIds.some((value) => typeof value !== "string" || !value.trim() || value.length > 500)
-        || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/i.test(artifact.sourceRevision)
+        || !sourceRevisionIdentity
+        || artifact.sourceRevisionKind !== sourceRevisionIdentity.sourceRevisionKind
+        || artifact.sourceRevisionSource !== sourceRevisionIdentity.sourceRevisionSource
         || !/^env-v1:[a-f0-9]{64}$/.test(artifact.environmentRevision)
         || !/^[a-f0-9]{64}$/i.test(artifact.workspaceIdentity)
         || !/^[a-f0-9]{64}$/i.test(artifact.actionHash)
@@ -1738,11 +1745,12 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       ) return [];
       return [{
         kind: "runtime_start_gate_c",
-        version: 1,
+        version: 2,
         executionId: artifact.executionId.slice(0, 160),
         attempt: artifact.attempt,
         operationId: artifact.operationId.slice(0, 160),
         sourceRevision: artifact.sourceRevision,
+        ...sourceRevisionIdentity,
         workspaceIdentity: artifact.workspaceIdentity,
         candidateIdentity: artifact.candidateIdentity,
         episodeId: artifact.episodeId.slice(0, 160),

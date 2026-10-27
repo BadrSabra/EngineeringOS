@@ -251,6 +251,12 @@ export async function hashDeliveryTree(rootPath: string): Promise<string> {
   return createHash("sha256").update(Buffer.from(canonical, "utf8")).digest("hex");
 }
 
+export const WORKSPACE_TREE_REVISION_PREFIX = "workspace-tree-v1:";
+
+export async function resolveWorkspaceTreeRevision(rootPath: string): Promise<string> {
+  return `${WORKSPACE_TREE_REVISION_PREFIX}${await hashDeliveryTree(rootPath)}`;
+}
+
 /** Backward-compatible name used by benchmark and recovery callers. */
 export const hashDeliveryWorkspace = hashDeliveryTree;
 
