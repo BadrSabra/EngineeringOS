@@ -201,6 +201,7 @@ import {
   type ReadOnlyToolInvocationCallback,
   type ReadOnlyInvocationReceipt,
   type ScopedReadToolName,
+  type ToolLoopOpts,
   type ToolInvocationLifecycleCallback,
   type ReadStatus,
   mergeReadStatus,
@@ -9285,7 +9286,7 @@ export async function chat(opts: {
           },
         ];
 
-        const childLoopOptions = {
+        const childLoopOptions: ToolLoopOpts = {
           messages: nodeMessages,
           strategy,
           model,
@@ -9320,9 +9321,9 @@ export async function chat(opts: {
           executionTargetPaths: allowedPaths,
           allowedReadPaths: allowedPaths,
           allowExecutionTools: allowValidationTools,
-        approvalState,
-        approvedFilePaths,
-        approvedValidationProfiles,
+          approvalState,
+          approvedFilePaths,
+          approvedValidationProfiles,
           validationRunner,
           validationTargetPaths: allowedPaths,
           // Nested execution-node analysis is still part of the parent
@@ -9336,8 +9337,8 @@ export async function chat(opts: {
           maxValidationAttempts: remainingValidationAttempts,
           signal,
           executionLedger,
-           onStep: recordNodeStep,
-           assertExecutionOwned,
+          onStep: recordNodeStep,
+          assertExecutionOwned,
         };
         const childLoopScopeHash = hashToolLoopScope(childLoopOptions);
         const childLoopManifestHash = hashProviderToolManifest(

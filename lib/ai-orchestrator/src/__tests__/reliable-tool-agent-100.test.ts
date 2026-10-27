@@ -44,16 +44,26 @@ import { GIT_TOOL_DEFINITIONS } from "../tools/git-tools.js";
 import { PACKAGE_TOOL_DEFINITIONS } from "../tools/package-tools.js";
 
 describe("canonical executor dispatcher boundary", () => {
-  it("allows raw file and Git executors only inside executeSingleTool", async () => {
+  it("keeps product-runtime raw executors inside executeSingleTool", async () => {
     const testDirectory = path.dirname(fileURLToPath(import.meta.url));
     const sourceRoot = path.resolve(testDirectory, "..");
     const canonicalDispatcherFile = path.join(sourceRoot, "tool-execution-engine.ts");
+    // This isolated benchmark harness owns its own case deadline and invokes
+    // the registered validation runner directly; it is not a product runtime
+    // entry point and remains outside this dispatcher-boundary assertion.
+    const isolatedBenchmarkFile = path.join(
+      sourceRoot,
+      "benchmark",
+      "live-code-agent-benchmark.ts",
+    );
     const rawExecutorNames = new Set([
       "executeFileTool",
       "executeGitTool",
       "executeCommandTool",
       "executePackageTool",
       "executeBinaryTool",
+      "executeValidationTool",
+      "executeBrowserValidationTool",
     ]);
     const productionFiles: string[] = [];
 
@@ -70,6 +80,7 @@ describe("canonical executor dispatcher boundary", () => {
           && /\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
           && !/\.(?:test|spec)\.(?:ts|tsx|mts|cts)$/u.test(entry.name)
           && !entry.name.endsWith(".d.ts")
+          && path.resolve(absolutePath) !== path.resolve(isolatedBenchmarkFile)
         ) {
           productionFiles.push(absolutePath);
         }

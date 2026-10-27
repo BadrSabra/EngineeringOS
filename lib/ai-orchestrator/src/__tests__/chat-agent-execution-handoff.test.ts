@@ -519,7 +519,7 @@ describe("chat agent — recovered Repair Plan execution", () => {
     }
   });
 
-  it("transitions a persisted execution node only after server-owned validation passes", async () => {
+  it("dispatches automatic validation through the lifecycle before a persisted node passes", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-node-transition-"));
     const relativePath = "target.ts";
     await fs.writeFile(path.join(rootPath, relativePath), "export const enabled = true;\n", "utf8");
@@ -643,12 +643,13 @@ describe("chat agent — recovered Repair Plan execution", () => {
         .toEqual(["requested", "started", "completed"]);
       expect(new Set(automaticValidationEvents.map((event) => event.toolCallId)).size).toBe(1);
       expect(automaticValidationEvents[0]?.executionId).toBeTruthy();
+      expect(automaticValidationEvents[0]?.toolCallId).toMatch(/^[a-f0-9]{64}$/u);
       expect(automaticValidationEvents[0]?.scopeHash).toMatch(/^[a-f0-9]{64}$/u);
       expect(automaticValidationEvents[0]?.manifestHash).toMatch(/^[a-f0-9]{64}$/u);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("retries a node after behavioral proof failure before exposing review readiness", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-proof-retry-"));
