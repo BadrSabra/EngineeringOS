@@ -10,6 +10,7 @@ import {
   buildBehaviorFindingStatus,
   buildRunLedger,
   buildRuntimeLedger,
+  buildEvidenceBackedAnswer,
   validateTelemetry,
   buildClaimOrientedEvidenceMap,
   planEvidenceRecovery,
@@ -918,5 +919,71 @@ describe("syntax-aware invocation detection (AI-OBJ-014 review fix)", () => {
       ]),
     });
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("EI-015 evidence-backed answer claim closure", () => {
+  const claims = [
+    {
+      claimId: "claim-1",
+      text: "The first behavior is present.",
+      taskType: "CHAT",
+      evidenceIds: ["evidence-1"],
+      status: "SUPPORTED" as const,
+    },
+    {
+      claimId: "claim-2",
+      text: "The second behavior is present.",
+      taskType: "CHAT",
+      evidenceIds: ["evidence-2"],
+      status: "SUPPORTED" as const,
+    },
+  ];
+
+  it("does not mark or return a multi-claim answer as proven when only one claim is proven", () => {
+    const result = buildEvidenceBackedAnswer({
+      answer: "Both behaviors are present.",
+      claims,
+      validations: [{ claimId: "claim-1", result: "PROVEN", reasons: [] }],
+    });
+
+    expect(result.status).toBe("NOT_PROVEN");
+    expect(result.answer).toBe("");
+    expect(result.claimIds).toEqual(["claim-1"]);
+    expect(result.evidenceIds).toEqual(["evidence-1"]);
+  });
+
+  it("returns the answer only when every nonempty claim is proven", () => {
+    const result = buildEvidenceBackedAnswer({
+      answer: "Both behaviors are present.",
+      claims,
+      validations: claims.map((claim) => ({
+        claimId: claim.claimId,
+        result: "PROVEN" as const,
+        reasons: [],
+      })),
+    });
+
+    expect(result).toMatchObject({
+      answer: "Both behaviors are present.",
+      status: "PROVEN",
+      claimIds: ["claim-1", "claim-2"],
+      evidenceIds: ["evidence-1", "evidence-2"],
+    });
+  });
+
+  it("does not treat an empty claim set as a proven answer", () => {
+    const result = buildEvidenceBackedAnswer({
+      answer: "An answer with no declared claims.",
+      claims: [],
+      validations: [],
+    });
+
+    expect(result).toMatchObject({
+      answer: "",
+      status: "NOT_PROVEN",
+      claimIds: [],
+      evidenceIds: [],
+    });
   });
 });

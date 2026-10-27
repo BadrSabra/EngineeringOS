@@ -3674,6 +3674,20 @@ export const AiExecutionProjectionVerificationStatus = {
   unavailable: 'unavailable',
 } as const;
 
+export type AiExecutionProjectionVerificationStatusProjectionAuthority = typeof AiExecutionProjectionVerificationStatusProjectionAuthority[keyof typeof AiExecutionProjectionVerificationStatusProjectionAuthority];
+
+
+export const AiExecutionProjectionVerificationStatusProjectionAuthority = {
+  STORED_STATUS_ONLY: 'STORED_STATUS_ONLY',
+} as const;
+
+export type AiExecutionProjectionVerificationStatusProjectionProofFreshness = typeof AiExecutionProjectionVerificationStatusProjectionProofFreshness[keyof typeof AiExecutionProjectionVerificationStatusProjectionProofFreshness];
+
+
+export const AiExecutionProjectionVerificationStatusProjectionProofFreshness = {
+  NOT_REVALIDATED: 'NOT_REVALIDATED',
+} as const;
+
 export type AiExecutionProjectionOrientationMissingRolesItem = typeof AiExecutionProjectionOrientationMissingRolesItem[keyof typeof AiExecutionProjectionOrientationMissingRolesItem];
 
 
@@ -3808,11 +3822,21 @@ export type AiExecutionProjectionWorkspace = {
   diffStatus: AiExecutionProjectionWorkspaceDiffStatus;
 };
 
+/**
+ * Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
+ */
+export type AiExecutionProjectionVerificationStatusProjection = {
+  authority: AiExecutionProjectionVerificationStatusProjectionAuthority;
+  proofFreshness: AiExecutionProjectionVerificationStatusProjectionProofFreshness;
+};
+
 export type AiExecutionProjectionVerification = {
   status: AiExecutionProjectionVerificationStatus;
   /** @maxLength 40 */
   evidenceVerdict: string;
   proofRequired: boolean;
+  /** Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof. */
+  statusProjection?: AiExecutionProjectionVerificationStatusProjection;
 };
 
 /**

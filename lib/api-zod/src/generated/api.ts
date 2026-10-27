@@ -4095,7 +4095,11 @@ export const AiChatResponse = zod.object({
   "verification": zod.object({
   "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
   "evidenceVerdict": zod.string().max(aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax),
-  "proofRequired": zod.boolean()
+  "proofRequired": zod.boolean(),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).optional().describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.')
 }),
   "orientation": zod.object({
   "complete": zod.boolean(),
@@ -4838,7 +4842,11 @@ export const GetAiExecutionResponse = zod.object({
   "verification": zod.object({
   "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
   "evidenceVerdict": zod.string().max(getAiExecutionResponseProjectionVerificationEvidenceVerdictMax),
-  "proofRequired": zod.boolean()
+  "proofRequired": zod.boolean(),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).optional().describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.')
 }),
   "orientation": zod.object({
   "complete": zod.boolean(),
@@ -5149,7 +5157,11 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "verification": zod.object({
   "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
   "evidenceVerdict": zod.string().max(listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax),
-  "proofRequired": zod.boolean()
+  "proofRequired": zod.boolean(),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).optional().describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.')
 }),
   "orientation": zod.object({
   "complete": zod.boolean(),
@@ -7579,7 +7591,11 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "verification": zod.object({
   "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
   "evidenceVerdict": zod.string().max(listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax),
-  "proofRequired": zod.boolean()
+  "proofRequired": zod.boolean(),
+  "statusProjection": zod.object({
+  "authority": zod.enum(['STORED_STATUS_ONLY']),
+  "proofFreshness": zod.enum(['NOT_REVALIDATED'])
+}).optional().describe('Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.')
 }),
   "orientation": zod.object({
   "complete": zod.boolean(),

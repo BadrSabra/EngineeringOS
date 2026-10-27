@@ -233,4 +233,40 @@ describe("buildAiExecutionProjection", () => {
       .every((item) => item.status === "completed"))
       .toBe(true);
   });
+
+  it("marks persisted evidence verdicts as status-only, not current proof", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-stored-proof", status: "completed" },
+      request: { objective: "Review stored evidence" },
+      checkpoint: { stage: "complete", evidenceVerdict: "PROVEN", recentSteps: [] },
+      evidenceVerdict: "PROVEN",
+      proofRequired: true,
+      terminalReason: null,
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection.verification.evidenceVerdict).toBe("PROVEN");
+    expect(projection.verification.statusProjection).toEqual({
+      authority: "STORED_STATUS_ONLY",
+      proofFreshness: "NOT_REVALIDATED",
+    });
+  });
+
+  it("keeps read-only proof review available for a persisted PROVEN verdict", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-stored-proof-review", status: "completed" },
+      request: { objective: "Review the current proof" },
+      checkpoint: { stage: "complete", evidenceVerdict: "PROVEN", recentSteps: [] },
+      evidenceVerdict: "PROVEN",
+      proofRequired: true,
+      terminalReason: null,
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection.allowedActions).toContain("REVIEW_PROOF");
+  });
 });

@@ -1288,11 +1288,13 @@ export function buildEvidenceBackedAnswer(input: {
       (v) => v.claimId === claim.claimId && v.result === "PROVEN",
     ),
   );
+  const allClaimsProven = input.claims.length > 0
+    && provenClaims.length === input.claims.length;
   return {
-    answer: input.answer,
+    answer: allClaimsProven ? input.answer : "",
     claimIds: provenClaims.map((claim) => claim.claimId),
     evidenceIds: provenClaims.flatMap((claim) => claim.evidenceIds),
-    status: provenClaims.length > 0 ? "PROVEN" : "NOT_PROVEN",
+    status: allClaimsProven ? "PROVEN" : "NOT_PROVEN",
   };
 }
 

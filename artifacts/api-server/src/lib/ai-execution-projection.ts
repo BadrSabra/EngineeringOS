@@ -50,6 +50,10 @@ export type AiExecutionProjection = {
     status: "pending" | "running" | "passed" | "failed" | "unavailable";
     evidenceVerdict: string;
     proofRequired: boolean;
+    statusProjection?: {
+      authority: "STORED_STATUS_ONLY";
+      proofFreshness: "NOT_REVALIDATED";
+    };
   };
   orientation?: {
     complete: boolean;
@@ -488,7 +492,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
   if (input.execution.status === "failed" || input.execution.status === "cancelled") {
     allowedActions.push("START_NEW_RUN");
   }
-  if (input.proofRequired && input.evidenceVerdict !== "PROVEN") {
+  if (input.proofRequired) {
     allowedActions.push("REVIEW_PROOF");
   }
   if (input.execution.proposalId && input.execution.proposalApprovalRequired === true) {
@@ -549,6 +553,10 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
       status: verificationStatus,
       evidenceVerdict: input.evidenceVerdict,
       proofRequired: input.proofRequired,
+      statusProjection: {
+        authority: "STORED_STATUS_ONLY",
+        proofFreshness: "NOT_REVALIDATED",
+      },
     },
     ...(orientation ? { orientation } : {}),
     approval: {

@@ -8170,6 +8170,18 @@ components:
             status: { type: string, enum: [pending, running, passed, failed, unavailable] }
             evidenceVerdict: { type: string, maxLength: 40 }
             proofRequired: { type: boolean }
+            statusProjection:
+              description: Stored checkpoint evidence status only; this projection does not revalidate current Canonical Proof.
+              type: object
+              additionalProperties: false
+              required: [authority, proofFreshness]
+              properties:
+                authority:
+                  type: string
+                  enum: [STORED_STATUS_ONLY]
+                proofFreshness:
+                  type: string
+                  enum: [NOT_REVALIDATED]
         orientation:
           nullable: true
           description: Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.
