@@ -134,11 +134,29 @@ describe("Code Agent benchmark Build handoff", () => {
 });
 
 describe("Code Agent benchmark runtime-oracle preflight", () => {
-  it("runs every maintained runtime oracle against its focused candidate", async () => {
-    await validateApiCodeAgentBenchmarkRuntimeOracles({
-      rootPath: path.resolve(process.cwd(), "../.."),
-    });
-  }, 120_000);
+  const runtimeOracleCases = getCodeAgentBenchmarkCases().filter(
+    (testCase) => Boolean(getCodeAgentBenchmarkFixture(testCase).runtimeOracle),
+  );
+
+  it.each(runtimeOracleCases)(
+    "runs the focused runtime oracle for $id",
+    async (testCase) => {
+      const report = await validateApiCodeAgentBenchmarkRuntimeOracles({
+        rootPath: path.resolve(process.cwd(), "../.."),
+        cases: [testCase],
+      });
+
+      expect(report.status).toBe("passed");
+      expect(report.checks).toEqual([
+        expect.objectContaining({
+          scenarioId: testCase.id,
+          status: "passed",
+        }),
+      ]);
+      expect(report.failureIds).toEqual([]);
+    },
+    120_000,
+  );
 
   it("limits a partial preflight to runtime oracles in the selected cases", async () => {
     const testCase = getCodeAgentBenchmarkCases().find(
