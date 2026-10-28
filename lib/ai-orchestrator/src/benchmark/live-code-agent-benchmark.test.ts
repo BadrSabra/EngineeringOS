@@ -478,6 +478,49 @@ describe("benchmark case timeouts", () => {
     expect(JSON.stringify(observation)).not.toContain("raw provider response");
   });
 
+  it("labels unclassified provider diagnostics as UNKNOWN without retaining details", async () => {
+    chatMock.mockReset();
+    chatMock.mockImplementationOnce(async ({ onStep }: {
+      onStep?: (step: AgentStep) => void;
+    }) => {
+      onStep?.({
+        kind: "diagnostic",
+        code: "EXECUTION_PROVIDER_FAILURE",
+        details: ["unclassified provider detail must not be persisted"],
+      } as AgentStep);
+      return { pendingChanges: [] } as unknown as ChatResult;
+    });
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-unclassified-provider-error",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      targetPathsForCase: () => ["src/example.ts"],
+    });
+
+    const telemetry = await executeCase(testCase);
+    const observation = observationFromCodeAgentExecution(testCase, telemetry);
+
+    expect(telemetry).toMatchObject({
+      providerUnavailable: true,
+      providerFailureCategory: "UNKNOWN",
+    });
+    expect(observation.grade).toBe("U");
+    expect(observation.diagnosis).toContain("Provider failure (UNKNOWN)");
+    expect(JSON.stringify(observation)).not.toContain("unclassified provider detail");
+  });
+
   it("scores invalid provider tool calls as contract failures, not provider outages", async () => {
     chatMock.mockReset();
     chatMock.mockImplementationOnce(async ({ onStep }: {
