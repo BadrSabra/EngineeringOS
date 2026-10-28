@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createValidatorChildEnvironment,
   createValidationWorkspace,
   getRepairValidationProfile,
   runRepairRuntimeOracle,
@@ -15,6 +16,50 @@ import { config } from "../config.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 
 describe("AI repair validation registry", () => {
+  it("removes provider and identity credentials from validator child environments", () => {
+    const childEnvironment = createValidatorChildEnvironment({
+      PATH: "/usr/bin",
+      DATABASE_URL: "postgresql://127.0.0.1:5432/test",
+      OPENAI_API_KEY: "test-openai-secret",
+      ANTHROPIC_API_KEY: "test-anthropic-secret",
+      OPENROUTER_API_KEY: "test-openrouter-secret",
+      GEMINI_API_KEY: "test-gemini-secret",
+      DEEPSEEK_API_KEY: "test-deepseek-secret",
+      GROQ_API_KEY: "test-groq-secret",
+      CLERK_SECRET_KEY: "test-clerk-secret",
+      CLERK_PUBLISHABLE_KEY: "test-clerk-publishable",
+      VITE_CLERK_PUBLISHABLE_KEY: "test-vite-clerk-publishable",
+      SESSION_SECRET: "test-session-secret",
+      AI_LIFECYCLE_LIVE_CHECKS: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      RUN_REAL_API_PROCESS_RECOVERY: "1",
+      BENCHMARK_LIVE_CAMPAIGN: "1",
+    });
+
+    expect(childEnvironment).toMatchObject({
+      PATH: "/usr/bin",
+      DATABASE_URL: "postgresql://127.0.0.1:5432/test",
+    });
+    for (const name of [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GEMINI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "GROQ_API_KEY",
+      "CLERK_SECRET_KEY",
+      "CLERK_PUBLISHABLE_KEY",
+      "VITE_CLERK_PUBLISHABLE_KEY",
+      "SESSION_SECRET",
+      "AI_LIFECYCLE_LIVE_CHECKS",
+      "RUN_CONTROLLED_RELEASE_VALIDATION",
+      "RUN_REAL_API_PROCESS_RECOVERY",
+      "BENCHMARK_LIVE_CAMPAIGN",
+    ]) {
+      expect(childEnvironment).not.toHaveProperty(name);
+    }
+  });
+
   it("attests the direct runtime-validator child when a full server binding is supplied", async () => {
     const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validator-probe-"));
     try {

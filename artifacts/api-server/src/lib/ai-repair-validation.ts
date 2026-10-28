@@ -83,6 +83,33 @@ export type ValidationProcessIdentity = {
   revision: string;
 };
 
+const VALIDATOR_CHILD_BLOCKED_ENV_NAMES = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GEMINI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "GROQ_API_KEY",
+  "CLERK_SECRET_KEY",
+  "CLERK_PUBLISHABLE_KEY",
+  "VITE_CLERK_PUBLISHABLE_KEY",
+  "SESSION_SECRET",
+  "AI_LIFECYCLE_LIVE_CHECKS",
+  "RUN_CONTROLLED_RELEASE_VALIDATION",
+  "RUN_REAL_API_PROCESS_RECOVERY",
+  "BENCHMARK_LIVE_CAMPAIGN",
+] as const;
+
+export function createValidatorChildEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const childEnvironment = { ...environment };
+  for (const name of VALIDATOR_CHILD_BLOCKED_ENV_NAMES) {
+    delete childEnvironment[name];
+  }
+  return childEnvironment;
+}
+
 type ValidationProfileDefinition = {
   scenario: string;
   allowedPath: (relativePath: string) => boolean;
@@ -765,7 +792,7 @@ async function runRepairValidationCore(
   try {
     const validationRootPath = validationWorkspace.rootPath;
     let environmentRevision: string | null = null;
-    const validatorEnvironment = { ...process.env };
+    const validatorEnvironment = createValidatorChildEnvironment();
     const resolvedCommand = await resolveRegisteredValidatorCommand(
       definition.command,
       validatorEnvironment,
@@ -1127,7 +1154,7 @@ async function runRepairRuntimeValidationOperation(
       prepare,
       signal,
     );
-    const validatorEnvironment = { ...process.env };
+    const validatorEnvironment = createValidatorChildEnvironment();
     const resolvedCommand = await resolveRegisteredValidatorCommand(
       command.command,
       validatorEnvironment,
