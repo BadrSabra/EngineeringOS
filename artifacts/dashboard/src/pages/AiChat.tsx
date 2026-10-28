@@ -186,7 +186,7 @@ type BenchmarkScorecard = {
     generatedAt?: string;
   };
   baselineComparison?: {
-    status?: 'missing' | 'incompatible' | 'regressed' | 'passed';
+    status?: 'missing' | 'not_compared' | 'incompatible' | 'regressed' | 'passed';
     baselineId?: string;
     baselineGeneratedAt?: string;
     metricDeltas?: {
@@ -8847,6 +8847,7 @@ export function BenchmarkMissionControlPanel({ data }: { data: BenchmarkScorecar
   const providerUnavailable = metrics?.providerUnavailableCount ?? gradeCounts.U ?? 0;
   const qualityObserved = Math.max(0, observed - providerUnavailable);
   const baselineStatus = data.baselineComparison?.status ?? 'missing';
+  const baselineStatusLabel = baselineStatus === 'not_compared' ? 'not compared' : baselineStatus;
   const correctCompletionDelta = data.baselineComparison?.metricDeltas?.correctCompletionRate;
 
   return (
@@ -8907,7 +8908,7 @@ export function BenchmarkMissionControlPanel({ data }: { data: BenchmarkScorecar
             ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
             : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
         }`}>
-          {baselineStatus}
+          {baselineStatusLabel}
         </span>
         {data.baseline?.baselineId && (
           <code className="max-w-[15rem] truncate text-muted-foreground">{data.baseline.baselineId}</code>

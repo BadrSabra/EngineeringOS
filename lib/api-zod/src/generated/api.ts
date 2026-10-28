@@ -5576,7 +5576,7 @@ export const GetAiBenchmarkScorecardResponse = zod.object({
   "generatedAt": zod.coerce.date().optional()
 }).optional(),
   "baselineComparison": zod.object({
-  "status": zod.enum(['missing', 'incompatible', 'regressed', 'passed']).optional(),
+  "status": zod.enum(['missing', 'not_compared', 'incompatible', 'regressed', 'passed']).optional(),
   "baselineId": zod.string().optional(),
   "baselineGeneratedAt": zod.coerce.date().optional(),
   "metricDeltas": zod.record(zod.string(), zod.number()).optional(),
@@ -5902,7 +5902,7 @@ export const GetAiMissionControlResponse = zod.object({
   "generatedAt": zod.coerce.date().optional()
 }).optional(),
   "baselineComparison": zod.object({
-  "status": zod.enum(['missing', 'incompatible', 'regressed', 'passed']).optional(),
+  "status": zod.enum(['missing', 'not_compared', 'incompatible', 'regressed', 'passed']).optional(),
   "baselineId": zod.string().optional(),
   "baselineGeneratedAt": zod.coerce.date().optional(),
   "metricDeltas": zod.record(zod.string(), zod.number()).optional(),

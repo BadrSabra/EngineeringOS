@@ -11,6 +11,7 @@ export type AiBenchmarkBaselineComparisonStatus = typeof AiBenchmarkBaselineComp
 
 export const AiBenchmarkBaselineComparisonStatus = {
   missing: 'missing',
+  not_compared: 'not_compared',
   incompatible: 'incompatible',
   regressed: 'regressed',
   passed: 'passed',

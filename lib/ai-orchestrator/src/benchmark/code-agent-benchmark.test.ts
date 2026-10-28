@@ -636,6 +636,44 @@ describe("Code Agent benchmark manifest", () => {
     expect(missing.rolloutBlockers).toContain("benchmark baseline unavailable");
   });
 
+  it("does not label a full-suite baseline incompatible with a targeted scorecard", () => {
+    const cases = getCodeAgentBenchmarkCases();
+    const baselineScorecard = buildCodeAgentBenchmarkScorecard({
+      results: cases.map((testCase) => observation(testCase.id)),
+    });
+    const baseline: CodeAgentBenchmarkBaseline = {
+      kind: "code-agent-benchmark-baseline",
+      version: 1,
+      baselineId: "approved-full-suite-baseline",
+      suiteVersion: baselineScorecard.suiteVersion,
+      generatedAt: "2026-08-18T00:00:00.000Z",
+      metrics: baselineScorecard.metrics,
+      rolloutAllowed: true,
+    };
+    const targetedCase = cases.find((testCase) => testCase.id === "multi-file-001")!;
+    const targetedScorecard = buildCodeAgentBenchmarkScorecard({
+      cases: [targetedCase],
+      results: [observation(targetedCase.id)],
+    });
+
+    const gated = applyCodeAgentBenchmarkBaselineGate({
+      scorecard: targetedScorecard,
+      baseline,
+    });
+
+    expect(gated.baselineComparison).toMatchObject({
+      status: "not_compared",
+      baselineId: "approved-full-suite-baseline",
+    });
+    expect(gated.baselineComparison?.blockers).toContain(
+      "benchmark baseline comparison skipped for a targeted or incomplete run",
+    );
+    expect(gated.rolloutAllowed).toBe(false);
+    expect(gated.rolloutBlockers).not.toContain(
+      "benchmark baseline is incompatible with the live suite",
+    );
+  });
+
   it("blocks rollout when a D result has no bounded explanation", () => {
     const cases = getCodeAgentBenchmarkCases();
     const results = cases.map((testCase) =>

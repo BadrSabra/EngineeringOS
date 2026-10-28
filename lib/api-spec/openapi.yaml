@@ -5978,7 +5978,7 @@ components:
       properties:
         status:
           type: string
-          enum: [missing, incompatible, regressed, passed]
+          enum: [missing, not_compared, incompatible, regressed, passed]
         baselineId:
           type: string
         baselineGeneratedAt:

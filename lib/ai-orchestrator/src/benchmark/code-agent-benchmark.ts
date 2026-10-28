@@ -296,7 +296,7 @@ export type CodeAgentBenchmarkBaseline = {
 };
 
 export type CodeAgentBenchmarkBaselineComparison = {
-  status: "missing" | "incompatible" | "regressed" | "passed";
+  status: "missing" | "not_compared" | "incompatible" | "regressed" | "passed";
   baselineId?: string;
   baselineGeneratedAt?: string;
   metricDeltas?: {
@@ -1185,7 +1185,22 @@ export function applyCodeAgentBenchmarkBaselineGate(args: {
   const blockers = [...scorecard.rolloutBlockers];
   let comparison: CodeAgentBenchmarkBaselineComparison;
 
-  if (!baseline) {
+  if (
+    scorecard.metrics.totalCases !== CODE_AGENT_BENCHMARK_CASE_COUNT ||
+    !scorecard.metrics.complete ||
+    scorecard.metrics.observedCases !== scorecard.metrics.totalCases
+  ) {
+    comparison = {
+      status: "not_compared",
+      ...(baseline
+        ? {
+            baselineId: baseline.baselineId,
+            baselineGeneratedAt: baseline.generatedAt,
+          }
+        : {}),
+      blockers: ["benchmark baseline comparison skipped for a targeted or incomplete run"],
+    };
+  } else if (!baseline) {
     comparison = {
       status: "missing",
       blockers: ["benchmark baseline unavailable"],
