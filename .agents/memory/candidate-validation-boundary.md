@@ -20,3 +20,9 @@ Intermediate delivery states are not direct apply permissions: `isolated`, `aban
 **Why:** A pending proposal can survive a process crash after live-root promotion has started, and replaying it without durable stage evidence can duplicate or overwrite an uncertain delivery.
 
 **How to apply:** Gate every apply retry on the persisted lifecycle and latest proposal-scoped journal stage; keep no-promotion blocked results retryable, but fail closed for missing, promoted, or rollback-failed evidence.
+
+Benchmark runners must treat the candidate SHA as immutable input and keep runner/control changes separate; comparing the approval pin to `main` itself is self-referential, while an allowlisted control-only delta can be verified before materializing the pinned tree.
+
+**Why:** Updating a pin changes the branch SHA, so exact equality with the branch head makes the next validation stale by construction; using the mutable checkout can also make evidence describe code other than the approved candidate.
+
+**How to apply:** Verify the approved commit exists and is an ancestor of the control branch, reject tracked or untracked workspace changes outside explicit runner-only paths, archive the approved commit into a disposable realpath-checked root, and bind run receipts to that commit.

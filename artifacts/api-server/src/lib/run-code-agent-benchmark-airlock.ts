@@ -1,8 +1,6 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, rmSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import {
   applyCodeAgentBenchmarkBaselineGate,
   buildCodeAgentBenchmarkScorecard,
@@ -21,7 +19,6 @@ import {
   type BenchmarkAirlockObservation,
   type BenchmarkAirlockRun,
   type CodeAgentBenchmarkBaseline,
-  type CodeAgentBenchmarkCase,
   type CodeAgentBenchmarkObservation,
   type ProviderHealthProbeResult,
   type ProviderId,
@@ -47,9 +44,9 @@ import {
   type BenchmarkDisposableRootLease,
 } from "./benchmark-fixture-authorization.js";
 import {
-  isApprovedBenchmarkSourceRevision,
-  isValidBenchmarkSourceRevision,
-} from "./benchmark-source-policy.js";
+  createApprovedBenchmarkSourceSnapshot,
+  resolveApprovedBenchmarkSourceRevision,
+} from "./benchmark-source-snapshot.js";
 
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -58,20 +55,17 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   groq: "GROQ_API_KEY",
 };
 const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
-const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
-const execFileAsync = promisify(execFile);
-async function resolveSourceRevision(root: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
-  const revision = stdout.trim();
-  if (!isValidBenchmarkSourceRevision(revision)) {
-    throw new Error("SOURCE_REVISION_INVALID: server-observed main revision is malformed.");
+const controlRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
+const sourceRevision = await resolveApprovedBenchmarkSourceRevision(controlRoot);
+const approvedSourceSnapshot = await createApprovedBenchmarkSourceSnapshot(controlRoot, sourceRevision);
+const cleanupApprovedSourceSnapshotAtExit = () => {
+  try {
+    rmSync(approvedSourceSnapshot.temporaryRootPath, { recursive: true, force: true });
+  } catch {
+    // Best-effort final cleanup; the async finally block reports normal cleanup.
   }
-  if (!isApprovedBenchmarkSourceRevision(revision)) {
-    throw new Error("SOURCE_REVISION_STALE: server-observed main revision is not the approved benchmark source.");
-  }
-  return revision;
-}
-const sourceRevision = await resolveSourceRevision(sourceRoot);
+};
+process.once("exit", cleanupApprovedSourceSnapshotAtExit);
 const allCases = getCodeAgentBenchmarkCases();
 const benchmarkTargetPaths = [
   ...new Set(allCases.flatMap((testCase) => defaultApiBenchmarkTargetPaths(testCase))),
@@ -139,7 +133,7 @@ const outputDir = path.resolve(
       ? path.join(configuredOutputDir, shardLabel!)
       : configuredOutputDir
     : path.join(
-        sourceRoot,
+        controlRoot,
         "lib/ai-orchestrator/benchmark-results",
         shardLabel ?? "",
       ),
@@ -151,13 +145,13 @@ const campaignHistoryDir = path.resolve(
 const PREFLIGHT_HISTORY_LIMIT = 8;
 const PREFLIGHT_HISTORY_PREFIX = "code-agent-benchmark-airlock-preflight-";
 if (campaignModeSelection === "live") {
-  const relativeOutput = path.relative(sourceRoot, outputDir);
+  const relativeOutput = path.relative(controlRoot, outputDir);
   if (relativeOutput === "" || (!relativeOutput.startsWith("..") && !path.isAbsolute(relativeOutput))) {
     throw new Error(
       "Live benchmark output must be outside the source workspace; use a disposable campaign directory such as /tmp/engineeringos-live-campaign.",
     );
   }
-  const relativeHistory = path.relative(sourceRoot, campaignHistoryDir);
+  const relativeHistory = path.relative(controlRoot, campaignHistoryDir);
   if (relativeHistory === "" || (!relativeHistory.startsWith("..") && !path.isAbsolute(relativeHistory))) {
     throw new Error(
       "Live benchmark history must be outside the source workspace; use a disposable campaign history directory.",
@@ -168,9 +162,9 @@ const runId = process.env.BENCHMARK_RUN_ID?.trim() ||
   `airlock-${shardLabel ? `${shardLabel}-` : ""}${Date.now()}`;
 const generatedAt = new Date().toISOString();
 
-async function resetCaseTargets(_testCase: CodeAgentBenchmarkCase, rootPath: string): Promise<void> {
+async function resetCaseTargets(candidateRoot: string, rootPath: string): Promise<void> {
   await Promise.all(benchmarkTargetPaths.map(async (relativePath) => {
-    const sourcePath = path.resolve(sourceRoot, relativePath);
+    const sourcePath = path.resolve(candidateRoot, relativePath);
     const isolatedPath = path.resolve(rootPath, relativePath);
     try {
       await fs.mkdir(path.dirname(isolatedPath), { recursive: true });
@@ -271,12 +265,13 @@ server-owned preflight report is retained in the JSON run record.
   }
 }
 
-async function createIsolatedBenchmarkRoot(): Promise<{
+async function createIsolatedBenchmarkRoot(candidateSourceRoot: string, dependencyRoot: string): Promise<{
   rootPath: string;
   benchmarkRootLease: BenchmarkDisposableRootLease;
   cleanup: () => Promise<void>;
 }> {
-  const resolvedSource = await fs.realpath(sourceRoot);
+  const resolvedSource = await fs.realpath(candidateSourceRoot);
+  const resolvedDependencyRoot = await fs.realpath(dependencyRoot);
   await fs.access(path.join(resolvedSource, "package.json"));
   const rootPath = await createHostDisposableTempDirectory("engineeringos-code-agent-airlock-");
   try {
@@ -285,7 +280,7 @@ async function createIsolatedBenchmarkRoot(): Promise<{
       dereference: false,
       filter: (source) => !path.relative(resolvedSource, source).split(path.sep).some((segment) => COPY_OMIT.has(segment)),
     });
-    await fs.symlink(path.join(resolvedSource, "node_modules"), path.join(rootPath, "node_modules"), "dir");
+    await fs.symlink(path.join(resolvedDependencyRoot, "node_modules"), path.join(rootPath, "node_modules"), "dir");
     const benchmarkRootLease = await createBenchmarkDisposableRootLease(rootPath);
     return {
       rootPath,
@@ -541,7 +536,7 @@ if (shard) {
     freeOnly,
   });
 }
-const isolated = await createIsolatedBenchmarkRoot();
+const isolated = await createIsolatedBenchmarkRoot(approvedSourceSnapshot.rootPath, controlRoot);
 const campaignController = new AbortController();
 const campaignTimer = setTimeout(() => campaignController.abort(), campaignTimeoutMs);
 let providerHealth: readonly ProviderHealthProbeResult[] = [];
@@ -640,7 +635,7 @@ server-owned preflight report is retained in the JSON run record.
         "utf8",
       );
     },
-    beforeCase: resetCaseTargets,
+    beforeCase: (_testCase, rootPath) => resetCaseTargets(approvedSourceSnapshot.rootPath, rootPath),
     onObservation: async (_observation, observations) => {
       latestObservations = mergeObservations(latestObservations, observations);
       await writeJsonAtomically(path.join(outputDir, "code-agent-benchmark-airlock.progress.json"), {
@@ -659,7 +654,7 @@ server-owned preflight report is retained in the JSON run record.
       });
     },
   });
-  const baselinePath = path.resolve(process.env.BENCHMARK_BASELINE_PATH ?? path.join(sourceRoot, "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json"));
+  const baselinePath = path.resolve(process.env.BENCHMARK_BASELINE_PATH ?? path.join(approvedSourceSnapshot.rootPath, "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json"));
   let baseline: CodeAgentBenchmarkBaseline | undefined;
   try {
     baseline = parseBaseline(await fs.readFile(baselinePath, "utf8"));
@@ -765,4 +760,6 @@ ${benchmarkParityReportToMarkdown(parityReport)}
 } finally {
   clearTimeout(campaignTimer);
   await isolated.cleanup();
+  process.off("exit", cleanupApprovedSourceSnapshotAtExit);
+  await approvedSourceSnapshot.cleanup();
 }

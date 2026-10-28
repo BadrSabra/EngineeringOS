@@ -45,14 +45,11 @@ export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string
     throw new Error("SOURCE_REVISION_UNAVAILABLE: approved candidate commit is not present locally.");
   }
 
-  const { stdout: mainRevision } = await execFileAsync(
+  await execFileAsync(
     "git",
     ["-C", controlRoot, "rev-parse", "--verify", "main^{commit}"],
     { maxBuffer: 4096 },
   );
-  if (!isValidBenchmarkSourceRevision(mainRevision.trim())) {
-    throw new Error("SOURCE_REVISION_INVALID: local main revision is malformed.");
-  }
 
   try {
     await execFileAsync(
@@ -66,14 +63,22 @@ export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string
 
   const { stdout: changedPaths } = await execFileAsync(
     "git",
-    ["-C", controlRoot, "diff", "--name-only", `${sourceRevision}..main`],
+    ["-C", controlRoot, "diff", "--name-only", sourceRevision],
+    { maxBuffer: 64 * 1024 },
+  );
+  const { stdout: untrackedPaths } = await execFileAsync(
+    "git",
+    ["-C", controlRoot, "ls-files", "--others", "--exclude-standard"],
     { maxBuffer: 64 * 1024 },
   );
   const unapprovedChanges = findUnapprovedBenchmarkControlChanges(
-    changedPaths.split(/\r?\n/).filter(Boolean),
+    [
+      ...changedPaths.split(/\r?\n/),
+      ...untrackedPaths.split(/\r?\n/),
+    ].filter(Boolean),
   );
   if (unapprovedChanges.length > 0) {
-    throw new Error("SOURCE_REVISION_STALE: main contains changes outside the approved benchmark control files.");
+    throw new Error("SOURCE_REVISION_STALE: the workspace contains changes outside approved benchmark control files.");
   }
 
   return sourceRevision;
