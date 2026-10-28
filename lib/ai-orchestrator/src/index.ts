@@ -1089,6 +1089,7 @@ export type {
   CodeAgentBenchmarkTelemetryComplete,
   CodeAgentBenchmarkTargetProfile,
   CodeAgentExecutionTelemetry,
+  CodeAgentProviderFailureCategory,
   CodeAgentExpectedTerminal,
   CodeAgentProjectShape,
   CodeAgentValidationKind,

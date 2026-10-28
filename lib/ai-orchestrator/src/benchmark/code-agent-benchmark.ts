@@ -108,6 +108,19 @@ export type CodeAgentBenchmarkCase = {
  */
 export type CodeAgentBenchmarkGrade = "A" | "B" | "C" | "D" | "F" | "U";
 
+const CODE_AGENT_PROVIDER_FAILURE_CATEGORIES = [
+  "TIMEOUT",
+  "MODEL_REJECTED",
+  "MODEL_UNAVAILABLE",
+  "RATE_LIMITED",
+  "FALLBACK_EXHAUSTED",
+  "TRANSPORT_FAILURE",
+  "MALFORMED_RESPONSE",
+  "UNKNOWN",
+] as const;
+export type CodeAgentProviderFailureCategory =
+  (typeof CODE_AGENT_PROVIDER_FAILURE_CATEGORIES)[number];
+
 export type CodeAgentBenchmarkObservation = {
   caseId: string;
   /** Hash of the candidate bytes used for this case's oracle/validation run. */
@@ -178,6 +191,8 @@ export type CodeAgentExecutionTelemetry = {
   executorFailed?: boolean;
   /** Provider/network/case-timeout failure prevented a quality observation. */
   providerUnavailable?: boolean;
+  /** Bounded server-owned provider failure category; never raw provider text. */
+  providerFailureCategory?: CodeAgentProviderFailureCategory;
   /** Internal attribution for provider-lane quarantine; not quality evidence. */
   providerRateLimitScope?: ProviderRateLimitScope;
   /** Internal bounded upstream label for provider-lane quarantine. */
@@ -738,7 +753,9 @@ export function observationFromCodeAgentExecution(
     telemetry.actualTerminal === "BLOCKED" &&
     telemetry.changedPaths.length > 0;
   const diagnosis = providerUnavailable
-    ? "Provider unavailable before quality evidence was produced; classify this observation as U, not agent quality."
+    ? `${telemetry.providerFailureCategory
+      ? `Provider failure (${telemetry.providerFailureCategory})`
+      : "Provider unavailable"} before quality evidence was produced; classify this observation as U, not agent quality.`
     : falseSuccess
       ? testCase.expected.terminal === "BLOCKED"
         ? "False success: the execution claimed READY_FOR_REVIEW for a case that requires BLOCKED."

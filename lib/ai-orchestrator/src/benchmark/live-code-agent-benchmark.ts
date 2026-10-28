@@ -20,6 +20,7 @@ import {
   type CodeAgentBenchmarkCase,
   type CodeAgentBenchmarkExecutor,
   type CodeAgentExecutionTelemetry,
+  type CodeAgentProviderFailureCategory,
 } from "./code-agent-benchmark.js";
 import {
   probeProviderHealth,
@@ -159,6 +160,34 @@ function telemetryFromChatResult(
       step.kind === "diagnostic" &&
       step.code === "EXECUTION_PROVIDER_FAILURE",
   );
+  const providerFailureCategoryByCode: Record<string, CodeAgentProviderFailureCategory> = {
+    TIMEOUT: "TIMEOUT",
+    MODEL_NOT_FOUND: "MODEL_REJECTED",
+    PLAN_RESTRICTED: "MODEL_REJECTED",
+    AUTH_ERROR: "MODEL_REJECTED",
+    QUOTA: "MODEL_REJECTED",
+    NON_200: "MODEL_REJECTED",
+    MODEL_UNAVAILABLE: "MODEL_UNAVAILABLE",
+    RATE_LIMITED: "RATE_LIMITED",
+    FALLBACK_EXHAUSTED: "FALLBACK_EXHAUSTED",
+    INVALID_TOOL_CALL: "MALFORMED_RESPONSE",
+    INVALID_PROVIDER_RESPONSE: "MALFORMED_RESPONSE",
+    EMPTY_RESPONSE: "MALFORMED_RESPONSE",
+    NETWORK_ERROR: "TRANSPORT_FAILURE",
+    SERVER_ERROR: "TRANSPORT_FAILURE",
+  };
+  const providerFailureCategory = providerFailureDiagnostics
+    .flatMap((step) => step.details ?? [])
+    .map((detail) => {
+      const match = /^(?:fallback )?provider failure code:\s*([A-Z][A-Z0-9_]{0,63})$/i
+        .exec(detail.trim());
+      if (!match) return undefined;
+      return providerFailureCategoryByCode[match[1].toUpperCase()] ?? "UNKNOWN";
+    })
+    .find((category): category is CodeAgentProviderFailureCategory => category !== undefined)
+    ?? (steps.some((step) => step.kind === "done" && step.stopReason === "provider_timeout")
+      ? "TIMEOUT"
+      : undefined);
   const providerUnavailable = providerFailureDiagnostics.some(
     (step) =>
       !step.details?.some((detail) =>
@@ -227,6 +256,7 @@ function telemetryFromChatResult(
     testsPassed,
     latencyMs: Math.round(performance.now() - startedAt),
     providerUnavailable,
+    ...(providerFailureCategory ? { providerFailureCategory } : {}),
     providerAttemptedModels: uniqueAttemptedModels,
     ...(uniqueAttemptedModels.at(-1) ? { providerFinalModel: uniqueAttemptedModels.at(-1) } : {}),
     ...(providerIdForTelemetry(steps) === "openrouter"

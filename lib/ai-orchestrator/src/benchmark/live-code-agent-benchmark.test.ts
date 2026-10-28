@@ -17,7 +17,10 @@ import type { ProjectContext } from "../context-builder.js";
 import type { ProviderHealthProbeResult } from "./provider-health-probe.js";
 import { buildActiveTaskExecutionPlan } from "../task-session-state.js";
 import { resolveTurnIntent } from "../turn-intent.js";
-import { getCodeAgentBenchmarkCases } from "./code-agent-benchmark.js";
+import {
+  getCodeAgentBenchmarkCases,
+  observationFromCodeAgentExecution,
+} from "./code-agent-benchmark.js";
 import { getCodeAgentBenchmarkFixture } from "./code-agent-benchmark-fixtures.js";
 
 const pendingResult = {
@@ -395,6 +398,10 @@ describe("benchmark case timeouts", () => {
       onStep?.({
         kind: "diagnostic",
         code: "EXECUTION_PROVIDER_FAILURE",
+        details: [
+          "provider failure code: RATE_LIMITED",
+          "raw provider response: this must not be persisted",
+        ],
       } as AgentStep);
       return { pendingChanges: [] } as unknown as ChatResult;
     });
@@ -425,8 +432,13 @@ describe("benchmark case timeouts", () => {
     const telemetry = await executeCase(testCase);
 
     expect(telemetry.providerUnavailable).toBe(true);
+    expect(telemetry.providerFailureCategory).toBe("RATE_LIMITED");
     expect(telemetry.oracleStatus).toBeUndefined();
     expect(oracleForCase).not.toHaveBeenCalled();
+    const observation = observationFromCodeAgentExecution(testCase, telemetry);
+    expect(observation.grade).toBe("U");
+    expect(observation.diagnosis).toContain("Provider failure (RATE_LIMITED)");
+    expect(JSON.stringify(observation)).not.toContain("raw provider response");
   });
 
   it("scores invalid provider tool calls as contract failures, not provider outages", async () => {
