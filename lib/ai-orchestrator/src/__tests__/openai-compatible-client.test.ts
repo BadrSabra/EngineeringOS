@@ -1005,6 +1005,95 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(new Set(seenModels).size).toBe(1);
   });
 
+  it("traces each OpenRouter request in one execution without logging prompt or credential", async () => {
+    const priorTraceSetting = process.env.ENGINEERINGOS_OPENROUTER_ATTEMPT_TRACE;
+    process.env.ENGINEERINGOS_OPENROUTER_ATTEMPT_TRACE = "1";
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return textResponse(JSON.stringify({
+          error: {
+            message: "shared pool limit",
+            metadata: { limit_source: "upstream_provider_shared_pool" },
+          },
+        }), 429);
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "accepted response" }, finish_reason: "stop" }],
+        model: primaryModel,
+        usage: { prompt_tokens: 2, completion_tokens: 3 },
+      });
+    }));
+
+    const executionLedger = createExecutionLedger({ id: "private-execution-id" });
+    const requestOptions = {
+      apiKey: "private-provider-credential",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 1,
+      retryTransient: false,
+      allowPaidFallback: false,
+      executionLedger,
+    } as const;
+
+    try {
+      await expect(
+        openrouterCompleteWithFallback(
+          [{ role: "user", content: "private prompt marker" }] as any,
+          { ...requestOptions, operation: "tool_loop" },
+        ),
+      ).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof GroqClientError &&
+          error.code === "RATE_LIMITED" &&
+          error.rateLimitScope === "upstream_shared_pool",
+      );
+
+      const accepted = await openrouterCompleteWithFallback(
+        [{ role: "user", content: "private prompt marker" }] as any,
+        { ...requestOptions, operation: "project_query_no_tools_synthesis" },
+      );
+      expect(accepted.content).toBe("accepted response");
+      expect(callCount).toBe(2);
+
+      const trace = infoSpy.mock.calls
+        .map(([value]) => {
+          try {
+            return JSON.parse(String(value)) as Record<string, unknown>;
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((entry) => entry?.scope === "openrouter-attempt-trace");
+      expect(trace).toHaveLength(4);
+      expect(trace.map((entry) => [entry?.action, entry?.sequence, entry?.operation, entry?.status]))
+        .toEqual([
+          ["started", 1, "tool_loop", undefined],
+          ["completed", 1, "tool_loop", "failed"],
+          ["started", 2, "project_query_no_tools_synthesis", undefined],
+          ["completed", 2, "project_query_no_tools_synthesis", "completed"],
+        ]);
+      expect(trace[0]?.execution).toMatch(/^[a-f0-9]{16}$/u);
+      expect(trace.every((entry) => entry?.execution === trace[0]?.execution)).toBe(true);
+      expect(trace[1]).toMatchObject({
+        errorCode: "RATE_LIMITED",
+        rateLimitScope: "upstream_shared_pool",
+      });
+      const serializedTrace = JSON.stringify(trace);
+      expect(serializedTrace).not.toContain("private-execution-id");
+      expect(serializedTrace).not.toContain("private-provider-credential");
+      expect(serializedTrace).not.toContain("private prompt marker");
+    } finally {
+      if (priorTraceSetting === undefined) {
+        delete process.env.ENGINEERINGOS_OPENROUTER_ATTEMPT_TRACE;
+      } else {
+        process.env.ENGINEERINGOS_OPENROUTER_ATTEMPT_TRACE = priorTraceSetting;
+      }
+    }
+  });
+
   it("bounds provider-owned fallback candidates for short recovery calls", async () => {
     let callCount = 0;
     const seenModels: string[] = [];

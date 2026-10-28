@@ -16,6 +16,7 @@
  * PR-007: GroqClientError carries providerStatus/providerCode/providerMessage.
  * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
  */
+import { createHash } from "node:crypto";
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import {
   GroqClientError,
@@ -409,13 +410,84 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 
+type ProviderAttemptTrace = {
+  execution: string;
+  sequence: number;
+  operation: string;
+  model: string;
+};
+
+function safeAttemptLabel(value: string | undefined, fallback: string): string {
+  const normalized = value?.trim().replace(/[^A-Za-z0-9._:/-]/gu, "_").slice(0, 120);
+  return normalized || fallback;
+}
+
+function createProviderAttemptTrace(
+  ledger: ExecutionLedger | undefined,
+  provider: string,
+  model: string,
+  operation: string,
+): ProviderAttemptTrace | undefined {
+  // Enable only for controlled benchmark diagnostics. The trace intentionally
+  // excludes prompt, response, credential, and provider error-message content.
+  if (
+    provider.toLowerCase() !== "openrouter" ||
+    process.env.ENGINEERINGOS_OPENROUTER_ATTEMPT_TRACE !== "1" ||
+    !ledger
+  ) {
+    return undefined;
+  }
+  return {
+    execution: createHash("sha256").update(ledger.id).digest("hex").slice(0, 16),
+    sequence: ledger.snapshot().counts.provider_attempt,
+    operation: safeAttemptLabel(operation, "provider_request"),
+    model: safeAttemptLabel(model, "unknown_model"),
+  };
+}
+
+function logProviderAttemptTrace(
+  trace: ProviderAttemptTrace | undefined,
+  details: {
+    action: "started" | "completed";
+    status?: "completed" | "failed";
+    durationMs?: number;
+    errorCode?: string;
+    rateLimitScope?: ProviderRateLimitScope;
+    retryAfterMs?: number;
+  },
+): void {
+  if (!trace) return;
+  try {
+    console.info(JSON.stringify({
+      scope: "openrouter-attempt-trace",
+      action: details.action,
+      execution: trace.execution,
+      sequence: trace.sequence,
+      operation: trace.operation,
+      model: trace.model,
+      ...(details.status ? { status: details.status } : {}),
+      ...(details.durationMs !== undefined
+        ? { durationMs: Math.max(0, Math.floor(details.durationMs)) }
+        : {}),
+      ...(details.errorCode ? { errorCode: safeAttemptLabel(details.errorCode, "unknown") } : {}),
+      ...(details.rateLimitScope ? { rateLimitScope: details.rateLimitScope } : {}),
+      ...(Number.isSafeInteger(details.retryAfterMs) && details.retryAfterMs! > 0
+        ? { retryAfterMs: details.retryAfterMs }
+        : {}),
+    }));
+  } catch {
+    // Diagnostic logging must never alter provider admission or completion.
+  }
+}
+
 async function admitProviderAttempt(
   ledger: ExecutionLedger | undefined,
   provider: string,
   model: string,
   payload: unknown,
   operation = "provider_request",
-): Promise<{ startedAt: number; reservationId?: string }> {
+): Promise<{ startedAt: number; reservationId?: string; trace?: ProviderAttemptTrace }> {
+  let reservationId: string | undefined;
   if (ledger?.admitProviderRequest) {
     const admission = await ledger.admitProviderRequest({
       provider,
@@ -426,26 +498,42 @@ async function admitProviderAttempt(
     if (!admission.admitted) {
       throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
     }
-    return {
-      startedAt: Date.now(),
-      ...(admission.reservationId ? { reservationId: admission.reservationId } : {}),
-    };
-  }
-  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation })) {
+    reservationId = admission.reservationId;
+  } else if (ledger && !ledger.admit("provider_attempt", { provider, model, operation })) {
     throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
   }
-  return { startedAt: Date.now() };
+  const attempt = {
+    startedAt: Date.now(),
+    ...(reservationId ? { reservationId } : {}),
+    trace: createProviderAttemptTrace(ledger, provider, model, operation),
+  };
+  logProviderAttemptTrace(attempt.trace, { action: "started" });
+  return attempt;
 }
 
 async function completeProviderAttempt(
   ledger: ExecutionLedger | undefined,
   provider: string,
   model: string,
-  attempt: { startedAt: number; reservationId?: string },
+  attempt: { startedAt: number; reservationId?: string; trace?: ProviderAttemptTrace },
   error?: unknown,
   operation = "provider_request",
   usage: ProviderRequestUsage = { usageStatus: "unknown" },
 ): Promise<void> {
+  logProviderAttemptTrace(attempt.trace, {
+    action: "completed",
+    status: error ? "failed" : "completed",
+    durationMs: Date.now() - attempt.startedAt,
+    ...(error instanceof GroqClientError
+      ? {
+          errorCode: error.code,
+          ...(error.rateLimitScope ? { rateLimitScope: error.rateLimitScope } : {}),
+          ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+        }
+      : error
+        ? { errorCode: "PROVIDER_REQUEST_FAILED" }
+        : {}),
+  });
   if (ledger?.completeProviderRequest) {
     await ledger.completeProviderRequest({
       reservationId: attempt.reservationId,
