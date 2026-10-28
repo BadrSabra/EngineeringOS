@@ -102,6 +102,32 @@ describe("AI repair validation registry", () => {
     }
   }, 10_000);
 
+  it("does not pass provider credentials to an unbound validator child", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validator-env-"));
+    try {
+      await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"runtime-validator-env"}\n');
+      const result = await runRepairRuntimeValidation(
+        rootPath,
+        [],
+        {
+          command: "pnpm",
+          args: [
+            "exec",
+            "node",
+            "-e",
+            "process.stdout.write(process.env.OPENROUTER_API_KEY ? 'credential-present' : 'credential-absent')",
+          ],
+          timeoutMs: 5_000,
+        },
+      );
+
+      expect(result.status).toBe("passed");
+      expect(result.stdout).toBe("credential-absent");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  }, 10_000);
+
   it("exposes only a registered bounded profile", () => {
     const profile = getRepairValidationProfile("ai-orchestrator-tests");
     expect(profile.command).toBe("pnpm");
