@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   executeExecutionNodePlan,
+  type ExecutionNodeRunContext,
   type ExecutionNodeOutcome,
 } from "../execution-node-coordinator.js";
+import { GroqClientError } from "../errors.js";
 import type { ExecutionNode } from "../task-session-state.js";
 
 function makeNode(
@@ -152,8 +154,73 @@ describe("executeExecutionNodePlan", () => {
     });
   });
 
+  it.each(["RATE_LIMITED", "QUOTA"] as const)(
+    "does not retry a child after provider %s",
+    async (code) => {
+      let calls = 0;
+      const result = await executeExecutionNodePlan({
+        nodes: [makeNode("provider-limited", ["src/limited.ts"])],
+        runNode: async () => {
+          calls += 1;
+          throw new GroqClientError(code, "Provider capacity limit reached.");
+        },
+      });
+
+      expect(calls).toBe(1);
+      expect(result.status).toBe("blocked");
+      expect(result.blockedNodeIds).toEqual(["provider-limited"]);
+      expect(result.nodes[0]).toMatchObject({
+        status: "blocked",
+        attempts: 1,
+        lastFailure: {
+          status: "blocked",
+          attempt: 1,
+          detail: expect.stringContaining(code),
+        },
+      });
+    },
+  );
+
+  it("aborts active peer work and blocks queued nodes after a provider rate limit", async () => {
+    const runIds: string[] = [];
+    const result = await executeExecutionNodePlan({
+      nodes: [
+        makeNode("rate-limited", ["src/a.ts"]),
+        makeNode("active-peer", ["src/b.ts"]),
+        makeNode("queued", ["src/c.ts"]),
+      ],
+      maxParallelNodes: 2,
+      runNode: async (node, context) => {
+        runIds.push(node.id);
+        if (node.id === "rate-limited") {
+          await Promise.resolve();
+          throw new GroqClientError("RATE_LIMITED", "Provider capacity limit reached.");
+        }
+        if (node.id === "active-peer") {
+          await new Promise<never>((_resolve, reject) => {
+            const abort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+            if (context.signal?.aborted) {
+              abort();
+              return;
+            }
+            context.signal?.addEventListener("abort", abort, { once: true });
+          });
+        }
+        return successful();
+      },
+    });
+
+    expect(runIds).toEqual(["rate-limited", "active-peer"]);
+    expect(result.status).toBe("blocked");
+    expect(result.completedNodeIds).toEqual([]);
+    expect(result.blockedNodeIds).toEqual(["rate-limited", "active-peer", "queued"]);
+    expect(result.nodes.every((node) => node.status === "blocked")).toBe(true);
+    expect(result.nodes.find((node) => node.id === "queued")?.lastFailure?.detail)
+      .toContain("remaining nodes were not retried");
+  });
+
   it("restores bounded failure context when resuming a failed node", async () => {
-    const contexts: Array<{ attempt: number; previousFailure?: { attempt: number; detail: string } }> = [];
+    const contexts: ExecutionNodeRunContext[] = [];
     const result = await executeExecutionNodePlan({
       nodes: [
         makeNode("resumed", ["src/resumed.ts"], [], {
@@ -174,13 +241,16 @@ describe("executeExecutionNodePlan", () => {
     });
 
     expect(result.status).toBe("passed");
-    expect(contexts).toEqual([{
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]).toMatchObject({
       attempt: 2,
       previousFailure: {
         attempt: 1,
         detail: "bounded validation failure",
       },
-    }]);
+    });
+    expect(contexts[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect(contexts[0]?.signal?.aborted).toBe(false);
     expect(result.nodes[0]).not.toHaveProperty("lastFailure");
   });
 

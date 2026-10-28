@@ -1203,6 +1203,36 @@ describe("openrouterCompleteStream — bounded retry and disconnect safety", () 
     },
   );
 
+  it("does not immediately retry a stream 429 with unknown scope", async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: "temporarily rate limited" } }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        );
+      }
+      return streamResponse([sseDelta("response after retry"), "data: [DONE]\n\n"]);
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const run = async () => {
+      for await (const _chunk of openrouterCompleteStream(
+        [{ role: "user", content: "hi" }],
+        { apiKey: "fixture-key", model: FREE_MODELS[0]!.id, maxFallbackModels: 1 },
+      )) {
+        // The unscoped 429 must terminate before a second request is issued.
+      }
+    };
+
+    await expect(run()).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "unknown",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("skips the model from a previous shared-pool failure on a later stream request", async () => {
     const attemptedModels: string[] = [];
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {

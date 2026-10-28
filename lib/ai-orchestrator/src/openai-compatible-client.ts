@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import {
   GroqClientError,
+  isRateLimitFailure,
   isProviderScopedRateLimit,
   type GroqErrorCode,
   type ProviderRateLimitScope,
@@ -1699,7 +1700,7 @@ export async function openrouterCompleteRaw(
     if (
       !isTransientError(err) ||
       opts.retryTransient === false ||
-      isProviderScopedRateLimit(err)
+      isRateLimitFailure(err)
     ) {
       throw err;
     }
@@ -2164,13 +2165,13 @@ export async function* openrouterCompleteStream(
           !transientRetried &&
           opts.retryTransient !== false &&
           isTransientError(providerError) &&
-          !isProviderScopedRateLimit(providerError) &&
+          !isRateLimitFailure(providerError) &&
           providerError.retryAfterMs === undefined
         ) {
           transientRetried = true;
           continue;
         }
-        const canAdvance = !isProviderScopedRateLimit(providerError) &&
+        const canAdvance = !isRateLimitFailure(providerError) &&
           (isModelUnavailableError(providerError) ||
             (opts.retryTransient === false && isTransientError(providerError)));
         if (!canAdvance || index >= chain.length - 1) {

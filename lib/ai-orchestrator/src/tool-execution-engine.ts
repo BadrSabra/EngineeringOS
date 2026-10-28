@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { GroqClientError, isProviderScopedRateLimit } from "./errors.js";
+import { GroqClientError, isRateLimitFailure } from "./errors.js";
 import type {
   AuditState,
   ForensicDecisionTrace,
@@ -5744,7 +5744,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (
         err instanceof GroqClientError &&
         TRANSIENT_CODES.has(err.code) &&
-        !isProviderScopedRateLimit(err) &&
+        !isRateLimitFailure(err) &&
         model !== powerModel &&
         (!synthesisOnly || synthesisAttempts < boundedSynthesisMaxAttempts)
       ) {

@@ -220,3 +220,11 @@ export function isProviderScopedRateLimit(error: unknown): boolean {
       error.rateLimitScope === "provider_credential")
   );
 }
+
+/** Any HTTP rate-limit response must stop automatic same-provider retries. */
+export function isRateLimitFailure(error: unknown): boolean {
+  return (
+    error instanceof GroqClientError &&
+    (error.code === "RATE_LIMITED" || error.code === "QUOTA")
+  );
+}

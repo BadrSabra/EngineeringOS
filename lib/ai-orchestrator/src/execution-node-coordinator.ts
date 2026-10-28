@@ -4,6 +4,7 @@ import {
   transitionExecutionNode,
   type ExecutionNode,
 } from "./task-session-state.js";
+import { GroqClientError, isRateLimitFailure } from "./errors.js";
 import { MAX_REPAIR_ATTEMPTS } from "./tools/execution-tools.js";
 
 export type ExecutionNodeOutcome = {
@@ -325,8 +326,20 @@ export async function executeExecutionNodePlan(
     }
   }
   let nodes = recoverInterruptedNodes(opts.nodes, opts);
+  const providerFailureAbort = new AbortController();
+  const nodeExecutionSignal = opts.signal
+    ? AbortSignal.any([opts.signal, providerFailureAbort.signal])
+    : providerFailureAbort.signal;
+  let providerRateLimitDetail: string | undefined;
 
   while (true) {
+    if (providerRateLimitDetail) {
+      for (const node of [...nodes]) {
+        if (node.status !== "queued") continue;
+        nodes = transitionToBlocked(nodes, node.id, opts, providerRateLimitDetail);
+        nodes = setLastFailure(nodes, node.id, "blocked", providerRateLimitDetail);
+      }
+    }
     nodes = blockImpossibleNodes(nodes, opts);
 
     if (opts.signal?.aborted) {
@@ -365,13 +378,35 @@ export async function executeExecutionNodePlan(
           node,
           outcome: await opts.runNode(node, {
             attempt: node.attempts + 1,
-            signal: opts.signal,
+            signal: nodeExecutionSignal,
             ...(previousFailures.get(node.id)
               ? { previousFailure: previousFailures.get(node.id) }
               : {}),
           }),
         };
       } catch (error) {
+        if (isRateLimitFailure(error)) {
+          const code = error instanceof GroqClientError ? error.code : "RATE_LIMITED";
+          providerRateLimitDetail ??=
+            `Provider ${code} stopped this execution; remaining nodes were not retried.`;
+          if (!providerFailureAbort.signal.aborted) providerFailureAbort.abort();
+          return {
+            node,
+            outcome: {
+              status: "blocked" as const,
+              detail: providerRateLimitDetail,
+            },
+          };
+        }
+        if (providerRateLimitDetail) {
+          return {
+            node,
+            outcome: {
+              status: "blocked" as const,
+              detail: providerRateLimitDetail,
+            },
+          };
+        }
         return {
           node,
           outcome: {
@@ -409,10 +444,13 @@ export async function executeExecutionNodePlan(
       if (outcome.status === "passed") {
         nodes = clearLastFailure(updateNode(nodes, node.id, "passed"), node.id);
         emit(opts, nodes, "passed", node.id, outcome.detail);
-      } else if (outcome.status === "blocked") {
+      } else if (outcome.status === "blocked" || providerRateLimitDetail) {
+        const detail = outcome.status === "failed" && providerRateLimitDetail
+          ? providerRateLimitDetail
+          : outcome.detail ?? providerRateLimitDetail ?? "execution node blocked";
         nodes = updateNode(nodes, node.id, "blocked");
-        if (outcome.detail) nodes = setLastFailure(nodes, node.id, "blocked", outcome.detail);
-        emit(opts, nodes, "blocked", node.id, outcome.detail);
+        nodes = setLastFailure(nodes, node.id, "blocked", detail);
+        emit(opts, nodes, "blocked", node.id, detail);
       } else {
         nodes = updateNode(nodes, node.id, "failed");
         nodes = setLastFailure(

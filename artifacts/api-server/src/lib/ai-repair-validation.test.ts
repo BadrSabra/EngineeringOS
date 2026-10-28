@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   createValidatorChildEnvironment,
   createValidationWorkspace,
+  getRepairValidationArgs,
   getRepairValidationProfile,
   runRepairRuntimeOracle,
   runRepairRuntimeValidation,
@@ -139,6 +140,25 @@ describe("AI repair validation registry", () => {
       "run",
     ]);
     expect(profile.timeoutMs).toBeLessThanOrEqual(120_000);
+  });
+
+  it("narrows generated benchmark validation to its exact fixture test", () => {
+    const baseArgs = getRepairValidationProfile("ai-orchestrator-tests").args;
+    const fixtureTest =
+      "lib/ai-orchestrator/src/benchmark-scenarios/complete/multi-file-004/multi-file-004-1.test.ts";
+    const fixtureImplementation =
+      "lib/ai-orchestrator/src/benchmark-scenarios/complete/multi-file-004/multi-file-004-2.ts";
+
+    expect(getRepairValidationArgs("ai-orchestrator-tests", [
+      fixtureImplementation,
+      fixtureTest,
+    ])).toEqual([
+      ...baseArgs,
+      "src/benchmark-scenarios/complete/multi-file-004/multi-file-004-1.test.ts",
+    ]);
+    expect(getRepairValidationArgs("ai-orchestrator-tests", [
+      "lib/ai-orchestrator/src/tools/git-tools.ts",
+    ])).toEqual(baseArgs);
   });
 
   it("registers the bounded API repair validation profile for only its implementation and tests", () => {

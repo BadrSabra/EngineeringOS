@@ -728,6 +728,25 @@ export function getRepairValidationProfile(profile: ValidationProfile): Validati
   return PROFILE_DEFINITIONS[profile];
 }
 
+export function getRepairValidationArgs(
+  profile: ValidationProfile,
+  relativePaths: readonly string[] = [],
+): string[] {
+  const definition = PROFILE_DEFINITIONS[profile];
+  if (profile !== "ai-orchestrator-tests") return [...definition.args];
+
+  const fixturePrefix = "lib/ai-orchestrator/src/benchmark-scenarios/complete/";
+  const fixtureTests = relativePaths
+    .filter((file) =>
+      file.startsWith(fixturePrefix) &&
+      file.endsWith(".test.ts") &&
+      !file.split("/").some((segment) => segment === "." || segment === ".."),
+    )
+    .map((file) => path.relative("lib/ai-orchestrator", file))
+    .sort();
+  return [...definition.args, ...fixtureTests];
+}
+
 export function validateRepairValidationScope(
   profile: ValidationProfile,
   relativePaths: string[],
@@ -808,7 +827,7 @@ async function runRepairValidationCore(
     });
     const execution = await runBoundedCommand({
       command: resolvedCommand.commandPath,
-      args: definition.args,
+      args: getRepairValidationArgs(profile, relativePaths),
       rootPath: validationRootPath,
       cwd: validationRootPath,
       timeoutMs: definition.timeoutMs,

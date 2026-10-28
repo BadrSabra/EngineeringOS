@@ -370,7 +370,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
   const primaryModel = FREE_MODELS[0]!.id;
 
   it("accepts a free model for its requested capability instead of defaulting to chat", async () => {
-    const codingOnlyModel = "cohere/north-mini-code:free";
+    const codingModel = "poolside/laguna-s-2.1:free";
     const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return jsonResponse({
@@ -383,7 +383,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
 
     const result = await openrouterCompleteWithFallback(baseMessages as any, {
       apiKey: "test-key",
-      model: codingOnlyModel,
+      model: codingModel,
       capability: "coding",
       quality: "powerful",
     });
@@ -391,7 +391,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(result.content).toBe('{"response":"ok"}');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
-    expect(requestBody.model).toBe(codingOnlyModel);
+    expect(requestBody.model).toBe(codingModel);
   });
 
   it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
@@ -1003,6 +1003,35 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
     expect(callCount).toBe(1);
     expect(new Set(seenModels).size).toBe(1);
+  });
+
+  it("does not immediately retry a 429 whose rate-limit scope is unknown", async () => {
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return textResponse('{"error":{"message":"temporarily rate limited"}}', 429);
+      }
+      return jsonResponse({
+        choices: [{ message: { content: "response after retry" }, finish_reason: "stop" }],
+        model: primaryModel,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    }));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof GroqClientError &&
+        error.code === "RATE_LIMITED" &&
+        error.rateLimitScope === "unknown",
+    );
+    expect(callCount).toBe(1);
   });
 
   it("traces each OpenRouter request in one execution without logging prompt or credential", async () => {

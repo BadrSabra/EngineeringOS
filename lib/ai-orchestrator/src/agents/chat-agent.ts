@@ -9335,7 +9335,7 @@ export async function chat(opts: {
           // loop may spend the remaining budget on in-loop repair, and the
           // consumed count is returned on the node outcome for the next retry.
           maxValidationAttempts: remainingValidationAttempts,
-          signal,
+          signal: context.signal,
           executionLedger,
           onStep: recordNodeStep,
           assertExecutionOwned,
