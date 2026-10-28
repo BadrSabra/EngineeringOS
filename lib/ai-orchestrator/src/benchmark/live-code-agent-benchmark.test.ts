@@ -17,6 +17,7 @@ import type { ProjectContext } from "../context-builder.js";
 import type { ProviderHealthProbeResult } from "./provider-health-probe.js";
 import { buildActiveTaskExecutionPlan } from "../task-session-state.js";
 import { resolveTurnIntent } from "../turn-intent.js";
+import { GroqClientError } from "../errors.js";
 import {
   getCodeAgentBenchmarkCases,
   observationFromCodeAgentExecution,
@@ -436,6 +437,42 @@ describe("benchmark case timeouts", () => {
     expect(telemetry.oracleStatus).toBeUndefined();
     expect(oracleForCase).not.toHaveBeenCalled();
     const observation = observationFromCodeAgentExecution(testCase, telemetry);
+    expect(observation.grade).toBe("U");
+    expect(observation.diagnosis).toContain("Provider failure (RATE_LIMITED)");
+    expect(JSON.stringify(observation)).not.toContain("raw provider response");
+  });
+
+  it("records only the allowlisted category when provider execution throws", async () => {
+    chatMock.mockReset();
+    chatMock.mockRejectedValueOnce(
+      new GroqClientError("RATE_LIMITED", "raw provider response must not be persisted"),
+    );
+
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-provider-error",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      targetPathsForCase: () => ["src/example.ts"],
+    });
+
+    const telemetry = await executeCase(testCase);
+    const observation = observationFromCodeAgentExecution(testCase, telemetry);
+
+    expect(telemetry).toMatchObject({
+      providerUnavailable: true,
+      providerFailureCategory: "RATE_LIMITED",
+    });
     expect(observation.grade).toBe("U");
     expect(observation.diagnosis).toContain("Provider failure (RATE_LIMITED)");
     expect(JSON.stringify(observation)).not.toContain("raw provider response");
