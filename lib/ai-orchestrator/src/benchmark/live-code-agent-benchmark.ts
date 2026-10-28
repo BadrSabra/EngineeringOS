@@ -676,14 +676,11 @@ export function createChatCodeAgentBenchmarkExecutor(
           }
         : telemetry;
     } catch (error) {
-      const providerUnavailable =
-        caseTimedOut ||
-        error instanceof GroqClientError;
-      const providerFailureCategory = error instanceof GroqClientError
+      const caseBudgetExhausted = caseTimedOut && !(error instanceof GroqClientError);
+      const providerUnavailable = error instanceof GroqClientError && !caseBudgetExhausted;
+      const providerFailureCategory = error instanceof GroqClientError && !caseBudgetExhausted
         ? providerFailureCategoryForCode(error.code)
-        : caseTimedOut
-          ? "TIMEOUT"
-          : undefined;
+        : undefined;
       return {
         ...(opts.candidateHash ? { candidateHash: opts.candidateHash } : {}),
         actualTerminal: "BLOCKED",
@@ -712,14 +709,16 @@ export function createChatCodeAgentBenchmarkExecutor(
         typecheckPassed: null,
         testsPassed: null,
         latencyMs: Math.round(performance.now() - startedAt),
+        ...(caseBudgetExhausted ? { caseBudgetExhausted: true } : {}),
         ...(providerFailureCategory ? { providerFailureCategory } : {}),
-         ...(providerUnavailable ? { providerUnavailable: true } : { executorFailed: true }),
-         ...(error instanceof GroqClientError && error.rateLimitScope
-           ? { providerRateLimitScope: error.rateLimitScope }
-           : {}),
-         ...(error instanceof GroqClientError && error.upstreamProvider
-           ? { providerUpstreamProvider: error.upstreamProvider }
-           : {}),
+        ...(providerUnavailable ? { providerUnavailable: true } : {}),
+        ...(!providerUnavailable && !caseBudgetExhausted ? { executorFailed: true } : {}),
+        ...(providerUnavailable && error instanceof GroqClientError && error.rateLimitScope
+          ? { providerRateLimitScope: error.rateLimitScope }
+          : {}),
+        ...(providerUnavailable && error instanceof GroqClientError && error.upstreamProvider
+          ? { providerUpstreamProvider: error.upstreamProvider }
+          : {}),
       };
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);

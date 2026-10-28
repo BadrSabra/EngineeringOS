@@ -259,7 +259,7 @@ describe("benchmark Build handoff routing", () => {
 });
 
 describe("benchmark case timeouts", () => {
-  it("treats a chat result returned after the deadline as unavailable", async () => {
+  it("marks a late chat result as case-budget exhaustion, not provider unavailability", async () => {
     chatMock.mockReset();
     chatMock.mockImplementationOnce(({ signal }: { signal?: AbortSignal }) =>
       new Promise<ChatResult>((resolve) => {
@@ -299,9 +299,17 @@ describe("benchmark case timeouts", () => {
     expect(telemetry).toMatchObject({
       actualTerminal: "BLOCKED",
       validationStatus: "unavailable",
-      providerUnavailable: true,
+      caseBudgetExhausted: true,
       candidateHash: "a".repeat(64),
     });
+    expect(telemetry.providerUnavailable).not.toBe(true);
+    const observation = observationFromCodeAgentExecution(testCase, telemetry);
+    expect(observation).toMatchObject({
+      grade: "U",
+      providerUnavailable: false,
+      caseBudgetExhausted: true,
+    });
+    expect(observation.diagnosis).toContain("case deadline expired");
     expect(chatMock).toHaveBeenCalledTimes(1);
     const chatArgs = chatMock.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(typeof chatArgs.assertExecutionOwned).toBe("function");
@@ -311,7 +319,7 @@ describe("benchmark case timeouts", () => {
     expect(oracleForCase).not.toHaveBeenCalled();
   });
 
-  it("returns unavailable when chat never settles after the case deadline", async () => {
+  it("returns a budget-exhausted U when chat never settles after the case deadline", async () => {
     chatMock.mockReset();
     let chatSignal: AbortSignal | undefined;
     chatMock.mockImplementationOnce(({ signal }: { signal?: AbortSignal }) => {
@@ -348,9 +356,10 @@ describe("benchmark case timeouts", () => {
     expect(telemetry).toMatchObject({
       actualTerminal: "BLOCKED",
       validationStatus: "unavailable",
-      providerUnavailable: true,
+      caseBudgetExhausted: true,
       candidateHash: "c".repeat(64),
     });
+    expect(telemetry.providerUnavailable).not.toBe(true);
     expect(chatSignal?.aborted).toBe(true);
     expect(oracleForCase).not.toHaveBeenCalled();
   });

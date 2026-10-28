@@ -124,6 +124,15 @@ export function buildBenchmarkParityReport(args: {
       remediation: "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence.",
     });
   }
+  if ((args.scorecard.metrics.caseBudgetExhaustedCount ?? 0) > 0) {
+    gaps.push({
+      dimension: "benchmark-budget",
+      priority: "medium",
+      status: "environment-gap",
+      evidence: `${args.scorecard.metrics.caseBudgetExhaustedCount} case deadline(s) expired before quality evidence completed; U is excluded from quality rates.`,
+      remediation: "Repeat the affected case with a sufficient bounded case budget; do not treat deadline exhaustion as provider unavailability or quality evidence.",
+    });
+  }
   const prioritizedRemediation = gaps.map((gap) => ({
     priority: gap.priority,
     dimension: gap.dimension,

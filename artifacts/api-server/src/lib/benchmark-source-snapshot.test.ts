@@ -15,6 +15,15 @@ const execFileAsync = promisify(execFile);
 async function git(root: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", root, ...args], {
     maxBuffer: 8 * 1024 * 1024,
+    env: {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(([key]) =>
+          !key.startsWith("GIT_") || key === "GIT_CONFIG_GLOBAL",
+        ),
+      ),
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
   });
   return stdout.trim();
 }
@@ -22,6 +31,17 @@ async function git(root: string, ...args: string[]): Promise<string> {
 describe("approved benchmark source snapshot", () => {
   it("allows only the runner's explicit control-plane delta", () => {
     expect(findUnapprovedBenchmarkControlChanges([
+      ".config/chromium/Crash Reports/settings.dat",
+      ".agents/memory/candidate-validation-boundary.md",
+      ".agents/memory/openrouter-throttling-checkpoints.md",
+      "lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts",
+      "lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts",
+      "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts",
+      "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts",
+      "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts",
+      "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts",
+      "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts",
+      "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts",
       "artifacts/api-server/src/lib/benchmark-source-policy.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
@@ -30,7 +50,9 @@ describe("approved benchmark source snapshot", () => {
     expect(findUnapprovedBenchmarkControlChanges([
       "lib/ai-orchestrator/src/index.ts",
       "pnpm-lock.yaml",
+      ".config/chromium/other-settings.dat",
     ])).toEqual([
+      ".config/chromium/other-settings.dat",
       "lib/ai-orchestrator/src/index.ts",
       "pnpm-lock.yaml",
     ]);

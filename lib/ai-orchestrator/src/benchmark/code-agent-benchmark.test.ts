@@ -418,6 +418,42 @@ describe("Code Agent benchmark manifest", () => {
     );
   });
 
+  it("records case-budget exhaustion as U without counting a provider outage", () => {
+    const budgetExhausted = observationFromCodeAgentExecution(
+      getCodeAgentBenchmarkCases()[0]!,
+      {
+        actualTerminal: "BLOCKED",
+        validationStatus: "unavailable",
+        changedPaths: [],
+        allowedPaths: ["src/feature.ts"],
+        filesRead: 0,
+        toolCalls: 1,
+        repairAttempts: 0,
+        rejectedChanges: 0,
+        conflict: false,
+        typecheckPassed: null,
+        testsPassed: null,
+        caseBudgetExhausted: true,
+      },
+    );
+
+    expect(budgetExhausted).toMatchObject({
+      grade: "U",
+      providerUnavailable: false,
+      caseBudgetExhausted: true,
+    });
+    expect(budgetExhausted.diagnosis).toContain("case deadline expired");
+
+    const scorecard = buildCodeAgentBenchmarkScorecard({ results: [budgetExhausted] });
+    expect(scorecard.metrics.providerUnavailableCount).toBe(0);
+    expect(scorecard.metrics.caseBudgetExhaustedCount).toBe(1);
+    expect(scorecard.metrics.gradeCounts.U).toBe(1);
+    expect(scorecard.rolloutAllowed).toBe(false);
+    expect(scorecard.rolloutBlockers).toContain(
+      "benchmark case deadline exceeded for 1 observed case; quality remains unproven",
+    );
+  });
+
   it("measures accepted task completion separately from correctly blocked cases", () => {
     const readyCase = getCodeAgentBenchmarkCases().find(
       (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",

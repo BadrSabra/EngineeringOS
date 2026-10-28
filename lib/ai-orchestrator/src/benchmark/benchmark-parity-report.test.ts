@@ -104,4 +104,33 @@ describe("observable parity report", () => {
     expect(report.gaps[0]).toMatchObject({ dimension: "safety-invariants", priority: "critical" });
     expect(report.gaps.some((gap) => gap.dimension === "provider-availability" && gap.status === "environment-gap")).toBe(true);
   });
+
+  it("reports case deadline exhaustion separately from provider availability", () => {
+    const report = buildBenchmarkParityReport({
+      mode: "coverage",
+      cases: [testCase],
+      scorecard: {
+        ...scorecard,
+        metrics: {
+          ...scorecard.metrics,
+          caseBudgetExhaustedCount: 1,
+          gradeCounts: { A: 0, B: 0, C: 0, D: 0, F: 0, U: 1 },
+        },
+      },
+      observations: [{
+        caseId: testCase.id,
+        observation: {
+          ...observation,
+          grade: "U",
+          correct: false,
+          caseBudgetExhausted: true,
+          providerUnavailable: false,
+        },
+      }],
+    });
+    expect(report.gaps.some((gap) =>
+      gap.dimension === "benchmark-budget" && gap.status === "environment-gap",
+    )).toBe(true);
+    expect(report.gaps.some((gap) => gap.dimension === "provider-availability")).toBe(false);
+  });
 });

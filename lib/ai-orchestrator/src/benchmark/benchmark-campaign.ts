@@ -35,14 +35,19 @@ export type BenchmarkCampaignSummary = {
 };
 
 function isEnvironmentUnavailable(observation: CodeAgentBenchmarkObservation): boolean {
-  return observation.providerUnavailable === true || observation.grade === "U";
+  return observation.providerUnavailable === true ||
+    (observation.grade === "U" && observation.caseBudgetExhausted !== true);
 }
 
 export function getBenchmarkRecoveryCaseIds(
   observations: readonly CodeAgentBenchmarkObservation[],
 ): string[] {
   return observations
-    .filter((observation) => isEnvironmentUnavailable(observation) || observation.grade === "F")
+    .filter((observation) =>
+      isEnvironmentUnavailable(observation) ||
+      observation.grade === "U" ||
+      observation.grade === "F",
+    )
     .map((observation) => observation.caseId);
 }
 
@@ -51,7 +56,13 @@ export function getBenchmarkCampaignStatus(
   mode: BenchmarkCampaignMode,
 ): BenchmarkCampaignSummary["status"] {
   if (!scorecard.metrics.complete) return "incomplete";
-  if (mode === "clean-witness" && scorecard.metrics.providerUnavailableCount === 0 && scorecard.metrics.gradeCounts.F === 0) {
+  if (
+    mode === "clean-witness" &&
+    scorecard.metrics.providerUnavailableCount === 0 &&
+    scorecard.metrics.caseBudgetExhaustedCount === 0 &&
+    scorecard.metrics.gradeCounts.U === 0 &&
+    scorecard.metrics.gradeCounts.F === 0
+  ) {
     return "clean-witness";
   }
   return "coverage-complete";
@@ -92,16 +103,27 @@ export function summarizeBenchmarkCampaign(args: {
     if (isEnvironmentUnavailable(entry.observation)) {
       environmentUnavailableCases += 1;
       recoveryCaseIds.push(entry.caseId);
+    } else if (entry.observation.grade === "U") {
+      recoveryCaseIds.push(entry.caseId);
     } else if (entry.observation.grade === "F") {
       qualityFailures += 1;
       recoveryCaseIds.push(entry.caseId);
     }
   }
+  const qualityEligible = args.observations.every(
+    ({ observation }) =>
+      observation.grade !== "U" &&
+      observation.providerUnavailable !== true &&
+      observation.caseBudgetExhausted !== true,
+  );
 
   const status =
     observedIds.size < args.caseIds.length
       ? "incomplete"
-      : args.mode === "clean-witness" && environmentUnavailableCases === 0 && qualityFailures === 0
+      : args.mode === "clean-witness" &&
+          qualityEligible &&
+          environmentUnavailableCases === 0 &&
+          qualityFailures === 0
         ? "clean-witness"
         : "coverage-complete";
 
@@ -114,7 +136,7 @@ export function summarizeBenchmarkCampaign(args: {
     recoveryCaseIds: [...new Set(recoveryCaseIds)],
     environmentUnavailableCases,
     qualityFailures,
-    qualityEligible: environmentUnavailableCases === 0,
+    qualityEligible,
     cleanWitness: status === "clean-witness",
   };
 }

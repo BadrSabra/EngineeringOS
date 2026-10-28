@@ -106,4 +106,28 @@ describe("benchmark campaign contract", () => {
       recoveryCaseIds: ["b", "c"],
     });
   });
+
+  it("keeps case-budget exhaustion distinct from provider unavailability", () => {
+    const timedOut = {
+      ...observation("deadline", "U"),
+      providerUnavailable: false,
+      caseBudgetExhausted: true,
+    };
+    const summary = summarizeBenchmarkCampaign({
+      mode: "coverage",
+      caseIds: ["deadline", "success"],
+      observations: [
+        { caseId: "deadline", provider: "openrouter", model: "m", providerAttempts: 1, observation: timedOut },
+        { caseId: "success", provider: "openrouter", model: "m", providerAttempts: 1, observation: observation("success", "A") },
+      ],
+    });
+
+    expect(summary).toMatchObject({
+      status: "coverage-complete",
+      environmentUnavailableCases: 0,
+      qualityEligible: false,
+      cleanWitness: false,
+      recoveryCaseIds: ["deadline"],
+    });
+  });
 });

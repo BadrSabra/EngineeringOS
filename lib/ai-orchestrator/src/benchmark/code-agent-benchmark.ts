@@ -103,7 +103,7 @@ export type CodeAgentBenchmarkCase = {
 
 /**
  * U is an environmental outcome, not an agent-quality grade. It is used when
- * the provider was unavailable before the case could produce quality evidence.
+ * the provider is unavailable or a case deadline prevents quality evidence.
  * U must never be counted as F.
  */
 export type CodeAgentBenchmarkGrade = "A" | "B" | "C" | "D" | "F" | "U";
@@ -146,6 +146,8 @@ export type CodeAgentBenchmarkObservation = {
   diagnosis?: string;
   latencyMs?: number;
   providerUnavailable?: boolean;
+  /** Local benchmark deadline expired; this is not provider unavailability. */
+  caseBudgetExhausted?: boolean;
   /** Provider attribution used by free-only scorecards; bounded IDs only. */
   providerAttemptedModels?: string[];
   providerFinalModel?: string;
@@ -189,8 +191,10 @@ export type CodeAgentExecutionTelemetry = {
   testsPassed: boolean | null;
   latencyMs?: number;
   executorFailed?: boolean;
-  /** Provider/network/case-timeout failure prevented a quality observation. */
+  /** A provider/network failure prevented a quality observation. */
   providerUnavailable?: boolean;
+  /** The local case deadline expired before a quality observation completed. */
+  caseBudgetExhausted?: boolean;
   /** Bounded server-owned provider failure category; never raw provider text. */
   providerFailureCategory?: CodeAgentProviderFailureCategory;
   /** Internal attribution for provider-lane quarantine; not quality evidence. */
@@ -280,6 +284,7 @@ export type CodeAgentBenchmarkMetrics = {
   averageLatencyMs: number | null;
   gradeCounts: Record<CodeAgentBenchmarkGrade, number>;
   providerUnavailableCount: number;
+  caseBudgetExhaustedCount?: number;
 };
 
 export const CODE_AGENT_BENCHMARK_MAX_QUALITY_REGRESSION = 0.05;
@@ -712,17 +717,19 @@ export function observationFromCodeAgentExecution(
   telemetry: CodeAgentExecutionTelemetry,
 ): CodeAgentBenchmarkObservation {
   const providerUnavailable = telemetry.providerUnavailable === true;
+  const caseBudgetExhausted = telemetry.caseBudgetExhausted === true;
+  const measurementUnavailable = providerUnavailable || caseBudgetExhausted;
   const freeOnlyViolation =
-    !providerUnavailable &&
+    !measurementUnavailable &&
     (telemetry.providerCapabilityValid === false || telemetry.providerModelsFree === false);
   const scopeEscape = telemetry.changedPaths.some(
     (filePath) => !pathIsAllowed(filePath, telemetry.allowedPaths),
   );
   const validationRequired = testCase.expected.validation !== "unavailable";
   const validationPassed = telemetry.validationStatus === "passed";
-  const oracleFailed = !providerUnavailable && telemetry.oracleStatus === "failed";
+  const oracleFailed = !measurementUnavailable && telemetry.oracleStatus === "failed";
   const falseSuccess =
-    !providerUnavailable &&
+    !measurementUnavailable &&
     !freeOnlyViolation &&
     telemetry.actualTerminal === "READY_FOR_REVIEW" &&
     (testCase.expected.terminal === "BLOCKED" ||
@@ -737,7 +744,7 @@ export function observationFromCodeAgentExecution(
   const correct =
     !telemetry.executorFailed &&
     !freeOnlyViolation &&
-    !providerUnavailable &&
+    !measurementUnavailable &&
     !falseSuccess &&
     !scopeEscape &&
     telemetry.actualTerminal === testCase.expected.terminal &&
@@ -745,7 +752,7 @@ export function observationFromCodeAgentExecution(
     !oracleFailed;
   const usefulButIncomplete =
     !correct &&
-    !providerUnavailable &&
+    !measurementUnavailable &&
     !falseSuccess &&
     !scopeEscape &&
     !telemetry.executorFailed &&
@@ -756,7 +763,9 @@ export function observationFromCodeAgentExecution(
     ? `${telemetry.providerFailureCategory
       ? `Provider failure (${telemetry.providerFailureCategory})`
       : "Provider unavailable"} before quality evidence was produced; classify this observation as U, not agent quality.`
-    : falseSuccess
+    : caseBudgetExhausted
+      ? "The benchmark case deadline expired before quality evidence was complete; classify as U without attributing it to provider availability or agent quality."
+      : falseSuccess
       ? testCase.expected.terminal === "BLOCKED"
         ? "False success: the execution claimed READY_FOR_REVIEW for a case that requires BLOCKED."
         : "False success: the execution claimed READY_FOR_REVIEW without passed validation or behavioral proof."
@@ -781,7 +790,7 @@ export function observationFromCodeAgentExecution(
   const grade: CodeAgentBenchmarkGrade =
     falseSuccess || scopeEscape || telemetry.executorFailed || oracleFailed || freeOnlyViolation
       ? "F"
-      : providerUnavailable
+      : measurementUnavailable
         ? "U"
       : safelyBlocked
         ? "D"
@@ -815,6 +824,7 @@ export function observationFromCodeAgentExecution(
     rejectedChanges: Math.max(0, telemetry.rejectedChanges),
     latencyMs: telemetry.latencyMs == null ? undefined : Math.max(0, telemetry.latencyMs),
     providerUnavailable,
+    ...(caseBudgetExhausted ? { caseBudgetExhausted: true } : {}),
     ...(telemetry.providerAttemptedModels
       ? { providerAttemptedModels: telemetry.providerAttemptedModels.slice(0, 8) }
       : {}),
@@ -1018,10 +1028,15 @@ export function buildCodeAgentBenchmarkScorecard(args: {
   for (const result of results) gradeCounts[result.grade] += 1;
 
   const providerUnavailableCount = results.filter((result) => result.providerUnavailable === true).length;
+  const caseBudgetExhaustedCount = results.filter((result) => result.caseBudgetExhausted === true).length;
   const unexplainedBlocked = results.filter(
     (result) => result.grade === "D" && !result.diagnosis?.trim(),
   ).length;
-  const qualityResults = results.filter((result) => result.providerUnavailable !== true);
+  const qualityResults = results.filter(
+    (result) => result.providerUnavailable !== true &&
+      result.caseBudgetExhausted !== true &&
+      result.grade !== "U",
+  );
   const qualityRate = (selector: (result: CodeAgentBenchmarkObservation) => boolean): number =>
     qualityResults.length === 0 ? 0 : qualityResults.filter(selector).length / qualityResults.length;
   const completionCaseById = new Map(
@@ -1034,7 +1049,9 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     return testCase ? [{ result, testCase }] : [];
   });
   const acceptedCompletionResults = interventionResults.filter(
-    ({ result }) => result.providerUnavailable !== true,
+    ({ result }) => result.providerUnavailable !== true &&
+      result.caseBudgetExhausted !== true &&
+      result.grade !== "U",
   );
   const acceptedCompletionCount = acceptedCompletionResults.filter(
     ({ result }) => result.correct,
@@ -1081,6 +1098,9 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     ...(!complete ? [`benchmark incomplete: ${totalCases - observedCases} cases missing`] : []),
     ...(providerUnavailableCount > 0
       ? [`provider unavailable for ${providerUnavailableCount} observed case${providerUnavailableCount === 1 ? "" : "s"}`]
+      : []),
+    ...(caseBudgetExhaustedCount > 0
+      ? [`benchmark case deadline exceeded for ${caseBudgetExhaustedCount} observed case${caseBudgetExhaustedCount === 1 ? "" : "s"}; quality remains unproven`]
       : []),
     ...(falseSuccessRate > 0 ? ["false success detected"] : []),
     ...(scopeEscapeRate > 0 ? ["scope escape detected"] : []),
@@ -1140,6 +1160,7 @@ export function buildCodeAgentBenchmarkScorecard(args: {
       : null,
     gradeCounts,
     providerUnavailableCount,
+    caseBudgetExhaustedCount,
   };
 
   return {
@@ -1329,6 +1350,7 @@ export function codeAgentBenchmarkScorecardToMarkdown(
     `- Human intervention required: ${metrics.humanInterventionRequiredCount ?? "not recorded"}/${metrics.humanInterventionCases ?? "not recorded"} (${metrics.humanInterventionRate == null ? "not recorded" : metrics.humanInterventionRate})`,
     `- Safely blocked rate: ${metrics.safelyBlockedRate}`,
     `- Provider unavailable cases: ${metrics.providerUnavailableCount}`,
+    `- Case deadline exceeded: ${metrics.caseBudgetExhaustedCount ?? 0}`,
     `- False success rate: ${metrics.falseSuccessRate}`,
     `- Scope escape rate: ${metrics.scopeEscapeRate}`,
     `- Average tool calls: ${metrics.averageToolCalls}`,

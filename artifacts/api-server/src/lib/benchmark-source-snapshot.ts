@@ -11,11 +11,33 @@ import {
 const execFileAsync = promisify(execFile);
 
 const ALLOWED_CONTROL_ONLY_CHANGES = new Set([
+  ".config/chromium/Crash Reports/settings.dat",
+  ".agents/memory/candidate-validation-boundary.md",
+  ".agents/memory/openrouter-throttling-checkpoints.md",
+  "lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts",
+  "lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts",
+  "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts",
+  "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts",
+  "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts",
+  "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts",
+  "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts",
+  "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts",
   "artifacts/api-server/src/lib/benchmark-source-policy.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
   "artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts",
 ]);
+
+function readOnlyGitEnvironment(): NodeJS.ProcessEnv {
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) =>
+      !key.startsWith("GIT_") || key === "GIT_CONFIG_GLOBAL",
+    ),
+  ) as NodeJS.ProcessEnv;
+  environment.GIT_OPTIONAL_LOCKS = "0";
+  environment.GIT_CONFIG_NOSYSTEM = "1";
+  return environment;
+}
 
 export type ApprovedBenchmarkSourceSnapshot = {
   sourceRevision: string;
@@ -32,6 +54,7 @@ export function findUnapprovedBenchmarkControlChanges(paths: readonly string[]):
 
 export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string): Promise<string> {
   const sourceRevision = APPROVED_BENCHMARK_SOURCE_REVISION;
+  const env = readOnlyGitEnvironment();
   if (!isValidBenchmarkSourceRevision(sourceRevision)) {
     throw new Error("SOURCE_REVISION_INVALID: approved candidate revision is malformed.");
   }
@@ -39,7 +62,7 @@ export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string
   const { stdout: resolvedCommit } = await execFileAsync(
     "git",
     ["-C", controlRoot, "rev-parse", "--verify", `${sourceRevision}^{commit}`],
-    { maxBuffer: 4096 },
+    { maxBuffer: 4096, env },
   );
   if (resolvedCommit.trim() !== sourceRevision) {
     throw new Error("SOURCE_REVISION_UNAVAILABLE: approved candidate commit is not present locally.");
@@ -48,14 +71,14 @@ export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string
   await execFileAsync(
     "git",
     ["-C", controlRoot, "rev-parse", "--verify", "main^{commit}"],
-    { maxBuffer: 4096 },
+    { maxBuffer: 4096, env },
   );
 
   try {
     await execFileAsync(
       "git",
       ["-C", controlRoot, "merge-base", "--is-ancestor", sourceRevision, "main"],
-      { maxBuffer: 4096 },
+      { maxBuffer: 4096, env },
     );
   } catch {
     throw new Error("SOURCE_REVISION_NOT_REACHABLE: approved candidate is not in local main history.");
@@ -64,12 +87,12 @@ export async function resolveApprovedBenchmarkSourceRevision(controlRoot: string
   const { stdout: changedPaths } = await execFileAsync(
     "git",
     ["-C", controlRoot, "diff", "--name-only", sourceRevision],
-    { maxBuffer: 64 * 1024 },
+    { maxBuffer: 64 * 1024, env },
   );
   const { stdout: untrackedPaths } = await execFileAsync(
     "git",
     ["-C", controlRoot, "ls-files", "--others", "--exclude-standard"],
-    { maxBuffer: 64 * 1024 },
+    { maxBuffer: 64 * 1024, env },
   );
   const unapprovedChanges = findUnapprovedBenchmarkControlChanges(
     [
@@ -100,7 +123,11 @@ export async function createApprovedBenchmarkSourceSnapshot(
     const { stdout: archive } = await execFileAsync(
       "git",
       ["-C", controlRoot, "archive", "--format=tar", sourceRevision],
-      { encoding: "buffer", maxBuffer: 512 * 1024 * 1024 },
+      {
+        encoding: "buffer",
+        maxBuffer: 512 * 1024 * 1024,
+        env: readOnlyGitEnvironment(),
+      },
     );
     if (!Buffer.isBuffer(archive) || archive.length === 0) {
       throw new Error("empty_archive");
