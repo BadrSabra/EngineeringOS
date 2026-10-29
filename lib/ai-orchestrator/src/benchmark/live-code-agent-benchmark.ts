@@ -23,6 +23,10 @@ import {
   type CodeAgentProviderFailureCategory,
 } from "./code-agent-benchmark.js";
 import {
+  safeBehavioralProofFailureCode,
+  safeProviderFailureCode,
+} from "./benchmark-trace.js";
+import {
   probeProviderHealth,
   type ProviderHealthProbeResult,
 } from "./provider-health-probe.js";
@@ -689,7 +693,18 @@ export function createChatCodeAgentBenchmarkExecutor(
               (step.resultKind === "failed" || step.resultKind === "unavailable")
               ? { failureSummary: benchmarkSafeFailureSummary(step) }
               : {}),
-            ...(step.kind === "diagnostic" ? { code: step.code } : {}),
+            ...(step.kind === "diagnostic"
+              ? {
+                  code: step.code,
+                  ...(safeBehavioralProofFailureCode(step)
+                    ? { proofCode: safeBehavioralProofFailureCode(step) }
+                    : {}),
+                  ...(safeProviderFailureCode(step)
+                    ? { providerFailureCode: safeProviderFailureCode(step) }
+                    : {}),
+                }
+              : {}),
+            ...(step.kind === "done" ? { stopReason: step.stopReason } : {}),
             ...(step.kind === "validation"
               ? {
                   profile: step.result.profile,
@@ -761,7 +776,18 @@ export function createChatCodeAgentBenchmarkExecutor(
               (step.resultKind === "failed" || step.resultKind === "unavailable")
               ? { failureSummary: benchmarkSafeFailureSummary(step) }
               : {}),
-            ...(step.kind === "diagnostic" ? { code: step.code } : {}),
+            ...(step.kind === "diagnostic"
+              ? {
+                  code: step.code,
+                  ...(safeBehavioralProofFailureCode(step)
+                    ? { proofCode: safeBehavioralProofFailureCode(step) }
+                    : {}),
+                  ...(safeProviderFailureCode(step)
+                    ? { providerFailureCode: safeProviderFailureCode(step) }
+                    : {}),
+                }
+              : {}),
+            ...(step.kind === "done" ? { stopReason: step.stopReason } : {}),
             ...(step.kind === "validation"
               ? {
                   profile: step.result.profile,

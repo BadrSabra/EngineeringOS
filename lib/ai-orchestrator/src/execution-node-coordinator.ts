@@ -312,6 +312,29 @@ function blockStalledNodes(
  * `passed` only after validation has actually passed. The coordinator owns all
  * node transitions, retries, dependency blocking, and progress snapshots.
  */
+export function executionNodeFailureDiagnosticFromDetail(detail: string): {
+  kind: "diagnostic";
+  code: "EXECUTION_PROVIDER_FAILURE" | "TOOL_EXECUTION_FAILED";
+  details: string[];
+} {
+  const providerFailureCode =
+    /(?:^|\s)(?:fallback\s+)?provider failure code:\s*([A-Z][A-Z0-9_]{0,63})\b/i
+      .exec(detail.trim())?.[1]
+      ?.toUpperCase();
+  if (providerFailureCode) {
+    return {
+      kind: "diagnostic",
+      code: "EXECUTION_PROVIDER_FAILURE",
+      details: [`provider failure code: ${providerFailureCode}`],
+    };
+  }
+  return {
+    kind: "diagnostic",
+    code: "TOOL_EXECUTION_FAILED",
+    details: ["Execution node failed without a structured provider error code."],
+  };
+}
+
 export async function executeExecutionNodePlan(
   opts: ExecutionNodeCoordinatorOptions,
 ): Promise<ExecutionNodeCoordinatorResult> {
@@ -411,7 +434,11 @@ export async function executeExecutionNodePlan(
           node,
           outcome: {
             status: "failed" as const,
-            detail: error instanceof Error ? error.message : String(error),
+            detail: error instanceof GroqClientError
+              ? `provider failure code: ${error.code}`
+              : error instanceof Error
+                ? error.message
+                : String(error),
           },
         };
       }

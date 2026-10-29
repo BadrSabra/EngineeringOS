@@ -242,7 +242,10 @@ import {
 import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
 import { scheduleSubQueries } from "../subquery-scheduler.js";
 import { buildEvidenceGraph } from "../evidence-graph.js";
-import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
+import {
+  executeExecutionNodePlan,
+  executionNodeFailureDiagnosticFromDetail,
+} from "../execution-node-coordinator.js";
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
 import { classifyForensicTerminal, classifyObjectiveVerdict } from "../audit-telemetry.js";
@@ -9216,11 +9219,7 @@ export async function chat(opts: {
         executionNodeStates = nodes;
         emitExecutionNodes();
         if (event === "failed" && detail) {
-          relayChildStep({
-            kind: "diagnostic",
-            code: "EXECUTION_PROVIDER_FAILURE",
-            details: [`${nodeId ?? "execution node"}: ${detail}`],
-          });
+          relayChildStep(executionNodeFailureDiagnosticFromDetail(detail));
         }
       },
        runNode: async (node, context) => {

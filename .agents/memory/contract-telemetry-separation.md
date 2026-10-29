@@ -56,3 +56,9 @@ Apply the same provider-failure classification to structured result errors and t
 **Why:** inconsistent catch and result paths can misreport a malformed tool response as an outage, obscuring whether the provider was reachable and whether the model followed the tool contract.
 
 **How to apply:** centralize safe error-code extraction, test suffix-bearing result details and direct exceptions, and persist only bounded codes—not raw provider messages or tool arguments.
+
+Execution-node failure events are not provider failures by default. Preserve an explicit bounded provider error code when available; classify an untyped child failure as execution failure and do not retain its arbitrary detail text.
+
+**Why:** A live multi-file run had usable provider health and a normal response stop reason, but the chat-agent callback labeled every failed child node as `EXECUTION_PROVIDER_FAILURE`, turning a quality failure into `U` and hiding the accepted evidence.
+
+**How to apply:** Keep provider availability distinct from child execution and response-contract outcomes; add tests for both a structured provider error and a generic child error, and verify generic errors cannot leak into durable traces.

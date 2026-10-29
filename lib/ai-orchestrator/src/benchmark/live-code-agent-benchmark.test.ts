@@ -628,7 +628,7 @@ describe("benchmark case timeouts", () => {
         kind: "diagnostic",
         code: "EXECUTION_PROVIDER_FAILURE",
         details: [
-          "provider failure code: INVALID_TOOL_CALL; tool not in request manifest",
+          "implementation-node-1: provider failure code: INVALID_TOOL_CALL; tool not in request manifest",
         ],
       } as AgentStep);
       onStep?.({

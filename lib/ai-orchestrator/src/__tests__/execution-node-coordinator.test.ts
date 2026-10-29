@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   executeExecutionNodePlan,
+  executionNodeFailureDiagnosticFromDetail,
   type ExecutionNodeRunContext,
   type ExecutionNodeOutcome,
 } from "../execution-node-coordinator.js";
@@ -31,6 +32,21 @@ function successful(): ExecutionNodeOutcome {
 }
 
 describe("executeExecutionNodePlan", () => {
+  it("preserves only structured provider failure codes from child details", () => {
+    expect(executionNodeFailureDiagnosticFromDetail(
+      "implementation-node-1: provider failure code: INVALID_TOOL_CALL; private detail",
+    )).toEqual({
+      kind: "diagnostic",
+      code: "EXECUTION_PROVIDER_FAILURE",
+      details: ["provider failure code: INVALID_TOOL_CALL"],
+    });
+    expect(executionNodeFailureDiagnosticFromDetail("private child error detail")).toEqual({
+      kind: "diagnostic",
+      code: "TOOL_EXECUTION_FAILED",
+      details: ["Execution node failed without a structured provider error code."],
+    });
+  });
+
   it("runs independent disjoint nodes in parallel and records every transition", async () => {
     const snapshots: string[] = [];
     let active = 0;
@@ -83,6 +99,30 @@ describe("executeExecutionNodePlan", () => {
     expect(result.completedNodeIds).toEqual(["independent"]);
     expect(result.blockedNodeIds).toEqual(["blocked-parent", "dependent"]);
     expect(result.nodes.find((node) => node.id === "dependent")?.status).toBe("blocked");
+  });
+
+  it("records only the structured provider error code when a child throws", async () => {
+    const failureDetails: string[] = [];
+    const result = await executeExecutionNodePlan({
+      nodes: [makeNode("provider-failure", ["src/provider-failure.ts"])],
+      runNode: async () => {
+        throw new GroqClientError(
+          "INVALID_TOOL_CALL",
+          "sensitive provider response must not be persisted",
+        );
+      },
+      onChange: ({ event, detail }) => {
+        if (event === "failed" && detail) failureDetails.push(detail);
+      },
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(failureDetails.length).toBeGreaterThan(0);
+    expect(new Set(failureDetails)).toEqual(
+      new Set(["provider failure code: INVALID_TOOL_CALL"]),
+    );
+    expect(JSON.stringify(result)).not.toContain("sensitive provider response");
+    expect(JSON.stringify(result)).toContain("provider failure code: INVALID_TOOL_CALL");
   });
 
   it("retries a failed child without preventing later independent work", async () => {
