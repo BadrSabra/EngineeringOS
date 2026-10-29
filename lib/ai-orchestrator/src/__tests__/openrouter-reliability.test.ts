@@ -32,6 +32,7 @@ import {
   buildFallbackChainFromId,
   isCatalogFreeModelForCapability,
   resolvePaidFallbackChain,
+  _resetModelLaneSchedulerForTest,
 } from "../openrouter/model-resolver.js";
 import {
   getDynamicModelIds,
@@ -275,7 +276,82 @@ describe("model-resolver — empty catalog fallback", () => {
     const chain = resolveFallbackChain({ capability: "long_context" });
     expect(chain.length).toBeGreaterThan(0);
   });
+
+  it("round-robins independent unpinned requests across equally ranked free lanes", () => {
+    _resetModelLaneSchedulerForTest();
+    const firstModels = Array.from({ length: 4 }, () =>
+      resolveFallbackChain({
+        capability: "tool_calling",
+        quality: "fast",
+        requireTools: true,
+      })[0]!.id,
+    );
+
+    expect(new Set(firstModels).size).toBe(4);
+    for (const modelId of firstModels) {
+      expect(FREE_MODELS.find((model) => model.id === modelId)).toMatchObject({
+        free: true,
+        quality: "fast",
+        supportsTools: true,
+      });
+    }
+    _resetModelLaneSchedulerForTest();
+  });
 });
+
+  it("starts a later independent request on the next free lane after an unscoped 429", async () => {
+    _resetModelLaneSchedulerForTest();
+    const attemptedModels: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const model = String(
+        (JSON.parse(String(init?.body ?? "{}")) as { model?: string }).model,
+      );
+      attemptedModels.push(model);
+      if (attemptedModels.length === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: "too many requests" } }),
+          { status: 429 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "independent request succeeded" } }],
+          model,
+          usage: {},
+        }),
+        { status: 200 },
+      );
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const options = {
+      apiKey: "fixture-key",
+      capability: "chat" as const,
+      quality: "fast" as const,
+      maxFallbackModels: 1,
+      retryTransient: false,
+    };
+
+    await expect(openrouterCompleteWithFallback(
+      [{ role: "user", content: "first request" }],
+      options,
+    )).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+      rateLimitScope: "unknown",
+    });
+    expect(attemptedModels).toHaveLength(1);
+    expect(isModelCoolingDown("openrouter", attemptedModels[0]!)).toBe(false);
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "separate request" }],
+      options,
+    );
+
+    expect(attemptedModels).toHaveLength(2);
+    expect(attemptedModels[1]).not.toBe(attemptedModels[0]);
+    expect(FREE_MODELS.some((model) => model.id === attemptedModels[1])).toBe(true);
+    expect(result.model).toBe(attemptedModels[1]);
+    _resetModelLaneSchedulerForTest();
+  });
 
 // ── Dynamic catalog interaction ───────────────────────────────────────────────
 
@@ -483,7 +559,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       });
   }
 
-  it("propagates the explicit paid-fallback opt-in through the provider strategy", async () => {
+  it("keeps product routing free-only after a 429 even when paid fallback is enabled in the environment", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -502,7 +578,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       }) as Response;
     }) as typeof fetch;
 
-    const result = await openrouterStrategy.call(
+    await expect(openrouterStrategy.call(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
@@ -512,13 +588,12 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         maxFallbackModels: 1,
         retryTransient: false,
       },
-    );
+    )).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "unknown" });
 
-    expect(result.content).toBe("paid success");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
+    expect(calls).toEqual([freeModel]);
   });
 
-  it("uses the exact paid model only when it is explicitly configured and cataloged", async () => {
+  it("ignores a paid pinned model and resolves a free catalog candidate", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     process.env.OPENROUTER_MODEL = "fixture/paid-tool-model";
     const calls: string[] = [];
@@ -527,7 +602,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       calls.push(body.model ?? "");
       return fetchResponse(200, {
-        choices: [{ message: { content: "paid pinned success" } }],
+        choices: [{ message: { content: "free-only success" } }],
         model: body.model,
         usage: {},
       }) as Response;
@@ -543,8 +618,8 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       },
     );
 
-    expect(result.content).toBe("paid pinned success");
-    expect(calls).toEqual(["fixture/paid-tool-model"]);
+    expect(result.content).toBe("free-only success");
+    expect(calls).toEqual([freeModel]);
   });
 
   it("keeps paid candidates out of the free resolver and selects paid only after free exhaustion", async () => {
@@ -596,37 +671,67 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     expect(transitions).toEqual([{ reason: "MODEL_NOT_FOUND", toModel: "fixture/paid-tool-model" }]);
   });
 
-  it("uses one paid transition for a provider-scoped rate limit", async () => {
-    const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
-    const calls: string[] = [];
-    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
-      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
-      calls.push(body.model ?? "");
-      if (body.model === freeModel) {
-        return new Response(JSON.stringify({ error: { message: "too many requests" } }), { status: 429 });
-      }
-      return new Response(JSON.stringify({
-        choices: [{ message: { content: "paid after rate limit" } }],
-        model: body.model,
-        usage: {},
-      }), { status: 200 });
-    }) as typeof fetch;
-
-    await refreshDynamicCatalog("fixture-key");
-    const result = await openrouterCompleteWithFallback(
-      [{ role: "user", content: "hello" }],
+  it.each([
+    [
+      "unknown",
+      { message: "too many requests" },
+      "RATE_LIMITED",
+      "unknown",
+    ],
+    [
+      "shared-pool",
       {
-        apiKey: "fixture-key",
-        model: freeModel,
-        maxFallbackModels: 2,
-        allowPaidFallback: true,
-        retryTransient: false,
+        message: "provider limit",
+        metadata: { limit_source: "upstream_provider_shared_pool" },
       },
-    );
-    expect(result.content).toBe("paid after rate limit");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
-  });
+      "RATE_LIMITED",
+      "upstream_shared_pool",
+    ],
+    [
+      "credential",
+      {
+        message: "provider limit",
+        metadata: { limit_source: "provider_rate_limit" },
+      },
+      "RATE_LIMITED",
+      "provider_credential",
+    ],
+    [
+      "account quota",
+      { message: "quota exceeded" },
+      "QUOTA",
+      "account_quota",
+    ],
+  ] as const)(
+    "never advances to another OpenRouter tier after a %s limit",
+    async (_scope, error, expectedCode, expectedScope) => {
+      const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+      const calls: string[] = [];
+      global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url).endsWith("/models")) return catalogResponse(freeModel) as Response;
+        const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+        calls.push(body.model ?? "");
+        return new Response(JSON.stringify({ error }), { status: 429 });
+      }) as typeof fetch;
+
+      await refreshDynamicCatalog("fixture-key");
+      await expect(openrouterCompleteWithFallback(
+        [{ role: "user", content: "hello" }],
+        {
+          apiKey: "fixture-key",
+          model: freeModel,
+          maxFallbackModels: 2,
+          allowPaidFallback: true,
+          retryTransient: false,
+        },
+      )).rejects.toMatchObject({
+        code: expectedCode,
+        rateLimitScope: expectedScope,
+        providerAttemptedModels: [freeModel],
+      });
+      expect(calls).toEqual([freeModel]);
+    },
+  );
 
   it("does not spend on paid fallback for authorization or request-contract failures", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;

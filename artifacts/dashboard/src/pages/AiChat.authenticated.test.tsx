@@ -1939,6 +1939,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText('بلغ المزود حد الاستخدام')).toBeInTheDocument();
     expect(screen.getByText(/أوقف المزود هذا الطلب بسبب حد الاستخدام/)).toBeInTheDocument();
     expect(screen.getByText(/لا تتوفر إعادة محاولة تلقائية/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('30–60 seconds');
     expect(document.body.textContent).not.toMatch(
       /provider\.example|provider-secret|x-provider-secret|private-model|provider-runtime/i,
     );

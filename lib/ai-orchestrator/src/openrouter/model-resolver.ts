@@ -122,9 +122,55 @@ export type ModelDecisionTrace = {
   skippedStale?: string[];
 };
 
+const laneRotationCursors = new Map<string, number>();
+
 /** Emit a model-decision trace to stdout as a JSON log line. */
 export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
   console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
+}
+
+function rotatePreferredLaneGroup(
+  models: OpenRouterFreeModel[],
+  opts: ResolveModelOpts,
+): OpenRouterFreeModel[] {
+  if (models.length < 2) return models;
+
+  const first = models[0]!;
+  const firstIsDemoted =
+    opts.taskType === "task_execution" && isModelBehaviorallyDemoted(first.id);
+  const groupEndIndex = models.findIndex((model) =>
+    model.quality !== first.quality ||
+    (
+      opts.taskType === "task_execution" &&
+      isModelBehaviorallyDemoted(model.id) !== firstIsDemoted
+    ),
+  );
+  const groupEnd = groupEndIndex < 0 ? models.length : groupEndIndex;
+  if (groupEnd < 2) return models;
+
+  const laneKey = JSON.stringify([
+    opts.capability,
+    opts.quality ?? "fast",
+    opts.requireTools ?? false,
+    opts.requireJson ?? false,
+    opts.requireStreaming ?? false,
+    opts.taskType ?? "default",
+    first.quality,
+    firstIsDemoted,
+  ]);
+  const offset = (laneRotationCursors.get(laneKey) ?? 0) % groupEnd;
+  laneRotationCursors.set(laneKey, (offset + 1) % groupEnd);
+
+  return [
+    ...models.slice(offset, groupEnd),
+    ...models.slice(0, offset),
+    ...models.slice(groupEnd),
+  ];
+}
+
+/** Test seam for deterministic free-lane selection tests. */
+export function _resetModelLaneSchedulerForTest(): void {
+  laneRotationCursors.clear();
 }
 
 /**
@@ -156,7 +202,8 @@ function partitionByLiveCatalog(
  * PR-002: models absent from the live OpenRouter catalog are excluded from the
  * returned chain (they are logged in the decision trace as skippedStale).
  *
- * Pure function — no logging. Call resolveModel() when you also want a trace.
+ * New unpinned requests rotate across the first equally-ranked free-model lane
+ * group. Explicitly pinned model IDs remain pinned by their caller.
  */
 export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   const {
@@ -212,7 +259,8 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
     return aDemoted - bDemoted;
   });
 
-  const chain = effectivePool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
+  const scheduledPool = rotatePreferredLaneGroup(effectivePool, opts);
+  const chain = scheduledPool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
 
   // Compute stale list for trace.
   const { stale } = partitionByLiveCatalog(rawPool);

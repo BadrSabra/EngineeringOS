@@ -30,7 +30,6 @@ import {
 import {
   isCatalogFreeModel,
   isCatalogFreeModelForCapability,
-  isCatalogPaidModelForCapability,
 } from "../openrouter/model-resolver.js";
 import type { RawMessage } from "../groq-client.js";
 import type {
@@ -121,11 +120,8 @@ export const openrouterStrategy: ProviderStrategy = {
           ? isCatalogFreeModelForCapability(opts.model, {
               capability: opts.capability,
               requireTools: Boolean(opts.tools?.length),
-            }) || isCatalogPaidModelForCapability(opts.model, {
-              capability: opts.capability,
-              requireTools: Boolean(opts.tools?.length),
             })
-          : isCatalogFreeModel(opts.model) || isCatalogPaidModelForCapability(opts.model))
+          : isCatalogFreeModel(opts.model))
         : true;
       const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
       if (!pinnedModelIsCurrent) {
@@ -142,10 +138,9 @@ export const openrouterStrategy: ProviderStrategy = {
       const result = await openrouterCompleteWithFallback(messages, {
         ...requestOpts,
         apiKey: opts.apiKey,
-        // Paid fallback remains disabled by default. Controlled live checks
-        // may opt in explicitly, with a server-configured paid model and
-        // capability manifest in the dynamic catalog.
-        allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
+        // Product routing is strictly free-only, regardless of environment
+        // opt-ins used by isolated lower-level validation tools.
+        allowPaidFallback: false,
       });
       // PR-07: successful call closes any open circuit.
       recordCircuitSuccess("openrouter");

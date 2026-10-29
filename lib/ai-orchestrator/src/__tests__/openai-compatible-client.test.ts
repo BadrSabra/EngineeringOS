@@ -742,28 +742,49 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(persistedCooldownWrites).toEqual([]);
   });
 
-  it("does not cool an individual model for a provider-credential limit", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
+  it.each([
+    [
+      "provider credential",
+      JSON.stringify({
         error: {
           message: "Provider returned error",
           metadata: { limit_source: "provider_rate_limit" },
         },
-      }), 429)));
-
-    await expect(
-      openrouterCompleteWithFallback(baseMessages as any, {
-        apiKey: "test-key",
-        model: primaryModel,
-        maxTokens: 10,
-        retryTransient: false,
       }),
-    ).rejects.toMatchObject({
-      code: "RATE_LIMITED",
-      rateLimitScope: "provider_credential",
-    });
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
-    expect(persistedCooldownWrites).toEqual([]);
-  });
+      "RATE_LIMITED",
+      "provider_credential",
+    ],
+    [
+      "account quota",
+      JSON.stringify({ error: { message: "quota exceeded" } }),
+      "QUOTA",
+      "account_quota",
+    ],
+  ] as const)(
+    "does not cool an individual model for a %s limit",
+    async (_scope, responseBody, expectedCode, expectedScope) => {
+      vi.stubGlobal("fetch", vi.fn(async () =>
+        textResponse(
+          responseBody,
+          429,
+          new Headers({ "Retry-After": "120" }),
+        )));
+
+      await expect(
+        openrouterCompleteWithFallback(baseMessages as any, {
+          apiKey: "test-key",
+          model: primaryModel,
+          maxTokens: 10,
+          retryTransient: false,
+        }),
+      ).rejects.toMatchObject({
+        code: expectedCode,
+        rateLimitScope: expectedScope,
+      });
+      expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+      expect(persistedCooldownWrites).toEqual([]);
+    },
+  );
 
   it("does not retry before a provider Retry-After that exceeds the remaining request budget", async () => {
     const fetchMock = vi.fn(async () =>

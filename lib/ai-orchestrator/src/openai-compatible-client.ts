@@ -1946,7 +1946,8 @@ export async function openrouterCompleteWithFallback(
         const providerRateLimitScope =
           err instanceof GroqClientError ? err.rateLimitScope : undefined;
         const shouldCoolFailedModel =
-          providerRateLimitScope !== "provider_credential";
+          providerRateLimitScope !== "provider_credential" &&
+          providerRateLimitScope !== "account_quota";
         if (shouldCoolFailedModel) {
           recordModelFailure(
             "openrouter",
@@ -1961,15 +1962,8 @@ export async function openrouterCompleteWithFallback(
             );
           }
         }
-        if (
-          err instanceof GroqClientError &&
-          providerRateLimitScope !== "upstream_shared_pool" &&
-          providerRateLimitScope !== "provider_credential" &&
-          await appendPaidFallback(err, model)
-        ) {
-          lastError = err;
-          continue;
-        }
+        // Every rate limit is terminal for this OpenRouter request, including
+        // unknown/account-wide scopes. Do not advance to another model or tier.
         throw new GroqClientError(err.code, err.message, {
           cause: err,
           context: {
@@ -2137,7 +2131,8 @@ export async function* openrouterCompleteStream(
         if (
           providerError &&
           (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA") &&
-          providerError.rateLimitScope !== "provider_credential"
+          providerError.rateLimitScope !== "provider_credential" &&
+          providerError.rateLimitScope !== "account_quota"
         ) {
           recordModelFailure("openrouter", model, providerError.retryAfterMs);
           if (providerError.rateLimitScope === "upstream_shared_pool") {

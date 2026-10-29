@@ -1750,7 +1750,7 @@ function describeAiError(err: unknown): string {
       case 400: return err.errorMessage + suffix;
       case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
       case 403: return 'Access denied — you may not have permission on this project.';
-      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
+      case 429: return (err.errorMessage || err.hint || 'بلغ مزود الذكاء الاصطناعي حد الاستخدام ولم يحدد موعدًا للمحاولة التالية. انتظر قبل إعادة المحاولة أو اختر مزودًا آخر.') + suffix;
       case 422:
         if (err.code === 'model_output_invalid') {
           return 'The AI returned an unexpected response format — try rephrasing your message.';

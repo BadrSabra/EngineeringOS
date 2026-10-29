@@ -2,7 +2,6 @@ import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   isCatalogFreeModel,
   isCatalogFreeModelForCapability,
-  isCatalogPaidModelForCapability,
   resolveFallbackChain,
   type FreeModelCapabilityOptions,
 } from "../openrouter/model-resolver.js";
@@ -110,11 +109,11 @@ export function resolveExecutionModel(
       capability,
       quality: wantPowerful ? "powerful" : "fast",
       requireTools,
+      taskType: plan.taskProfile.taskType,
     }).map((model) => model.id);
 
-    // Controlled live checks may opt into a known paid OpenRouter model. Keep
-    // this override environment-only so ordinary provider-free validation and
-    // normal free-tier routing retain the catalog-driven fallback chain.
+    // Product execution remains free-only. An environment-pinned model is a
+    // hint, not authority to use a paid or retired OpenRouter model.
     const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
     let liveModel: string | undefined;
     if (configuredModel) {
@@ -124,13 +123,9 @@ export function resolveExecutionModel(
           requireTools,
         });
       } catch (error) {
-        if (isCatalogPaidModelForCapability(configuredModel, { capability, requireTools })) {
-          liveModel = configuredModel;
-        } else {
         // An environment-pinned model can become paid, retired, or lose the
-        // requested capability between deploys. Treat it as a stale hint and
-        // use the already-resolved live fallback chain instead of making a
-        // review fail before the provider is contacted.
+        // requested capability between deploys. Ignore it and use the
+        // catalog-driven free fallback chain instead.
         console.warn(
           JSON.stringify({
             scope: "model-resolver",
@@ -140,7 +135,6 @@ export function resolveExecutionModel(
             reason: error instanceof Error ? error.message : "model is not currently usable",
           }),
         );
-        }
       }
     }
     if (fallbackChain.length === 0 && !liveModel) {
