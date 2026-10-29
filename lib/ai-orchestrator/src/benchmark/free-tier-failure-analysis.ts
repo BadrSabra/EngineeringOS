@@ -37,6 +37,7 @@ const FAILURE_ANALYSIS: Record<string, Omit<FreeTierFailureAnalysis, "caseId">> 
     failureMode: "TERMINAL_MISMATCH",
     evidence: [
       "providerUnavailable=false",
+      "oracleCode=TERMINAL_MISMATCH",
       "proofCode=FIXTURE_POSTCONDITION_FAILED_MIGRATION_EDGE",
       "testsPassed=true",
       "typecheckPassed=false",
