@@ -159,7 +159,7 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
   {
     id: "cohere/north-mini-code:free",
     label: "North Mini Code",
-    capabilities: ["coding", "tool_calling", "json", "long_context"],
+    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
     context: 256_000,
     supportsTools: true,
     supportsJson: true,

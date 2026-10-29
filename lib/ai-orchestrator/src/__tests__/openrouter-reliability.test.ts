@@ -110,6 +110,19 @@ beforeEach(() => {
   });
 });
 
+describe("static free-model capability metadata", () => {
+  beforeEach(() => _resetDynamicCatalog());
+  afterEach(() => _resetDynamicCatalog());
+
+  it("keeps the Cohere coding model eligible for chat-completion routing", () => {
+    const modelId = "cohere/north-mini-code:free";
+    const model = FREE_MODELS.find((candidate) => candidate.id === modelId);
+
+    expect(model?.capabilities).toContain("chat");
+    expect(isCatalogFreeModelForCapability(modelId, { capability: "coding" })).toBe(true);
+  });
+});
+
 // ── Circuit Breaker ───────────────────────────────────────────────────────────
 
 describe("circuit-breaker", () => {
@@ -217,20 +230,24 @@ describe("model-resolver — empty catalog fallback", () => {
     expect(first?.quality).toBe("powerful");
   });
 
-  it("requires chat-completions and tool capability together for tool-loop candidates", () => {
+  it("keeps every registered tool-loop candidate chat-completions compatible", () => {
     _resetDynamicCatalog();
-    const chatlessToolModels = FREE_MODELS.filter(
-      (model) =>
-        model.capabilities.includes("tool_calling") &&
-        !model.capabilities.includes("chat") &&
-        model.supportsTools,
+    const toolModels = FREE_MODELS.filter(
+      (model) => model.capabilities.includes("tool_calling") || model.supportsTools,
     );
-    expect(chatlessToolModels.length).toBeGreaterThan(0);
+    expect(toolModels.length).toBeGreaterThan(0);
+    expect(toolModels.every(
+      (model) =>
+        model.capabilities.includes("chat") &&
+        model.capabilities.includes("tool_calling") &&
+        model.supportsTools,
+    )).toBe(true);
 
     const chain = resolveFallbackChain({
       capability: "tool_calling",
       requireTools: true,
     });
+    expect(chain.length).toBeGreaterThan(0);
     expect(
       chain.every((candidate) => {
         const model = FREE_MODELS.find((entry) => entry.id === candidate.id);
@@ -241,22 +258,6 @@ describe("model-resolver — empty catalog fallback", () => {
         );
       }),
     ).toBe(true);
-
-    for (const model of chatlessToolModels) {
-      expect(chain.map((candidate) => candidate.id)).not.toContain(model.id);
-      expect(
-        isCatalogFreeModelForCapability(model.id, {
-          capability: "tool_calling",
-          requireTools: true,
-        }),
-      ).toBe(false);
-      expect(
-        buildFallbackChainFromId(model.id, undefined, {
-          capability: "tool_calling",
-          requireTools: true,
-        }),
-      ).toEqual([]);
-    }
   });
 
   it("buildFallbackChainFromId always includes the initial model first", () => {
