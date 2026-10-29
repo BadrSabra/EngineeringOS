@@ -78,6 +78,24 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /(?:now\(\)|current_timestamp)/,
       },
     ] satisfies readonly ColumnContract[],
+    openrouter_credential_cooldowns: [
+      { name: "credential_fingerprint", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "cooling_until",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+      },
+      { name: "error_code", dataType: "text", udtName: "text", nullable: false },
+      { name: "scope", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "updated_at",
+        dataType: "timestamp with time zone",
+        udtName: "timestamptz",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
     projects: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       {
@@ -850,6 +868,17 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     {
       name: "idx_openrouter_model_cooldowns_expiry",
       tableName: "openrouter_model_cooldowns",
+      columns: ["cooling_until"],
+    },
+    {
+      name: "openrouter_credential_cooldowns_pk",
+      tableName: "openrouter_credential_cooldowns",
+      columns: ["credential_fingerprint"],
+      unique: true,
+    },
+    {
+      name: "idx_openrouter_credential_cooldowns_expiry",
+      tableName: "openrouter_credential_cooldowns",
       columns: ["cooling_until"],
     },
     {
@@ -1835,6 +1864,8 @@ export function findApplicationSchemaIssues(
   for (const tableName of REQUIRED_TABLES) {
     const expectedColumns = tableName === "openrouter_model_cooldowns"
       ? ["provider", "model"]
+      : tableName === "openrouter_credential_cooldowns"
+        ? ["credential_fingerprint"]
       : tableName === "ai_general_chat_rate_limits"
         ? ["owner_id", "window_bucket"]
         : ["id"];

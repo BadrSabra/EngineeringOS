@@ -198,6 +198,8 @@ function completeSnapshot() {
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
       (table_name) => table_name === "openrouter_model_cooldowns"
         ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
+        : table_name === "openrouter_credential_cooldowns"
+          ? ["credential_fingerprint"].map((column_name) => ({ table_name, column_name }))
         : table_name === "ai_general_chat_rate_limits"
           ? ["owner_id", "window_bucket"].map((column_name) => ({ table_name, column_name }))
           : [{ table_name, column_name: "id" }],

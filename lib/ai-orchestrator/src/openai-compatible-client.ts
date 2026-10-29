@@ -1765,7 +1765,7 @@ export async function openrouterCompleteWithFallback(
   messages: RawMessage[],
   opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
-  assertOpenRouterCredentialAvailable(opts.apiKey);
+  await assertOpenRouterCredentialAvailable(opts.apiKey);
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
@@ -1950,7 +1950,7 @@ export async function openrouterCompleteWithFallback(
       if (providerScopedRateLimit) {
         const providerRateLimitScope =
           err instanceof GroqClientError ? err.rateLimitScope : undefined;
-        recordOpenRouterCredentialCooldown(opts.apiKey, err);
+        await recordOpenRouterCredentialCooldown(opts.apiKey, err);
         const shouldCoolFailedModel =
           providerRateLimitScope !== "provider_credential" &&
           providerRateLimitScope !== "account_quota";
@@ -2057,7 +2057,7 @@ export async function* openrouterCompleteStream(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): AsyncGenerator<string> {
-  assertOpenRouterCredentialAvailable(opts.apiKey);
+  await assertOpenRouterCredentialAvailable(opts.apiKey);
   const trimmed = trimMessagesForOpenRouter(messages);
   const fullOpts: OpenAICompatibleStreamOptions = {
     maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
@@ -2135,7 +2135,7 @@ export async function* openrouterCompleteStream(
         return;
       } catch (err) {
         const providerError = err instanceof GroqClientError ? err : undefined;
-        recordOpenRouterCredentialCooldown(fullOpts.apiKey, providerError);
+        await recordOpenRouterCredentialCooldown(fullOpts.apiKey, providerError);
         if (
           providerError &&
           (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA") &&
