@@ -73,7 +73,7 @@ export type OpenRouterPaidModel = {
  * pre-filters this list to only models currently priced at $0 so the chain
  * stays short and reliable after the first request.
  *
- * Last refreshed: 2026-10-10 — verified against GET /api/v1/models (pricing=0).
+ * Last refreshed: 2026-10-29 — checked against the live OpenRouter free catalog.
  */
 export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
   // ── Fast tier — smaller / lighter models, listed first for cold-start requests
@@ -143,17 +143,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     free: true,
     quality: "fast",
   },
-  {
-    id: "apodex/apodex-1.1-mini:free",
-    label: "Apodex 1.1 Mini",
-    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
-    context: 262_144,
-    supportsTools: true,
-    supportsJson: true,
-    free: true,
-    quality: "fast",
-  },
-
   // ── Powerful tier — high-capability models; dynamic catalog filters them
   //    out if they move to paid between static refreshes.
   {
@@ -175,27 +164,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     supportsTools: true,
     supportsJson: true,
     supportsPromptOnlyJson: true,
-    free: true,
-    quality: "powerful",
-  },
-  {
-    id: "inclusionai/ling-3.1-flash",
-    label: "Ling 3.1 Flash",
-    capabilities: ["chat", "coding"],
-    context: 262_144,
-    supportsTools: true,
-    supportsJson: false,
-    supportsPromptOnlyJson: true,
-    free: true,
-    quality: "powerful",
-  },
-  {
-    id: "z-ai/glm-5.2:free",
-    label: "GLM 5.2",
-    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
-    context: 256_000,
-    supportsTools: true,
-    supportsJson: true,
     free: true,
     quality: "powerful",
   },
@@ -227,16 +195,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     supportsTools: true,
     supportsJson: true,
     supportsPromptOnlyJson: true,
-    free: true,
-    quality: "powerful",
-  },
-  {
-    id: "nvidia/nemotron-3-super-120b-a12b:free",
-    label: "Nemotron 3 Super 120B",
-    capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
-    context: 262_144,
-    supportsTools: true,
-    supportsJson: true,
     free: true,
     quality: "powerful",
   },

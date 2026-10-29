@@ -260,7 +260,7 @@ describe("model-resolver — empty catalog fallback", () => {
   });
 
   it("buildFallbackChainFromId always includes the initial model first", () => {
-    const initial = "nvidia/nemotron-3-super-120b-a12b:free";
+    const initial = "nvidia/nemotron-3.5-lightning:free";
     const chain = buildFallbackChainFromId(initial);
     expect(chain[0]).toBe(initial);
     expect(chain.length).toBeGreaterThan(1);
@@ -903,7 +903,7 @@ describe("error classification", () => {
   });
 
   it("skips a model excluded after a structured-output failure", async () => {
-    const initialModel = "nvidia/nemotron-3-super-120b-a12b:free";
+    const initialModel = "nvidia/nemotron-3.5-lightning:free";
     const chain = buildFallbackChainFromId(initialModel);
     expect(chain.length).toBeGreaterThan(1);
     const expectedNext = chain.find((model) => model !== initialModel)!;
@@ -1515,7 +1515,7 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
 
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3.5-lightning:free" },
     );
     expect(result.content).toBe("Hello!");
     expect(callCount).toBeGreaterThan(1);
@@ -1537,7 +1537,7 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
 
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3.5-lightning:free" },
     );
     expect(result.content).toBe("Hello!");
     expect(callCount).toBeGreaterThan(1);
@@ -1884,7 +1884,7 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3.5-lightning:free" },
     );
 
     expect(result.content).toBe("Hello!");

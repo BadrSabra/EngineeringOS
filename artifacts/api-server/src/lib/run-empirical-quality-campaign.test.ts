@@ -113,7 +113,7 @@ async function workspaceFor(
 describe("empirical provider campaign adapter", () => {
   it("selects only JSON modes confirmed by live provider capabilities", () => {
     const nativeModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-26b-a4b-it:free");
-    const promptOnlyModel = FREE_MODELS.find((model) => model.id === "inclusionai/ling-3.1-flash");
+    const promptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning:free");
     const newlyEligiblePromptOnlyModel = FREE_MODELS.find((model) => model.id === "cohere/north-mini-code:free");
     const poolsidePromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-s-2.1:free");
     const lightningPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3.5-lightning:free");
@@ -122,7 +122,7 @@ describe("empirical provider campaign adapter", () => {
     const nanoPromptOnlyModel = FREE_MODELS.find((model) => model.id === "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free");
     const poolsideXsPromptOnlyModel = FREE_MODELS.find((model) => model.id === "poolside/laguna-xs-2.1:free");
     const inklingPromptOnlyModel = FREE_MODELS.find((model) => model.id === "thinkingmachines/inkling:free");
-    const unsupportedModel = FREE_MODELS.find((model) => model.id === "apodex/apodex-1.1-mini:free");
+    const unsupportedModel = FREE_MODELS.find((model) => model.id === "google/gemma-4-31b-it:free");
 
     expect(selectEmpiricalJsonMode(nativeModel, { supportsJsonObject: true, supportsJsonSchema: false })).toEqual({
       mode: "native_json_object",
@@ -209,7 +209,7 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("refreshes an expired live catalog before continuing a pinned model campaign", async () => {
-    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3-super-120b-a12b:free");
+    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3.5-lightning:free");
     expect(model).toBeDefined();
     let liveIds: Set<string> | null = null;
     let refreshCalls = 0;
@@ -228,7 +228,7 @@ describe("empirical provider campaign adapter", () => {
   });
 
   it("fails closed when a refreshed catalog no longer lists the pinned model as free", async () => {
-    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3-super-120b-a12b:free");
+    const model = FREE_MODELS.find((candidate) => candidate.id === "nvidia/nemotron-3.5-lightning:free");
     expect(model).toBeDefined();
     let refreshCalls = 0;
 
@@ -632,11 +632,11 @@ describe("empirical provider campaign adapter", () => {
       corpus,
       provider: "openrouter",
       apiKey: "provider-key-is-test-only",
-      model: "inclusionai/ling-3.1-flash",
+      model: "nvidia/nemotron-3.5-lightning:free",
       workspaceFactory: workspaceFor,
       reviewCase: async ({ testCase, onProviderModel, maxTokens }) => {
         maxTokenBudgets.push(maxTokens);
-        onProviderModel?.("inclusionai/ling-3.1-flash");
+        onProviderModel?.("nvidia/nemotron-3.5-lightning:free");
         return {
           summary: "Bounded review",
           overallScore: testCase.outcome === "defect" ? 40 : 90,
@@ -656,11 +656,11 @@ describe("empirical provider campaign adapter", () => {
       },
     });
 
-    expect(scorecard.structuredOutputMode).toBe("prompt_only_json");
-    expect(scorecard.model).toBe("inclusionai/ling-3.1-flash");
+    expect(scorecard.structuredOutputMode).toBe("native_json_object");
+    expect(scorecard.model).toBe("nvidia/nemotron-3.5-lightning:free");
     expect(scorecard.cases.map((entry) => entry.providerModel)).toEqual([
-      "inclusionai/ling-3.1-flash",
-      "inclusionai/ling-3.1-flash",
+      "nvidia/nemotron-3.5-lightning:free",
+      "nvidia/nemotron-3.5-lightning:free",
     ]);
     expect(maxTokenBudgets).toEqual([8_192, 8_192]);
   });
@@ -755,7 +755,7 @@ describe("empirical provider campaign adapter", () => {
       corpus,
       provider: "openrouter",
       apiKey: "provider-key-is-test-only",
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       caseTimeoutMs: 15_000,
       workspaceFactory: workspaceFor,
       reviewCase: async ({ testCase, maxTokens, timeoutMs }) => {
