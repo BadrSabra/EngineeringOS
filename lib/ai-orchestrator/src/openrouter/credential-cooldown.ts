@@ -136,7 +136,7 @@ export async function recordOpenRouterCredentialCooldown(
     !apiKey ||
     !(error instanceof GroqClientError) ||
     (error.code !== "RATE_LIMITED" && error.code !== "QUOTA") ||
-    error.rateLimitScope === "upstream_provider_shared_pool" ||
+    error.rateLimitScope === "upstream_shared_pool" ||
     !Number.isSafeInteger(error.retryAfterMs) ||
     error.retryAfterMs! <= 0
   ) {

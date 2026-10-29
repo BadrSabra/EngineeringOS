@@ -541,6 +541,31 @@ describe("providerHealthProbe", () => {
     expect(JSON.stringify(result.report)).not.toContain(secret);
     expect(JSON.stringify(result.report)).not.toContain("raw provider message");
   });
+
+  it("preserves the typed provider Retry-After for safe downstream admission", async () => {
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response(null)),
+      async call() {
+        throw new GroqClientError("RATE_LIMITED", "private provider response", {
+          context: {
+            providerName: "OpenRouter",
+            rateLimitScope: "provider_credential",
+            retryAfterMs: 12_345,
+          },
+        });
+      },
+    };
+
+    const result = await probeProviderHealth({ provider: "openrouter", strategy });
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCode: "RATE_LIMITED",
+      rateLimitScope: "provider_credential",
+      retryAfterMs: 12_345,
+    });
+    expect(JSON.stringify(result)).not.toContain("private provider response");
+  });
 });
 
 describe("createChatCodeAgentBenchmarkExecutor health gate", () => {

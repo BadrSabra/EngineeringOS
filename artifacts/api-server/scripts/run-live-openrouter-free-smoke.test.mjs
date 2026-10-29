@@ -292,10 +292,10 @@ test("rate limits stay typed, sanitized, and bounded to the configured attempt c
         calls.push(model);
         return {
           status: "unavailable",
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 120_000,
           report: {
             failureCategory: "rate-limit",
-            rateLimitScope: "upstream_shared_pool",
-            retryAfterMs: 120_000,
             providerBody: "must not be emitted",
           },
         };

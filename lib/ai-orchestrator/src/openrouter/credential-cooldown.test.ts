@@ -29,6 +29,41 @@ afterEach(() => {
 });
 
 describe("OpenRouter credential cooldown persistence", () => {
+  it.skipIf(process.env.OPENROUTER_CREDENTIAL_COOLDOWN_DB_TEST !== "1")(
+    "persists the longest credential window in PostgreSQL across processes",
+    async () => {
+      _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+      const apiKey = `${fixtureApiKey}-postgres-integration`;
+      const { pool } = await import("@workspace/db");
+      try {
+        await recordOpenRouterCredentialCooldown(
+          apiKey,
+          new GroqClientError("QUOTA", "fixture account quota", {
+            context: { rateLimitScope: "account_quota", retryAfterMs: 30_000 },
+          }),
+        );
+
+        // Simulate another process receiving a shorter window for this key.
+        _resetOpenRouterCredentialCooldownsForTest();
+        await recordOpenRouterCredentialCooldown(
+          apiKey,
+          new GroqClientError("RATE_LIMITED", "fixture shorter limit", {
+            context: { rateLimitScope: "provider_credential", retryAfterMs: 1_000 },
+          }),
+        );
+
+        // A third process must still observe the original, longer quota hold.
+        _resetOpenRouterCredentialCooldownsForTest();
+        await expect(assertOpenRouterCredentialAvailable(apiKey)).rejects.toMatchObject({
+          code: "QUOTA",
+          rateLimitScope: "account_quota",
+        });
+      } finally {
+        await pool.end();
+      }
+    },
+  );
+
   it("shares an exact credential Retry-After across simulated API processes", async () => {
     let stored:
       | {
@@ -108,6 +143,27 @@ describe("OpenRouter credential cooldown persistence", () => {
     await recordOpenRouterCredentialCooldown(
       fixtureApiKey,
       new GroqClientError("RATE_LIMITED", "fixture limit without retry window"),
+    );
+
+    await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).resolves.toBeUndefined();
+    expect(persistence.write).not.toHaveBeenCalled();
+  });
+
+  it("leaves upstream shared-pool throttling to the model cooldown path", async () => {
+    const persistence: CredentialCooldownPersistence = {
+      readActive: vi.fn(async () => null),
+      write: vi.fn(async () => undefined),
+    };
+    _setOpenRouterCredentialCooldownPersistenceForTest(persistence);
+
+    await recordOpenRouterCredentialCooldown(
+      fixtureApiKey,
+      new GroqClientError("RATE_LIMITED", "fixture shared pool limit", {
+        context: {
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 3_000,
+        },
+      }),
     );
 
     await expect(assertOpenRouterCredentialAvailable(fixtureApiKey)).resolves.toBeUndefined();

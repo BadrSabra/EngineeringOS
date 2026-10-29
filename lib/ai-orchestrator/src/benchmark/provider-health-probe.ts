@@ -82,6 +82,8 @@ export type ProviderHealthProbeResult = {
   failureReason?: string;
   /** Present only when a typed provider error identifies a rate-limit scope. */
   rateLimitScope?: ProviderRateLimitScope;
+  /** Exact positive Retry-After hint parsed from the provider response, in milliseconds. */
+  retryAfterMs?: number;
   /** Bounded upstream label used only for server-owned quarantine decisions. */
   upstreamProvider?: string;
   /** Bounded operator-facing summary; it intentionally excludes provider text. */
@@ -214,6 +216,10 @@ export function projectSafeProviderHealth(
 ): ProviderHealthProbeResult {
   const failureCode = safeFailureCode(result.failureCode);
   const model = safeProviderModel(result.model);
+  const retryAfterMs =
+    Number.isSafeInteger(result.retryAfterMs) && result.retryAfterMs! > 0
+      ? result.retryAfterMs
+      : undefined;
   const report = result.report
     ? {
         ...result.report,
@@ -231,6 +237,7 @@ export function projectSafeProviderHealth(
     ...(result.status === "unavailable"
       ? { failureReason: safeFailureReason(failureCode, result.failureReason) }
       : { failureReason: undefined }),
+    retryAfterMs,
     ...(report ? { report } : {}),
   };
 }
@@ -240,7 +247,12 @@ function unavailableResult(
   startedAt: number,
   fields: Pick<
     ProviderHealthProbeResult,
-    "model" | "failureCode" | "failureReason" | "rateLimitScope" | "upstreamProvider"
+    | "model"
+    | "failureCode"
+    | "failureReason"
+    | "rateLimitScope"
+    | "retryAfterMs"
+    | "upstreamProvider"
   >,
 ): ProviderHealthProbeResult {
   const model = safeProviderModel(fields.model ?? options.model);
@@ -257,6 +269,9 @@ function unavailableResult(
     ...(fields.failureCode ? { failureCode: safeFailureCode(fields.failureCode) } : {}),
     failureReason: safeFailureReason(fields.failureCode, fields.failureReason),
     ...(fields.rateLimitScope ? { rateLimitScope: fields.rateLimitScope } : {}),
+    ...(Number.isSafeInteger(fields.retryAfterMs) && fields.retryAfterMs! > 0
+      ? { retryAfterMs: fields.retryAfterMs }
+      : {}),
     ...(fields.upstreamProvider
       ? { upstreamProvider: redactProviderErrorText(fields.upstreamProvider).slice(0, 120) }
       : {}),
@@ -605,6 +620,9 @@ export async function probeProviderHealth(
           : "Provider probe failed before a capability response.",
           ...(isProviderError && error.rateLimitScope
             ? { rateLimitScope: error.rateLimitScope }
+            : {}),
+          ...(isProviderError && error.retryAfterMs !== undefined
+            ? { retryAfterMs: error.retryAfterMs }
             : {}),
           ...(isProviderError && error.upstreamProvider
             ? { upstreamProvider: error.upstreamProvider }

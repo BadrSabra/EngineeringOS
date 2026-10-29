@@ -32,7 +32,6 @@ const SAFE_RATE_LIMIT_SCOPES = new Set([
   "account_quota",
   "unknown",
 ]);
-const MAX_SAFE_RETRY_AFTER_MS = 24 * 60 * 60 * 1_000;
 const SUPPRESSED_CONSOLE_METHODS = [
   "assert",
   "clear",
@@ -88,9 +87,7 @@ function safeRateLimitScope(value) {
 }
 
 function safeRetryAfterMs(value) {
-  return Number.isSafeInteger(value) && value > 0
-    ? Math.min(value, MAX_SAFE_RETRY_AFTER_MS)
-    : null;
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
 function safeModelId(value) {
@@ -284,8 +281,12 @@ export async function runOpenRouterFreeSmoke({
         }
         healthStatus = health?.status === "usable" ? "usable" : "unavailable";
         const report = health?.report;
-        rateLimitScope = safeRateLimitScope(report?.rateLimitScope) ?? rateLimitScope;
-        retryAfterMs = safeRetryAfterMs(report?.retryAfterMs) ?? retryAfterMs;
+        rateLimitScope = safeRateLimitScope(
+          health?.rateLimitScope ?? report?.rateLimitScope,
+        ) ?? rateLimitScope;
+        retryAfterMs = safeRetryAfterMs(
+          health?.retryAfterMs ?? report?.retryAfterMs,
+        ) ?? retryAfterMs;
 
         if (healthStatus === "usable") {
           // Never report the requested candidate as the actual model. The
