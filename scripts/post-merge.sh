@@ -10,4 +10,4 @@
 #      DATABASE_URL is runtime-managed by Replit; do not set it manually.
 set -e
 pnpm install --frozen-lockfile
-pnpm --filter @workspace/db run push
+pnpm --filter @workspace/db run schema:apply

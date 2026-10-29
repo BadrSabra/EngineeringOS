@@ -14,3 +14,9 @@ A failed or cancelled execution is terminal for the current attempt even when `r
 **Why:** A live rate-limited attempt remained resumable, so the browser test kept polling until timeout and hid the provider failure; the fixture lifecycle also logged model discovery without a completion call.
 
 **How to apply:** Stop browser polling on `failed` or `cancelled` regardless of resumability. Report the sanitized provider category, rate-limit scopes, retry delay, and resumable state; count a provider check only after observing an actual completion/stream response.
+
+A live campaign process exit of zero may mean only that its redacted receipt passed format and privacy checks. The campaign is not successful unless the receipt itself reports a complete, accepted result with the required evidence.
+
+**Why:** A valid `terminal-incomplete` receipt can be emitted and validated after a live provider rate limit, while the wrapper still exits successfully.
+
+**How to apply:** Judge campaign outcomes from `outcomeClass`, `terminalStatus`, `accepted`, and `evidence`, not from the process exit code alone.

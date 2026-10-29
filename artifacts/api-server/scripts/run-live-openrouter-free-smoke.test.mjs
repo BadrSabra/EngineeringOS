@@ -102,6 +102,7 @@ test("catalog refresh unavailable is safe and does not leak refresh diagnostics"
     attemptedModels: [],
     attemptCount: 0,
     maxAttempts: 3,
+    catalogFailure: null,
     freePolicy: false,
     paidFallbackEnabled: false,
     actualModelFreeVerified: null,
@@ -114,6 +115,21 @@ test("catalog refresh unavailable is safe and does not leak refresh diagnostics"
   });
   assert.equal(outputText(stderr), "");
   assert.doesNotMatch(outputText(stdout), /provider response|sk-or-|internal\/path/);
+});
+
+test("catalog failure exposes only a bounded HTTP status code", async () => {
+  const result = await runOpenRouterFreeSmoke({
+    apiKey: "fixture-key",
+    dependencies: dependencies({
+      status: {
+        usable: false,
+        lastRefreshStatus: "failed",
+        lastRefreshError: "http_429",
+      },
+    }),
+  });
+
+  assert.equal(result.catalogFailure, "http_429");
 });
 
 test("authoritative live catalog exhaustion is unavailable without probing", async () => {
@@ -223,7 +239,7 @@ for (const [name, category, reason] of [
     assert.equal(result.status, "unavailable");
     assert.equal(result.failureCategory, category);
     assert.equal(result.reason, reason);
-    assert.equal(result.attemptCount, 3);
+    assert.equal(result.attemptCount, category === "authentication" ? 1 : 3);
     assert.equal(JSON.stringify(result).includes("raw provider body"), false);
     assert.equal(JSON.stringify(result).includes("/private/project/path"), false);
   });
@@ -310,6 +326,87 @@ test("rate limits stay typed, sanitized, and bounded to the configured attempt c
   assert.equal(result.retryAfterMs, 120_000);
   assert.equal(result.paidFallbackEnabled, false);
   assert.doesNotMatch(JSON.stringify(result), /providerBody|must not be emitted/);
+});
+
+test("a rate limit stops the smoke before it probes another free model", async () => {
+  const calls = [];
+  const result = await runOpenRouterFreeSmoke({
+    apiKey: "fixture-key",
+    maxAttempts: 4,
+    dependencies: dependencies({
+      probe: async ({ model }) => {
+        calls.push(model);
+        return {
+          status: "unavailable",
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 1_000,
+          report: { failureCategory: "rate-limit" },
+        };
+      },
+    }),
+  });
+
+  assert.deepEqual(calls, [MODELS[0].id]);
+  assert.deepEqual(result.attemptedModels, [MODELS[0].id]);
+  assert.equal(result.maxAttempts, 4);
+  assert.equal(result.failureCategory, "rate-limit");
+  assert.equal(result.retryAfterMs, 1_000);
+});
+
+test("explicit model selection uses only a live, tool-capable free model", async () => {
+  const calls = [];
+  const stdout = captureStream();
+  const resultCode = await runOpenRouterFreeSmokeCli({
+    env: {
+      RUN_LIVE_OPENROUTER_FREE_SMOKE: "1",
+      OPENROUTER_API_KEY: "fixture-key",
+      OPENROUTER_SMOKE_MODEL_ID: MODELS[1].id,
+      OPENROUTER_SMOKE_MAX_ATTEMPTS: "4",
+    },
+    loadDependencies: async () => dependencies({
+      probe: async ({ model }) => {
+        calls.push(model);
+        return { status: "usable", model };
+      },
+    }),
+    stdout: stdout.stream,
+    stderr: captureStream().stream,
+  });
+  const result = JSON.parse(outputText(stdout));
+
+  assert.equal(resultCode, 0);
+  assert.deepEqual(calls, [MODELS[1].id]);
+  assert.equal(result.selectedModel, MODELS[1].id);
+  assert.equal(result.actualModel, MODELS[1].id);
+  assert.equal(result.status, "passed");
+  assert.equal(result.paidFallbackEnabled, false);
+});
+
+test("an explicit model outside the free allowlist is never probed", async () => {
+  let probeCalls = 0;
+  const stdout = captureStream();
+  const resultCode = await runOpenRouterFreeSmokeCli({
+    env: {
+      RUN_LIVE_OPENROUTER_FREE_SMOKE: "1",
+      OPENROUTER_API_KEY: "fixture-key",
+      OPENROUTER_SMOKE_MODEL_ID: "provider/paid-model",
+    },
+    loadDependencies: async () => dependencies({
+      probe: async () => {
+        probeCalls++;
+        return { status: "usable", model: MODELS[0].id };
+      },
+    }),
+    stdout: stdout.stream,
+    stderr: captureStream().stream,
+  });
+  const result = JSON.parse(outputText(stdout));
+
+  assert.equal(resultCode, 2);
+  assert.equal(probeCalls, 0);
+  assert.equal(result.attemptCount, 0);
+  assert.equal(result.selectedModel, null);
+  assert.equal(result.paidFallbackEnabled, false);
 });
 
 test("skip and missing-key CLI branches do not load dependencies or make network requests", async () => {

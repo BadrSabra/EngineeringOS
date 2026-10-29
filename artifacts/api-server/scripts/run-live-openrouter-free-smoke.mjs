@@ -13,6 +13,12 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_TIMEOUT_MS = 15_000;
 const SAFE_CATALOG_STATUSES = new Set(["never", "success", "failed", "empty"]);
+const SAFE_CATALOG_FAILURES = new Set([
+  "timeout",
+  "network_error",
+  "empty_response",
+  "no_free_models",
+]);
 const SAFE_FAILURE_CATEGORIES = new Set([
   "authentication",
   "quota",
@@ -76,6 +82,13 @@ export function normalizeSmokeOptions(options = {}) {
 
 function safeCatalogStatus(value) {
   return SAFE_CATALOG_STATUSES.has(value) ? value : "failed";
+}
+
+function safeCatalogFailure(value) {
+  if (SAFE_CATALOG_FAILURES.has(value)) return value;
+  return typeof value === "string" && /^http_[1-5]\d{2}$/.test(value)
+    ? value
+    : null;
 }
 
 function safeFailureCategory(value) {
@@ -191,12 +204,15 @@ function liveModelPolicy(FREE_MODELS, liveIds) {
 }
 
 function catalogUnavailableResult(status, maxAttempts) {
-  return baseResult({
-    maxAttempts,
-    catalogStatus: status?.lastRefreshStatus,
-    reason: "catalog_unavailable",
-    failureCategory: "catalog",
-  });
+  return {
+    ...baseResult({
+      maxAttempts,
+      catalogStatus: status?.lastRefreshStatus,
+      reason: "catalog_unavailable",
+      failureCategory: "catalog",
+    }),
+    catalogFailure: safeCatalogFailure(status?.lastRefreshError),
+  };
 }
 
 /**
@@ -209,6 +225,7 @@ export async function runOpenRouterFreeSmoke({
   apiKey,
   maxAttempts,
   timeoutMs,
+  modelId,
   dependencies,
 } = {}) {
   const options = normalizeSmokeOptions({ maxAttempts, timeoutMs });
@@ -221,7 +238,10 @@ export async function runOpenRouterFreeSmoke({
       const candidateIds = dependencies.getDynamicModelIds();
       liveIds = candidateIds instanceof Set ? candidateIds : null;
     } catch {
-      return catalogUnavailableResult({ lastRefreshStatus: "failed" }, options.maxAttempts);
+      return catalogUnavailableResult(
+        { lastRefreshStatus: "failed", lastRefreshError: "network_error" },
+        options.maxAttempts,
+      );
     }
 
     if (!status?.usable || !liveIds) {
@@ -240,10 +260,14 @@ export async function runOpenRouterFreeSmoke({
         quality: "fast",
         requireTools: true,
       });
-      const chain = (Array.isArray(resolved) ? resolved : [])
+      const eligibleChain = (Array.isArray(resolved) ? resolved : [])
         .map((model) => model?.id)
-        .filter(isFreeToolCapableLiveModel)
-        .slice(0, options.maxAttempts);
+        .filter(isFreeToolCapableLiveModel);
+      const requestedModelId =
+        typeof modelId === "string" && modelId.trim() ? modelId.trim() : null;
+      const chain = requestedModelId
+        ? eligibleChain.filter((candidate) => candidate === requestedModelId).slice(0, 1)
+        : eligibleChain.slice(0, options.maxAttempts);
 
       if (chain.length === 0) {
         return baseResult({
@@ -299,7 +323,15 @@ export async function runOpenRouterFreeSmoke({
           break;
         }
 
-        failureCategories.push(safeFailureCategory(health?.report?.failureCategory));
+        const failureCategory = safeFailureCategory(health?.report?.failureCategory);
+        failureCategories.push(failureCategory);
+        if (
+          failureCategory === "rate-limit" ||
+          failureCategory === "quota" ||
+          failureCategory === "authentication"
+        ) {
+          break;
+        }
       }
 
       const allCapabilityFailures =
@@ -424,6 +456,7 @@ export async function runOpenRouterFreeSmokeCli({
     apiKey,
     maxAttempts: env.OPENROUTER_SMOKE_MAX_ATTEMPTS,
     timeoutMs: env.OPENROUTER_SMOKE_TIMEOUT_MS,
+    modelId: env.OPENROUTER_SMOKE_MODEL_ID,
     dependencies,
   });
   writeLine(stdout, JSON.stringify(result));
