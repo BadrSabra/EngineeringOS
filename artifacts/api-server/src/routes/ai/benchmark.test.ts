@@ -55,7 +55,7 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
   it("returns bounded scorecard metadata and preserves U separately from F", async () => {
     process.env.BENCHMARK_OUTPUT_DIR = outputDir;
     await writeScorecard({
-      suiteVersion: "flight-deck-v2",
+      suiteVersion: "flight-deck-v4",
       generatedAt: "2026-08-17T18:00:00.000Z",
       provider: "openrouter",
       model: "test-model",
@@ -72,7 +72,7 @@ describe.sequential("GET /api/ai/benchmark/scorecard", () => {
       rolloutBlockers: ["provider unavailable for 1 observed case"],
       baseline: {
         baselineId: "approved-baseline",
-        suiteVersion: "flight-deck-v2",
+        suiteVersion: "flight-deck-v4",
         generatedAt: "2026-08-16T18:00:00.000Z",
       },
       baselineComparison: {
@@ -280,7 +280,7 @@ describe.sequential("GET /api/ai/mission-control", () => {
   it("returns a bounded benchmark and execution ledger envelope", async () => {
     process.env.BENCHMARK_OUTPUT_DIR = outputDir;
     await writeScorecard({
-      suiteVersion: "flight-deck-v2",
+      suiteVersion: "flight-deck-v4",
       generatedAt: "2026-08-19T01:03:24.000Z",
       metrics: {
         observedCases: 34,
@@ -292,7 +292,7 @@ describe.sequential("GET /api/ai/mission-control", () => {
     await writeEnvelope({
       kind: "free-tier-quality-envelope",
       version: 1,
-      suiteVersion: "flight-deck-v2",
+      suiteVersion: "flight-deck-v4",
       generatedAt: "2026-08-19T01:03:24.000Z",
       providerRecoverySummaries: [{
         provider: "openrouter",

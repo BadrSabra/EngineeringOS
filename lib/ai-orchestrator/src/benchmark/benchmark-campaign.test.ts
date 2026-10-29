@@ -56,7 +56,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard["metrics"]> = 
   return {
     kind: "code-agent-benchmark",
     version: 1,
-    suiteVersion: "flight-deck-v2",
+    suiteVersion: "flight-deck-v4",
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
     missingCaseIds: [],

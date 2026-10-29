@@ -44,3 +44,9 @@ When a tool-enabled response is truncated, its bounded continuation must retain 
 **Why:** a free-tier completion hit its output limit during an approved multi-file repair. The no-tool retry suppressed the next edit, and the loop discarded the retry because it carried a tool call without text.
 
 **How to apply:** cover both no-tool final-answer retries and tool-enabled continuations in `executeToolLoop` tests; assert that narrowed provider tools remain narrowed while the full server-authorized manifest is preserved.
+
+Per-case benchmark allowlists must bind provider exposure, dispatcher authorization, and handoff instructions to the same tool set.
+
+**Why:** a fixture can constrain the provider manifest and server dispatcher while stale handoff wording still recommends a disabled tool, producing rejected calls and misleading diagnosis.
+
+**How to apply:** derive mutation-tool guidance from the server-authorized fixture allowlist; test that provider exposure and dispatch enforce the same names, and keep out-of-set calls fail-closed.

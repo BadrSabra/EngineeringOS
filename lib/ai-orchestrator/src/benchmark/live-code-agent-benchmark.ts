@@ -73,6 +73,8 @@ export type ChatCodeAgentBenchmarkExecutorOptions = {
   }>;
   /** Benchmark fixtures may include approved test sources in their read scope. */
   includeTestSources?: boolean;
+  /** Server-owned per-fixture tool allowlist; applied to both provider exposure and dispatch. */
+  allowedToolNamesForCase?: (testCase: CodeAgentBenchmarkCase) => readonly string[] | undefined;
   /** Require every OpenRouter attempt to remain free and tool-capable. */
   freeOnly?: boolean;
   /**
@@ -120,6 +122,16 @@ function providerFailureCategoryForCode(
   code: string,
 ): CodeAgentProviderFailureCategory {
   return PROVIDER_FAILURE_CATEGORY_BY_CODE[code.toUpperCase()] ?? "UNKNOWN";
+}
+
+function isProviderContractFailureCode(code: string): boolean {
+  return code === "INVALID_TOOL_CALL" || code === "INVALID_PROVIDER_RESPONSE";
+}
+
+function providerFailureCodeFromDetail(detail: string): string | undefined {
+  const match = /(?:^|\s)(?:fallback\s+)?provider failure code:\s*([A-Z][A-Z0-9_]{0,63})\b/i
+    .exec(detail.trim());
+  return match?.[1].toUpperCase();
 }
 
 function latestValidation(steps: readonly AgentStep[]): Extract<AgentStep, { kind: "validation" }> | undefined {
@@ -224,29 +236,25 @@ function telemetryFromChatResult(
       step.kind === "diagnostic" &&
       step.code === "EXECUTION_PROVIDER_FAILURE",
   );
-  const providerFailureCategory = providerFailureDiagnostics
+  const providerFailureCodes = providerFailureDiagnostics
     .flatMap((step) => step.details ?? [])
-    .map((detail) => {
-      const match = /^(?:fallback )?provider failure code:\s*([A-Z][A-Z0-9_]{0,63})$/i
-        .exec(detail.trim());
-      if (!match) return undefined;
-      return providerFailureCategoryForCode(match[1]);
-    })
-    .find((category): category is CodeAgentProviderFailureCategory => category !== undefined)
-    ?? (providerFailureDiagnostics.length > 0 ? "UNKNOWN" : undefined)
-    ?? (steps.some((step) => step.kind === "done" && step.stopReason === "provider_timeout")
-      ? "TIMEOUT"
-      : undefined);
-  const providerUnavailable = providerFailureDiagnostics.some(
-    (step) =>
-      !step.details?.some((detail) =>
-        /provider failure code:\s*(?:INVALID_TOOL_CALL|INVALID_PROVIDER_RESPONSE)\b/i.test(detail),
-      ),
-  ) || steps.some(
-    (step) =>
-      step.kind === "done" &&
-      step.stopReason === "provider_timeout",
-  );
+    .map(providerFailureCodeFromDetail)
+    .filter((code): code is string => code !== undefined);
+  const latestProviderFailureCode = providerFailureCodes[providerFailureCodes.length - 1];
+  const providerFailureCategory = latestProviderFailureCode
+    ? providerFailureCategoryForCode(latestProviderFailureCode)
+    : providerFailureDiagnostics.length > 0
+      ? "UNKNOWN"
+      : steps.some((step) => step.kind === "done" && step.stopReason === "provider_timeout")
+        ? "TIMEOUT"
+        : undefined;
+  const providerUnavailable = providerFailureDiagnostics.length > 0
+    ? latestProviderFailureCode
+      ? !isProviderContractFailureCode(latestProviderFailureCode)
+      : true
+    : steps.some(
+        (step) => step.kind === "done" && step.stopReason === "provider_timeout",
+      );
   const readSources = new Set(
     steps.flatMap((step) =>
       step.kind === "tool_result" &&
@@ -509,6 +517,15 @@ export function createChatCodeAgentBenchmarkExecutor(
 
     try {
       const prompt = opts.promptForCase?.(testCase) ?? testCase.prompt;
+      const allowedToolNames = opts.allowedToolNamesForCase?.(testCase);
+      if (
+        allowedToolNames &&
+        (allowedToolNames.length === 0 ||
+          new Set(allowedToolNames).size !== allowedToolNames.length ||
+          allowedToolNames.some((name) => !name.trim()))
+      ) {
+        throw new Error("Benchmark fixture tool allowlist is invalid.");
+      }
       const buildHandoff = await awaitWithinCaseDeadline(
         opts.buildHandoffForCase?.({
           testCase,
@@ -562,6 +579,12 @@ export function createChatCodeAgentBenchmarkExecutor(
         provider: opts.provider,
         apiKey: opts.apiKey,
         model: opts.model,
+        ...(allowedToolNames
+          ? {
+              allowedToolNames: [...allowedToolNames],
+              authorizedToolManifestNames: [...allowedToolNames],
+            }
+          : {}),
         onToolInvocation: (event) => {
           benchmarkToolLifecycleEvents.push(event);
         },
@@ -721,8 +744,46 @@ export function createChatCodeAgentBenchmarkExecutor(
           }
         : telemetry;
     } catch (error) {
+      if (process.env.BENCHMARK_DEBUG_TOOL_TRACE === "1") {
+        console.warn(JSON.stringify({
+          scope: "benchmark-tool-trace",
+          caseId: testCase.id,
+          abortedBeforeResult: true,
+          steps: steps.map((step) => ({
+            kind: step.kind,
+            ...(step.kind === "tool_call" || step.kind === "tool_result"
+              ? { tool: step.tool }
+              : {}),
+            ...(step.kind === "tool_result" && benchmarkToolFailureReason(step)
+              ? { failureReason: benchmarkToolFailureReason(step) }
+              : {}),
+            ...(step.kind === "tool_result" &&
+              (step.resultKind === "failed" || step.resultKind === "unavailable")
+              ? { failureSummary: benchmarkSafeFailureSummary(step) }
+              : {}),
+            ...(step.kind === "diagnostic" ? { code: step.code } : {}),
+            ...(step.kind === "validation"
+              ? {
+                  profile: step.result.profile,
+                  status: step.result.status,
+                  ...(step.result.status === "failed"
+                    ? {
+                        failureKind: step.result.failureKind ?? "unspecified",
+                        exitCode: step.result.exitCode,
+                        failedTestCount: step.result.failedTests.length,
+                      }
+                    : {}),
+                }
+              : {}),
+          })),
+        }));
+      }
       const caseBudgetExhausted = caseTimedOut && !(error instanceof GroqClientError);
-      const providerUnavailable = error instanceof GroqClientError && !caseBudgetExhausted;
+      const providerContractFailure = error instanceof GroqClientError &&
+        isProviderContractFailureCode(error.code);
+      const providerUnavailable = error instanceof GroqClientError &&
+        !caseBudgetExhausted &&
+        !providerContractFailure;
       const providerFailureCategory = error instanceof GroqClientError && !caseBudgetExhausted
         ? providerFailureCategoryForCode(error.code)
         : undefined;

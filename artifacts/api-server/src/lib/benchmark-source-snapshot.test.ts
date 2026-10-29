@@ -7,6 +7,7 @@ import {
   createApprovedBenchmarkSourceSnapshot,
   findUnapprovedBenchmarkControlChanges,
   resolveApprovedBenchmarkSourceRevision,
+  shouldCopyBenchmarkCandidateEntry,
 } from "./benchmark-source-snapshot.js";
 import { APPROVED_BENCHMARK_SOURCE_REVISION } from "./benchmark-source-policy.js";
 
@@ -29,11 +30,44 @@ async function git(root: string, ...args: string[]): Promise<string> {
 }
 
 describe("approved benchmark source snapshot", () => {
+  it("keeps trusted controls and historical evidence out of provider-visible roots", () => {
+    for (const excluded of [
+      ".github/workflows/ci.yml",
+      ".github/api-only-smoke.Dockerfile",
+      "release-evidence/engineering-agent-lifecycle/receipt.json",
+      ".config/chromium/Crash Reports/settings.dat",
+      "mission-correlation-report-9fdb373f.json",
+      "scripts/api-only-smoke.mjs",
+      "scripts/run-api-only-smoke-container.sh",
+      "docs/engineering-agent-os-isolated-lifecycle-runner.md",
+      ".agents/memory/candidate-validation-boundary.md",
+      ".engineeringos-delivery/operations.json",
+    ]) {
+      expect(shouldCopyBenchmarkCandidateEntry(excluded), excluded).toBe(false);
+    }
+
+    for (const retained of [
+      "",
+      "package.json",
+      "lib/ai-orchestrator/src/tool-execution-engine.ts",
+      "scripts/runtime-egress-guard.mjs",
+      "scripts/isolated-child-process-policy.mjs",
+      "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
+    ]) {
+      expect(shouldCopyBenchmarkCandidateEntry(retained), retained).toBe(true);
+    }
+
+    expect(shouldCopyBenchmarkCandidateEntry("../outside.json")).toBe(false);
+    expect(shouldCopyBenchmarkCandidateEntry("/outside.json")).toBe(false);
+  });
+
   it("allows only the runner's explicit control-plane delta", () => {
     expect(findUnapprovedBenchmarkControlChanges([
       ".config/chromium/Crash Reports/settings.dat",
       ".agents/memory/candidate-validation-boundary.md",
       ".agents/memory/openrouter-throttling-checkpoints.md",
+      ".agents/memory/provider-tool-call-manifests.md",
+      ".agents/memory/contract-telemetry-separation.md",
       "lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts",
       "lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts",
       "lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts",
@@ -47,11 +81,14 @@ describe("approved benchmark source snapshot", () => {
       "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts",
       "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts",
       "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts",
+      "lib/ai-orchestrator/src/benchmark/paired-baseline.test.ts",
       "artifacts/api-server/src/lib/benchmark-source-policy.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
       "artifacts/api-server/src/lib/ai-code-agent-benchmark.test.ts",
       "artifacts/api-server/src/lib/ai-code-agent-benchmark.ts",
+      "artifacts/api-server/src/lib/benchmark-release-gate.test.ts",
+      "artifacts/api-server/src/routes/ai/benchmark.test.ts",
       "artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts",
     ])).toEqual([]);
     expect(findUnapprovedBenchmarkControlChanges([

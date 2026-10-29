@@ -13,7 +13,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAg
   return {
     kind: "code-agent-benchmark",
     version: 1,
-    suiteVersion: "flight-deck-v2",
+    suiteVersion: "flight-deck-v4",
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
     candidateHash: "a".repeat(64),
@@ -61,7 +61,7 @@ function run(overrides: Partial<BenchmarkAirlockRun> = {}): BenchmarkAirlockRun 
     targeted: false,
     partial: false,
     baselineEligibility: "quality-gates-required",
-    suiteVersion: "flight-deck-v2",
+    suiteVersion: "flight-deck-v4",
     sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
     runId: "clean-witness-run",
     startedAt: "2026-08-19T02:00:00.000Z",
@@ -79,8 +79,8 @@ function baseline(): CodeAgentBenchmarkBaseline {
   return {
     kind: "code-agent-benchmark-baseline",
     version: 1,
-    baselineId: "approved-flight-deck-v2",
-    suiteVersion: "flight-deck-v2",
+    baselineId: "approved-flight-deck-v4",
+    suiteVersion: "flight-deck-v4",
     generatedAt: "2026-08-18T00:00:00.000Z",
     rolloutAllowed: true,
     metrics: scorecard().metrics,

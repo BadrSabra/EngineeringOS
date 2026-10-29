@@ -10,10 +10,64 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+const OMIT_BENCHMARK_ROOT_SEGMENTS = new Set([
+  ".git",
+  "node_modules",
+  "attached_assets",
+  ".cache",
+  ".agents",
+  ".local",
+  ".engineeringos-delivery",
+  ".engineeringos-projects",
+  ".config",
+  ".github",
+  "release-evidence",
+  "docs",
+  "coverage",
+  "dist",
+  ".vite",
+]);
+
+const OMIT_BENCHMARK_CONTROL_FILES = new Set([
+  ".github/api-only-smoke.Dockerfile",
+  ".github/api-only-smoke.Dockerfile.dockerignore",
+  ".github/workflows/api-only-smoke-isolated.yml",
+  "scripts/api-only-smoke-container-preflight.mjs",
+  "scripts/api-only-smoke-container-preflight.test.mjs",
+  "scripts/api-only-smoke-workflow.test.mjs",
+  "scripts/api-only-smoke.mjs",
+  "scripts/api-only-smoke.test.mjs",
+  "scripts/run-api-only-smoke-container.sh",
+  "scripts/run-api-only-smoke.mjs",
+]);
+
+/**
+ * Keep provider-visible benchmark workspaces limited to candidate source.
+ * The source SHA still binds the full immutable commit; this copy omits
+ * unrelated operations evidence and trusted CI/control implementation.
+ */
+export function shouldCopyBenchmarkCandidateEntry(relativePath: string): boolean {
+  const normalized = relativePath.replaceAll("\\", "/").replace(/^\.\//, "");
+  if (!normalized || normalized === ".") return true;
+  if (
+    normalized.startsWith("/") ||
+    normalized.split("/").some((segment) => segment === ".." || segment === "")
+  ) {
+    return false;
+  }
+  if (normalized.split("/").some((segment) => OMIT_BENCHMARK_ROOT_SEGMENTS.has(segment))) {
+    return false;
+  }
+  if (OMIT_BENCHMARK_CONTROL_FILES.has(normalized)) return false;
+  return !/^mission-correlation-report-[^/]+\.json$/i.test(normalized);
+}
+
 const ALLOWED_CONTROL_ONLY_CHANGES = new Set([
   ".config/chromium/Crash Reports/settings.dat",
   ".agents/memory/candidate-validation-boundary.md",
   ".agents/memory/openrouter-throttling-checkpoints.md",
+  ".agents/memory/provider-tool-call-manifests.md",
+  ".agents/memory/contract-telemetry-separation.md",
   "lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts",
   "lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts",
   "lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts",
@@ -27,11 +81,14 @@ const ALLOWED_CONTROL_ONLY_CHANGES = new Set([
   "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts",
   "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.test.ts",
   "lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts",
+  "lib/ai-orchestrator/src/benchmark/paired-baseline.test.ts",
   "artifacts/api-server/src/lib/benchmark-source-policy.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
   "artifacts/api-server/src/lib/ai-code-agent-benchmark.test.ts",
   "artifacts/api-server/src/lib/ai-code-agent-benchmark.ts",
+  "artifacts/api-server/src/lib/benchmark-release-gate.test.ts",
+  "artifacts/api-server/src/routes/ai/benchmark.test.ts",
   "artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts",
 ]);
 

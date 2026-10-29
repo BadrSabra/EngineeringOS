@@ -20,7 +20,7 @@ const testCase: CodeAgentBenchmarkCase = {
 const scorecard: CodeAgentBenchmarkScorecard = {
   kind: "code-agent-benchmark",
   version: 1,
-  suiteVersion: "flight-deck-v2",
+  suiteVersion: "flight-deck-v4",
   generatedAt: "2026-08-24T00:00:00.000Z",
   cases: [],
   missingCaseIds: [],

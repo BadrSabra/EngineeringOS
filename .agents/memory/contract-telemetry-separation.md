@@ -50,3 +50,9 @@ Further 2026-10-15 free-candidate pair attempts were blocked before quality scor
 **Why:** A listed free model is not necessarily callable through the ordinary OpenRouter API, and provider or contract failures do not establish review quality.
 
 **How to apply:** Keep these outcomes as unavailable or contract-incomplete, avoid retries after shared-pool 429 without a retry deadline, and run the larger corpus only after one exact-model defect/control pair is PROVEN.
+
+Apply the same provider-failure classification to structured result errors and thrown normalization errors: explicit `INVALID_TOOL_CALL` or `INVALID_PROVIDER_RESPONSE` is a response-contract failure, not provider unavailability. A generic timeout must not override a more specific contract code.
+
+**Why:** inconsistent catch and result paths can misreport a malformed tool response as an outage, obscuring whether the provider was reachable and whether the model followed the tool contract.
+
+**How to apply:** centralize safe error-code extraction, test suffix-bearing result details and direct exceptions, and persist only bounded codes—not raw provider messages or tool arguments.

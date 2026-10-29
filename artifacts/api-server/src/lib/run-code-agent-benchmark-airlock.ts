@@ -46,6 +46,7 @@ import {
 import {
   createApprovedBenchmarkSourceSnapshot,
   resolveApprovedBenchmarkSourceRevision,
+  shouldCopyBenchmarkCandidateEntry,
 } from "./benchmark-source-snapshot.js";
 
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
@@ -54,7 +55,6 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   deepseek: "DEEPSEEK_API_KEY",
   groq: "GROQ_API_KEY",
 };
-const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
 const controlRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
 const sourceRevision = await resolveApprovedBenchmarkSourceRevision(controlRoot);
 const approvedSourceSnapshot = await createApprovedBenchmarkSourceSnapshot(controlRoot, sourceRevision);
@@ -278,7 +278,9 @@ async function createIsolatedBenchmarkRoot(candidateSourceRoot: string, dependen
     await fs.cp(resolvedSource, rootPath, {
       recursive: true,
       dereference: false,
-      filter: (source) => !path.relative(resolvedSource, source).split(path.sep).some((segment) => COPY_OMIT.has(segment)),
+      filter: (source) => shouldCopyBenchmarkCandidateEntry(
+        path.relative(resolvedSource, source),
+      ),
     });
     await fs.symlink(path.join(resolvedDependencyRoot, "node_modules"), path.join(rootPath, "node_modules"), "dir");
     const benchmarkRootLease = await createBenchmarkDisposableRootLease(rootPath);

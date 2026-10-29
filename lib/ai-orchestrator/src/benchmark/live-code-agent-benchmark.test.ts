@@ -198,7 +198,7 @@ describe("benchmark Build handoff routing", () => {
     chatMock.mockRejectedValueOnce(new Error("stop after capturing the handoff"));
 
     const testCase = getCodeAgentBenchmarkCases().find(
-      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+      (candidate) => candidate.id === "multi-file-004",
     )!;
     const fixture = getCodeAgentBenchmarkFixture(testCase);
     const prompt = fixture.prompt;
@@ -239,6 +239,7 @@ describe("benchmark Build handoff routing", () => {
       providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
       targetPathsForCase: () => [...fixture.targetPaths],
       allowedPathsForCase: () => allowedPaths,
+      allowedToolNamesForCase: () => fixture.allowedToolNames,
       promptForCase: () => prompt,
       buildHandoffForCase: (args) => {
         expect(args.prompt).toBe(prompt);
@@ -267,6 +268,8 @@ describe("benchmark Build handoff routing", () => {
       approvalState: "APPROVED",
       approvedFilePaths: allowedPaths,
       approvedValidationProfiles: ["workspace-typecheck"],
+      allowedToolNames: ["read_file", "write_file", "run_validation"],
+      authorizedToolManifestNames: ["read_file", "write_file", "run_validation"],
       validationTargetPaths: allowedPaths,
       executionPlanOverride: {
         readiness: "READY",
@@ -624,7 +627,13 @@ describe("benchmark case timeouts", () => {
       onStep?.({
         kind: "diagnostic",
         code: "EXECUTION_PROVIDER_FAILURE",
-        details: ["provider failure code: INVALID_TOOL_CALL"],
+        details: [
+          "provider failure code: INVALID_TOOL_CALL; tool not in request manifest",
+        ],
+      } as AgentStep);
+      onStep?.({
+        kind: "done",
+        stopReason: "provider_timeout",
       } as AgentStep);
       return { pendingChanges: [] } as unknown as ChatResult;
     });
@@ -654,5 +663,46 @@ describe("benchmark case timeouts", () => {
     expect(telemetry.providerUnavailable).toBe(false);
     expect(telemetry.oracleStatus).toBe("failed");
     expect(oracleForCase).toHaveBeenCalledOnce();
+  });
+
+  it("keeps thrown invalid tool calls out of provider-outage grading", async () => {
+    chatMock.mockReset().mockRejectedValueOnce(
+      new GroqClientError(
+        "INVALID_TOOL_CALL",
+        "raw provider response must not be persisted",
+      ),
+    );
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+    const oracleForCase = vi.fn(async () => ({
+      status: "failed" as const,
+      code: "CONTRACT_FAILURE",
+    }));
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-code-agent-benchmark-thrown-invalid-tool-call",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "tests",
+        command: "pnpm test",
+        exitCode: 0,
+      }),
+      targetPathsForCase: () => ["src/example.ts"],
+      oracleForCase,
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(telemetry).toMatchObject({
+      providerFailureCategory: "MALFORMED_RESPONSE",
+      executorFailed: true,
+    });
+    expect(telemetry.providerUnavailable).not.toBe(true);
+    expect(JSON.stringify(telemetry)).not.toContain("raw provider response");
+    expect(oracleForCase).not.toHaveBeenCalled();
   });
 });

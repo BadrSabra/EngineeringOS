@@ -111,7 +111,7 @@ describe("Code Agent benchmark manifest", () => {
 
   it("renders a bounded manifest without model or source payloads", () => {
     const markdown = codeAgentBenchmarkManifestToMarkdown();
-    expect(markdown).toContain("Suite: flight-deck-v2");
+    expect(markdown).toContain("Suite: flight-deck-v4");
     expect(markdown).toContain("Cases: 34");
     expect(markdown).toContain("safely-blocked");
     expect(markdown).not.toContain("rawResponse");

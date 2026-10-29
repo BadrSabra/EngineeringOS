@@ -8,6 +8,7 @@ import type { CodeAgentExecutionTelemetry } from "./code-agent-benchmark.js";
 export type CodeAgentBenchmarkFixture = {
   targetPaths: readonly string[];
   allowedPaths: readonly string[];
+  allowedToolNames?: readonly string[];
   validationProfile?: ValidationProfile;
   additionalValidationProfiles?: readonly ValidationProfile[];
   prompt: string;
@@ -41,6 +42,7 @@ type SyntheticScenario = {
   token: string;
   instruction: string;
   expectedValue?: string;
+  allowedToolNames?: readonly string[];
   profile?: ValidationProfile;
   additionalProfiles?: readonly ValidationProfile[];
   fileCount?: number;
@@ -84,6 +86,7 @@ const SYNTHETIC_SCENARIOS: Record<string, SyntheticScenario> = {
   "multi-file-004": {
     token: "MIGRATION_EDGE",
     instruction: "Implement this code change in both approved files. They are small; after reading their complete contents, use write_file to submit each complete updated file, replacing the exact declaration `export const MIGRATION_EDGE = \"broken\";` with `export const MIGRATION_EDGE = \"fixed\";`. Do not use replace_text.",
+    allowedToolNames: ["read_file", "write_file", "run_validation"],
     profile: "ai-orchestrator-tests",
     additionalProfiles: ["workspace-typecheck"],
     fileCount: 2,
@@ -237,6 +240,9 @@ function buildSyntheticFixture(
     ...base,
     targetPaths,
     allowedPaths: [...targetPaths],
+    ...(scenario.allowedToolNames
+      ? { allowedToolNames: [...scenario.allowedToolNames] }
+      : {}),
     validationProfile,
     additionalValidationProfiles,
     prompt: [

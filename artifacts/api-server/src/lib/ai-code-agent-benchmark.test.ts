@@ -33,7 +33,7 @@ describe("Code Agent benchmark Build handoff", () => {
 
   it("routes the exact repair fixture prompt through a server-owned scoped handoff", async () => {
     const testCase = getCodeAgentBenchmarkCases().find(
-      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+      (candidate) => candidate.id === "multi-file-004",
     )!;
     const fixture = getCodeAgentBenchmarkFixture(testCase);
     const prompt = defaultApiBenchmarkPrompt(testCase);
@@ -47,6 +47,10 @@ describe("Code Agent benchmark Build handoff", () => {
         prompt,
         allowedPaths: fixture.allowedPaths,
         validationProfile: fixture.validationProfile,
+        validationProfiles: [
+          fixture.validationProfile!,
+          ...(fixture.additionalValidationProfiles ?? []),
+        ],
         benchmarkRootLease: lease,
       });
 
@@ -55,6 +59,8 @@ describe("Code Agent benchmark Build handoff", () => {
       expect(handoff?.message.startsWith(`${prompt}\n\nBUILD HANDOFF`)).toBe(true);
       expect(handoff?.message).toContain(`Approved files: ${fixture.allowedPaths.join(", ")}`);
       expect(handoff?.message).toContain("use one of these exact full paths as the path argument");
+      expect(handoff?.message).toContain("Authorized file mutation tool: write_file.");
+      expect(handoff?.message).not.toContain("For replace_text and write_file");
       expect(handoff?.turnIntent).toMatchObject({
         kind: "DELIVERY",
         operationMode: "DELIVERY",
@@ -79,7 +85,10 @@ describe("Code Agent benchmark Build handoff", () => {
           scopedFindingStatus: "FIXTURE_PROVEN",
         }],
       });
-      expect(handoff?.approvedValidationProfiles).toEqual([fixture.validationProfile]);
+      expect(handoff?.approvedValidationProfiles).toEqual([
+        fixture.validationProfile,
+        ...(fixture.additionalValidationProfiles ?? []),
+      ]);
       expect(handoff?.benchmarkFixtureRepairAuthorization.caseId).toBe(testCase.id);
     } finally {
       revokeBenchmarkDisposableRootLease(lease);

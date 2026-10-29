@@ -56,7 +56,7 @@ function contract(overrides: Partial<PairedBaselineContract> = {}): PairedBaseli
     kind: "code-agent-benchmark-paired-contract",
     version: 1,
     pairId: "pair-001",
-    suiteVersion: "flight-deck-v2",
+    suiteVersion: "flight-deck-v4",
     sourceRevision,
     objectiveDigest: "objective-digest",
     scopeDigest: "scope-digest",

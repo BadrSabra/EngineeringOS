@@ -200,12 +200,24 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
     allowedPaths,
     validationProfiles: approvedValidationProfiles,
   });
+  const allowedMutationTools = fixture.allowedToolNames?.filter(
+    (name) => name === "write_file" || name === "replace_text",
+  );
+  if (fixture.allowedToolNames && !allowedMutationTools?.length) {
+    throw new Error("Positive benchmark handoff requires an authorized mutation tool.");
+  }
+  const mutationToolInstruction = allowedMutationTools
+    ? `Authorized file mutation tool${allowedMutationTools.length === 1 ? "" : "s"}: ${
+        allowedMutationTools.join(", ")
+      }. No other mutation tool is authorized.`
+    : "For replace_text and write_file, use one of these exact full paths as the path argument; do not shorten or rewrite a path.";
   const message = [
     args.prompt,
     "",
     "BUILD HANDOFF — execute only this server-authorized benchmark repair.",
     `Approved files: ${allowedPaths.join(", ")}`,
-    "For replace_text and write_file, use one of these exact full paths as the path argument; do not shorten or rewrite a path.",
+    mutationToolInstruction,
+    `For each mutation, use one of these exact full paths as the path argument: ${allowedPaths.join(", ")}. Do not shorten or rewrite a path.`,
     "Use scoped reads and deferred changes. Prepare pending changes only; do not apply files, commit, or publish.",
       `Approved plan JSON: ${JSON.stringify({
       objective: args.testCase.id,
@@ -478,6 +490,8 @@ export async function runApiCodeAgentBenchmark(
       const fixture = getCodeAgentBenchmarkFixture(testCase);
       return validationProfilesForFixture(fixture);
     },
+    allowedToolNamesForCase: (testCase) =>
+      getCodeAgentBenchmarkFixture(testCase).allowedToolNames,
     behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
       const fixture = getCodeAgentBenchmarkFixture(testCase);
       if (fixture.runtimeOracle) {
@@ -636,26 +650,28 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       providerHealth: health,
       freeOnly: opts.mode === "free-only",
       validationRunner,
-    includeTestSources: true,
-        validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
-        validationProfilesForCase: (testCase) => {
-          const fixture = getCodeAgentBenchmarkFixture(testCase);
-          return validationProfilesForFixture(fixture);
-        },
-        behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
-          const fixture = getCodeAgentBenchmarkFixture(testCase);
-          if (fixture.runtimeOracle) {
-            const runtime = await runRepairRuntimeOracle(
-              rootPath,
-              pendingChanges,
-              fixture.runtimeOracle,
-              signal,
-            );
-            if (runtime.status !== "passed") return runtime;
-          }
-          if (!fixture.behavioralOracle) return { status: "passed" as const };
-          return fixture.behavioralOracle({ rootPath, pendingChanges });
-        },
+      includeTestSources: true,
+      validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+      validationProfilesForCase: (testCase) => {
+        const fixture = getCodeAgentBenchmarkFixture(testCase);
+        return validationProfilesForFixture(fixture);
+      },
+      allowedToolNamesForCase: (testCase) =>
+        getCodeAgentBenchmarkFixture(testCase).allowedToolNames,
+      behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
+        const fixture = getCodeAgentBenchmarkFixture(testCase);
+        if (fixture.runtimeOracle) {
+          const runtime = await runRepairRuntimeOracle(
+            rootPath,
+            pendingChanges,
+            fixture.runtimeOracle,
+            signal,
+          );
+          if (runtime.status !== "passed") return runtime;
+        }
+        if (!fixture.behavioralOracle) return { status: "passed" as const };
+        return fixture.behavioralOracle({ rootPath, pendingChanges });
+      },
       targetPathsForCase: opts.targetPathsForCase,
       allowedPathsForCase: opts.allowedPathsForCase,
       promptForCase: opts.promptForCase,
