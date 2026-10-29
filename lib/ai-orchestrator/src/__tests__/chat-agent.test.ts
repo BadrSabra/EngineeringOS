@@ -2109,8 +2109,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       );
       expect(synthesisCalls).toHaveLength(1);
       expect(synthesisCalls[0]?.options.model).toBe("fixture-model");
-      expect(result.projectQueryAnswerAttestation?.responseSource).not.toBe("provider_synthesis");
-      expect(result.projectQueryAcceptedSynthesisProvider).toBeUndefined();
+      expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
+      expect(result.projectQueryResponseFallbackReason).toBe("synthesis_failed");
+      expect(result.projectQueryAnswerAttestation?.responseSource).toBe("deterministic_fallback");
       expect(result.response).not.toContain("The provider returned an incomplete project answer.");
       const synthesisEvents = executionLedger.snapshot().events.filter(
         (event) =>
