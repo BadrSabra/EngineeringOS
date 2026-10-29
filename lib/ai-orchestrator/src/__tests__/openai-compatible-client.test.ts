@@ -790,6 +790,125 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     },
   );
 
+  it.each([
+    [
+      "provider credential",
+      JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: { limit_source: "provider_rate_limit" },
+        },
+      }),
+      "RATE_LIMITED",
+      "provider_credential",
+    ],
+    [
+      "account quota",
+      JSON.stringify({ error: { message: "quota exceeded" } }),
+      "QUOTA",
+      "account_quota",
+    ],
+  ] as const)(
+    "blocks every model lane for the same %s credential until its Retry-After expires",
+    async (_scope, responseBody, expectedCode, expectedScope) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-29T20:00:00.000Z"));
+      try {
+        const apiKey = "fixture-openrouter-credential-a";
+        const otherApiKey = "fixture-openrouter-credential-b";
+        const successResponse = () => jsonResponse({
+          choices: [{ message: { role: "assistant", content: "fixture response" } }],
+          model: primaryModel,
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce(textResponse(
+            responseBody,
+            429,
+            new Headers({ "Retry-After": "5" }),
+          ))
+          .mockImplementation(async () => successResponse());
+        vi.stubGlobal("fetch", fetchMock);
+        const complete = (key: string, model = primaryModel) =>
+          openrouterCompleteWithFallback(baseMessages as any, {
+            apiKey: key,
+            model,
+            maxTokens: 10,
+            maxFallbackModels: 1,
+            retryTransient: false,
+          });
+
+        await expect(complete(apiKey)).rejects.toMatchObject({
+          code: expectedCode,
+          rateLimitScope: expectedScope,
+          retryAfterMs: 5_000,
+        });
+        await expect(complete(apiKey, FREE_MODELS[1]!.id)).rejects.toMatchObject({
+          code: expectedCode,
+          rateLimitScope: expectedScope,
+          retryAfterMs: 5_000,
+        });
+        const drainStream = async () => {
+          for await (const _chunk of openrouterCompleteStream(baseMessages as any, {
+            apiKey,
+            model: FREE_MODELS[1]!.id,
+            maxTokens: 10,
+          })) {
+            // A blocked stream must fail before yielding or issuing a fetch.
+          }
+        };
+        await expect(drainStream()).rejects.toMatchObject({
+          code: expectedCode,
+          rateLimitScope: expectedScope,
+          retryAfterMs: 5_000,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await complete(otherApiKey);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(5_001);
+        await complete(apiKey);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("does not create a credential cooldown when Retry-After is absent", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(textResponse(
+        JSON.stringify({
+          error: {
+            message: "Provider returned error",
+            metadata: { limit_source: "provider_rate_limit" },
+          },
+        }),
+        429,
+      ))
+      .mockResolvedValue(jsonResponse({
+        choices: [{ message: { role: "assistant", content: "fixture response" } }],
+        model: primaryModel,
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const options = {
+      apiKey: "fixture-openrouter-credential-no-retry-after",
+      model: primaryModel,
+      maxTokens: 10,
+      maxFallbackModels: 1,
+      retryTransient: false,
+    };
+
+    await expect(openrouterCompleteWithFallback(baseMessages as any, options))
+      .rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "provider_credential" });
+    await expect(openrouterCompleteWithFallback(baseMessages as any, options)).resolves.toMatchObject({
+      content: "fixture response",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry before a provider Retry-After that exceeds the remaining request budget", async () => {
     const fetchMock = vi.fn(async () =>
       textResponse('{"error":{"message":"temporarily rate limited"}}', 429, new Headers({ "Retry-After": "120" })));
