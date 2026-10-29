@@ -34,9 +34,15 @@ const FAILURE_ANALYSIS: Record<string, Omit<FreeTierFailureAnalysis, "caseId">> 
   },
   "multi-file-004": {
     rootCause: "model-behavior",
-    failureMode: "READY_WITHOUT_PASSED_VALIDATION",
-    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
-    diagnosis: MODEL_VALIDATION_MISMATCH,
+    failureMode: "TERMINAL_MISMATCH",
+    evidence: [
+      "providerUnavailable=false",
+      "proofCode=FIXTURE_POSTCONDITION_FAILED_MIGRATION_EDGE",
+      "testsPassed=true",
+      "typecheckPassed=false",
+      "toolCalls=17",
+    ],
+    diagnosis: "The provider returned normally, but the candidate did not satisfy the server-owned migration-edge postcondition and its workspace typecheck failed. Preserve this as a quality failure; without safe typecheck diagnostics, do not infer a narrower internal cause.",
     disposition: "preserve-as-quality-failure",
   },
   "typecheck-failure-002": {

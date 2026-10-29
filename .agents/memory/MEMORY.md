@@ -152,3 +152,4 @@
 - [Arabic UI direction tests](arabic-ui-direction-tests.md) — assert translated labels and isolated technical values separately when bidi markup splits rendered text.
 - [Goal draft continuity](goal-draft-continuity.md) — closing creation stops UI continuation, not the durable job; a send attempt is never an acceptance receipt.
 - [Home work summary policy](work-summary-policy.md) — advisory sampling avoids proof/recovery work during polling; preserve coherent reads and independent review coverage.
+- [Live benchmark failure attribution](live-benchmark-failure-attribution.md) — use the resolved fixture and sanitized proof; do not infer scope or typecheck causes from partial maps.

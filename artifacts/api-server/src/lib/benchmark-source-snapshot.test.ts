@@ -87,6 +87,7 @@ describe("approved benchmark source snapshot", () => {
       "lib/ai-orchestrator/src/execution-node-coordinator.ts",
       "lib/ai-orchestrator/src/agents/chat-agent.ts",
       "lib/ai-orchestrator/src/benchmark/paired-baseline.test.ts",
+      "lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts",
       "artifacts/api-server/src/lib/benchmark-source-policy.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
       "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
