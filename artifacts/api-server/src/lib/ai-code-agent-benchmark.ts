@@ -290,6 +290,7 @@ export function buildApiCodeAgentBenchmarkPreflightBlockedRun(args: {
     baselineEligibility: diagnosticOnly ? "not-eligible" : "quality-gates-required",
     ...(args.targetProfile ? { targetProfile: args.targetProfile } : {}),
     suiteVersion: scorecard.suiteVersion,
+    ...(args.candidateHash ? { candidateHash: args.candidateHash } : {}),
     ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
     runId: args.runId,
     startedAt,

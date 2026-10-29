@@ -194,6 +194,10 @@ describe("Code Agent benchmark runtime-oracle preflight", () => {
     expect(run.campaignStatus).toBe("incomplete");
     expect(run.observations).toEqual([]);
     expect(run.providerHealth).toEqual([]);
+    expect(run).toMatchObject({
+      candidateHash: "a".repeat(64),
+      sourceRevision: APPROVED_BENCHMARK_SOURCE_REVISION,
+    });
     expect(run.runtimeOraclePreflight).toEqual(runtimeOraclePreflight);
     expect(run.scorecard).toMatchObject({
       suiteVersion: CODE_AGENT_BENCHMARK_VERSION,

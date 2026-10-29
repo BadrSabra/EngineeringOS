@@ -16,6 +16,8 @@ const ALLOWED_CONTROL_ONLY_CHANGES = new Set([
   ".agents/memory/openrouter-throttling-checkpoints.md",
   "lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts",
   "lib/ai-orchestrator/src/benchmark/benchmark-campaign.ts",
+  "lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts",
+  "lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts",
   "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts",
   "lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts",
   "lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts",
@@ -25,6 +27,8 @@ const ALLOWED_CONTROL_ONLY_CHANGES = new Set([
   "artifacts/api-server/src/lib/benchmark-source-policy.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.ts",
   "artifacts/api-server/src/lib/benchmark-source-snapshot.test.ts",
+  "artifacts/api-server/src/lib/ai-code-agent-benchmark.test.ts",
+  "artifacts/api-server/src/lib/ai-code-agent-benchmark.ts",
   "artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts",
 ]);
 

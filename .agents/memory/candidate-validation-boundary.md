@@ -26,3 +26,9 @@ Benchmark runners must treat the candidate SHA as immutable input and keep runne
 **Why:** Updating a pin changes the branch SHA, so exact equality with the branch head makes the next validation stale by construction; using the mutable checkout can also make evidence describe code other than the approved candidate.
 
 **How to apply:** Verify the approved commit exists and is an ancestor of the control branch, reject tracked or untracked workspace changes outside explicit runner-only paths, archive the approved commit into a disposable realpath-checked root, and bind run receipts to that commit.
+
+Blocked benchmark runs must retain the same server-owned source revision and candidate hash as successful runs, including when no case observation was produced.
+
+**Why:** An empty preflight result can still be cited later; if its envelope drops candidate identity, the failure cannot be reliably attributed to the exact code that was gated.
+
+**How to apply:** Populate identity fields from the runner’s immutable inputs in every early-return path, and assert the fields on blocked and completed receipts.

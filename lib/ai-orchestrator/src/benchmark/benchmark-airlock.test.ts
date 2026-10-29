@@ -158,12 +158,22 @@ describe("Benchmark Airlock", () => {
     const run = await runCodeAgentBenchmarkAirlock({
       runId: "airlock-blocked",
       cases: [cases[0]!],
+      candidateHash: "candidate-hash",
+      sourceRevision: "source-revision",
       providers: [
         provider("openrouter", health("openrouter", "unavailable"), vi.fn()),
         provider("gemini", health("gemini", "unavailable"), vi.fn()),
       ],
     });
 
+    expect(run).toMatchObject({
+      candidateHash: "candidate-hash",
+      sourceRevision: "source-revision",
+      scorecard: {
+        candidateHash: "candidate-hash",
+        sourceRevision: "source-revision",
+      },
+    });
     expect(run.observations).toHaveLength(0);
     expect(run.preflight).toMatchObject({ status: "blocked" });
     expect(run.scorecard.metrics.observedCases).toBe(0);

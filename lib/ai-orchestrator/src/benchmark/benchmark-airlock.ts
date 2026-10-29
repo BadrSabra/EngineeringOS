@@ -58,6 +58,8 @@ export type BenchmarkAirlockRun = {
   baselineEligibility: "not-eligible" | "quality-gates-required";
   targetProfile?: CodeAgentBenchmarkTargetProfile;
   suiteVersion: string;
+  /** Hash of the immutable candidate workspace used by this campaign. */
+  candidateHash?: string;
   /** Server-observed source revision captured at campaign start. */
   sourceRevision?: string;
   runId: string;
@@ -272,6 +274,8 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     });
     scorecard = {
       ...scorecard,
+      ...(args.candidateHash ? { candidateHash: args.candidateHash } : {}),
+      ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
       rolloutAllowed: false,
       rolloutBlockers: [...new Set([...scorecard.rolloutBlockers, ...blockers])],
     };
@@ -303,6 +307,8 @@ export async function runCodeAgentBenchmarkAirlock(args: {
        baselineEligibility,
        ...(args.targetProfile ? { targetProfile: args.targetProfile } : {}),
       suiteVersion: scorecard.suiteVersion,
+      ...(args.candidateHash ? { candidateHash: args.candidateHash } : {}),
+      ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
       runId: args.runId,
       startedAt,
       completedAt: new Date().toISOString(),
@@ -462,6 +468,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     baselineEligibility,
     ...(args.targetProfile ? { targetProfile: args.targetProfile } : {}),
     suiteVersion: scorecard.suiteVersion,
+    ...(args.candidateHash ? { candidateHash: args.candidateHash } : {}),
     ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
     runId: args.runId,
     startedAt,
