@@ -2007,6 +2007,138 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }
   });
 
+  it("does not retry or accept provider synthesis after a shared-pool limit with no authorized fallback", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-shared-limit-terminal-"));
+    const sourcePath = "src/pipeline.ts";
+    const claimText = "The project pipeline reads source evidence before synthesis.";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, sourcePath),
+      "export function runPipeline() { return 'evidence'; }\n",
+      "utf8",
+    );
+
+    const calls: Array<{
+      options: { model?: string; operation?: string; excludeModels?: string[] };
+    }> = [];
+    const fakeStrategy = {
+      providerId: "openrouter",
+      ownsModelFallback: true,
+      supportsNativeStream: false,
+      stream: vi.fn(),
+      call: vi.fn(async (
+        _messages: Parameters<ProviderStrategy["call"]>[0],
+        options: Parameters<ProviderStrategy["call"]>[1],
+      ) => {
+        calls.push({ options });
+        if (options.operation === "project_query_no_tools_synthesis") {
+          throw new GroqClientError("RATE_LIMITED", "Provider shared pool is limited.", {
+            context: {
+              providerName: "OpenRouter",
+              providerModel: "fixture-model",
+              providerAttemptedModels: ["fixture-model"],
+              rateLimitScope: "upstream_shared_pool",
+            },
+          });
+        }
+        return {
+          content: "The provider returned an incomplete project answer.",
+          toolCalls: [],
+          model: "fixture-model",
+          usage: {},
+        };
+      }),
+    };
+
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual<typeof import("../provider-registry.js")>(
+        "../provider-registry.js",
+      );
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "fixture-model",
+        powerModel: "fixture-power-model",
+      })),
+    }));
+
+    try {
+      const chat = await loadChatWithTestLifecycleSinks();
+      const steps: AgentStep[] = [];
+      const executionLedger = createExecutionLedger({
+        budget: { providerChanges: 0 },
+      });
+      const result = await chat({
+        message: "Explain how the project pipeline works and analyze its behavior.",
+        history: [],
+        projectContext: {
+          ...makeContext(),
+          workspaceRevision: "workspace-tree-v1:0123456789abcdef",
+        },
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-openrouter-key",
+        turnIntent: resolveTurnIntent(
+          "Explain how the project pipeline works and analyze its behavior.",
+        ),
+        objective: {
+          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+          goal: "Explain the project pipeline behavior.",
+          requiredEvidencePaths: [sourcePath],
+          requiredClaims: [{
+            claimId: "pipeline-evidence",
+            text: claimText,
+            requiredEvidencePaths: [sourcePath],
+            evidenceNeedles: ["runPipeline"],
+          }],
+          requiredEvidenceEdges: [],
+        },
+        executionLedger,
+        onStep: (step) => steps.push(step),
+      });
+
+      const synthesisCalls = calls.filter(
+        (call) => call.options.operation === "project_query_no_tools_synthesis",
+      );
+      expect(synthesisCalls).toHaveLength(1);
+      expect(synthesisCalls[0]?.options.model).toBe("fixture-model");
+      expect(result.projectQueryAnswerAttestation?.responseSource).not.toBe("provider_synthesis");
+      expect(result.projectQueryAcceptedSynthesisProvider).toBeUndefined();
+      expect(result.response).not.toContain("The provider returned an incomplete project answer.");
+      const synthesisEvents = executionLedger.snapshot().events.filter(
+        (event) =>
+          event.kind === "synthesis"
+          && event.operation === "project_query_no_tools_synthesis",
+      );
+      expect(synthesisEvents).toContainEqual(expect.objectContaining({
+          kind: "synthesis",
+          operation: "project_query_no_tools_synthesis",
+          status: "failed",
+          reason: "RATE_LIMITED",
+      }));
+
+      const synthesisDiagnostic = steps.find(
+        (step) =>
+          step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+      );
+      expect(synthesisDiagnostic?.kind === "diagnostic" ? synthesisDiagnostic.details : [])
+        .toEqual(expect.arrayContaining([
+          "failureClass=PROVIDER_AVAILABILITY",
+          "failureScope=upstream_shared_pool",
+          "recoveryAction=deterministic_fallback",
+        ]));
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("moves a shared-pool-limited synthesis attempt to the next authorized provider", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-empty-recovery-"));
     const sourcePath = "src/pipeline.ts";
