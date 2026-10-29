@@ -161,7 +161,7 @@ async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
   });
 }
 
-/** Shared PUT handler — validate and persist the API key. */
+/** Shared PUT handler — apply provider-specific validation policy and persist the API key. */
 async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
   const { apiKey } = req.body as { apiKey?: string };
   if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
@@ -173,13 +173,20 @@ async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
   const label = config?.label ?? provider;
   const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
 
-  const validation = await validateProviderKey(provider, trimmed);
-  if (!validation.valid) {
-    return res.status(422).json({
-      error: `${label} API key is invalid or unauthorized`,
-      hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
-      reasonCode: validation.reason ?? "credentials_invalid",
-    });
+  // OpenRouter key validation currently performs a real completion request.
+  // Saving a key must not spend a free-generation request or turn a 429 into
+  // a misleading "invalid key" result. Its catalog status is reported by the
+  // readiness snapshot below; actual generation is tested by the user's real
+  // request. Keep existing validation behavior for the other providers.
+  if (provider !== "openrouter") {
+    const validation = await validateProviderKey(provider, trimmed);
+    if (!validation.valid) {
+      return res.status(422).json({
+        error: `${label} API key is invalid or unauthorized`,
+        hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
+        reasonCode: validation.reason ?? "credentials_invalid",
+      });
+    }
   }
 
   const last4 = trimmed.slice(-4);

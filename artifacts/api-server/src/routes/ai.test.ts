@@ -1073,6 +1073,49 @@ describe("GET /api/ai/providers/:provider/key", () => {
   });
 });
 
+describe("PUT /api/ai/providers/openrouter/key", () => {
+  it("persists the key without spending a completion request on validation", async () => {
+    const { validateProviderKey } = await import("@workspace/ai-orchestrator");
+    const validateProviderKeyMock = vi.mocked(validateProviderKey);
+    validateProviderKeyMock.mockClear();
+    const previousEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+
+    await db
+      .delete(aiProviderCredentialsTable)
+      .where(and(
+        eq(aiProviderCredentialsTable.ownerId, "test-user"),
+        eq(aiProviderCredentialsTable.provider, "openrouter"),
+      ));
+
+    try {
+      const response = await request(app)
+        .put("/api/ai/providers/openrouter/key")
+        .send({ apiKey: "fixture-openrouter-key-9876" });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        configured: true,
+        last4: "9876",
+      });
+      expect(validateProviderKeyMock).not.toHaveBeenCalled();
+      expect(JSON.stringify(response.body)).not.toContain("fixture-openrouter-key-9876");
+    } finally {
+      await db
+        .delete(aiProviderCredentialsTable)
+        .where(and(
+          eq(aiProviderCredentialsTable.ownerId, "test-user"),
+          eq(aiProviderCredentialsTable.provider, "openrouter"),
+        ));
+      if (previousEncryptionKey === undefined) {
+        delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+      } else {
+        process.env.AI_CREDENTIALS_ENCRYPTION_KEY = previousEncryptionKey;
+      }
+    }
+  });
+});
+
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat", () => {

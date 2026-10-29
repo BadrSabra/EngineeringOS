@@ -7149,7 +7149,10 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
         void qc.invalidateQueries({ queryKey: ['active-provider'] });
         setKeyInput('');
         setShowInput(false);
-        toast({ title: 'حُفظ مفتاح OpenRouter', description: `نهايته ···${data.last4}` });
+        toast({
+          title: 'حُفظ مفتاح OpenRouter',
+          description: `نهايته ···${data.last4} — لم نرسل طلب توليد اختباريًا.`,
+        });
       },
       onError: (err) => {
         toast({ title: 'تعذر حفظ المفتاح', description: describeAiError(err), variant: 'destructive' });
@@ -7218,6 +7221,9 @@ function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeM
       )}
 
       <ProviderLifecycleNotice lifecycle={status?.lifecycle} />
+      <p className="mt-1.5 break-words text-xs leading-5 text-muted-foreground">
+        حفظ المفتاح لا يرسل طلب توليد. حالة النماذج مأخوذة من الكتالوج ولا تضمن نجاح التوليد عند التنفيذ.
+      </p>
       <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (

@@ -4312,6 +4312,33 @@ describe('AiChat authenticated generated mutations', () => {
     }));
   });
 
+  it('explains that saving an OpenRouter key does not send a generation probe', async () => {
+    renderAiChat();
+    openProviderSettings();
+
+    const input = await screen.findByLabelText('مفتاح الوصول إلى OpenRouter');
+    fireEvent.change(input, { target: { value: 'sk-or-v1-test-fixture-9876' } });
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ مفتاح OpenRouter' }));
+
+    expect(mocks.mutations.saveOpenRouter.mutate).toHaveBeenCalledWith({
+      data: { apiKey: 'sk-or-v1-test-fixture-9876' },
+    });
+
+    act(() => {
+      mocks.mutationOptions.saveOpenRouter?.onSuccess?.({
+        configured: true,
+        last4: '9876',
+        updatedAt: null,
+      });
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'حُفظ مفتاح OpenRouter',
+      description: expect.stringContaining('لم نرسل طلب توليد اختباريًا'),
+    }));
+    expect(screen.getByText(/حفظ المفتاح لا يرسل طلب توليد/)).toBeInTheDocument();
+  });
+
 it('shows the affected Groq model role and a safe correction when a default is retired', async () => {
   mocks.groqStatus = {
     configured: true,
