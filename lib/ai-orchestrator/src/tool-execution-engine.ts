@@ -5793,7 +5793,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               `fallback provider failure code: ${fallbackErr.code}`,
             ]);
           }
-          if (fallbackErr instanceof GroqClientError && fallbackErr.code === "RATE_LIMITED") {
+          if (
+            fallbackErr instanceof GroqClientError &&
+            (fallbackErr.code === "RATE_LIMITED" || fallbackErr.code === "QUOTA")
+          ) {
             throw fallbackErr;
           }
           if (fallbackErr instanceof GroqClientError && fallbackErr.code === "INVALID_TOOL_CALL") {
@@ -5897,10 +5900,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }),
         );
 
-        // A 429 is an admission signal for this model, not a request to repeat
-        // the same work through server-owned evidence recovery. Preserve the
-        // typed failure so the caller can terminalize this attempt.
-        if (err instanceof GroqClientError && err.code === "RATE_LIMITED") {
+        // Rate limits and exhausted quota are terminal for this request, not a
+        // request to repeat the same work through evidence recovery. Preserve
+        // the typed failure so the caller can terminalize this attempt.
+        if (
+          err instanceof GroqClientError &&
+          (err.code === "RATE_LIMITED" || err.code === "QUOTA")
+        ) {
           throw err;
         }
 

@@ -8773,12 +8773,17 @@ describe("executeToolLoop — TIMEOUT degradation (task #67)", () => {
 });
 
 describe("executeToolLoop — provider-scoped rate limits", () => {
-  it.each(["upstream_shared_pool", "provider_credential", "unknown"] as const)(
-    "does not retry a %s failure through the same-provider powerModel",
-    async (rateLimitScope) => {
+  it.each([
+    ["RATE_LIMITED", "upstream_shared_pool"],
+    ["RATE_LIMITED", "provider_credential"],
+    ["RATE_LIMITED", "unknown"],
+    ["QUOTA", "account_quota"],
+  ] as const)(
+    "does not retry %s/%s through the same-provider powerModel",
+    async (code, rateLimitScope) => {
       const { executeToolLoop } = await import("../tool-execution-engine.js");
       const rateLimitError = new GroqClientError(
-        "RATE_LIMITED",
+        code,
         "Provider rate limit reached",
         { context: { providerName: "OpenRouter", rateLimitScope } },
       );
@@ -8802,7 +8807,7 @@ describe("executeToolLoop — provider-scoped rate limits", () => {
           maxIterations: 1,
         }),
       ).rejects.toMatchObject({
-        code: "RATE_LIMITED",
+        code,
         rateLimitScope,
       });
 
@@ -8810,12 +8815,19 @@ describe("executeToolLoop — provider-scoped rate limits", () => {
     },
   );
 
-  it("does not retry the model for server-owned evidence recovery after a 429", async () => {
+  it.each([
+    ["RATE_LIMITED", "upstream_shared_pool"],
+    ["RATE_LIMITED", "provider_credential"],
+    ["RATE_LIMITED", "unknown"],
+    ["QUOTA", "account_quota"],
+  ] as const)(
+    "does not retry the model for evidence recovery after %s/%s",
+    async (code, rateLimitScope) => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const rateLimitError = new GroqClientError(
-      "RATE_LIMITED",
+      code,
       "Provider rate limit reached",
-      { context: { providerName: "OpenRouter", rateLimitScope: "upstream_shared_pool" } },
+      { context: { providerName: "OpenRouter", rateLimitScope } },
     );
     FILE_TOOL_MOCK.mockReset().mockResolvedValue("first source");
     const strategy: ProviderStrategy = {
@@ -8851,11 +8863,71 @@ describe("executeToolLoop — provider-scoped rate limits", () => {
         executionMode: "forensic",
         maxIterations: 4,
         maxToolCalls: 4,
-      })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+      })).rejects.toMatchObject({ code, rateLimitScope });
 
     expect(strategy.call).toHaveBeenCalledTimes(2);
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
-  });
+    },
+  );
+
+  it.each([
+    ["RATE_LIMITED", "upstream_shared_pool"],
+    ["RATE_LIMITED", "provider_credential"],
+    ["RATE_LIMITED", "unknown"],
+    ["QUOTA", "account_quota"],
+  ] as const)(
+    "does not restart evidence recovery when the power-model fallback returns %s/%s",
+    async (code, rateLimitScope) => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const terminalError = new GroqClientError(
+      code,
+      "Provider rate or quota limit reached",
+      { context: { providerName: "OpenRouter", rateLimitScope } },
+    );
+    FILE_TOOL_MOCK.mockReset().mockResolvedValue("first source");
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn()
+        .mockResolvedValueOnce(
+          makeResponse("", [makeToolCall("read-first", "read_file", { path: "src/first.ts" })]),
+        )
+        .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "Primary model timed out"))
+        .mockRejectedValue(terminalError),
+      stream: async function* () { yield ""; },
+    };
+
+    await expect(executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast-model",
+      powerModel: "power-model",
+      provider: "openrouter",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+      ],
+      allowedToolNames: ["read_file"],
+      rootPath: "/project",
+      pendingChanges: [],
+      objective: {
+        goal: "inspect both required source files",
+        requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+        requiredClaims: [],
+      },
+      firstEvidenceTargetPath: "src/first.ts",
+      requiresEvidence: true,
+      executionMode: "forensic",
+      maxIterations: 4,
+      maxToolCalls: 4,
+    })).rejects.toMatchObject({
+      code,
+      rateLimitScope,
+    });
+
+    expect(strategy.call).toHaveBeenCalledTimes(3);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 // ── _stripOrphanedToolMessages ────────────────────────────────────────────────
