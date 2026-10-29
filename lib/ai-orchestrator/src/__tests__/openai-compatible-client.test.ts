@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   geminiCompleteRaw,
   openrouterCompleteRaw,
+  openrouterCompleteStream,
   openrouterCompleteWithFallback,
   oacCompleteRaw,
   oacCompleteStream,
@@ -32,6 +33,7 @@ import {
   isModelCoolingDown,
 } from "../openrouter/circuit-breaker.js";
 import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import { _resetOpenRouterCredentialCooldownsForTest } from "../openrouter/credential-cooldown.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
@@ -49,6 +51,7 @@ function textResponse(body: string, status: number, headers?: Record<string, str
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
+  _resetOpenRouterCredentialCooldownsForTest();
   persistedCooldownWrites = [];
   persistedCooldownClears = [];
   _setModelCooldownPersistenceForTest({
@@ -63,6 +66,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetOpenRouterCredentialCooldownsForTest();
   _setModelCooldownPersistenceForTest(undefined);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
