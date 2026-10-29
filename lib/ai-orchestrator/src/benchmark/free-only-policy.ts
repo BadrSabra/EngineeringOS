@@ -5,6 +5,7 @@ type FreeOnlyCatalogModel = {
   id: string;
   free: boolean;
   supportsTools: boolean;
+  capabilities: readonly ModelCapability[];
 };
 
 export type FreeOnlyModelSelectionOptions = {
@@ -22,8 +23,10 @@ export type FreeOnlyModelSelection = {
 
 /**
  * Select only models that are both in the local free catalog and in the live
- * free-priced catalog. The benchmark must fail closed when a requested model
- * is no longer free instead of allowing a provider fallback to hide that fact.
+ * free-priced catalog, and whose advertised chat/tool capabilities match the
+ * OpenRouter chat-completions path. The benchmark must fail closed when a
+ * requested model is incompatible or no longer free instead of allowing a
+ * provider fallback to hide that fact.
  */
 export function selectFreeOnlyBenchmarkModels(
   options: FreeOnlyModelSelectionOptions,
@@ -34,9 +37,10 @@ export function selectFreeOnlyBenchmarkModels(
     .filter((model) =>
       model.free &&
       model.supportsTools &&
+      model.capabilities.includes("chat") &&
       options.liveModelIds.has(model.id) &&
       (!options.requiredCapability ||
-        (model as FreeOnlyCatalogModel & { capabilities?: readonly string[] }).capabilities?.includes(options.requiredCapability)),
+        model.capabilities.includes(options.requiredCapability)),
     )
     .map((model) => model.id);
   const supportedSet = new Set(supported);

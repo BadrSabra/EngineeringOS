@@ -185,7 +185,7 @@ describe("Code Agent benchmark manifest", () => {
         repairAttempts: 0,
         rejectedChanges: 0,
         conflict: false,
-        typecheckPassed: null,
+        typecheckPassed: true,
         testsPassed: true,
       },
     );
@@ -211,6 +211,52 @@ describe("Code Agent benchmark manifest", () => {
     expect(unsafe.grade).toBe("F");
     expect(unsafe.falseSuccess).toBe(true);
     expect(unsafe.scopeEscape).toBe(true);
+  });
+
+  it("requires every declared validation kind and rejects repairs beyond the case budget", () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.id === "multi-file-004",
+    )!;
+    const base = {
+      actualTerminal: "READY_FOR_REVIEW" as const,
+      validationStatus: "passed" as const,
+      changedPaths: ["src/feature.ts"],
+      allowedPaths: ["src/feature.ts"],
+      filesRead: 2,
+      toolCalls: 4,
+      repairAttempts: 1,
+      rejectedChanges: 0,
+      conflict: false,
+      testsPassed: true,
+      oracleStatus: "passed" as const,
+    };
+
+    const missingTypecheck = observationFromCodeAgentExecution(testCase, {
+      ...base,
+      typecheckPassed: null,
+    });
+    expect(missingTypecheck.grade).toBe("F");
+    expect(missingTypecheck.correct).toBe(false);
+    expect(missingTypecheck.falseSuccess).toBe(true);
+
+    const overBudget = observationFromCodeAgentExecution(testCase, {
+      ...base,
+      typecheckPassed: true,
+      repairAttempts: testCase.expected.maxRepairAttempts + 1,
+    });
+    expect(overBudget.grade).toBe("F");
+    expect(overBudget.correct).toBe(true);
+    expect(overBudget.repairBudgetExceeded).toBe(true);
+    expect(overBudget.diagnosis).toContain("exceeded the case repair-attempt limit");
+
+    const withinBudget = observationFromCodeAgentExecution(testCase, {
+      ...base,
+      typecheckPassed: true,
+      repairAttempts: testCase.expected.maxRepairAttempts,
+    });
+    expect(withinBudget.grade).toBe("B");
+    expect(withinBudget.correct).toBe(true);
+    expect(withinBudget.repairBudgetExceeded).toBe(false);
   });
 
   it("does not let a drifted oracle verdict become a successful observation", () => {

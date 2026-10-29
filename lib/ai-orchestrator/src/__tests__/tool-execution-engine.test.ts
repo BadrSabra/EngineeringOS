@@ -3610,6 +3610,51 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("preserves the authorized tool surface when a tool-enabled response is truncated", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const readTool = {
+      type: "function" as const,
+      function: { name: "read_file", description: "", parameters: {} },
+    };
+    const writeTool = {
+      type: "function" as const,
+      function: { name: "write_file", description: "", parameters: {} },
+    };
+    const strategy = makeStrategy([
+      makeResponse("I need to inspect the source before editing…", undefined, "length"),
+      makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
+      makeResponse("The approved task is complete."),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [readTool],
+      toolManifest: [readTool, writeTool],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      toolChoice: "required",
+    });
+
+    expect(result.kind).toBe("response");
+    if (result.kind === "response") {
+      expect(result.result.content).toBe("The approved task is complete.");
+    }
+    expect(strategy.call).toHaveBeenCalledTimes(3);
+    const retryOptions = vi.mocked(strategy.call).mock.calls[1]?.[1];
+    expect(retryOptions).toEqual(expect.objectContaining({
+      maxTokens: 8_192,
+      toolChoice: "required",
+      tools: [readTool],
+      toolManifest: [readTool, writeTool],
+    }));
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledOnce();
+  });
+
   it("identifies a truncated read and prevents the redundant full re-read (SR-001/SR-002/SR-007)", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const TRUNCATED =

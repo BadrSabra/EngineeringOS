@@ -28,11 +28,11 @@ const pendingResult = {
   pendingChanges: [{ path: "src/example.ts", newContent: "updated" }],
 } as unknown as ChatResult;
 
-function validationStep(status: "passed" | "failed"): AgentStep {
+function validationStep(status: "passed" | "failed", profile = "tests"): AgentStep {
   return {
     kind: "validation",
     result: {
-      profile: "tests",
+      profile,
       status,
       scenario: "fixture",
       exitCode: status === "passed" ? 0 : 1,
@@ -51,7 +51,7 @@ function validationStep(status: "passed" | "failed"): AgentStep {
     attempt: 1,
     maxAttempts: 3,
     status,
-    profile: "tests",
+    profile,
     scenario: "fixture",
     command: "pnpm test",
     exitCode: status === "passed" ? 0 : 1,
@@ -84,6 +84,28 @@ describe("benchmark terminal evidence gate", () => {
     expect(terminalFromChatResult(pendingResult, [validationStep("failed")])).toBe(
       "BLOCKED",
     );
+  });
+
+  it("requires every declared validation profile before allowing READY_FOR_REVIEW", () => {
+    const testOnly = [validationStep("passed", "ai-orchestrator-tests")];
+    const required = ["ai-orchestrator-tests", "workspace-typecheck"];
+    expect(terminalFromChatResult(pendingResult, testOnly, required)).toBe("BLOCKED");
+    expect(terminalFromChatResult(
+      pendingResult,
+      [
+        validationStep("passed", "ai-orchestrator-tests"),
+        validationStep("passed", "workspace-typecheck"),
+      ],
+      required,
+    )).toBe("READY_FOR_REVIEW");
+    expect(terminalFromChatResult(
+      pendingResult,
+      [
+        validationStep("passed", "ai-orchestrator-tests"),
+        validationStep("failed", "workspace-typecheck"),
+      ],
+      required,
+    )).toBe("BLOCKED");
   });
 
   it("blocks a review-ready terminal when the behavioral oracle rejects it", () => {
@@ -254,6 +276,70 @@ describe("benchmark Build handoff routing", () => {
       benchmarkFixtureRepairAuthorization: {
         caseId: testCase.id,
       },
+    });
+  });
+});
+
+describe("benchmark required validation profiles", () => {
+  it("runs missing test and typecheck profiles on the same pending candidate", async () => {
+    chatMock.mockReset();
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.id === "multi-file-004",
+    )!;
+    const fixture = getCodeAgentBenchmarkFixture(testCase);
+    expect(fixture.validationProfile).toBe("ai-orchestrator-tests");
+    expect(fixture.additionalValidationProfiles).toEqual(["workspace-typecheck"]);
+    const profiles = ["ai-orchestrator-tests", "workspace-typecheck"] as const;
+    let validationIndex = 0;
+    const validationRunner = vi.fn(async () => {
+      const profile = profiles[validationIndex++];
+      return {
+        profile,
+        status: "passed" as const,
+        scenario: "isolated benchmark validation",
+        exitCode: 0,
+        command: "registered-validation-profile",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: `evidence-${profile}`,
+          observedAt: "2026-08-19T00:00:00.000Z",
+          artifactRef: `validation-${profile}`,
+        },
+      };
+    });
+    chatMock.mockResolvedValueOnce({
+      pendingChanges: [{
+        path: fixture.allowedPaths[0],
+        newContent: "candidate change",
+      }],
+    } as unknown as ChatResult);
+
+    const executeCase = createChatCodeAgentBenchmarkExecutor({
+      rootPath: "/tmp/isolated-benchmark-root",
+      projectContext: {} as ProjectContext,
+      provider: "openrouter",
+      apiKey: "fixture-only",
+      candidateHash: "b".repeat(64),
+      validationRunner,
+      validationProfileForCase: () => profiles[0],
+      validationProfilesForCase: () => profiles,
+      providerHealth: { status: "usable" } as unknown as ProviderHealthProbeResult,
+      targetPathsForCase: () => fixture.targetPaths,
+      allowedPathsForCase: () => fixture.allowedPaths,
+      caseTimeoutMs: 10_000,
+    });
+
+    const telemetry = await executeCase(testCase);
+
+    expect(validationRunner).toHaveBeenCalledTimes(2);
+    expect(telemetry).toMatchObject({
+      actualTerminal: "READY_FOR_REVIEW",
+      validationStatus: "passed",
+      testsPassed: true,
+      typecheckPassed: true,
     });
   });
 });

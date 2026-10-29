@@ -37,6 +37,7 @@ export type ChatCodeAgentBenchmarkExecutorOptions = {
   model?: string;
   validationRunner: ValidationRunner;
   validationProfileForCase?: (testCase: CodeAgentBenchmarkCase) => string | undefined;
+  validationProfilesForCase?: (testCase: CodeAgentBenchmarkCase) => readonly string[];
   behavioralProofForCase?: (args: {
     rootPath: string;
     testCase: CodeAgentBenchmarkCase;
@@ -127,6 +128,22 @@ function latestValidation(steps: readonly AgentStep[]): Extract<AgentStep, { kin
   );
 }
 
+function latestValidationForProfile(
+  steps: readonly AgentStep[],
+  profile: string,
+): Extract<AgentStep, { kind: "validation" }> | undefined {
+  return [...steps].reverse().find(
+    (step): step is Extract<AgentStep, { kind: "validation" }> =>
+      step.kind === "validation" && step.result.profile === profile,
+  );
+}
+
+function validationProfilesPassed(steps: readonly AgentStep[], requiredProfiles: readonly string[]): boolean {
+  return requiredProfiles.length > 0
+    ? requiredProfiles.every((profile) => latestValidationForProfile(steps, profile)?.result.status === "passed")
+    : latestValidation(steps)?.result.status === "passed";
+}
+
 function latestRepairState(steps: readonly AgentStep[]): Extract<AgentStep, { kind: "repair_state" }> | undefined {
   return [...steps].reverse().find(
     (step): step is Extract<AgentStep, { kind: "repair_state" }> => step.kind === "repair_state",
@@ -134,8 +151,12 @@ function latestRepairState(steps: readonly AgentStep[]): Extract<AgentStep, { ki
 }
 
 /** @internal — exported for deterministic benchmark adapter tests. */
-export function terminalFromChatResult(result: ChatResult, steps: readonly AgentStep[]) {
-  const validationPassed = latestValidation(steps)?.result.status === "passed";
+export function terminalFromChatResult(
+  result: ChatResult,
+  steps: readonly AgentStep[],
+  requiredValidationProfiles: readonly string[] = [],
+) {
+  const validationPassed = validationProfilesPassed(steps, requiredValidationProfiles);
   const taskResult = result.taskResult;
   if (taskResult?.kind === "REPAIR_RESULT") {
     return taskResult.readiness === "READY" && validationPassed
@@ -176,8 +197,28 @@ function telemetryFromChatResult(
   allowedPaths: readonly string[],
   startedAt: number,
   candidateHash?: string,
+  requiredValidationProfiles: readonly string[] = [],
 ): CodeAgentExecutionTelemetry {
   const validation = latestValidation(steps);
+  const requiredValidationResults = requiredValidationProfiles.length > 0
+    ? requiredValidationProfiles.map((profile) => latestValidationForProfile(steps, profile))
+    : validation ? [validation] : [];
+  const validationStatus = requiredValidationProfiles.length > 0
+    ? requiredValidationResults.every((item) => item?.result.status === "passed")
+      ? "passed"
+      : requiredValidationResults.some((item) => item?.result.status === "failed")
+        ? "failed"
+        : requiredValidationResults.some((item) =>
+            item?.result.status === "unavailable" || item?.result.status === "blocked")
+          ? "unavailable"
+          : "not-run"
+    : validation?.result.status === "passed"
+      ? "passed"
+      : validation?.result.status === "failed"
+        ? "failed"
+        : validation?.result.status === "unavailable" || validation?.result.status === "blocked"
+          ? "unavailable"
+          : "not-run";
   const providerFailureDiagnostics = steps.filter(
     (step): step is Extract<AgentStep, { kind: "diagnostic" }> =>
       step.kind === "diagnostic" &&
@@ -216,13 +257,20 @@ function telemetryFromChatResult(
         : [],
     ),
   );
-  const validationProfile = validation?.result.profile ?? "";
-  const typecheckPassed = validationProfile.toLowerCase().includes("typecheck")
-    ? validation?.result.status === "passed"
+  const typecheckResults = requiredValidationResults.filter((item) =>
+    item?.result.profile.toLowerCase().includes("typecheck"));
+  const testResults = requiredValidationResults.filter((item) =>
+    item?.result.profile.toLowerCase().includes("test"));
+  const typecheckPassed = typecheckResults.length > 0
+    ? typecheckResults.every((item) => item?.result.status === "passed")
     : null;
-  const testsPassed = validationProfile.toLowerCase().includes("test")
-    ? validation?.result.status === "passed"
+  const testsPassed = testResults.length > 0
+    ? testResults.every((item) => item?.result.status === "passed")
     : null;
+  const repairAttempts = Math.max(
+    0,
+    ...requiredValidationResults.map((item) => item?.attempt ?? 0),
+  );
   const conflict = steps.some((step) =>
     (step.kind === "diagnostic" && /CONFLICT|REBASE/i.test(step.code)) ||
     (step.kind === "execution_guard" && /CONFLICT|REBASE/i.test(step.message)),
@@ -242,20 +290,13 @@ function telemetryFromChatResult(
     ...(candidateHash ?? validation?.result.evidence.candidateHash
       ? { candidateHash: candidateHash ?? validation?.result.evidence.candidateHash }
       : {}),
-    actualTerminal: terminalFromChatResult(result, steps),
-    validationStatus:
-      validation?.result.status === "passed"
-        ? "passed"
-        : validation?.result.status === "failed"
-          ? "failed"
-          : validation?.result.status === "unavailable" || validation?.result.status === "blocked"
-            ? "unavailable"
-            : "not-run",
+    actualTerminal: terminalFromChatResult(result, steps, requiredValidationProfiles),
+    validationStatus,
     changedPaths: result.pendingChanges.map((change) => change.path),
     allowedPaths: [...allowedPaths],
     filesRead: readSources.size,
     toolCalls: steps.filter((step) => step.kind === "tool_call").length,
-    repairAttempts: validation?.attempt ?? 0,
+    repairAttempts: repairAttempts || validation?.attempt || 0,
     rejectedChanges: steps.filter(
       (step) => step.kind === "validation" && (step.result.status === "failed" || step.result.status === "blocked"),
     ).length,
@@ -550,15 +591,17 @@ export function createChatCodeAgentBenchmarkExecutor(
       assertCaseNotTimedOut();
 
       const validationProfile = opts.validationProfileForCase?.(testCase);
-      if (
-        result.pendingChanges.length > 0 &&
-        validationProfile &&
-        latestValidation(steps)?.result.status !== "passed"
-      ) {
+      const requiredValidationProfiles = [
+        ...new Set(opts.validationProfilesForCase?.(testCase) ??
+          (validationProfile ? [validationProfile] : [])),
+      ];
+      if (result.pendingChanges.length > 0) {
+        for (const profile of requiredValidationProfiles) {
+          if (latestValidationForProfile(steps, profile)?.result.status === "passed") continue;
         try {
           const output = await awaitWithinCaseDeadline(executeValidationTool(
             "run_validation",
-            { profile: validationProfile },
+            { profile },
             targetPaths,
             opts.validationRunner,
             signal,
@@ -574,7 +617,7 @@ export function createChatCodeAgentBenchmarkExecutor(
             typeof parsed.evidence.evidenceId === "string"
           ) {
             const finalValidation = parsed as ValidationResult;
-            const attempt = (latestValidation(steps)?.attempt ?? 0) + 1;
+            const attempt = (latestValidationForProfile(steps, profile)?.attempt ?? 0) + 1;
             steps.push({
               kind: "validation",
               result: finalValidation,
@@ -598,6 +641,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         } catch {
           // The existing fail-closed telemetry path remains authoritative when
           // the final server-owned validation cannot be normalized.
+        }
         }
       }
       assertCaseNotTimedOut();
@@ -651,6 +695,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         allowedPaths,
         startedAt,
         opts.candidateHash,
+        requiredValidationProfiles,
       );
       if (telemetry.providerUnavailable) return telemetry;
       if (opts.freeOnly && opts.provider === "openrouter" &&
@@ -698,7 +743,10 @@ export function createChatCodeAgentBenchmarkExecutor(
           ),
         ).size,
         toolCalls: steps.filter((step) => step.kind === "tool_call").length,
-        repairAttempts: latestValidation(steps)?.attempt ?? 0,
+        repairAttempts: Math.max(
+          0,
+          ...steps.flatMap((step) => step.kind === "validation" ? [step.attempt] : []),
+        ),
         rejectedChanges: steps.filter(
           (step) => step.kind === "validation" && (step.result.status === "failed" || step.result.status === "blocked"),
         ).length,

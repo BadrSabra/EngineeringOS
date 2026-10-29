@@ -6121,38 +6121,56 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     ) {
       const truncatedContent = result.content.trim();
       const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
+      const retryCanContinueTools =
+        !synthesisOnly &&
+        Boolean(providerIterationTools && providerIterationTools.length > 0);
       const retryMessages = compactModelMessages([
         ...safeMessages,
         { role: "assistant", content: truncatedContent },
         {
           role: "user",
-          content:
-            "The previous answer was cut off by the output limit. " +
-            "Return a complete final answer now, without commentary about the cutoff. " +
-            "Preserve the requested response format and do not call tools.",
+          content: retryCanContinueTools
+            ? "The previous response was cut off by the output limit. Continue the approved task using only the available authorized tools for any remaining work. Do not claim completion unless the required actions and validations are complete."
+            : "The previous answer was cut off by the output limit. " +
+              "Return a complete final answer now, without commentary about the cutoff. " +
+              "Preserve the requested response format and do not call tools.",
         },
       ]);
       try {
-        const retry = await callWithExecutionBudget(retryMessages, {
-          model: result.model || model,
-          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
-          timeoutMs: 60_000,
-          apiKey,
-          ...(opts.capability ? { capability: opts.capability } : {}),
-           ...(opts.signal ? { signal: opts.signal } : {}),
-          ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
-        });
-        if (retry.content?.trim()) {
+        const retry = retryCanContinueTools
+          ? await callWithExecutionBudget(retryMessages, {
+              model: result.model || model,
+              ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+              timeoutMs: 60_000,
+              apiKey,
+              taskType,
+              ...(opts.capability ? { capability: opts.capability } : {}),
+              ...(opts.signal ? { signal: opts.signal } : {}),
+              ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
+              ...providerToolOptions,
+              ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+            })
+          : await callWithExecutionBudget(retryMessages, {
+              model: result.model || model,
+              ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
+              timeoutMs: 60_000,
+              apiKey,
+              ...(opts.capability ? { capability: opts.capability } : {}),
+              ...(opts.signal ? { signal: opts.signal } : {}),
+              ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+            });
+        if (retry.content?.trim() || (retry.toolCalls?.length ?? 0) > 0) {
           result = retry;
-          lastTextSeen = retry;
+          if (retry.content?.trim()) lastTextSeen = retry;
           console.warn(
             JSON.stringify({
               scope: "tool-execution-engine",
-              code: "TRUNCATED_FINAL_RETRY_ACCEPTED",
+              code: "TRUNCATED_RETRY_ACCEPTED",
               provider,
               model: retry.model || model,
               previousLength: truncatedContent.length,
               retryMaxTokens,
+              continuationMode: retryCanContinueTools ? "authorized-tools" : "final-answer",
               finishReason: retry.finishReason ?? null,
             }),
           );

@@ -45,6 +45,15 @@ const RUNTIME_ORACLE_IDENTIFIER_LIMIT = 160;
 const RUNTIME_ORACLE_COMMAND_LIMIT = 240;
 const SAFE_RUNTIME_ORACLE_CODE = /^[A-Z][A-Z0-9_]{0,79}$/;
 
+function validationProfilesForFixture(
+  fixture: ReturnType<typeof getCodeAgentBenchmarkFixture>,
+): string[] {
+  return [
+    ...(fixture.validationProfile ? [fixture.validationProfile] : []),
+    ...(fixture.additionalValidationProfiles ?? []),
+  ];
+}
+
 function benchmarkRepairPlanSteps(
   testCase: CodeAgentBenchmarkCase,
   fixture: ReturnType<typeof getCodeAgentBenchmarkFixture>,
@@ -53,7 +62,10 @@ function benchmarkRepairPlanSteps(
     testCase.prompt,
     ...(fixture.postcondition ? [fixture.postcondition] : []),
     ...(testCase.expected.terminal === "READY_FOR_REVIEW"
-      ? ["Read only approved files, prepare scoped pending changes, and run the registered validation profile."]
+      ? [
+          "Read only approved files and prepare scoped pending changes.",
+          `Run every required registered validation profile against the same changes. Allow no more than ${testCase.expected.maxRepairAttempts} attempts per profile; after a failure, correct its cause rather than repeating unchanged work.`,
+        ]
       : []),
   ];
   if (steps.some((step) => step.length > 600)) {
@@ -111,6 +123,7 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
   prompt: string;
   allowedPaths: readonly string[];
   validationProfile: string | undefined;
+  validationProfiles?: readonly string[];
   benchmarkRootLease: BenchmarkDisposableRootLease;
 }): Promise<{
   executionPlan: ActiveTaskExecutionPlan;
@@ -124,19 +137,33 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
   const fixture = getCodeAgentBenchmarkFixture(args.testCase);
   const allowedPaths = [...new Set(args.allowedPaths)];
   const fixtureAllowedPaths = [...new Set(fixture.allowedPaths)].sort();
+  const expectedValidationProfiles = validationProfilesForFixture(fixture);
+  const requestedValidationProfiles = args.validationProfiles
+    ? [...new Set(args.validationProfiles)]
+    : args.validationProfile
+      ? [args.validationProfile]
+      : [];
   if (
     allowedPaths.length === 0 ||
     allowedPaths.length !== args.allowedPaths.length ||
     allowedPaths.length > 8 ||
     [...allowedPaths].sort().join("\n") !== fixtureAllowedPaths.join("\n") ||
-    args.validationProfile !== fixture.validationProfile
+    args.validationProfile !== fixture.validationProfile ||
+    [...requestedValidationProfiles].sort().join("\n") !==
+      [...expectedValidationProfiles].sort().join("\n")
   ) {
-    throw new Error("Positive benchmark handoff requires the fixture's exact bounded scope and validation profile.");
+    throw new Error("Positive benchmark handoff requires the fixture's exact bounded scope and validation profiles.");
   }
   const profile = ValidationProfileSchema.safeParse(args.validationProfile);
-  if (!profile.success) {
+  const profiles = requestedValidationProfiles.map((candidate) =>
+    ValidationProfileSchema.safeParse(candidate));
+  if (!profile.success || profiles.some((candidate) => !candidate.success)) {
     throw new Error("Positive benchmark handoff requires a registered validation profile.");
   }
+  const approvedValidationProfiles = profiles.map((candidate) => {
+    if (!candidate.success) throw new Error("Positive benchmark handoff requires registered validation profiles.");
+    return candidate.data;
+  });
 
   const executionPlan = buildActiveTaskExecutionPlan({
     repairPlan: [{
@@ -171,7 +198,7 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
     projectId: args.projectId,
     caseId: args.testCase.id,
     allowedPaths,
-    validationProfiles: [profile.data],
+    validationProfiles: approvedValidationProfiles,
   });
   const message = [
     args.prompt,
@@ -180,18 +207,19 @@ export async function buildApiCodeAgentBenchmarkBuildHandoff(args: {
     `Approved files: ${allowedPaths.join(", ")}`,
     "For replace_text and write_file, use one of these exact full paths as the path argument; do not shorten or rewrite a path.",
     "Use scoped reads and deferred changes. Prepare pending changes only; do not apply files, commit, or publish.",
-    `Approved plan JSON: ${JSON.stringify({
+      `Approved plan JSON: ${JSON.stringify({
       objective: args.testCase.id,
       files: allowedPaths,
       phases: executionPlan.phases,
-      validationProfile: profile.data,
+        validationProfiles: approvedValidationProfiles,
     })}`,
+      "Run every required validation profile on the same pending changes; do not report READY_FOR_REVIEW until all pass.",
   ].join("\n");
 
   return {
     executionPlan,
     turnIntent,
-    approvedValidationProfiles: [profile.data],
+    approvedValidationProfiles,
     message,
     benchmarkFixtureRepairAuthorization,
   };
@@ -446,6 +474,10 @@ export async function runApiCodeAgentBenchmark(
     validationRunner,
     includeTestSources: true,
     validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+    validationProfilesForCase: (testCase) => {
+      const fixture = getCodeAgentBenchmarkFixture(testCase);
+      return validationProfilesForFixture(fixture);
+    },
     behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
       const fixture = getCodeAgentBenchmarkFixture(testCase);
       if (fixture.runtimeOracle) {
@@ -464,16 +496,19 @@ export async function runApiCodeAgentBenchmark(
     allowedPathsForCase: opts.allowedPathsForCase,
     promptForCase: opts.promptForCase,
     historyForCase: opts.historyForCase,
-    buildHandoffForCase: ({ testCase, prompt, allowedPaths }) =>
-      buildApiCodeAgentBenchmarkBuildHandoff({
+    buildHandoffForCase: ({ testCase, prompt, allowedPaths }) => {
+      const fixture = getCodeAgentBenchmarkFixture(testCase);
+      return buildApiCodeAgentBenchmarkBuildHandoff({
         rootPath: opts.rootPath,
         projectId: benchmarkProjectId,
         testCase,
         prompt,
         allowedPaths,
-        validationProfile: getCodeAgentBenchmarkFixture(testCase).validationProfile,
+        validationProfile: fixture.validationProfile,
+        validationProfiles: validationProfilesForFixture(fixture),
         benchmarkRootLease: opts.benchmarkRootLease,
-      }),
+      });
+    },
     caseTimeoutMs: opts.caseTimeoutMs,
     signal: opts.signal,
     prepareCase: async (testCase) => {
@@ -603,6 +638,10 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       validationRunner,
     includeTestSources: true,
         validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
+        validationProfilesForCase: (testCase) => {
+          const fixture = getCodeAgentBenchmarkFixture(testCase);
+          return validationProfilesForFixture(fixture);
+        },
         behavioralProofForCase: async ({ rootPath, testCase, pendingChanges, signal }) => {
           const fixture = getCodeAgentBenchmarkFixture(testCase);
           if (fixture.runtimeOracle) {
@@ -621,16 +660,19 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       allowedPathsForCase: opts.allowedPathsForCase,
       promptForCase: opts.promptForCase,
       historyForCase: opts.historyForCase,
-      buildHandoffForCase: ({ testCase, prompt, allowedPaths }) =>
-        buildApiCodeAgentBenchmarkBuildHandoff({
+      buildHandoffForCase: ({ testCase, prompt, allowedPaths }) => {
+        const fixture = getCodeAgentBenchmarkFixture(testCase);
+        return buildApiCodeAgentBenchmarkBuildHandoff({
           rootPath: opts.rootPath,
           projectId: benchmarkProjectId,
           testCase,
           prompt,
           allowedPaths,
-          validationProfile: getCodeAgentBenchmarkFixture(testCase).validationProfile,
+          validationProfile: fixture.validationProfile,
+          validationProfiles: validationProfilesForFixture(fixture),
           benchmarkRootLease: opts.benchmarkRootLease,
-        }),
+        });
+      },
       caseTimeoutMs: opts.caseTimeoutMs,
       signal: opts.signal,
       prepareCase: async (testCase) => {

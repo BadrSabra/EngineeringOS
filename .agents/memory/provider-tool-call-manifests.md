@@ -38,3 +38,9 @@ Tool-enabled calls to the exported chat entry must also reject before provider w
 **Why:** the API fallback wrapper is not the only route to the package-exported `chat()` function, and relying on a late dispatch rejection still lets an unowned turn call a provider with tools exposed.
 
 **How to apply:** after resolving turn intent, detect whether the selected provider policy can expose tools and reject a missing lifecycle sink before any provider request. Keep no-tool chat and plan-only paths available, and do not treat an in-memory benchmark observer as Canonical Proof.
+
+When a tool-enabled response is truncated, its bounded continuation must retain the current authorized tool list, full manifest, task type, and tool-choice policy. Accept a tool-call-only continuation even when its text content is empty; only a deliberate final-synthesis retry should disable tools.
+
+**Why:** a free-tier completion hit its output limit during an approved multi-file repair. The no-tool retry suppressed the next edit, and the loop discarded the retry because it carried a tool call without text.
+
+**How to apply:** cover both no-tool final-answer retries and tool-enabled continuations in `executeToolLoop` tests; assert that narrowed provider tools remain narrowed while the full server-authorized manifest is preserved.

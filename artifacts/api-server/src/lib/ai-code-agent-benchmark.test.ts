@@ -72,7 +72,8 @@ describe("Code Agent benchmark Build handoff", () => {
           steps: expect.arrayContaining([
             testCase.prompt,
             fixture.postcondition,
-            "Read only approved files, prepare scoped pending changes, and run the registered validation profile.",
+          "Read only approved files and prepare scoped pending changes.",
+          "Run every required registered validation profile against the same changes. Allow no more than 3 attempts per profile; after a failure, correct its cause rather than repeating unchanged work.",
           ]),
           verdictScope: "FIXTURE_LOCAL",
           scopedFindingStatus: "FIXTURE_PROVEN",
@@ -120,7 +121,8 @@ describe("Code Agent benchmark Build handoff", () => {
       steps: expect.arrayContaining([
         testCase.prompt,
         getCodeAgentBenchmarkFixture(testCase).postcondition,
-        "Read only approved files, prepare scoped pending changes, and run the registered validation profile.",
+        "Read only approved files and prepare scoped pending changes.",
+        "Run every required registered validation profile against the same changes. Allow no more than 3 attempts per profile; after a failure, correct its cause rather than repeating unchanged work.",
       ]),
     });
   });
