@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   _resetModelContractAcceptanceForTest,
+  getModelContractAvailabilityWeight,
   getModelContractAcceptanceRate,
   getModelContractAcceptanceWeight,
   MODEL_CONTRACT_ACCEPTANCE_CONFIG,
   MODEL_TASK_CONTRACTS,
   recordModelContractOutcome,
+  recordModelContractOutput,
   selectWeightedModelIndex,
 } from "./model-contract-acceptance.js";
 
@@ -53,5 +55,19 @@ describe("model contract acceptance history", () => {
     expect(Array.from({ length: 5 }, (_, cursor) =>
       selectWeightedModelIndex(weights, cursor),
     )).toEqual([0, 0, 0, 0, 1]);
+  });
+
+  it("keeps empty-output availability separate from contract acceptance", () => {
+    const contract = MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS;
+    for (let i = 0; i < 5; i += 1) {
+      recordModelContractOutput("model-content", contract, "content", 2_000 + i);
+      recordModelContractOutcome("model-content", contract, "rejected", 2_000 + i);
+      recordModelContractOutput("model-empty", contract, "empty", 2_000 + i);
+    }
+
+    expect(getModelContractAvailabilityWeight("model-content", contract, 2_010)).toBe(4);
+    expect(getModelContractAcceptanceWeight("model-content", contract, 2_010)).toBe(1);
+    expect(getModelContractAvailabilityWeight("model-empty", contract, 2_010)).toBe(1);
+    expect(getModelContractAcceptanceRate("model-empty", contract, 2_010)).toBeNull();
   });
 });

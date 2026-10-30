@@ -17,9 +17,12 @@ export const MODEL_CONTRACT_ACCEPTANCE_CONFIG = {
 } as const;
 
 type ContractOutcome = "accepted" | "rejected";
+type OutputOutcome = "content" | "empty";
 type Sample = { at: number; outcome: ContractOutcome };
+type OutputSample = { at: number; outcome: OutputOutcome };
 
 const samplesByKey = new Map<string, Sample[]>();
+const outputSamplesByKey = new Map<string, OutputSample[]>();
 
 function keyFor(model: string, contract: ModelTaskContract): string {
   return JSON.stringify([contract, model.trim()]);
@@ -32,6 +35,16 @@ function prune(key: string, now: number): Sample[] {
     .slice(-MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract);
   if (retained.length === 0) samplesByKey.delete(key);
   else samplesByKey.set(key, retained);
+  return retained;
+}
+
+function pruneOutputSamples(key: string, now: number): OutputSample[] {
+  const cutoff = now - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs;
+  const retained = (outputSamplesByKey.get(key) ?? [])
+    .filter((sample) => sample.at >= cutoff)
+    .slice(-MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract);
+  if (retained.length === 0) outputSamplesByKey.delete(key);
+  else outputSamplesByKey.set(key, retained);
   return retained;
 }
 
@@ -51,6 +64,27 @@ export function recordModelContractOutcome(
     samples.splice(0, samples.length - MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract);
   }
   samplesByKey.set(key, samples);
+}
+
+/**
+ * Record whether a contract-scoped provider attempt returned usable content.
+ * This is deliberately separate from accepted/rejected task quality.
+ */
+export function recordModelContractOutput(
+  model: string,
+  contract: ModelTaskContract,
+  outcome: OutputOutcome,
+  at = Date.now(),
+): void {
+  const normalized = model.trim();
+  if (!normalized) return;
+  const key = keyFor(normalized, contract);
+  const samples = pruneOutputSamples(key, at);
+  samples.push({ at, outcome });
+  if (samples.length > MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract) {
+    samples.splice(0, samples.length - MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract);
+  }
+  outputSamplesByKey.set(key, samples);
 }
 
 /**
@@ -77,6 +111,18 @@ export function getModelContractAcceptanceWeight(
   return rate === null ? null : Math.max(1, Math.min(5, Math.round(rate * 5)));
 }
 
+export function getModelContractAvailabilityWeight(
+  model: string,
+  contract: ModelTaskContract,
+  now = Date.now(),
+): number | null {
+  const samples = pruneOutputSamples(keyFor(model, contract), now);
+  if (samples.length < MODEL_CONTRACT_ACCEPTANCE_CONFIG.minSamples) return null;
+  const content = samples.filter((sample) => sample.outcome === "content").length;
+  const rate = (content + 1) / (samples.length + 2);
+  return Math.max(1, Math.min(5, Math.round(rate * 5)));
+}
+
 /** Select one weighted slot; callers keep the remaining models as fallbacks. */
 export function selectWeightedModelIndex(weights: readonly number[], cursor: number): number {
   const total = weights.reduce((sum, weight) => sum + Math.max(0, Math.floor(weight)), 0);
@@ -92,4 +138,5 @@ export function selectWeightedModelIndex(weights: readonly number[], cursor: num
 
 export function _resetModelContractAcceptanceForTest(): void {
   samplesByKey.clear();
+  outputSamplesByKey.clear();
 }

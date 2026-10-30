@@ -30,6 +30,7 @@ import {
 import { getUsableDynamicModelIds, getUsablePaidModelCandidates } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
 import {
+  getModelContractAvailabilityWeight,
   getModelContractAcceptanceWeight,
   selectWeightedModelIndex,
   type ModelTaskContract,
@@ -167,14 +168,18 @@ function rotatePreferredLaneGroup(
     firstIsDemoted,
   ]);
   const preferredGroup = models.slice(0, groupEnd);
-  const contractRates = opts.taskContract
-    ? preferredGroup.map((model) => getModelContractAcceptanceWeight(model.id, opts.taskContract!))
+  const contractWeights = opts.taskContract
+    ? preferredGroup.map((model) => {
+        const acceptanceWeight = getModelContractAcceptanceWeight(model.id, opts.taskContract!);
+        const availabilityWeight = getModelContractAvailabilityWeight(model.id, opts.taskContract!);
+        if (acceptanceWeight === null) return availabilityWeight;
+        if (availabilityWeight === null) return acceptanceWeight;
+        return Math.min(acceptanceWeight, availabilityWeight);
+      })
     : [];
-  const hasContractEvidence = contractRates.some((rate) => rate !== null);
+  const hasContractEvidence = contractWeights.some((weight) => weight !== null);
   if (opts.taskContract && hasContractEvidence) {
-    const weights = contractRates.map((rate) =>
-      rate ?? 2,
-    );
+    const weights = contractWeights.map((weight) => weight ?? 2);
     const slots = weights.reduce((sum, weight) => sum + weight, 0);
     const offset = (laneRotationCursors.get(laneKey) ?? 0) % slots;
     const selectedIndex = selectWeightedModelIndex(weights, offset);
@@ -183,7 +188,7 @@ function rotatePreferredLaneGroup(
       .map((model, index) => ({ model, index }))
       .filter(({ index }) => index !== selectedIndex)
       .sort((a, b) =>
-        (contractRates[b.index] ?? 2) - (contractRates[a.index] ?? 2)
+        (weights[b.index] ?? 2) - (weights[a.index] ?? 2)
         || a.index - b.index,
       )
       .map(({ model }) => model);

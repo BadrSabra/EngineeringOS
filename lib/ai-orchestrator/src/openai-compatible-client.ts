@@ -75,6 +75,7 @@ import {
 } from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
 import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
+import { recordModelContractOutput } from "./openrouter/model-contract-acceptance.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -1942,10 +1943,20 @@ export async function openrouterCompleteWithFallback(
     attemptedModels.push(model);
     try {
       const response = await openrouterCompleteRaw(messages, { ...opts, model });
+      if (opts.taskContract) {
+        recordModelContractOutput(model, opts.taskContract, "content");
+      }
       recordModelSuccess("openrouter", model);
       await clearSharedPoolModelCooldown("openrouter", model);
       return response;
     } catch (err) {
+      if (
+        opts.taskContract
+        && err instanceof GroqClientError
+        && err.code === "EMPTY_RESPONSE"
+      ) {
+        recordModelContractOutput(model, opts.taskContract, "empty");
+      }
       // Do not turn a provider-scoped 429 into a burst against the next model
       // in this request. A shared-pool limit cools only this attempted model
       // for later requests; a provider-credential limit must not penalize one

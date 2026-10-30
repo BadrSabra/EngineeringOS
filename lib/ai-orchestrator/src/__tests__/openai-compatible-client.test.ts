@@ -27,6 +27,12 @@ import {
 } from "../openai-compatible-client.js";
 import { GroqClientError } from "../errors.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import {
+  _resetModelContractAcceptanceForTest,
+  getModelContractAvailabilityWeight,
+  MODEL_TASK_CONTRACTS,
+} from "../openrouter/model-contract-acceptance.js";
+import { resolveFallbackChain } from "../openrouter/model-resolver.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
 import {
   _resetCircuitsForTest,
@@ -51,6 +57,7 @@ function textResponse(body: string, status: number, headers?: Record<string, str
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
+  _resetModelContractAcceptanceForTest();
   _resetOpenRouterCredentialCooldownsForTest();
   persistedCooldownWrites = [];
   persistedCooldownClears = [];
@@ -546,6 +553,37 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       maxTokens: 10,
       maxFallbackModels: 1,
     })).rejects.toMatchObject({ code: "EMPTY_RESPONSE" });
+  });
+
+  it("learns repeated empty output only for the exact attempted model and task contract", async () => {
+    const contract = MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS;
+    const targetModel = resolveFallbackChain({
+      capability: "chat",
+      quality: "fast",
+      taskContract: contract,
+    })[0]!.id;
+    const excludedModels = FREE_MODELS
+      .map((model) => model.id)
+      .filter((model) => model !== targetModel);
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      jsonResponse({ model: targetModel, usage: {} }),
+    ));
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        maxTokens: 10,
+        taskContract: contract,
+        excludeModels: excludedModels,
+        maxFallbackModels: 1,
+      })).rejects.toMatchObject({
+        code: "EMPTY_RESPONSE",
+        providerModel: targetModel,
+      });
+    }
+
+    expect(getModelContractAvailabilityWeight(targetModel, contract)).toBe(1);
+    expect(getModelContractAvailabilityWeight("unattempted-model", contract)).toBeNull();
   });
 
   it("INVALID_TOOL_CALL → advances to the next model candidate", async () => {
