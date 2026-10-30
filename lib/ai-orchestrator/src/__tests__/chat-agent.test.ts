@@ -3224,6 +3224,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
 
     const calls: Array<{ tools?: unknown; maxTokens?: number; model?: string }> = [];
     const diagnostics: Array<{ code: string; details?: string[] }> = [];
+    const decisionTraces: Array<{ finalState?: string; recoveryFailureKind?: string }> = [];
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
@@ -3330,15 +3331,19 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           if (step.kind === "diagnostic") {
             diagnostics.push({ code: step.code, details: step.details });
           }
+          if (step.kind === "decision_trace") {
+            decisionTraces.push({
+              finalState: step.trace.finalState,
+              recoveryFailureKind: step.trace.recoveryFailureKind,
+            });
+          }
         },
       });
 
       expect(result.response).toContain("## 2) Evidence Map");
-      expect(result.response).toContain("No verified finding identified from inspected source code.");
-      expect(result.response).toContain("NO_VERIFIED_FINDING");
-      expect(result.response).toContain(
-        "Basis: verified.ts contains `export function verifiedRead() { return true; }`",
-      );
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("NO_VERIFIED_FINDING");
+      expect(result.response).toContain("verified.ts");
       expect(result.pendingChanges).toEqual([]);
       expect(result.sources).toContain("verified.ts");
       expect(calls[0]?.model).toBe("llama-3.1-8b-instant");
@@ -3353,13 +3358,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(diagnostics.map((diagnostic) => diagnostic.code))
         .not.toContain("FORENSIC_CONTRACT_RECOVERY_FAILED");
       expect(diagnostics.map((diagnostic) => diagnostic.code))
-        .toContain("FORENSIC_DETERMINISTIC_NO_FINDING");
+        .toContain("FORENSIC_RECOVERY_INCOMPLETE_PROVIDER_FAILURE");
       expect(diagnostics.map((diagnostic) => diagnostic.code))
         .not.toContain("FORENSIC_CONTRACT_RECOVERY_REJECTED");
-      const deterministicNoFindingDetails =
-        diagnostics.find((diagnostic) => diagnostic.code === "FORENSIC_DETERMINISTIC_NO_FINDING")?.details ?? [];
-      expect(deterministicNoFindingDetails.join(" ")).toContain("provider failure codes: EMPTY_RESPONSE");
-      expect(deterministicNoFindingDetails.join(" ")).toContain("TypeError");
+      expect(diagnostics.map((diagnostic) => diagnostic.code))
+        .not.toContain("FORENSIC_DETERMINISTIC_NO_FINDING");
+      expect(decisionTraces.at(-1)?.finalState).toBe("FAILED");
+      expect(decisionTraces.at(-1)?.recoveryFailureKind).toBeDefined();
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
@@ -3528,6 +3533,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
 
     const calls: Array<{ model?: string }> = [];
     const packets: Array<{ status?: string; reason?: string }> = [];
+    const diagnostics: string[] = [];
+    const decisionTraces: Array<{ finalState?: string; recoveryFailureKind?: string }> = [];
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
@@ -3620,6 +3627,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           if (step.kind === "forensic_packet") {
             packets.push({ status: step.status, reason: step.reason });
           }
+          if (step.kind === "diagnostic") diagnostics.push(step.code);
+          if (step.kind === "decision_trace") {
+            decisionTraces.push({
+              finalState: step.trace.finalState,
+              recoveryFailureKind: step.trace.recoveryFailureKind,
+            });
+          }
         },
       });
 
@@ -3629,7 +3643,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         status: "FAILED",
         reason: "RATE_LIMITED",
       }));
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("NO_VERIFIED_FINDING");
       expect(result.response).not.toContain("FINDING PROVEN");
+      expect(diagnostics).toContain("FORENSIC_RECOVERY_INCOMPLETE_PROVIDER_FAILURE");
+      expect(diagnostics).not.toContain("FORENSIC_DETERMINISTIC_NO_FINDING");
+      expect(decisionTraces.at(-1)?.finalState).toBe("FAILED");
+      expect(decisionTraces.at(-1)?.recoveryFailureKind).toBeDefined();
       expect(result.pendingChanges).toEqual([]);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });

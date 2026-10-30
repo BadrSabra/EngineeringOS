@@ -14616,11 +14616,14 @@ export async function chat(opts: {
             forensicEvidence.sourceCoverage?.complete === false
               ? initialContract.response
               : incompleteRecoveryReport;
+          const providerFailureBlocksNoFinding = recoveryProviderFailureCodes.length > 0;
           const deterministicFallback =
             deterministicBehavioralReport ??
-            (recoveryProducedNoFinding && noFindingRecoveryReport
-              ? noFindingRecoveryReport
-              : deterministicNoFindingReport);
+            (!providerFailureBlocksNoFinding
+              ? recoveryProducedNoFinding && noFindingRecoveryReport
+                ? noFindingRecoveryReport
+                : deterministicNoFindingReport
+              : undefined);
           const deterministicNoFindingFallback =
             !deterministicBehavioralReport &&
             Boolean(
@@ -14632,14 +14635,25 @@ export async function chat(opts: {
           }
           useForensicFallback(
             deterministicFallback ??
-              semanticAssessmentFallback ??
-              incompleteScopeFallback,
+              (providerFailureBlocksNoFinding
+                ? incompleteScopeFallback
+                : semanticAssessmentFallback ?? incompleteScopeFallback),
           );
           const evidenceOnlyFallbackSelected =
             forensicEvidence.fileContents.size > 0 &&
             content.includes("No verified forensic verdict was produced");
           if (deterministicBehavioralReport) {
             // The deterministic result is already surfaced above.
+          } else if (providerFailureBlocksNoFinding) {
+            onStep?.({
+              kind: "diagnostic",
+              code: "FORENSIC_RECOVERY_INCOMPLETE_PROVIDER_FAILURE",
+              details: [
+                "completed source reads were preserved",
+                "provider recovery did not produce an accepted forensic report",
+                "no NO_FINDING conclusion was accepted from the incomplete recovery",
+              ],
+            });
           } else if (deterministicNoFindingReport) {
             onStep?.({
               kind: "diagnostic",
@@ -14764,15 +14778,18 @@ export async function chat(opts: {
           );
           if (executable.plans.length > 0) structuredRepairPlan = executable.plans;
         }
+        const providerFailureBlocksNoFinding = recoveryProviderFailureCodes.length > 0;
         const deterministicFallback =
-          deterministicBehavioralReport ?? deterministicNoFindingReport;
+          deterministicBehavioralReport ??
+          (!providerFailureBlocksNoFinding ? deterministicNoFindingReport : undefined);
         if (deterministicFallback) {
           markDeterministicFallbackAccepted(!deterministicBehavioralReport);
         }
         const evidenceOnlyFallback = applyForensicOutputContract(
           deterministicFallback ??
-            semanticAssessmentFallback ??
-            incompleteScopeFallback,
+            (providerFailureBlocksNoFinding
+              ? incompleteScopeFallback
+              : semanticAssessmentFallback ?? incompleteScopeFallback),
           forensicEvidence,
           { responseLanguage },
         );
@@ -14784,6 +14801,16 @@ export async function chat(opts: {
             details: [
               "provider Recovery failed, but a high-confidence executable pattern was verified deterministically",
               "the deterministic Finding passed the forensic contract and evidence gates",
+            ],
+          });
+        } else if (providerFailureBlocksNoFinding) {
+          onStep?.({
+            kind: "diagnostic",
+            code: "FORENSIC_RECOVERY_INCOMPLETE_PROVIDER_FAILURE",
+            details: [
+              "completed source reads were preserved",
+              "provider recovery failed before an accepted forensic report was produced",
+              "no NO_FINDING conclusion was accepted from the incomplete recovery",
             ],
           });
         } else if (deterministicNoFindingReport) {
@@ -16672,6 +16699,7 @@ export async function chat(opts: {
   });
   const verificationRejectionReasons = [
     ...(parseError ? [`parse:${parseError.code}`] : []),
+    ...(recoveryFailureKind ? [`recovery:${recoveryFailureKind}`] : []),
     ...(capabilityProbeClaimUnclosed ? ["capability_probe:claim_unclosed"] : []),
     ...(behaviorAnswerRejected ? behaviorEvidenceValidation.violations : []),
     ...(anyRequiredClaimUnclosed

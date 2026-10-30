@@ -66,3 +66,18 @@ root was still reported COMPLETE.
 **How to apply:** Keep truncation-marker recognition and root-coverage projection
 in sync across normal, forensic, targeted, and prefetched reads; preserve the
 truncated paths in the coverage result.
+
+When a proof-required forensic recovery exhausts after a provider failure,
+retained complete reads do not authorize a deterministic `NO_VERIFIED_FINDING`.
+Return `ANALYSIS_INCOMPLETE`, preserve the safe recovery failure classification,
+and make the terminal decision state non-verified. A server-validated positive
+deterministic Finding may still stand on its own evidence.
+
+**Why:** A live free-provider run retained source reads, then hit rate limiting
+during recovery; the response incorrectly projected `NO_VERIFIED_FINDING` and
+its decision trace said `VERIFIED` despite the unresolved provider failure.
+
+**How to apply:** Only clear `recoveryFailureKind` when recovery is accepted or
+an independent deterministic Finding passes its evidence gate. Include an
+unresolved recovery failure in the verification rejection reasons so the
+terminal trace cannot report `VERIFIED`.
