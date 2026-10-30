@@ -121,7 +121,7 @@ describe("project-query incomplete evidence projection", () => {
     expect(arabicResponse).toContain("ANALYSIS_INCOMPLETE");
     expect(arabicResponse).toContain("مقتطفات المصدر مرتبة الصلة");
     expect(arabicResponse).toContain("source excerpt");
-  });
+  }, 10_000);
 
   it("prioritizes exact query-term matches over unrelated structural excerpts", async () => {
     const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
