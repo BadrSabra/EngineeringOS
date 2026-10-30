@@ -7,4 +7,4 @@ EngineeringOS product traffic to OpenRouter must use catalog-verified free model
 
 **Why:** the user explicitly chose to remain on free OpenRouter models while addressing rate limits.
 
-**How to apply:** enforce this at every production resolver and provider entrypoint, and add offline tests proving paid pins are ignored and 429/QUOTA never triggers paid promotion.
+**How to apply:** when an OpenRouter credential is configured, keep provider selection, fallback, and refreshed candidate lists on OpenRouter; fail closed if no eligible free model is available instead of silently using another provider. With no OpenRouter credential, preserve existing provider routing. Enforce catalog-verified free model IDs at every OpenRouter entrypoint, and add offline tests proving paid pins are ignored and 429/QUOTA never triggers paid promotion.

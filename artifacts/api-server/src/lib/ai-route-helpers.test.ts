@@ -10,6 +10,7 @@ import {
   handleOrchestratorError,
   redactUserFacingText,
   redactUserFacingValue,
+  applyOpenRouterFreeOnlyFallbackPolicy,
   providerAvailabilityProjection,
   requestLooksToolBound,
   normalizeProviderFailure,
@@ -40,6 +41,24 @@ describe("chatWithFallback tool lifecycle contract", () => {
     await expect(
       chatWithFallback("test-user", baseParams, {} as never),
     ).rejects.toThrow("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
+  });
+});
+
+describe("OpenRouter free-only fallback policy", () => {
+  const candidates = [
+    { provider: "openrouter" as const, model: "openrouter-free" },
+    { provider: "gemini" as const, model: "gemini-default" },
+    { provider: "groq" as const, model: "groq-default" },
+  ];
+
+  it("keeps a configured OpenRouter lane on OpenRouter only", () => {
+    expect(applyOpenRouterFreeOnlyFallbackPolicy(true, candidates)).toEqual([
+      candidates[0],
+    ]);
+  });
+
+  it("keeps alternate-provider chains when no OpenRouter credential is configured", () => {
+    expect(applyOpenRouterFreeOnlyFallbackPolicy(false, candidates)).toEqual(candidates);
   });
 });
 
