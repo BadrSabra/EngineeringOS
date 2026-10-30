@@ -73,11 +73,7 @@
 - [Evidence failure projection](evidence-failure-projection.md) — separate safe timeout/budget-exhaustion causes from incomplete proof while reporting retained reads without raw provider diagnostics.
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
-- [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — distinguish live acceptance, provider limits, retry timing, and catalog activation.
-- [OpenRouter throttling checkpoints](openrouter-throttling-checkpoints.md) — every automatic rate-limit retry needs a positive persisted retry window; no same-request provider replay.
-- [OpenRouter free-only routing](openrouter-free-lane-policy.md) — product traffic uses catalog-verified free models only; never promote to paid after 429/QUOTA.
-- [OpenRouter contract-aware ranking](openrouter-contract-aware-ranking.md) — rank free lanes only from exact model/task-contract acceptance; provider errors and 429s are not quality samples.
-- [OpenRouter BYOK scope](openrouter-byok-scope.md) — `is_byok` describes upstream-provider routing, not whether the OpenRouter request authenticated.
+- [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — grouped rules for acceptance, free-only routing, throttling, ranking, and live smoke preflight.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
