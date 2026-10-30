@@ -538,6 +538,66 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(otherProviderFallback.call).not.toHaveBeenCalled();
   });
 
+  it("advances from an empty OpenRouter free model to a different free model", async () => {
+    const attemptedModels: string[] = [];
+    const responseFor = (prompt: string): string => {
+      if (prompt.includes("C1") && prompt.includes("C3")) {
+        return "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
+          "C3: PASS — the named function is grounded; Evidence ID: E1.";
+      }
+      if (prompt.includes("C4")) {
+        return "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Evidence ID: E2.";
+      }
+      if (prompt.includes("C7")) {
+        return "C7: PASS — run() is MISSING; Evidence ID: E3.";
+      }
+      return "C6: PASS — eval( and Function( are MISSING; Evidence ID: E4.";
+    };
+    const openRouterStrategy = {
+      call: vi.fn(async (messages: unknown[], options: { model?: string }) => {
+        const model = options.model ?? "unspecified";
+        attemptedModels.push(model);
+        return {
+          content: model === "model-a:free"
+            ? ""
+            : responseFor(JSON.stringify(messages)),
+          model,
+        };
+      }),
+    };
+    const otherProviderFallback = { call: vi.fn() };
+
+    const result = await runCapabilityMicroProbes({
+      strategy: openRouterStrategy,
+      provider: "openrouter",
+      model: "model-a:free",
+      apiKey: "fixture-openrouter-key",
+      fallbackProviders: [
+        {
+          provider: "openrouter",
+          model: "model-b:free",
+          strategy: openRouterStrategy,
+          apiKey: "fixture-openrouter-key",
+        },
+        {
+          provider: "gemini",
+          model: "paid-model",
+          strategy: otherProviderFallback,
+        },
+      ],
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(attemptedModels.slice(0, 2)).toEqual(["model-a:free", "model-b:free"]);
+    expect(attemptedModels.slice(2).every((model) => model === "model-b:free")).toBe(true);
+    expect(otherProviderFallback.call).not.toHaveBeenCalled();
+  });
+
   it("does not replay an exhausted OpenRouter EMPTY_RESPONSE chain", async () => {
     const attemptedModels: string[] = [];
     const openRouterStrategy = {
