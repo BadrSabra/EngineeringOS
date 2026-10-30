@@ -491,6 +491,93 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     );
   });
 
+  it("stops the OpenRouter capability recovery chain on RATE_LIMITED without retrying", async () => {
+    const primary = {
+      call: vi.fn(async () => {
+        throw new GroqClientError("RATE_LIMITED", "simulated free-lane limit", {
+          context: {
+            providerName: "OpenRouter",
+            providerModel: "model-a:free",
+            providerAttemptedModels: ["model-a:free"],
+            rateLimitScope: "upstream_shared_pool",
+          },
+        });
+      }),
+    };
+    const sameProviderFallback = { call: vi.fn() };
+    const otherProviderFallback = { call: vi.fn() };
+
+    const result = await runCapabilityMicroProbes({
+      strategy: primary,
+      provider: "openrouter",
+      model: "model-a:free",
+      apiKey: "fixture-openrouter-key",
+      fallbackProviders: [
+        {
+          provider: "openrouter",
+          model: "model-b:free",
+          strategy: sameProviderFallback,
+          apiKey: "fixture-openrouter-key",
+        },
+        {
+          provider: "gemini",
+          model: "paid-model",
+          strategy: otherProviderFallback,
+        },
+      ],
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result).toBeNull();
+    expect(primary.call).toHaveBeenCalledTimes(1);
+    expect(sameProviderFallback.call).not.toHaveBeenCalled();
+    expect(otherProviderFallback.call).not.toHaveBeenCalled();
+  });
+
+  it("does not replay an exhausted OpenRouter EMPTY_RESPONSE chain", async () => {
+    const attemptedModels: string[] = [];
+    const openRouterStrategy = {
+      call: vi.fn(async (_messages: unknown, options: { model?: string }) => {
+        attemptedModels.push(options.model ?? "unspecified");
+        return { content: "", model: options.model };
+      }),
+    };
+    const otherProviderFallback = { call: vi.fn() };
+
+    const result = await runCapabilityMicroProbes({
+      strategy: openRouterStrategy,
+      provider: "openrouter",
+      model: "model-a:free",
+      apiKey: "fixture-openrouter-key",
+      fallbackProviders: [
+        {
+          provider: "openrouter",
+          model: "model-b:free",
+          strategy: openRouterStrategy,
+          apiKey: "fixture-openrouter-key",
+        },
+        {
+          provider: "gemini",
+          model: "paid-model",
+          strategy: otherProviderFallback,
+        },
+      ],
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result).toBeNull();
+    expect(attemptedModels).toEqual(["model-a:free", "model-b:free"]);
+    expect(otherProviderFallback.call).not.toHaveBeenCalled();
+  });
+
   it("tries an authorized same-provider model before repeating the primary model", async () => {
     const attempts: Array<{ provider: string; model?: string | null; outcome: string }> = [];
     let primaryCalls = 0;

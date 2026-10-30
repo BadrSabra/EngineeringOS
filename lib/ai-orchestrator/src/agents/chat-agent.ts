@@ -74,6 +74,7 @@ import type { ModelTaskOutcome } from "../openrouter/model-contract-acceptance.j
 import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   GroqClientError,
+  isRateLimitFailure,
   type AgentErrorCode,
   type QualityFailure,
 } from "../errors.js";
@@ -2970,9 +2971,14 @@ async function callCapabilityRecoveryWithFallback(opts: {
   result: CapabilityRecoveryCallResult;
   provider: ProviderId;
 }> {
+  const openRouterFreeOnly =
+    opts.primary.provider === "openrouter" &&
+    Boolean(opts.primary.apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim());
   const candidates = [
     opts.primary,
-    ...(opts.fallbacks ?? []),
+    ...(opts.fallbacks ?? []).filter(
+      (candidate) => !openRouterFreeOnly || candidate.provider === "openrouter",
+    ),
   ].filter((candidate, index, all) =>
     all.findIndex((item) =>
       item.provider === candidate.provider &&
@@ -3078,6 +3084,12 @@ async function callCapabilityRecoveryWithFallback(opts: {
         model: candidate.model ?? null,
         failureKind: code,
       }));
+      if (candidate.provider === "openrouter" && isRateLimitFailure(error)) {
+        // Rate limits are terminal for this request. In particular, do not
+        // advance to a sibling model or another provider after OpenRouter
+        // rejected the request.
+        break;
+      }
       if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
     }
   }
@@ -3116,11 +3128,28 @@ export async function runCapabilityMicroProbes(opts: {
    */
   deadlineIncludesTerminalReserve?: boolean;
 }): Promise<{ response: string; sources: string[]; model?: string } | null> {
+  const openRouterFreeOnly =
+    opts.provider === "openrouter" &&
+    Boolean(opts.apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim());
+  const isTerminalOpenRouterRecoveryFailure = (error: unknown): boolean => {
+    if (!openRouterFreeOnly) return false;
+    if (isRateLimitFailure(error)) return true;
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    // callCapabilityRecoveryWithFallback has already exhausted the
+    // authorized free-model candidates by the time it surfaces EMPTY_RESPONSE.
+    // Replaying that same chain for another recovery pass only repeats empty
+    // provider work and cannot improve the acceptance result.
+    return code === "EMPTY_RESPONSE";
+  };
   const lines = new Map<string, string>();
   let lastModel: string | undefined;
   let activeModel = opts.model;
   const completedGroups = new Set<string>();
   let deadlineExhausted = false;
+  let providerFailureTerminal = false;
   const effectiveDeadlineAt =
     opts.deadlineAt === undefined
       ? undefined
@@ -3189,6 +3218,15 @@ export async function runCapabilityMicroProbes(opts: {
       try {
         result = await invoke(false);
       } catch (error) {
+        if (isTerminalOpenRouterRecoveryFailure(error)) {
+          providerFailureTerminal = true;
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "CAPABILITY_MICRO_PROBE_PROVIDER_STOP",
+            failureKind: isRateLimitFailure(error) ? "RATE_LIMITED" : "EMPTY_RESPONSE",
+          }));
+          break;
+        }
         if (
           effectiveDeadlineAt !== undefined &&
           Date.now() >= effectiveDeadlineAt
@@ -3223,6 +3261,15 @@ export async function runCapabilityMicroProbes(opts: {
           const retryResult = await invoke(true);
           if (retryResult.content) result = retryResult;
         } catch (error) {
+          if (isTerminalOpenRouterRecoveryFailure(error)) {
+            providerFailureTerminal = true;
+            console.warn(JSON.stringify({
+              scope: "chat-agent",
+              code: "CAPABILITY_MICRO_PROBE_PROVIDER_STOP",
+              failureKind: isRateLimitFailure(error) ? "RATE_LIMITED" : "EMPTY_RESPONSE",
+            }));
+            break;
+          }
           console.warn(JSON.stringify({
             scope: "chat-agent",
             code: "CAPABILITY_MICRO_PROBE_RETRY_FAILED",
@@ -3400,6 +3447,15 @@ export async function runCapabilityMicroProbes(opts: {
         selectedEvidenceIds,
       });
     } catch (error) {
+      if (isTerminalOpenRouterRecoveryFailure(error)) {
+        providerFailureTerminal = true;
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_MICRO_PROBE_PROVIDER_STOP",
+          failureKind: isRateLimitFailure(error) ? "RATE_LIMITED" : "EMPTY_RESPONSE",
+        }));
+        break;
+      }
       if (
         error instanceof Error &&
         ("code" in error && String((error as { code?: unknown }).code) === "TIMEOUT" ||
@@ -3434,6 +3490,7 @@ export async function runCapabilityMicroProbes(opts: {
   // requested group actually returned its labelled answer.
   if (
     deadlineExhausted ||
+    providerFailureTerminal ||
     completedGroups.size !== CAPABILITY_MICRO_PROBE_GROUPS.length
   ) {
     return null;
