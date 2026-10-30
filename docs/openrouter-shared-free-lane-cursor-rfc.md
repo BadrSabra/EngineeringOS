@@ -1,8 +1,8 @@
 # RFC: Shared Fair Rotation for OpenRouter Free Lanes
 
-**Status:** Review required; proposal only
+**Status:** Local implementation complete; rollout review required
 **Scope:** Cross-process selection of eligible OpenRouter free models
-**Not done:** No migration was added or applied, no product code was changed, and no live provider request was sent for this RFC.
+**Validation:** Drizzle schema and product routing are implemented locally; schema application and concurrency checks were run only against a disposable loopback PostgreSQL instance. No Development/Production database or live provider request was used.
 
 ## Decision requested
 
@@ -110,12 +110,11 @@ No live-provider call is needed to validate these invariants. A later live smoke
 
 ## Rollout gates
 
-1. Review this RFC and agree on the cursor scope and row-retention policy.
-2. Prepare an additive Drizzle migration and schema contract; review its exact DDL before applying it anywhere. Do not apply it to Development or Production as part of this RFC.
-3. Implement the cursor behind an injectable persistence interface; keep the local scheduler fallback.
-4. Pass unit and disposable-PostgreSQL concurrency tests before wiring it into provider requests.
-5. Verify free-only filtering, pinned behavior, and terminal 429 behavior in API integration tests.
-6. Only then consider a separately approved, low-volume live free-model smoke. A successful smoke demonstrates one available completion, not permanent quota availability.
+1. Review the local implementation, cursor scope, retention implications, and additive schema contract.
+2. The cursor store, free-lane scheduling, local fallback, and application-schema contract are implemented. Disposable PostgreSQL schema and concurrency validation passed; this does not prove Development readiness.
+3. The tool loop reserves once and pins subsequent calls to the returned actual model. Explicit model choices remain pinned, and the shared cursor does not authorize same-request 429 retries or paid fallback.
+4. Before enabling the feature in a deployed API, apply the schema through the approved Development workflow and verify startup/schema compatibility. Do not apply to Production as part of this change.
+5. A live free-provider smoke, if desired, is a separate explicitly approved check. It must report the actual selected model and cannot establish permanent free-tier availability.
 
 ## Acceptance criteria for implementation
 

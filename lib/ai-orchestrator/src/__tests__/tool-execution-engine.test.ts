@@ -1467,6 +1467,34 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
   });
 
+  it("uses one shared lane selection for the tool-loop turn and pins later calls to its actual model", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const selectedModel = "free/selected-model";
+    const strategy = makeStrategy([
+      { ...makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]), model: selectedModel },
+      { ...makeResponse("grounded answer"), model: selectedModel },
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "free/resolver-hint",
+      powerModel: "free/power-hint",
+      provider: "openrouter",
+      useSharedLaneCursor: true,
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+    });
+
+    expect(result.kind).toBe("response");
+    const firstCall = vi.mocked(strategy.call).mock.calls[0]?.[1];
+    const secondCall = vi.mocked(strategy.call).mock.calls[1]?.[1];
+    expect(firstCall?.useSharedLaneCursor).toBe(true);
+    expect(secondCall?.model).toBe(selectedModel);
+    expect(secondCall?.useSharedLaneCursor).toBe(false);
+  });
+
   it("uses an explicit required tool choice for the first read and auto thereafter", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

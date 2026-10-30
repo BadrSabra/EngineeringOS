@@ -262,6 +262,7 @@ export async function agentComplete(
       });
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
+        useSharedLaneCursor: true,
         apiKey,
         maxTokens: opts.maxTokens,
         timeoutMs: opts.timeoutMs,

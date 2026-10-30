@@ -2606,6 +2606,9 @@ export type ToolLoopOpts = {
   /** Provider name used only for structured log attribution. */
   provider: string;
 
+  /** Schedule the first automatically selected OpenRouter call through the shared lane. */
+  useSharedLaneCursor?: boolean;
+
   /** Optional per-user API key forwarded to every strategy.call(). */
   apiKey?: string;
 
@@ -3588,6 +3591,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
     phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
   );
+  let sharedLaneModel: string | undefined;
+  let sharedLaneSelected = false;
   const callWithExecutionBudget = async (
     callMessages: RawMessage[],
     callOptions: Parameters<ProviderStrategy["call"]>[1],
@@ -3595,7 +3600,29 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     callSignal?: AbortSignal,
   ): Promise<RawGroqResponse> => {
     const callStartedAt = Date.now();
-    const callModel = callOptions.model ?? model;
+    const requestedModel = callOptions.model;
+    const intentionallyChangedModel = Boolean(
+      sharedLaneModel &&
+      requestedModel &&
+      requestedModel !== model &&
+      requestedModel !== sharedLaneModel,
+    );
+    const useSharedLaneCursor =
+      provider === "openrouter" &&
+      opts.useSharedLaneCursor === true &&
+      !sharedLaneModel &&
+      !sharedLaneSelected;
+    const effectiveCallOptions = {
+      ...callOptions,
+      ...(sharedLaneModel && !intentionallyChangedModel
+        ? { model: sharedLaneModel, useSharedLaneCursor: false }
+        : useSharedLaneCursor
+          ? { useSharedLaneCursor: true }
+          : sharedLaneSelected
+            ? { useSharedLaneCursor: false }
+            : {}),
+    };
+    const callModel = effectiveCallOptions.model ?? model;
     if (!executionLedger.admit(kind, { provider, model: callModel })) {
       throw new GroqClientError(
         executionLedger.signal.aborted ? "TIMEOUT" : "NON_200",
@@ -3603,9 +3630,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       );
     }
     if (assertExecutionOwned) await assertExecutionOwned();
+    let actualCallModel: string | undefined;
     try {
       const response = await strategy.call(callMessages, {
-        ...callOptions,
+        ...effectiveCallOptions,
         ...(Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
           ? { maxFallbackModels: opts.maxFallbackModels }
           : {}),
@@ -3613,12 +3641,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         signal: callSignal ?? executionLedger.signal,
         executionLedger,
       });
+      actualCallModel = response.model;
+      if (useSharedLaneCursor) {
+        sharedLaneSelected = true;
+      }
+      if (sharedLaneSelected && response.model) sharedLaneModel = response.model;
       if (assertExecutionOwned) await assertExecutionOwned();
       return response;
     } finally {
       executionLedger.complete(kind, {
         provider,
-        model: callModel,
+        model: actualCallModel ?? callModel,
         startedAt: callStartedAt,
         status: executionLedger.signal.aborted ? "failed" : "completed",
       });

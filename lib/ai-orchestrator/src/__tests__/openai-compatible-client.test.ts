@@ -424,6 +424,39 @@ describe("OpenRouter shared free-lane scheduling", () => {
     expect(slots).toEqual([0, 1]);
   });
 
+  it("treats a resolver-selected model as a hint only when the shared lane flag is set", async () => {
+    const resolveOptions = { capability: "chat" as const, quality: "fast" as const };
+    const baseline = resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
+    const plan = getFreeModelLaneRotationPlan(baseline, resolveOptions);
+    const requestedModels: string[] = [];
+    const cursor: ModelLaneCursorPersistence = {
+      async reserveSlot() {
+        return 1;
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      requestedModels.push(String(body.model));
+      return jsonResponse({
+        choices: [{ message: { content: "completed" } }],
+        model: body.model,
+        usage: {},
+      });
+    }));
+
+    await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: baseline[0],
+      capability: "chat",
+      quality: "fast",
+      useSharedLaneCursor: true,
+      modelLaneCursorPersistence: cursor,
+    });
+
+    expect(plan).not.toBeNull();
+    expect(requestedModels[0]).toBe(plan!.candidateIds[1]);
+  });
+
   it("excludes actively cooling models before it reserves a lane slot", async () => {
     const baseline = resolveFallbackChainUnrotated({
       capability: "chat",

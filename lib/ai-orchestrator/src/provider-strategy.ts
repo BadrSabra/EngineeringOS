@@ -17,6 +17,7 @@ import type { ExecutionLedger } from "./execution-ledger.js";
 import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
 import type { ModelCooldownPersistence } from "./openrouter/model-cooldown-store.js";
 import type { CredentialCooldownPersistence } from "./openrouter/credential-cooldown.js";
+import type { ModelLaneCursorPersistence } from "./openrouter/model-lane-cursor-store.js";
 
 export type { RawMessage, ToolDefinition, RawGroqResponse };
 
@@ -55,6 +56,10 @@ export type StrategyCallOptions = {
    * the shared PostgreSQL cooldown stores.
    */
   modelCooldownPersistence?: ModelCooldownPersistence;
+  /** Test adapter for the shared OpenRouter free-lane cursor. */
+  modelLaneCursorPersistence?: ModelLaneCursorPersistence;
+  /** Route one automatically selected OpenRouter request through the shared lane cursor. */
+  useSharedLaneCursor?: boolean;
   credentialCooldownPersistence?: CredentialCooldownPersistence;
   /** Models already rejected by this request phase and not safe to retry. */
   excludeModels?: string[];
@@ -100,6 +105,8 @@ export type StrategyStreamOptions = {
   signal?: AbortSignal;
   /** Request-owned budget propagated into provider retry/backoff loops. */
   executionLedger?: ExecutionLedger;
+  /** Route one automatically selected OpenRouter stream through the shared lane cursor. */
+  useSharedLaneCursor?: boolean;
 };
 
 // ─── Interface ────────────────────────────────────────────────────────────────

@@ -1213,6 +1213,7 @@ export async function planQuery(opts: {
   projectContext: ProjectContext;
   model: string;
   strategy: ProviderStrategy;
+  useSharedLaneCursor?: boolean;
   apiKey?: string;
   /**
    * When provided alongside a scanned project (metricsVerified = true),
@@ -1238,6 +1239,7 @@ export async function planQuery(opts: {
     projectContext,
     model,
     strategy,
+    useSharedLaneCursor,
     apiKey,
     projectId,
     signal,
@@ -1272,6 +1274,7 @@ export async function planQuery(opts: {
   const plannerCall = strategy
     .call(messages, {
       model,
+      useSharedLaneCursor,
       maxTokens: 512,
       apiKey,
       signal: executionLedger?.signal ?? signal,

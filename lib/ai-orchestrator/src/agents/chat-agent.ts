@@ -8642,6 +8642,8 @@ export async function chat(opts: {
       message,
       projectContext,
       model: explicitModelOverride || modelDecision.model,
+      useSharedLaneCursor:
+        providerId === "openrouter" && !explicitModelOverride && !opts.model,
       strategy,
       apiKey: apiKey ?? undefined,
       projectId,
@@ -9833,6 +9835,11 @@ export async function chat(opts: {
     model,
     powerModel,
     provider: providerId,
+    useSharedLaneCursor:
+      providerId === "openrouter" &&
+      !explicitModelOverride &&
+      !opts.model &&
+      !opts.benchmarkFixtureRepairAuthorization,
     apiKey,
     capability: modelDecision.capability,
     tools,
@@ -11707,7 +11714,7 @@ export async function chat(opts: {
           : m,
       );
       const forensicStreamGen = strategy.stream(forensicStreamMessages, {
-        model,
+        model: loopResult.lastSuccessfulModel ?? model,
         apiKey,
         ...(signal ? { signal } : {}),
         executionLedger,
@@ -12375,7 +12382,7 @@ export async function chat(opts: {
     let accumulated = "";
     try {
       const streamGen = strategy.stream(streamMessages, {
-        model,
+        model: loopResult.lastSuccessfulModel ?? model,
         apiKey,
         ...(signal ? { signal } : {}),
         executionLedger,

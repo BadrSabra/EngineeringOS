@@ -152,6 +152,8 @@ export type OpenAICompatibleStreamOptions = Omit<
   /** Optional isolated-test adapters; product calls use shared PostgreSQL stores. */
   modelCooldownPersistence?: ModelCooldownPersistence;
   modelLaneCursorPersistence?: ModelLaneCursorPersistence;
+  /** Internal automatic-selection hint; explicitly pinned models remain pinned by default. */
+  useSharedLaneCursor?: boolean;
 };
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -1762,6 +1764,8 @@ export type OpenRouterFallbackOptions = Omit<
   modelCooldownPersistence?: ModelCooldownPersistence;
   /** Optional isolated-test adapter; product requests use the shared PostgreSQL cursor. */
   modelLaneCursorPersistence?: ModelLaneCursorPersistence;
+  /** Internal automatic-selection hint; explicit user/model probes remain pinned by default. */
+  useSharedLaneCursor?: boolean;
   credentialCooldownPersistence?: CredentialCooldownPersistence;
   /** Reports the one bounded free-to-paid transition, without provider content. */
   onProviderFallback?: (event: {
@@ -1853,7 +1857,9 @@ export async function openrouterCompleteWithFallback(
     taskType: opts.taskType,
     taskContract: opts.taskContract,
   };
-  const isPinnedRequest = Boolean(initialModel && !opts.taskContract);
+  const isPinnedRequest = Boolean(
+    initialModel && !opts.taskContract && !opts.useSharedLaneCursor,
+  );
   const resolvedChain = isPinnedRequest
     ? buildFallbackChainFromId(initialModel!, opts.taskType, { capability, requireTools })
     : resolveFallbackChainUnrotated(resolveOptions).map((m) => m.id);
@@ -2171,7 +2177,7 @@ export async function* openrouterCompleteStream(
     requireStreaming: true,
     taskType: opts.taskType,
   };
-  const isPinnedRequest = Boolean(initialModel);
+  const isPinnedRequest = Boolean(initialModel && !opts.useSharedLaneCursor);
   const resolved = isPinnedRequest
     ? buildFallbackChainFromId(initialModel!, opts.taskType, capability ? { capability } : {})
     : resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
