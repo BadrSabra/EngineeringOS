@@ -12,7 +12,13 @@ import {
   type AiRecoveryOutcome,
   type AiUsageEvent,
 } from "@workspace/db";
-import type { ProviderId } from "@workspace/ai-orchestrator";
+import {
+  MODEL_TASK_CONTRACTS,
+  MODEL_TASK_OUTCOMES,
+  type ModelTaskContract,
+  type ModelTaskOutcome,
+  type ProviderId,
+} from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { reconcileAiBudgetReservation } from "./ai-budget.js";
 import {
@@ -63,6 +69,8 @@ export type AiTelemetryAttempt = {
   contractCitationMatchCount?: number;
   contractRecoveryLatencyMs?: number | null;
   contractFailureKind?: string | null;
+  modelTaskContract?: ModelTaskContract | null;
+  modelTaskOutcome?: ModelTaskOutcome | null;
   providerFailureKind?: string | null;
   rateLimitScope?: AiRateLimitScope | null;
   retryAfterMs?: number | null;
@@ -414,6 +422,16 @@ export async function recordAiUsageAttempt(
   const usageStatus = attempt.usageStatus
     ?? (promptTokens !== null && completionTokens !== null ? "known" : "unknown");
   const attemptId = safeText(attempt.attemptId, 200) ?? randomUUID();
+  const modelTaskContract = attempt.provider === "openrouter"
+    && attempt.modelTaskContract
+    && Object.values(MODEL_TASK_CONTRACTS).includes(attempt.modelTaskContract)
+    ? attempt.modelTaskContract
+    : undefined;
+  const modelTaskOutcome = attempt.provider === "openrouter"
+    && attempt.modelTaskOutcome
+    && MODEL_TASK_OUTCOMES.includes(attempt.modelTaskOutcome)
+    ? attempt.modelTaskOutcome
+    : undefined;
   const isRateLimitedFailure = attempt.outcome === "failure"
     && classifyProviderFailure({ code: attempt.providerFailureKind ?? undefined }) === "RATE_LIMITED";
   try {
@@ -445,6 +463,9 @@ export async function recordAiUsageAttempt(
       contractCitationMatchCount: Math.max(0, Math.min(7, Math.floor(attempt.contractCitationMatchCount ?? 0))),
       contractRecoveryLatencyMs: boundedInteger(attempt.contractRecoveryLatencyMs),
       contractFailureKind: safeText(attempt.contractFailureKind, 80),
+      ...(modelTaskContract && modelTaskOutcome
+        ? { modelTaskContract, modelTaskOutcome }
+        : {}),
       providerFailureKind: safeText(attempt.providerFailureKind, 80),
       rateLimitScope:
         isRateLimitedFailure

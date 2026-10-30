@@ -4,6 +4,7 @@ import {
   getModelContractAvailabilityWeight,
   getModelContractAcceptanceRate,
   getModelContractAcceptanceWeight,
+  hydrateModelContractSamples,
   MODEL_CONTRACT_ACCEPTANCE_CONFIG,
   MODEL_TASK_CONTRACTS,
   recordModelContractOutcome,
@@ -69,5 +70,55 @@ describe("model contract acceptance history", () => {
     expect(getModelContractAcceptanceWeight("model-content", contract, 2_010)).toBe(1);
     expect(getModelContractAvailabilityWeight("model-empty", contract, 2_010)).toBe(1);
     expect(getModelContractAcceptanceRate("model-empty", contract, 2_010)).toBeNull();
+  });
+
+  it("rehydrates recent exact-contract samples and ignores stale or unknown rows", () => {
+    const contract = MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS;
+    const now = 10_000;
+    const samples = [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        model: "persisted-accepted",
+        contract,
+        outcome: "accepted",
+        occurredAt: now - 20 + index,
+      })),
+      ...Array.from({ length: 5 }, (_, index) => ({
+        model: "persisted-rejected",
+        contract,
+        outcome: "rejected",
+        occurredAt: now - 20 + index,
+      })),
+      ...Array.from({ length: 5 }, (_, index) => ({
+        model: "persisted-empty",
+        contract,
+        outcome: "empty",
+        occurredAt: now - 20 + index,
+      })),
+      {
+        model: "stale",
+        contract,
+        outcome: "accepted",
+        occurredAt: now - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs - 1,
+      },
+      {
+        model: "unknown-contract",
+        contract: "not-a-server-contract",
+        outcome: "accepted",
+        occurredAt: now - 10,
+      },
+    ];
+
+    hydrateModelContractSamples(samples, now);
+
+    expect(getModelContractAcceptanceWeight("persisted-accepted", contract, now)).toBe(4);
+    expect(getModelContractAcceptanceWeight("persisted-rejected", contract, now)).toBe(1);
+    expect(getModelContractAvailabilityWeight("persisted-empty", contract, now)).toBe(1);
+    expect(getModelContractAcceptanceRate("persisted-empty", contract, now)).toBeNull();
+    expect(getModelContractAcceptanceRate("stale", contract, now)).toBeNull();
+    expect(getModelContractAcceptanceRate(
+      "unknown-contract",
+      contract,
+      now,
+    )).toBeNull();
   });
 });

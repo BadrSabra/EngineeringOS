@@ -9,8 +9,8 @@
  */
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
-import { aiProviderCredentialsTable, eventsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { aiProviderCredentialsTable, aiUsageEventsTable, eventsTable } from "@workspace/db";
+import { eq, and, desc, gte, isNotNull } from "drizzle-orm";
 import {
   chat,
   buildProjectContext,
@@ -33,6 +33,9 @@ import {
   deriveOrientationSourceSelectionRecord,
   buildDeterministicProjectOrientationResponse,
   mergeReadStatus,
+  MODEL_CONTRACT_ACCEPTANCE_CONFIG,
+  MODEL_TASK_CONTRACTS,
+  hydrateModelContractSamples,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -350,6 +353,54 @@ export function applyOpenRouterFreeOnlyFallbackPolicy<T extends { provider: Prov
   return openRouterFreeOnly
     ? candidates.filter((candidate) => candidate.provider === "openrouter")
     : [...candidates];
+}
+
+let modelContractHistoryLoadPromise: Promise<void> | undefined;
+let modelContractHistoryPersistenceReady = false;
+
+async function ensureModelContractHistoryLoaded(): Promise<void> {
+  if (!modelContractHistoryLoadPromise) {
+    modelContractHistoryLoadPromise = (async () => {
+      try {
+        const now = new Date();
+        const cutoff = new Date(
+          now.getTime() - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs,
+        );
+        const rows = await db
+          .select({
+            model: aiUsageEventsTable.model,
+            contract: aiUsageEventsTable.modelTaskContract,
+            outcome: aiUsageEventsTable.modelTaskOutcome,
+            occurredAt: aiUsageEventsTable.occurredAt,
+          })
+          .from(aiUsageEventsTable)
+          .where(and(
+            eq(aiUsageEventsTable.provider, "openrouter"),
+            eq(
+              aiUsageEventsTable.modelTaskContract,
+              MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS,
+            ),
+            isNotNull(aiUsageEventsTable.model),
+            isNotNull(aiUsageEventsTable.modelTaskOutcome),
+            gte(aiUsageEventsTable.occurredAt, cutoff),
+            gte(aiUsageEventsTable.expiresAt, now),
+          ))
+          .orderBy(desc(aiUsageEventsTable.occurredAt))
+          .limit(MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract * 32);
+        hydrateModelContractSamples(rows);
+        modelContractHistoryPersistenceReady = true;
+      } catch (error) {
+        modelContractHistoryPersistenceReady = false;
+        logger.warn(
+          {
+            errorName: error instanceof Error ? error.name : "unknown",
+          },
+          "Durable model-contract history unavailable; using process-local scoring",
+        );
+      }
+    })();
+  }
+  await modelContractHistoryLoadPromise;
 }
 
 // ── Per-provider key resolution ───────────────────────────────────────────────
@@ -1069,6 +1120,7 @@ export async function chatWithFallback(
   if (typeof baseParams.onToolInvocation !== "function") {
     throw new Error("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
   }
+  await ensureModelContractHistoryLoaded();
   const executionLedger =
     baseParams.executionLedger ??
     createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
@@ -1366,6 +1418,36 @@ export async function chatWithFallback(
           provider,
         }: { provider: ProviderId; providerIndex: number; model?: string }) => {
           acceptedSynthesisProvider = provider;
+        },
+        onModelTaskSample: async ({
+          provider,
+          model,
+          contract,
+          outcome,
+          attemptId,
+          latencyMs,
+        }: {
+          provider: ProviderId;
+          model: string;
+          contract: (typeof MODEL_TASK_CONTRACTS)[keyof typeof MODEL_TASK_CONTRACTS];
+          outcome: "accepted" | "rejected" | "empty";
+          attemptId: string;
+          latencyMs: number;
+        }) => {
+          const context = baseParams.telemetryContext;
+          if (!modelContractHistoryPersistenceReady || !context) return;
+          await recordAiUsageAttempt(context, {
+            attemptId: `model-task:${attemptId}`,
+            operation: "project_query_no_tools_synthesis",
+            provider,
+            model,
+            outcome: outcome === "empty" ? "failure" : "success",
+            latencyMs,
+            usageStatus: "unknown",
+            modelTaskContract: contract,
+            modelTaskOutcome: outcome,
+            providerFailureKind: outcome === "empty" ? "EMPTY_RESPONSE" : null,
+          });
         },
         executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,

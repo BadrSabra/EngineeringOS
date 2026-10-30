@@ -10,6 +10,16 @@ export const MODEL_TASK_CONTRACTS = {
 export type ModelTaskContract =
   (typeof MODEL_TASK_CONTRACTS)[keyof typeof MODEL_TASK_CONTRACTS];
 
+export const MODEL_TASK_OUTCOMES = ["accepted", "rejected", "empty"] as const;
+export type ModelTaskOutcome = (typeof MODEL_TASK_OUTCOMES)[number];
+
+export type ModelContractHydrationSample = {
+  model: string | null;
+  contract: string | null;
+  outcome: string | null;
+  occurredAt: Date | number | string;
+};
+
 export const MODEL_CONTRACT_ACCEPTANCE_CONFIG = {
   windowMs: 24 * 60 * 60 * 1_000,
   minSamples: 5,
@@ -85,6 +95,56 @@ export function recordModelContractOutput(
     samples.splice(0, samples.length - MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract);
   }
   outputSamplesByKey.set(key, samples);
+}
+
+/**
+ * Hydrate advisory model-ranking samples from content-free durable telemetry.
+ * Only known contracts, exact outcomes, and recent timestamps are accepted.
+ */
+export function hydrateModelContractSamples(
+  samples: readonly ModelContractHydrationSample[],
+  now = Date.now(),
+): void {
+  const allowedContracts = new Set<string>(Object.values(MODEL_TASK_CONTRACTS));
+  const cutoff = now - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs;
+  const normalized = samples
+    .map((sample) => ({
+      ...sample,
+      model: sample.model?.trim() ?? "",
+      at: sample.occurredAt instanceof Date
+        ? sample.occurredAt.getTime()
+        : typeof sample.occurredAt === "number"
+          ? sample.occurredAt
+          : Date.parse(sample.occurredAt),
+    }))
+    .filter((sample) =>
+      sample.model.length > 0
+      && sample.contract !== null
+      && allowedContracts.has(sample.contract)
+      && Number.isFinite(sample.at)
+      && sample.at >= cutoff
+      && sample.at <= now
+      && (sample.outcome === "accepted"
+        || sample.outcome === "rejected"
+        || sample.outcome === "empty"),
+    )
+    .sort((left, right) => left.at - right.at);
+
+  for (const sample of normalized) {
+    const contract = sample.contract as ModelTaskContract;
+    const outcome = sample.outcome as ModelTaskOutcome;
+    if (outcome === "empty") {
+      recordModelContractOutput(sample.model, contract, "empty", sample.at);
+      continue;
+    }
+    recordModelContractOutput(sample.model, contract, "content", sample.at);
+    recordModelContractOutcome(
+      sample.model,
+      contract,
+      outcome,
+      sample.at,
+    );
+  }
 }
 
 /**
