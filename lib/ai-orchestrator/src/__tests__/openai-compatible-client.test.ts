@@ -32,13 +32,18 @@ import {
   getModelContractAvailabilityWeight,
   MODEL_TASK_CONTRACTS,
 } from "../openrouter/model-contract-acceptance.js";
-import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import {
+  getFreeModelLaneRotationPlan,
+  resolveFallbackChain,
+  resolveFallbackChainUnrotated,
+} from "../openrouter/model-resolver.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
 import {
   _resetCircuitsForTest,
   isModelCoolingDown,
 } from "../openrouter/circuit-breaker.js";
 import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import type { ModelLaneCursorPersistence } from "../openrouter/model-lane-cursor-store.js";
 import { _resetOpenRouterCredentialCooldownsForTest } from "../openrouter/credential-cooldown.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
@@ -374,6 +379,96 @@ describe("OpenRouter transport-error redaction", () => {
       expect(error.code).toBe("NETWORK_ERROR");
       expect(JSON.stringify(error.toProviderContext())).not.toContain(secret);
     });
+  });
+});
+
+describe("OpenRouter shared free-lane scheduling", () => {
+  it("rotates unpinned requests using the shared cursor adapter", async () => {
+    const resolveOptions = { capability: "chat" as const, quality: "fast" as const };
+    const baseline = resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
+    const slots: number[] = [];
+    const adapter: ModelLaneCursorPersistence = {
+      async reserveSlot(_cursorKey, _candidateSetHash, slotCount) {
+        const slot = slots.length % slotCount;
+        slots.push(slot);
+        return slot;
+      },
+    };
+    const requestedModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      requestedModels.push(String(body.model));
+      return jsonResponse({
+        choices: [{ message: { content: "completed" } }],
+        model: body.model,
+        usage: {},
+      });
+    }));
+
+    for (let request = 0; request < 2; request += 1) {
+      await openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        capability: "chat",
+        quality: "fast",
+        modelLaneCursorPersistence: adapter,
+      });
+    }
+
+    const expectedPlan = getFreeModelLaneRotationPlan(baseline, resolveOptions);
+    expect(expectedPlan).not.toBeNull();
+    expect(requestedModels).toEqual([
+      expectedPlan!.candidateIds[0],
+      expectedPlan!.candidateIds[1],
+    ]);
+    expect(new Set(requestedModels).size).toBe(2);
+    expect(slots).toEqual([0, 1]);
+  });
+
+  it("excludes actively cooling models before it reserves a lane slot", async () => {
+    const baseline = resolveFallbackChainUnrotated({
+      capability: "chat",
+      quality: "fast",
+    }).map((model) => model.id);
+    const coolingModel = baseline[0]!;
+    const eligible = baseline.filter((model) => model !== coolingModel);
+    const expectedPlan = getFreeModelLaneRotationPlan(eligible, {
+      capability: "chat",
+      quality: "fast",
+    });
+    let reservedSlotCount = 0;
+    const cursor: ModelLaneCursorPersistence = {
+      async reserveSlot(_cursorKey, _candidateSetHash, slotCount) {
+        reservedSlotCount = slotCount;
+        return 0;
+      },
+    };
+    const requestedModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      requestedModels.push(String(body.model));
+      return jsonResponse({
+        choices: [{ message: { content: "completed" } }],
+        model: body.model,
+        usage: {},
+      });
+    }));
+    const cooldowns = {
+      readActive: async () => [{ model: coolingModel, remainingMs: 30_000 }],
+      write: async () => undefined,
+      clear: async () => undefined,
+    };
+
+    await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      capability: "chat",
+      quality: "fast",
+      modelCooldownPersistence: cooldowns,
+      modelLaneCursorPersistence: cursor,
+    });
+
+    expect(expectedPlan).not.toBeNull();
+    expect(reservedSlotCount).toBe(expectedPlan!.candidateIds.length);
+    expect(requestedModels[0]).not.toBe(coolingModel);
   });
 });
 

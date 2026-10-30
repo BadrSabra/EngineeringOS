@@ -36,6 +36,7 @@ import {
   type ModelTaskContract,
 } from "./model-contract-acceptance.js";
 import type { TaskType } from "../quality/task-profile.js";
+import type { ModelLaneCursorScope } from "./model-lane-cursor-store.js";
 
 export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel };
 
@@ -137,12 +138,17 @@ export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
   console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
 }
 
-function rotatePreferredLaneGroup(
+type PreferredLaneRotation = {
+  groupEnd: number;
+  weights?: number[];
+  slotCount: number;
+};
+
+function preferredLaneRotation(
   models: OpenRouterFreeModel[],
   opts: ResolveModelOpts,
-): OpenRouterFreeModel[] {
-  if (models.length < 2) return models;
-
+): PreferredLaneRotation {
+  if (models.length < 2) return { groupEnd: models.length, slotCount: 1 };
   const first = models[0]!;
   const firstIsDemoted =
     opts.taskType === "task_execution" && isModelBehaviorallyDemoted(first.id);
@@ -154,19 +160,6 @@ function rotatePreferredLaneGroup(
     ),
   );
   const groupEnd = groupEndIndex < 0 ? models.length : groupEndIndex;
-  if (groupEnd < 2) return models;
-
-  const laneKey = JSON.stringify([
-    opts.capability,
-    opts.quality ?? "fast",
-    opts.requireTools ?? false,
-    opts.requireJson ?? false,
-    opts.requireStreaming ?? false,
-    opts.taskType ?? "default",
-    opts.taskContract ?? null,
-    first.quality,
-    firstIsDemoted,
-  ]);
   const preferredGroup = models.slice(0, groupEnd);
   const contractWeights = opts.taskContract
     ? preferredGroup.map((model) => {
@@ -178,12 +171,27 @@ function rotatePreferredLaneGroup(
       })
     : [];
   const hasContractEvidence = contractWeights.some((weight) => weight !== null);
-  if (opts.taskContract && hasContractEvidence) {
-    const weights = contractWeights.map((weight) => weight ?? 2);
-    const slots = weights.reduce((sum, weight) => sum + weight, 0);
-    const offset = (laneRotationCursors.get(laneKey) ?? 0) % slots;
+  const weights = opts.taskContract && hasContractEvidence
+    ? contractWeights.map((weight) => weight ?? 2)
+    : undefined;
+  const slotCount = weights
+    ? weights.reduce((sum, weight) => sum + weight, 0)
+    : groupEnd;
+  return { groupEnd, ...(weights ? { weights } : {}), slotCount };
+}
+
+function rotatePreferredLaneGroupAtSlot(
+  models: OpenRouterFreeModel[],
+  opts: ResolveModelOpts,
+  requestedSlot: number,
+): OpenRouterFreeModel[] {
+  const rotation = preferredLaneRotation(models, opts);
+  const { groupEnd, weights } = rotation;
+  if (groupEnd < 2 || rotation.slotCount < 1) return models;
+  const preferredGroup = models.slice(0, groupEnd);
+  const offset = ((requestedSlot % rotation.slotCount) + rotation.slotCount) % rotation.slotCount;
+  if (weights) {
     const selectedIndex = selectWeightedModelIndex(weights, offset);
-    laneRotationCursors.set(laneKey, (offset + 1) % slots);
     const remaining = preferredGroup
       .map((model, index) => ({ model, index }))
       .filter(({ index }) => index !== selectedIndex)
@@ -192,23 +200,95 @@ function rotatePreferredLaneGroup(
         || a.index - b.index,
       )
       .map(({ model }) => model);
-    // The weighted slot chooses the primary lane; remaining candidates stay
-    // available as ordered fallbacks under the existing request policy.
     return [
       preferredGroup[selectedIndex]!,
       ...remaining,
       ...models.slice(groupEnd),
     ];
   }
-
-  const offset = (laneRotationCursors.get(laneKey) ?? 0) % groupEnd;
-  laneRotationCursors.set(laneKey, (offset + 1) % groupEnd);
-
   return [
     ...preferredGroup.slice(offset),
     ...preferredGroup.slice(0, offset),
     ...models.slice(groupEnd),
   ];
+}
+
+function rotatePreferredLaneGroup(
+  models: OpenRouterFreeModel[],
+  opts: ResolveModelOpts,
+): OpenRouterFreeModel[] {
+  const rotation = preferredLaneRotation(models, opts);
+  if (rotation.groupEnd < 2 || rotation.slotCount < 2) return models;
+  const first = models[0]!;
+  const firstIsDemoted =
+    opts.taskType === "task_execution" && isModelBehaviorallyDemoted(first.id);
+  const laneKey = JSON.stringify([
+    opts.capability,
+    opts.quality ?? "fast",
+    opts.requireTools ?? false,
+    opts.requireJson ?? false,
+    opts.requireStreaming ?? false,
+    opts.taskType ?? "default",
+    opts.taskContract ?? null,
+    first.quality,
+    firstIsDemoted,
+  ]);
+  const offset = laneRotationCursors.get(laneKey) ?? 0;
+  laneRotationCursors.set(laneKey, (offset + 1) % rotation.slotCount);
+  return rotatePreferredLaneGroupAtSlot(models, opts, offset);
+}
+
+export type FreeModelLaneRotationPlan = {
+  scope: ModelLaneCursorScope;
+  candidateIds: string[];
+  weights: number[];
+};
+
+/**
+ * Describe only the highest-preference eligible group after cooldown filtering.
+ * The shared cursor uses this server-owned metadata; prompts and project data
+ * are deliberately not part of the scheduling identity.
+ */
+export function getFreeModelLaneRotationPlan(
+  modelIds: readonly string[],
+  opts: ResolveModelOpts,
+): FreeModelLaneRotationPlan | null {
+  const models = modelIds.map((id) => FREE_MODELS.find((candidate) => candidate.id === id));
+  if (models.length < 2 || models.some((model) => !model)) return null;
+  const eligibleModels = models as OpenRouterFreeModel[];
+  const rotation = preferredLaneRotation(eligibleModels, opts);
+  if (rotation.groupEnd < 2 || rotation.slotCount < 2) return null;
+  const preferred = eligibleModels.slice(0, rotation.groupEnd);
+  const first = preferred[0]!;
+  return {
+    scope: {
+      capability: opts.capability,
+      quality: opts.quality ?? "fast",
+      requireTools: opts.requireTools ?? false,
+      requireJson: opts.requireJson ?? false,
+      requireStreaming: opts.requireStreaming ?? false,
+      taskType: opts.taskType ?? "default",
+      taskContract: opts.taskContract ?? null,
+      preferredQuality: first.quality,
+      behaviorallyDemoted:
+        opts.taskType === "task_execution" && isModelBehaviorallyDemoted(first.id),
+      policyVersion: 1,
+    },
+    candidateIds: preferred.map((model) => model.id),
+    weights: rotation.weights ?? preferred.map(() => 1),
+  };
+}
+
+/** Apply one shared cursor slot to an already catalog- and cooldown-filtered chain. */
+export function rotateFreeModelFallbackChainAtSlot(
+  modelIds: readonly string[],
+  opts: ResolveModelOpts,
+  slot: number,
+): string[] {
+  const models = modelIds.map((id) => FREE_MODELS.find((candidate) => candidate.id === id));
+  if (models.some((model) => !model)) return [...modelIds];
+  return rotatePreferredLaneGroupAtSlot(models as OpenRouterFreeModel[], opts, slot)
+    .map((model) => model.id);
 }
 
 /** Test seam for deterministic free-lane selection tests. */
@@ -248,7 +328,10 @@ function partitionByLiveCatalog(
  * New unpinned requests rotate across the first equally-ranked free-model lane
  * group. Explicitly pinned model IDs remain pinned by their caller.
  */
-export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
+function buildFallbackChain(
+  opts: ResolveModelOpts,
+  rotateLocally: boolean,
+): ResolvedModel[] {
   const {
     capability,
     quality = "fast",
@@ -302,7 +385,9 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
     return aDemoted - bDemoted;
   });
 
-  const scheduledPool = rotatePreferredLaneGroup(effectivePool, opts);
+  const scheduledPool = rotateLocally
+    ? rotatePreferredLaneGroup(effectivePool, opts)
+    : effectivePool;
   const chain = scheduledPool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
 
   // Compute stale list for trace.
@@ -327,6 +412,15 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   );
 
   return chain;
+}
+
+export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
+  return buildFallbackChain(opts, true);
+}
+
+/** Stable catalog/capability ordering for callers that schedule after cooldown filtering. */
+export function resolveFallbackChainUnrotated(opts: ResolveModelOpts): ResolvedModel[] {
+  return buildFallbackChain(opts, false);
 }
 
 /**

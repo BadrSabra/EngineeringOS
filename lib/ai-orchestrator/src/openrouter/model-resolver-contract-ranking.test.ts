@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveFallbackChain, _resetModelLaneSchedulerForTest } from "./model-resolver.js";
+import {
+  getFreeModelLaneRotationPlan,
+  resolveFallbackChain,
+  resolveFallbackChainUnrotated,
+  rotateFreeModelFallbackChainAtSlot,
+  _resetModelLaneSchedulerForTest,
+} from "./model-resolver.js";
 import {
   _resetModelContractAcceptanceForTest,
   MODEL_TASK_CONTRACTS,
@@ -46,5 +52,26 @@ describe("contract-aware free-model resolver", () => {
     expect(scheduled.every((chain) => chain.includes(rejectedModel))).toBe(true);
     expect(scheduled.every((chain) => chain.some((model) => ![acceptedModel, rejectedModel].includes(model))))
       .toBe(true);
+  });
+
+  it("rotates only the preferred models that remain eligible after cooldown filtering", () => {
+    const options = { capability: "chat" as const, quality: "fast" as const };
+    const unrotated = resolveFallbackChainUnrotated(options).map((model) => model.id);
+    expect(unrotated.length).toBeGreaterThan(2);
+    const coolingModel = unrotated[0]!;
+    const eligible = unrotated.filter((model) => model !== coolingModel);
+    const plan = getFreeModelLaneRotationPlan(eligible, options);
+
+    expect(plan).not.toBeNull();
+    expect(plan!.candidateIds).not.toContain(coolingModel);
+    expect(plan!.scope).not.toHaveProperty("prompt");
+
+    const first = rotateFreeModelFallbackChainAtSlot(eligible, options, 0);
+    const second = rotateFreeModelFallbackChainAtSlot(eligible, options, 1);
+    expect(first[0]).not.toBe(coolingModel);
+    expect(second[0]).not.toBe(coolingModel);
+    expect(first[0]).not.toBe(second[0]);
+    expect(first).toHaveLength(eligible.length);
+    expect(new Set(first)).toEqual(new Set(eligible));
   });
 });

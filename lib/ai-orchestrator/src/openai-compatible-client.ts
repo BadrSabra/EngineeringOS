@@ -27,10 +27,13 @@ import {
 } from "./errors.js";
 import {
   buildFallbackChainFromId,
+  getFreeModelLaneRotationPlan,
   isCatalogFreeModelForCapability,
   isCatalogPaidModelForCapability,
   resolvePaidFallbackChain,
-  resolveFallbackChain,
+  resolveFallbackChainUnrotated,
+  rotateFreeModelFallbackChainAtSlot,
+  type ResolveModelOpts,
 } from "./openrouter/model-resolver.js";
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
@@ -44,6 +47,10 @@ import {
   readModelCooldowns,
   type ModelCooldownPersistence,
 } from "./openrouter/model-cooldown-store.js";
+import {
+  reserveOpenRouterLaneSlot,
+  type ModelLaneCursorPersistence,
+} from "./openrouter/model-lane-cursor-store.js";
 import {
   assertOpenRouterCredentialAvailable,
   recordOpenRouterCredentialCooldown,
@@ -142,6 +149,9 @@ export type OpenAICompatibleStreamOptions = Omit<
 > & {
   quality?: "fast" | "powerful";
   capability?: ModelCapability;
+  /** Optional isolated-test adapters; product calls use shared PostgreSQL stores. */
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  modelLaneCursorPersistence?: ModelLaneCursorPersistence;
 };
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -1750,6 +1760,8 @@ export type OpenRouterFallbackOptions = Omit<
    * Product requests leave these unset to use durable shared PostgreSQL state.
    */
   modelCooldownPersistence?: ModelCooldownPersistence;
+  /** Optional isolated-test adapter; product requests use the shared PostgreSQL cursor. */
+  modelLaneCursorPersistence?: ModelLaneCursorPersistence;
   credentialCooldownPersistence?: CredentialCooldownPersistence;
   /** Reports the one bounded free-to-paid transition, without provider content. */
   onProviderFallback?: (event: {
@@ -1759,6 +1771,34 @@ export type OpenRouterFallbackOptions = Omit<
     tier: "paid";
   }) => void | Promise<void>;
 };
+
+async function scheduleOpenRouterFreeLane(
+  eligibleChain: string[],
+  resolveOptions: ResolveModelOpts,
+  persistence?: ModelLaneCursorPersistence,
+): Promise<string[]> {
+  const plan = getFreeModelLaneRotationPlan(eligibleChain, resolveOptions);
+  if (!plan) return eligibleChain;
+  const slot = await reserveOpenRouterLaneSlot(
+    plan.scope,
+    plan.candidateIds,
+    plan.weights,
+    persistence,
+  );
+  const scheduled = rotateFreeModelFallbackChainAtSlot(
+    eligibleChain,
+    resolveOptions,
+    slot,
+  );
+  console.info(JSON.stringify({
+    scope: "openrouter-fallback",
+    code: "SHARED_FREE_LANE_RESERVED",
+    selectedModel: scheduled[0] ?? null,
+    candidateCount: plan.candidateIds.length,
+    slot,
+  }));
+  return scheduled;
+}
 
 /**
  * Non-streaming completion via OpenRouter with automatic free-model fallback
@@ -1805,15 +1845,18 @@ export async function openrouterCompleteWithFallback(
   // A fixed task contract makes this a server-owned adaptive lane selection:
   // `initialModel` remains a validated hint, while the exact free lane order
   // comes from that contract's accepted/rejected outcome history.
-  const resolvedChain = initialModel && !opts.taskContract
-    ? buildFallbackChainFromId(initialModel, opts.taskType, { capability, requireTools })
-    : resolveFallbackChain({
-        capability,
-        quality:    opts.quality    ?? "fast",
-        requireTools,
-        taskType: opts.taskType,
-        taskContract: opts.taskContract,
-      }).map((m) => m.id);
+  const resolveOptions: ResolveModelOpts = {
+    capability,
+    quality: opts.quality ?? "fast",
+    requireTools,
+    requireJson: Boolean(opts.responseFormat),
+    taskType: opts.taskType,
+    taskContract: opts.taskContract,
+  };
+  const isPinnedRequest = Boolean(initialModel && !opts.taskContract);
+  const resolvedChain = isPinnedRequest
+    ? buildFallbackChainFromId(initialModel!, opts.taskType, { capability, requireTools })
+    : resolveFallbackChainUnrotated(resolveOptions).map((m) => m.id);
   if (initialModel && resolvedChain.length === 0) {
     const catalog = getDynamicCatalogStatus();
     throw new GroqClientError(
@@ -1849,7 +1892,7 @@ export async function openrouterCompleteWithFallback(
   const coolingModels = resolvedChain.filter((model) =>
     !excludedModels.has(model) && modelCooldowns.has(model),
   );
-  const eligibleChain = resolvedChain.filter((model) =>
+  let eligibleChain = resolvedChain.filter((model) =>
     !excludedModels.has(model) && !modelCooldowns.has(model),
   );
   if (coolingModels.length > 0) {
@@ -1875,6 +1918,13 @@ export async function openrouterCompleteWithFallback(
           providerAttemptedModels: coolingModels,
         },
       },
+    );
+  }
+  if (!isPinnedRequest && eligibleChain.length > 1) {
+    eligibleChain = await scheduleOpenRouterFreeLane(
+      eligibleChain,
+      resolveOptions,
+      opts.modelLaneCursorPersistence,
     );
   }
   let chain = maxFallbackModels
@@ -2113,19 +2163,29 @@ export async function* openrouterCompleteStream(
       { context: { providerName: "OpenRouter", providerModel: initialModel } },
     );
   }
-  const resolved = initialModel
-    ? buildFallbackChainFromId(initialModel, opts.taskType, capability ? { capability } : {})
-    : resolveFallbackChain({
-        capability: capability ?? "chat",
-        quality: opts.quality ?? "fast",
-      }).map((model) => model.id);
+  const resolveOptions: ResolveModelOpts = {
+    capability: capability ?? "chat",
+    quality: opts.quality ?? "fast",
+    requireTools: false,
+    requireJson: false,
+    requireStreaming: true,
+    taskType: opts.taskType,
+  };
+  const isPinnedRequest = Boolean(initialModel);
+  const resolved = isPinnedRequest
+    ? buildFallbackChainFromId(initialModel!, opts.taskType, capability ? { capability } : {})
+    : resolveFallbackChainUnrotated(resolveOptions).map((model) => model.id);
   const maxFallbackModels =
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
       ? opts.maxFallbackModels
       : undefined;
-  const modelCooldowns = await readModelCooldowns("openrouter", resolved);
+  const modelCooldowns = await readModelCooldowns(
+    "openrouter",
+    resolved,
+    opts.modelCooldownPersistence,
+  );
   const coolingModels = resolved.filter((model) => modelCooldowns.has(model));
-  const eligibleModels = resolved.filter((model) => !modelCooldowns.has(model));
+  let eligibleModels = resolved.filter((model) => !modelCooldowns.has(model));
   if (coolingModels.length > 0) {
     console.info(JSON.stringify({
       scope: "openrouter-fallback",
@@ -2149,6 +2209,13 @@ export async function* openrouterCompleteStream(
           providerAttemptedModels: coolingModels,
         },
       },
+    );
+  }
+  if (!isPinnedRequest && eligibleModels.length > 1) {
+    eligibleModels = await scheduleOpenRouterFreeLane(
+      eligibleModels,
+      resolveOptions,
+      opts.modelLaneCursorPersistence,
     );
   }
   const chain = maxFallbackModels

@@ -142,6 +142,7 @@ function completeSnapshot() {
       columnName === "retry_count"
       || columnName === "attempts"
       || columnName === "read_metadata_version"
+      || (tableName === "openrouter_lane_cursors" && columnName === "next_slot")
     ) return "0";
     if (columnName === "max_retries") return "3";
     if (columnName === "relevance") return "1.0";
@@ -198,6 +199,8 @@ function completeSnapshot() {
     primaryKeys: Object.keys(APPLICATION_SCHEMA_CONTRACT.tables).flatMap(
       (table_name) => table_name === "openrouter_model_cooldowns"
         ? ["provider", "model"].map((column_name) => ({ table_name, column_name }))
+        : table_name === "openrouter_lane_cursors"
+          ? ["cursor_key", "candidate_set_hash"].map((column_name) => ({ table_name, column_name }))
         : table_name === "openrouter_credential_cooldowns"
           ? ["credential_fingerprint"].map((column_name) => ({ table_name, column_name }))
         : table_name === "ai_general_chat_rate_limits"
