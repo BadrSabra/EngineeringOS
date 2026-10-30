@@ -3,6 +3,10 @@
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import process from "node:process";
+import {
+  summarizeCampaignChildFailure,
+  validateAndSummarizeCampaignReceipt,
+} from "./live-provider-review-receipt.mjs";
 
 const scenarios = new Set([
   "reasoning-only",
@@ -105,6 +109,28 @@ const child = spawn(
 
 const timeoutMs = Number(process.env.LIVE_REVIEW_TIMEOUT_MS ?? 300_000);
 let timedOut = false;
+async function readReceiptForFailure() {
+  try {
+    const receipt = JSON.parse(await readFile(process.env.LIVE_REVIEW_OUTPUT_PATH, "utf8"));
+    validateAndSummarizeCampaignReceipt(receipt);
+    return { receiptStatus: "validated", receipt };
+  } catch (error) {
+    return {
+      receiptStatus: error?.code === "ENOENT" ? "missing" : "invalid",
+    };
+  }
+}
+
+async function reportChildFailure({ code, signal }) {
+  const receiptResult = await readReceiptForFailure();
+  const summary = summarizeCampaignChildFailure({
+    code,
+    signal,
+    ...receiptResult,
+  });
+  console.error(JSON.stringify(summary));
+}
+
 const timeout = setTimeout(() => {
   timedOut = true;
   child.kill("SIGTERM");
@@ -113,56 +139,32 @@ const timeout = setTimeout(() => {
 
 child.on("error", (error) => {
   clearTimeout(timeout);
-  console.error(`Live provider review campaign could not start: ${error.name}.`);
+  void reportChildFailure({ code: null, signal: null });
   process.exitCode = 1;
 });
 
 child.on("exit", async (code, signal) => {
   clearTimeout(timeout);
   if (timedOut) {
-    console.error(`Live provider review campaign timed out after ${timeoutMs}ms.`);
+    await reportChildFailure({ code: null, signal: "SIGTERM" });
     process.exitCode = 1;
     return;
   }
   if (signal || code !== 0) {
-    console.error(`Live provider review campaign failed (${signal ?? `exit ${code ?? "unknown"}`}).`);
+    await reportChildFailure({ code, signal });
     process.exitCode = code ?? 1;
     return;
   }
 
   try {
     const receipt = JSON.parse(await readFile(process.env.LIVE_REVIEW_OUTPUT_PATH, "utf8"));
-    const serialized = JSON.stringify(receipt);
-    const forbidden = ["raw", "prompt", "apiKey", "secret", "providerMessage", "provider body", "source"];
-    if (forbidden.some((term) => serialized.toLowerCase().includes(term.toLowerCase()))) {
-      throw new Error("receipt contains a forbidden provider/source field");
-    }
-    if (
-      receipt.outcomeClass === "fallback-success" &&
-      (receipt.terminalStatus !== "COMPLETE" || !Array.isArray(receipt.evidence) || receipt.evidence.length !== 1)
-    ) {
-      throw new Error("fallback success receipt is missing its cited finding");
-    }
-    if (
-      receipt.outcomeClass === "terminal-incomplete" &&
-      (receipt.terminalStatus !== "INCOMPLETE" || !Array.isArray(receipt.evidence) || receipt.evidence.length !== 0)
-    ) {
-      throw new Error("terminal incomplete receipt contains success evidence");
-    }
-    console.log(JSON.stringify({
-      kind: receipt.kind,
-      scenario: receipt.scenario,
-      outcome: receipt.outcomeClass,
-      terminal: receipt.terminalStatus,
-      evidenceCount: receipt.evidence.length,
-      failureCode: receipt.failureCode ?? null,
-      rateLimitScope: receipt.rateLimitScope ?? null,
-      failureModel: receipt.failureModel ?? null,
-      modelAttempts: receipt.modelAttempts,
-    }));
+    console.log(JSON.stringify(validateAndSummarizeCampaignReceipt(receipt)));
     process.exitCode = 0;
-  } catch (error) {
-    console.error(`Live provider review receipt failed validation: ${error.message}.`);
+  } catch {
+    console.error(JSON.stringify({
+      kind: "live-provider-review-campaign",
+      status: "receipt_invalid",
+    }));
     process.exitCode = 1;
   }
 });
