@@ -1976,6 +1976,34 @@ describe('AiChat authenticated generated mutations', () => {
     );
   });
 
+  it('shows an empty provider response as malformed without exposing upstream diagnostics', async () => {
+    const privateProviderDetail = 'private-empty-provider-response';
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const composer = screen.getByTestId('input-ai-chat-composer');
+    fireEvent.change(composer, { target: { value: 'Continue the request' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(mocks.streamCallbacks).toBeDefined());
+
+    act(() => {
+      (mocks.streamCallbacks as { onError?: (event: Record<string, unknown>) => void }).onError?.({
+        type: 'error',
+        code: 'EMPTY_RESPONSE',
+        message: privateProviderDetail,
+        outcome: 'FAILED',
+        failureKind: 'INCOMPLETE',
+        providerFailureCategory: 'MALFORMED_RESPONSE',
+        retryable: false,
+        recoveryState: 'INCOMPLETE',
+      });
+    });
+
+    expect(await screen.findByText('صيغة رد المزود غير صالحة')).toBeInTheDocument();
+    expect(screen.getByText(/أعاد المزود ردًا بصيغة غير صالحة/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(privateProviderDetail);
+  });
+
   it('shows a retained partial provider response and incomplete execution diagnostic for generic chat', async () => {
     const partialAnswer = 'The provider began reviewing the request before disconnecting.';
     mocks.serverProposal = { changes: [] };

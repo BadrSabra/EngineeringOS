@@ -22,6 +22,7 @@ import request from "supertest";
 import { z } from "zod";
 import {
   RepairPlanMetadataSchema,
+  GroqClientError,
   type AgentStep,
   type EvidenceReference,
   buildProjectContext,
@@ -1425,6 +1426,96 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     const assistant = dbFixture.messages.find((message) => message.role === "assistant");
     expect(assistant?.outcome).toBe("FAILED");
     expect(assistant?.errorCode).toBe("UNKNOWN");
+  });
+
+  it("projects an OpenRouter 429 as a terminal failed turn without inventing Retry-After", async () => {
+    const privateProviderDetail = "private-upstream-rate-limit-detail";
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-key",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", privateProviderDetail, {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: "liquid/lfm-2.5-2.6b:free",
+          providerStatus: 429,
+          rateLimitScope: "unknown",
+        },
+      }));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    expect(errorFrame).toMatchObject({
+      type: "error",
+      code: "RATE_LIMITED",
+      outcome: "FAILED",
+      providerFailureCategory: "RATE_LIMITED",
+      rateLimitScope: "unknown",
+      retryable: true,
+    });
+    expect(errorFrame).not.toHaveProperty("retryAfterMs");
+    expect(res.text).not.toContain(privateProviderDetail);
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
+    expect(frames.some((frame) => frame.type === "done")).toBe(false);
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    expect(dbFixture.execution.status).toBe("failed");
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    expect(assistant).toMatchObject({ outcome: "FAILED", errorCode: "RATE_LIMITED" });
+    expect(String(assistant?.content)).not.toContain(privateProviderDetail);
+  });
+
+  it("projects EMPTY_RESPONSE as failure instead of accepting an empty assistant result", async () => {
+    const privateProviderDetail = "private-empty-provider-response";
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-key",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("EMPTY_RESPONSE", privateProviderDetail));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    expect(errorFrame).toMatchObject({
+      type: "error",
+      code: "EMPTY_RESPONSE",
+      outcome: "FAILED",
+      providerFailureCategory: "MALFORMED_RESPONSE",
+    });
+    expect(res.text).not.toContain(privateProviderDetail);
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
+    expect(frames.some((frame) => frame.type === "done")).toBe(false);
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    expect(dbFixture.execution.status).toBe("failed");
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    expect(assistant).toMatchObject({ outcome: "FAILED", errorCode: "EMPTY_RESPONSE" });
+    expect(String(assistant?.content)).not.toContain(privateProviderDetail);
   });
 
   it("keeps ordinary chat provider failures non-resumable and without forensic evidence", async () => {
