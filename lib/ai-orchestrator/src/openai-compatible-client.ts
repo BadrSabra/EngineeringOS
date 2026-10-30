@@ -42,10 +42,12 @@ import {
   clearSharedPoolModelCooldown,
   persistSharedPoolModelCooldown,
   readModelCooldowns,
+  type ModelCooldownPersistence,
 } from "./openrouter/model-cooldown-store.js";
 import {
   assertOpenRouterCredentialAvailable,
   recordOpenRouterCredentialCooldown,
+  type CredentialCooldownPersistence,
 } from "./openrouter/credential-cooldown.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
@@ -1743,6 +1745,12 @@ export type OpenRouterFallbackOptions = Omit<
   requireTools?: boolean;
   /** Paid fallback is opt-in through server policy and never part of free resolution. */
   allowPaidFallback?: boolean;
+  /**
+   * Optional cooldown-store adapters used by isolated provider probes.
+   * Product requests leave these unset to use durable shared PostgreSQL state.
+   */
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  credentialCooldownPersistence?: CredentialCooldownPersistence;
   /** Reports the one bounded free-to-paid transition, without provider content. */
   onProviderFallback?: (event: {
     fromModel: string;
@@ -1768,7 +1776,7 @@ export async function openrouterCompleteWithFallback(
   messages: RawMessage[],
   opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
-  await assertOpenRouterCredentialAvailable(opts.apiKey);
+  await assertOpenRouterCredentialAvailable(opts.apiKey, opts.credentialCooldownPersistence);
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
@@ -1833,7 +1841,11 @@ export async function openrouterCompleteWithFallback(
       .map((model) => model.trim())
       .filter(Boolean),
   );
-  const modelCooldowns = await readModelCooldowns("openrouter", resolvedChain);
+  const modelCooldowns = await readModelCooldowns(
+    "openrouter",
+    resolvedChain,
+    opts.modelCooldownPersistence,
+  );
   const coolingModels = resolvedChain.filter((model) =>
     !excludedModels.has(model) && modelCooldowns.has(model),
   );
@@ -1947,7 +1959,11 @@ export async function openrouterCompleteWithFallback(
         recordModelContractOutput(model, opts.taskContract, "content");
       }
       recordModelSuccess("openrouter", model);
-      await clearSharedPoolModelCooldown("openrouter", model);
+      await clearSharedPoolModelCooldown(
+        "openrouter",
+        model,
+        opts.modelCooldownPersistence,
+      );
       return response;
     } catch (err) {
       if (
@@ -1967,7 +1983,11 @@ export async function openrouterCompleteWithFallback(
       if (providerScopedRateLimit) {
         const providerRateLimitScope =
           err instanceof GroqClientError ? err.rateLimitScope : undefined;
-        await recordOpenRouterCredentialCooldown(opts.apiKey, err);
+        await recordOpenRouterCredentialCooldown(
+          opts.apiKey,
+          err,
+          opts.credentialCooldownPersistence,
+        );
         const shouldCoolFailedModel =
           providerRateLimitScope !== "provider_credential" &&
           providerRateLimitScope !== "account_quota";
@@ -1982,6 +2002,7 @@ export async function openrouterCompleteWithFallback(
               "openrouter",
               model,
               err instanceof GroqClientError ? err.retryAfterMs : undefined,
+              opts.modelCooldownPersistence,
             );
           }
         }

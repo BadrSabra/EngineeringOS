@@ -131,6 +131,7 @@ function sweepExpired(now: number): void {
 export async function recordOpenRouterCredentialCooldown(
   apiKey: string | undefined,
   error: unknown,
+  persistenceOverride?: CredentialCooldownPersistence,
 ): Promise<void> {
   if (
     !apiKey ||
@@ -169,7 +170,7 @@ export async function recordOpenRouterCredentialCooldown(
     return;
   }
   try {
-    await persistence.write(persistentFingerprint, cooldown);
+    await (persistenceOverride ?? persistence).write(persistentFingerprint, cooldown);
   } catch {
     logPersistenceUnavailable("write");
   }
@@ -182,6 +183,7 @@ export async function recordOpenRouterCredentialCooldown(
  */
 export async function assertOpenRouterCredentialAvailable(
   apiKey: string | undefined,
+  persistenceOverride?: CredentialCooldownPersistence,
 ): Promise<void> {
   if (!apiKey) return;
   const now = Date.now();
@@ -194,7 +196,7 @@ export async function assertOpenRouterCredentialAvailable(
     logPersistenceUnavailable("read", "encryption_key_unavailable");
   } else {
     try {
-      const persisted = await persistence.readActive(persistentFingerprint);
+      const persisted = await (persistenceOverride ?? persistence).readActive(persistentFingerprint);
       if (
         persisted &&
         persisted.remainingMs > 0 &&

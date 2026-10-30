@@ -15,6 +15,8 @@ import type { ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionLedger } from "./execution-ledger.js";
 import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
+import type { ModelCooldownPersistence } from "./openrouter/model-cooldown-store.js";
+import type { CredentialCooldownPersistence } from "./openrouter/credential-cooldown.js";
 
 export type { RawMessage, ToolDefinition, RawGroqResponse };
 
@@ -48,6 +50,12 @@ export type StrategyCallOptions = {
    * Used by bounded forensic Recovery; ordinary calls leave it unset.
    */
   maxFallbackModels?: number;
+  /**
+   * Optional isolated-probe adapters. Product calls leave these unset and use
+   * the shared PostgreSQL cooldown stores.
+   */
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  credentialCooldownPersistence?: CredentialCooldownPersistence;
   /** Models already rejected by this request phase and not safe to retry. */
   excludeModels?: string[];
   /** Request phase used for provider-attempt attribution. */

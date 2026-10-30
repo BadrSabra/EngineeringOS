@@ -39,6 +39,8 @@ function dependencies({
   refresh = async () => {},
   status = { usable: true, lastRefreshStatus: "success" },
   probe = async () => ({ status: "usable", model: "fixture/fast-a:free" }),
+  modelCooldownPersistence,
+  credentialCooldownPersistence,
 } = {}) {
   return {
     FREE_MODELS: MODELS,
@@ -47,6 +49,8 @@ function dependencies({
     getDynamicModelIds: () => new Set(liveIds),
     resolveFallbackChain: () => chain,
     probeProviderHealth: probe,
+    modelCooldownPersistence,
+    credentialCooldownPersistence,
   };
 }
 
@@ -351,6 +355,38 @@ test("a rate limit stops the smoke before it probes another free model", async (
   assert.equal(result.maxAttempts, 4);
   assert.equal(result.failureCategory, "rate-limit");
   assert.equal(result.retryAfterMs, 1_000);
+});
+
+test("the smoke passes isolated cooldown stores to its health probe", async () => {
+  const modelCooldownPersistence = {
+    readActive: async () => [],
+    write: async () => {},
+    clear: async () => {},
+  };
+  const credentialCooldownPersistence = {
+    readActive: async () => null,
+    write: async () => {},
+  };
+  let probeOptions;
+
+  await runOpenRouterFreeSmoke({
+    apiKey: "fixture-key",
+    maxAttempts: 1,
+    dependencies: dependencies({
+      modelCooldownPersistence,
+      credentialCooldownPersistence,
+      probe: async (options) => {
+        probeOptions = options;
+        return {
+          status: "unavailable",
+          report: { failureCategory: "rate-limit" },
+        };
+      },
+    }),
+  });
+
+  assert.equal(probeOptions.modelCooldownPersistence, modelCooldownPersistence);
+  assert.equal(probeOptions.credentialCooldownPersistence, credentialCooldownPersistence);
 });
 
 test("explicit model selection uses only a live, tool-capable free model", async () => {

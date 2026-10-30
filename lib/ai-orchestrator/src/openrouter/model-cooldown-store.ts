@@ -83,6 +83,7 @@ function logPersistenceUnavailable(operation: "read" | "write" | "clear"): void 
 export async function readModelCooldowns(
   provider: string,
   models: string[],
+  persistenceOverride?: ModelCooldownPersistence,
 ): Promise<Map<string, number>> {
   const cooldowns = new Map<string, number>();
   const uniqueModels = [...new Set(models)];
@@ -97,7 +98,7 @@ export async function readModelCooldowns(
   if (unresolvedModels.length === 0) return cooldowns;
 
   try {
-    const persisted = await persistence.readActive(provider, unresolvedModels);
+    const persisted = await (persistenceOverride ?? persistence).readActive(provider, unresolvedModels);
     for (const entry of persisted) {
       if (!unresolvedModels.includes(entry.model) || entry.remainingMs <= 0) continue;
       const remainingMs = Math.floor(entry.remainingMs);
@@ -120,12 +121,13 @@ export async function persistSharedPoolModelCooldown(
   provider: string,
   model: string,
   retryAfterMs?: number,
+  persistenceOverride?: ModelCooldownPersistence,
 ): Promise<void> {
   try {
     if (!Number.isFinite(retryAfterMs) || retryAfterMs! <= 0) return;
     const providerRetryAfter = Math.floor(retryAfterMs!);
     if (providerRetryAfter <= 0) return;
-    await persistence.write(provider, model, providerRetryAfter);
+    await (persistenceOverride ?? persistence).write(provider, model, providerRetryAfter);
   } catch {
     logPersistenceUnavailable("write");
   }
@@ -139,9 +141,10 @@ export async function persistSharedPoolModelCooldown(
 export async function clearSharedPoolModelCooldown(
   provider: string,
   model: string,
+  persistenceOverride?: ModelCooldownPersistence,
 ): Promise<void> {
   try {
-    await persistence.clear(provider, model);
+    await (persistenceOverride ?? persistence).clear(provider, model);
   } catch {
     logPersistenceUnavailable("clear");
   }

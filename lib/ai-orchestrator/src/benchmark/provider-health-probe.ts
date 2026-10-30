@@ -6,6 +6,8 @@ import {
 } from "../errors.js";
 import { getProvider, getStrategy, type ProviderId } from "../provider-registry.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
+import type { ModelCooldownPersistence } from "../openrouter/model-cooldown-store.js";
+import type { CredentialCooldownPersistence } from "../openrouter/credential-cooldown.js";
 import type { OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type {
   ProviderStrategy,
@@ -112,6 +114,9 @@ export type ProviderHealthProbeOptions = {
   executionLedger?: ExecutionLedger;
   /** Test seam; production uses the registered provider strategy. */
   strategy?: ProviderStrategy;
+  /** Isolated probes may provide local stores instead of touching shared DB state. */
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  credentialCooldownPersistence?: CredentialCooldownPersistence;
 };
 
 const CAPABILITY_READ_TOOL_NAMES = new Set([
@@ -541,6 +546,12 @@ export async function probeProviderHealth(
     tools: [PROBE_TOOL, ...(options.additionalTools ?? [])],
     signal: options.signal,
     executionLedger: options.executionLedger,
+    ...(options.modelCooldownPersistence
+      ? { modelCooldownPersistence: options.modelCooldownPersistence }
+      : {}),
+    ...(options.credentialCooldownPersistence
+      ? { credentialCooldownPersistence: options.credentialCooldownPersistence }
+      : {}),
     ...(options.requireJsonMode
       ? { responseFormat: { type: "json_object" as const } }
       : {}),

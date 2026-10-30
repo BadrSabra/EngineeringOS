@@ -12,6 +12,15 @@ const MAX_ATTEMPTS = 4;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT_MS = 12_000;
 const MAX_TIMEOUT_MS = 15_000;
+const isolatedModelCooldownPersistence = Object.freeze({
+  readActive: async () => [],
+  write: async () => {},
+  clear: async () => {},
+});
+const isolatedCredentialCooldownPersistence = Object.freeze({
+  readActive: async () => null,
+  write: async () => {},
+});
 const SAFE_CATALOG_STATUSES = new Set(["never", "success", "failed", "empty"]);
 const SAFE_CATALOG_FAILURES = new Set([
   "timeout",
@@ -296,6 +305,13 @@ export async function runOpenRouterFreeSmoke({
             apiKey,
             model,
             timeoutMs: options.timeoutMs,
+            // This standalone diagnostic must not read or mutate the app's
+            // shared cooldown tables. The provider call still records local
+            // in-process circuit state and reports the exact rate-limit result.
+            modelCooldownPersistence:
+              dependencies.modelCooldownPersistence ?? isolatedModelCooldownPersistence,
+            credentialCooldownPersistence:
+              dependencies.credentialCooldownPersistence ?? isolatedCredentialCooldownPersistence,
             // The smoke owns the candidate loop. Do not let one probe silently
             // consume the remaining candidates through provider-owned fallback.
             maxFallbackModels: 1,
@@ -404,7 +420,11 @@ export async function runOpenRouterFreeSmoke({
 }
 
 async function loadLiveDependencies() {
-  return import("@workspace/ai-orchestrator");
+  return {
+    ...(await import("@workspace/ai-orchestrator")),
+    modelCooldownPersistence: isolatedModelCooldownPersistence,
+    credentialCooldownPersistence: isolatedCredentialCooldownPersistence,
+  };
 }
 
 function writeLine(stream, line) {
