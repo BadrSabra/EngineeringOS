@@ -75,6 +75,7 @@ export type ExecutionAcceptanceDisposition = {
   retryAfterMs?: number;
   retryAt?: string;
   retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit";
+  rateLimitScope?: "upstream_shared_pool" | "provider_credential" | "account_quota" | "unknown";
   taskObjective?: {
     kind: string;
     validatorIds: string[];
@@ -1372,6 +1373,12 @@ function projectAcceptanceDisposition(
       || raw.retryAfterSource === "adaptive_default"
       || raw.retryAfterSource === "project_rate_limit"
       ? { retryAfterSource: raw.retryAfterSource }
+      : {}),
+    ...(raw.rateLimitScope === "upstream_shared_pool"
+      || raw.rateLimitScope === "provider_credential"
+      || raw.rateLimitScope === "account_quota"
+      || raw.rateLimitScope === "unknown"
+      ? { rateLimitScope: raw.rateLimitScope }
       : {}),
     ...(taskObjectiveKind && taskObjectiveValidatorIds && taskObjectiveStatus
       ? {

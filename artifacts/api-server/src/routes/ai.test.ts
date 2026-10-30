@@ -5132,6 +5132,8 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
         .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
       expect(acceptance?.disposition).toMatchObject({
         failureKind: "RATE_LIMIT",
+        retryAfterSource: "provider",
+        rateLimitScope: "upstream_shared_pool",
         scanEvidenceBinding: expect.objectContaining({
           scanJobId,
           scanStatus: "completed",
@@ -5146,6 +5148,12 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       });
       const storedDisposition = acceptance?.disposition as Record<string, unknown> | undefined;
       expect(storedDisposition?.scanEvidenceBinding).toEqual(observedScanEvidenceBinding);
+      expect(acceptance?.providerAttempts).toEqual([
+        expect.objectContaining({
+          provider: "OpenRouter",
+          code: "RATE_LIMITED",
+        }),
+      ]);
       const evidenceSnapshots = await db
         .select()
         .from(aiExecutionEvidenceSnapshotsTable)
@@ -5617,6 +5625,107 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(usage).toHaveLength(0);
   });
 
+  it("allows a new OpenRouter attempt after a shared-pool cooldown for another model", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const retryAt = new Date(Date.now() + 30_000).toISOString();
+    const now = new Date();
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Scan analysis",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const previous = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      sessionId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        sessionId,
+        message: "Analyze the latest scan results and suggest the top 3 improvements.",
+        modelMessage: "Analyze the latest scan results and suggest the top 3 improvements.",
+        turnIntent: "STRUCTURED_ANALYZE",
+        validationTargetPaths: [],
+        proofRequired: false,
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      checkpoint: JSON.stringify({
+        stage: "failed",
+        sequence: 1,
+        retryAfterMs: 30_000,
+        retryAt,
+        providerAttempts: [{ provider: "OpenRouter", code: "RATE_LIMITED" }],
+        updatedAt: now.toISOString(),
+      }),
+      updatedAt: now,
+      completedAt: now,
+    }).where(eq(aiExecutionsTable.id, previous.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: previous.execution.id,
+      projectId,
+      attempt: 0,
+      finalizationKey: `execution:${previous.execution.id}:attempt:0:shared-pool`,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        outcome: "FAILED",
+        retryAfterMs: 30_000,
+        retryAt,
+        retryAfterSource: "provider",
+        rateLimitScope: "upstream_shared_pool",
+        failureKind: "RATE_LIMIT",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      },
+      resumable: 0,
+      createdAt: now,
+    });
+
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousGroqKey = process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    delete process.env.GROQ_API_KEY;
+    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+      summary: "Analysis complete",
+      overallAssessment: "The project is in good shape.",
+      insights: [],
+      topPriority: "None",
+      estimatedImpact: "None",
+    });
+    try {
+      const response = await request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`)
+        .send({ sessionId });
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain('"type":"task_done"');
+      expect(mockAnalyzeScan).toHaveBeenCalledTimes(1);
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, projectId),
+          eq(aiExecutionsTable.userId, "test-user"),
+        ));
+      expect(executions).toHaveLength(2);
+    } finally {
+      if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = previousGroqKey;
+    }
+  });
+
   it("uses only positive provider or project retry durations", async () => {
     await expect(resolveStructuredRetryAfter({
       providerRetryAfterMs: undefined,
@@ -5649,6 +5758,7 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       source: "project_rate_limit",
     });
   });
+
 });
 
 // ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────

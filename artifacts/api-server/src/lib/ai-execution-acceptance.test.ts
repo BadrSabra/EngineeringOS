@@ -311,6 +311,7 @@ describe("server-owned execution acceptance", () => {
         providerPayload: "must not cross boundary",
         retryAfterMs: 15_000,
         retryAt: "2026-09-08T18:00:15.000Z",
+        rateLimitScope: "upstream_shared_pool",
       },
       evidenceSnapshotId: null,
       evidenceRequired: 0,
@@ -331,6 +332,7 @@ describe("server-owned execution acceptance", () => {
       operatorAction: "RETRY_AFTER_RATE_LIMIT",
       retryAfterMs: 15_000,
       retryAt: "2026-09-08T18:00:15.000Z",
+      rateLimitScope: "upstream_shared_pool",
     });
   });
 

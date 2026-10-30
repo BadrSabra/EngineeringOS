@@ -59,6 +59,21 @@ export class StructuredExecutionCooldownError extends Error {
   }
 }
 
+/**
+ * OpenRouter's shared-pool window is already enforced by the durable,
+ * model-specific cooldown store. Do not widen it to every model in a project.
+ * Credential/account windows and legacy/unknown scopes remain conservative.
+ */
+export function shouldApplyStructuredExecutionCooldown(params: {
+  providerName?: string;
+  rateLimitScope?: unknown;
+}): boolean {
+  return !(
+    params.providerName?.trim().toLowerCase() === "openrouter"
+    && params.rateLimitScope === "upstream_shared_pool"
+  );
+}
+
 async function findStructuredExecutionCooldown(params: {
   userId: string;
   projectId: string;
@@ -96,17 +111,29 @@ async function findStructuredExecutionCooldown(params: {
     if (!request || request.turnIntent !== turnIntent) continue;
     const checkpoint = parseAiExecutionCheckpoint(row.checkpoint);
     const priorProviders = checkpoint?.providerAttempts ?? [];
+    const matchingProviderAttempt = params.providerName
+      ? priorProviders.find((attempt) =>
+          attempt.provider.trim().toLowerCase() === params.providerName!.trim().toLowerCase())
+      : undefined;
     if (
       params.providerName
       && priorProviders.length > 0
-      && !priorProviders.some((attempt) =>
-        attempt.provider.trim().toLowerCase() === params.providerName!.trim().toLowerCase())
+      && !matchingProviderAttempt
     ) {
       continue;
     }
     const disposition = row.disposition && typeof row.disposition === "object"
       ? row.disposition as Record<string, unknown>
       : undefined;
+    if (
+      matchingProviderAttempt
+      && !shouldApplyStructuredExecutionCooldown({
+        providerName: matchingProviderAttempt.provider,
+        rateLimitScope: disposition?.rateLimitScope,
+      })
+    ) {
+      continue;
+    }
     const retryAfterSource = disposition?.retryAfterSource;
     // Older releases persisted invented server/adaptive delays when a provider
     // omitted Retry-After. They are not evidence of a live provider cooldown.

@@ -47,6 +47,7 @@ import {
   type StructuredExecution,
   type StructuredRetryAfterSource,
 } from "../../lib/structured-task-execution.js";
+import type { ExecutionAcceptanceDisposition } from "../../lib/ai-execution-acceptance.js";
 import type { AiTerminalProjection } from "../../lib/ai-terminal-outcome.js";
 import { serializeAiSseEvent } from "@workspace/api-zod";
 
@@ -110,6 +111,7 @@ function structuredFailureDetails(err: unknown): {
   parseCode?: string;
   retryAfterMs?: number;
   retryAfterSource?: StructuredRetryAfterSource;
+  rateLimitScope?: ExecutionAcceptanceDisposition["rateLimitScope"];
   providerAttempts?: Array<{ provider: string; code: string }>;
   cancelled?: boolean;
 } {
@@ -147,6 +149,14 @@ function structuredFailureDetails(err: unknown): {
           code,
         }]
       : undefined;
+  const rateLimitScopeCandidate = (err as { rateLimitScope?: unknown }).rateLimitScope;
+  const rateLimitScope =
+    rateLimitScopeCandidate === "upstream_shared_pool"
+    || rateLimitScopeCandidate === "provider_credential"
+    || rateLimitScopeCandidate === "account_quota"
+    || rateLimitScopeCandidate === "unknown"
+      ? rateLimitScopeCandidate
+      : undefined;
   return {
     code,
     failureKind,
@@ -157,6 +167,9 @@ function structuredFailureDetails(err: unknown): {
     retryAfterSource: failureKind === "RATE_LIMIT" && hasProviderRetryAfter
       ? "provider"
       : undefined,
+    ...(failureKind === "RATE_LIMIT" && rateLimitScope
+      ? { rateLimitScope }
+      : {}),
     providerAttempts,
   };
 }
@@ -519,6 +532,7 @@ async function persistStructuredExecutionFailure(params: {
         parseCode: undefined,
         retryAfterMs: undefined,
         retryAfterSource: undefined,
+        rateLimitScope: undefined,
         providerAttempts: undefined,
       }
     : details;
@@ -594,6 +608,9 @@ async function persistStructuredExecutionFailure(params: {
     disposition: {
       failureKind: effectiveDetails.failureKind,
       ...(retryAfterSource ? { retryAfterSource } : {}),
+      ...(effectiveDetails.rateLimitScope
+        ? { rateLimitScope: effectiveDetails.rateLimitScope }
+        : {}),
       ...(scanEvidenceBinding ? { scanEvidenceBinding } : {}),
     },
   });
