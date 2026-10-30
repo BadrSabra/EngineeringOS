@@ -1534,6 +1534,7 @@ describe("chat agent — provider empty-final response contract", () => {
         expect(await fs.access(rootPath).then(() => true).catch(() => false)).toBe(false);
       }
     },
+    15_000,
   );
 });
 

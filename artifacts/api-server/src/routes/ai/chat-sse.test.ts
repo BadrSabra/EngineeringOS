@@ -1478,6 +1478,46 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(String(assistant?.content)).not.toContain(privateProviderDetail);
   });
 
+  it("preserves a provider-supplied shared-pool Retry-After for a later explicit request", async () => {
+    const retryAfterMs = 1_000;
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-key",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", "private shared-pool detail", {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: "liquid/lfm-2.5-2.6b:free",
+          providerStatus: 429,
+          rateLimitScope: "upstream_shared_pool",
+          retryAfterMs,
+        },
+      }));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    expect(errorFrame).toMatchObject({
+      type: "error",
+      code: "RATE_LIMITED",
+      outcome: "FAILED",
+      providerFailureCategory: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+      retryAfterMs,
+      retryable: true,
+    });
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
+    expect(res.text).not.toContain("private shared-pool detail");
+    expect(frames.some((frame) => frame.type === "done")).toBe(false);
+  });
+
   it("projects EMPTY_RESPONSE as failure instead of accepting an empty assistant result", async () => {
     const privateProviderDetail = "private-empty-provider-response";
     vi.mocked(requireProvider).mockResolvedValueOnce({

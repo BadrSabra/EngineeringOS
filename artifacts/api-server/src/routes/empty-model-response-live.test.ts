@@ -68,24 +68,68 @@ describe("controlled live empty-model-response contract", () => {
 
       const readSources: string[] = [];
       const diagnostics: string[] = [];
-      const result = await chat({
-        provider,
-        apiKey: process.env[providerKey!],
-        model: process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL,
-        rootPath,
-        projectContext: {} as never,
-        history: [],
-        message:
-          `Perform a forensic audit of exactly ${relativeFile}. ` +
-          "Read the file first, then deliberately return an empty final response with no report.",
-        onStep: (step) => {
-          if (step.kind === "tool_result" && step.source) readSources.push(step.source);
-          if (step.kind === "diagnostic" && step.details) diagnostics.push(...step.details);
-        },
-      });
+      const toolLifecycle: Array<{ phase: string; toolName: string }> = [];
+      const providerResponses: Array<{
+        outputTextLength: number;
+        hasToolCalls: boolean;
+        actualModel: string;
+      }> = [];
+      const originalConsoleInfo = console.info;
+      console.info = (...args) => {
+        if (typeof args[0] === "string") {
+          try {
+            const event = JSON.parse(args[0]) as Record<string, unknown>;
+            if (
+              event.scope === "openai-compatible-client"
+              && event.action === "response_received"
+              && typeof event.outputTextLength === "number"
+              && typeof event.hasToolCalls === "boolean"
+              && typeof event.actualModel === "string"
+            ) {
+              providerResponses.push({
+                outputTextLength: event.outputTextLength,
+                hasToolCalls: event.hasToolCalls,
+                actualModel: event.actualModel,
+              });
+            }
+          } catch {
+            // Ignore non-JSON application log lines.
+          }
+        }
+        originalConsoleInfo(...args);
+      };
+      let result: Awaited<ReturnType<typeof chat>>;
+      try {
+        result = await chat({
+          provider,
+          apiKey: process.env[providerKey!],
+          model: process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL,
+          rootPath,
+          projectContext: {} as never,
+          history: [],
+          message:
+            `Perform a forensic audit of one file only: ${relativeFile}. ` +
+            "Read it first, then deliberately return an empty final response with no report.",
+          onStep: (step) => {
+            if (step.kind === "tool_result" && step.source) readSources.push(step.source);
+            if (step.kind === "diagnostic" && step.details) diagnostics.push(...step.details);
+          },
+          onToolInvocation: (event) => {
+            toolLifecycle.push({ phase: event.phase, toolName: event.toolName });
+          },
+        });
+      } finally {
+        console.info = originalConsoleInfo;
+      }
 
       const response = result.response;
+      expect(toolLifecycle.some((event) => event.phase === "completed")).toBe(true);
       expect(readSources).toContain(relativeFile);
+      const finalProviderResponse = providerResponses.at(-1);
+      expect(finalProviderResponse).toBeDefined();
+      expect(finalProviderResponse?.outputTextLength).toBe(0);
+      expect(finalProviderResponse?.hasToolCalls).toBe(false);
+      expect(finalProviderResponse?.actualModel).toMatch(/:free$/);
       expect(response).toContain("ANALYSIS_INCOMPLETE");
       expect(response).toContain(relativeFile);
       expect(response).toContain("Retry or narrow the question");

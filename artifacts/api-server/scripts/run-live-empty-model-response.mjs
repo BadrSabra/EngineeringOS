@@ -45,6 +45,19 @@ if (provider === "openrouter" && !process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL.en
   process.exit(2);
 }
 
+if (
+  provider === "openrouter"
+  && (
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK?.trim()
+    || process.env.OPENROUTER_PAID_MODEL?.trim()
+    || process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim()
+    || (process.env.OPENROUTER_MODEL?.trim() && !process.env.OPENROUTER_MODEL.trim().endsWith(":free"))
+  )
+) {
+  console.error("Blocked: the live OpenRouter test requires a free-only environment.");
+  process.exit(2);
+}
+
 const secretValues = Object.values(process.env).filter(
   (value) => typeof value === "string" && value.length >= 8,
 );
@@ -71,6 +84,7 @@ const child = spawn(
       ...process.env,
       NODE_ENV: "test",
       RUN_LIVE_EMPTY_MODEL_RESPONSE: "1",
+      ...(provider === "openrouter" ? { API_TEST_OPENROUTER_EGRESS: "1" } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   },

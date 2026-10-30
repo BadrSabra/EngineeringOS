@@ -15,6 +15,12 @@ A failed or cancelled execution is terminal for the current attempt even when `r
 
 **How to apply:** Stop browser polling on `failed` or `cancelled` regardless of resumability. Report the sanitized provider category, rate-limit scopes, retry delay, and resumable state; count a provider check only after observing an actual completion/stream response.
 
+For live empty-response checks, bind the verdict to both a completed, scope-matching source read and the final provider response's zero user-visible output. An `ANALYSIS_INCOMPLETE` result or a successful provider status alone does not prove the empty-response path; a rate-limit failure is a separate outcome.
+
+**Why:** A live model returned no user-visible text before the required source read had completed, while a later correctly scoped run was stopped by an upstream shared-pool rate limit. Without both bindings, the test can misclassify either case as an empty-response success.
+
+**How to apply:** Record safe response metadata for the final completion and the accepted read lifecycle; fail closed if either is absent, and report `RATE_LIMITED` separately from `EMPTY_RESPONSE`.
+
 A live campaign process exit of zero may mean only that its redacted receipt passed format and privacy checks. The campaign is not successful unless the receipt itself reports a complete, accepted result with the required evidence.
 
 **Why:** A valid `terminal-incomplete` receipt can be emitted and validated after a live provider rate limit, while the wrapper still exits successfully.
