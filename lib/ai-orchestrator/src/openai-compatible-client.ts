@@ -74,10 +74,12 @@ import {
   readBoundedProviderResponseText,
 } from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
+import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
   taskType?: TaskType;
+  taskContract?: ModelTaskContract;
   temperature?: number;
   maxTokens?: number;
   /** Selects a bounded output contract when maxTokens is not supplied. */
@@ -1791,13 +1793,17 @@ export async function openrouterCompleteWithFallback(
   // fallback chain from the live free-tier catalog at call time.
   // `quality` and `capability` let callers express intent (e.g. "powerful" for
   // code-review) without hardcoding a specific model ID that may become stale.
-  const resolvedChain = initialModel
+  // A fixed task contract makes this a server-owned adaptive lane selection:
+  // `initialModel` remains a validated hint, while the exact free lane order
+  // comes from that contract's accepted/rejected outcome history.
+  const resolvedChain = initialModel && !opts.taskContract
     ? buildFallbackChainFromId(initialModel, opts.taskType, { capability, requireTools })
     : resolveFallbackChain({
         capability,
         quality:    opts.quality    ?? "fast",
         requireTools,
-         taskType: opts.taskType,
+        taskType: opts.taskType,
+        taskContract: opts.taskContract,
       }).map((m) => m.id);
   if (initialModel && resolvedChain.length === 0) {
     const catalog = getDynamicCatalogStatus();

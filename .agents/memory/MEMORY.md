@@ -75,6 +75,7 @@
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
 - [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — distinguish live acceptance, provider limits, retry timing, and catalog activation.
 - [OpenRouter free-only routing](openrouter-free-lane-policy.md) — product traffic uses catalog-verified free models only; never promote to paid after 429/QUOTA.
+- [OpenRouter contract-aware ranking](openrouter-contract-aware-ranking.md) — rank free lanes only from exact model/task-contract acceptance; provider errors and 429s are not quality samples.
 - [OpenRouter BYOK scope](openrouter-byok-scope.md) — `is_byok` describes upstream-provider routing, not whether the OpenRouter request authenticated.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.

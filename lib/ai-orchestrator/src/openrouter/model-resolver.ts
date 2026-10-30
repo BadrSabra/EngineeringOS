@@ -29,6 +29,11 @@ import {
 } from "./model-catalog.js";
 import { getUsableDynamicModelIds, getUsablePaidModelCandidates } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
+import {
+  getModelContractAcceptanceWeight,
+  selectWeightedModelIndex,
+  type ModelTaskContract,
+} from "./model-contract-acceptance.js";
 import type { TaskType } from "../quality/task-profile.js";
 
 export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel };
@@ -104,6 +109,8 @@ export type ResolveModelOpts = {
   requireStreaming?: boolean;
   /** Apply behavioral demotion only to the task execution fallback chain. */
   taskType?: TaskType;
+  /** Apply outcome ranking only within this server-selected task contract. */
+  taskContract?: ModelTaskContract;
   /** Always true for this module — reserved for future paid-tier support. */
   preferFreeTier?: boolean;
 };
@@ -155,15 +162,46 @@ function rotatePreferredLaneGroup(
     opts.requireJson ?? false,
     opts.requireStreaming ?? false,
     opts.taskType ?? "default",
+    opts.taskContract ?? null,
     first.quality,
     firstIsDemoted,
   ]);
+  const preferredGroup = models.slice(0, groupEnd);
+  const contractRates = opts.taskContract
+    ? preferredGroup.map((model) => getModelContractAcceptanceWeight(model.id, opts.taskContract!))
+    : [];
+  const hasContractEvidence = contractRates.some((rate) => rate !== null);
+  if (opts.taskContract && hasContractEvidence) {
+    const weights = contractRates.map((rate) =>
+      rate ?? 2,
+    );
+    const slots = weights.reduce((sum, weight) => sum + weight, 0);
+    const offset = (laneRotationCursors.get(laneKey) ?? 0) % slots;
+    const selectedIndex = selectWeightedModelIndex(weights, offset);
+    laneRotationCursors.set(laneKey, (offset + 1) % slots);
+    const remaining = preferredGroup
+      .map((model, index) => ({ model, index }))
+      .filter(({ index }) => index !== selectedIndex)
+      .sort((a, b) =>
+        (contractRates[b.index] ?? 2) - (contractRates[a.index] ?? 2)
+        || a.index - b.index,
+      )
+      .map(({ model }) => model);
+    // The weighted slot chooses the primary lane; remaining candidates stay
+    // available as ordered fallbacks under the existing request policy.
+    return [
+      preferredGroup[selectedIndex]!,
+      ...remaining,
+      ...models.slice(groupEnd),
+    ];
+  }
+
   const offset = (laneRotationCursors.get(laneKey) ?? 0) % groupEnd;
   laneRotationCursors.set(laneKey, (offset + 1) % groupEnd);
 
   return [
-    ...models.slice(offset, groupEnd),
-    ...models.slice(0, offset),
+    ...preferredGroup.slice(offset),
+    ...preferredGroup.slice(0, offset),
     ...models.slice(groupEnd),
   ];
 }

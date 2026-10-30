@@ -14,6 +14,7 @@ import type { RawMessage, ToolDefinition, RawGroqResponse } from "./groq-client.
 import type { ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionLedger } from "./execution-ledger.js";
+import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
 
 export type { RawMessage, ToolDefinition, RawGroqResponse };
 
@@ -31,6 +32,8 @@ export type StrategyCallOptions = {
   capability?: ModelCapability;
   /** Behavioral routing is currently scoped to task execution. */
   taskType?: TaskType;
+  /** Fixed server-owned contract used for advisory free-model ranking. */
+  taskContract?: ModelTaskContract;
   maxTokens?: number;
   timeoutMs?: number;
   /** Let bounded callers skip provider-level transient retries. */

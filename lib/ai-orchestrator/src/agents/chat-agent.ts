@@ -65,6 +65,10 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import {
+  MODEL_TASK_CONTRACTS,
+  recordModelContractOutcome,
+} from "../openrouter/model-contract-acceptance.js";
 import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   GroqClientError,
@@ -10489,6 +10493,17 @@ export async function chat(opts: {
         model?: string;
         extraDetails?: string[];
       }) => {
+        if (
+          params.candidate.provider === "openrouter"
+          && params.model
+          && (params.contractOutcome === "accepted" || params.contractOutcome === "rejected")
+        ) {
+          recordModelContractOutcome(
+            params.model,
+            MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS,
+            params.contractOutcome,
+          );
+        }
         relayAgentStep({
           kind: "diagnostic",
           code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
@@ -10711,6 +10726,10 @@ export async function chat(opts: {
                 recoveryMessages,
                 {
                   model: synthesisModel,
+                  taskContract:
+                    recoveryProvider.provider === "openrouter"
+                      ? MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS
+                      : undefined,
                   maxTokens: 1600,
                   timeoutMs,
                   retryTransient: false,
