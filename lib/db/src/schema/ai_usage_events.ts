@@ -61,6 +61,10 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   contractCitationMatchCount: integer("contract_citation_match_count").notNull().default(0),
   contractRecoveryLatencyMs: integer("contract_recovery_latency_ms"),
   contractFailureKind: text("contract_failure_kind"),
+  /** Exact server-owned model task contract; nullable for ordinary attempts. */
+  modelTaskContract: text("model_task_contract"),
+  /** Terminal result used only with model_task_contract. */
+  modelTaskOutcome: text("model_task_outcome"),
   providerFailureKind: text("provider_failure_kind"),
   rateLimitScope: text("rate_limit_scope"),
   retryAfterMs: bigint("retry_after_ms", { mode: "number" }),
@@ -72,6 +76,11 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   index("idx_ai_usage_events_user_occurred").on(t.userId, t.occurredAt),
   index("idx_ai_usage_events_provider_occurred").on(t.provider, t.occurredAt),
   index("idx_ai_usage_events_correlation").on(t.correlationId),
+  index("idx_ai_usage_events_model_contract_occurred").on(
+    t.modelTaskContract,
+    t.occurredAt,
+    t.model,
+  ),
 ]);
 
 export type InsertAiUsageEvent = typeof aiUsageEventsTable.$inferInsert;

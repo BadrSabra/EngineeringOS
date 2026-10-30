@@ -10,6 +10,17 @@ export {
   validateGeminiDefaultModels,
 } from "./openai-compatible-client.js";
 export {
+  MODEL_CONTRACT_ACCEPTANCE_CONFIG,
+  MODEL_TASK_CONTRACTS,
+  MODEL_TASK_OUTCOMES,
+  hydrateModelContractSamples,
+} from "./openrouter/model-contract-acceptance.js";
+export type {
+  ModelContractHydrationSample,
+  ModelTaskContract,
+  ModelTaskOutcome,
+} from "./openrouter/model-contract-acceptance.js";
+export {
   MAX_ANALYSIS_TOOL_OUTPUT_BYTES,
   MAX_ANALYSIS_TOOL_RESULT_BYTES,
   MAX_TOOL_OUTPUT_SERIALIZATION_BYTES,

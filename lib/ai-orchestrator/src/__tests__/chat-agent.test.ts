@@ -2350,6 +2350,14 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     try {
       const chat = await loadChatWithTestLifecycleSinks();
       const steps: AgentStep[] = [];
+      const modelTaskSamples: Array<{
+        provider: string;
+        model: string;
+        contract: string;
+        outcome: string;
+        attemptId: string;
+        latencyMs: number;
+      }> = [];
       const executionLedger = createExecutionLedger({
         budget: { providerChanges: 0 },
       });
@@ -2378,6 +2386,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         },
         executionLedger,
         onStep: (step) => steps.push(step),
+        onModelTaskSample: (sample) => {
+          modelTaskSamples.push(sample);
+        },
         synthesisFallbackProviders: [{
           provider: "gemini",
           apiKey: "test-gemini-key",
@@ -2439,6 +2450,25 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           "failureChain=CONTRACT:provider_candidate_incomplete -> SEMANTIC:provider_candidate_incomplete",
         ]),
       );
+      expect(modelTaskSamples).toHaveLength(2);
+      expect(modelTaskSamples.map(({ provider, contract, outcome }) => ({
+        provider,
+        contract,
+        outcome,
+      }))).toEqual([
+        {
+          provider: "openrouter",
+          contract: "project_query_no_tools_synthesis",
+          outcome: "rejected",
+        },
+        {
+          provider: "openrouter",
+          contract: "project_query_no_tools_synthesis",
+          outcome: "rejected",
+        },
+      ]);
+      expect(new Set(modelTaskSamples.map((sample) => sample.attemptId)).size).toBe(2);
+      expect(modelTaskSamples.every((sample) => sample.latencyMs >= 0)).toBe(true);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
