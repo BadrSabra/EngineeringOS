@@ -20,3 +20,9 @@ Vitest may resolve an optional Vite peer to a newer major than the workspace's V
 **Why:** A dependency re-resolution selected Vite 8 for Vitest while the app and React plugin used Vite 7; the JSX parser error disappeared when the peer was forced onto the workspace's Vite major.
 
 **How to apply:** If Vitest reports invalid JSX during import analysis, inspect `pnpm why vite` and the lockfile peer context before changing TSX. Keep Vitest's Vite peer aligned with the app's supported major.
+
+Temporary candidate trees used for TypeScript validation must preserve package-local dependency resolution and build project references in the owning package's declared order. A root-only `node_modules` link can select a different `@types/node` version and report false errors, while unbuilt workspace references produce TS6305 cascades.
+
+**Why:** An origin-based candidate initially failed on `ProcessEnv` typing and missing declaration outputs; matching each package's installed dependency links and building its referenced packages inside the temporary tree removed those setup errors.
+
+**How to apply:** For isolated candidate checks, reuse installed package-local dependencies without sharing generated outputs, link workspace aliases to the candidate tree, and build only declared references inside the temporary root before running `--noEmit` typechecks.
