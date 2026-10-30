@@ -4662,7 +4662,7 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(1);
   });
 
-  it("retries one empty provider response within the same iteration", async () => {
+  it("retries one empty response for a non-OpenRouter provider", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     (strategy.call as ReturnType<typeof vi.fn>)
@@ -4676,7 +4676,7 @@ describe("executeToolLoop", () => {
       strategy,
       model: "fast",
       powerModel: "powerful",
-      provider: "openrouter",
+      provider: "groq",
       tools: undefined,
       rootPath: "",
       pendingChanges: [],
@@ -4688,6 +4688,29 @@ describe("executeToolLoop", () => {
       expect(result.result.content).toBe("recovered answer");
     }
     expect(strategy.call).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not replay an exhausted OpenRouter free-model chain after EMPTY_RESPONSE", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError("EMPTY_RESPONSE", "all eligible free models returned no content"),
+    );
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "free-model",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: undefined,
+      rootPath: "",
+      pendingChanges: [],
+      maxIterations: 1,
+    });
+
+    expect(result.kind).toBe("exhausted");
+    expect(strategy.call).toHaveBeenCalledTimes(1);
   });
 
   it("records the model returned by a successful fallback response", async () => {

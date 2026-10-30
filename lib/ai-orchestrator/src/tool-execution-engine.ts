@@ -4764,6 +4764,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       if (
         !(err instanceof GroqClientError) ||
         err.code !== "EMPTY_RESPONSE" ||
+        provider === "openrouter" ||
         opts.retryEmptyResponses === false ||
         emptyResponseRetryUsed
       ) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateRecoveryRetryAt,
+  chatRecoveryRetryAfterSeconds,
   planChatRecovery,
   planTaskRecovery,
   sanitizeChatRecoveryFailureCode,
@@ -88,6 +89,30 @@ describe("automatic task recovery admission", () => {
       .toBeUndefined();
     expect(calculateRecoveryRetryAt(undefined, Date.parse("2026-09-19T16:00:00.000Z")))
       .toBeUndefined();
+  });
+
+  it("uses only a positive retry window supplied with a handler 429", () => {
+    expect(chatRecoveryRetryAfterSeconds({
+      statusCode: 429,
+      retryAfterSec: 25,
+    })).toBe(25);
+    expect(chatRecoveryRetryAfterSeconds({ statusCode: 429 })).toBeUndefined();
+    expect(chatRecoveryRetryAfterSeconds({
+      statusCode: 429,
+      retryAfterSec: 0,
+    })).toBeUndefined();
+    expect(chatRecoveryRetryAfterSeconds({
+      statusCode: 429,
+      retryAfterSec: Number.NaN,
+    })).toBeUndefined();
+    expect(chatRecoveryRetryAfterSeconds({
+      statusCode: 500,
+      retryAfterSec: 25,
+    })).toBeUndefined();
+    expect(calculateRecoveryRetryAt(
+      chatRecoveryRetryAfterSeconds({ statusCode: 429 }),
+      Date.parse("2026-09-19T16:00:00.000Z"),
+    )).toBeUndefined();
   });
 
   it("extracts only bounded numeric retry delays from rate-limit responses", () => {

@@ -213,6 +213,22 @@ export function calculateRecoveryRetryAt(
   return new Date(nowMs + delayMs).toISOString();
 }
 
+export function chatRecoveryRetryAfterSeconds(result: {
+  statusCode?: number;
+  retryAfterSec?: number;
+}): number | undefined {
+  const retryAfterSec = result.retryAfterSec;
+  if (
+    result.statusCode !== 429
+    || typeof retryAfterSec !== "number"
+    || !Number.isFinite(retryAfterSec)
+    || retryAfterSec <= 0
+  ) {
+    return undefined;
+  }
+  return retryAfterSec;
+}
+
 /**
  * Rate-limit deferrals must be durable. Without this marker, the 10-second
  * dispatcher sees the same FAILED/REQUIRED acceptance on every tick and keeps
@@ -881,7 +897,7 @@ async function runChatRecovery(
         executionId: candidate.executionId,
         executionAttempt: candidate.executionAttempt,
         action: candidate.action,
-        retryAfterSec: result.retryAfterSec ?? 60,
+        retryAfterSec: chatRecoveryRetryAfterSeconds(result),
       });
     } else if (
       failureCode === "EXECUTION_BINDING_MISMATCH"
