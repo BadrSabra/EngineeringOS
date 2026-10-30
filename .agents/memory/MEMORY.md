@@ -74,6 +74,7 @@
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — source-free validation still needs explicit PROVEN; optional-evidence success is NOT_REQUIRED, never canonical proof.
 - [OpenRouter provider boundaries](openrouter-provider-boundaries-index.md) — distinguish live acceptance, provider limits, retry timing, and catalog activation.
+- [OpenRouter throttling checkpoints](openrouter-throttling-checkpoints.md) — every automatic rate-limit retry needs a positive persisted retry window; no same-request provider replay.
 - [OpenRouter free-only routing](openrouter-free-lane-policy.md) — product traffic uses catalog-verified free models only; never promote to paid after 429/QUOTA.
 - [OpenRouter contract-aware ranking](openrouter-contract-aware-ranking.md) — rank free lanes only from exact model/task-contract acceptance; provider errors and 429s are not quality samples.
 - [OpenRouter BYOK scope](openrouter-byok-scope.md) — `is_byok` describes upstream-provider routing, not whether the OpenRouter request authenticated.

@@ -83,7 +83,9 @@ describe("automatic task recovery admission", () => {
     expect(calculateRecoveryRetryAt(9, Date.parse("2026-09-19T16:00:00.000Z")))
       .toBe("2026-09-19T16:00:09.000Z");
     expect(calculateRecoveryRetryAt(0, Date.parse("2026-09-19T16:00:00.000Z")))
-      .toBe("2026-09-19T16:00:01.000Z");
+      .toBeUndefined();
+    expect(calculateRecoveryRetryAt(-1, Date.parse("2026-09-19T16:00:00.000Z")))
+      .toBeUndefined();
     expect(calculateRecoveryRetryAt(undefined, Date.parse("2026-09-19T16:00:00.000Z")))
       .toBeUndefined();
   });
@@ -152,6 +154,28 @@ describe("automatic task recovery admission", () => {
     }), Date.parse("2026-09-17T12:00:10.000Z"))).toMatchObject({
       kind: "retry",
       action: "RETRY_AFTER_RATE_LIMIT",
+    });
+  });
+
+  it("does not schedule automatic rate-limit recovery without a positive retry window", () => {
+    const taskPlan = planTaskRecovery(candidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      disposition: { recoveryState: "REQUIRED" },
+    }), Date.parse("2026-09-17T12:00:00.000Z"));
+    expect(taskPlan).toEqual({
+      kind: "skip",
+      reason: "rate_limit_window_unavailable",
+    });
+
+    const chatPlan = planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_RATE_LIMIT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      disposition: { recoveryState: "REQUIRED" },
+    }), Date.parse("2026-09-17T12:00:00.000Z"));
+    expect(chatPlan).toEqual({
+      kind: "skip",
+      reason: "rate_limit_window_unavailable",
     });
   });
 

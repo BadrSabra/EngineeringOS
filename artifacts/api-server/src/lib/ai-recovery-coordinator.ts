@@ -134,6 +134,7 @@ export type TaskRecoveryPlan =
       | "execution_not_recoverable"
       | "revision_changed"
       | "retry_not_due"
+      | "rate_limit_window_unavailable"
       | "unknown_action";
   };
 
@@ -175,9 +176,10 @@ export type ChatRecoveryPlan =
       | "resume_not_authorized"
       | "revision_changed"
       | "retry_not_due"
-       | "not_a_resumable_turn"
+      | "rate_limit_window_unavailable"
+      | "not_a_resumable_turn"
       | "automatic_recovery_blocked"
-       | "automatic_recovery_exhausted";
+      | "automatic_recovery_exhausted";
   };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -200,8 +202,14 @@ export function calculateRecoveryRetryAt(
   retryAfterSec: number | undefined,
   nowMs = Date.now(),
 ): string | undefined {
-  if (!Number.isFinite(retryAfterSec)) return undefined;
-  const delayMs = Math.max(1, Math.ceil(retryAfterSec as number)) * 1_000;
+  if (
+    typeof retryAfterSec !== "number"
+    || !Number.isFinite(retryAfterSec)
+    || retryAfterSec <= 0
+  ) {
+    return undefined;
+  }
+  const delayMs = Math.max(1, Math.ceil(retryAfterSec)) * 1_000;
   return new Date(nowMs + delayMs).toISOString();
 }
 
@@ -368,6 +376,9 @@ export function planTaskRecovery(
   }
 
   const retryAtMs = parseRetryAt(disposition.retryAt);
+  if (action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
+    return { kind: "skip", reason: "rate_limit_window_unavailable" };
+  }
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
     return { kind: "skip", reason: "retry_not_due" };
   }
@@ -477,6 +488,9 @@ export function planChatRecovery(
     return { kind: "skip", reason: "automatic_recovery_blocked" };
   }
   const retryAtMs = parseRetryAt(disposition.retryAt);
+  if (candidate.action === "RETRY_AFTER_RATE_LIMIT" && retryAtMs === undefined) {
+    return { kind: "skip", reason: "rate_limit_window_unavailable" };
+  }
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
     return { kind: "skip", reason: "retry_not_due" };
   }
