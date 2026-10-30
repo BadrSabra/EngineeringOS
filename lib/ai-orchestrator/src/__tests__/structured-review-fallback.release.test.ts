@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reviewCode } from "../agents/code-reviewer.js";
 import { _resetForTest, getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import { _resetModelLaneSchedulerForTest } from "../openrouter/model-resolver.js";
 
 const selectedFile = "src/example.ts";
 const reviewContext = {
@@ -106,6 +107,7 @@ async function runReview() {
 describe("structured review provider fallback release check", () => {
   beforeEach(() => {
     _resetForTest();
+    _resetModelLaneSchedulerForTest();
   });
 
   afterEach(() => {
@@ -208,6 +210,7 @@ describe("structured review provider fallback release check", () => {
 describe("structured review catalog refresh release check", () => {
   beforeEach(() => {
     _resetForTest();
+    _resetModelLaneSchedulerForTest();
   });
 
   afterEach(() => {

@@ -8,13 +8,17 @@ import {
   recordBehavioralModelCall,
 } from "../behavioral-scorecard.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
-import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import {
+  resolveFallbackChain,
+  _resetModelLaneSchedulerForTest,
+} from "../openrouter/model-resolver.js";
 import { _resetForTest as _resetDynamicCatalog } from "../openrouter/dynamic-catalog.js";
 
 describe("behavioral model scorecards", () => {
   beforeEach(() => {
     _resetBehavioralScorecardForTest();
     _resetDynamicCatalog();
+    _resetModelLaneSchedulerForTest();
     vi.useFakeTimers();
     vi.setSystemTime(0);
   });

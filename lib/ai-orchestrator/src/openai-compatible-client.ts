@@ -1648,9 +1648,9 @@ export type OpenRouterFallbackOptions = Omit<
   capability?: ModelCapability;
   /** Execution-plan tool contract, including calls with tools supplied later. */
   requireTools?: boolean;
-  /** Paid fallback is opt-in through server policy and never part of free resolution. */
+  /** @deprecated Retained for compatibility; OpenRouter product routing is free-only. */
   allowPaidFallback?: boolean;
-  /** Reports the one bounded free-to-paid transition, without provider content. */
+  /** @deprecated Paid transitions are disabled by the product's free-only policy. */
   onProviderFallback?: (event: {
     fromModel: string;
     toModel: string;
@@ -1678,8 +1678,10 @@ export async function openrouterCompleteWithFallback(
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
-  const paidFallbackEnabled =
-    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
+  // Do not let legacy env/config opt-ins turn a free-only OpenRouter route into
+  // paid traffic. Keep the compatibility options above typed, but never honor
+  // them at this boundary.
+  const paidFallbackEnabled = false;
   const knownInitialModel = initialModel
     ? FREE_MODELS.some((candidate) => candidate.id === initialModel) ||
       (paidFallbackEnabled && isCatalogPaidModelForCapability(initialModel, {
