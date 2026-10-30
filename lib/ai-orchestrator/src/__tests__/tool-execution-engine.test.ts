@@ -4694,7 +4694,12 @@ describe("executeToolLoop", () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
     (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new GroqClientError("EMPTY_RESPONSE", "all eligible free models returned no content"),
+      new GroqClientError("EMPTY_RESPONSE", "all eligible free models returned no content", {
+        context: {
+          providerName: "OpenRouter",
+          providerAttemptedModels: ["free-model-a", "free-model-b"],
+        },
+      }),
     );
 
     const result = await executeToolLoop({
