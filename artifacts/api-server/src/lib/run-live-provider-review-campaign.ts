@@ -30,6 +30,12 @@ const provider = (process.env.LIVE_REVIEW_PROVIDER?.trim() || "openrouter") as P
 const projectId = process.env.LIVE_REVIEW_PROJECT_ID?.trim();
 const outputPath = process.env.LIVE_REVIEW_OUTPUT_PATH?.trim();
 const selectedFile = "src/provider-review-fixture.ts";
+const runState = {
+  startedAt: Date.now(),
+  projectRevision: "runtime-failure",
+  observedModels: [] as string[],
+  fallbackReason: undefined as string | undefined,
+};
 // The campaign must exercise accepted selected-file evidence, not merely prove
 // that a model can return an empty clean-review result. Keep one obvious,
 // bounded defect in the disposable fixture so a valid review has a concrete
@@ -109,6 +115,7 @@ async function main(): Promise<void> {
     // The revision is a digest of the disposable fixture, not a path or source
     // body. It lets an audit distinguish runs without retaining source text.
     const projectRevision = createHash("sha256").update(fixtureContents).digest("hex").slice(0, 16);
+    runState.projectRevision = projectRevision;
     const configuredModel = process.env.LIVE_REVIEW_MODEL?.trim();
     if (campaignProvider === "openrouter" && configuredModel) {
       // OpenRouter's existing resolver validates this override against the
@@ -118,9 +125,6 @@ async function main(): Promise<void> {
 
     let result: Awaited<ReturnType<typeof reviewCode>> | undefined;
     let error: unknown;
-    const observedModels: string[] = [];
-    let fallbackReason: string | undefined;
-    const startedAt = Date.now();
     try {
       result = await reviewCode(
         {
@@ -140,15 +144,15 @@ async function main(): Promise<void> {
           retryTransient: false,
           qualityProfile: "code_review",
           onModelAttempt: (attempt) => {
-            if (attempt.model) observedModels.push(attempt.model);
+            if (attempt.model) runState.observedModels.push(attempt.model);
           },
           onProviderFallback: (event) => {
-            fallbackReason = event.reason;
+            runState.fallbackReason = event.reason;
             // Record both sides of the transition before the next request is
             // made. A terminal paid-provider error may not reach onModelAttempt,
             // but the receipt must still show that the paid lane was actually
             // attempted.
-            observedModels.push(event.fromModel, event.toModel);
+            runState.observedModels.push(event.fromModel, event.toModel);
           },
         },
       );
@@ -166,12 +170,12 @@ async function main(): Promise<void> {
       result,
       error,
       attemptedModels: [
-        ...observedModels,
+        ...runState.observedModels,
         ...(configuredModel ? [configuredModel] : []),
         ...attemptedModelsFrom(error),
       ],
       modelAttempts: [...new Set([
-        ...observedModels,
+        ...runState.observedModels,
         ...(configuredModel ? [configuredModel] : []),
         ...attemptedModelsFrom(error),
       ])].map((model) => ({
@@ -182,8 +186,8 @@ async function main(): Promise<void> {
             ? "free" as const
             : "unknown" as const,
       })),
-      fallbackReason,
-      latencyMs: Date.now() - startedAt,
+      fallbackReason: runState.fallbackReason,
+      latencyMs: Date.now() - runState.startedAt,
     });
 
     await fs.mkdir(path.dirname(path.resolve(campaignOutputPath)), { recursive: true });
@@ -203,4 +207,51 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+try {
+  await main();
+} catch (error) {
+  try {
+    const failureScenario = isScenario(scenario) ? scenario : "reasoning-only";
+    const failureProvider = isProvider(provider) ? provider : "openrouter";
+    const models = [
+      ...runState.observedModels,
+      ...attemptedModelsFrom(error),
+    ];
+    const receipt = buildCodeReviewCampaignReceipt({
+      scenario: failureScenario,
+      provider: failureProvider,
+      operationId: randomUUID(),
+      projectId: projectId ?? "campaign-runtime-failure",
+      projectRevision: runState.projectRevision,
+      selectedFile,
+      error,
+      attemptedModels: models,
+      modelAttempts: [...new Set(models)].map((model) => ({
+        model,
+        tier: model.endsWith(":free") ? "free" as const : "unknown" as const,
+      })),
+      fallbackReason: runState.fallbackReason,
+      latencyMs: Date.now() - runState.startedAt,
+    });
+    const output = {
+      ...receipt,
+      failureCode: receipt.failureCode ?? "CAMPAIGN_RUNTIME_FAILURE",
+      recoveryAction: receipt.failureCode ? receipt.recoveryAction : "stop-safely",
+    };
+    const failureOutputPath = process.env.LIVE_REVIEW_OUTPUT_PATH?.trim();
+    if (!failureOutputPath) throw new Error("output_missing");
+    await fs.mkdir(path.dirname(path.resolve(failureOutputPath)), { recursive: true });
+    await fs.writeFile(path.resolve(failureOutputPath), `${JSON.stringify(output, null, 2)}\n`, "utf8");
+    console.error(JSON.stringify({
+      kind: receipt.kind,
+      status: "runtime_failure_receipt_written",
+      failureCode: output.failureCode,
+    }));
+  } catch {
+    console.error(JSON.stringify({
+      kind: "code-review-provider-campaign-receipt",
+      status: "runtime_failure_receipt_unavailable",
+    }));
+  }
+  process.exitCode = 1;
+}
