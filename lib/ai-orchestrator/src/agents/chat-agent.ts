@@ -10478,9 +10478,12 @@ export async function chat(opts: {
           apiKey,
           providerIndex: opts.synthesisProviderIndex ?? 0,
         },
-        ...(opts.synthesisFallbackProviders ?? []).filter(
-          (candidate) => candidate.provider !== providerId,
-        ),
+        ...(
+          providerId === "openrouter" &&
+          Boolean(apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim())
+            ? []
+            : opts.synthesisFallbackProviders ?? []
+        ).filter((candidate) => candidate.provider !== providerId),
       ];
       let recoveryAccepted = false;
       let recoveryFailureReason:
@@ -10849,11 +10852,15 @@ export async function chat(opts: {
               }
 
               const hasNextProvider = candidateOffset + 1 < recoveryProviders.length;
+              const openRouterRateLimitIsTerminal =
+                recoveryProvider.provider === "openrouter" &&
+                (providerOutcome === "RATE_LIMITED" || providerOutcome === "QUOTA");
               const shouldRepair = failureClass === "MODEL_LOCAL" && !repairAttemptUsed;
               const canMoveProvider =
-                failureClass === "PROVIDER_AVAILABILITY" ||
-                failureClass === "PROVIDER_TRANSPORT" ||
-                (failureClass === "MODEL_LOCAL" && repairAttemptUsed);
+                !openRouterRateLimitIsTerminal &&
+                (failureClass === "PROVIDER_AVAILABILITY" ||
+                  failureClass === "PROVIDER_TRANSPORT" ||
+                  (failureClass === "MODEL_LOCAL" && repairAttemptUsed));
               const recoveryAction = shouldRepair
                 ? "repair"
                 : canMoveProvider && hasNextProvider
@@ -13846,6 +13853,22 @@ export async function chat(opts: {
               errorCode: providerCode,
               attempt: recoveryAttempt + 1,
             }));
+            if (
+              providerId === "openrouter" &&
+              (providerCode === "RATE_LIMITED" || providerCode === "QUOTA")
+            ) {
+              // A free OpenRouter rate limit is terminal for this request.
+              // Do not advance the agent-owned model chain or begin another
+              // evidence packet after the provider has denied the request.
+              recoveryModelOverride = undefined;
+              console.warn(JSON.stringify({
+                scope: "chat-agent",
+                code: "FORENSIC_RECOVERY_RATE_LIMIT_STOP",
+                errorCode: providerCode,
+                attempt: recoveryAttempt + 1,
+              }));
+              break;
+            }
             if (!nextModel) {
               if (hasNextPacket) {
                 recoveryModelOverride = undefined;
