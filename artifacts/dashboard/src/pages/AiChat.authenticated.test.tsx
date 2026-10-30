@@ -4679,7 +4679,10 @@ it.each([
     act(() => mocks.mutationOptions[saveName]?.onSuccess?.({ configured: true, last4: '0123', updatedAt: null }));
     expect(input).toHaveValue('');
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
-      title: `حُفظ مفتاح ${provider}`, description: 'نهايته ···0123',
+      title: `حُفظ مفتاح ${provider}`,
+      description: provider === 'OpenRouter'
+        ? 'نهايته ···0123 — لم نرسل طلب توليد اختباريًا.'
+        : 'نهايته ···0123',
     }));
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
     expect(document.body.textContent).not.toContain('fixture-key-123');
