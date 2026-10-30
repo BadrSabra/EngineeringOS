@@ -9,8 +9,8 @@
  */
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
-import { aiProviderCredentialsTable, eventsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { aiProviderCredentialsTable, aiUsageEventsTable, eventsTable } from "@workspace/db";
+import { eq, and, desc, gte, isNotNull } from "drizzle-orm";
 import {
   chat,
   buildProjectContext,
@@ -33,6 +33,9 @@ import {
   deriveOrientationSourceSelectionRecord,
   buildDeterministicProjectOrientationResponse,
   mergeReadStatus,
+  MODEL_CONTRACT_ACCEPTANCE_CONFIG,
+  MODEL_TASK_CONTRACTS,
+  hydrateModelContractSamples,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -200,6 +203,8 @@ async function collectAvailableProviders(
   userId: string,
   options?: ProviderSelectionOptions,
 ): Promise<Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }>> {
+  const openRouterCredential = await resolveProviderCredential(userId, "openrouter");
+  const openRouterFreeOnly = Boolean(openRouterCredential);
   const available: Array<{ provider: ProviderId; apiKey: string; source: "user" | "server" }> = [];
   const skipped: Array<{
     provider: ProviderId;
@@ -215,7 +220,13 @@ async function collectAvailableProviders(
   }> = [];
 
   for (const provider of PROVIDER_PRIORITY) {
-    const credential = await resolveProviderCredential(userId, provider);
+    if (openRouterFreeOnly && provider !== "openrouter") {
+      skipped.push({ provider, reason: "openrouter_free_only" });
+      continue;
+    }
+    const credential = provider === "openrouter"
+      ? openRouterCredential
+      : await resolveProviderCredential(userId, provider);
     if (!credential) {
       skipped.push({ provider, reason: "no_api_key" });
       continue;
@@ -330,6 +341,68 @@ async function collectAvailableProviders(
   return available;
 }
 
+/**
+ * If an OpenRouter credential is configured, keep product routing on that
+ * catalog-verified free lane. Do not let a provider error silently turn into
+ * a potentially billable request to a different provider.
+ */
+export function applyOpenRouterFreeOnlyFallbackPolicy<T extends { provider: ProviderId }>(
+  openRouterFreeOnly: boolean,
+  candidates: readonly T[],
+): T[] {
+  return openRouterFreeOnly
+    ? candidates.filter((candidate) => candidate.provider === "openrouter")
+    : [...candidates];
+}
+
+let modelContractHistoryLoadPromise: Promise<void> | undefined;
+let modelContractHistoryPersistenceReady = false;
+
+async function ensureModelContractHistoryLoaded(): Promise<void> {
+  if (!modelContractHistoryLoadPromise) {
+    modelContractHistoryLoadPromise = (async () => {
+      try {
+        const now = new Date();
+        const cutoff = new Date(
+          now.getTime() - MODEL_CONTRACT_ACCEPTANCE_CONFIG.windowMs,
+        );
+        const rows = await db
+          .select({
+            model: aiUsageEventsTable.model,
+            contract: aiUsageEventsTable.modelTaskContract,
+            outcome: aiUsageEventsTable.modelTaskOutcome,
+            occurredAt: aiUsageEventsTable.occurredAt,
+          })
+          .from(aiUsageEventsTable)
+          .where(and(
+            eq(aiUsageEventsTable.provider, "openrouter"),
+            eq(
+              aiUsageEventsTable.modelTaskContract,
+              MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS,
+            ),
+            isNotNull(aiUsageEventsTable.model),
+            isNotNull(aiUsageEventsTable.modelTaskOutcome),
+            gte(aiUsageEventsTable.occurredAt, cutoff),
+            gte(aiUsageEventsTable.expiresAt, now),
+          ))
+          .orderBy(desc(aiUsageEventsTable.occurredAt))
+          .limit(MODEL_CONTRACT_ACCEPTANCE_CONFIG.maxSamplesPerModelContract * 32);
+        hydrateModelContractSamples(rows);
+        modelContractHistoryPersistenceReady = true;
+      } catch (error) {
+        modelContractHistoryPersistenceReady = false;
+        logger.warn(
+          {
+            errorName: error instanceof Error ? error.name : "unknown",
+          },
+          "Durable model-contract history unavailable; using process-local scoring",
+        );
+      }
+    })();
+  }
+  await modelContractHistoryLoadPromise;
+}
+
 // ── Per-provider key resolution ───────────────────────────────────────────────
 
 /**
@@ -402,10 +475,9 @@ export async function resolveOpenRouterApiKey(userId: string): Promise<string | 
 /**
  * Resolve which AI provider to use for a request.
  *
- * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
- * the first provider whose key is available. This is the single place that
- * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
- * to reorder.
+ * When an OpenRouter credential is configured, the free-only product lane
+ * stays on OpenRouter and fails closed if no eligible free model is available.
+ * Otherwise, iterate PROVIDER_PRIORITY and return the first usable provider.
  */
 export async function resolveProvider(
   userId: string,
@@ -680,8 +752,14 @@ export async function runAgentWithFallback<T>(
     onModelAttempt?: (attempt: AgentModelAttempt & { provider: ProviderId }) => void | Promise<void>;
   },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
+  const openRouterFreeOnly = Boolean(
+    await resolveProviderCredential(userId, "openrouter"),
+  );
   let orderedProviders = await collectAvailableProviders(userId, options);
-  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
+  if (
+    !orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)
+    && !(openRouterFreeOnly && initialProvider.provider !== "openrouter")
+  ) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
       apiKey: initialProvider.apiKey,
@@ -692,6 +770,13 @@ export async function runAgentWithFallback<T>(
     if (lifecycle.selectable && !isCircuitOpen(initialProvider.provider)) {
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
+  }
+  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
+    openRouterFreeOnly,
+    orderedProviders,
+  );
+  if (orderedProviders.length === 0) {
+    throw await getProviderSelectionFailure(userId, options);
   }
 
   let lastErr: GroqClientError | undefined;
@@ -1035,6 +1120,7 @@ export async function chatWithFallback(
   if (typeof baseParams.onToolInvocation !== "function") {
     throw new Error("TOOL_INVOCATION_LIFECYCLE_REQUIRED");
   }
+  await ensureModelContractHistoryLoaded();
   const executionLedger =
     baseParams.executionLedger ??
     createExecutionLedger({ mode: "tool_chat", signal: baseParams.signal });
@@ -1044,7 +1130,10 @@ export async function chatWithFallback(
   const selectionOptions = capabilityProbeTurn
     ? { ...options, refreshLifecycle: true }
     : options;
-  const orderedProviders = await collectAvailableProviders(userId, selectionOptions);
+  const openRouterFreeOnly = Boolean(
+    await resolveProviderCredential(userId, "openrouter"),
+  );
+  let orderedProviders = await collectAvailableProviders(userId, selectionOptions);
   if (process.env.MISSION_E2E_PROVIDER_FIXTURE === "1") {
     logger.info({
       scope: "mission-provider-fixture",
@@ -1055,7 +1144,10 @@ export async function chatWithFallback(
       qualityProfile: options?.qualityProfile ?? null,
     }, "controlled Mission fixture provider selection");
   }
-  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
+  if (
+    !orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)
+    && !(openRouterFreeOnly && initialProvider.provider !== "openrouter")
+  ) {
     const lifecycle = await getProviderLifecycleSnapshot({
       provider: initialProvider.provider,
       apiKey: initialProvider.apiKey,
@@ -1068,17 +1160,14 @@ export async function chatWithFallback(
       orderedProviders.unshift({ ...initialProvider, source: initialProvider.source ?? "user" });
     }
   }
+  orderedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
+    openRouterFreeOnly,
+    orderedProviders,
+  );
 
   if (orderedProviders.length === 0) {
     executionLedger.setTerminal("provider_exhausted");
-    throw new GroqClientError(
-      "INVALID_CONFIG",
-      capabilityProbeTurn
-        ? "No provider is configured and selectable for the capability probe"
-        : options?.requireTools
-          ? "No tool-capable AI provider is configured"
-          : "No AI provider returned a response",
-    );
+    throw await getProviderSelectionFailure(userId, selectionOptions);
   }
 
   let lastErr: GroqClientError | undefined;
@@ -1330,6 +1419,36 @@ export async function chatWithFallback(
         }: { provider: ProviderId; providerIndex: number; model?: string }) => {
           acceptedSynthesisProvider = provider;
         },
+        onModelTaskSample: async ({
+          provider,
+          model,
+          contract,
+          outcome,
+          attemptId,
+          latencyMs,
+        }: {
+          provider: ProviderId;
+          model: string;
+          contract: (typeof MODEL_TASK_CONTRACTS)[keyof typeof MODEL_TASK_CONTRACTS];
+          outcome: "accepted" | "rejected" | "empty";
+          attemptId: string;
+          latencyMs: number;
+        }) => {
+          const context = baseParams.telemetryContext;
+          if (!modelContractHistoryPersistenceReady || !context) return;
+          await recordAiUsageAttempt(context, {
+            attemptId: `model-task:${attemptId}`,
+            operation: "project_query_no_tools_synthesis",
+            provider,
+            model,
+            outcome: outcome === "empty" ? "failure" : "success",
+            latencyMs,
+            usageStatus: "unknown",
+            modelTaskContract: contract,
+            modelTaskOutcome: outcome,
+            providerFailureKind: outcome === "empty" ? "EMPTY_RESPONSE" : null,
+          });
+        },
         executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
@@ -1428,10 +1547,13 @@ export async function chatWithFallback(
             ...providerErrors.map((error) => error.provider),
             providerEntry.provider,
           ]);
-          const refreshedProviders = await collectAvailableProviders(userId, {
-            ...options,
-            refreshLifecycle: true,
-          });
+          const refreshedProviders = applyOpenRouterFreeOnlyFallbackPolicy(
+            openRouterFreeOnly,
+            await collectAvailableProviders(userId, {
+              ...options,
+              refreshLifecycle: true,
+            }),
+          );
           const addedProviders = refreshedProviders
             .filter((candidate) =>
               !attemptedProviders.has(candidate.provider) &&

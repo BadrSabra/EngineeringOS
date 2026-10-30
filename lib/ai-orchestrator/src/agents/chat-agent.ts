@@ -65,6 +65,12 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import {
+  MODEL_TASK_CONTRACTS,
+  recordModelContractOutcome,
+  recordModelContractOutput,
+} from "../openrouter/model-contract-acceptance.js";
+import type { ModelTaskOutcome } from "../openrouter/model-contract-acceptance.js";
 import type { ModelCapability } from "../openrouter/model-catalog.js";
 import {
   GroqClientError,
@@ -6525,6 +6531,15 @@ export async function chat(opts: {
       providerIndex: number;
       model?: string;
     }) => void | Promise<void>;
+    /** Content-free sample for exact, server-owned OpenRouter task contracts. */
+    onModelTaskSample?: (params: {
+      provider: ProviderId;
+      model: string;
+      contract: (typeof MODEL_TASK_CONTRACTS)[keyof typeof MODEL_TASK_CONTRACTS];
+      outcome: ModelTaskOutcome;
+      attemptId: string;
+      latencyMs: number;
+    }) => void | Promise<void>;
 }): Promise<ChatResult> {
   const {
     message,
@@ -10412,19 +10427,49 @@ export async function chat(opts: {
       let cancelled = false;
       let synthesisAttemptSequence = 0;
 
-      const reportSynthesisAttempt = (params: {
+      const reportSynthesisAttempt = async (params: {
         attemptNumber: number;
         attemptId: string;
         candidate: ProjectQuerySynthesisFallbackProvider;
         startedAt: number;
         contractOutcome: "accepted" | "rejected" | "not_evaluated";
+        outputOutcome?: "content" | "empty";
         outputHash: string;
         failureClass?: ProjectQuerySynthesisFailureClass;
         failureScope?: ProjectQuerySynthesisRateLimitScope;
         recoveryAction: "accepted" | "repair" | "next_provider" | "stop" | "deterministic_fallback";
         model?: string;
         extraDetails?: string[];
-      }) => {
+      }): Promise<void> => {
+        const sampleOutcome: ModelTaskOutcome | undefined =
+          params.contractOutcome === "accepted"
+            ? "accepted"
+            : params.contractOutcome === "rejected"
+              ? "rejected"
+              : params.outputOutcome === "empty"
+                ? "empty"
+                : undefined;
+        if (params.candidate.provider === "openrouter" && params.model && sampleOutcome) {
+          const contract = MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS;
+          if (sampleOutcome === "empty") {
+            recordModelContractOutput(params.model, contract, "empty");
+          } else {
+            recordModelContractOutput(params.model, contract, "content");
+            recordModelContractOutcome(params.model, contract, sampleOutcome);
+          }
+          try {
+            await opts.onModelTaskSample?.({
+              provider: "openrouter",
+              model: params.model,
+              contract,
+              outcome: sampleOutcome,
+              attemptId: params.attemptId,
+              latencyMs: Math.max(0, Date.now() - params.startedAt),
+            });
+          } catch (callbackError) {
+            console.warn("Project-query model contract telemetry callback failed", callbackError);
+          }
+        }
         relayAgentStep({
           kind: "diagnostic",
           code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
@@ -10508,7 +10553,7 @@ export async function chat(opts: {
             const timeoutMs = executionLedger.timeoutMs(30_000);
             if (timeoutMs < 1_000) {
               executionLedger.setTerminal("deadline");
-              reportSynthesisAttempt({
+              await reportSynthesisAttempt({
                 attemptNumber,
                 attemptId,
                 candidate: recoveryProvider,
@@ -10526,7 +10571,7 @@ export async function chat(opts: {
               provider: recoveryProvider.provider,
               operation: "project_query_no_tools_synthesis",
             })) {
-              reportSynthesisAttempt({
+              await reportSynthesisAttempt({
                 attemptNumber,
                 attemptId,
                 candidate: recoveryProvider,
@@ -10565,7 +10610,7 @@ export async function chat(opts: {
                     status: "failed",
                     reason: "project_ai_budget_exhausted",
                   });
-                  reportSynthesisAttempt({
+                  await reportSynthesisAttempt({
                     attemptNumber,
                     attemptId,
                     candidate: recoveryProvider,
@@ -10647,6 +10692,10 @@ export async function chat(opts: {
                 recoveryMessages,
                 {
                   model: synthesisModel,
+                  taskContract:
+                    recoveryProvider.provider === "openrouter"
+                      ? MODEL_TASK_CONTRACTS.PROJECT_QUERY_NO_TOOLS_SYNTHESIS
+                      : undefined,
                   maxTokens: 1600,
                   timeoutMs,
                   retryTransient: false,
@@ -10683,7 +10732,7 @@ export async function chat(opts: {
               if (failureClass === "CANCELLED") {
                 cancelled = true;
                 stopRecovery = true;
-                reportSynthesisAttempt({
+                await reportSynthesisAttempt({
                   attemptNumber,
                   attemptId,
                   candidate: recoveryProvider,
@@ -10748,12 +10797,15 @@ export async function chat(opts: {
                   : canMoveProvider
                     ? "deterministic_fallback"
                     : "stop";
-              reportSynthesisAttempt({
+              await reportSynthesisAttempt({
                 attemptNumber,
                 attemptId,
                 candidate: recoveryProvider,
                 startedAt: synthesisStartedAt,
                 contractOutcome: "not_evaluated",
+                ...(providerOutcome === "EMPTY_RESPONSE"
+                  ? { outputOutcome: "empty" as const }
+                  : {}),
                 outputHash: "none",
                 failureClass,
                 failureScope: projectQuerySynthesisRateLimitScope(error),
@@ -10825,7 +10877,7 @@ export async function chat(opts: {
               } catch (callbackError) {
                 console.warn("Project-query synthesis acceptance callback failed", callbackError);
               }
-              reportSynthesisAttempt({
+              await reportSynthesisAttempt({
                 attemptNumber,
                 attemptId,
                 candidate: recoveryProvider,
@@ -10861,12 +10913,13 @@ export async function chat(opts: {
               : hasNextProvider
                 ? "next_provider"
                 : "deterministic_fallback";
-            reportSynthesisAttempt({
+            await reportSynthesisAttempt({
               attemptNumber,
               attemptId,
               candidate: recoveryProvider,
               startedAt: synthesisStartedAt,
-              contractOutcome: "rejected",
+              contractOutcome: rawSynthesisOutput.trim() ? "rejected" : "not_evaluated",
+              ...(!rawSynthesisOutput.trim() ? { outputOutcome: "empty" as const } : {}),
               outputHash,
               failureClass,
               recoveryAction,

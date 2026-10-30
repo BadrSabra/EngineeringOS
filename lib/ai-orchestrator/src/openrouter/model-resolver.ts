@@ -29,6 +29,12 @@ import {
 } from "./model-catalog.js";
 import { getUsableDynamicModelIds, getUsablePaidModelCandidates } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
+import {
+  getModelContractAvailabilityWeight,
+  getModelContractAcceptanceWeight,
+  selectWeightedModelIndex,
+  type ModelTaskContract,
+} from "./model-contract-acceptance.js";
 import type { TaskType } from "../quality/task-profile.js";
 
 export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel };
@@ -104,6 +110,8 @@ export type ResolveModelOpts = {
   requireStreaming?: boolean;
   /** Apply behavioral demotion only to the task execution fallback chain. */
   taskType?: TaskType;
+  /** Apply outcome ranking only within this server-selected task contract. */
+  taskContract?: ModelTaskContract;
   /** Always true for this module — reserved for future paid-tier support. */
   preferFreeTier?: boolean;
 };
@@ -122,9 +130,90 @@ export type ModelDecisionTrace = {
   skippedStale?: string[];
 };
 
+const laneRotationCursors = new Map<string, number>();
+
 /** Emit a model-decision trace to stdout as a JSON log line. */
 export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
   console.info(JSON.stringify({ scope: "model-resolver", ...trace }));
+}
+
+function rotatePreferredLaneGroup(
+  models: OpenRouterFreeModel[],
+  opts: ResolveModelOpts,
+): OpenRouterFreeModel[] {
+  if (models.length < 2) return models;
+
+  const first = models[0]!;
+  const firstIsDemoted =
+    opts.taskType === "task_execution" && isModelBehaviorallyDemoted(first.id);
+  const groupEndIndex = models.findIndex((model) =>
+    model.quality !== first.quality ||
+    (
+      opts.taskType === "task_execution" &&
+      isModelBehaviorallyDemoted(model.id) !== firstIsDemoted
+    ),
+  );
+  const groupEnd = groupEndIndex < 0 ? models.length : groupEndIndex;
+  if (groupEnd < 2) return models;
+
+  const laneKey = JSON.stringify([
+    opts.capability,
+    opts.quality ?? "fast",
+    opts.requireTools ?? false,
+    opts.requireJson ?? false,
+    opts.requireStreaming ?? false,
+    opts.taskType ?? "default",
+    opts.taskContract ?? null,
+    first.quality,
+    firstIsDemoted,
+  ]);
+  const preferredGroup = models.slice(0, groupEnd);
+  const contractWeights = opts.taskContract
+    ? preferredGroup.map((model) => {
+        const acceptanceWeight = getModelContractAcceptanceWeight(model.id, opts.taskContract!);
+        const availabilityWeight = getModelContractAvailabilityWeight(model.id, opts.taskContract!);
+        if (acceptanceWeight === null) return availabilityWeight;
+        if (availabilityWeight === null) return acceptanceWeight;
+        return Math.min(acceptanceWeight, availabilityWeight);
+      })
+    : [];
+  const hasContractEvidence = contractWeights.some((weight) => weight !== null);
+  if (opts.taskContract && hasContractEvidence) {
+    const weights = contractWeights.map((weight) => weight ?? 2);
+    const slots = weights.reduce((sum, weight) => sum + weight, 0);
+    const offset = (laneRotationCursors.get(laneKey) ?? 0) % slots;
+    const selectedIndex = selectWeightedModelIndex(weights, offset);
+    laneRotationCursors.set(laneKey, (offset + 1) % slots);
+    const remaining = preferredGroup
+      .map((model, index) => ({ model, index }))
+      .filter(({ index }) => index !== selectedIndex)
+      .sort((a, b) =>
+        (weights[b.index] ?? 2) - (weights[a.index] ?? 2)
+        || a.index - b.index,
+      )
+      .map(({ model }) => model);
+    // The weighted slot chooses the primary lane; remaining candidates stay
+    // available as ordered fallbacks under the existing request policy.
+    return [
+      preferredGroup[selectedIndex]!,
+      ...remaining,
+      ...models.slice(groupEnd),
+    ];
+  }
+
+  const offset = (laneRotationCursors.get(laneKey) ?? 0) % groupEnd;
+  laneRotationCursors.set(laneKey, (offset + 1) % groupEnd);
+
+  return [
+    ...preferredGroup.slice(offset),
+    ...preferredGroup.slice(0, offset),
+    ...models.slice(groupEnd),
+  ];
+}
+
+/** Test seam for deterministic free-lane selection tests. */
+export function _resetModelLaneSchedulerForTest(): void {
+  laneRotationCursors.clear();
 }
 
 /**
@@ -156,7 +245,8 @@ function partitionByLiveCatalog(
  * PR-002: models absent from the live OpenRouter catalog are excluded from the
  * returned chain (they are logged in the decision trace as skippedStale).
  *
- * Pure function — no logging. Call resolveModel() when you also want a trace.
+ * New unpinned requests rotate across the first equally-ranked free-model lane
+ * group. Explicitly pinned model IDs remain pinned by their caller.
  */
 export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   const {
@@ -212,7 +302,8 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
     return aDemoted - bDemoted;
   });
 
-  const chain = effectivePool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
+  const scheduledPool = rotatePreferredLaneGroup(effectivePool, opts);
+  const chain = scheduledPool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
 
   // Compute stale list for trace.
   const { stale } = partitionByLiveCatalog(rawPool);

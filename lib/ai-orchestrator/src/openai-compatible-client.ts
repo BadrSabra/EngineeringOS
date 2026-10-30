@@ -68,10 +68,13 @@ import {
   readBoundedProviderResponseText,
 } from "./provider-response-limits.js";
 import { assertProviderEgressEnabled } from "./provider-egress.js";
+import type { ModelTaskContract } from "./openrouter/model-contract-acceptance.js";
+import { recordModelContractOutput } from "./openrouter/model-contract-acceptance.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
   taskType?: TaskType;
+  taskContract?: ModelTaskContract;
   temperature?: number;
   maxTokens?: number;
   /** Selects a bounded output contract when maxTokens is not supplied. */
@@ -1645,9 +1648,9 @@ export type OpenRouterFallbackOptions = Omit<
   capability?: ModelCapability;
   /** Execution-plan tool contract, including calls with tools supplied later. */
   requireTools?: boolean;
-  /** Paid fallback is opt-in through server policy and never part of free resolution. */
+  /** @deprecated Retained for compatibility; OpenRouter product routing is free-only. */
   allowPaidFallback?: boolean;
-  /** Reports the one bounded free-to-paid transition, without provider content. */
+  /** @deprecated Paid transitions are disabled by the product's free-only policy. */
   onProviderFallback?: (event: {
     fromModel: string;
     toModel: string;
@@ -1675,8 +1678,10 @@ export async function openrouterCompleteWithFallback(
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
   const requireTools = opts.requireTools ?? !!(opts.tools?.length);
-  const paidFallbackEnabled =
-    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
+  // Do not let legacy env/config opt-ins turn a free-only OpenRouter route into
+  // paid traffic. Keep the compatibility options above typed, but never honor
+  // them at this boundary.
+  const paidFallbackEnabled = false;
   const knownInitialModel = initialModel
     ? FREE_MODELS.some((candidate) => candidate.id === initialModel) ||
       (paidFallbackEnabled && isCatalogPaidModelForCapability(initialModel, {
@@ -1697,13 +1702,17 @@ export async function openrouterCompleteWithFallback(
   // fallback chain from the live free-tier catalog at call time.
   // `quality` and `capability` let callers express intent (e.g. "powerful" for
   // code-review) without hardcoding a specific model ID that may become stale.
-  const resolvedChain = initialModel
+  // A fixed task contract makes this a server-owned adaptive lane selection:
+  // `initialModel` remains a validated hint, while the exact free lane order
+  // comes from that contract's accepted/rejected outcome history.
+  const resolvedChain = initialModel && !opts.taskContract
     ? buildFallbackChainFromId(initialModel, opts.taskType, { capability, requireTools })
     : resolveFallbackChain({
         capability,
         quality:    opts.quality    ?? "fast",
         requireTools,
-         taskType: opts.taskType,
+        taskType: opts.taskType,
+        taskContract: opts.taskContract,
       }).map((m) => m.id);
   if (initialModel && resolvedChain.length === 0) {
     const catalog = getDynamicCatalogStatus();
@@ -1842,10 +1851,20 @@ export async function openrouterCompleteWithFallback(
     attemptedModels.push(model);
     try {
       const response = await openrouterCompleteRaw(messages, { ...opts, model });
+      if (opts.taskContract) {
+        recordModelContractOutput(model, opts.taskContract, "content");
+      }
       recordModelSuccess("openrouter", model);
       await clearSharedPoolModelCooldown("openrouter", model);
       return response;
     } catch (err) {
+      if (
+        opts.taskContract
+        && err instanceof GroqClientError
+        && err.code === "EMPTY_RESPONSE"
+      ) {
+        recordModelContractOutput(model, opts.taskContract, "empty");
+      }
       // Do not turn a provider-scoped 429 into a burst against the next model
       // in this request. A shared-pool limit cools only this attempted model
       // for later requests; a provider-credential limit must not penalize one
@@ -1857,7 +1876,8 @@ export async function openrouterCompleteWithFallback(
         const providerRateLimitScope =
           err instanceof GroqClientError ? err.rateLimitScope : undefined;
         const shouldCoolFailedModel =
-          providerRateLimitScope !== "provider_credential";
+          providerRateLimitScope !== "provider_credential" &&
+          providerRateLimitScope !== "account_quota";
         if (shouldCoolFailedModel) {
           recordModelFailure(
             "openrouter",
@@ -1872,15 +1892,8 @@ export async function openrouterCompleteWithFallback(
             );
           }
         }
-        if (
-          err instanceof GroqClientError &&
-          providerRateLimitScope !== "upstream_shared_pool" &&
-          providerRateLimitScope !== "provider_credential" &&
-          await appendPaidFallback(err, model)
-        ) {
-          lastError = err;
-          continue;
-        }
+        // Every rate limit is terminal for this OpenRouter request, including
+        // unknown/account-wide scopes. Do not advance to another model or tier.
         throw new GroqClientError(err.code, err.message, {
           cause: err,
           context: {
@@ -2048,7 +2061,8 @@ export async function* openrouterCompleteStream(
         if (
           providerError &&
           (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA") &&
-          providerError.rateLimitScope !== "provider_credential"
+          providerError.rateLimitScope !== "provider_credential" &&
+          providerError.rateLimitScope !== "account_quota"
         ) {
           recordModelFailure("openrouter", model, providerError.retryAfterMs);
           if (providerError.rateLimitScope === "upstream_shared_pool") {

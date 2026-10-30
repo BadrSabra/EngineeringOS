@@ -32,6 +32,7 @@ import {
   buildFallbackChainFromId,
   isCatalogFreeModelForCapability,
   resolvePaidFallbackChain,
+  _resetModelLaneSchedulerForTest,
 } from "../openrouter/model-resolver.js";
 import {
   getDynamicModelIds,
@@ -102,6 +103,7 @@ function sseDelta(text: string): string {
 
 beforeEach(() => {
   _resetCircuitsForTest();
+  _resetModelLaneSchedulerForTest();
   _setModelCooldownPersistenceForTest({
     readActive: async () => [],
     write: async () => {},
@@ -433,7 +435,7 @@ describe("dynamic catalog — runtime model refresh", () => {
 
 // ── Explicit paid fallback policy ─────────────────────────────────────────────
 
-describe("paid OpenRouter fallback — explicit free-first policy", () => {
+describe("OpenRouter free-only routing policy", () => {
   const globalFetch = global.fetch;
   const previousEnv = {
     allow: process.env.OPENROUTER_ALLOW_PAID_FALLBACK,
@@ -483,7 +485,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       });
   }
 
-  it("propagates the explicit paid-fallback opt-in through the provider strategy", async () => {
+  it("ignores the legacy paid-fallback opt-in through the provider strategy", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -502,7 +504,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       }) as Response;
     }) as typeof fetch;
 
-    const result = await openrouterStrategy.call(
+    await expect(openrouterStrategy.call(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
@@ -512,13 +514,12 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         maxFallbackModels: 1,
         retryTransient: false,
       },
-    );
+    )).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "unknown" });
 
-    expect(result.content).toBe("paid success");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
+    expect(calls).toEqual([freeModel]);
   });
 
-  it("uses the exact paid model only when it is explicitly configured and cataloged", async () => {
+  it("ignores a paid model pin even when it is explicitly configured and cataloged", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     process.env.OPENROUTER_MODEL = "fixture/paid-tool-model";
     const calls: string[] = [];
@@ -527,7 +528,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       calls.push(body.model ?? "");
       return fetchResponse(200, {
-        choices: [{ message: { content: "paid pinned success" } }],
+        choices: [{ message: { content: "free-only success" } }],
         model: body.model,
         usage: {},
       }) as Response;
@@ -543,11 +544,11 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
       },
     );
 
-    expect(result.content).toBe("paid pinned success");
-    expect(calls).toEqual(["fixture/paid-tool-model"]);
+    expect(result.content).toBe("free-only success");
+    expect(calls).toEqual([freeModel]);
   });
 
-  it("keeps paid candidates out of the free resolver and selects paid only after free exhaustion", async () => {
+  it("does not route to a paid candidate after free exhaustion, even with explicit opt-in", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -575,7 +576,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     }).map((model) => model.id)).toEqual(["fixture/paid-tool-model"]);
 
     const transitions: Array<{ reason: string; toModel: string }> = [];
-    const result = await openrouterCompleteWithFallback(
+    await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
@@ -589,14 +590,13 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
           transitions.push({ reason: event.reason, toModel: event.toModel });
         },
       },
-    );
+    )).rejects.toMatchObject({ code: "MODEL_NOT_FOUND" });
 
-    expect(result.content).toBe("paid success");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
-    expect(transitions).toEqual([{ reason: "MODEL_NOT_FOUND", toModel: "fixture/paid-tool-model" }]);
+    expect(calls).toEqual([freeModel]);
+    expect(transitions).toEqual([]);
   });
 
-  it("uses one paid transition for a provider-scoped rate limit", async () => {
+  it("does not route to a paid candidate after a rate limit", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
@@ -614,7 +614,7 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     }) as typeof fetch;
 
     await refreshDynamicCatalog("fixture-key");
-    const result = await openrouterCompleteWithFallback(
+    await expect(openrouterCompleteWithFallback(
       [{ role: "user", content: "hello" }],
       {
         apiKey: "fixture-key",
@@ -623,9 +623,8 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
         allowPaidFallback: true,
         retryTransient: false,
       },
-    );
-    expect(result.content).toBe("paid after rate limit");
-    expect(calls).toEqual([freeModel, "fixture/paid-tool-model"]);
+    )).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    expect(calls).toEqual([freeModel]);
   });
 
   it("does not spend on paid fallback for authorization or request-contract failures", async () => {
