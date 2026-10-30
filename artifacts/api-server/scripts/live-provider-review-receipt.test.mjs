@@ -50,6 +50,17 @@ test("provider credential cooldown scope is preserved as a safe enum", () => {
   assert.equal(summary.rateLimitScope, "provider_credential");
 });
 
+test("retry delay is preserved only when it is a positive safe integer", () => {
+  const summary = validateAndSummarizeCampaignReceipt(validReceipt({
+    retryAfterMs: 1750,
+  }));
+  assert.equal(summary.retryAfterMs, 1750);
+  assert.throws(
+    () => validateAndSummarizeCampaignReceipt(validReceipt({ retryAfterMs: 0 })),
+    /invalid_receipt/,
+  );
+});
+
 test("success receipts require exactly one accepted finding", () => {
   assert.throws(
     () => validateAndSummarizeCampaignReceipt(validReceipt({

@@ -122,6 +122,7 @@ export type CodeReviewCampaignReceipt = {
   terminalStatus: "COMPLETE" | "INCOMPLETE";
   failureCode?: string;
   rateLimitScope?: ProviderRateLimitScope;
+  retryAfterMs?: number;
   failureModel?: string;
   recoveryAction: OpenRouterFailureAction | "retry-review";
   attemptedModels: string[];
@@ -437,6 +438,11 @@ export function buildCodeReviewCampaignReceipt(params: {
     && (params.error.code === "RATE_LIMITED" || params.error.code === "QUOTA")
     ? params.error.rateLimitScope
     : undefined;
+  const retryAfterMs = params.error instanceof GroqClientError
+    && Number.isSafeInteger(params.error.retryAfterMs)
+    && params.error.retryAfterMs! > 0
+    ? params.error.retryAfterMs
+    : undefined;
   const failureModel = params.error instanceof GroqClientError
     ? safeModels(params.error.providerModel ? [params.error.providerModel] : [])[0]
     : undefined;
@@ -453,6 +459,7 @@ export function buildCodeReviewCampaignReceipt(params: {
     terminalStatus: hasAcceptedFinding ? "COMPLETE" : "INCOMPLETE",
     ...(errorCode ? { failureCode: errorCode } : {}),
     ...(rateLimitScope ? { rateLimitScope } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
     ...(failureModel ? { failureModel } : {}),
     recoveryAction: recoveryActionFor(errorCode),
     attemptedModels: safeModels(params.attemptedModels),

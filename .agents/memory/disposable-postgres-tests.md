@@ -9,6 +9,12 @@ Do not use an inherited `DATABASE_URL` for an integration test that inserts, upd
 
 **How to apply:** Create a unique PostgreSQL cluster under `/tmp`, bind TCP only to `127.0.0.1`, place its socket directory inside that temporary root, and pass an explicit local `DATABASE_URL` to schema setup and the test process. On this host, `initdb` under the `runner` account creates the `runner` role and `postgres` database by default; target that pair explicitly rather than assuming a database named `runner`. Unset inherited `PG*` connection variables, apply the current schema only to that cluster, and run the narrow intended test. While the tracked shell task is still alive, stop PostgreSQL with `pg_ctl -D "$ROOT/data" -m fast -w stop`; then stop the shell task and remove only the exact temporary root. If no local server is available, stop and establish a disposable database rather than falling back to Replit development or production.
 
+Some direct AI-orchestrator entry points import the database package transitively, whose module initialization requires `DATABASE_URL` even when the requested operation appears not to query the database.
+
+**Why:** An isolated live review campaign without a database URL exited during module loading, before its runner or provider call could start.
+
+**How to apply:** For direct provider campaigns that import the orchestrator package, use a temporary loopback PostgreSQL cluster with the current schema; do not remove `DATABASE_URL` and do not substitute a shared Development or Production URL.
+
 If a foreground `ShellExec` command times out, do not assume the runner's `finally` cleanup executed. Inspect the exact temporary cluster's recorded PID, confirm whether a process still owns that data directory and whether its loopback port answers, then stop it only if that exact server is still active. Remove only that command's temporary root after confirming no listener remains.
 
 **Why:** A timed-out multi-suite runner left its generated cluster files behind after the command was killed, even though the server process had already stopped; cleanup behavior differs from a normal script exit.

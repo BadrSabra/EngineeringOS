@@ -74,6 +74,7 @@ describe("structured live review receipts", () => {
           providerModel: "second-model:free",
           providerAttemptedModels: ["first-model:free", "second-model?token=secret"],
           rateLimitScope: "upstream_shared_pool",
+          retryAfterMs: 1750,
         },
       }),
       attemptedModels: ["first-model:free", "second-model?token=secret"],
@@ -90,8 +91,18 @@ describe("structured live review receipts", () => {
     expect(parseReceipt.failureCode).toBe("MALFORMED_JSON");
     expect(outageReceipt.failureCode).toBe("RATE_LIMITED");
     expect(outageReceipt.rateLimitScope).toBe("upstream_shared_pool");
+    expect(outageReceipt.retryAfterMs).toBe(1750);
     expect(outageReceipt.failureModel).toBe("second-model:free");
     expect(outageReceipt.recoveryAction).toBe("wait");
+  });
+
+  it("does not invent a retry delay when the provider supplied none", () => {
+    const receipt = buildCodeReviewCampaignReceipt({
+      ...base,
+      error: new GroqClientError("RATE_LIMITED", "rate limited"),
+    });
+    expect(receipt.failureCode).toBe("RATE_LIMITED");
+    expect(receipt.retryAfterMs).toBeUndefined();
   });
 
   it("does not treat a finding in another file as verified evidence", () => {
