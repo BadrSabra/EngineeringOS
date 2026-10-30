@@ -197,6 +197,21 @@ actual external requests without bypassing those fixtures.
 the complete application egress-disable flags for controlled preview or startup
 tests that exercise those specific guards.
 
+Preloading the runtime egress guard directly into Vitest is not a viable
+provider-free test boundary here: Vite starts an `esbuild` child while loading
+or transforming the TypeScript config, and the isolated child policy rejects
+that executable before the test body runs. This remains a harness startup
+failure, not a provider or product failure.
+
+**Why:** A targeted suite stopped during config loading with
+`child_process_disabled`; selecting Vitest's runner config loader still invoked
+`esbuild` for TypeScript transformation.
+
+**How to apply:** Use the test-only outbound-fetch guard with provider
+credentials removed, or an approved isolated test runner that supports the
+required compiler process. Do not weaken the child-process allowlist just to
+make Vitest start.
+
 ## Live process-recovery sequencing
 
 Start the first forensic execution through the chat-stream route without an
