@@ -535,7 +535,12 @@ vi.mock("../../lib/advisory-lock.js", () => ({
 // (vitest hoists vi.mock() above all static imports automatically, but dynamic
 // imports still need to come after the vi.mock calls in source order.)
 import app from "../../app.js";
-import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+import {
+  chatWithFallback,
+  handleOrchestratorError,
+  requireProvider,
+  requestLooksToolBound,
+} from "../../lib/ai-route-helpers.js";
 import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
@@ -1641,8 +1646,14 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     });
   });
 
-  it("keeps non-stream project-query provider failures redacted and unaccepted", async () => {
+  it("keeps non-stream provider failures redacted and terminal", async () => {
     const privateProviderDetail = "private non-stream provider response";
+    const actualHelpers = await vi.importActual<
+      typeof import("../../lib/ai-route-helpers.js")
+    >("../../lib/ai-route-helpers.js");
+    vi.mocked(handleOrchestratorError).mockImplementation(
+      actualHelpers.handleOrchestratorError,
+    );
     vi.mocked(requireProvider).mockResolvedValueOnce({
       provider: "openrouter" as never,
       apiKey: "test-only-openrouter-secret",
@@ -1672,26 +1683,22 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(res.text).not.toContain(privateProviderDetail);
     expect(res.text).not.toContain("test-only-openrouter-secret");
     expect(JSON.stringify(capturedLoggerErrors)).not.toContain(privateProviderDetail);
-    expect(chatWithFallback).toHaveBeenCalledTimes(1);
-
-    const dbModule = (await import("@workspace/db") as unknown as {
-      __chatTestFixture: { execution: Record<string, unknown> };
-      __chatTestAcceptances: Array<Record<string, unknown>>;
-    });
-    expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
-      evidenceRequired: 1,
-      evidenceComplete: 0,
-      resumable: 1,
-      nextActionCode: "RESUME_ALLOWED",
-    });
-    const checkpoint = JSON.parse(
-      String(dbModule.__chatTestFixture.execution.checkpoint),
-    ) as { providerAttempts?: unknown[] };
-    expect(checkpoint.providerAttempts).toEqual([{
-      provider: "openrouter",
+    expect(capturedLoggerErrors).toEqual(expect.arrayContaining([
+      [
+        expect.objectContaining({
+          code: "RATE_LIMITED",
+          provider: "openrouter",
+          providerStatus: 429,
+        }),
+        "AI orchestrator request failed",
+      ],
+    ]));
+    expect(res.body).toMatchObject({
       code: "RATE_LIMITED",
-    }]);
-    expect(JSON.stringify(checkpoint)).not.toContain(privateProviderDetail);
+      outcome: "FAILED",
+      retryable: true,
+    });
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
   });
 
   it("persists only safe provider-failure metadata for a rate-limited project query", async () => {

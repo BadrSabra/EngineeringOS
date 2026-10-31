@@ -1751,10 +1751,13 @@ export function handleOrchestratorError(
     providerStatus: err.providerStatus,
   });
 
-  logger.error(
-    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
-    "AI orchestrator request failed",
-  );
+  logger.error({
+    code: /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code) ? err.code : "AI_PROVIDER_FAILURE",
+    projectId: ctx?.projectId,
+    operation: ctx?.operation,
+    provider: ctx?.provider,
+    providerStatus: err.providerStatus,
+  }, "AI orchestrator request failed");
 
   if (ctx?.publicContract === "chat") {
     if (ctx.executionLedger) {
@@ -1804,9 +1807,8 @@ export function handleOrchestratorError(
         type: "AiOrchestratorError",
         projectId: ctx.projectId,
         severity: "error",
-        // Provider details stay in the server log below. Events are exposed
-        // through the user-facing activity feed and must not contain raw
-        // provider messages, request IDs, or runtime paths.
+        // Events are exposed through the user-facing activity feed and must
+        // not contain raw provider messages, request IDs, or runtime paths.
         message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
       })
       .catch(() => {});
