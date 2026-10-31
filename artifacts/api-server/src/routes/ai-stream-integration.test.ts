@@ -14899,6 +14899,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       activeTaskState?: unknown;
       turnIntent?: { kind?: string; compoundWrite?: boolean };
     }> = [];
+    let omitOrientationRole = false;
 
     vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
       const explanationInput = args[1] as typeof explanationInputs[number];
@@ -14976,9 +14977,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
               purpose: { plannedFiles: ["src/verified.ts"], complete: true },
               components: { plannedFiles: ["src/components.ts"], complete: true },
               primaryFlow: { plannedFiles: ["src/flow.ts"], complete: true },
-              uncertainty: { plannedFiles: ["tests/verified.test.ts"], complete: true },
-              complete: true,
-              missingRoles: [],
+              uncertainty: {
+                plannedFiles: ["tests/verified.test.ts"],
+                complete: !omitOrientationRole,
+              },
+              complete: !omitOrientationRole,
+              missingRoles: omitOrientationRole ? ["uncertainty"] : [],
             },
           },
           projectQueryResponseSource: "provider_synthesis",
@@ -14996,6 +15000,21 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         message: "اشرح المشروع",
       });
     expect(jsonExplanation.status).toBe(200);
+    expect(jsonExplanation.body).toMatchObject({
+      outcome: "SUCCEEDED",
+      executionId: expect.any(String),
+      terminalProjection: {
+        status: "completed",
+        outcome: "SUCCEEDED",
+        acceptanceId: expect.any(String),
+      },
+      executionProjection: {
+        verification: {
+          proofRequired: true,
+          evidenceVerdict: "PROVEN",
+        },
+      },
+    });
 
     const explanation = await request(app)
       .post("/api/ai/chat/stream")
@@ -15034,6 +15053,19 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(jsonExplanation.body.sources).toEqual(expectedOrientationSources);
     expect(jsonExplanation.body.projectQueryResponseSource).toBe("provider_synthesis");
     expect(explanationDone).toMatchObject({
+      message: {
+        terminalProjection: {
+          status: "completed",
+          outcome: "SUCCEEDED",
+          acceptanceId: expect.any(String),
+        },
+        projection: {
+          verification: {
+            proofRequired: true,
+            evidenceVerdict: "PROVEN",
+          },
+        },
+      },
       sources: expectedOrientationSources,
       projectQueryResponseSource: "provider_synthesis",
       message: {
@@ -15128,6 +15160,120 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
       expect(projectedExplanation).not.toHaveProperty("repairPlan");
     }
+
+    const jsonExecutionId = String(jsonExplanation.body.executionId);
+    const sseDone = explanationDone as {
+      message?: {
+        executionId?: string;
+        terminalProjection?: { acceptanceId?: string };
+      };
+    };
+    const sseExecutionId = String(sseDone.message?.executionId);
+    expect(jsonExecutionId).not.toBe(sseExecutionId);
+    const [jsonAcceptance, sseAcceptance] = await Promise.all([
+      db.select({
+        id: aiExecutionAcceptancesTable.id,
+        executionId: aiExecutionAcceptancesTable.executionId,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        messageId: aiExecutionAcceptancesTable.messageId,
+      })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, jsonExecutionId)),
+      db.select({
+        id: aiExecutionAcceptancesTable.id,
+        executionId: aiExecutionAcceptancesTable.executionId,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        messageId: aiExecutionAcceptancesTable.messageId,
+      })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, sseExecutionId)),
+    ]);
+    for (const acceptance of [jsonAcceptance[0], sseAcceptance[0]]) {
+      expect(acceptance).toMatchObject({
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+      });
+      expect(acceptance?.id).toEqual(expect.any(String));
+      expect(acceptance?.messageId).toEqual(expect.any(String));
+    }
+    expect(jsonAcceptance[0]?.id).toBe(jsonExplanation.body.terminalProjection.acceptanceId);
+    expect(sseAcceptance[0]?.id).toBe(sseDone.message?.terminalProjection?.acceptanceId);
+
+    const [jsonExecution] = await db
+      .select({ request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, jsonExecutionId))
+      .limit(1);
+    expect(JSON.parse(jsonExecution!.request)).toMatchObject({
+      proofRequired: true,
+      projectOrientation: true,
+      taskObjective: {
+        validatorIds: ["project-query-evidence.v1"],
+      },
+    });
+
+    omitOrientationRole = true;
+    const incompleteJson = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "اشرح المشروع",
+      });
+    expect(incompleteJson.status).toBe(200);
+    expect(incompleteJson.body).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      retryable: true,
+      recoveryState: "INCOMPLETE",
+      message: { outcome: "FAILED" },
+    });
+    const [incompleteExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, String(sessionId)))
+      .orderBy(sql`${aiExecutionsTable.createdAt} DESC`)
+      .limit(1);
+    expect(incompleteExecution).toBeDefined();
+    expect(JSON.parse(incompleteExecution!.request)).toMatchObject({
+      proofRequired: true,
+      projectOrientation: true,
+    });
+    expect(incompleteExecution?.status).toBe("failed");
+    expect(parseAiExecutionCheckpoint(incompleteExecution?.checkpoint)).toMatchObject({
+      stage: "failed",
+      evidenceVerdict: "PARTIAL",
+    });
+    const incompleteAcceptance = await db
+      .select({
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, incompleteExecution!.id));
+    expect(incompleteAcceptance).toMatchObject([{
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+    }]);
   });
 
   it("keeps stale repair-oriented memory untrusted and read-only on SSE", async () => {

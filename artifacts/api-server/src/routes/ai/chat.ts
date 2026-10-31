@@ -416,6 +416,24 @@ function deriveOrientationTraceParityFailure(traceSteps: AgentStep[]): string | 
   return undefined;
 }
 
+function deriveProjectOrientationAcceptance(params: {
+  coverageComplete: boolean;
+  traceSteps: AgentStep[];
+}): {
+  coverageComplete: boolean;
+  traceParityFailure?: string;
+  eligible: boolean;
+} {
+  const traceParityFailure = params.coverageComplete
+    ? deriveOrientationTraceParityFailure(params.traceSteps)
+    : undefined;
+  return {
+    coverageComplete: params.coverageComplete,
+    ...(traceParityFailure ? { traceParityFailure } : {}),
+    eligible: params.coverageComplete && traceParityFailure === undefined,
+  };
+}
+
 function isCapabilityProbeRecoveryDiagnostic(code: string): boolean {
   return code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
     || code.startsWith("CAPABILITY_MICRO_PROBE_");
@@ -6367,6 +6385,7 @@ router.post("/ai/chat", async (req, res) => {
   let chatObservationSucceeded = false;
   let chatObservationFinalMessageId: string | null = null;
   let chatCanonicalProjectQueryProofRequired = false;
+  let chatProjectOrientationProofRequired = false;
   let chatProofSessionCreated = false;
   const chatObservationAbortController = new AbortController();
   try {
@@ -6556,6 +6575,26 @@ router.post("/ai/chat", async (req, res) => {
       && !turnIntent.compoundWrite
       && !isWriteCapableTurn(turnIntent)
       && !isImmediateExecutionRequest(message);
+    chatProjectOrientationProofRequired =
+      turnIntent.kind === "PROJECT_QUERY"
+      && projectOrientationTurn
+      && !turnIntent.compoundWrite
+      && Boolean(analysisCorrelation.projectRevision);
+    const chatDurableProofRequired =
+      chatCanonicalProjectQueryProofRequired
+      || chatProjectOrientationProofRequired;
+    const chatOrientationTaskObjective = chatProjectOrientationProofRequired
+      ? buildTaskObjectiveContract({
+          message,
+          projectId,
+          workspaceRevision: analysisCorrelation.projectRevision!,
+          targetPaths: [],
+          proofRequired: true,
+          turnIntent: turnIntent.kind,
+          operationMode: turnIntent.operationMode,
+          implementationTaskMode: turnIntent.classification.implementationTaskMode,
+        })
+      : undefined;
     const ensureChatObservationLifecycle = async (): Promise<void> => {
       if (chatObservationStartPromise) {
         await chatObservationStartPromise;
@@ -6563,7 +6602,7 @@ router.post("/ai/chat", async (req, res) => {
       }
       chatObservationStartPromise = (async () => {
         const workerId = randomUUID();
-        if (chatCanonicalProjectQueryProofRequired && !existingSession) {
+        if (chatDurableProofRequired && !existingSession) {
           const trimmed = message.trim();
           const isGreeting =
             /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
@@ -6588,9 +6627,10 @@ router.post("/ai/chat", async (req, res) => {
           operationId: analysisCorrelation.operationId,
           ...(existingSession
             || factInvestigationContract
-            || chatCanonicalProjectQueryProofRequired
+            || chatDurableProofRequired
             ? { sessionId: sessionIdToUse }
             : {}),
+          ...(chatProjectOrientationProofRequired ? { projectOrientation: true } : {}),
           message,
           modelMessage: message,
           workspaceRevision: analysisCorrelation.projectRevision,
@@ -6599,6 +6639,9 @@ router.post("/ai/chat", async (req, res) => {
           ...(chatCanonicalProjectQueryProofRequired
             ? { objective: effectiveObjective }
             : {}),
+          ...(chatOrientationTaskObjective
+            ? { taskObjective: chatOrientationTaskObjective }
+            : {}),
           ...(factInvestigationContract
             ? { factInvestigation: factInvestigationContract }
             : {}),
@@ -6606,7 +6649,7 @@ router.post("/ai/chat", async (req, res) => {
           // Only a server-resolved, evidence-required PROJECT_QUERY objective
           // enters canonical proof acceptance on the JSON route. Other chat
           // observations keep their existing observation-only contract.
-          proofRequired: chatCanonicalProjectQueryProofRequired,
+          proofRequired: chatDurableProofRequired,
         };
         const created = await createAiExecution({
           userId: req.userId,
@@ -6729,7 +6772,7 @@ router.post("/ai/chat", async (req, res) => {
       finalMessageId: string | null = chatObservationFinalMessageId,
     ): Promise<boolean> => {
       if (
-        chatCanonicalProjectQueryProofRequired
+        chatDurableProofRequired
         && requestedStatus === "completed"
         && (!chatObservationExecution || !chatObservationWorkerId)
       ) return false;
@@ -6765,13 +6808,23 @@ router.post("/ai/chat", async (req, res) => {
           reasonCode = "EXECUTION_ACCEPTANCE_INCOMPLETE";
         }
       }
+      if (terminalStatus === "completed" && chatProjectOrientationProofRequired) {
+        const orientationAcceptance = deriveProjectOrientationAcceptance({
+          coverageComplete: result.sourceSelectionRecord?.orientationCoverage?.complete === true,
+          traceSteps,
+        });
+        if (!orientationAcceptance.eligible) {
+          terminalStatus = "failed";
+          reasonCode = "EXECUTION_ACCEPTANCE_INCOMPLETE";
+        }
+      }
       if (terminalStatus === "completed" && !chatObservationEpisode) {
         terminalStatus = "failed";
         reasonCode = "CHAT_EPISODE_START_FAILED";
       }
       if (
         chatObservationEpisode
-        && (!chatCanonicalProjectQueryProofRequired || terminalStatus !== "completed")
+        && (!chatDurableProofRequired || terminalStatus !== "completed")
       ) {
         try {
           await closeEpisode({
@@ -6809,7 +6862,7 @@ router.post("/ai/chat", async (req, res) => {
           }
         }
       }
-      if (terminalStatus === "completed" && chatCanonicalProjectQueryProofRequired) {
+      if (terminalStatus === "completed" && chatDurableProofRequired) {
         const evidenceProgress = deriveEvidenceProgressCheckpoint({
           objective: effectiveObjective,
           traceSteps,
@@ -6825,24 +6878,54 @@ router.post("/ai/chat", async (req, res) => {
           retainedReadStatuses,
           traceSteps,
         );
+        const orientationAcceptance = chatProjectOrientationProofRequired
+          ? deriveProjectOrientationAcceptance({
+              coverageComplete: result.sourceSelectionRecord?.orientationCoverage?.complete === true,
+              traceSteps,
+            })
+          : undefined;
+        const executionOperationId =
+          chatObservationExecution.operationId
+          ?? analysisCorrelation.operationId
+          ?? chatObservationExecution.id;
         const completed = await completeAiExecution({
           executionId: chatObservationExecution.id,
           workerId: chatObservationWorkerId,
           finalMessageId,
           finalMessageContent: sanitizeResponseText(result.response),
           workspaceRoot: validRootPath ?? null,
-          evidenceVerdict: "PROVEN",
-          evidenceReason:
-            "Project query claims were accepted from retained source evidence bound to this revision.",
+          evidenceVerdict: chatProjectOrientationProofRequired
+            ? orientationAcceptance?.eligible ? "PROVEN" : "PARTIAL"
+            : "PROVEN",
+          evidenceReason: chatProjectOrientationProofRequired
+            ? "Project orientation was assembled from complete retained source coverage."
+            : "Project query claims were accepted from retained source evidence bound to this revision.",
+          ...(chatOrientationTaskObjective
+            ? {
+                taskObjective: chatOrientationTaskObjective,
+                objectiveValidated: orientationAcceptance?.eligible === true,
+                validatorReceipts: orientationAcceptance?.eligible
+                  ? [{
+                      validatorId: "project-query-evidence.v1",
+                      status: "PROVEN" as const,
+                      operationId: executionOperationId,
+                      projectId,
+                      workspaceRevision: analysisCorrelation.projectRevision!,
+                      artifactRef: `analysis-evidence:${executionOperationId}`,
+                    }]
+                  : [],
+              }
+            : {}),
           ...(projectQueryAnalysisEvidenceState?.analysisEvidence
             ? { analysisEvidence: projectQueryAnalysisEvidenceState.analysisEvidence }
             : {}),
           proofRequired: true,
-          operationId:
-            chatObservationExecution.operationId
-            ?? analysisCorrelation.operationId,
+          operationId: executionOperationId,
           evidenceReads,
           evidenceProgress,
+          ...(chatProjectOrientationProofRequired
+            ? { orientationCoverageComplete: orientationAcceptance?.eligible === true }
+            : {}),
         });
         if (completed) {
           chatObservationTerminal = true;
@@ -6867,7 +6950,7 @@ router.post("/ai/chat", async (req, res) => {
         retainedReadStatuses,
         traceSteps,
       );
-      const terminalized = chatCanonicalProjectQueryProofRequired
+      const terminalized = chatDurableProofRequired
         ? await failAiExecution({
             executionId: chatObservationExecution.id,
             workerId: chatObservationWorkerId,
@@ -6886,8 +6969,9 @@ router.post("/ai/chat", async (req, res) => {
                 }
               : {}),
             evidenceVerdict: "PARTIAL",
-            evidenceReason:
-              "The project query did not complete canonical source-evidence acceptance.",
+            evidenceReason: chatProjectOrientationProofRequired
+              ? "The project orientation did not complete source-role coverage acceptance."
+              : "The project query did not complete canonical source-evidence acceptance.",
             ...(evidenceProgress ? { evidenceProgress } : {}),
             ...(evidenceReads ? { evidenceReads } : {}),
             workspaceRoot: validRootPath ?? null,
@@ -6909,7 +6993,7 @@ router.post("/ai/chat", async (req, res) => {
       return terminalized;
     };
     try {
-      if (turnIntent.requiresTools || chatCanonicalProjectQueryProofRequired) {
+      if (turnIntent.requiresTools || chatDurableProofRequired) {
         await ensureChatObservationLifecycle();
       }
       const chatOut = await chatWithFallback(
@@ -7327,7 +7411,7 @@ router.post("/ai/chat", async (req, res) => {
           projectId,
           message,
           turnIntent: turnIntent.kind,
-          ...(chatCanonicalProjectQueryProofRequired
+          ...(chatDurableProofRequired
             && chatObservationExecution
             && chatObservationWorkerId
             ? {
@@ -7384,6 +7468,12 @@ router.post("/ai/chat", async (req, res) => {
       operationId: analysisCorrelation.operationId ?? sessionIdToUse,
       sourceRevision: analysisCorrelation.projectRevision,
     });
+    const orientationAcceptance = chatProjectOrientationProofRequired
+      ? deriveProjectOrientationAcceptance({
+          coverageComplete: result.sourceSelectionRecord?.orientationCoverage?.complete === true,
+          traceSteps,
+        })
+      : undefined;
     if (chatCanonicalProjectQueryProofRequired) {
       projectQueryAnalysisEvidenceState = deriveProjectQueryAnalysisEvidenceState({
         traceSteps,
@@ -7441,6 +7531,20 @@ router.post("/ai/chat", async (req, res) => {
             evidenceAccepted: false,
           }
         : classifiedTerminalOutcome.outcome === "SUCCEEDED"
+          && chatProjectOrientationProofRequired
+          && !orientationAcceptance?.eligible
+          ? {
+              ...classifiedTerminalOutcome,
+              outcome: "FAILED" as const,
+              failureKind: "INCOMPLETE" as const,
+              retryable: true,
+              code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+              message:
+                "The project orientation is incomplete because source-role coverage was not accepted.",
+              recoveryState: "INCOMPLETE" as const,
+              evidenceAccepted: false,
+            }
+        : classifiedTerminalOutcome.outcome === "SUCCEEDED"
           && chatCanonicalProjectQueryProofRequired
           && !projectQueryAnalysisEvidenceState?.accepted
           ? {
@@ -7472,7 +7576,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
-        ...(chatCanonicalProjectQueryProofRequired
+        ...(chatDurableProofRequired
           && chatObservationExecution
           && chatObservationWorkerId
           ? {
@@ -7605,7 +7709,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
-        ...(chatCanonicalProjectQueryProofRequired
+        ...(chatDurableProofRequired
           && chatObservationExecution
           && chatObservationWorkerId
           ? {
@@ -7773,10 +7877,10 @@ router.post("/ai/chat", async (req, res) => {
       : undefined;
 
     if (
-      chatCanonicalProjectQueryProofRequired
+      chatDurableProofRequired
       && (!chatObservationExecution || !chatObservationWorkerId)
     ) {
-      throw new Error("Canonical project-query acceptance has no durable execution owner");
+      throw new Error("Proof-required project chat has no durable execution owner");
     }
     if (chatObservationExecution) {
       await assertChatObservationOwned();
@@ -7833,7 +7937,7 @@ router.post("/ai/chat", async (req, res) => {
           role: "assistant",
           content: sanitizeResponseText(result.response),
           turnIntent: turnIntent.kind,
-          outcome: chatCanonicalProjectQueryProofRequired ? null : "SUCCEEDED",
+          outcome: chatDurableProofRequired ? null : "SUCCEEDED",
           sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
@@ -7850,7 +7954,7 @@ router.post("/ai/chat", async (req, res) => {
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           missionCorrelationReport,
           taskResult: serializeTaskResult(result.taskResult),
-          executionId: chatCanonicalProjectQueryProofRequired
+          executionId: chatDurableProofRequired
             ? chatObservationExecution?.id ?? null
             : null,
           createdAt: msgNow,
@@ -7956,7 +8060,7 @@ router.post("/ai/chat", async (req, res) => {
     } else {
       chatObservationSucceeded = true;
     }
-    if (chatCanonicalProjectQueryProofRequired && chatObservationExecution) {
+    if (chatDurableProofRequired && chatObservationExecution) {
       [
         acceptedProjectQueryTerminalProjection,
         acceptedProjectQueryExecutionProjection,
@@ -7980,7 +8084,7 @@ router.post("/ai/chat", async (req, res) => {
         || acceptedProjectQueryExecutionProjection.verification.evidenceVerdict !== "PROVEN"
         || acceptedProjectQueryExecutionProjection.verification.proofRequired !== true
       ) {
-        throw new Error("Canonical project-query acceptance projection is incomplete");
+        throw new Error("Proof-required project chat acceptance projection is incomplete");
       }
     }
     // Evidence-bound and forensic plans are stateless in both directions:
@@ -8028,7 +8132,7 @@ router.post("/ai/chat", async (req, res) => {
       sessionId: sessionIdToUse,
       message: {
         ...assistantMsg,
-        ...(chatCanonicalProjectQueryProofRequired && chatObservationExecution
+        ...(chatDurableProofRequired && chatObservationExecution
           ? {
               executionId: chatObservationExecution.id,
               outcome: "SUCCEEDED",
@@ -8052,7 +8156,7 @@ router.post("/ai/chat", async (req, res) => {
       executionLedger: executionLedgerSnapshot,
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
-      ...(chatCanonicalProjectQueryProofRequired && chatObservationExecution
+      ...(chatDurableProofRequired && chatObservationExecution
         ? {
             executionId: chatObservationExecution.id,
             terminalProjection: acceptedProjectQueryTerminalProjection,
@@ -8165,7 +8269,7 @@ router.post("/ai/chat", async (req, res) => {
               }
             }
           }
-          const terminalized = chatCanonicalProjectQueryProofRequired
+          const terminalized = chatDurableProofRequired
             ? await failAiExecution({
                 executionId: chatObservationExecution.id,
                 workerId: chatObservationWorkerId,
@@ -13080,16 +13184,15 @@ export async function handleChatStream(req: Request, res: Response) {
       executionEvidenceVerdict = "PROVEN";
       executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
     }
-    const orientationCoverageComplete = projectOrientationExecution
-      ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
+    const orientationAcceptance = projectOrientationExecution
+      ? deriveProjectOrientationAcceptance({
+          coverageComplete: result.sourceSelectionRecord?.orientationCoverage?.complete === true,
+          traceSteps,
+        })
       : undefined;
-    const orientationTraceParityFailure = projectOrientationExecution
-      && orientationCoverageComplete === true
-      ? deriveOrientationTraceParityFailure(traceSteps)
-      : undefined;
-    const orientationAcceptanceEligible =
-      orientationCoverageComplete === true
-      && orientationTraceParityFailure === undefined;
+    const orientationCoverageComplete = orientationAcceptance?.coverageComplete;
+    const orientationTraceParityFailure = orientationAcceptance?.traceParityFailure;
+    const orientationAcceptanceEligible = orientationAcceptance?.eligible === true;
     if (orientationAcceptanceEligible) {
       executionEvidenceVerdict = "PROVEN";
       executionEvidenceReason =
