@@ -1668,7 +1668,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         },
       }));
     const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const loggerInfoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
     let capturedLoggerErrors: unknown[][] = [];
+    let capturedLoggerInfos: unknown[][] = [];
     let res;
     try {
       res = await request(app)
@@ -1676,7 +1678,9 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         .send({ projectId: "test-project-id", message: "ما هذا المشروع؟" });
     } finally {
       capturedLoggerErrors = loggerErrorSpy.mock.calls;
+      capturedLoggerInfos = loggerInfoSpy.mock.calls;
       loggerErrorSpy.mockRestore();
+      loggerInfoSpy.mockRestore();
     }
 
     expect(res.status, res.text).toBe(429);
@@ -1693,6 +1697,17 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
         "AI orchestrator request failed",
       ],
     ]));
+    const preChatTrace = capturedLoggerInfos.find(([fields]) =>
+      typeof fields === "object"
+      && fields !== null
+      && (fields as Record<string, unknown>).action === "pre_chat_trace",
+    );
+    expect(preChatTrace?.[0]).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      requiresEvidence: true,
+      intentRequiresEvidence: false,
+      projectOrientation: true,
+    });
     expect(res.body).toMatchObject({
       code: "RATE_LIMITED",
       outcome: "FAILED",

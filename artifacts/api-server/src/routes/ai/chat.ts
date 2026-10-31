@@ -6461,7 +6461,9 @@ router.post("/ai/chat", async (req, res) => {
       compoundExecution: turnIntent.compoundExecution,
       compoundWrite: turnIntent.compoundWrite,
       requireTools: modelHasTools,
-      requiresEvidence: turnIntent.requiresEvidence,
+      requiresEvidence: turnIntent.requiresEvidence || projectOrientationTurn,
+      intentRequiresEvidence: turnIntent.requiresEvidence,
+      projectOrientation: projectOrientationTurn,
       qualityProfile: turnIntent.executionTaskType,
       contextProfile: chatClassification.contextProfile,
       executionPlan: {
@@ -10500,6 +10502,8 @@ export async function handleChatStream(req: Request, res: Response) {
       compoundWrite: streamTurnIntent.compoundWrite,
       requireTools: streamModelHasTools,
       requiresEvidence: sourceEvidenceRequiredForTurn,
+      intentRequiresEvidence: streamTurnIntent.requiresEvidence,
+      projectOrientation: projectOrientationTurn,
       qualityProfile: streamTurnIntent.executionTaskType,
       contextProfile: streamClassification.contextProfile,
       executionPlan: {
