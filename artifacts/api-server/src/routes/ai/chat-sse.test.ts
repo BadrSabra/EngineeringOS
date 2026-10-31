@@ -1641,6 +1641,59 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     });
   });
 
+  it("keeps non-stream project-query provider failures redacted and unaccepted", async () => {
+    const privateProviderDetail = "private non-stream provider response";
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-openrouter-secret",
+    });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new GroqClientError("RATE_LIMITED", privateProviderDetail, {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: "liquid/lfm-2.5-2.6b:free",
+          providerStatus: 429,
+          rateLimitScope: "unknown",
+        },
+      }));
+    const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+    let capturedLoggerErrors: unknown[][] = [];
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/ai/chat")
+        .send({ projectId: "test-project-id", message: "ما هذا المشروع؟" });
+    } finally {
+      capturedLoggerErrors = loggerErrorSpy.mock.calls;
+      loggerErrorSpy.mockRestore();
+    }
+
+    expect(res.status, res.text).toBe(429);
+    expect(res.text).not.toContain(privateProviderDetail);
+    expect(res.text).not.toContain("test-only-openrouter-secret");
+    expect(JSON.stringify(capturedLoggerErrors)).not.toContain(privateProviderDetail);
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
+
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: { execution: Record<string, unknown> };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    });
+    expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      resumable: 1,
+      nextActionCode: "RESUME_ALLOWED",
+    });
+    const checkpoint = JSON.parse(
+      String(dbModule.__chatTestFixture.execution.checkpoint),
+    ) as { providerAttempts?: unknown[] };
+    expect(checkpoint.providerAttempts).toEqual([{
+      provider: "openrouter",
+      code: "RATE_LIMITED",
+    }]);
+    expect(JSON.stringify(checkpoint)).not.toContain(privateProviderDetail);
+  });
+
   it("persists only safe provider-failure metadata for a rate-limited project query", async () => {
     const privateProviderDetail = "private shared-pool response body";
     const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
