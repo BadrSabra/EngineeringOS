@@ -6386,6 +6386,7 @@ router.post("/ai/chat", async (req, res) => {
   let chatObservationFinalMessageId: string | null = null;
   let chatCanonicalProjectQueryProofRequired = false;
   let chatProjectOrientationProofRequired = false;
+  let chatDurableProofRequired = false;
   let chatProofSessionCreated = false;
   const chatObservationAbortController = new AbortController();
   try {
@@ -6580,7 +6581,7 @@ router.post("/ai/chat", async (req, res) => {
       && projectOrientationTurn
       && !turnIntent.compoundWrite
       && Boolean(analysisCorrelation.projectRevision);
-    const chatDurableProofRequired =
+    chatDurableProofRequired =
       chatCanonicalProjectQueryProofRequired
       || chatProjectOrientationProofRequired;
     const chatOrientationTaskObjective = chatProjectOrientationProofRequired
@@ -6646,8 +6647,8 @@ router.post("/ai/chat", async (req, res) => {
             ? { factInvestigation: factInvestigationContract }
             : {}),
           validationTargetPaths: [],
-          // Only a server-resolved, evidence-required PROJECT_QUERY objective
-          // enters canonical proof acceptance on the JSON route. Other chat
+          // Evidence-required project queries and source-backed orientation
+          // turns use the durable acceptance contract. Ordinary chat
           // observations keep their existing observation-only contract.
           proofRequired: chatDurableProofRequired,
         };

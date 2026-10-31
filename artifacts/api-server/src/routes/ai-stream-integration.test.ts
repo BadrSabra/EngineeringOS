@@ -14900,6 +14900,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       turnIntent?: { kind?: string; compoundWrite?: boolean };
     }> = [];
     let omitOrientationRole = false;
+    let orientationFinalState: "VERIFIED" | "INCOMPLETE" = "VERIFIED";
 
     vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
       const explanationInput = args[1] as typeof explanationInputs[number];
@@ -14951,7 +14952,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           filesRead: orientationFiles,
           evidenceSelected: orientationFiles.length,
           objectiveVerdict: "ANSWER_COMPLETE",
-          finalState: "VERIFIED",
+          finalState: orientationFinalState,
         },
       });
       return {
@@ -15054,6 +15055,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(jsonExplanation.body.projectQueryResponseSource).toBe("provider_synthesis");
     expect(explanationDone).toMatchObject({
       message: {
+        sources: JSON.stringify(expectedOrientationSources),
+        projectQueryResponseSource: "provider_synthesis",
         terminalProjection: {
           status: "completed",
           outcome: "SUCCEEDED",
@@ -15065,12 +15068,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
             evidenceVerdict: "PROVEN",
           },
         },
-      },
-      sources: expectedOrientationSources,
-      projectQueryResponseSource: "provider_synthesis",
-      message: {
-        sources: JSON.stringify(expectedOrientationSources),
-        projectQueryResponseSource: "provider_synthesis",
         sourceSelectionRecord: {
           orientationCoverage: {
             complete: true,
@@ -15078,6 +15075,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           },
         },
       },
+      sources: expectedOrientationSources,
+      projectQueryResponseSource: "provider_synthesis",
       sourceSelectionRecord: {
         orientationCoverage: {
           complete: true,
@@ -15272,6 +15271,47 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       terminalStatus: "failed",
       outcome: "FAILED",
       evidenceRequired: 1,
+      evidenceComplete: 0,
+    }]);
+
+    omitOrientationRole = false;
+    orientationFinalState = "INCOMPLETE";
+    const traceMismatchJson = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "اشرح المشروع",
+      });
+    expect(traceMismatchJson.status).toBe(200);
+    expect(traceMismatchJson.body.outcome).toBe("FAILED");
+    const [traceMismatchExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, String(sessionId)))
+      .orderBy(sql`${aiExecutionsTable.createdAt} DESC`)
+      .limit(1);
+    expect(traceMismatchExecution?.status).toBe("failed");
+    expect(parseAiExecutionCheckpoint(traceMismatchExecution?.checkpoint)).toMatchObject({
+      stage: "failed",
+      evidenceVerdict: "PARTIAL",
+    });
+    const traceMismatchAcceptance = await db
+      .select({
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, traceMismatchExecution!.id));
+    expect(traceMismatchAcceptance).toMatchObject([{
+      terminalStatus: "failed",
+      outcome: "FAILED",
       evidenceComplete: 0,
     }]);
   });
