@@ -536,6 +536,7 @@ vi.mock("../../lib/advisory-lock.js", () => ({
 // imports still need to come after the vi.mock calls in source order.)
 import app from "../../app.js";
 import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
@@ -1638,6 +1639,95 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       proofRequired: true,
       evidenceVerdict: "UNAVAILABLE",
     });
+  });
+
+  it("persists only safe provider-failure metadata for a rate-limited project query", async () => {
+    const privateProviderDetail = "private shared-pool response body";
+    const loggerErrorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+    let capturedLoggerErrors: unknown[][] = [];
+    vi.mocked(requireProvider).mockResolvedValueOnce({
+      provider: "openrouter" as never,
+      apiKey: "test-only-openrouter-secret",
+    });
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementationOnce(
+      async (...args: unknown[]) => {
+        const params = args[1] as {
+          onProviderAttempt?: (attempt: Record<string, unknown>) => void | Promise<void>;
+        };
+        await params.onProviderAttempt?.({
+          provider: "openrouter",
+          model: "liquid/lfm-2.5-2.6b:free",
+          operation: "project_query_no_tools_synthesis",
+          outcome: "failure",
+          latencyMs: 12,
+          attemptNumber: 1,
+          fallbackCount: 0,
+          providerFailureKind: "RATE_LIMITED",
+        });
+        throw new GroqClientError("RATE_LIMITED", privateProviderDetail, {
+          context: {
+            providerName: "OpenRouter",
+            providerModel: "liquid/lfm-2.5-2.6b:free",
+            providerStatus: 429,
+            rateLimitScope: "upstream_shared_pool",
+          },
+        });
+      },
+    );
+
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/ai/chat/stream")
+        .send({ projectId: "test-project-id", message: "ما هذا المشروع؟" });
+    } finally {
+      capturedLoggerErrors = loggerErrorSpy.mock.calls;
+      loggerErrorSpy.mockRestore();
+    }
+
+    expect(res.status).toBe(200);
+    expect(chatWithFallback).toHaveBeenCalledTimes(1);
+    expect(res.text).not.toContain(privateProviderDetail);
+    expect(res.text).not.toContain("test-only-openrouter-secret");
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    expect(frames.find((frame) => frame.type === "done")).toBeUndefined();
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      outcome: "FAILED",
+      providerFailureCategory: "RATE_LIMITED",
+      rateLimitScope: "upstream_shared_pool",
+    });
+
+    const dbModule = await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    };
+    expect(dbModule.__chatTestFixture.execution.status).toBe("failed");
+    const checkpoint = JSON.parse(
+      String(dbModule.__chatTestFixture.execution.checkpoint),
+    ) as { providerAttempts?: unknown };
+    expect(checkpoint.providerAttempts).toEqual([{
+      provider: "openrouter",
+      code: "RATE_LIMITED",
+    }]);
+    expect(JSON.stringify(checkpoint)).not.toContain(privateProviderDetail);
+    expect(JSON.stringify(checkpoint)).not.toContain("test-only-openrouter-secret");
+    expect(JSON.stringify(capturedLoggerErrors)).not.toContain(privateProviderDetail);
+    expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      outcome: "FAILED",
+    });
+    const assistant = dbModule.__chatTestFixture.messages.find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistant?.outcome).toBe("FAILED");
+    expect(String(assistant?.content)).not.toContain(privateProviderDetail);
   });
 
   it("creates the initial checkpoint before provider execution and avoids terminal double-send errors", async () => {
