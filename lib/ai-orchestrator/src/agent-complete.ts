@@ -262,7 +262,9 @@ export async function agentComplete(
       });
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
-        useSharedLaneCursor: true,
+        // A measured single-model attempt must honor the resolved model
+        // identity rather than entering the shared product lane.
+        useSharedLaneCursor: opts.stopAfterFirstModelAttempt !== true,
         apiKey,
         maxTokens: opts.maxTokens,
         timeoutMs: opts.timeoutMs,

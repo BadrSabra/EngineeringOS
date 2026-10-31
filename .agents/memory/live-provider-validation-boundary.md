@@ -26,3 +26,9 @@ A live campaign process exit of zero may mean only that its redacted receipt pas
 **Why:** A valid `terminal-incomplete` receipt can be emitted and validated after a live provider rate limit, while the wrapper still exits successfully.
 
 **How to apply:** Judge campaign outcomes from `outcomeClass`, `terminalStatus`, `accepted`, and `evidence`, not from the process exit code alone.
+
+Exact-model live campaigns must bound both provider fallback and agent-level retries; a pinned model must also bypass the shared lane cursor.
+
+**Why:** A campaign configured with one OpenRouter fallback still made four free-model attempts because the agent retried and the shared lane cursor ignored the requested model.
+
+**How to apply:** For a single-model measurement, stop after the first model response, cap the provider chain at one, disable shared-lane rotation, and verify the receipt's attempted-model list before interpreting the result.

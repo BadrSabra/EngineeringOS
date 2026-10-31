@@ -162,6 +162,7 @@ async function main(): Promise<void> {
           maxFallbackModels: campaignProvider === "openrouter" && configuredModel ? 1 : 3,
           retryTransient: false,
           qualityProfile: "code_review",
+          stopAfterFirstModelAttempt: campaignScenario === "structured-review",
           onModelAttempt: (attempt) => {
             if (attempt.model) runState.observedModels.push(attempt.model);
           },
