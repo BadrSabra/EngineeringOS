@@ -1718,6 +1718,16 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(JSON.stringify(checkpoint)).not.toContain(privateProviderDetail);
     expect(JSON.stringify(checkpoint)).not.toContain("test-only-openrouter-secret");
     expect(JSON.stringify(capturedLoggerErrors)).not.toContain(privateProviderDetail);
+    expect(capturedLoggerErrors).toEqual(expect.arrayContaining([
+      [
+        expect.objectContaining({
+          code: "RATE_LIMITED",
+          provider: "openrouter",
+          providerStatus: 429,
+        }),
+        "chat stream: all providers failed",
+      ],
+    ]));
     expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
       evidenceRequired: 1,
       evidenceComplete: 0,

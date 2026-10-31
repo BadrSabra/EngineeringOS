@@ -12159,13 +12159,16 @@ export async function handleChatStream(req: Request, res: Response) {
           recordInvalidModel(provider);
         }
         logger.error(
-          { code: err.code, message: err.message, provider,
+          { code: err.code, provider,
             providerStatus: err.providerStatus, providerModel: err.providerModel },
           "chat stream: all providers failed",
         );
 
       } else {
-        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+        logger.error(
+          { provider, errorType: err instanceof Error ? "Error" : typeof err },
+          "chat stream: unexpected non-GroqClientError",
+        );
       }
       const persistedProviderFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
