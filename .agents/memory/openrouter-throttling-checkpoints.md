@@ -12,3 +12,9 @@ Model-scoped throttling must remain separate from the provider circuit. Any Open
 Controlled live-run diagnostics may correlate provider-attempt sequence, execution, operation, model, result, and rate-limit scope only when explicitly enabled. They must exclude prompt/response bodies, credentials, and raw provider messages; keep the trace disabled by default.
 
 **Projection check:** A correctly typed provider error does not guarantee durable scope or Retry-After telemetry. Test the full chain from HTTP classification through the final ledger event and persistence projection, since explicit ledger completion builders can drop added fields; persist only positive safe-integer Retry-After values on classified rate-limit failures.
+
+An `EMPTY_RESPONSE` may advance to the next distinct model already present in the caller's eligible free chain, but every candidate must still satisfy the same capability and response-format contract. This does not permit a retry after `RATE_LIMITED`/`QUOTA`, nor does it treat malformed or unaccepted content as success.
+
+**Why:** Free models can return an empty completion even when another eligible free model is available, while a 429 may apply to a shared pool or credential and must remain terminal for that request.
+
+**How to apply:** Bound the empty-response recovery by the existing candidate chain and request budget; preserve the attempted-model list. Keep provider-supplied cooldowns for later requests and keep rate-limit failures terminal.

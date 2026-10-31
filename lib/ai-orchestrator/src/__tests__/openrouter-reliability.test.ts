@@ -801,6 +801,64 @@ describe("paid OpenRouter fallback — explicit free-first policy", () => {
     },
   );
 
+  it("advances to the next JSON-Schema-capable free model after an empty response", async () => {
+    const firstModel = "dots-studio/dots-3-note-preview:free";
+    const secondModel = "liquid/lfm-2.5-2.6b:free";
+    const attemptedModels: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        return fetchResponse(200, {
+          data: [firstModel, secondModel].map((id) => ({
+            id,
+            pricing: { prompt: "0", completion: "0" },
+            supported_parameters: ["response_format", "structured_outputs"],
+          })),
+        });
+      }
+
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      const model = body.model ?? "";
+      attemptedModels.push(model);
+      return fetchResponse(200, {
+        choices: [{
+          message: {
+            content: model === firstModel ? "" : "{\"status\":\"reviewed\"}",
+          },
+        }],
+        model,
+        usage: { prompt_tokens: 1, completion_tokens: model === firstModel ? 0 : 1 },
+      });
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("fixture-key");
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "Return the requested review object." }],
+      {
+        apiKey: "fixture-key",
+        model: firstModel,
+        capability: "json",
+        responseFormat: {
+          type: "json_schema",
+          json_schema: {
+            name: "review_result",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: { status: { type: "string" } },
+              required: ["status"],
+              additionalProperties: false,
+            },
+          },
+        },
+        maxFallbackModels: 2,
+      },
+    );
+
+    expect(result.content).toBe("{\"status\":\"reviewed\"}");
+    expect(attemptedModels).toEqual([firstModel, secondModel]);
+  });
+
   it("does not spend on paid fallback for authorization or request-contract failures", async () => {
     const freeModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
     const calls: string[] = [];

@@ -41,7 +41,7 @@ describe("isolated cooldown persistence overrides", () => {
 
       expect(isolatedStore.readActive).toHaveBeenCalledWith(
         "openrouter",
-        ["fixture/isolated-model"],
+        ["fixture/isolated-model", "__upstream_pool__:fixture"],
       );
       expect(isolatedStore.write).toHaveBeenCalledWith(
         "openrouter",

@@ -2111,8 +2111,10 @@ export async function openrouterCompleteWithFallback(
       // chain on top of this one.
       const fallbackOnTransient =
         opts.retryTransient === false && isTransientError(err);
+      const fallbackOnEmptyResponse =
+        err instanceof GroqClientError && err.code === "EMPTY_RESPONSE";
       if (
-        (isModelUnavailableError(err) || fallbackOnTransient) &&
+        (isModelUnavailableError(err) || fallbackOnTransient || fallbackOnEmptyResponse) &&
         i < chain.length - 1
       ) {
         const nextModel = chain[i + 1] as string;
@@ -2120,7 +2122,7 @@ export async function openrouterCompleteWithFallback(
           JSON.stringify({
             scope: "openrouter-fallback",
             code: "MODEL_FALLBACK",
-            reason: err.code,
+            reason: fallbackOnEmptyResponse ? "EMPTY_RESPONSE" : err.code,
             failedModel: model,
             nextModel,
             providerStatus: err.providerStatus,
