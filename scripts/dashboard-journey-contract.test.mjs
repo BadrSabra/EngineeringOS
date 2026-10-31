@@ -1139,6 +1139,16 @@ test("isolated lifecycle runners require verified OS network isolation before se
     /env\.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH = resolve\(\s*lifecycleDashboardEvidenceRoot,/,
     "Release teardown evidence must not overwrite shared historical artifacts.",
   );
+  assert.match(
+    lifecycleRunnerSource,
+    /env\.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE = "lifecycle-local"/,
+    "The controlled API process must enable only the local child-process policy.",
+  );
+  assert.match(
+    lifecycleRunnerSource,
+    /env\.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON = JSON\.stringify\(\[\s*lifecycleProjectRoot,\s*lifecycleRemotePath,/,
+    "The child-process policy must receive only the runner-owned project and local Git roots.",
+  );
   const censusQuery = lifecycleRunnerSource.indexOf(
     "buildLifecycleStateCensusSql(lifecycleProjectRoot)",
   );

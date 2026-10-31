@@ -97,6 +97,15 @@ delivery, project bootstrap, or quality-gate commands:
   The test policy intentionally rejects arbitrary shell commands. Use fixed
   executable/argument profiles or leave those checks blocked; do not widen
   shell permission to make the journey pass.
+- The controlled lifecycle API now receives `lifecycle-local` child-process
+  mode with exactly the runner-owned project root and local bare-Git root.
+  Validation copies for this mode are placed under the project's `.git`
+  directory, which is already inside the exact project-root boundary; ordinary
+  validation runs continue to use the host disposable temp root. This resolves
+  the prior missing-mode and out-of-root conditions without adding `/tmp` or
+  another broad path to the allowlist. It does not authorize the currently
+  unsupported `workspace-typecheck`/quality-gate command chain. Those commands
+  remain blocked until they have reviewed fixed execution profiles.
 - `project-bootstrap.ts` uses `pnpm install`. The child policy forces offline
   package settings and does not allow install. The runner must use an
   already-materialized, disposable project fixture; no network package

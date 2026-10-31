@@ -278,6 +278,110 @@ describe("AI repair validation registry", () => {
     await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
   });
 
+  it("keeps lifecycle validation copies under the exact isolated project root", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-lifecycle-source-"));
+    const remoteRoot = path.join(path.dirname(sourceRoot), `${path.basename(sourceRoot)}-remote`);
+    await fs.mkdir(path.join(sourceRoot, ".git"), { recursive: true });
+    await fs.mkdir(remoteRoot, { recursive: true });
+    await fs.writeFile(path.join(sourceRoot, "package.json"), '{"name":"lifecycle-source"}\n', "utf8");
+    await fs.writeFile(path.join(sourceRoot, "README.md"), "original\n", "utf8");
+
+    const envNames = [
+      "ENGINEERING_AGENT_LIFECYCLE_E2E",
+      "ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT",
+      "ENGINEERING_AGENT_LIFECYCLE_REMOTE",
+      "ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE",
+      "ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON",
+      "DASHBOARD_E2E_TEST_MODE",
+      "DASHBOARD_E2E_LOCAL_AUTH_FIXTURE",
+    ] as const;
+    const previousEnvironment = Object.fromEntries(
+      envNames.map((name) => [name, process.env[name]]),
+    ) as Record<(typeof envNames)[number], string | undefined>;
+    Object.assign(process.env, {
+      ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+      ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT: sourceRoot,
+      ENGINEERING_AGENT_LIFECYCLE_REMOTE: remoteRoot,
+      ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE: "lifecycle-local",
+      ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON: JSON.stringify([
+        sourceRoot,
+        remoteRoot,
+      ]),
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      DASHBOARD_E2E_LOCAL_AUTH_FIXTURE: "1",
+    });
+
+    let workspace: Awaited<ReturnType<typeof createValidationWorkspace>> | undefined;
+    try {
+      workspace = await createValidationWorkspace(sourceRoot, [
+        { path: "README.md", newContent: "candidate\n" },
+      ]);
+      const relative = path.relative(
+        path.join(sourceRoot, ".git"),
+        workspace.rootPath,
+      );
+      expect(relative.startsWith(`..${path.sep}`)).toBe(false);
+      expect(path.isAbsolute(relative)).toBe(false);
+      expect(await fs.readFile(path.join(workspace.rootPath, "README.md"), "utf8")).toBe(
+        "candidate\n",
+      );
+    } finally {
+      await workspace?.cleanup();
+      for (const name of envNames) {
+        const previous = previousEnvironment[name];
+        if (previous === undefined) delete process.env[name];
+        else process.env[name] = previous;
+      }
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+      await fs.rm(remoteRoot, { recursive: true, force: true });
+    }
+    expect(workspace).toBeDefined();
+    await expect(fs.access(workspace!.rootPath)).rejects.toThrow();
+  });
+
+  it("fails closed when lifecycle validation roots do not match the project", async () => {
+    const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-lifecycle-mismatch-"));
+    await fs.mkdir(path.join(sourceRoot, ".git"), { recursive: true });
+    const envNames = [
+      "ENGINEERING_AGENT_LIFECYCLE_E2E",
+      "ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT",
+      "ENGINEERING_AGENT_LIFECYCLE_REMOTE",
+      "ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE",
+      "ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON",
+      "DASHBOARD_E2E_TEST_MODE",
+      "DASHBOARD_E2E_LOCAL_AUTH_FIXTURE",
+    ] as const;
+    const previousEnvironment = Object.fromEntries(
+      envNames.map((name) => [name, process.env[name]]),
+    ) as Record<(typeof envNames)[number], string | undefined>;
+    Object.assign(process.env, {
+      ENGINEERING_AGENT_LIFECYCLE_E2E: "1",
+      ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT: `${sourceRoot}-other`,
+      ENGINEERING_AGENT_LIFECYCLE_REMOTE: `${sourceRoot}-remote`,
+      ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE: "lifecycle-local",
+      ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON: JSON.stringify([
+        `${sourceRoot}-other`,
+        `${sourceRoot}-remote`,
+      ]),
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      DASHBOARD_E2E_LOCAL_AUTH_FIXTURE: "1",
+    });
+    try {
+      await expect(
+        createValidationWorkspace(sourceRoot, [
+          { path: "README.md", newContent: "candidate\n" },
+        ]),
+      ).rejects.toThrow("validation_workspace_lifecycle_project_mismatch");
+    } finally {
+      for (const name of envNames) {
+        const previous = previousEnvironment[name];
+        if (previous === undefined) delete process.env[name];
+        else process.env[name] = previous;
+      }
+      await fs.rm(sourceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects oversized source files before copying them into a validation workspace", async () => {
     const sourceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "validation-copy-limit-"));
     try {

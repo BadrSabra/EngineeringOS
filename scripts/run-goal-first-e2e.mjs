@@ -556,6 +556,11 @@ async function main() {
       env.ENGINEERING_AGENT_LIFECYCLE_E2E = "1";
       env.ENGINEERING_AGENT_LIFECYCLE_REMOTE = lifecycleRemotePath;
       env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT = lifecycleProjectRoot;
+      env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE = "lifecycle-local";
+      env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON = JSON.stringify([
+        lifecycleProjectRoot,
+        lifecycleRemotePath,
+      ]);
       env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT = lifecycleReceiptPath;
       env.ENGINEERING_AGENT_LIFECYCLE_SOURCE_FINGERPRINT = lifecycleSourceFingerprint;
       env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID = lifecycleRunId;
@@ -565,6 +570,8 @@ async function main() {
       delete env.ENGINEERING_AGENT_LIFECYCLE_E2E;
       delete env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
       delete env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+      delete env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE;
+      delete env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON;
       delete env.ENGINEERING_AGENT_LIFECYCLE_RECEIPT;
       delete env.ENGINEERING_AGENT_LIFECYCLE_RUN_ID;
       delete env.ENGINEERING_AGENT_LIFECYCLE_STARTED_AT;

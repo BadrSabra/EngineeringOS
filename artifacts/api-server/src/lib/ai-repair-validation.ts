@@ -259,38 +259,118 @@ export async function createValidationWorkspace(
   // passed as the directory source as a non-directory when the destination
   // already exists, which would fail closed before the overlay is materialized.
   const sourceRoot = await fs.realpath(rootPath);
-  const workspaceRoot = await createHostDisposableTempDirectory("engineeringos-validation-");
+  const lifecycleRun = process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1";
+  let workspaceRoot: string;
+  if (lifecycleRun) {
+    const configuredProjectRoot =
+      process.env.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
+    const configuredRemote =
+      process.env.ENGINEERING_AGENT_LIFECYCLE_REMOTE;
+    let allowedRoots: unknown;
+    try {
+      allowedRoots = JSON.parse(
+        process.env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_ALLOWED_ROOTS_JSON ?? "",
+      );
+    } catch {
+      throw new Error("validation_workspace_lifecycle_roots_invalid");
+    }
+    if (
+      process.env.ENGINEERINGOS_RUNTIME_EGRESS_GUARD_CHILD_MODE !== "lifecycle-local"
+      || process.env.DASHBOARD_E2E_TEST_MODE !== "fixture"
+      || process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE !== "1"
+      || !configuredProjectRoot
+      || !configuredRemote
+      || !Array.isArray(allowedRoots)
+      || allowedRoots.length !== 2
+      || allowedRoots[0] !== configuredProjectRoot
+      || allowedRoots[1] !== configuredRemote
+    ) {
+      throw new Error("validation_workspace_lifecycle_policy_missing");
+    }
+
+    let canonicalProjectRoot: string;
+    try {
+      canonicalProjectRoot = await fs.realpath(configuredProjectRoot);
+    } catch {
+      throw new Error("validation_workspace_lifecycle_project_mismatch");
+    }
+    if (sourceRoot !== canonicalProjectRoot) {
+      throw new Error("validation_workspace_lifecycle_project_mismatch");
+    }
+    const gitDirectory = path.join(sourceRoot, ".git");
+    const gitDirectoryStat = await fs.lstat(gitDirectory);
+    if (!gitDirectoryStat.isDirectory() || gitDirectoryStat.isSymbolicLink()) {
+      throw new Error("validation_workspace_lifecycle_git_directory_unavailable");
+    }
+    const canonicalGitDirectory = await fs.realpath(gitDirectory);
+    const gitRelativeToProject = path.relative(sourceRoot, canonicalGitDirectory);
+    if (
+      !gitRelativeToProject
+      || gitRelativeToProject.startsWith(`..${path.sep}`)
+      || path.isAbsolute(gitRelativeToProject)
+    ) {
+      throw new Error("validation_workspace_lifecycle_git_directory_escape");
+    }
+    workspaceRoot = await fs.mkdtemp(
+      path.join(canonicalGitDirectory, "engineeringos-validation-"),
+    );
+    const canonicalWorkspaceRoot = await fs.realpath(workspaceRoot);
+    const workspaceRelativeToGit = path.relative(
+      canonicalGitDirectory,
+      canonicalWorkspaceRoot,
+    );
+    if (
+      !workspaceRelativeToGit
+      || workspaceRelativeToGit.startsWith(`..${path.sep}`)
+      || path.isAbsolute(workspaceRelativeToGit)
+    ) {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      throw new Error("validation_workspace_lifecycle_workspace_escape");
+    }
+  } else {
+    workspaceRoot = await createHostDisposableTempDirectory("engineeringos-validation-");
+  }
   try {
     let copiedEntries = 0;
     let copiedBytes = 0;
-    await fs.cp(sourceRoot, workspaceRoot, {
-      recursive: true,
-      dereference: false,
-      filter: async (source) => {
-        if (signal?.aborted) throw new Error("validation_workspace_cancelled");
-        const relative = path.relative(sourceRoot, source);
-        if (!relative) return true;
-        const firstSegment = relative.split(path.sep)[0];
-        if (VALIDATION_COPY_OMIT.has(firstSegment)) return false;
+    const shouldCopyValidationEntry = async (source: string): Promise<boolean> => {
+      if (signal?.aborted) throw new Error("validation_workspace_cancelled");
+      const relative = path.relative(sourceRoot, source);
+      if (!relative) return true;
+      const firstSegment = relative.split(path.sep)[0];
+      if (VALIDATION_COPY_OMIT.has(firstSegment)) return false;
 
-        const stat = await fs.lstat(source);
-        if (signal?.aborted) throw new Error("validation_workspace_cancelled");
-        copiedEntries += 1;
-        if (copiedEntries > VALIDATION_WORKSPACE_MAX_ENTRIES) {
-          throw new Error("validation_workspace_entry_limit_exceeded");
+      const stat = await fs.lstat(source);
+      if (signal?.aborted) throw new Error("validation_workspace_cancelled");
+      copiedEntries += 1;
+      if (copiedEntries > VALIDATION_WORKSPACE_MAX_ENTRIES) {
+        throw new Error("validation_workspace_entry_limit_exceeded");
+      }
+      if (stat.isFile()) {
+        if (stat.size > VALIDATION_WORKSPACE_MAX_FILE_BYTES) {
+          throw new Error("validation_workspace_file_limit_exceeded");
         }
-        if (stat.isFile()) {
-          if (stat.size > VALIDATION_WORKSPACE_MAX_FILE_BYTES) {
-            throw new Error("validation_workspace_file_limit_exceeded");
-          }
-          copiedBytes += stat.size;
-          if (copiedBytes > VALIDATION_WORKSPACE_MAX_TOTAL_BYTES) {
-            throw new Error("validation_workspace_total_limit_exceeded");
-          }
+        copiedBytes += stat.size;
+        if (copiedBytes > VALIDATION_WORKSPACE_MAX_TOTAL_BYTES) {
+          throw new Error("validation_workspace_total_limit_exceeded");
         }
-        return true;
-      },
-    });
+      }
+      return true;
+    };
+    // Copy only top-level entries instead of the source root itself. For the
+    // lifecycle fixture, the destination is inside the project's ignored Git
+    // metadata so the process policy can keep one exact project-root boundary.
+    // Copying the whole root into its own .git child is rejected by fs.cp.
+    for (const entry of await fs.readdir(sourceRoot)) {
+      if (signal?.aborted) throw new Error("validation_workspace_cancelled");
+      if (VALIDATION_COPY_OMIT.has(entry)) continue;
+      const source = path.join(sourceRoot, entry);
+      await fs.cp(source, path.join(workspaceRoot, entry), {
+        recursive: true,
+        dereference: false,
+        filter: shouldCopyValidationEntry,
+      });
+    }
     if (signal?.aborted) throw new Error("validation_workspace_cancelled");
 
     const originalModules = path.join(sourceRoot, "node_modules");
