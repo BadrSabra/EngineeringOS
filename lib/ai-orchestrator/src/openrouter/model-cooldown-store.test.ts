@@ -6,9 +6,11 @@ import {
   recordModelFailure,
 } from "./circuit-breaker.js";
 import {
+  _resetLocalAdaptiveModelCooldownsForTest,
   _setModelCooldownPersistenceForTest,
   clearSharedPoolModelCooldown,
   persistSharedPoolModelCooldown,
+  recordLocalAdaptiveModelCooldown,
   readModelCooldowns,
   upstreamPoolCooldownKeyForModel,
 } from "./model-cooldown-store.js";
@@ -16,6 +18,7 @@ import {
 describe("shared OpenRouter model cooldown persistence", () => {
   afterEach(() => {
     _resetCircuitsForTest();
+    _resetLocalAdaptiveModelCooldownsForTest();
     _setModelCooldownPersistenceForTest(undefined);
     vi.useRealTimers();
   });
@@ -62,7 +65,10 @@ describe("shared OpenRouter model cooldown persistence", () => {
       "fixture/healthy-model",
     ]);
     expect([...recoveredState.keys()]).toEqual([failedModel]);
-    expect(recoveredState.get(failedModel)).toBe(5_000);
+    expect(recoveredState.get(failedModel)).toEqual({
+      remainingMs: 5_000,
+      source: "provider",
+    });
     expect(isModelCoolingDown("openrouter", failedModel)).toBe(true);
     expect(isModelCoolingDown("openrouter", "fixture/healthy-model")).toBe(false);
 
@@ -134,13 +140,87 @@ describe("shared OpenRouter model cooldown persistence", () => {
     _resetCircuitsForTest();
 
     const recoveredState = await readModelCooldowns("openrouter", [first, sibling, unrelated]);
-    expect(recoveredState.get(first)).toBe(5_000);
-    expect(recoveredState.get(sibling)).toBe(5_000);
+    expect(recoveredState.get(first)).toEqual({
+      remainingMs: 5_000,
+      source: "provider",
+    });
+    expect(recoveredState.get(sibling)).toEqual({
+      remainingMs: 5_000,
+      source: "provider",
+    });
     expect(recoveredState.has(unrelated)).toBe(false);
-    expect(recoveredState.get(poolKey!)).toBe(5_000);
+    expect(recoveredState.get(poolKey!)).toEqual({
+      remainingMs: 5_000,
+      source: "provider",
+    });
 
     await vi.advanceTimersByTimeAsync(5_001);
     _resetCircuitsForTest();
     expect(await readModelCooldowns("openrouter", [first, sibling, unrelated])).toEqual(new Map());
+  });
+
+  it("escalates missing-header 429s per model and leaves other free lanes available", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-31T12:00:00.000Z"));
+    const persisted = new Map<string, { coolingUntil: number; updatedAt: number }>();
+    _setModelCooldownPersistenceForTest({
+      readActive: async (provider, models) => models.flatMap((model) => {
+        const row = persisted.get(`${provider}:${model}`);
+        return row && row.coolingUntil > Date.now()
+          ? [{ model, remainingMs: row.coolingUntil - Date.now() }]
+          : [];
+      }),
+      write: async (provider, model, cooldownMs) => {
+        persisted.set(`${provider}:${model}`, {
+          coolingUntil: Date.now() + cooldownMs,
+          updatedAt: Date.now(),
+        });
+      },
+      readRecentCooldownMs: async (provider, model, maxAgeMs) => {
+        const row = persisted.get(`${provider}:${model}`);
+        if (!row || Date.now() - row.updatedAt > maxAgeMs) return undefined;
+        return row.coolingUntil - row.updatedAt;
+      },
+      clear: async (provider, model) => {
+        persisted.delete(`${provider}:${model}`);
+      },
+    });
+
+    const throttledModel = "liquid/lfm-2.5-2.6b:free";
+    const healthyModel = "cohere/north-mini-code:free";
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+    let cooldowns = await readModelCooldowns("openrouter", [throttledModel, healthyModel]);
+    expect(cooldowns.get(throttledModel)).toMatchObject({ source: "local_adaptive" });
+    expect(cooldowns.has(healthyModel)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    _resetCircuitsForTest();
+    _resetLocalAdaptiveModelCooldownsForTest();
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(60_000);
+    cooldowns = await readModelCooldowns("openrouter", [throttledModel, healthyModel]);
+    expect(cooldowns.get(throttledModel)).toMatchObject({ source: "local_adaptive" });
+    expect(cooldowns.has(healthyModel)).toBe(false);
+
+    let previousCooldownMs = 60_000;
+    for (const expectedCooldownMs of [120_000, 240_000, 480_000, 600_000, 600_000]) {
+      await vi.advanceTimersByTimeAsync(previousCooldownMs + 1);
+      _resetCircuitsForTest();
+      _resetLocalAdaptiveModelCooldownsForTest();
+      expect(
+        await recordLocalAdaptiveModelCooldown("openrouter", throttledModel),
+      ).toBe(expectedCooldownMs);
+      previousCooldownMs = expectedCooldownMs;
+    }
+
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1);
+    _resetCircuitsForTest();
+    _resetLocalAdaptiveModelCooldownsForTest();
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
+
+    await clearSharedPoolModelCooldown("openrouter", throttledModel);
+    _resetCircuitsForTest();
+    _resetLocalAdaptiveModelCooldownsForTest();
+    expect(await readModelCooldowns("openrouter", [throttledModel, healthyModel])).toEqual(new Map());
+    expect(await recordLocalAdaptiveModelCooldown("openrouter", throttledModel)).toBe(30_000);
   });
 });

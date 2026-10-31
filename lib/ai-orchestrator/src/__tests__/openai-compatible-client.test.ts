@@ -42,7 +42,10 @@ import {
   _resetCircuitsForTest,
   isModelCoolingDown,
 } from "../openrouter/circuit-breaker.js";
-import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
+import {
+  _resetLocalAdaptiveModelCooldownsForTest,
+  _setModelCooldownPersistenceForTest,
+} from "../openrouter/model-cooldown-store.js";
 import type { ModelLaneCursorPersistence } from "../openrouter/model-lane-cursor-store.js";
 import { _resetOpenRouterCredentialCooldownsForTest } from "../openrouter/credential-cooldown.js";
 import { createExecutionLedger } from "../execution-ledger.js";
@@ -62,6 +65,7 @@ function textResponse(body: string, status: number, headers?: Record<string, str
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
   _resetCircuitsForTest(); // clear provider and model admission state
+  _resetLocalAdaptiveModelCooldownsForTest();
   _resetModelContractAcceptanceForTest();
   _resetOpenRouterCredentialCooldownsForTest();
   persistedCooldownWrites = [];
@@ -78,6 +82,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetLocalAdaptiveModelCooldownsForTest();
   _resetOpenRouterCredentialCooldownsForTest();
   _setModelCooldownPersistenceForTest(undefined);
   vi.unstubAllGlobals();
@@ -806,7 +811,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
-  it("classifies OpenRouter shared-pool metadata without inventing a cooldown", async () => {
+  it("applies a local model-only cooldown when shared-pool Retry-After is missing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
         error: {
           code: 429,
@@ -832,8 +837,13 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.rateLimitScope === "upstream_shared_pool" &&
         err.upstreamProvider === "Poolside",
     );
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
-    expect(persistedCooldownWrites).toEqual([]);
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
+    expect(persistedCooldownWrites).toContainEqual({
+      provider: "openrouter",
+      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
+      cooldownMs: 30_000,
+    });
+    expect(persistedCooldownWrites.some((row) => row.model.startsWith("__upstream_pool__:"))).toBe(false);
   });
 
   it("cools only the failed model after a shared-pool limit across later requests", async () => {
@@ -951,7 +961,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("does not create local or durable cooldowns when a shared-pool 429 omits Retry-After", async () => {
+  it("does not broaden a missing-header cooldown to sibling models or the pool", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({
       error: {
         message: "Provider returned error",
@@ -969,8 +979,13 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       }),
     ).rejects.toMatchObject({ code: "RATE_LIMITED", rateLimitScope: "upstream_shared_pool" });
 
-    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
-    expect(persistedCooldownWrites).toEqual([]);
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(true);
+    expect(persistedCooldownWrites).toContainEqual({
+      provider: "openrouter",
+      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
+      cooldownMs: 30_000,
+    });
+    expect(persistedCooldownWrites.some((row) => row.model.startsWith("__upstream_pool__:"))).toBe(false);
   });
 
   it.each([
@@ -1264,6 +1279,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         JSON.stringify(err.providerAttemptedModels) === JSON.stringify([seenModels[0]]),
     );
     expect(callCount).toBe(1);
+    expect(persistedCooldownWrites).toContainEqual({
+      provider: "openrouter",
+      model: `__local_adaptive_model__:${encodeURIComponent(primaryModel)}`,
+      cooldownMs: 30_000,
+    });
   });
 
   it("preserves Retry-After and avoids retrying the same model", async () => {
@@ -1596,6 +1616,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "test-key", model: primaryModel, maxTokens: 10 }),
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "QUOTA");
+    expect(isModelCoolingDown("openrouter", primaryModel)).toBe(false);
+    expect(persistedCooldownWrites).toEqual([]);
   });
 
   it("429 with 'credits' in body → QUOTA (PR-008)", async () => {

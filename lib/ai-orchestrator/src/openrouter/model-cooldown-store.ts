@@ -4,6 +4,22 @@ import {
 } from "./circuit-breaker.js";
 
 const UPSTREAM_POOL_COOLDOWN_PREFIX = "__upstream_pool__:";
+const LOCAL_ADAPTIVE_COOLDOWN_PREFIX = "__local_adaptive_model__:";
+const LOCAL_ADAPTIVE_BASE_MS = 30_000;
+const LOCAL_ADAPTIVE_MAX_MS = 10 * 60_000;
+const LOCAL_ADAPTIVE_HISTORY_MS = 60 * 60_000;
+
+export type ModelCooldownSource = "provider" | "local_adaptive";
+export type ModelCooldown = {
+  remainingMs: number;
+  source: ModelCooldownSource;
+};
+
+const localAdaptiveHistory = new Map<
+  string,
+  { cooldownMs: number; recordedAt: number }
+>();
+const localAdaptiveActiveUntil = new Map<string, number>();
 
 function normalizeProviderNamespace(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -17,6 +33,23 @@ function modelNamespace(model: string): string | undefined {
 
 function upstreamPoolCooldownKey(namespace: string): string {
   return `${UPSTREAM_POOL_COOLDOWN_PREFIX}${namespace}`;
+}
+
+function localAdaptiveCooldownKey(model: string): string {
+  return `${LOCAL_ADAPTIVE_COOLDOWN_PREFIX}${encodeURIComponent(model)}`;
+}
+
+function modelFromLocalAdaptiveCooldownKey(key: string): string | undefined {
+  if (!key.startsWith(LOCAL_ADAPTIVE_COOLDOWN_PREFIX)) return undefined;
+  try {
+    return decodeURIComponent(key.slice(LOCAL_ADAPTIVE_COOLDOWN_PREFIX.length));
+  } catch {
+    return undefined;
+  }
+}
+
+function cooldownStateKey(provider: string, model: string): string {
+  return `${provider}\u0000${model}`;
 }
 
 export function isUpstreamPoolCooldownKey(value: string): boolean {
@@ -47,6 +80,11 @@ export type ModelCooldownPersistence = {
   readActive(provider: string, models: string[]): Promise<PersistedModelCooldown[]>;
   write(provider: string, model: string, cooldownMs: number): Promise<void>;
   clear(provider: string, model: string): Promise<void>;
+  readRecentCooldownMs?(
+    provider: string,
+    model: string,
+    maxAgeMs: number,
+  ): Promise<number | undefined>;
 };
 
 const PERSISTENCE_WARNING_INTERVAL_MS = 60_000;
@@ -80,11 +118,47 @@ const postgresPersistence: ModelCooldownPersistence = {
        SET cooling_until = now() + ($3::double precision * interval '1 millisecond'),
            updated_at = now()`,
       [provider, model, cooldownMs],
+     );
+  },
+
+  async readRecentCooldownMs(provider, model, maxAgeMs) {
+    const { pool } = await import("@workspace/db");
+    const result = await pool.query<{
+      cooldown_ms: number | string;
+      age_ms: number | string;
+    }>(
+      `SELECT
+         CEIL(EXTRACT(EPOCH FROM (cooling_until - updated_at)) * 1000)::numeric AS cooldown_ms,
+         CEIL(EXTRACT(EPOCH FROM (now() - updated_at)) * 1000)::numeric AS age_ms
+       FROM openrouter_model_cooldowns
+       WHERE provider = $1
+         AND model = $2
+       LIMIT 1`,
+      [provider, model],
     );
-    // No escalation history is needed; retain active provider-supplied windows only.
-    await pool.query(
-      "DELETE FROM openrouter_model_cooldowns WHERE cooling_until <= now()",
-    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    const cooldownMs = Number(row.cooldown_ms);
+    const ageMs = Number(row.age_ms);
+    if (
+      Number.isFinite(cooldownMs)
+      && cooldownMs > 0
+      && Number.isFinite(ageMs)
+      && ageMs >= 0
+      && ageMs <= maxAgeMs
+    ) {
+      return Math.floor(cooldownMs);
+    }
+    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
+      await pool.query(
+        `DELETE FROM openrouter_model_cooldowns
+         WHERE provider = $1
+           AND model = $2
+           AND cooling_until <= now()`,
+        [provider, model],
+      );
+    }
+    return undefined;
   },
 
   async clear(provider, model) {
@@ -119,11 +193,22 @@ export async function readModelCooldowns(
   provider: string,
   models: string[],
   persistenceOverride?: ModelCooldownPersistence,
-): Promise<Map<string, number>> {
-  const cooldowns = new Map<string, number>();
+): Promise<Map<string, ModelCooldown>> {
+  const cooldowns = new Map<string, ModelCooldown>();
   const uniqueModels = [...new Set(models)];
   const unresolvedModels: string[] = [];
   const poolKeysByModel = new Map<string, string>();
+  const setCooldown = (
+    model: string,
+    remainingMs: number,
+    source: ModelCooldownSource,
+  ) => {
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) return;
+    const previous = cooldowns.get(model);
+    if (!previous || remainingMs > previous.remainingMs) {
+      cooldowns.set(model, { remainingMs, source });
+    }
+  };
 
   for (const model of uniqueModels) {
     const namespace = modelNamespace(model);
@@ -132,17 +217,29 @@ export async function readModelCooldowns(
 
   for (const model of uniqueModels) {
     const remainingMs = getModelCooldownRemainingMs(provider, model);
-    if (remainingMs !== null) cooldowns.set(model, remainingMs);
-    else unresolvedModels.push(model);
+    if (remainingMs !== null) {
+      const stateKey = cooldownStateKey(provider, model);
+      const adaptiveUntil = localAdaptiveActiveUntil.get(stateKey);
+      const source: ModelCooldownSource =
+        adaptiveUntil !== undefined && adaptiveUntil > Date.now()
+          ? "local_adaptive"
+          : "provider";
+      if (adaptiveUntil !== undefined && adaptiveUntil <= Date.now()) {
+        localAdaptiveActiveUntil.delete(stateKey);
+      }
+      setCooldown(model, remainingMs, source);
+    } else {
+      unresolvedModels.push(model, localAdaptiveCooldownKey(model));
+    }
   }
 
   for (const poolKey of new Set(poolKeysByModel.values())) {
     const remainingMs = getModelCooldownRemainingMs(provider, poolKey);
     if (remainingMs !== null) {
-      cooldowns.set(poolKey, remainingMs);
+      setCooldown(poolKey, remainingMs, "provider");
       for (const [model, candidateKey] of poolKeysByModel) {
         if (candidateKey !== poolKey) continue;
-        cooldowns.set(model, Math.max(cooldowns.get(model) ?? 0, remainingMs));
+        setCooldown(model, remainingMs, "provider");
       }
     } else {
       unresolvedModels.push(poolKey);
@@ -157,13 +254,21 @@ export async function readModelCooldowns(
     for (const entry of persisted) {
       if (!modelsToRead.includes(entry.model) || entry.remainingMs <= 0) continue;
       const remainingMs = Math.floor(entry.remainingMs);
-      cooldowns.set(entry.model, remainingMs);
-      rememberModelCooldownUntil(provider, entry.model, remainingMs);
-      if (isUpstreamPoolCooldownKey(entry.model)) {
+      const adaptiveModel = modelFromLocalAdaptiveCooldownKey(entry.model);
+      if (adaptiveModel && uniqueModels.includes(adaptiveModel)) {
+        const stateKey = cooldownStateKey(provider, adaptiveModel);
+        setCooldown(adaptiveModel, remainingMs, "local_adaptive");
+        localAdaptiveActiveUntil.set(stateKey, Date.now() + remainingMs);
+        rememberModelCooldownUntil(provider, adaptiveModel, remainingMs);
+      } else if (isUpstreamPoolCooldownKey(entry.model)) {
+        setCooldown(entry.model, remainingMs, "provider");
         for (const [model, poolKey] of poolKeysByModel) {
           if (poolKey !== entry.model) continue;
-          cooldowns.set(model, Math.max(cooldowns.get(model) ?? 0, remainingMs));
+          setCooldown(model, remainingMs, "provider");
         }
+      } else if (uniqueModels.includes(entry.model)) {
+        setCooldown(entry.model, remainingMs, "provider");
+        rememberModelCooldownUntil(provider, entry.model, remainingMs);
       }
     }
   } catch {
@@ -171,6 +276,59 @@ export async function readModelCooldowns(
   }
 
   return cooldowns;
+}
+
+/**
+ * Record a bounded, exact-model admission cooldown when a 429 has no usable
+ * provider Retry-After. Reserved-key history makes the escalation survive API
+ * process restarts without widening the cooldown to sibling free models.
+ */
+export async function recordLocalAdaptiveModelCooldown(
+  provider: string,
+  model: string,
+  persistenceOverride?: ModelCooldownPersistence,
+): Promise<number> {
+  const store = persistenceOverride ?? persistence;
+  const stateKey = cooldownStateKey(provider, model);
+  const now = Date.now();
+  const inMemoryPrevious = localAdaptiveHistory.get(stateKey);
+  let previousCooldownMs =
+    inMemoryPrevious && now - inMemoryPrevious.recordedAt <= LOCAL_ADAPTIVE_HISTORY_MS
+      ? inMemoryPrevious.cooldownMs
+      : 0;
+  try {
+    const persistedPrevious = await store.readRecentCooldownMs?.(
+      provider,
+      localAdaptiveCooldownKey(model),
+      LOCAL_ADAPTIVE_HISTORY_MS,
+    );
+    if (persistedPrevious && persistedPrevious > previousCooldownMs) {
+      previousCooldownMs = persistedPrevious;
+    }
+  } catch {
+    logPersistenceUnavailable("read");
+  }
+
+  const cooldownMs = previousCooldownMs > 0
+    ? Math.min(LOCAL_ADAPTIVE_MAX_MS, Math.max(LOCAL_ADAPTIVE_BASE_MS, previousCooldownMs * 2))
+    : LOCAL_ADAPTIVE_BASE_MS;
+  localAdaptiveHistory.set(stateKey, { cooldownMs, recordedAt: now });
+  localAdaptiveActiveUntil.set(stateKey, now + cooldownMs);
+  rememberModelCooldownUntil(provider, model, cooldownMs);
+
+  try {
+    await store.write(provider, localAdaptiveCooldownKey(model), cooldownMs);
+  } catch {
+    logPersistenceUnavailable("write");
+  }
+  console.warn(JSON.stringify({
+    scope: "openrouter-model-cooldown",
+    code: "LOCAL_ADAPTIVE_MODEL_COOLDOWN",
+    provider,
+    model,
+    cooldownMs,
+  }));
+  return cooldownMs;
 }
 
 /**
@@ -204,10 +362,16 @@ export async function clearSharedPoolModelCooldown(
   model: string,
   persistenceOverride?: ModelCooldownPersistence,
 ): Promise<void> {
-  try {
-    await (persistenceOverride ?? persistence).clear(provider, model);
-  } catch {
-    logPersistenceUnavailable("clear");
+  const store = persistenceOverride ?? persistence;
+  const stateKey = cooldownStateKey(provider, model);
+  localAdaptiveHistory.delete(stateKey);
+  localAdaptiveActiveUntil.delete(stateKey);
+  for (const key of [model, localAdaptiveCooldownKey(model)]) {
+    try {
+      await store.clear(provider, key);
+    } catch {
+      logPersistenceUnavailable("clear");
+    }
   }
 }
 
@@ -217,4 +381,9 @@ export function _setModelCooldownPersistenceForTest(
 ): void {
   persistence = next ?? postgresPersistence;
   lastPersistenceWarningAt = Number.NEGATIVE_INFINITY;
+}
+
+export function _resetLocalAdaptiveModelCooldownsForTest(): void {
+  localAdaptiveHistory.clear();
+  localAdaptiveActiveUntil.clear();
 }

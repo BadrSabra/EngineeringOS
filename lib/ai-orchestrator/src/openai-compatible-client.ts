@@ -45,6 +45,7 @@ import {
   clearSharedPoolModelCooldown,
   isUpstreamPoolCooldownKey,
   persistSharedPoolModelCooldown,
+  recordLocalAdaptiveModelCooldown,
   readModelCooldowns,
   upstreamPoolCooldownKeyForModel,
   type ModelCooldownPersistence,
@@ -1920,9 +1921,12 @@ export async function openrouterCompleteWithFallback(
     }));
   }
   if (eligibleChain.length === 0 && coolingModels.length > 0) {
-    const retryAfterMs = Math.max(
-      ...coolingModels.map((model) => modelCooldowns.get(model) ?? 0),
+    const localCooldownPresent = coolingModels.some(
+      (model) => modelCooldowns.get(model)?.source === "local_adaptive",
     );
+    const retryAfterMs = localCooldownPresent
+      ? undefined
+      : Math.max(...coolingModels.map((model) => modelCooldowns.get(model)?.remainingMs ?? 0));
     const isUpstreamPoolCooldown = [...modelCooldowns.keys()].some(isUpstreamPoolCooldownKey);
     throw new GroqClientError(
       "RATE_LIMITED",
@@ -1931,7 +1935,7 @@ export async function openrouterCompleteWithFallback(
         context: {
           providerName: "OpenRouter",
           providerCode: "MODEL_COOLDOWN",
-          retryAfterMs,
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
           ...(isUpstreamPoolCooldown ? { rateLimitScope: "upstream_shared_pool" as const } : {}),
           providerAttemptedModels: coolingModels,
         },
@@ -2059,39 +2063,40 @@ export async function openrouterCompleteWithFallback(
         const shouldCoolFailedModel =
           providerRateLimitScope !== "provider_credential" &&
           providerRateLimitScope !== "account_quota";
-        if (shouldCoolFailedModel) {
-          const providerRetryAfterMs =
-            err instanceof GroqClientError ? err.retryAfterMs : undefined;
-          recordModelFailure(
-            "openrouter",
-            model,
-            providerRetryAfterMs,
-          );
-          if (providerRateLimitScope === "upstream_shared_pool") {
-            await persistSharedPoolModelCooldown(
-              "openrouter",
-              model,
-              providerRetryAfterMs,
-              opts.modelCooldownPersistence,
-            );
-            const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
-              model,
-              err instanceof GroqClientError ? err.upstreamProvider : undefined,
-            );
-            if (
-              upstreamPoolKey &&
-              Number.isSafeInteger(providerRetryAfterMs) &&
-              providerRetryAfterMs! > 0
-            ) {
-              recordModelFailure("openrouter", upstreamPoolKey, providerRetryAfterMs);
+        const providerRetryAfterMs = err instanceof GroqClientError
+          ? err.retryAfterMs
+          : undefined;
+        if (Number.isSafeInteger(providerRetryAfterMs) && providerRetryAfterMs! > 0) {
+          if (shouldCoolFailedModel) {
+            recordModelFailure("openrouter", model, providerRetryAfterMs);
+            if (providerRateLimitScope === "upstream_shared_pool") {
               await persistSharedPoolModelCooldown(
                 "openrouter",
-                upstreamPoolKey,
+                model,
                 providerRetryAfterMs,
                 opts.modelCooldownPersistence,
               );
+              const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
+                model,
+                err instanceof GroqClientError ? err.upstreamProvider : undefined,
+              );
+              if (upstreamPoolKey) {
+                recordModelFailure("openrouter", upstreamPoolKey, providerRetryAfterMs);
+                await persistSharedPoolModelCooldown(
+                  "openrouter",
+                  upstreamPoolKey,
+                  providerRetryAfterMs,
+                  opts.modelCooldownPersistence,
+                );
+              }
             }
           }
+        } else if (err.code === "RATE_LIMITED") {
+          await recordLocalAdaptiveModelCooldown(
+            "openrouter",
+            model,
+            opts.modelCooldownPersistence,
+          );
         }
         // Every rate limit is terminal for this OpenRouter request, including
         // unknown/account-wide scopes. Do not advance to another model or tier.
@@ -2242,9 +2247,12 @@ export async function* openrouterCompleteStream(
     }));
   }
   if (eligibleModels.length === 0 && coolingModels.length > 0) {
-    const retryAfterMs = Math.max(
-      ...coolingModels.map((model) => modelCooldowns.get(model) ?? 0),
+    const localCooldownPresent = coolingModels.some(
+      (model) => modelCooldowns.get(model)?.source === "local_adaptive",
     );
+    const retryAfterMs = localCooldownPresent
+      ? undefined
+      : Math.max(...coolingModels.map((model) => modelCooldowns.get(model)?.remainingMs ?? 0));
     const isUpstreamPoolCooldown = [...modelCooldowns.keys()].some(isUpstreamPoolCooldownKey);
     throw new GroqClientError(
       "RATE_LIMITED",
@@ -2253,7 +2261,7 @@ export async function* openrouterCompleteStream(
         context: {
           providerName: "OpenRouter",
           providerCode: "MODEL_COOLDOWN",
-          retryAfterMs,
+          ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
           ...(isUpstreamPoolCooldown ? { rateLimitScope: "upstream_shared_pool" as const } : {}),
           providerAttemptedModels: coolingModels,
         },
@@ -2285,36 +2293,58 @@ export async function* openrouterCompleteStream(
           yield delta;
         }
         recordModelSuccess("openrouter", model);
-        await clearSharedPoolModelCooldown("openrouter", model);
+        await clearSharedPoolModelCooldown(
+          "openrouter",
+          model,
+          fullOpts.modelCooldownPersistence,
+        );
         return;
       } catch (err) {
         const providerError = err instanceof GroqClientError ? err : undefined;
-        await recordOpenRouterCredentialCooldown(fullOpts.apiKey, providerError);
+        await recordOpenRouterCredentialCooldown(
+          fullOpts.apiKey,
+          providerError,
+        );
         if (
           providerError &&
-          (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA") &&
-          providerError.rateLimitScope !== "provider_credential" &&
-          providerError.rateLimitScope !== "account_quota"
+          (providerError.code === "RATE_LIMITED" || providerError.code === "QUOTA")
         ) {
-          recordModelFailure("openrouter", model, providerError.retryAfterMs);
-          if (providerError.rateLimitScope === "upstream_shared_pool") {
-            await persistSharedPoolModelCooldown("openrouter", model, providerError.retryAfterMs);
-            const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
-              model,
-              providerError.upstreamProvider,
-            );
+          const hasProviderRetryAfter = Number.isSafeInteger(providerError.retryAfterMs)
+            && providerError.retryAfterMs! > 0;
+          if (hasProviderRetryAfter) {
             if (
-              upstreamPoolKey &&
-              Number.isSafeInteger(providerError.retryAfterMs) &&
-              providerError.retryAfterMs! > 0
+              providerError.rateLimitScope !== "provider_credential" &&
+              providerError.rateLimitScope !== "account_quota"
             ) {
-              recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
-              await persistSharedPoolModelCooldown(
-                "openrouter",
-                upstreamPoolKey,
-                providerError.retryAfterMs,
-              );
+              recordModelFailure("openrouter", model, providerError.retryAfterMs);
+              if (providerError.rateLimitScope === "upstream_shared_pool") {
+                await persistSharedPoolModelCooldown(
+                  "openrouter",
+                  model,
+                  providerError.retryAfterMs,
+                  fullOpts.modelCooldownPersistence,
+                );
+                const upstreamPoolKey = upstreamPoolCooldownKeyForModel(
+                  model,
+                  providerError.upstreamProvider,
+                );
+                if (upstreamPoolKey) {
+                  recordModelFailure("openrouter", upstreamPoolKey, providerError.retryAfterMs);
+                  await persistSharedPoolModelCooldown(
+                    "openrouter",
+                    upstreamPoolKey,
+                    providerError.retryAfterMs,
+                    fullOpts.modelCooldownPersistence,
+                  );
+                }
+              }
             }
+          } else if (providerError.code === "RATE_LIMITED") {
+            await recordLocalAdaptiveModelCooldown(
+              "openrouter",
+              model,
+              fullOpts.modelCooldownPersistence,
+            );
           }
         }
         // Once bytes have been emitted, retrying would duplicate or splice the
