@@ -1,11 +1,16 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { assertLoopbackOnlyNetworkNamespace, readLoopbackOnlyNetworkSnapshot } from "./loopback-only-network-namespace.mjs";
 import { createServer } from "node:net";
 import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { computeEngineeringAgentSourceFingerprint } from "./engineering-agent-source-fingerprint.mjs";
+import {
+  buildLifecycleStateCensusSql,
+  summarizeLifecycleStateCensus,
+} from "./lifecycle-state-census.mjs";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const databaseUser = "goal_first_e2e";
@@ -28,6 +33,9 @@ const lifecycleResultsRoot = resolve(
   workspaceRoot,
   "test-results/engineering-agent-lifecycle",
 );
+const lifecycleRunResultsRoot = lifecycleRun
+  ? resolve(lifecycleResultsRoot, lifecycleRunId)
+  : lifecycleResultsRoot;
 const lifecycleEvidenceRoot = resolve(
   workspaceRoot,
   "release-evidence/engineering-agent-lifecycle",
@@ -42,11 +50,17 @@ const lifecycleEnvironmentIdentity = "replit-disposable-postgres-local-provider-
 const lifecycleTestId =
   "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain";
 const providerLogPath = resolve(
-  workspaceRoot,
   lifecycleRun
-    ? "test-results/engineering-agent-lifecycle/provider-fixture-requests.jsonl"
-    : "test-results/goal-first-e2e/provider-fixture-requests.jsonl",
+    ? lifecycleRunResultsRoot
+    : resolve(workspaceRoot, "test-results/goal-first-e2e"),
+  "provider-fixture-requests.jsonl",
 );
+const localApiEgressAuditPath = lifecycleRun
+  ? resolve(lifecycleRunResultsRoot, "api-egress.jsonl")
+  : "";
+const localBrowserEgressAuditPath = lifecycleRun
+  ? resolve(lifecycleRunResultsRoot, "browser-egress.json")
+  : "";
 
 let temporaryRoot = "";
 let dataDirectory = "";
@@ -55,8 +69,10 @@ let lifecycleProjectRoot = "";
 let lifecycleRemotePath = "";
 let lifecycleRunnerStage = "setup";
 let lifecycleSourceFingerprint = "";
+let lifecycleNetworkIsolationEvidence;
 let postgresPort = 0;
 let initialized = false;
+let lifecycleStateCensusAccepted = false;
 let activeChild;
 let shutdownSignal;
 
@@ -180,7 +196,9 @@ async function writeFallbackLifecycleReceipt() {
     stage: lifecycleRunnerStage,
     code: existing?.status === "passed"
       ? `${failedStage}_FAILED_AFTER_JOURNEY`
-      : "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
+      : lifecycleRunnerStage === "network-isolation-preflight"
+        ? "OS_NETWORK_ISOLATION_UNVERIFIED"
+        : "RUNNER_FAILED_BEFORE_JOURNEY_RECEIPT",
     ...(lifecycleSourceFingerprint
       ? { sourceFingerprint: lifecycleSourceFingerprint }
       : {}),
@@ -191,6 +209,125 @@ async function writeFallbackLifecycleReceipt() {
       : lifecycleReceiptPath,
     receipt,
   );
+}
+
+async function verifyLocalEgressEvidence() {
+  if (!lifecycleRun) return;
+  const networkEvidence = JSON.parse(
+    await readFile(
+      resolve(lifecycleRunResultsRoot, "network-namespace.json"),
+      "utf8",
+    ),
+  );
+  if (
+    networkEvidence?.isolation?.ok !== true ||
+    !networkEvidence.runnerNamespace ||
+    networkEvidence.childNamespace !== networkEvidence.runnerNamespace
+  ) {
+    throw new Error(
+      "The lifecycle runner did not retain verified loopback-only OS namespace evidence.",
+    );
+  }
+  const apiEvents = (await readFile(localApiEgressAuditPath, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const guardInstalled = apiEvents.find(
+    (event) => event.kind === "guard-installed",
+  );
+  if (
+    !guardInstalled ||
+    guardInstalled.nodeNetworkGuard !== true ||
+    guardInstalled.childProcessPolicy !== true
+  ) {
+    throw new Error(
+      "The API runtime egress and child-process guards were not both installed.",
+    );
+  }
+  const blockedChildProcesses = apiEvents
+    .filter((event) => event.kind === "blocked-child-process")
+    .map((event) => `${event.command ?? "unknown"}:${event.reason ?? "blocked"}`);
+  if (blockedChildProcesses.length > 0) {
+    throw new Error(
+      `The lifecycle attempted a child process rejected by the isolation policy: ${[...new Set(blockedChildProcesses)].join(",")}.`,
+    );
+  }
+
+  const browserAudit = JSON.parse(
+    await readFile(localBrowserEgressAuditPath, "utf8"),
+  );
+  if (
+    browserAudit?.guard !== "playwright-loopback-only" ||
+    browserAudit.externalNetworkAllowed !== false ||
+    !Array.isArray(browserAudit.blockedHosts)
+  ) {
+    throw new Error("The browser egress guard did not write a valid audit record.");
+  }
+
+  const forbiddenHost = (host) =>
+    ["clerk.com", "openrouter.ai", "github.com"].some(
+      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+    );
+  const forbiddenApiAttempts = apiEvents
+    .filter((event) => event.kind === "blocked-egress")
+    .map((event) => event.host)
+    .filter((host) => forbiddenHost(String(host ?? "").toLowerCase()));
+  const forbiddenBrowserAttempts = browserAudit.blockedHosts
+    .map((host) => String(host).toLowerCase())
+    .filter(forbiddenHost);
+  if (forbiddenApiAttempts.length || forbiddenBrowserAttempts.length) {
+    throw new Error(
+      `An identity/provider/GitHub egress attempt was blocked before network access: ${[...new Set([...forbiddenApiAttempts, ...forbiddenBrowserAttempts])].join(",")}.`,
+    );
+  }
+
+  const blockedApiHosts = [
+    ...new Set(
+      apiEvents
+        .filter((event) => event.kind === "blocked-egress")
+        .map((event) => String(event.host ?? "unknown-host")),
+    ),
+  ].sort();
+  const blockedBrowserHosts = [...browserAudit.blockedHosts].sort();
+  console.log(
+    `isolated_egress_guard=verified api_blocked_hosts=${blockedApiHosts.join(",") || "none"} browser_blocked_hosts=${blockedBrowserHosts.join(",") || "none"}`,
+  );
+}
+
+async function assertLifecycleNetworkIsolation() {
+  const snapshot = readLoopbackOnlyNetworkSnapshot();
+  const isolation = await assertLoopbackOnlyNetworkNamespace({
+    readSnapshot: () => snapshot,
+  });
+  const childNamespaceProbe = await run(
+    process.execPath,
+    [
+      "-e",
+      "process.stdout.write(require('node:fs').readlinkSync('/proc/self/ns/net'))",
+    ],
+    {
+      capture: true,
+      env: {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        LANG: process.env.LANG ?? "C",
+      },
+    },
+  );
+  const childNamespace = childNamespaceProbe.stdout.trim();
+  if (!snapshot.selfNetNamespace || childNamespace !== snapshot.selfNetNamespace) {
+    throw new Error(
+      "Lifecycle run blocked before test services: the child process does not share the verified isolated network namespace.",
+    );
+  }
+  return {
+    runnerNamespace: snapshot.selfNetNamespace,
+    hostNamespace: snapshot.hostNetNamespace,
+    childNamespace,
+    interfaces: snapshot.interfaces,
+    ipv4Routes: snapshot.ipv4Routes,
+    ipv6Routes: snapshot.ipv6Routes,
+    isolation,
+  };
 }
 
 async function main() {
@@ -206,6 +343,15 @@ async function main() {
   if (os.userInfo().uid === 0) {
     throw new Error("Refusing to initialize the temporary PostgreSQL cluster as root.");
   }
+  if (lifecycleRun) {
+    lifecycleRunnerStage = "network-isolation-preflight";
+    lifecycleNetworkIsolationEvidence =
+      await assertLifecycleNetworkIsolation();
+    console.log(
+      `loopback_network_namespace=verified runner=${lifecycleNetworkIsolationEvidence.runnerNamespace} child=${lifecycleNetworkIsolationEvidence.childNamespace}`,
+    );
+    lifecycleRunnerStage = "setup";
+  }
 
   temporaryRoot = await mkdtemp(join(os.tmpdir(), "engineeringos-goal-first-e2e-"));
   dataDirectory = join(temporaryRoot, "pgdata");
@@ -218,11 +364,61 @@ async function main() {
     if (lifecycleRun) {
       lifecycleRemotePath = join(temporaryRoot, "engineering-agent-lifecycle-remote.git");
       lifecycleProjectRoot = resolve(
-        workspaceRoot,
-        "test-results",
-        "engineering-agent-lifecycle",
+        lifecycleRunResultsRoot,
         `project-${randomUUID()}`,
       );
+      await mkdir(lifecycleResultsRoot, { recursive: true });
+      const lifecycleResultsRealPath = await realpath(lifecycleResultsRoot);
+      if (lifecycleResultsRealPath !== resolve(lifecycleResultsRoot)) {
+        throw new Error(
+          "The lifecycle test-results root resolves through an unexpected path.",
+        );
+      }
+      try {
+        await realpath(lifecycleRunResultsRoot);
+        throw new Error("The unique lifecycle results folder already exists.");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      await mkdir(lifecycleRunResultsRoot);
+      const lifecycleRunResultsRealPath =
+        await realpath(lifecycleRunResultsRoot);
+      const runResultsRelativePath = relative(
+        lifecycleResultsRealPath,
+        lifecycleRunResultsRealPath,
+      );
+      if (
+        !runResultsRelativePath ||
+        runResultsRelativePath === ".." ||
+        runResultsRelativePath.startsWith(`..${sep}`)
+      ) {
+        throw new Error(
+          "The unique lifecycle results folder is outside the allowed test-results root.",
+        );
+      }
+      await writeJsonAtomically(
+        resolve(lifecycleRunResultsRoot, "network-namespace.json"),
+        lifecycleNetworkIsolationEvidence,
+      );
+      const projectRootRelativePath = relative(
+        lifecycleRunResultsRealPath,
+        lifecycleProjectRoot,
+      );
+      if (
+        !projectRootRelativePath ||
+        projectRootRelativePath === ".." ||
+        projectRootRelativePath.startsWith(`..${sep}`)
+      ) {
+        throw new Error(
+          "The disposable project root is outside the lifecycle test-results root.",
+        );
+      }
+      try {
+        await realpath(lifecycleProjectRoot);
+        throw new Error("The unique lifecycle project root already exists.");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
       const remoteRelativePath = relative(
         await realpath(temporaryRoot),
         resolve(lifecycleRemotePath),
@@ -277,6 +473,45 @@ async function main() {
         : "goal-first|signs in and traverses the authenticated operational shell|authenticated owner-Mission link preserves active Mission across Chat navigation and reload";
     env.DASHBOARD_E2E_BROWSER = process.env.DASHBOARD_E2E_BROWSER ?? "firefox";
     env.DASHBOARD_E2E_SKIP_API_CONTRACTS = "1";
+    env.DASHBOARD_E2E_API_PORT = "18081";
+    env.DASHBOARD_E2E_PORT = String(dashboardPort);
+    env.DASHBOARD_E2E_CONTROL_PORT = "18082";
+    env.DASHBOARD_E2E_BASE_URL =
+      `http://127.0.0.1:${dashboardPort}/dashboard/`;
+    env.DASHBOARD_E2E_API_BASE_URL = "http://127.0.0.1:18081";
+    env.DASHBOARD_E2E_API_HEALTH_URL = "http://127.0.0.1:18081/api/healthz";
+    env.DASHBOARD_E2E_API_READINESS_URL =
+      "http://127.0.0.1:18081/api/readiness";
+    if (lifecycleRun) {
+      const lifecycleDashboardEvidenceRoot = resolve(
+        lifecycleRunResultsRoot,
+        "dashboard",
+      );
+      env.PLAYWRIGHT_OUTPUT_DIR = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "playwright",
+      );
+      env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "release-teardown.json",
+      );
+      env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "origin-diagnostics.json",
+      );
+      env.DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "groq-catalog-recovery.json",
+      );
+      env.DASHBOARD_E2E_READINESS_ARTIFACT_PATH = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "readiness.json",
+      );
+      env.DASHBOARD_E2E_LIVE_REPORT_PATH = resolve(
+        lifecycleDashboardEvidenceRoot,
+        "live-mission-correlation.json",
+      );
+    }
     env.DASHBOARD_E2E_CHILD_TIMEOUT_MS = process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS
       ?? (lifecycleRun ? "600000" : "240000");
     if (liveProviderRun) {
@@ -288,10 +523,30 @@ async function main() {
       delete env.DASHBOARD_E2E_PROVIDER_FIXTURE;
       delete env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG;
       delete env.MISSION_E2E_PROVIDER_FIXTURE;
+      delete env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE;
+      delete env.ENGINEERINGOS_RUNTIME_EGRESS_AUDIT_PATH;
+      delete env.DASHBOARD_E2E_BROWSER_EGRESS_AUDIT_PATH;
     } else {
       env.DASHBOARD_E2E_PROVIDER_FIXTURE = "1";
       env.DASHBOARD_E2E_PROVIDER_FIXTURE_LOG = providerLogPath;
       env.OPENROUTER_API_KEY = "engineering-agent-lifecycle-local-fixture";
+      if (lifecycleRun) {
+        env.DASHBOARD_E2E_TEST_MODE = "fixture";
+        env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE = "1";
+        env.ENGINEERINGOS_RUNTIME_EGRESS_AUDIT_PATH =
+          localApiEgressAuditPath;
+        env.DASHBOARD_E2E_BROWSER_EGRESS_AUDIT_PATH =
+          localBrowserEgressAuditPath;
+        delete env.CLERK_SECRET_KEY;
+        delete env.CLERK_PUBLISHABLE_KEY;
+        delete env.VITE_CLERK_PUBLISHABLE_KEY;
+        delete env.DASHBOARD_E2E_EMAIL;
+        delete env.DASHBOARD_E2E_ISOLATION_EMAIL;
+      } else {
+        delete env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE;
+        delete env.ENGINEERINGOS_RUNTIME_EGRESS_AUDIT_PATH;
+        delete env.DASHBOARD_E2E_BROWSER_EGRESS_AUDIT_PATH;
+      }
       delete env.DASHBOARD_E2E_LIVE_PROVIDER;
       delete env.DASHBOARD_E2E_LIVE_DISPOSABLE;
       delete env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE;
@@ -317,12 +572,16 @@ async function main() {
     }
     delete env.AI_PROVIDER_EGRESS_DISABLED;
 
-    const origins = new Set(
-      (env.APP_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
-    );
-    if (env.REPLIT_DEV_DOMAIN) origins.add(`https://${env.REPLIT_DEV_DOMAIN}`);
-    origins.add(`http://127.0.0.1:${dashboardPort}`);
-    env.APP_ORIGINS = [...origins].join(",");
+    if (lifecycleRun && !liveProviderRun) {
+      env.APP_ORIGINS = `http://127.0.0.1:${dashboardPort}`;
+    } else {
+      const origins = new Set(
+        (env.APP_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
+      );
+      if (env.REPLIT_DEV_DOMAIN) origins.add(`https://${env.REPLIT_DEV_DOMAIN}`);
+      origins.add(`http://127.0.0.1:${dashboardPort}`);
+      env.APP_ORIGINS = [...origins].join(",");
+    }
 
     await mkdir(dirname(providerLogPath), { recursive: true });
     await rm(providerLogPath, { force: true });
@@ -471,6 +730,7 @@ async function main() {
     );
 
     if (lifecycleRun) {
+      await verifyLocalEgressEvidence();
       const receipt = JSON.parse(await readFile(lifecycleReceiptPath, "utf8"));
       if (
         receipt?.schemaVersion !== 1
@@ -636,6 +896,52 @@ async function main() {
       );
     }
   } finally {
+    if (lifecycleRun && initialized && lifecycleProjectRoot) {
+      lifecycleRunnerStage = "state-census";
+      const censusPath = resolve(
+        lifecycleRunResultsRoot,
+        "lifecycle-state-census.json",
+      );
+      try {
+        const query = buildLifecycleStateCensusSql(lifecycleProjectRoot);
+        const { stdout } = await run(
+          "psql",
+          [
+            "--no-psqlrc",
+            "--tuples-only",
+            "--no-align",
+            `--set=project_root=${lifecycleProjectRoot}`,
+            "--dbname",
+            databaseUrl,
+            "--command",
+            query,
+          ],
+          { capture: true, env: isolatedDatabaseEnvironment(databaseUrl) },
+        );
+        const jsonLine = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+        if (!jsonLine) throw new Error("state_census_empty");
+        const census = summarizeLifecycleStateCensus(JSON.parse(jsonLine));
+        await writeJsonAtomically(censusPath, census);
+        lifecycleStateCensusAccepted = census.assessment.allWorkTerminal === true;
+        if (!lifecycleStateCensusAccepted) {
+          process.exitCode = 1;
+          await writeFallbackLifecycleReceipt();
+        }
+      } catch {
+        await writeJsonAtomically(censusPath, {
+          schemaVersion: 1,
+          status: "unavailable",
+          code: "STATE_CENSUS_UNAVAILABLE",
+        }).catch(() => {});
+        const receipt = JSON.parse(
+          await readFile(lifecycleReceiptPath, "utf8").catch(() => "null"),
+        );
+        if (receipt?.status === "passed") {
+          process.exitCode = 1;
+          await writeFallbackLifecycleReceipt();
+        }
+      }
+    }
     await stopPostgres();
     if (lifecycleProjectRoot) {
       await rm(lifecycleProjectRoot, { recursive: true, force: true }).catch(() => {});
@@ -645,7 +951,7 @@ async function main() {
     }
     if (lifecycleRun) {
       const receipt = JSON.parse(await readFile(lifecycleReceiptPath, "utf8").catch(() => "null"));
-      if (receipt?.status === "passed") {
+      if (receipt?.status === "passed" && lifecycleStateCensusAccepted) {
         lifecycleRunnerStage = "offline-verifier";
         const offlineEnv = isolatedDatabaseEnvironment();
         delete offlineEnv.ENGINEERING_AGENT_LIFECYCLE_PROJECT_ROOT;
@@ -673,7 +979,12 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(
+    lifecycleRun && lifecycleRunnerStage === "network-isolation-preflight"
+      ? `BLOCKED_BEFORE_BROWSER ${message}`
+      : message,
+  );
   void writeFallbackLifecycleReceipt()
     .catch(() => {})
     .finally(() => {

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "runId": "927df785-c007-468a-a29b-9f70afc693d6",
+  "startedAt": "2026-10-31T23:25:57.714Z",
+  "finishedAt": "2026-10-31T23:26:06.786Z",
+  "environmentIdentity": "replit-disposable-postgres-local-provider-fixture",
+  "testId": "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
+  "status": "blocked",
+  "stage": "network-isolation-preflight",
+  "code": "OS_NETWORK_ISOLATION_UNVERIFIED",
+  "sourceFingerprint": "75e881926ce7e4c16816c268abbd2c0572a451d8f088d8fbe6d415b419fc9c7b"
+}

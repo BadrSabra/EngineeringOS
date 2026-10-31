@@ -232,7 +232,8 @@ if (!workerScopeProjectId) {
   );
 }
 
-httpServer = app.listen(port, (err) => {
+const apiBindHost = process.env.NODE_ENV === "test" ? "127.0.0.1" : undefined;
+const onServerListen = (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -263,4 +264,8 @@ httpServer = app.listen(port, (err) => {
     memorySweep = startMemorySweep();
     void drainPendingAudits();
   }
-});
+};
+
+httpServer = apiBindHost
+  ? app.listen(port, apiBindHost, onServerListen)
+  : app.listen(port, onServerListen);

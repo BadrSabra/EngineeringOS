@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "runId": "b6dd82fc-ea04-46fa-a796-8c9cabf86cbf",
+  "startedAt": "2026-10-31T22:58:14.035Z",
+  "environmentIdentity": "replit-disposable-postgres-local-provider-fixture",
+  "testId": "engineering-agent-lifecycle: completes one correlated Chat-to-Mission apply and delivery chain",
+  "status": "blocked",
+  "stage": "candidate-execution",
+  "code": "MISSION_OBJECTIVE_NOT_PROVEN",
+  "sourceFingerprint": "076260c40c92f63ced5207da7ba87c569245720c6d93a2fb45e2ccc983f19db4",
+  "chain": {
+    "projectId": "2aeb9ba2-90f4-4074-b2cd-28f7771f398e",
+    "chatStream": {
+      "eventTypes": [
+        "session_started",
+        "stage",
+        "execution_started",
+        "intent",
+        "behavior_progress",
+        "delta",
+        "recipe_terminal",
+        "done"
+      ],
+      "sessionStarted": true,
+      "sessionStartedSessionId": "0fecc994-2e0f-4138-b389-4c7236eb7cf4",
+      "doneHasSessionId": true,
+      "doneSessionId": "0fecc994-2e0f-4138-b389-4c7236eb7cf4",
+      "sessionIdsMatch": true,
+      "doneMessageId": "d9b99ab4-da95-4795-87b7-15601b37ab6e",
+      "doneMessageRole": "assistant",
+      "doneMessageContentLength": 37,
+      "doneTurnIntent": "DELIVERY",
+      "doneTaskResultKind": "IMPLEMENTATION_PLAN_RESULT"
+    },
+    "sessionId": "0fecc994-2e0f-4138-b389-4c7236eb7cf4",
+    "userMessageId": "2a55d535-13fd-4b23-af96-f854903dafd5",
+    "userMessageHash": "18f6ef0ed354b44b56064e81ee09dcc6fa90e4c0b68e6afacaccdf7925714e01",
+    "handoffPlanHash": "76bf069b074d230f448af7329cce1bdaff35eb7f27bbf1a5c08662d67f3155ec",
+    "sourceMissionId": "a5f2224c-9110-4e36-8396-87e6a0a54713",
+    "sourceGoalId": "74628241-5ad4-433e-b5dc-e67c9a502dd2"
+  },
+  "finishedAt": "2026-10-31T23:00:44.774Z"
+}

@@ -16,10 +16,61 @@ import {
   parseClerkUserLookupResponse,
   parseCreatedClerkUserResponse,
 } from "../src/lib/clerk-handoff";
+import { LOCAL_E2E_AUTH_STORAGE_KEY } from "./fixtures/local-e2e-auth";
 import type { AiExecutionAcceptance } from "@workspace/api-client-react";
 import { CAPABILITY_PROBE_MESSAGE } from "@workspace/ai-orchestrator/capability-probe";
 
 const DASHBOARD_PATH = "/dashboard/";
+const blockedBrowserEgressHosts = new Set<string>();
+function localAuthFixtureModeEnabled(): boolean {
+  return (
+    process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE === "1" &&
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
+    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1" &&
+    process.env.DASHBOARD_E2E_TEST_MODE === "fixture"
+  );
+}
+
+test.beforeEach(async ({ page }) => {
+  if (!localAuthFixtureModeEnabled()) return;
+  blockedBrowserEgressHosts.clear();
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) {
+      await route.continue();
+      return;
+    }
+    if (["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
+      await route.continue();
+      return;
+    }
+    blockedBrowserEgressHosts.add(url.hostname.toLowerCase());
+    await route.abort("blockedbyclient");
+  });
+});
+
+test.afterEach(async () => {
+  if (!localAuthFixtureModeEnabled()) return;
+  const auditPath = process.env.DASHBOARD_E2E_BROWSER_EGRESS_AUDIT_PATH;
+  if (!auditPath) {
+    throw new Error("The isolated browser egress audit path is required.");
+  }
+  await mkdir(dirname(auditPath), { recursive: true });
+  await writeFile(
+    auditPath,
+    `${JSON.stringify({
+      guard: "playwright-loopback-only",
+      externalNetworkAllowed: false,
+      blockedHosts: [...blockedBrowserEgressHosts].sort(),
+      blockedRequestCount: blockedBrowserEgressHosts.size,
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  console.log(
+    `browser_egress_guard=loopback_only blocked_hosts=${[...blockedBrowserEgressHosts].sort().join(",") || "none"}`,
+  );
+});
+
 const TEST_USER = {
   firstName: "EngineeringOS",
   lastName: "Dashboard Smoke",
@@ -3838,6 +3889,22 @@ async function programmaticSignIn(
       if (attempt === 2) throw error;
       await page.waitForTimeout(250);
     }
+  }
+
+  if (localAuthFixtureModeEnabled()) {
+    // This localStorage bit only changes the browser fixture UI. The API
+    // independently assigns its fixed test-user identity and still performs
+    // normal project ownership checks against the disposable database.
+    await page.evaluate((storageKey) => {
+      window.localStorage.setItem(storageKey, "signed-in");
+    }, LOCAL_E2E_AUTH_STORAGE_KEY);
+    await page.goto(DASHBOARD_PATH, { waitUntil: "domcontentloaded" });
+    await expectDashboardPath(
+      page,
+      options.handoffTimeoutMs ?? clerkHandoffTimeoutMs(),
+    );
+    await completeReadinessHandshake(page, options);
+    return;
   }
 
   const helper =

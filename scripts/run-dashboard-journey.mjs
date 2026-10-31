@@ -7,6 +7,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  assertLoopbackOnlyNetworkNamespace,
+  readLoopbackOnlyNetworkSnapshot,
+} from "./loopback-only-network-namespace.mjs";
+import {
   acquireReleaseLock,
   acquireReleaseRunnerLock,
   validationLockPath,
@@ -78,6 +82,48 @@ const missionProviderFixtureEnabled =
 if (missionProviderFixtureEnabled && !groqCatalogFixtureEnabled) {
   throw new Error("The local Mission provider fixture is available only in fixture mode.");
 }
+const localAuthFixtureRequested =
+  process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE === "1";
+const localAuthFixtureEnabled =
+  localAuthFixtureRequested &&
+  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
+  process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === "1" &&
+  dashboardTestMode === "fixture" &&
+  missionProviderFixtureEnabled;
+if (localAuthFixtureRequested && !localAuthFixtureEnabled) {
+  throw new Error(
+    "Local auth is restricted to the controlled fixture-backed lifecycle journey.",
+  );
+}
+
+function assertDisposableLifecycleDatabaseUrl(rawUrl) {
+  if (!rawUrl) {
+    throw new Error("The isolated lifecycle fixture requires its disposable PostgreSQL URL.");
+  }
+  let databaseUrl;
+  try {
+    databaseUrl = new URL(rawUrl);
+  } catch {
+    throw new Error("The isolated lifecycle database URL is malformed.");
+  }
+  const port = Number(databaseUrl.port);
+  if (
+    !["postgres:", "postgresql:"].includes(databaseUrl.protocol) ||
+    databaseUrl.hostname !== "127.0.0.1" ||
+    databaseUrl.username !== "goal_first_e2e" ||
+    databaseUrl.password !== "" ||
+    databaseUrl.pathname !== "/postgres" ||
+    databaseUrl.search !== "" ||
+    databaseUrl.hash !== "" ||
+    !Number.isInteger(port) ||
+    port < 1024 ||
+    port > 65535
+  ) {
+    throw new Error(
+      "The isolated lifecycle fixture may use only the runner-owned loopback PostgreSQL cluster.",
+    );
+  }
+}
 const dashboardFixtureProjectId =
   process.env.DASHBOARD_E2E_LIVE_PROJECT_ID ??
   (process.env.DASHBOARD_E2E_LIVE_CREATE_DISPOSABLE === "1"
@@ -105,6 +151,18 @@ if (
 if (approvedDashboardOrigins.length === 0) {
   throw new Error(
     "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
+if (
+  localAuthFixtureEnabled &&
+  (
+    approvedDashboardOrigins.length !== 1 ||
+    approvedDashboardOrigins[0] !== `http://127.0.0.1:${dashboardPort}` ||
+    new URL(dashboardBaseUrl).origin !== `http://127.0.0.1:${dashboardPort}`
+  )
+) {
+  throw new Error(
+    "Local-auth lifecycle E2E must use only its loopback dashboard origin.",
   );
 }
 const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -144,6 +202,9 @@ function groqCatalogFixtureEnvironment() {
     const fixtureModule = pathToFileURL(
       resolve(workspaceRoot, "scripts/goal-first-provider-fixture.mjs"),
     ).href;
+    const egressGuardModule = pathToFileURL(
+      resolve(workspaceRoot, "scripts/runtime-egress-guard.mjs"),
+    ).href;
     return {
       GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
       AI_PROVIDER_EGRESS_DISABLED: undefined,
@@ -154,6 +215,7 @@ function groqCatalogFixtureEnvironment() {
       OPENROUTER_API_KEY: "goal-first-local-provider-fixture",
       NODE_OPTIONS: [
         process.env.NODE_OPTIONS,
+        ...(localAuthFixtureEnabled ? [`--import=${egressGuardModule}`] : []),
         `--import=${fixtureModule}`,
       ].filter(Boolean).join(" "),
     };
@@ -324,8 +386,9 @@ async function restartApiService() {
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
     {
-      NODE_ENV: "development",
+      NODE_ENV: localAuthFixtureEnabled ? "test" : "development",
       PORT: String(apiPort),
+      ...(localAuthFixtureEnabled ? { HOST: "127.0.0.1" } : {}),
       APP_ORIGINS: approvedDashboardOrigins.join(","),
       ...groqCatalogFixtureEnvironment(),
     },
@@ -711,6 +774,13 @@ async function readOriginDiagnostics() {
 }
 
 async function startReleaseServices() {
+  if (localAuthFixtureEnabled) {
+    const networkSnapshot = readLoopbackOnlyNetworkSnapshot();
+    await assertLoopbackOnlyNetworkNamespace({
+      readSnapshot: () => networkSnapshot,
+    });
+    assertDisposableLifecycleDatabaseUrl(process.env.DATABASE_URL);
+  }
   if (process.env.DATABASE_URL) {
     if (process.env.RELEASE_VALIDATION_LOCK_HELD !== "1") {
       validationLockCleanup = await acquireReleaseLock(validationLockPath);
@@ -765,8 +835,9 @@ async function startReleaseServices() {
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
     {
-      NODE_ENV: "development",
+      NODE_ENV: localAuthFixtureEnabled ? "test" : "development",
       PORT: String(apiPort),
+      ...(localAuthFixtureEnabled ? { HOST: "127.0.0.1" } : {}),
       APP_ORIGINS: approvedDashboardOrigins.join(","),
       ...groqCatalogFixtureEnvironment(),
     },
@@ -776,14 +847,33 @@ async function startReleaseServices() {
    * Start the dashboard separately from the Project workflow. The release
    * runner owns both process groups and always tears them down in finally.
    */
+  const dashboardCommand = "pnpm";
+  const dashboardArgs = localAuthFixtureEnabled
+    ? [
+        "--filter",
+        "@workspace/dashboard",
+        "exec",
+        "vite",
+        "--config",
+        "vite.config.ts",
+        "--host",
+        "127.0.0.1",
+      ]
+    : ["--filter", "@workspace/dashboard", "run", "dev"];
   startService(
     "Dashboard release service",
-    "pnpm",
-    ["--filter", "@workspace/dashboard", "run", "dev"],
+    dashboardCommand,
+    dashboardArgs,
     {
       PORT: String(dashboardPort),
       BASE_PATH: "/dashboard/",
       API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
+      ...(localAuthFixtureEnabled
+        ? {
+            HOST: "127.0.0.1",
+            DASHBOARD_E2E_LOCAL_AUTH_FIXTURE: "1",
+          }
+        : {}),
     },
     dashboardPort,
   );

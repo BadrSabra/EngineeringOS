@@ -36,6 +36,23 @@ const developmentPlugins =
 
 export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
+  const localAuthFixtureRequested =
+    process.env.DASHBOARD_E2E_LOCAL_AUTH_FIXTURE === '1';
+  const localAuthFixtureEnabled =
+    !isBuild &&
+    command === 'serve' &&
+    localAuthFixtureRequested &&
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === '1' &&
+    process.env.ENGINEERING_AGENT_LIFECYCLE_E2E === '1' &&
+    process.env.DASHBOARD_E2E_TEST_MODE === 'fixture' &&
+    process.env.HOST === '127.0.0.1';
+
+  if (localAuthFixtureRequested && !localAuthFixtureEnabled) {
+    throw new Error(
+      'The local Clerk fixture is restricted to the loopback controlled lifecycle E2E.',
+    );
+  }
+
   const rawPort =
     process.env.PORT ??
     (isBuild ? process.env.BUILD_PORT ?? buildDefaults.port : undefined);
@@ -61,8 +78,10 @@ export default defineConfig(({ command }) => {
   // key when the workflow provides the canonical CLERK_PUBLISHABLE_KEY name.
   // Never bridge CLERK_SECRET_KEY or any other server-only credential.
   const clerkPublishableKey =
-    process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
-    process.env.CLERK_PUBLISHABLE_KEY?.trim() ||
+    (localAuthFixtureEnabled
+      ? 'pk_test_engineeringos_local_fixture'
+      : process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
+        process.env.CLERK_PUBLISHABLE_KEY?.trim()) ||
     (isBuild ? buildDefaults.clerkPublishableKey : undefined);
 
   if (!basePath) {
@@ -91,6 +110,22 @@ export default defineConfig(({ command }) => {
     ],
     resolve: {
       alias: {
+        ...(localAuthFixtureEnabled
+          ? {
+              '@clerk/react/internal': path.resolve(
+                import.meta.dirname,
+                'e2e/fixtures/local-clerk-internal.ts',
+              ),
+              '@clerk/react': path.resolve(
+                import.meta.dirname,
+                'e2e/fixtures/local-clerk-react.tsx',
+              ),
+              '@clerk/themes': path.resolve(
+                import.meta.dirname,
+                'e2e/fixtures/local-clerk-themes.ts',
+              ),
+            }
+          : {}),
         '@': path.resolve(import.meta.dirname, 'src'),
         '@assets': path.resolve(
           import.meta.dirname,
@@ -109,7 +144,7 @@ export default defineConfig(({ command }) => {
     server: {
       port,
       strictPort: true,
-      host: '0.0.0.0',
+      host: localAuthFixtureEnabled ? '127.0.0.1' : '0.0.0.0',
       allowedHosts: true,
       ...(apiProxyTarget
         ? {

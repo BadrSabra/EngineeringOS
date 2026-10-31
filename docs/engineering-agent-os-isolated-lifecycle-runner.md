@@ -4,10 +4,10 @@
 
 The lifecycle remains `BLOCKED_BEFORE_BROWSER` in the Replit workspace. Do not
 start the API or Playwright here. The workspace does not expose verifiable
-loopback-only OS network isolation: its network namespace cannot be compared
-with PID 1, `eth0` and `sit0` are present, an IPv4 default route exists, and the
-IPv6 route table is unavailable. A previous attempt to create a network
-namespace with `unshare --net` was denied by the host.
+loopback-only OS network isolation: reading `/proc/1/ns/net` returns `EACCES`,
+the latest snapshot sees `eth0` and an IPv4 default route, and the IPv6 route
+table is unavailable. An earlier snapshot also saw `sit0`. A previous attempt
+to create a network namespace with `unshare --net` was denied by the host.
 
 The lifecycle runner now checks the namespace at the beginning of
 `scripts/run-goal-first-e2e.mjs`, before it creates its temporary root, local
@@ -221,22 +221,101 @@ pnpm run validate:engineering-agent-lifecycle-e2e
 The command must run entirely inside the same verified OS namespace. Use a
 unique run ID/results root, preserve prior receipts and logs, and retain the
 Mission/Goal/Execution/Proposal/Acceptance/Delivery/Receipt correlation report.
-Do not auto-run this final gate from the API-only harness.
+Before stopping PostgreSQL, the runner records Mission, Goal, Task, Execution,
+Proposal, Acceptance, Mission Lineage, and Apply Journal identities and their
+status/stage fields in `lifecycle-state-census.json`. Delivery and Receipt
+identity remains in the separate lifecycle receipt. Require every run-created
+Goal and Task to be terminal and reject stale worker leases; a successful
+delivery receipt alone does not satisfy this check. Do not auto-run this final
+gate from the API-only harness.
 
 ## Scope and evidence
 
 This runbook does not change product behavior, authentication, provider
 routing, or the proof/approval gates. It does not authorize Development or
 Production database access, deployment, external Clerk/OpenRouter/GitHub
-traffic, or cleanup of unrelated processes. The current Replit attempt
-created no Mission, Goal, Execution, Proposal, Acceptance, Delivery, Receipt,
-temporary database, or API-smoke run directory. No API or browser journey was
-started from this workspace.
+traffic, or cleanup of unrelated processes.
 
-The API-only smoke, container-preflight, workflow, and namespace tests pass
-30/30, but those results are software-level checks only. A Replit preflight
-attempt is retained at
-`test-results/api-only-smoke/b8dba56d-07ee-4322-a09a-d217feb4c79e/`; it failed
-before build or database creation because OS network isolation was not
-verifiable. No Mission, Goal, Execution, Proposal, Acceptance, Delivery, or
-Receipt was created. The API-only smoke and browser journey remain unrun.
+### Historical lifecycle receipts
+
+The older receipt
+`release-evidence/engineering-agent-lifecycle/c8cc5337-17f0-4619-b40c-07ce09e2223f.json`
+and its offline-verification report remain `passed`. They were created on
+2026-10-22 with source fingerprint
+`832701edb0d49a751268719915b62d4d4a17aa0bb9728ad86ec4a6de7e21f6d0`. They are
+historical evidence and do not prove the later source revision or the current
+runner changes.
+
+### Latest browser attempt
+
+Run
+`release-evidence/engineering-agent-lifecycle/b6dd82fc-ea04-46fa-a796-8c9cabf86cbf.json`
+started Firefox and a disposable PostgreSQL/API/dashboard stack before the
+OS-isolation gate had been wired into the runner. It therefore is not a valid
+OS-isolated pass. The browser journey failed at candidate execution with
+`MISSION_OBJECTIVE_NOT_PROVEN`; the goal projection was `needs_replan`, the
+attempt was `failed`, plan approval matched its revision, and acceptance
+verdict was `FAILED`.
+
+Known chain identities in the blocked receipt are project
+`2aeb9ba2-90f4-4074-b2cd-28f7771f398e`, Mission
+`a5f2224c-9110-4e36-8396-87e6a0a54713`, and Goal
+`74628241-5ad4-433e-b5dc-e67c9a502dd2`. The attempt and failed acceptance
+identifiers were not retained in that receipt. No accepted candidate, Apply
+Mission, Git delivery, or canonical delivery receipt was proven. A full
+Goal/Task terminal-state census was not captured before the disposable
+database was cleaned, so this run cannot establish that every created item
+reached a terminal state. The current runner now writes a run-scoped
+`lifecycle-state-census.json` before stopping the disposable database and
+blocks offline receipt verification if work is nonterminal or the census
+cannot be read. The latest namespace-preflight attempt did not start PostgreSQL,
+so it has no state census.
+
+The API audit recorded the runtime network guard, but also recorded a
+temporary network-only child-process-policy exception and two denied `sh`
+validation commands. That exception has been removed; the runtime guard now
+always installs the child-process policy, and the lifecycle evidence verifier
+rejects any denied child-process attempt. The browser guard blocked one
+`fonts.googleapis.com` request before network access. No Clerk, OpenRouter, or
+GitHub request was observed, but because the OS network boundary was not
+verified, this run cannot prove zero external egress. Vite also reported its
+container network address because the package script's `--host 0.0.0.0`
+overrode the test host setting. The isolated test command now invokes Vite
+directly with `--host 127.0.0.1`.
+
+Owned temporary API/dashboard processes and PostgreSQL were cleaned up; ports
+`18081`, `18082`, and `23184` have no listener. Port `23183` and managed
+workflows were not stopped or restarted. No Development or Production database
+was used. The current attempt's teardown, readiness, origin diagnostics,
+browser trace, screenshot, and egress/provider logs were copied into its unique
+`test-results/engineering-agent-lifecycle/b6dd82fc-ea04-46fa-a796-8c9cabf86cbf/`
+directory. The run had initially written some dashboard reports to shared
+default paths; any older versions at those paths may have been overwritten and
+cannot be reconstructed from the available artifacts.
+
+### Current fail-closed result
+
+After the runner was hardened, preflight run
+`release-evidence/engineering-agent-lifecycle/196d63dd-2089-4dac-a822-2169da4b3e07.json`
+stopped at `network-isolation-preflight` with
+`OS_NETWORK_ISOLATION_UNVERIFIED` (`BLOCKED_BEFORE_BROWSER`). The live
+read-only snapshot found `lo` and `eth0`, an IPv4 default route through
+`eth0`, an unavailable IPv6 route table, and no verifiable host namespace
+identity; reading `/proc/1/ns/net` returned `EACCES`. The runner started no
+temporary database, API, dashboard, or browser for this preflight.
+
+The lifecycle runner now verifies the current and child network namespaces
+before creating a temporary root or PostgreSQL cluster. The dashboard runner
+repeats the namespace check before taking a database lock or starting
+services, accepts only the runner's loopback disposable PostgreSQL URL, and
+binds the test dashboard to loopback. Lifecycle Playwright and teardown
+artifacts now use the unique run directory. Static guard/contract tests pass
+44/44; this is software-level evidence only, not a full lifecycle pass.
+
+The separate API-only smoke remains unrun. Its earlier preflight evidence is
+retained at
+`test-results/api-only-smoke/b8dba56d-07ee-4322-a09a-d217feb4c79e/`; it
+stopped before build or database creation because OS network isolation could
+not be verified. The full browser journey remains blocked on a dedicated
+loopback-only OS-isolated runner and the fixed-profile child-process
+compatibility gaps listed in Gate 3.

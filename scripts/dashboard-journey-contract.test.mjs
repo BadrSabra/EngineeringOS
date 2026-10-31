@@ -10,6 +10,7 @@ const journeyPath = resolve(
   "artifacts/dashboard/e2e/dashboard.journey.ts",
 );
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+const lifecycleRunnerPath = resolve(root, "scripts/run-goal-first-e2e.mjs");
 const releaseValidationRunnerPath = resolve(
   root,
   "scripts/run-release-validation.mjs",
@@ -24,6 +25,7 @@ const playwrightConfigPath = resolve(
 const [
   journeySource,
   runnerSource,
+  lifecycleRunnerSource,
   releaseValidationRunnerSource,
   workflowSource,
   healthSource,
@@ -31,6 +33,7 @@ const [
 ] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
+  readFile(lifecycleRunnerPath, "utf8"),
   readFile(releaseValidationRunnerPath, "utf8"),
   readFile(workflowPath, "utf8"),
   readFile(healthPath, "utf8"),
@@ -1093,5 +1096,60 @@ test("nested dashboard journeys reuse only the explicitly held validation lock",
     runnerSource,
     /releaseLockCleanup = await acquireReleaseRunnerLock\(\)/,
     "Validation-lock reuse must keep the separate API-stream runner lock contract.",
+  );
+});
+
+test("isolated lifecycle runners require verified OS network isolation before services", () => {
+  const lifecycleIsolationGate = lifecycleRunnerSource.indexOf(
+    "lifecycleNetworkIsolationEvidence =",
+  );
+  const lifecycleTemporaryRoot = lifecycleRunnerSource.indexOf(
+    'temporaryRoot = await mkdtemp(join(os.tmpdir(), "engineeringos-goal-first-e2e-"))',
+  );
+  assert.ok(
+    lifecycleIsolationGate >= 0 && lifecycleIsolationGate < lifecycleTemporaryRoot,
+    "The lifecycle runner must verify namespace isolation before creating its disposable root.",
+  );
+
+  const serviceStart = runnerSource.indexOf("async function startReleaseServices()");
+  const namespaceGate = runnerSource.indexOf(
+    "await assertLoopbackOnlyNetworkNamespace",
+    serviceStart,
+  );
+  const databaseLock = runnerSource.indexOf(
+    "if (process.env.DATABASE_URL)",
+    serviceStart,
+  );
+  assert.ok(
+    serviceStart >= 0 && namespaceGate > serviceStart && namespaceGate < databaseLock,
+    "The dashboard runner must verify isolation before acquiring database locks or starting services.",
+  );
+  assert.match(
+    runnerSource,
+    /"--host",\s*"127\.0\.0\.1"/,
+    "The isolated dashboard must bind to loopback, not all interfaces.",
+  );
+  assert.match(
+    lifecycleRunnerSource,
+    /env\.PLAYWRIGHT_OUTPUT_DIR = resolve\(\s*lifecycleDashboardEvidenceRoot,/,
+    "Lifecycle browser output must be isolated under the unique run results root.",
+  );
+  assert.match(
+    lifecycleRunnerSource,
+    /env\.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH = resolve\(\s*lifecycleDashboardEvidenceRoot,/,
+    "Release teardown evidence must not overwrite shared historical artifacts.",
+  );
+  const censusQuery = lifecycleRunnerSource.indexOf(
+    "buildLifecycleStateCensusSql(lifecycleProjectRoot)",
+  );
+  const postgresStop = lifecycleRunnerSource.indexOf("await stopPostgres()", censusQuery);
+  assert.ok(
+    censusQuery >= 0 && postgresStop > censusQuery,
+    "The run-scoped task/goal census must be captured before disposable PostgreSQL is stopped.",
+  );
+  assert.match(
+    lifecycleRunnerSource,
+    /receipt\?\.status === "passed" && lifecycleStateCensusAccepted/,
+    "The offline receipt verifier must not run when the terminal-work census fails.",
   );
 });
