@@ -269,6 +269,43 @@ describe("reviewCode selected-file acceptance", () => {
     expect(agentComplete).toHaveBeenCalledTimes(1);
   });
 
+  it("excludes a model after malformed output and accepts a valid response from the next attempt", async () => {
+    agentComplete.mockReset();
+    const malformedModel = "dots-studio/dots-3-note-preview:free";
+    const recoveryModel = "liquid/lfm-2.5-2.6b:free";
+    agentComplete
+      .mockResolvedValueOnce({ content: "{ malformed", model: malformedModel })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          ...baseReview,
+          issues: [{
+            type: "bug",
+            severity: "medium",
+            file: "src/example.ts",
+            lineStart: 1,
+            lineEnd: 1,
+            title: "Validate the input",
+            description: "The selected file uses an unchecked input.",
+            suggestion: "Validate the input before using it.",
+          }],
+        }),
+        model: recoveryModel,
+      });
+
+    const result = await reviewCode(
+      context,
+      { "src/example.ts": "export const value = input;" },
+      { provider: "openrouter", apiKey: "test-key" },
+    );
+
+    expect(result._parseError).toBeUndefined();
+    expect(result.issues).toHaveLength(1);
+    expect(agentComplete).toHaveBeenCalledTimes(2);
+    expect(agentComplete.mock.calls[1]?.[1]).toMatchObject({
+      excludeModels: [malformedModel],
+    });
+  });
+
   it("adds a repair-only schema instruction without exposing the invalid response", async () => {
     agentComplete.mockResolvedValue({
       content: JSON.stringify({

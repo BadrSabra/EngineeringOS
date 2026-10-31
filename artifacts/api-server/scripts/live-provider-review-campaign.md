@@ -4,6 +4,13 @@ This campaign is a credential-gated observation, not part of the normal
 provider-free release checks. Run it only against a disposable project and
 repeat it once per scenario:
 
+The runner also requires `LIVE_REVIEW_DATABASE_DISPOSABLE=1` and an explicit
+loopback `DATABASE_URL` whose database name begins
+`engineeringos_live_review_` and has a unique suffix. Apply the current schema
+to that temporary database before running the campaign. Cooldown and free-lane
+cursor state is injected through per-process in-memory stores, so the campaign
+does not read or write the application's shared cooldown or cursor tables.
+
 For a positive end-to-end structured-review acceptance using one exact
 OpenRouter free model, use `structured-review`. The pinned model is the only
 candidate: cross-model fallback is capped at one, and the scenario rejects paid
@@ -13,6 +20,8 @@ accepted finding for the disposable selected file.
 ```sh
 RUN_LIVE_PROVIDER_REVIEW_CAMPAIGN=1 \
 LIVE_REVIEW_DISPOSABLE=1 \
+LIVE_REVIEW_DATABASE_DISPOSABLE=1 \
+DATABASE_URL='postgresql://runner@127.0.0.1:<port>/engineeringos_live_review_<unique-suffix>' \
 LIVE_REVIEW_PROVIDER=openrouter \
 LIVE_REVIEW_SCENARIO=structured-review \
 LIVE_REVIEW_PROJECT_ID=<disposable-project-id> \

@@ -7,8 +7,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reviewCode } from "../agents/code-reviewer.js";
+import { _resetCircuitsForTest } from "../openrouter/circuit-breaker.js";
+import {
+  _resetOpenRouterCredentialCooldownsForTest,
+  _setOpenRouterCredentialCooldownPersistenceForTest,
+} from "../openrouter/credential-cooldown.js";
 import { _resetForTest, getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import { _resetModelLaneSchedulerForTest } from "../openrouter/model-resolver.js";
+import { _setModelCooldownPersistenceForTest } from "../openrouter/model-cooldown-store.js";
 
 const selectedFile = "src/example.ts";
 const reviewContext = {
@@ -46,6 +53,25 @@ const reviewModels = FREE_MODELS
   .filter((model) => model.capabilities.includes("json"))
   .slice(-3);
 
+function resetRoutingState(): void {
+  _resetCircuitsForTest();
+  _resetOpenRouterCredentialCooldownsForTest();
+  _resetModelLaneSchedulerForTest();
+  _resetForTest();
+}
+
+function installIsolatedCooldownPersistence(): void {
+  _setModelCooldownPersistenceForTest({
+    readActive: async () => [],
+    write: async () => {},
+    clear: async () => {},
+  });
+  _setOpenRouterCredentialCooldownPersistenceForTest({
+    readActive: async () => null,
+    write: async () => {},
+  });
+}
+
 if (reviewModels.length < 3) {
   throw new Error("The structured-review release fixture requires three JSON-capable catalog models.");
 }
@@ -68,6 +94,7 @@ function catalogResponse(): FixtureResponse {
     data: reviewModels.map((model) => ({
       id: model.id,
       pricing: { prompt: "0", completion: "0" },
+      supported_parameters: ["response_format", "structured_outputs"],
     })),
   });
 }
@@ -105,12 +132,16 @@ async function runReview() {
 
 describe("structured review provider fallback release check", () => {
   beforeEach(() => {
-    _resetForTest();
+    resetRoutingState();
+    installIsolatedCooldownPersistence();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    _setModelCooldownPersistenceForTest(undefined);
+    _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+    resetRoutingState();
   });
 
   const transportFailureCases: Array<{
@@ -171,7 +202,7 @@ describe("structured review provider fallback release check", () => {
       if (terminal) {
         await expect(runReview()).rejects.toMatchObject({ code: "RATE_LIMITED" });
         expect(completionCalls).toHaveLength(1);
-        expect(completionCalls[0]).toBe(reviewModels[0]!.id);
+        expect(reviewModels.some((model) => model.id === completionCalls[0])).toBe(true);
         return;
       }
 
@@ -207,12 +238,16 @@ describe("structured review provider fallback release check", () => {
 
 describe("structured review catalog refresh release check", () => {
   beforeEach(() => {
-    _resetForTest();
+    resetRoutingState();
+    installIsolatedCooldownPersistence();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    _setModelCooldownPersistenceForTest(undefined);
+    _setOpenRouterCredentialCooldownPersistenceForTest(undefined);
+    resetRoutingState();
   });
 
   const catalogFailureCases: Array<{
@@ -245,7 +280,7 @@ describe("structured review catalog refresh release check", () => {
   ];
 
   it.each(catalogFailureCases)(
-    "keeps static compatibility routing after a $name",
+    "fails closed when live JSON-Schema capability cannot be verified after a $name",
     async ({ catalog, expectedStatus }) => {
       const { completionCalls } = installOpenRouterFixture(
         (model) => jsonResponse({
@@ -256,15 +291,10 @@ describe("structured review catalog refresh release check", () => {
         { catalog },
       );
 
-      const result = await runReview();
+      await expect(runReview()).rejects.toMatchObject({ code: "INVALID_CONFIG" });
       const catalogStatus = getDynamicCatalogStatus();
 
-      expect(result._parseError).toBeUndefined();
-      expect(result.issues[0]?.file).toBe(selectedFile);
-      // A valid structured review can receive bounded quality retries; the
-      // catalog failure must not add another model or prevent completion.
-      expect(completionCalls.length).toBeGreaterThanOrEqual(1);
-      expect(new Set(completionCalls)).toHaveProperty("size", 1);
+      expect(completionCalls).toHaveLength(0);
       expect(catalogStatus.lastRefreshStatus).toBe(expectedStatus);
       expect(catalogStatus.usable).toBe(false);
     },

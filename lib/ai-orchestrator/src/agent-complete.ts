@@ -24,6 +24,9 @@ import { resolveExecutionModel } from "./model-selection/model-resolver.js";
 import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
 import { getProviderLifecycleSnapshot } from "./provider-lifecycle.js";
 import type { ExecutionLedger } from "./execution-ledger.js";
+import type { ModelCooldownPersistence } from "./openrouter/model-cooldown-store.js";
+import type { CredentialCooldownPersistence } from "./openrouter/credential-cooldown.js";
+import type { ModelLaneCursorPersistence } from "./openrouter/model-lane-cursor-store.js";
 
 export type { ProviderId };
 
@@ -83,6 +86,10 @@ export type AgentCompleteOpts = {
   waitOnRateLimit?: boolean;
   /** OpenRouter models that already returned an unusable structured result. */
   excludeModels?: string[];
+  /** Isolated persistence adapters for disposable OpenRouter observations. */
+  modelCooldownPersistence?: ModelCooldownPersistence;
+  credentialCooldownPersistence?: CredentialCooldownPersistence;
+  modelLaneCursorPersistence?: ModelLaneCursorPersistence;
   /** Reports each completed model response after local contract parsing. */
   onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
   /** Reports a bounded transition from exhausted free models to paid policy. */
@@ -287,6 +294,15 @@ export async function agentComplete(
           opts.responseFormat?.type === "json_schema" ||
           (opts.responseFormat?.type === "json_object" && opts.stopAfterFirstModelAttempt === true),
         strictResponseFormat: opts.strictResponseFormat,
+        ...(opts.modelCooldownPersistence
+          ? { modelCooldownPersistence: opts.modelCooldownPersistence }
+          : {}),
+        ...(opts.credentialCooldownPersistence
+          ? { credentialCooldownPersistence: opts.credentialCooldownPersistence }
+          : {}),
+        ...(opts.modelLaneCursorPersistence
+          ? { modelLaneCursorPersistence: opts.modelLaneCursorPersistence }
+          : {}),
         signal: opts.signal,
         executionLedger: opts.executionLedger,
       });

@@ -22,6 +22,10 @@ import {
   type ProviderId,
 } from "@workspace/ai-orchestrator";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
+import {
+  createLiveProviderReviewIsolatedPersistence,
+  isDisposableLiveReviewDatabaseUrl,
+} from "./live-provider-review-isolated-persistence.js";
 
 const providerKeys: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -90,6 +94,14 @@ function requireCampaignConfiguration(): {
   }
   if (!projectId) {
     throw new Error("LIVE_REVIEW_PROJECT_ID must identify the disposable project.");
+  }
+  if (
+    !isDisposableLiveReviewDatabaseUrl(
+      process.env.DATABASE_URL,
+      process.env.LIVE_REVIEW_DATABASE_DISPOSABLE,
+    )
+  ) {
+    throw new Error("LIVE_REVIEW_DATABASE_NOT_DISPOSABLE");
   }
   if (!outputPath) {
     throw new Error("LIVE_REVIEW_OUTPUT_PATH is required so campaign output is explicit.");
@@ -203,6 +215,7 @@ async function main(): Promise<void> {
     let result: Awaited<ReturnType<typeof reviewCode>> | undefined;
     let error: unknown;
     try {
+      const isolatedPersistence = createLiveProviderReviewIsolatedPersistence();
       result = await reviewCode(
         {
           project: "Disposable structured-review provider campaign",
@@ -221,6 +234,9 @@ async function main(): Promise<void> {
           retryTransient: false,
           qualityProfile: "code_review",
           stopAfterFirstModelAttempt: campaignScenario === "structured-review",
+          modelCooldownPersistence: isolatedPersistence.modelCooldownPersistence,
+          credentialCooldownPersistence: isolatedPersistence.credentialCooldownPersistence,
+          modelLaneCursorPersistence: isolatedPersistence.modelLaneCursorPersistence,
           onModelAttempt: (attempt) => {
             if (attempt.model) runState.observedModels.push(attempt.model);
           },

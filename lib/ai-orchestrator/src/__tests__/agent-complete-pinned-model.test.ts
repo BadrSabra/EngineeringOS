@@ -87,4 +87,39 @@ describe("agentComplete pinned OpenRouter model selection", () => {
       }),
     );
   });
+
+  it("forwards isolated cooldown and lane-cursor stores to the OpenRouter client", async () => {
+    const modelCooldownPersistence = {
+      readActive: vi.fn().mockResolvedValue([]),
+      write: vi.fn(),
+      clear: vi.fn(),
+    };
+    const credentialCooldownPersistence = {
+      readActive: vi.fn().mockResolvedValue(null),
+      write: vi.fn(),
+    };
+    const modelLaneCursorPersistence = {
+      reserveSlot: vi.fn().mockResolvedValue(0),
+    };
+
+    await agentComplete(
+      [{ role: "user", content: "Review this disposable fixture." }],
+      {
+        provider: "openrouter",
+        apiKey: "test-key",
+        modelCooldownPersistence,
+        credentialCooldownPersistence,
+        modelLaneCursorPersistence,
+      },
+    );
+
+    expect(mocks.openrouterCompleteWithFallback).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        modelCooldownPersistence,
+        credentialCooldownPersistence,
+        modelLaneCursorPersistence,
+      }),
+    );
+  });
 });
